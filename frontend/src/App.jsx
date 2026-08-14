@@ -5,6 +5,8 @@ import {
 import { Cursor, Footer, Navbar, Splash } from './components/Chrome';
 import { useReveals } from './hooks/useSite';
 import Home from './pages/Home';
+import Explore from './pages/Explore';
+import Listing from './pages/Listing';
 import Services from './pages/Services';
 import How from './pages/How';
 import Cities from './pages/Cities';
@@ -18,12 +20,18 @@ import Terms from './pages/Terms';
 /* Routes whose first section sits on a light ground need the solid navbar
    immediately — the transparent bar is only legible over the forest hero. */
 const LIGHT_TOP = ['/', '/services', '/how', '/cities', '/partners', '/food', '/download', '/contact', '/privacy', '/terms'];
+const LIGHT_TOP = ['/explore', '/services', '/how', '/cities', '/partners', '/food', '/download', '/contact', '/privacy', '/terms'];
+
+/* Nested routes count too: /explore/:id opens on the same light ground as
+   /explore, and an exact-match check left the bar transparent over it. */
+const isLightTop = p => LIGHT_TOP.some(r => p === r || p.startsWith(`${r}/`));
 
 /* The site was a set of .html files before this rebuild, so existing links and
    bookmarks still carry that extension. Map them onto the real routes instead
    of dumping every one of them on the catch-all. */
 const LEGACY = {
   '/index.html': '/',
+  '/explore.html': '/explore',
   '/services.html': '/services',
   '/how.html': '/how',
   '/cities.html': '/cities',
@@ -49,11 +57,13 @@ function Shell() {
     <>
       <Splash />
       <Cursor />
-      <Navbar alwaysSolid={LIGHT_TOP.includes(pathname)} />
+      <Navbar alwaysSolid={isLightTop(pathname)} />
 
       <main id="top">
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/explore" element={<Explore />} />
+          <Route path="/explore/:id" element={<Listing />} />
           <Route path="/services" element={<Services />} />
           <Route path="/how" element={<How />} />
           <Route path="/cities" element={<Cities />} />
