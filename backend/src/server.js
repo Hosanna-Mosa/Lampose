@@ -24,10 +24,21 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
       'http://127.0.0.1:5173',
     ];
 
+/* Vite binds to whatever port is free, so the dev server is just as likely to
+   come up on :5181 as on :5173. Pinning the allow-list to a handful of ports
+   meant every listings fetch from an unlisted port was CORS-blocked, the page
+   fell back to its build-time snapshot, and the grid quietly went stale.
+   Any loopback origin is allowed outside production; the explicit list still
+   governs deployed environments. */
+const LOOPBACK_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
+const isDev = process.env.NODE_ENV !== 'production';
+
 const corsOptions = {
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps, curl, or Postman)
     if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else if (isDev && LOOPBACK_ORIGIN.test(origin)) {
       callback(null, true);
     } else {
       callback(new Error(`CORS error: Origin '${origin}' is not allowed`));
