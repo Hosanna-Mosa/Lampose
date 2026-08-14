@@ -1,12 +1,12 @@
-/* ══════════════════════════════════════════════════════════════════════════
+﻿/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    Generates the site's raster-replacement artwork as SVG.
 
-   Nothing here is traced, sampled or downloaded — every shape is composed from
+   Nothing here is traced, sampled or downloaded â€” every shape is composed from
    the brand palette below. Output is deterministic: each city seeds its own
    PRNG from its name, so re-running produces byte-identical files.
 
      node scripts/generate-art.mjs
-   ══════════════════════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -142,10 +142,10 @@ function cityArt(name) {
 </svg>`;
 }
 
-/* ── QR / check-in illustration for the How It Works page ───────────────── */
+/* â”€â”€ QR / check-in illustration for the How It Works page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function qrArt() {
   const rnd = rngFrom(seedOf('lampose-qr'));
-  // A QR-like block field — decorative, not a scannable code.
+  // A QR-like block field â€” decorative, not a scannable code.
   const cells = [];
   for (let y = 0; y < 9; y++) {
     for (let x = 0; x < 9; x++) {
@@ -221,7 +221,7 @@ function qrArt() {
 </svg>`;
 }
 
-/* ── Write ──────────────────────────────────────────────────────────────── */
+/* â”€â”€ Write â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 const CITIES = [
   'Visakhapatnam', 'Hyderabad', 'Vijayawada', 'Amaravati', 'Guntur',
   'Tirupati', 'Kakinada', 'Nellore', 'Kurnool',
