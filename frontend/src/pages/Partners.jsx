@@ -141,11 +141,9 @@ export default function Partners() {
     if (!el) return;
 
     const io = new IntersectionObserver(([entry]) => {
-      if (!entry.isIntersecting) {
-        setSpread(false);
-      }
+      setSpread(entry.isIntersecting);
     }, {
-      threshold: 0
+      threshold: 0.4
     });
 
     io.observe(el);
@@ -169,9 +167,6 @@ export default function Partners() {
           <div 
             ref={containerRef}
             className={`partner-deck-container ${spread ? 'is-spread' : ''}`}
-            onClick={() => setSpread(!spread)}
-            onMouseEnter={FINE ? () => setSpread(true) : undefined}
-            onMouseLeave={FINE ? () => setSpread(false) : undefined}
           >
             <div className="partner-deck">
               {PARTNERS.map((p, n) => (
@@ -185,11 +180,6 @@ export default function Partners() {
                 </div>
               ))}
             </div>
-          </div>
-          
-          <div className="deck-hint">
-            <span className="hint-dot" />
-            {spread ? 'Tap or hover to stack cards' : 'Tap or hover the cards to spread them out'}
           </div>
         </div>
       </section>

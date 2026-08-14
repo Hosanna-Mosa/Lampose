@@ -11,7 +11,6 @@ export default function Home() {
       <div className="divider" />
       <Stats />
       <Trust row="places" />
-      <div className="divider" />
       <Explore />
     </>
   );
