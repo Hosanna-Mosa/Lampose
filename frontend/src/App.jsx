@@ -19,8 +19,7 @@ import Terms from './pages/Terms';
 
 /* Routes whose first section sits on a light ground need the solid navbar
    immediately — the transparent bar is only legible over the forest hero. */
-const LIGHT_TOP = ['/', '/services', '/how', '/cities', '/partners', '/food', '/download', '/contact', '/privacy', '/terms'];
-const LIGHT_TOP = ['/explore', '/services', '/how', '/cities', '/partners', '/food', '/download', '/contact', '/privacy', '/terms'];
+const LIGHT_TOP = ['/', '/explore', '/services', '/how', '/cities', '/partners', '/food', '/download', '/contact', '/privacy', '/terms'];
 
 /* Nested routes count too: /explore/:id opens on the same light ground as
    /explore, and an exact-match check left the bar transparent over it. */

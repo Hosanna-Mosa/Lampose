@@ -16,6 +16,7 @@ const PHONE_CATEGORIES = [
 export default function Hero() {
   const [activeCategory, setActiveCategory] = useState('PGs');
   const [cityInput, setCityInput] = useState('Rajahmundry');
+  const [stageScale, setStageScale] = useState(1);
 
   // Auto-cycle categories gently inside the phone mockup if user is not interacting
   useEffect(() => {
@@ -26,6 +27,32 @@ export default function Hero() {
       });
     }, 2800);
     return () => clearInterval(timer);
+  }, []);
+
+  // Compute precise scale for the exact canvas coordinate system based on viewport width
+  useEffect(() => {
+    const updateScale = () => {
+      const ww = window.innerWidth;
+      let availableWidth;
+      
+      if (ww > 1100) {
+        // Desktop side-by-side layout
+        // Max container width is 1360. Padding is 32px (1rem each side).
+        // Left col is 520px. Gap is 48px (3rem).
+        const containerWidth = Math.min(ww, 1360) - 32;
+        availableWidth = containerWidth - 520 - 48;
+      } else {
+        // Mobile column layout (approx 24px padding total)
+        availableWidth = ww - 24;
+      }
+      
+      // Ensure we don't scale up past 1x to keep illustration crisp
+      const scale = Math.min(availableWidth / 820, 1);
+      setStageScale(scale);
+    };
+    updateScale();
+    window.addEventListener('resize', updateScale);
+    return () => window.removeEventListener('resize', updateScale);
   }, []);
 
   return (
@@ -69,7 +96,7 @@ export default function Hero() {
 
           {/* Action CTAs */}
           <div className="hero-cta-group">
-            <Link to="/services" className="btn-hero-explore">
+            <Link to="/explore" className="btn-hero-explore">
               <svg className="btn-search-svg" viewBox="0 0 20 20" fill="none" stroke="currentColor">
                 <circle cx="8.5" cy="8.5" r="5.5" strokeWidth="2" />
                 <path d="M13 13L17.5 17.5" strokeWidth="2" strokeLinecap="round" />
@@ -101,7 +128,28 @@ export default function Hero() {
         </div>
 
         {/* ── Center & Right Combined Visual Lockup (Exact to design) ── */}
-        <div className="hero-exact-stage">
+        <div 
+          className="hero-exact-stage-wrapper"
+          style={{ 
+            width: `${820 * stageScale}px`,
+            height: `${480 * stageScale}px`,
+            position: 'relative',
+            display: 'block',
+            margin: '0 auto',
+            overflow: 'visible'
+          }}
+        >
+          <div 
+            className="hero-exact-stage"
+            style={{ 
+              transform: `scale(${stageScale})`,
+              transformOrigin: 'top left',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              margin: 0
+            }}
+          >
           {/* Mint Skyline & Trees Vector Background Illustration */}
           <div className="stage-city-backdrop" aria-hidden="true">
             <svg viewBox="0 0 540 420" fill="none" className="city-svg-art">
@@ -287,7 +335,8 @@ export default function Hero() {
           </div>
         </div>
       </div>
-    </section>
+    </div>
+  </section>
   );
 }
 

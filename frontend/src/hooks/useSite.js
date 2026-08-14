@@ -30,11 +30,21 @@ export function useCursor() {
       }
     };
     const loop = () => {
-      rx += (mx - rx) * 0.11;
-      ry += (my - ry) * 0.11;
+      const dx = mx - rx;
+      const dy = my - ry;
+      rx += dx * 0.11;
+      ry += dy * 0.11;
       if (ring.current) {
         ring.current.style.left = `${rx}px`;
         ring.current.style.top = `${ry}px`;
+        const speed = Math.abs(dx) + Math.abs(dy);
+        if (speed > 0.2) {
+          const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+          ring.current.style.transform = `translate(-100%, -50%) rotate(${angle}deg)`;
+          ring.current.style.opacity = '1';
+        } else {
+          ring.current.style.opacity = '0';
+        }
       }
       raf = requestAnimationFrame(loop);
     };

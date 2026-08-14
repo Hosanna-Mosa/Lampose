@@ -1,5 +1,6 @@
+import { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { useStatCard, useStatDots, useTilt } from '../hooks/useSite';
+import { useStatCard, useStatDots, FINE } from '../hooks/useSite';
 import { SecHead } from './Chrome';
 import Icon from './Icon';
 import { SERVICES, STATS } from '../data/home';
@@ -59,49 +60,73 @@ export function Stats() {
   );
 }
 
-/* ══ Explore ══════════════════════════════════════════════════════════════
-   Three link cards. Each tilts in perspective under the pointer and carries a
-   shine hotspot positioned from the same coordinates.
-   ════════════════════════════════════════════════════════════════════════ */
-export function ServiceCard({ svc, index = 0 }) {
-  const ref = useTilt();
+export function Explore() {
+  const [spread, setSpread] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const io = new IntersectionObserver(([entry]) => {
+      // Unfold when scrolling into view, fold when scrolling away
+      setSpread(entry.isIntersecting);
+    }, {
+      threshold: 0.4
+    });
+
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
 
   return (
-    <Link
-      to={svc.to} className="svc-card reveal" ref={ref}
-      style={{
-        '--card-clr': svc.color,
-        textDecoration: 'none',
-        color: 'inherit',
-        display: 'block',
-        transitionDelay: `${index * 110}ms`,
-      }}
-    >
-      <div
-        className="svc-icon-wrap"
-        style={{ '--icon-bg': svc.iconBg, '--icon-hover': svc.iconHover }}
-      >
-        <Icon name={svc.icon} />
+    <section id="explore" style={{ padding: '2rem 0', '--pcard-w': '290px', '--pcard-h': '360px', '--pcard-gap': '20px' }}>
+      <div className="sec-inner">
+        <SecHead
+          tag="Explore Lampose" title="Everything, one" em="click away."
+          sub="Whether you want a room, a meal, or to know if we're in your city yet."
+          mb="1rem"
+        />
+        
+        <div 
+          ref={containerRef}
+          className={`partner-deck-container ${spread ? 'is-spread' : ''}`}
+          style={{ marginTop: '1rem' }}
+        >
+          <div className="partner-deck">
+            {SERVICES.map((s, i) => (
+              <Link 
+                to={s.to} 
+                className={`svc-card deck-card card-${i}`} 
+                key={s.title} 
+                style={{ 
+                  '--i': String(i), 
+                  '--card-clr': s.color,
+                  textDecoration: 'none', 
+                  color: 'inherit', 
+                  display: 'block' 
+                }}
+              >
+                <div
+                  className="svc-icon-wrap"
+                  style={{ '--icon-bg': s.iconBg, '--icon-hover': s.iconHover }}
+                >
+                  <Icon name={s.icon} />
+                </div>
+                <h3 className="svc-h3">{s.title}</h3>
+                <p className="svc-p">{s.body}</p>
+                <div className="svc-tag">{s.cta} <span className="svc-arrow">→</span></div>
+                <span className="svc-num">{s.no}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+        
+        <div className="deck-hint">
+          <span className="hint-dot" />
+          {spread ? 'Tap or hover to stack cards' : 'Tap or hover the cards to spread them out'}
+        </div>
       </div>
-      <h3 className="svc-h3">{svc.title}</h3>
-      <p className="svc-p">{svc.body}</p>
-      <div className="svc-tag">{svc.cta} <span className="svc-arrow">→</span></div>
-      <span className="svc-num">{svc.no}</span>
-      <div className="tilt-shine" />
-    </Link>
+    </section>
   );
 }
-
-export const Explore = () => (
-  <section id="explore" style={{ padding: '5rem 0' }}>
-    <div className="sec-inner">
-      <SecHead
-        tag="Explore Lampose" title="Everything, one" em="click away."
-        sub="Whether you want a room, a meal, or to know if we're in your city yet."
-      />
-      <div className="services-grid">
-        {SERVICES.map((s, i) => <ServiceCard key={s.title} svc={s} index={i} />)}
-      </div>
-    </div>
-  </section>
-);
