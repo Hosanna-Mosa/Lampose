@@ -54,7 +54,14 @@ export async function apiRequest(endpoint, options = {}) {
     if (!response.ok) {
       const errorMsg = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
       console.error(`[API Error] ${config.method || 'GET'} ${url} ->`, errorMsg);
-      throw new Error(errorMsg);
+      /* The status and any code the API sent travel with the error. Callers
+         have to tell a missing listing from a disconnected database, and a
+         bare message string cannot carry that. */
+      const error = new Error(errorMsg);
+      error.status = response.status;
+      error.code = data?.code || null;
+      error.body = data;
+      throw error;
     }
 
     return data;

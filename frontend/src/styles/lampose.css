@@ -6858,161 +6858,14 @@ footer {
   stroke-linejoin: round;
 }
 
-/* ── Filter panel ───────────────────────────────────────────────────── */
-.exp-filters {
-  background: var(--surface);
-  border: 1px solid var(--border-l);
-  border-radius: var(--rl);
-  box-shadow: var(--shadow);
-  padding: 1.35rem 1.5rem;
-  margin-bottom: 2rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.exp-search {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  padding: 0.72rem 1rem;
-  color: var(--ink-ghost);
-  transition: border-color 0.3s, box-shadow 0.3s;
-}
-.exp-search:focus-within {
-  border-color: var(--green);
-  box-shadow: 0 0 0 3px rgba(23, 128, 61, 0.08);
-}
-.exp-search input {
-  flex: 1;
-  border: none;
-  background: transparent;
-  outline: none;
-  font-family: var(--font-body);
-  font-size: 0.9rem;
-  color: var(--ink);
-  cursor: none;
-}
-.exp-search input::placeholder {
-  color: var(--ink-ghost);
-}
-.exp-search input::-webkit-search-cancel-button {
-  display: none;              /* the page draws its own clear control */
-}
-.exp-clear {
-  background: none;
-  border: none;
-  padding: 0;
-  font-size: 0.8rem;
-  color: var(--ink-ghost);
-  cursor: none;
-  transition: color 0.3s;
-}
-.exp-clear:hover {
-  color: var(--ink);
-}
-
-/* The category row is the site's own tab component, so it cannot drift from
-   the Services page — only its outer spacing is page-specific. */
-.exp-cats {
-  margin: 0;
-  max-width: 100%;
-}
-.exp-cats .ftab {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-}
-
-.exp-controls {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 1rem 1.75rem;
-  padding-top: 0.25rem;
-  border-top: 1px solid var(--border-l);
-}
-.exp-field {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-.exp-field .exp-lbl {
-  white-space: nowrap;
-}
-.exp-field .exp-lbl strong {
-  font-family: var(--font-head);
-  font-size: 0.82rem;
-  letter-spacing: 0;
-  color: var(--green);
-}
-.exp-field select {
-  appearance: none;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 100px;
-  padding: 0.45rem 2.1rem 0.45rem 1rem;
-  font-family: var(--font-body);
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--ink);
-  outline: none;
-  cursor: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.9rem center;
-  transition: border-color 0.3s;
-}
-.exp-field select:focus,
-.exp-field select:hover {
-  border-color: var(--green);
-}
-.exp-field--range input {
-  accent-color: var(--green);
-  width: 170px;
-  cursor: none;
-}
-.exp-field--sort {
-  margin-left: auto;
-}
-
-.exp-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-family: var(--font-body);
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--ink-mid);
-  cursor: none;
-}
-.exp-check input {
-  accent-color: var(--green);
-  width: 15px;
-  height: 15px;
-  cursor: none;
-}
-.exp-check:hover {
-  color: var(--green);
-}
-
-.exp-count {
-  font-size: 0.75rem;
-  font-weight: 300;
-  color: var(--ink-ghost);
-}
-
-/* ── Grid ───────────────────────────────────────────────────────────── */
+/* The related row on a detail page reuses the Explore grid. */
 .exp-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.4rem;
 }
 
-/* Card accent. One variable per category feeds the banner, the icons and the
+/* Card accent. One variable per category feeds the media, the icons and the
    hover rim, so recolouring a category is a one-line change. */
 .exp-card {
   --accent: var(--green);
@@ -7070,46 +6923,6 @@ footer {
   --accent-deep: #000000;
 }
 
-/* The banner is the card. A ratio rather than a fixed height keeps it
-   dominant at every column width — roughly two thirds of the card — while the
-   body below stays a fixed strip that does not grow with it. */
-.exp-banner {
-  position: relative;
-  aspect-ratio: 4 / 3;
-  min-height: 210px;
-  padding: 0.9rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  overflow: hidden;
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
-}
-/* The artwork sits on top of the category gradient, so a missing or slow file
-   degrades to the brand colour rather than to a broken-image glyph. Drawn per
-   listing by scripts/generate-art.mjs — nothing remote, same rule as the city
-   grid. */
-.exp-banner__img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.exp-card:hover .exp-banner__img {
-  transform: scale(1.05);
-}
-/* Keeps the price and status pills legible whatever the artwork does at the
-   foot of the frame. */
-.exp-banner::after {
-  content: "";
-  position: absolute;
-  inset: auto 0 0;
-  height: 45%;
-  background: linear-gradient(to top, rgba(16, 19, 18, 0.42), transparent);
-  pointer-events: none;
-}
-
 .exp-chip {
   position: relative;
   z-index: 1;
@@ -7129,165 +6942,6 @@ footer {
 .exp-chip--dark {
   background: rgba(16, 19, 18, 0.55);
   color: #ffffff;
-}
-
-.exp-price {
-  position: absolute;
-  right: 0.9rem;
-  bottom: 0.9rem;
-  z-index: 1;
-  display: flex;
-  align-items: baseline;
-  gap: 0.2rem;
-  background: var(--surface);
-  border-radius: 100px;
-  padding: 0.4rem 0.95rem;
-  box-shadow: var(--shadow);
-}
-.exp-price strong {
-  font-family: var(--font-head);
-  font-size: 1.05rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--ink);
-}
-.exp-price span {
-  font-size: 0.7rem;
-  font-weight: 500;
-  color: var(--ink-light);
-}
-/* Fixed-height strip. Everything in here is one line tall, so the body cannot
-   creep back up as listings gain longer names or more amenities. */
-.exp-body {
-  padding: 0.85rem 1rem 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  flex: 1;
-}
-.exp-body__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.65rem;
-}
-.exp-title {
-  font-family: var(--font-head);
-  font-size: 1.02rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.25;
-  color: var(--ink);
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.exp-title a {
-  color: inherit;
-  text-decoration: none;
-}
-.exp-title a:hover {
-  color: var(--accent);
-}
-
-.exp-where {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  margin-top: -0.15rem;
-  font-size: 0.76rem;
-  font-weight: 400;
-  color: var(--ink-light);
-  min-width: 0;
-}
-.exp-where .exp-ico {
-  width: 13px;
-  height: 13px;
-  color: var(--accent);
-}
-.exp-where span {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.exp-rating {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  flex: none;
-  font-size: 0.8rem;
-  font-family: var(--font-head);
-  font-weight: 600;
-  color: var(--ink);
-  white-space: nowrap;
-}
-.exp-rating .exp-ico {
-  color: var(--amber);
-}
-.exp-rating em {
-  font-style: normal;
-  font-family: var(--font-body);
-  font-weight: 300;
-  color: var(--ink-ghost);
-}
-
-/* Photo count, pinned to the foot of the banner opposite the price — only
-   drawn when the owner uploaded more than one. */
-.exp-shots {
-  position: absolute;
-  left: 0.9rem;
-  bottom: 0.9rem;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.28rem 0.7rem;
-  border-radius: 100px;
-  background: rgba(16, 19, 18, 0.55);
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 0.7rem;
-  font-weight: 600;
-}
-
-.exp-tags {
-  list-style: none;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  overflow: hidden;
-  max-height: 1.5rem;             /* one row; extras are already counted in +N */
-}
-.exp-tags li {
-  background: var(--bg);
-  border: 1px solid var(--border-l);
-  color: var(--ink-mid);
-  padding: 0.2rem 0.6rem;
-  border-radius: 100px;
-  font-size: 0.7rem;
-  font-weight: 500;
-  white-space: nowrap;
-}
-.exp-tags__more {
-  color: var(--ink-ghost);
-}
-
-/* Call and Details sit on one line at the foot of the strip. The old build
-   stacked a labelled owner block above a full-width button, which is most of
-   what made the body taller than the banner. */
-.exp-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: auto;
-  padding-top: 0.7rem;
-  border-top: 1px solid var(--border-l);
-}
-.exp-actions .exp-more {
-  flex: 1;
-  width: auto;
-  margin-top: 0;
 }
 
 .exp-call {
@@ -7429,6 +7083,1001 @@ footer {
 @keyframes expToast {
   from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: none; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   EXPLORE — filter rail + results
+
+   Two columns from 1080px: a rail that sticks under the navbar while the
+   results scroll past it, and a results column that owns the rest of the
+   width. Below that the rail becomes a drawer, because a sidebar and a card
+   grid cannot both be usable in 380px.
+   ══════════════════════════════════════════════════════════════════════════ */
+.xp-shell {
+  display: grid;
+  grid-template-columns: 272px minmax(0, 1fr);
+  gap: 1.75rem;
+  align-items: start;
+}
+
+/* ── Rail ───────────────────────────────────────────────────────────── */
+.xp-rail {
+  position: sticky;
+  top: 6.5rem;                    /* clears the fixed navbar */
+  max-height: calc(100vh - 8rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  background: var(--surface);
+  border: 1px solid var(--border-l);
+  border-radius: var(--rl);
+  box-shadow: var(--shadow);
+  padding: 1.1rem 1.15rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.05rem;
+}
+.xp-rail::-webkit-scrollbar { width: 6px; }
+.xp-rail::-webkit-scrollbar-thumb {
+  background: var(--bg3);
+  border-radius: 100px;
+}
+
+.xp-rail__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.xp-rail__headActions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.xp-rail__close,
+.xp-rail__apply {
+  display: none;                  /* drawer-only controls */
+}
+
+.xp-linkbtn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--green);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: none;
+  transition: color 0.3s;
+}
+.xp-linkbtn:hover { color: var(--ink); }
+
+.xp-search {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 0.62rem 0.85rem;
+  color: var(--ink-ghost);
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.xp-search:focus-within {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(23, 128, 61, 0.08);
+}
+.xp-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  color: var(--ink);
+  cursor: none;
+}
+.xp-search input::placeholder { color: var(--ink-ghost); }
+.xp-search input::-webkit-search-cancel-button {
+  display: none;                  /* the page draws its own clear control */
+}
+.xp-clear {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.75rem;
+  color: var(--ink-ghost);
+  cursor: none;
+  transition: color 0.3s;
+}
+.xp-clear:hover { color: var(--ink); }
+
+.xp-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-l);
+}
+.xp-group .exp-lbl strong {
+  font-family: var(--font-head);
+  font-size: 0.82rem;
+  letter-spacing: 0;
+  color: var(--green);
+}
+
+/* One row per property type. The count is what survives if you pick it, so a
+   row that would empty the grid reads as spent rather than vanishing — a list
+   that reshuffles while you aim at it is worse than one that greys out. */
+.xp-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.xp-opt {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: none;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--ink-mid);
+  text-align: left;
+  cursor: none;
+  transition: background 0.25s, color 0.25s, border-color 0.25s;
+}
+.xp-opt span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.xp-opt em {
+  font-style: normal;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink-ghost);
+}
+.xp-opt:hover:not(:disabled) {
+  background: var(--bg);
+  color: var(--ink);
+}
+.xp-opt.active {
+  background: var(--green-t);
+  border-color: var(--green-p);
+  color: var(--green);
+  font-weight: 600;
+}
+.xp-opt.active em { color: var(--green); }
+.xp-opt:disabled {
+  opacity: 0.38;
+  cursor: none;
+}
+
+.xp-select {
+  appearance: none;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 0.5rem 2.1rem 0.5rem 0.95rem;
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink);
+  outline: none;
+  cursor: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.9rem center;
+  transition: border-color 0.3s;
+}
+.xp-select:focus,
+.xp-select:hover { border-color: var(--green); }
+
+.xp-seg {
+  display: flex;
+  gap: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border-l);
+  border-radius: 100px;
+  padding: 3px;
+}
+.xp-seg__btn {
+  flex: 1;
+  border: none;
+  background: none;
+  border-radius: 100px;
+  padding: 0.38rem 0.5rem;
+  font-family: var(--font-body);
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--ink-light);
+  white-space: nowrap;
+  cursor: none;
+  transition: background 0.25s, color 0.25s, box-shadow 0.25s;
+}
+.xp-seg__btn:hover:not(:disabled) { color: var(--ink); }
+.xp-seg__btn.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+.xp-seg__btn:disabled { opacity: 0.38; }
+
+.xp-range {
+  accent-color: var(--green);
+  width: 100%;
+  cursor: none;
+}
+.xp-range__ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--ink-ghost);
+}
+
+.xp-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.xp-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--bg);
+  border: 1px solid var(--border-l);
+  border-radius: 100px;
+  padding: 0.28rem 0.65rem;
+  font-family: var(--font-body);
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: var(--ink-mid);
+  cursor: none;
+  transition: background 0.25s, color 0.25s, border-color 0.25s;
+}
+.xp-check em {
+  font-style: normal;
+  font-size: 0.68rem;
+  color: var(--ink-ghost);
+}
+.xp-check:hover:not(:disabled) { border-color: var(--green-p); color: var(--ink); }
+.xp-check.active {
+  background: var(--green);
+  border-color: var(--green);
+  color: #ffffff;
+}
+.xp-check.active em { color: rgba(255, 255, 255, 0.75); }
+.xp-check:disabled { opacity: 0.35; }
+
+/* ── Results column ─────────────────────────────────────────────────── */
+.xp-results {
+  min-width: 0;                   /* lets the grid shrink instead of overflow */
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.xp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: 1px solid var(--border-l);
+  border-radius: var(--rl);
+  box-shadow: var(--shadow);
+  padding: 0.7rem 1rem;
+}
+.xp-toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin-left: auto;
+}
+
+.xp-filterbtn {
+  display: none;                  /* drawer trigger, phones and tablets only */
+  align-items: center;
+  gap: 0.45rem;
+  background: var(--forest);
+  border: none;
+  border-radius: 100px;
+  padding: 0.5rem 1rem;
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #f8f6f1;
+  cursor: none;
+}
+.xp-filterbtn em {
+  font-style: normal;
+  background: var(--green-m);
+  border-radius: 100px;
+  min-width: 18px;
+  padding: 0 0.3rem;
+  font-size: 0.7rem;
+  line-height: 18px;
+  text-align: center;
+}
+
+.xp-tally {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 300;
+  color: var(--ink-light);
+}
+.xp-tally strong {
+  font-family: var(--font-head);
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+/* Amber until the API answers, green once it has: the grid should say out
+   loud when it is drawing a bundled snapshot rather than the live panel. */
+.xp-dot {
+  align-self: center;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--amber-l);
+  box-shadow: 0 0 0 3px var(--amber-t);
+}
+.xp-dot.is-live {
+  background: var(--green-m);
+  box-shadow: 0 0 0 3px var(--green-t);
+}
+
+.xp-viewtoggle {
+  display: flex;
+  gap: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border-l);
+  border-radius: 100px;
+  padding: 3px;
+}
+.xp-viewtoggle__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  border: none;
+  background: none;
+  border-radius: 100px;
+  color: var(--ink-ghost);
+  cursor: none;
+  transition: background 0.25s, color 0.25s, box-shadow 0.25s;
+}
+.xp-viewtoggle__btn.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+.xp-sort {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.xp-sort .exp-lbl { white-space: nowrap; }
+.xp-sort .xp-select { width: auto; }
+
+.xp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.xp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 0.3rem 0.75rem;
+  font-family: var(--font-body);
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--ink-mid);
+  cursor: none;
+  transition: border-color 0.25s, color 0.25s;
+}
+.xp-chip span { color: var(--ink-ghost); }
+.xp-chip:hover {
+  border-color: var(--green);
+  color: var(--green);
+}
+.xp-chip:hover span { color: var(--green); }
+
+.xp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 1.35rem;
+}
+.xp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.xp-loadmore {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+}
+.xp-loadmore .exp-more {
+  width: auto;
+  margin-top: 0;
+  padding-inline: 1.8rem;
+}
+.xp-loadmore__note {
+  font-size: 0.75rem;
+  font-weight: 300;
+  color: var(--ink-ghost);
+}
+
+/* ── Skeletons ──────────────────────────────────────────────────────── */
+.xp-skel {
+  background: var(--surface);
+  border: 1px solid var(--border-l);
+  border-radius: var(--rl);
+  padding: 0 0 1rem;
+  overflow: hidden;
+  animation: expIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+.xp-skel__media {
+  aspect-ratio: 4 / 3;
+  margin-bottom: 0.9rem;
+}
+.xp-skel__line {
+  height: 12px;
+  border-radius: 100px;
+  margin: 0.55rem 1rem 0;
+}
+.xp-skel__line--short { width: 55%; }
+.xp-skel__media,
+.xp-skel__line {
+  background: linear-gradient(90deg, var(--bg2) 25%, var(--bg) 37%, var(--bg2) 63%);
+  background-size: 400% 100%;
+  animation: xpShimmer 1.4s ease infinite;
+}
+@keyframes xpShimmer {
+  from { background-position: 100% 50%; }
+  to   { background-position: 0 50%; }
+}
+
+/* ══ Listing card ═════════════════════════════════════════════════════
+   `exp-card` still carries the surface, the accent and the hover lift, so the
+   detail page keeps tinting itself from the same class. Everything inside is
+   `xp-card__*`, in a grid shape and a list shape.
+   ═══════════════════════════════════════════════════════════════════════ */
+.xp-card {
+  position: relative;             /* anchors the whole-card link overlay */
+}
+.xp-card--grid {
+  display: flex;
+  flex-direction: column;
+}
+.xp-card--list {
+  display: grid;
+  grid-template-columns: 264px minmax(0, 1fr);
+}
+
+.xp-card__media {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
+}
+.xp-card--list .xp-card__media {
+  aspect-ratio: auto;
+  height: 100%;
+  min-height: 210px;
+}
+/* The artwork sits on top of the category gradient, so a missing or slow file
+   degrades to the brand colour rather than to a broken-image glyph. */
+.xp-card__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  animation: xpFade 0.35s ease both;
+  transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.xp-card:hover .xp-card__img { transform: scale(1.06); }
+@keyframes xpFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+/* Keeps the price pill and the dots legible whatever the photo does. */
+.xp-card__media::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 48%;
+  background: linear-gradient(to top, rgba(16, 19, 18, 0.5), transparent);
+  pointer-events: none;
+}
+
+.xp-card__top {
+  position: absolute;
+  inset: 0.8rem 0.8rem auto;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4rem;
+  pointer-events: none;
+}
+
+/* Arrows rest invisible and only appear over the card being read, so a grid
+   of twelve is not a wall of chrome. They sit above the link overlay and stop
+   the click, or paging a gallery would navigate away instead. */
+.xp-card__nav {
+  position: absolute;
+  top: 50%;
+  z-index: 3;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow);
+  opacity: 0;
+  cursor: none;
+  transition: opacity 0.3s, background 0.3s;
+}
+.xp-card__nav--back { left: 0.6rem; }
+.xp-card__nav--next { right: 0.6rem; }
+.xp-card:hover .xp-card__nav,
+.xp-card__nav:focus-visible { opacity: 1; }
+.xp-card__nav:hover { background: #ffffff; }
+.xp-card__nav svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.xp-card__dots {
+  position: absolute;
+  left: 50%;
+  bottom: 0.75rem;
+  z-index: 2;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 0.28rem;
+}
+.xp-card__dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  transition: background 0.3s, width 0.3s;
+}
+.xp-card__dots i.is-on {
+  width: 14px;
+  border-radius: 100px;
+  background: #ffffff;
+}
+
+.xp-card__price {
+  position: absolute;
+  right: 0.8rem;
+  bottom: 0.75rem;
+  z-index: 2;
+  display: flex;
+  align-items: baseline;
+  gap: 0.2rem;
+  background: var(--surface);
+  border-radius: 100px;
+  padding: 0.35rem 0.85rem;
+  box-shadow: var(--shadow);
+}
+.xp-card__price strong {
+  font-family: var(--font-head);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.xp-card__price span {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--ink-light);
+}
+
+.xp-card__body {
+  flex: 1;
+  min-width: 0;
+  padding: 0.9rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.xp-card--list .xp-card__body { padding: 1.15rem 1.25rem; }
+
+.xp-card__title {
+  font-family: var(--font-head);
+  font-size: 1.02rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: var(--ink);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.xp-card--list .xp-card__title { font-size: 1.15rem; }
+.xp-card__link {
+  color: inherit;
+  text-decoration: none;
+}
+.xp-card__link:hover { color: var(--accent); }
+/* One invisible sheet over the whole card, so the target is the card and not
+   just the words in it. Controls above it carry a higher stacking order. */
+.xp-card__link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.xp-card__where {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: -0.25rem;
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--ink-light);
+  min-width: 0;
+}
+.xp-card__where .exp-ico {
+  width: 13px;
+  height: 13px;
+  color: var(--accent);
+}
+.xp-card__where span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* What the owner actually filed for this kind of property — sharing for a PG,
+   beds for a dormitory, furnishing for a bachelor room. */
+.xp-card__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 0.5rem;
+  padding: 0.6rem 0.7rem;
+  background: var(--bg);
+  border-radius: 12px;
+}
+.xp-card__facts dt {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-ghost);
+}
+.xp-card__facts dd {
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--ink-mid);
+  line-height: 1.35;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.xp-card__tags {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  overflow: hidden;
+  max-height: 1.55rem;            /* one row; extras are counted in +N */
+}
+.xp-card--list .xp-card__tags { max-height: none; }
+.xp-card__tags li {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--ink-mid);
+  padding: 0.2rem 0.6rem;
+  border-radius: 100px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.xp-card__tags li.is-more {
+  background: var(--bg);
+  border-color: var(--border-l);
+  color: var(--ink-ghost);
+}
+
+.xp-card__foot {
+  position: relative;
+  z-index: 2;                     /* above the card-wide link overlay */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--border-l);
+}
+.xp-card__owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--ink-light);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.xp-card__owner .exp-ico {
+  width: 13px;
+  height: 13px;
+  color: var(--ink-ghost);
+}
+.xp-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: none;
+}
+.xp-card__details {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--forest);
+  border: 1px solid var(--forest);
+  border-radius: 100px;
+  padding: 0.45rem 1rem;
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #f8f6f1;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: none;
+  transition: background 0.3s, transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.xp-card__details:hover { background: #2a2f33; }
+.xp-card__details span { transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+.xp-card__details:hover span { transform: translateX(4px); }
+
+/* The Call pill also has to clear the link overlay. */
+.xp-card .exp-call {
+  position: relative;
+  z-index: 2;
+}
+
+/* ══ Connection error ═════════════════════════════════════════════════
+   Stands in for the whole results shell when the listings could not be
+   fetched. The site keeps no local copy, so this panel is the page — it is
+   sized and written to be read, not dismissed.
+   ═══════════════════════════════════════════════════════════════════════ */
+.xp-err {
+  background: var(--surface);
+  border: 1px solid var(--border-l);
+  border-radius: var(--rl);
+  box-shadow: var(--shadow);
+  padding: 3rem 2rem;
+  max-width: 620px;
+  margin: 0 auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  animation: expIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.xp-err__badge {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: var(--amber-t);
+  margin-bottom: 0.5rem;
+}
+.xp-err__ico {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: var(--amber);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.xp-err__title {
+  font-family: var(--font-head);
+  font-size: 1.3rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.xp-err__lead {
+  font-size: 0.92rem;
+  font-weight: 300;
+  color: var(--ink-light);
+  max-width: 46ch;
+}
+/* The raw message from the failed request, kept verbatim — it is the one line
+   that usually names the real cause. */
+.xp-err__detail {
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.7rem 0.9rem;
+  background: var(--bg);
+  border: 1px solid var(--border-l);
+  border-radius: 12px;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--ink-mid);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.xp-err__steps {
+  width: 100%;
+  margin-top: 0.6rem;
+  padding-left: 1.3rem;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--ink-mid);
+}
+.xp-err__steps li::marker {
+  color: var(--ink-ghost);
+  font-weight: 600;
+}
+.xp-err__foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 1.1rem;
+}
+.xp-err__foot .exp-more {
+  width: auto;
+  margin-top: 0;
+  padding-inline: 2rem;
+}
+.xp-err__foot .exp-more:disabled {
+  opacity: 0.55;
+}
+.xp-err__endpoint {
+  font-size: 0.74rem;
+  font-weight: 300;
+  color: var(--ink-ghost);
+}
+.xp-err code,
+.exp-empty code {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.92em;
+  background: var(--bg2);
+  border-radius: 5px;
+  padding: 0.1em 0.4em;
+}
+
+/* ── Drawer ─────────────────────────────────────────────────────────── */
+.xp-scrim { display: none; }
+
+@media (max-width: 1080px) {
+  .xp-shell { grid-template-columns: minmax(0, 1fr); }
+  .xp-filterbtn { display: inline-flex; }
+
+  .xp-rail {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 1200;
+    width: min(340px, 88vw);
+    max-height: none;
+    border-radius: 0 var(--rl) var(--rl) 0;
+    transform: translateX(-102%);
+    transition: transform 0.42s cubic-bezier(0.16, 1, 0.3, 1);
+    padding-bottom: 1.5rem;
+  }
+  .xp-shell.is-open .xp-rail { transform: none; }
+
+  .xp-rail__close {
+    display: inline-flex;
+    background: none;
+    border: none;
+    font-size: 0.9rem;
+    color: var(--ink-light);
+    cursor: none;
+  }
+  .xp-rail__apply {
+    display: block;
+    margin-top: auto;
+    background: var(--forest);
+    border: none;
+    border-radius: 100px;
+    padding: 0.75rem 1rem;
+    font-family: var(--font-body);
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #f8f6f1;
+    cursor: none;
+  }
+
+  .xp-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 1199;
+    border: none;
+    background: rgba(16, 19, 18, 0.4);
+    opacity: 0;
+    pointer-events: none;
+    cursor: none;
+    transition: opacity 0.35s;
+  }
+  .xp-shell.is-open .xp-scrim {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  .xp-card--list { grid-template-columns: minmax(0, 1fr); }
+  .xp-card--list .xp-card__media {
+    aspect-ratio: 16 / 10;
+    height: auto;
+    min-height: 0;
+  }
+  .xp-toolbar { gap: 0.7rem; }
+  .xp-toolbar__right { width: 100%; margin-left: 0; }
+  .xp-sort { flex: 1; }
+  .xp-sort .xp-select { width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .xp-grid { grid-template-columns: minmax(0, 1fr); }
+  .xp-card__facts { grid-template-columns: 1fr 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xp-card__img,
+  .xp-skel,
+  .xp-skel__media,
+  .xp-skel__line { animation: none !important; }
+  .xp-card:hover .xp-card__img { transform: none; }
+  .xp-rail { transition: none; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -7827,32 +8476,11 @@ footer {
   .exp-grid {
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   }
-  .exp-field--sort {
-    margin-left: 0;
-  }
-  .exp-field--range input {
-    width: 130px;
-  }
 }
 
 @media (max-width: 580px) {
-  .exp-filters {
-    padding: 1.1rem;
-  }
-  .exp-cats {
-    width: 100%;
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    scrollbar-width: none;
-  }
-  .exp-cats::-webkit-scrollbar {
-    display: none;
-  }
   .exp-grid {
     grid-template-columns: 1fr;
-  }
-  .exp-controls {
-    gap: 0.85rem 1.25rem;
   }
   .exp-sheet__foot {
     flex-direction: column;

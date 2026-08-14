@@ -13,6 +13,139 @@
 
 export const LISTINGS = [
   {
+    "id": "6a7f2ca1cf53616786f88f2a",
+    "name": "sddsfgfhjhk",
+    "category": "PG",
+    "categorySlug": "pg",
+    "place": "fsgfhj",
+    "city": "fsgfhj",
+    "locality": "fsgfhj",
+    "address": "dgfk.jhmhhgr",
+    "rent": 19999,
+    "pricePeriod": "/mo",
+    "deposit": 5999,
+    "monthlyPrice": 19999,
+    "dailyPrice": null,
+    "stayType": "Long Stay",
+    "longStayDuration": "1 Month+",
+    "shortStayDuration": "1-7 Days",
+    "ownerName": "sfdgtfhjk",
+    "ownerMobile": "865242756325",
+    "amenities": [
+      "WiFi",
+      "AC",
+      "Food",
+      "RO Water"
+    ],
+    "images": [
+      "https://res.cloudinary.com/ozbu2jhp/image/upload/v1786719392/lampose_accommodations/knzqftengi3gmlgt8njj.png",
+      "https://res.cloudinary.com/ozbu2jhp/image/upload/v1786719393/lampose_accommodations/b3hqdbsbpzbn87cwf1co.png"
+    ],
+    "details": {
+      "foodIncluded": true,
+      "foodType": "Both (Veg & Non-Veg)",
+      "sharingTypes": [
+        "Single",
+        "2 Sharing"
+      ],
+      "acAvailable": true,
+      "curfewTime": "10:30 PM",
+      "housekeeping": true
+    },
+    "listedAt": "2026-08-14T14:56:33.971Z"
+  },
+  {
+    "id": "6a7f2bd4cf53616786f88f27",
+    "name": "Kingdom",
+    "category": "Bachelor Room",
+    "categorySlug": "bachelor-room",
+    "place": "SRIKAKULAM",
+    "city": "SRIKAKULAM",
+    "locality": "SRIKAKULAM",
+    "address": "SRIKAKULAM",
+    "rent": 15000,
+    "pricePeriod": "/mo",
+    "deposit": 4999,
+    "monthlyPrice": 15000,
+    "dailyPrice": null,
+    "stayType": "Long Stay",
+    "longStayDuration": "1 Month+",
+    "shortStayDuration": "1-7 Days",
+    "ownerName": "Rakesh",
+    "ownerMobile": "9632587410",
+    "amenities": [
+      "WiFi",
+      "AC",
+      "Food",
+      "RO Water",
+      "Power Backup",
+      "Housekeeping",
+      "Covered Parking",
+      "Kitchen Setup",
+      "Washing Machine"
+    ],
+    "images": [
+      "https://res.cloudinary.com/ozbu2jhp/image/upload/v1786719187/lampose_accommodations/ovaysbhyenqmvbu1rlx7.png",
+      "https://res.cloudinary.com/ozbu2jhp/image/upload/v1786719188/lampose_accommodations/ndcx4oeq3tdbawntqe3m.png"
+    ],
+    "details": {
+      "roomType": "1 BHK",
+      "furnishing": "Fully Furnished",
+      "allowedTenants": "Bachelors Male Only",
+      "kitchenAvailable": false,
+      "waterSupply": "24 Hours"
+    },
+    "listedAt": "2026-08-14T14:53:08.802Z"
+  },
+  {
+    "id": "6a7efa0a92e37e84e85400b8",
+    "name": "WhatsApp Verification Test",
+    "category": "PG",
+    "categorySlug": "pg",
+    "place": "Test — safe to delete",
+    "city": "Test — safe to delete",
+    "locality": "Test — safe to delete",
+    "address": null,
+    "rent": 1,
+    "pricePeriod": "/mo",
+    "deposit": 0,
+    "monthlyPrice": null,
+    "dailyPrice": null,
+    "stayType": "Long Stay",
+    "longStayDuration": "1 Month+",
+    "shortStayDuration": "1-7 Days",
+    "ownerName": "Sandbox Tester",
+    "ownerMobile": "9398334115",
+    "amenities": [],
+    "images": [],
+    "details": null,
+    "listedAt": "2026-08-14T11:20:42.870Z"
+  },
+  {
+    "id": "6a7ef9d3ba9118a93b92541e",
+    "name": "WhatsApp Verification Test",
+    "category": "PG",
+    "categorySlug": "pg",
+    "place": "Test — safe to delete",
+    "city": "Test — safe to delete",
+    "locality": "Test — safe to delete",
+    "address": null,
+    "rent": 1,
+    "pricePeriod": "/mo",
+    "deposit": 0,
+    "monthlyPrice": null,
+    "dailyPrice": null,
+    "stayType": "Long Stay",
+    "longStayDuration": "1 Month+",
+    "shortStayDuration": "1-7 Days",
+    "ownerName": "Sandbox Tester",
+    "ownerMobile": "+919398334115",
+    "amenities": [],
+    "images": [],
+    "details": null,
+    "listedAt": "2026-08-14T11:19:48.009Z"
+  },
+  {
     "id": "6a7ed0a38767057d76e9b05a",
     "name": "Single Email Test PG",
     "category": "PG",
@@ -780,7 +913,7 @@ export const LISTINGS = [
 ];
 
 /* Derived from the listings above, never hand-maintained. */
-export const CITIES_LIST = ['All Cities', "Bangalore", "Chintal", "Hyderabad", "Testing area", "dfertert", "diwancheruvu", "fvdfdfg", "kphb", "sdfsdf", "sdfsfds"];
+export const CITIES_LIST = ['All Cities', "Bangalore", "Chintal", "Hyderabad", "SRIKAKULAM", "Test — safe to delete", "Testing area", "dfertert", "diwancheruvu", "fsgfhj", "fvdfdfg", "kphb", "sdfsdf", "sdfsfds"];
 
 export const PRICE_MAX = 91000;
 

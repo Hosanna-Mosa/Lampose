@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import Icon from '../components/Icon';
 import ListingCard, { rupees } from '../components/ListingCard';
-import { CATEGORIES_LIST, LISTINGS } from '../data/listings';
+import ConnectionError from '../components/ConnectionError';
+import { iconForCategory } from '../data/categories';
 import listingsApi from '../api/listingsApi';
 
-const iconFor = category =>
-  CATEGORIES_LIST.find(c => c.id === category)?.icon || 'stay';
+const iconFor = iconForCategory;
 
 const labelise = key => key
   .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -28,25 +28,48 @@ const Chevron = ({ back }) => (
 
 export default function Listing() {
   const { id } = useParams();
-  const [item, setItem] = useState(() => LISTINGS.find(l => l.id === id) || null);
+  const [item, setItem] = useState(null);
+  const [siblings, setSiblings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [shot, setShot] = useState(0);
   const [toast, setToast] = useState('');
 
-  useEffect(() => {
-    let mounted = true;
-    const fetchListing = async () => {
-      try {
-        const fetched = await listingsApi.getListingById(id);
-        if (mounted && fetched) {
-          setItem(fetched);
-        }
-      } catch (err) {
-        console.warn('Using local fallback listing detail:', err.message);
+  /* The detail and the "more like this" row both come from the database —
+     there is no bundled copy to read from. The related row needs the whole
+     collection to rank against, so both requests go out together and a
+     failure of the second only costs the row, not the page. */
+  const load = useCallback(async signal => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [detail, all] = await Promise.all([
+        listingsApi.getListingById(id),
+        listingsApi.getListings().catch(() => []),
+      ]);
+      if (signal?.aborted) return;
+      setItem(detail);
+      setSiblings(all);
+    } catch (err) {
+      if (signal?.aborted) return;
+      if (err.kind === 'server' || err.kind === 'api') {
+        const kind = await listingsApi.diagnose();
+        if (signal?.aborted) return;
+        if (kind !== err.kind) err.kind = kind;
       }
-    };
-    fetchListing();
-    return () => { mounted = false; };
+      console.error('[Listing] Could not load listing:', err);
+      setItem(null);
+      setError(err);
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
   }, [id]);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    load(ctrl.signal);
+    return () => ctrl.abort();
+  }, [load]);
 
   // One timer, replaced whenever the message changes.
   useEffect(() => {
@@ -84,11 +107,35 @@ export default function Listing() {
   const related = useMemo(() => {
     if (!item) return [];
     const score = l => (l.city === item.city ? 2 : 0) + (l.category === item.category ? 1 : 0);
-    return LISTINGS
+    return siblings
       .filter(l => l.id !== item.id && score(l) > 0)
       .sort((a, b) => score(b) - score(a))
       .slice(0, 3);
-  }, [item]);
+  }, [item, siblings]);
+
+  if (loading) {
+    return (
+      <section id="listing">
+        <div className="sec-inner">
+          <div className="exp-empty">
+            <p>Loading this listing…</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  /* A broken connection and a listing that genuinely is not there look
+     nothing alike to whoever has to fix it, so they are not merged. */
+  if (error) {
+    return (
+      <section id="listing">
+        <div className="sec-inner">
+          <ConnectionError error={error} onRetry={() => load()} busy={loading} />
+        </div>
+      </section>
+    );
+  }
 
   if (!item) {
     return (
