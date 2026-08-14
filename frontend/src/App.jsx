@@ -12,10 +12,12 @@ import Partners from './pages/Partners';
 import Food from './pages/Food';
 import Download from './pages/Download';
 import Contact from './pages/Contact';
+import Privacy from './pages/Privacy';
+import Terms from './pages/Terms';
 
 /* Routes whose first section sits on a light ground need the solid navbar
    immediately — the transparent bar is only legible over the forest hero. */
-const LIGHT_TOP = ['/services', '/how', '/cities', '/partners', '/food', '/download', '/contact'];
+const LIGHT_TOP = ['/services', '/how', '/cities', '/partners', '/food', '/download', '/contact', '/privacy', '/terms'];
 
 /* The site was a set of .html files before this rebuild, so existing links and
    bookmarks still carry that extension. Map them onto the real routes instead
@@ -29,6 +31,8 @@ const LEGACY = {
   '/food.html': '/food',
   '/download.html': '/download',
   '/contact.html': '/contact',
+  '/privacy.html': '/privacy',
+  '/terms.html': '/terms',
 };
 
 function Shell() {
@@ -57,6 +61,8 @@ function Shell() {
           <Route path="/food" element={<Food />} />
           <Route path="/download" element={<Download />} />
           <Route path="/contact" element={<Contact />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
           {Object.entries(LEGACY).map(([from, to]) => (
             <Route key={from} path={from} element={<Navigate to={to} replace />} />
           ))}

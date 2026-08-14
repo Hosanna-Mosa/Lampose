@@ -3,7 +3,7 @@ import SiteBanner from '../components/Banners';
 import Icon from '../components/Icon';
 import { Link } from 'react-router-dom';
 import { SecHead } from '../components/Chrome';
-import { REDUCED } from '../hooks/useSite';
+import { FINE, REDUCED } from '../hooks/useSite';
 
 const PARTNERS = [
   {
@@ -133,6 +133,25 @@ function Testimonials() {
 }
 
 export default function Partners() {
+  const [spread, setSpread] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const io = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) {
+        setSpread(false);
+      }
+    }, {
+      threshold: 0
+    });
+
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
   return (
     <>
       <section id="partner">
@@ -147,17 +166,30 @@ export default function Partners() {
             </p>
           </div>
 
-          <div className="partner-grid">
-            {PARTNERS.map((p, n) => (
-              <div className="pcard reveal" key={p.title} style={{ transitionDelay: `${n * 100}ms`, '--i': String(n) }}>
-                <div className="p-icon"><Icon name={p.icon} /></div>
-                <h3>{p.title}</h3>
-                <ul className="p-list">
-                  {p.points.map((pt, k) => <li key={pt} style={{ '--i': String(k) }}>{pt}</li>)}
-                </ul>
-                <Link to="/download" className="btn-p"><span>{p.cta}</span></Link>
-              </div>
-            ))}
+          <div 
+            ref={containerRef}
+            className={`partner-deck-container ${spread ? 'is-spread' : ''}`}
+            onClick={() => setSpread(!spread)}
+            onMouseEnter={FINE ? () => setSpread(true) : undefined}
+            onMouseLeave={FINE ? () => setSpread(false) : undefined}
+          >
+            <div className="partner-deck">
+              {PARTNERS.map((p, n) => (
+                <div className={`pcard deck-card card-${n}`} key={p.title} style={{ '--i': String(n) }}>
+                  <div className="p-icon"><Icon name={p.icon} /></div>
+                  <h3>{p.title}</h3>
+                  <ul className="p-list">
+                    {p.points.map((pt, k) => <li key={pt} style={{ '--i': String(k) }}>{pt}</li>)}
+                  </ul>
+                  <Link to="/download" className="btn-p" onClick={e => e.stopPropagation()}><span>{p.cta}</span></Link>
+                </div>
+              ))}
+            </div>
+          </div>
+          
+          <div className="deck-hint">
+            <span className="hint-dot" />
+            {spread ? 'Tap or hover to stack cards' : 'Tap or hover the cards to spread them out'}
           </div>
         </div>
       </section>

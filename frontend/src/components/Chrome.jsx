@@ -29,7 +29,9 @@ export function Splash() {
 
   return (
     <div id="splash" className={hidden ? 'hidden' : ''} aria-hidden="true">
-      <div className="sp-logo">lamp<em>o</em>se</div>
+      <div className="sp-logo">
+        <img src="/images/logo.png" alt="Lampose" className="sp-logo-img" />
+      </div>
       <div className="sp-bar"><div className="sp-fill" /></div>
       <div className="sp-tag">Stay · Eat · Deliver</div>
     </div>
@@ -83,8 +85,8 @@ export function Navbar({ alwaysSolid }) {
 
       <nav id="navbar" className={solid ? 'scrolled' : ''}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Link to="/" style={{ textDecoration: 'none' }}>
-            <div className="nav-logo">lamp<em>o</em>se</div>
+          <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
+            <img src="/images/logo.png" alt="Lampose" className="nav-logo-img" />
           </Link>
         </div>
 
@@ -121,7 +123,9 @@ export const Footer = () => (
   <footer>
     <div className="footer-grid">
       <div className="f-brand">
-        <div className="footer-logo">lamp<em>o</em>se</div>
+        <Link to="/" style={{ textDecoration: 'none', display: 'inline-block' }}>
+          <img src="/images/logo.png" alt="Lampose" className="footer-logo-img" />
+        </Link>
         <div className="footer-hq">📍 Founded in Visakhapatnam · Serving India</div>
         <p className="footer-desc">{FOOTER_DESC}</p>
         <div className="socials">
@@ -149,7 +153,6 @@ export const Footer = () => (
 
     <div className="footer-bottom">
       <span>© 2025 Lampose Technologies Pvt. Ltd. All rights reserved.</span>
-      <span>Made with ❤️ in Visakhapatnam for Urban India</span>
     </div>
   </footer>
 );
