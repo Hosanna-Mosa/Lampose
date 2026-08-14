@@ -16,22 +16,24 @@ function ServiceCard({ card, open, onToggle, delay }) {
   const tilt = useTilt();
 
   return (
-    <div
-      className={`svc-card reveal${open ? ' svc-active' : ''}`}
-      ref={tilt}
-      onClick={onToggle}
-      style={{ '--card-clr': card.color, transitionDelay: `${delay}ms` }}
-    >
+    <div className="reveal" style={{ transitionDelay: `${delay}ms`, height: '100%' }}>
       <div
-        className="svc-icon-wrap"
-        style={{ '--icon-bg': card.iconBg, '--icon-hover': card.iconHover }}
+        className={`svc-card${open ? ' svc-active' : ''}`}
+        ref={tilt}
+        onClick={onToggle}
+        style={{ '--card-clr': card.color, height: '100%' }}
       >
-        <Icon name={card.icon} />
+        <div
+          className="svc-icon-wrap"
+          style={{ '--icon-bg': card.iconBg, '--icon-hover': card.iconHover }}
+        >
+          <Icon name={card.icon} />
+        </div>
+        <h3 className="svc-h3">{card.title}</h3>
+        <p className="svc-p">{card.body}</p>
+        <div className="svc-tag">{card.cta} <span className="svc-arrow">→</span></div>
+        <div className="tilt-shine" />
       </div>
-      <h3 className="svc-h3">{card.title}</h3>
-      <p className="svc-p">{card.body}</p>
-      <div className="svc-tag">{card.cta} <span className="svc-arrow">→</span></div>
-      <div className="tilt-shine" />
     </div>
   );
 }

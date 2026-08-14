@@ -37,8 +37,8 @@ export const FOOTER_COLS = [
       { label: 'About Us', to: '/cities' },
       { label: 'Careers', href: '#top' },
       { label: 'Blog', href: '#top' },
-      { label: 'Privacy Policy', href: '#top' },
-      { label: 'Terms of Service', href: '#top' },
+      { label: 'Privacy Policy', to: '/privacy' },
+      { label: 'Terms and Conditions', to: '/terms' },
     ],
   },
   {
