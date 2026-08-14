@@ -1,0 +1,31 @@
+{
+  "name": "lampose-backend",
+  "version": "1.0.0",
+  "description": "Backend API for Lampose using Node.js, Express, and MongoDB",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "export:listings": "node scripts/export-listings.mjs",
+    "export:listings:clean": "node scripts/export-listings.mjs --clean",
+    "inspect:db": "node scripts/inspect-db.mjs"
+  },
+  "keywords": [
+    "express",
+    "mongodb",
+    "mongoose",
+    "node"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mongoose": "^8.10.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
