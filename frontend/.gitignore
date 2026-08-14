@@ -1,0 +1,69 @@
+# ── Dependencies ─────────────────────────────────────────────────────────
+# Restored from package-lock.json with `npm ci`, never committed.
+node_modules/
+.pnp
+.pnp.js
+.yarn/cache
+.yarn/unplugged
+.yarn/install-state.gz
+
+# ── Build output ─────────────────────────────────────────────────────────
+dist/
+dist-ssr/
+build/
+*.local
+
+# ── Vite / bundler caches ────────────────────────────────────────────────
+.vite/
+node_modules/.vite/
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+
+# ── Environment and secrets ──────────────────────────────────────────────
+# Commit .env.example instead, so the required keys are documented without
+# their values.
+.env
+.env.*
+!.env.example
+
+# ── Logs ─────────────────────────────────────────────────────────────────
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# ── Editors and IDEs ─────────────────────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ── OS cruft ─────────────────────────────────────────────────────────────
+# Windows and macOS both drop files into every folder they touch.
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ── Test / coverage ──────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ── Large binaries kept out of the repo ──────────────────────────────────
+# The partner builds are ~43 MB each and are served from the origin, not from
+# this repo. See src/pages/Download.jsx.
+*.apk
