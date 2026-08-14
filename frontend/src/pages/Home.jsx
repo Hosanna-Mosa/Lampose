@@ -1,10 +1,9 @@
-import Hero, { Banner, Trust } from '../components/HomeHero';
+import Hero, { Trust } from '../components/HomeHero';
 import { Explore, Stats } from '../components/HomeSections';
 
 export default function Home() {
   return (
     <>
-      <Banner />
       <Hero />
       {/* Claims lead into the figures that back them; places and operational
           facts sit underneath as the follow-through. */}

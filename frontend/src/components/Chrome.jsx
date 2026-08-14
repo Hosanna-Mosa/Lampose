@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { useCursor, useMagnetic, useScrollChrome } from '../hooks/useSite';
 import { FOOTER_COLS, FOOTER_DESC, NAV_LINKS, SOCIALS } from '../data/site';
+import logoImg from '../assets/logo.png';
 
 /* ══ Splash ═══════════════════════════════════════════════════════════════
    Only ever shown on the first load of the session. Re-playing it on every
@@ -15,25 +16,42 @@ import { FOOTER_COLS, FOOTER_DESC, NAV_LINKS, SOCIALS } from '../data/site';
 let splashDone = false;
 
 export function Splash() {
-  const [hidden, setHidden] = useState(splashDone);
+  const [zooming, setZooming] = useState(false);
   const [gone, setGone] = useState(splashDone);
 
   useEffect(() => {
     if (splashDone) return undefined;
-    const a = setTimeout(() => { splashDone = true; setHidden(true); }, 1900);
-    const b = setTimeout(() => setGone(true), 3000);
-    return () => { clearTimeout(a); clearTimeout(b); };
+    // Step 1: Calmly display logo first, then smoothly initiate the single "O" zoom
+    const a = setTimeout(() => {
+      setZooming(true);
+    }, 1400);
+
+    // Step 2: Smooth, graceful 2.6s cinematic zoom before unmount
+    const b = setTimeout(() => {
+      splashDone = true;
+      setGone(true);
+    }, 4000);
+
+    return () => {
+      clearTimeout(a);
+      clearTimeout(b);
+    };
   }, []);
 
   if (gone) return null;
 
   return (
-    <div id="splash" className={hidden ? 'hidden' : ''} aria-hidden="true">
-      <div className="sp-logo">
-        <img src="/images/logo.png" alt="Lampose" className="sp-logo-img" />
+    <div id="splash" className={zooming ? 'sp-zooming' : ''} aria-hidden="true">
+      <div className="sp-content">
+        <div className="sp-logo-wrapper">
+          <img src={logoImg} alt="Lampose" className="sp-logo-img" />
+          <div className="sp-single-o" />
+        </div>
+        <div className="sp-meta">
+          <div className="sp-bar"><div className="sp-fill" /></div>
+          <div className="sp-tag">Stay · Eat · Deliver</div>
+        </div>
       </div>
-      <div className="sp-bar"><div className="sp-fill" /></div>
-      <div className="sp-tag">Stay · Eat · Deliver</div>
     </div>
   );
 }
@@ -86,7 +104,7 @@ export function Navbar({ alwaysSolid }) {
       <nav id="navbar" className={solid ? 'scrolled' : ''}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
-            <img src="/images/logo.png" alt="Lampose" className="nav-logo-img" />
+            <img src={logoImg} alt="Lampose" className="nav-logo-img" />
           </Link>
         </div>
 
@@ -124,7 +142,7 @@ export const Footer = () => (
     <div className="footer-grid">
       <div className="f-brand">
         <Link to="/" style={{ textDecoration: 'none', display: 'inline-block' }}>
-          <img src="/images/logo.png" alt="Lampose" className="footer-logo-img" />
+          <img src={logoImg} alt="Lampose" className="footer-logo-img" />
         </Link>
         <div className="footer-hq">📍 Founded in Visakhapatnam · Serving India</div>
         <p className="footer-desc">{FOOTER_DESC}</p>
