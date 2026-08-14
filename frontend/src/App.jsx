@@ -17,7 +17,7 @@ import Terms from './pages/Terms';
 
 /* Routes whose first section sits on a light ground need the solid navbar
    immediately — the transparent bar is only legible over the forest hero. */
-const LIGHT_TOP = ['/services', '/how', '/cities', '/partners', '/food', '/download', '/contact', '/privacy', '/terms'];
+const LIGHT_TOP = ['/', '/services', '/how', '/cities', '/partners', '/food', '/download', '/contact', '/privacy', '/terms'];
 
 /* The site was a set of .html files before this rebuild, so existing links and
    bookmarks still carry that extension. Map them onto the real routes instead
