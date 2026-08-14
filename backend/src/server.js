@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import connectDB from './config/db.js';
 import healthRoutes from './routes/healthRoutes.js';
+import listingRoutes from './routes/listingRoutes.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 
 // Load environment variables from .env file
@@ -45,6 +46,7 @@ app.get('/', (req, res) => {
 });
 
 app.use('/api/health', healthRoutes);
+app.use('/api/listings', listingRoutes);
 
 // Error Handling Middleware
 app.use(notFoundHandler);

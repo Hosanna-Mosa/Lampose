@@ -3,27 +3,12 @@ import { Link, useParams } from 'react-router-dom';
 import Icon from '../components/Icon';
 import ListingCard, { rupees } from '../components/ListingCard';
 import { CATEGORIES_LIST, LISTINGS } from '../data/listings';
-
-/* ══ Listing detail ═══════════════════════════════════════════════════════
-   Reached from a card at /explore/:id, where :id is the property's Mongo
-   _id. This replaced a modal sheet: a room someone wants to send to a
-   flatmate needs a URL, and a dialog that traps scroll is the wrong shape for
-   a page's worth of specification on a phone.
-
-   Layout is one column by default and splits into content + a sticky booking
-   rail from 900px up — the same breakpoint the rest of the site uses.
-   ════════════════════════════════════════════════════════════════════════ */
+import listingsApi from '../api/listingsApi';
 
 const iconFor = category =>
   CATEGORIES_LIST.find(c => c.id === category)?.icon || 'stay';
 
-/* `categoryDetails` is a different object per category — a hostel has a
-   warden and a dormitory has bed counts. Rather than hardcode four shapes,
-   the keys are humanised and the values formatted by type, so a field the
-   panel adds tomorrow shows up here without a code change. */
 const labelise = key => key
-  // Split camelCase, but keep runs of capitals together — a naive split on
-  // every capital turned `securityCCTV` into "Security C C T V".
   .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
   .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
   .replace(/^./, c => c.toUpperCase())
@@ -35,8 +20,6 @@ const formatValue = v => {
   return String(v);
 };
 
-/* The icon set is built for 24×24 stroked outlines but has no chevron, and
-   one is not worth adding to a file every page loads. */
 const Chevron = ({ back }) => (
   <svg className="lst-nav__ico" viewBox="0 0 24 24" aria-hidden="true">
     <path d={back ? 'M15 4 L7 12 L15 20' : 'M9 4 L17 12 L9 20'} />
@@ -45,9 +28,25 @@ const Chevron = ({ back }) => (
 
 export default function Listing() {
   const { id } = useParams();
-  const item = useMemo(() => LISTINGS.find(l => l.id === id), [id]);
+  const [item, setItem] = useState(() => LISTINGS.find(l => l.id === id) || null);
   const [shot, setShot] = useState(0);
   const [toast, setToast] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+    const fetchListing = async () => {
+      try {
+        const fetched = await listingsApi.getListingById(id);
+        if (mounted && fetched) {
+          setItem(fetched);
+        }
+      } catch (err) {
+        console.warn('Using local fallback listing detail:', err.message);
+      }
+    };
+    fetchListing();
+    return () => { mounted = false; };
+  }, [id]);
 
   // One timer, replaced whenever the message changes.
   useEffect(() => {

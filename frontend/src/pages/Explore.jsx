@@ -1,36 +1,55 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Icon from '../components/Icon';
 import { SecHead } from '../components/Chrome';
 import ListingCard, { rupees } from '../components/ListingCard';
 import {
   CATEGORIES_LIST, CITIES_LIST, LISTINGS, PRICE_MAX, SORT_OPTIONS,
 } from '../data/listings';
+import listingsApi from '../api/listingsApi';
 
-/* Every listing here is a real row from the onboarding panel — see
-   backend/scripts/export-listings.mjs. The filters below only offer values
-   that exist in that data, so none of them can strand you on an empty grid. */
 export default function Explore() {
+  const [listingsData, setListingsData] = useState(LISTINGS);
+  const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedCity, setSelectedCity] = useState('All Cities');
   const [maxPrice, setMaxPrice] = useState(PRICE_MAX);
   const [sortBy, setSortBy] = useState('recent');
 
-  const filtered = useMemo(() => LISTINGS.filter(item => {
+  useEffect(() => {
+    let mounted = true;
+    const loadListings = async () => {
+      setLoading(true);
+      try {
+        const fetched = await listingsApi.getListings();
+        if (mounted && Array.isArray(fetched) && fetched.length > 0) {
+          setListingsData(fetched);
+        }
+      } catch (err) {
+        console.warn('Using local fallback listings data:', err.message);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+    loadListings();
+    return () => { mounted = false; };
+  }, []);
+
+  const filtered = useMemo(() => listingsData.filter(item => {
     if (selectedCategory !== 'all' && item.category !== selectedCategory) return false;
     if (selectedCity !== 'All Cities' && item.city !== selectedCity) return false;
     if (item.rent > maxPrice) return false;
 
     const q = searchQuery.trim().toLowerCase();
     if (!q) return true;
-    return [item.name, item.place, item.ownerName, item.category, ...item.amenities]
+    return [item.name, item.place, item.ownerName, item.category, ...(item.amenities || [])]
       .filter(Boolean)
       .some(field => field.toLowerCase().includes(q));
   }).sort((a, b) => {
     if (sortBy === 'price-asc') return a.rent - b.rent;
     if (sortBy === 'price-desc') return b.rent - a.rent;
     return String(b.listedAt).localeCompare(String(a.listedAt));
-  }), [searchQuery, selectedCategory, selectedCity, maxPrice, sortBy]);
+  }), [listingsData, searchQuery, selectedCategory, selectedCity, maxPrice, sortBy]);
 
   const resetFilters = () => {
     setSearchQuery('');
