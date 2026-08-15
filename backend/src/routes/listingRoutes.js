@@ -75,6 +75,7 @@ const formatListing = (doc) => {
     ownerName: d.ownerName || 'Property Owner',
     ownerMobile: d.ownerMobile || '',
     address: d.address || '',
+    description: d.description || '',
     amenities: Array.isArray(d.amenities) ? d.amenities : [],
     images,
     details: d.categoryDetails || null,

@@ -15,6 +15,7 @@ const propertySchema = new mongoose.Schema(
     ownerName: { type: String, required: true },
     ownerMobile: { type: String, required: true },
     address: { type: String, default: '' },
+    description: { type: String, default: '' },
     amenities: { type: [String], default: [] },
     images: { type: [String], default: [] },
     imageUrl: { type: String, default: '' },

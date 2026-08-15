@@ -134,6 +134,7 @@ const map = doc => {
     shortStayDuration: doc.shortStayDuration || null,
     ownerName: doc.ownerName,
     ownerMobile: doc.ownerMobile,
+    description: doc.description || '',
     amenities: doc.amenities || [],
     images: imagesOf(doc, imageDrops),
     details: doc.categoryDetails || null,

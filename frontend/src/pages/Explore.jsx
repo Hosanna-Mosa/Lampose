@@ -5,6 +5,7 @@ import ListingCard, { rupees } from '../components/ListingCard';
 import ConnectionError from '../components/ConnectionError';
 import { byCategoryOrder, iconForCategory } from '../data/categories';
 import listingsApi from '../api/listingsApi';
+import { useReveals } from '../hooks/useSite';
 
 /* ══ Explore ══════════════════════════════════════════════════════════════
    A sticky filter rail beside a results column.
@@ -53,6 +54,8 @@ export default function Explore() {
   const [view, setView] = useState('grid');
   const [visible, setVisible] = useState(PAGE);
   const [railOpen, setRailOpen] = useState(false);
+
+  useReveals([loading]);
 
   const set = (key, value) => setFilters(f => ({ ...f, [key]: value }));
 
