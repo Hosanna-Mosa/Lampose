@@ -7932,38 +7932,10 @@ footer {
   color: var(--ink-light);
   max-width: 46ch;
 }
-/* The raw message from the failed request, kept verbatim — it is the one line
-   that usually names the real cause. */
-.xp-err__detail {
-  width: 100%;
-  margin-top: 0.35rem;
-  padding: 0.7rem 0.9rem;
-  background: var(--bg);
-  border: 1px solid var(--border-l);
-  border-radius: 12px;
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 0.78rem;
-  line-height: 1.6;
-  color: var(--ink-mid);
-  text-align: left;
-  overflow-wrap: anywhere;
-}
-.xp-err__steps {
-  width: 100%;
-  margin-top: 0.6rem;
-  padding-left: 1.3rem;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  font-size: 0.85rem;
-  font-weight: 400;
-  color: var(--ink-mid);
-}
-.xp-err__steps li::marker {
-  color: var(--ink-ghost);
-  font-weight: 600;
-}
+/* The raw message, the numbered fix-it steps and the endpoint line all used to
+   render here. They were written for whoever maintains the site and were being
+   read by whoever visits it, so the panel now says only what a visitor can act
+   on and the diagnosis goes to the console instead. */
 .xp-err__foot {
   display: flex;
   flex-direction: column;
@@ -7978,11 +7950,6 @@ footer {
 }
 .xp-err__foot .exp-more:disabled {
   opacity: 0.55;
-}
-.xp-err__endpoint {
-  font-size: 0.74rem;
-  font-weight: 300;
-  color: var(--ink-ghost);
 }
 .xp-err code,
 .exp-empty code {

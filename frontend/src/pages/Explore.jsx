@@ -461,11 +461,10 @@ export default function Explore() {
                 <Icon name="search" className="exp-empty__ico" />
                 {listingsData.length === 0 ? (
                   <>
-                    <h3>No listings in the database yet</h3>
+                    <h3>No rooms listed yet</h3>
                     <p>
-                      The connection is fine — the <code>properties</code> collection
-                      is empty. Add a property in the onboarding panel and it will
-                      appear here.
+                      Nothing has been published here so far. Rooms are added as our
+                      scouts finish walking them, so it is worth looking again soon.
                     </p>
                     <button className="exp-more" onClick={() => load()}>
                       Check again <span aria-hidden="true">→</span>
