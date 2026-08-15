@@ -5,6 +5,7 @@ import ListingCard, { rupees } from '../components/ListingCard';
 import ConnectionError from '../components/ConnectionError';
 import { iconForCategory } from '../data/categories';
 import listingsApi from '../api/listingsApi';
+import { useReveals } from '../hooks/useSite';
 
 const iconFor = iconForCategory;
 
@@ -34,6 +35,8 @@ export default function Listing() {
   const [error, setError] = useState(null);
   const [shot, setShot] = useState(0);
   const [toast, setToast] = useState('');
+
+  useReveals([loading]);
 
   /* The detail and the "more like this" row both come from the database —
      there is no bundled copy to read from. The related row needs the whole
