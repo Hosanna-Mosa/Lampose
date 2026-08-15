@@ -8507,4 +8507,22 @@ footer {
   }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   Listing Detail Description
+   ══════════════════════════════════════════════════════════════════════════ */
+.lst-hero-desc {
+  margin-top: 0.88rem;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--ink-light);
+  max-width: 680px;
+}
 
+.lst-desc-body {
+  font-family: var(--font-body);
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--ink-mid);
+  white-space: pre-line;
+}

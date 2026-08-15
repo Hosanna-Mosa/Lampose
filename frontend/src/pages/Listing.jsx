@@ -82,7 +82,12 @@ export default function Listing() {
   // would carry over and land past the end of a shorter one.
   useEffect(() => { setShot(0); }, [id]);
 
-  const shots = item?.images.length ?? 0;
+  const images = Array.isArray(item?.images) ? item.images : (item?.imageUrl ? [item.imageUrl] : []);
+  const shots = images.length;
+  const amenities = Array.isArray(item?.amenities) ? item.amenities : [];
+  const ownerMobile = item?.ownerMobile ? String(item.ownerMobile) : '';
+  const description = item?.description || item?.details?.description || item?.overview || item?.summary || item?.about;
+
   // Wraps, so the arrows never dead-end and there is no disabled state to
   // explain on a gallery of three photos.
   const go = step => setShot(i => (i + step + shots) % shots);
@@ -160,22 +165,22 @@ export default function Listing() {
      they are rows here now — the rent flagged `big`, since it is the number
      people came for. */
   const facts = [
-    ['Rent', `${rupees(item.rent)} ${item.pricePeriod}`, 'big'],
+    ['Rent', item.rent != null ? `${rupees(item.rent)} ${item.pricePeriod || ''}`.trim() : null, 'big'],
     ['Deposit', item.deposit ? rupees(item.deposit) : null],
-    ['Owner / manager', item.ownerName],
-    ['Contact', (
-      <a className="lst-tel" href={`tel:${item.ownerMobile.replace(/\s/g, '')}`}>
+    ['Owner / manager', item.ownerName || null],
+    ['Contact', ownerMobile ? (
+      <a className="lst-tel" href={`tel:${ownerMobile.replace(/\s/g, '')}`}>
         <Icon name="megaphone" className="exp-ico" />
-        {item.ownerMobile}
+        {ownerMobile}
       </a>
-    )],
-    ['Category', item.category],
-    ['Stay type', item.stayType],
-    ['Minimum term', item.longStayDuration],
-    ['Short stay', item.shortStayDuration],
-    ['City', item.city],
-    ['Locality', item.locality],
-    ['Address', item.address],
+    ) : null],
+    ['Category', item.category || null],
+    ['Stay type', item.stayType || null],
+    ['Minimum term', item.longStayDuration || null],
+    ['Short stay', item.shortStayDuration || null],
+    ['City', item.city || null],
+    ['Locality', item.locality || null],
+    ['Address', item.address || null],
     ['Monthly rent', item.monthlyPrice && rupees(item.monthlyPrice)],
     ['Daily rate', item.dailyPrice && rupees(item.dailyPrice)],
     ['Listed', item.listedAt && new Date(item.listedAt).toLocaleDateString('en-IN', {
@@ -217,7 +222,7 @@ export default function Listing() {
                 className="lst-track"
                 style={{ transform: `translateX(-${shot * 100}%)` }}
               >
-                {item.images.map((src, i) => (
+                {images.map((src, i) => (
                   <img
                     key={src}
                     src={src}
@@ -260,7 +265,7 @@ export default function Listing() {
 
           {shots > 1 && (
             <div className="lst-shots">
-              {item.images.map((src, i) => (
+              {images.map((src, i) => (
                 <button
                   key={src}
                   className={`lst-shot${i === shot ? ' is-active' : ''}`}
@@ -287,13 +292,19 @@ export default function Listing() {
                 <Icon name={iconFor(item.category)} className="exp-ico" />
                 {item.category}
               </span>
-              {item.amenities.length > 0 && (
+              {amenities.length > 0 && (
                 <span className="lst-kind">
                   <Icon name="verified" className="exp-ico" />
-                  {item.amenities.length} facilities listed
+                  {amenities.length} facilities listed
                 </span>
               )}
             </div>
+
+            {description && (
+              <p className="lst-hero-desc">
+                {description}
+              </p>
+            )}
           </div>
         </header>
 
@@ -303,11 +314,20 @@ export default function Listing() {
             property, so they are rows in the table below rather than a second
             card repeating them. */}
         <div className="lst-main">
-          {item.amenities.length > 0 && (
+          {description && (
+            <section className="lst-block reveal">
+              <h2 className="lst-h2">About this property</h2>
+              <p className="lst-desc-body">
+                {description}
+              </p>
+            </section>
+          )}
+
+          {amenities.length > 0 && (
             <section className="lst-block reveal">
               <h2 className="lst-h2">What is included</h2>
               <ul className="lst-amenities">
-                {item.amenities.map(a => (
+                {amenities.map(a => (
                   <li key={a}>
                     <Icon name="verified" className="exp-ico" />
                     {a}
