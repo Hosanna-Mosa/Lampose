@@ -1,0 +1,24 @@
+kind = "mobile"
+previewPath = "/"
+title = "Auth Mobile"
+description = "A polished Expo Go mobile authentication experience with sign-in and sign-up screens, mock account validation, and local session persistence for prototyping."
+version = "1.0.0"
+id = "artifacts/auth-mobile"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/" ]
+localPort = 21128
+
+[services.development]
+run = "pnpm --filter @workspace/auth-mobile run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/auth-mobile", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/auth-mobile", "run", "serve" ]
+
+[services.env]
+PORT = "21128"
+BASE_PATH = "/"

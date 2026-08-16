@@ -1,0 +1,43 @@
+{
+  "name": "lampose-main-backend",
+  "version": "2.0.0",
+  "description": "Unified Lampose backend — onboarding (v1) and the public site + leads panel (v2)",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed:admins": "node seedAdmins.js",
+    "inspect:collections": "node inspectCollections.js",
+    "inspect:db": "node scripts/inspect-db.js",
+    "inspect:properties": "node scripts/inspect-properties.js",
+    "export:listings": "node scripts/export-listings.js",
+    "export:listings:clean": "node scripts/export-listings.js --clean",
+    "migrate:json": "node scripts/migrate-json-store.js",
+    "smoke": "node scripts/smoke-test.js",
+    "verify": "node scripts/verify-frontends.js",
+    "browsers": "playwright install --with-deps chromium"
+  },
+  "keywords": [
+    "express",
+    "mongodb",
+    "mongoose",
+    "lampose",
+    "onboarding",
+    "leads"
+  ],
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cloudinary": "^2.10.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.4.1",
+    "multer": "^2.2.0",
+    "playwright": "^1.62.1",
+    "twilio": "^6.1.0"
+  }
+}

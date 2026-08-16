@@ -1,0 +1,93 @@
+import { useEffect } from 'react';
+import {
+  BrowserRouter, Navigate, Route, Routes, useLocation,
+} from 'react-router-dom';
+import { Cursor, Footer, Navbar, Splash } from './components/Chrome';
+import { useReveals } from './hooks/useSite';
+import Home from './pages/Home';
+import Explore from './pages/Explore';
+import Listing from './pages/Listing';
+import Services from './pages/Services';
+import How from './pages/How';
+import Cities from './pages/Cities';
+import Partners from './pages/Partners';
+import Food from './pages/Food';
+import Download from './pages/Download';
+import Contact from './pages/Contact';
+import Privacy from './pages/Privacy';
+import Terms from './pages/Terms';
+
+/* Routes whose first section sits on a light ground need the solid navbar
+   immediately — the transparent bar is only legible over the forest hero. */
+const LIGHT_TOP = ['/', '/explore', '/services', '/how', '/cities', '/partners', '/food', '/download', '/contact', '/privacy', '/terms'];
+
+/* Nested routes count too: /explore/:id opens on the same light ground as
+   /explore, and an exact-match check left the bar transparent over it. */
+const isLightTop = p => LIGHT_TOP.some(r => p === r || p.startsWith(`${r}/`));
+
+/* The site was a set of .html files before this rebuild, so existing links and
+   bookmarks still carry that extension. Map them onto the real routes instead
+   of dumping every one of them on the catch-all. */
+const LEGACY = {
+  '/index.html': '/',
+  '/explore.html': '/explore',
+  '/services.html': '/services',
+  '/how.html': '/how',
+  '/cities.html': '/cities',
+  '/partners.html': '/partners',
+  '/food.html': '/food',
+  '/download.html': '/download',
+  '/contact.html': '/contact',
+  '/privacy.html': '/privacy',
+  '/terms.html': '/terms',
+};
+
+function Shell() {
+  const { pathname } = useLocation();
+
+  // Client-side navigation keeps the old scroll offset, which drops you into
+  // the middle of the next page.
+  useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+
+  // Re-observe on every route: each page mounts its own .reveal elements.
+  useReveals([pathname]);
+
+  return (
+    <>
+      <Splash />
+      <Cursor />
+      <Navbar alwaysSolid={isLightTop(pathname)} />
+
+      <main id="top">
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/explore" element={<Explore />} />
+          <Route path="/explore/:id" element={<Listing />} />
+          <Route path="/services" element={<Services />} />
+          <Route path="/how" element={<How />} />
+          <Route path="/cities" element={<Cities />} />
+          <Route path="/partners" element={<Partners />} />
+          <Route path="/food" element={<Food />} />
+          <Route path="/download" element={<Download />} />
+          <Route path="/contact" element={<Contact />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
+          {Object.entries(LEGACY).map(([from, to]) => (
+            <Route key={from} path={from} element={<Navigate to={to} replace />} />
+          ))}
+          <Route path="*" element={<Home />} />
+        </Routes>
+      </main>
+
+      <Footer />
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Shell />
+    </BrowserRouter>
+  );
+}

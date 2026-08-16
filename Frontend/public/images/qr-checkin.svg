@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 480" width="720" height="480" role="img" aria-label="QR check-in illustration">
+  <title>QR check-in</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e9f5ed"/><stop offset="1" stop-color="#d8ecdf"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="480" fill="url(#bg)"/>
+  <g opacity=".5" fill="#17803d">
+    <circle cx="20" cy="24" r="2.5"/><circle cx="92" cy="24" r="2.5"/><circle cx="164" cy="24" r="2.5"/><circle cx="236" cy="24" r="2.5"/><circle cx="308" cy="24" r="2.5"/><circle cx="380" cy="24" r="2.5"/><circle cx="452" cy="24" r="2.5"/><circle cx="524" cy="24" r="2.5"/><circle cx="596" cy="24" r="2.5"/><circle cx="668" cy="24" r="2.5"/><circle cx="20" cy="140" r="2.5"/><circle cx="92" cy="140" r="2.5"/><circle cx="164" cy="140" r="2.5"/><circle cx="236" cy="140" r="2.5"/><circle cx="308" cy="140" r="2.5"/><circle cx="380" cy="140" r="2.5"/><circle cx="452" cy="140" r="2.5"/><circle cx="524" cy="140" r="2.5"/><circle cx="596" cy="140" r="2.5"/><circle cx="668" cy="140" r="2.5"/><circle cx="20" cy="256" r="2.5"/><circle cx="92" cy="256" r="2.5"/><circle cx="164" cy="256" r="2.5"/><circle cx="236" cy="256" r="2.5"/><circle cx="308" cy="256" r="2.5"/><circle cx="380" cy="256" r="2.5"/><circle cx="452" cy="256" r="2.5"/><circle cx="524" cy="256" r="2.5"/><circle cx="596" cy="256" r="2.5"/><circle cx="668" cy="256" r="2.5"/><circle cx="20" cy="372" r="2.5"/><circle cx="92" cy="372" r="2.5"/><circle cx="164" cy="372" r="2.5"/><circle cx="236" cy="372" r="2.5"/><circle cx="308" cy="372" r="2.5"/><circle cx="380" cy="372" r="2.5"/><circle cx="452" cy="372" r="2.5"/><circle cx="524" cy="372" r="2.5"/><circle cx="596" cy="372" r="2.5"/><circle cx="668" cy="372" r="2.5"/>
+  </g>
+
+  <!-- phone -->
+  <rect x="238" y="60" width="244" height="376" rx="34" fill="#101312"/>
+  <rect x="250" y="72" width="220" height="352" rx="26" fill="#ffffff"/>
+  <rect x="326" y="84" width="68" height="12" rx="6" fill="#101312" opacity=".85"/>
+
+  <!-- QR card on screen -->
+  <rect x="272" y="118" width="176" height="176" rx="18" fill="#ffffff" stroke="#d7dce2"/>
+  <g transform="translate(292 138)" fill="#101312">
+    
+    <rect x="0" y="0" width="44" height="44" rx="10" fill="none" stroke="#101312" stroke-width="7"/>
+    <rect x="15" y="15" width="14" height="14" rx="4" fill="#101312"/> 
+    <rect x="96" y="0" width="44" height="44" rx="10" fill="none" stroke="#101312" stroke-width="7"/>
+    <rect x="111" y="15" width="14" height="14" rx="4" fill="#101312"/> 
+    <rect x="0" y="96" width="44" height="44" rx="10" fill="none" stroke="#101312" stroke-width="7"/>
+    <rect x="15" y="111" width="14" height="14" rx="4" fill="#101312"/>
+    <g transform="translate(0 0)"><rect x="48" y="0" width="12" height="12" rx="2"/><rect x="80" y="0" width="12" height="12" rx="2"/><rect x="48" y="16" width="12" height="12" rx="2"/><rect x="80" y="16" width="12" height="12" rx="2"/><rect x="48" y="32" width="12" height="12" rx="2"/><rect x="64" y="32" width="12" height="12" rx="2"/><rect x="80" y="32" width="12" height="12" rx="2"/><rect x="0" y="48" width="12" height="12" rx="2"/><rect x="16" y="48" width="12" height="12" rx="2"/><rect x="32" y="48" width="12" height="12" rx="2"/><rect x="48" y="48" width="12" height="12" rx="2"/><rect x="80" y="48" width="12" height="12" rx="2"/><rect x="96" y="48" width="12" height="12" rx="2"/><rect x="112" y="48" width="12" height="12" rx="2"/><rect x="16" y="64" width="12" height="12" rx="2"/><rect x="48" y="64" width="12" height="12" rx="2"/><rect x="80" y="64" width="12" height="12" rx="2"/><rect x="96" y="64" width="12" height="12" rx="2"/><rect x="0" y="80" width="12" height="12" rx="2"/><rect x="16" y="80" width="12" height="12" rx="2"/><rect x="80" y="80" width="12" height="12" rx="2"/><rect x="128" y="80" width="12" height="12" rx="2"/><rect x="64" y="96" width="12" height="12" rx="2"/><rect x="96" y="96" width="12" height="12" rx="2"/><rect x="112" y="96" width="12" height="12" rx="2"/><rect x="64" y="112" width="12" height="12" rx="2"/><rect x="80" y="112" width="12" height="12" rx="2"/><rect x="112" y="112" width="12" height="12" rx="2"/><rect x="128" y="112" width="12" height="12" rx="2"/><rect x="48" y="128" width="12" height="12" rx="2"/><rect x="64" y="128" width="12" height="12" rx="2"/><rect x="96" y="128" width="12" height="12" rx="2"/><rect x="112" y="128" width="12" height="12" rx="2"/></g>
+  </g>
+
+  <!-- verified row -->
+  <g transform="translate(272 312)">
+    <rect width="176" height="34" rx="12" fill="#e9f5ed"/>
+    <circle cx="24" cy="17" r="9" fill="#17803d"/>
+    <path d="M20 17.5l3 3 5.5-6" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="44" y="11" width="86" height="6" rx="3" fill="#17803d" opacity=".55"/>
+    <rect x="44" y="21" width="56" height="5" rx="2.5" fill="#17803d" opacity=".3"/>
+  </g>
+  <rect x="272" y="358" width="176" height="42" rx="14" fill="#101312"/>
+  <rect x="304" y="374" width="112" height="9" rx="4.5" fill="#ffffff" opacity=".9"/>
+
+  <!-- floating coupon -->
+  <g transform="translate(66 150)">
+    <rect width="188" height="92" rx="18" fill="#ffffff" stroke="#d7dce2"/>
+    <circle cx="0" cy="46" r="10" fill="url(#bg)"/>
+    <circle cx="188" cy="46" r="10" fill="url(#bg)"/>
+    <rect x="24" y="24" width="60" height="14" rx="7" fill="#ffc93c"/>
+    <rect x="24" y="50" width="120" height="9" rx="4.5" fill="#101312" opacity=".75"/>
+    <rect x="24" y="66" width="80" height="7" rx="3.5" fill="#101312" opacity=".35"/>
+  </g>
+
+  <!-- floating rider chip -->
+  <g transform="translate(474 268)">
+    <rect width="180" height="80" rx="18" fill="#ffffff" stroke="#d7dce2"/>
+    <circle cx="38" cy="40" r="20" fill="#e9f5ed"/>
+    <circle cx="31" cy="45" r="6" fill="none" stroke="#17803d" stroke-width="3"/>
+    <circle cx="47" cy="45" r="6" fill="none" stroke="#17803d" stroke-width="3"/>
+    <path d="M31 45h8l4-10h6" fill="none" stroke="#17803d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="70" y="28" width="86" height="9" rx="4.5" fill="#101312" opacity=".75"/>
+    <rect x="70" y="45" width="58" height="7" rx="3.5" fill="#101312" opacity=".35"/>
+  </g>
+</svg>

@@ -1,0 +1,24 @@
+kind = "mobile"
+previewPath = "/"
+title = "Calculator"
+description = "A polished React Native calculator for Expo Go with standard arithmetic, percentages, decimals, sign toggling, and calculation history."
+version = "1.0.0"
+id = "artifacts/calculator"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/" ]
+localPort = 24992
+
+[services.development]
+run = "pnpm --filter @workspace/calculator run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/calculator", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/calculator", "run", "serve" ]
+
+[services.env]
+PORT = "24992"
+BASE_PATH = "/"

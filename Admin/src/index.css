@@ -1,0 +1,406 @@
+@import "tailwindcss";
+
+/* The theme is toggled by a `.dark` class on <html> (see ThemeContext), not by
+   the OS preference — teach Tailwind's `dark:` variant to follow that class. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------------------------------------------------------------------------
+   1. PRIMITIVES — raw values, swapped per colour scheme.
+   Components never reference these directly; they use the semantic tokens
+   exposed through @theme below.
+--------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+
+  /* Planes */
+  --canvas: #f4f6f8;
+  --surface: #ffffff;
+  --surface-subtle: #fafbfc;
+  --surface-inset: #f1f4f7;
+  --surface-raised: #ffffff;
+
+  /* Hairlines */
+  --border: #e4e8ed;
+  --border-strong: #d2d8e0;
+
+  /* Ink */
+  --ink: #0f1729;
+  --ink-2: #4d5768;
+  --ink-3: #79839a;
+  --ink-inverse: #ffffff;
+
+  /* Brand */
+  --brand: #4f46e5;
+  --brand-hover: #4338ca;
+  --brand-ink: #4338ca;
+  --brand-soft: #eef1ff;
+  --brand-border: #d9deff;
+  --brand-ring: rgb(79 70 229 / 0.28);
+
+  /* Status — paired with an icon + label everywhere, never colour alone */
+  --good: #0f7a3d;
+  --good-soft: #e7f6ed;
+  --good-border: #bfe5cf;
+  --warn: #b25309;
+  --warn-soft: #fdf2e3;
+  --warn-border: #f2ddba;
+  --crit: #bf2626;
+  --crit-soft: #fdecec;
+  --crit-border: #f5c9c9;
+  --neutral-soft: #f1f4f7;
+  --neutral-border: #e0e5ec;
+
+  /* Chart layer — validated steps (dataviz reference palette) */
+  --chart-series: #2a78d6;
+  --chart-series-wash: rgb(42 120 214 / 0.10);
+  --chart-grid: #e8ebef;
+  --chart-axis: #c9ced7;
+  --chart-good: #0ca30c;
+  --chart-warning: #fab219;
+  --chart-serious: #ec835a;
+  --chart-critical: #d03b3b;
+  --chart-neutral: #a8b1bf;
+
+  /* Elevation — low and quiet; borders do the separating, not shadows */
+  --shadow-sm: 0 1px 2px 0 rgb(15 23 41 / 0.04);
+  --shadow-md: 0 4px 12px -2px rgb(15 23 41 / 0.08), 0 2px 4px -2px rgb(15 23 41 / 0.04);
+  --shadow-lg: 0 16px 40px -8px rgb(15 23 41 / 0.16), 0 4px 12px -4px rgb(15 23 41 / 0.08);
+}
+
+.dark {
+  color-scheme: dark;
+
+  --canvas: #0a0d13;
+  --surface: #12151b;
+  --surface-subtle: #161a21;
+  --surface-inset: #1b2029;
+  --surface-raised: #171b23;
+
+  --border: #232935;
+  --border-strong: #323a48;
+
+  --ink: #eef1f6;
+  --ink-2: #a2acbd;
+  --ink-3: #76819a;
+  --ink-inverse: #0f1729;
+
+  --brand: #6366f1;
+  --brand-hover: #7c7ff5;
+  --brand-ink: #a5b4fc;
+  --brand-soft: #1a1d3a;
+  --brand-border: #2f3468;
+  --brand-ring: rgb(99 102 241 / 0.4);
+
+  --good: #34d399;
+  --good-soft: #0d2b21;
+  --good-border: #1d4c3a;
+  --warn: #fbbf24;
+  --warn-soft: #2c2210;
+  --warn-border: #4d3c15;
+  --crit: #f87171;
+  --crit-soft: #2e1618;
+  --crit-border: #532528;
+  --neutral-soft: #1b2029;
+  --neutral-border: #2a323e;
+
+  --chart-series: #3987e5;
+  --chart-series-wash: rgb(57 135 229 / 0.14);
+  --chart-grid: #222833;
+  --chart-axis: #333b48;
+  --chart-good: #0ca30c;
+  --chart-warning: #fab219;
+  --chart-serious: #ec835a;
+  --chart-critical: #d03b3b;
+  --chart-neutral: #6b7688;
+
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.7), 0 4px 12px -4px rgb(0 0 0 / 0.5);
+}
+
+/* ---------------------------------------------------------------------------
+   2. THEME — the vocabulary components are written against.
+--------------------------------------------------------------------------- */
+@theme inline {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* TYPOGRAPHY SCALE — the only sizes allowed in the app.
+     Three weights only: 400 body, 500 emphasis, 600 headings. */
+  --text-hero: 2rem;            /* 32px — dashboard hero figure, one per view */
+  --text-hero--line-height: 2.25rem;
+  --text-hero--letter-spacing: -0.024em;
+  --text-hero--font-weight: 600;
+
+  --text-metric: 1.5rem;        /* 24px — stat tile values */
+  --text-metric--line-height: 1.875rem;
+  --text-metric--letter-spacing: -0.02em;
+  --text-metric--font-weight: 600;
+
+  --text-title: 1.125rem;       /* 18px — page title */
+  --text-title--line-height: 1.625rem;
+  --text-title--letter-spacing: -0.014em;
+  --text-title--font-weight: 600;
+
+  --text-section: 0.9375rem;    /* 15px — card / section heading */
+  --text-section--line-height: 1.375rem;
+  --text-section--letter-spacing: -0.008em;
+  --text-section--font-weight: 600;
+
+  --text-body: 0.875rem;        /* 14px — default reading size */
+  --text-body--line-height: 1.3125rem;
+
+  --text-sm: 0.8125rem;         /* 13px — dense table cells, secondary copy */
+  --text-sm--line-height: 1.125rem;
+
+  --text-label: 0.75rem;        /* 12px — form labels, chips, meta */
+  --text-label--line-height: 1rem;
+  --text-label--font-weight: 500;
+
+  --text-micro: 0.6875rem;      /* 11px — eyebrows, column headers ONLY */
+  --text-micro--line-height: 0.875rem;
+  --text-micro--letter-spacing: 0.05em;
+  --text-micro--font-weight: 600;
+
+  /* Colour vocabulary */
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-surface-inset: var(--surface-inset);
+  --color-surface-raised: var(--surface-raised);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-inverse: var(--ink-inverse);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-border: var(--brand-border);
+  --color-good: var(--good);
+  --color-good-soft: var(--good-soft);
+  --color-good-border: var(--good-border);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-warn-border: var(--warn-border);
+  --color-crit: var(--crit);
+  --color-crit-soft: var(--crit-soft);
+  --color-crit-border: var(--crit-border);
+  --color-neutral-soft: var(--neutral-soft);
+  --color-neutral-border: var(--neutral-border);
+
+  /* Radii — three steps, no more */
+  --radius-control: 0.5rem;   /* 8px  — buttons, inputs, chips */
+  --radius-panel: 0.75rem;    /* 12px — cards, tables, modals */
+  --radius-pill: 9999px;
+}
+
+/* ---------------------------------------------------------------------------
+   3. BASE
+--------------------------------------------------------------------------- */
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--canvas);
+    color: var(--ink);
+    font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 0.875rem;
+    line-height: 1.3125rem;
+    font-feature-settings: "cv11", "ss01";
+    font-variation-settings: "opsz" 20;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Numerals in tables, axes and ID columns must align vertically.
+     Large standalone figures keep proportional figures (see .figure). */
+  th,
+  td,
+  code,
+  kbd,
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: var(--brand-soft);
+    color: var(--brand-ink);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   4. COMPONENT PRIMITIVES
+--------------------------------------------------------------------------- */
+@layer components {
+  /* Hero and metric figures use proportional figures by design. */
+  .figure {
+    font-variant-numeric: proportional-nums;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  .card {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .field {
+    width: 100%;
+    background-color: var(--surface-inset);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.3125rem;
+    color: var(--ink);
+    transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+  }
+
+  .field::placeholder {
+    color: var(--ink-3);
+  }
+
+  .field:hover:not(:disabled) {
+    border-color: var(--border-strong);
+  }
+
+  .field:focus {
+    outline: none;
+    background-color: var(--surface);
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px var(--brand-ring);
+  }
+
+  .field:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  select.field {
+    appearance: none;
+    padding-right: 2rem;
+    background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%),
+      linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
+    background-position: calc(100% - 15px) calc(50% + 1px), calc(100% - 10px) calc(50% + 1px);
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   5. CHROME
+--------------------------------------------------------------------------- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-3);
+  background-clip: content-box;
+}
+
+@keyframes lp-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes lp-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes lp-slide-left {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes lp-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.anim-fade-up {
+  animation: lp-fade-up 180ms cubic-bezier(0.2, 0, 0.13, 1);
+}
+
+.anim-scale-in {
+  animation: lp-scale-in 140ms cubic-bezier(0.2, 0, 0.13, 1);
+}
+
+.anim-slide-left {
+  animation: lp-slide-left 200ms cubic-bezier(0.2, 0, 0.13, 1);
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--surface-inset);
+  border-radius: 0.375rem;
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+  animation: lp-shimmer 1.4s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
