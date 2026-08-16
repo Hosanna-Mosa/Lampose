@@ -629,8 +629,9 @@ export const touch = {
 export const icon = {
   grid: [16, 20, 24, 26] as const,
   strokeWidth: 1.75,
-  /** Six glyphs the icon library does not have and that this market needs. */
-  custom: ['mess', 'powerBackup', 'waterSupply', 'warden', 'curfew', 'attachedBath'] as const,
+  /** Glyphs the icon library does not have and that this market needs.
+      `food` is the Food module's tab glyph — a destination, not an amenity. */
+  custom: ['mess', 'food', 'powerBackup', 'waterSupply', 'warden', 'curfew', 'attachedBath'] as const,
   /** Money and status are never labelled by icon alone. */
   minSize: 16,
 } as const;

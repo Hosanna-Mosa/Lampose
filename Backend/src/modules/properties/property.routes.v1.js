@@ -522,9 +522,20 @@ router.post('/', async (req, res) => {
       console.log(`   ✅ [MongoDB Pending] Property prepared with virtual ID: ${propertyId}`);
     }
 
+    /* The id is minted BEFORE the message goes out, not after.
+       The approval buttons carry it in their payload, so the owner's tap can
+       name the exact listing it was shown against — which is the only thing
+       that stops a tap on an older message from deciding a different
+       property. That means the id has to exist at send time. */
+    const verificationId = new mongoose.Types.ObjectId();
+
     // Trigger Twilio WhatsApp Verification
     console.log(`   💬 [Twilio Verification] Sending verification WhatsApp to owner mobile: ${ownerMobile}...`);
-    const twilioResult = await sendVerificationMessage(ownerMobile, ownerName, name);
+    // Full submission passed along so the template can show the owner
+    // everything the agent recorded (address, prices, mess, amenities).
+    const twilioResult = await sendVerificationMessage(
+      ownerMobile, ownerName, name, newPropertyData, String(verificationId)
+    );
 
     // Create Verification Request
     const { formatWhatsAppNumber } = require('../../infrastructure/twilio/twilio');
@@ -533,10 +544,16 @@ router.post('/', async (req, res) => {
     const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours
 
     const verificationPayload = {
+      _id: verificationId,
       property: getIsInMemory() ? undefined : propertyId,
       ownerMobileE164,
       token,
       status: twilioResult.success ? 'sent' : 'failed',
+      // Recorded rather than discarded: it identifies the exact outbound
+      // message, which is the fallback route back to this request if a reply
+      // ever arrives without a tagged payload.
+      outboundMessageSid: twilioResult.messageSid || '',
+      contentSid: process.env.TWILIO_VERIFY_CONTENT_SID || '',
       lastError: twilioResult.success ? '' : (twilioResult.error || 'Twilio send failed'),
       attempts: 1,
       sentAt: twilioResult.success ? new Date() : null,

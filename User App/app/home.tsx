@@ -17,6 +17,8 @@ import {
   type SavedEntry,
 } from '@/components/discovery';
 import { BookingRow, BookingSegments, ProfileGroup, ProfileRow } from '@/components/lifecycle';
+import { FoodComingSoon, FoodHome } from '@/components/food';
+import { FOOD_MODE } from '@/constants/food';
 import { emptyStates } from '@/constants/copy';
 import { useAppState } from '@/context/AppStateContext';
 import { useAuth } from '@/context/AuthContext';
@@ -59,11 +61,17 @@ const APPEARANCE_OPTIONS: readonly { id: ThemePreference; label: string }[] = [
   { id: 'system', label: 'Use my phone setting' },
 ];
 
+/**
+ * The Food pivot: Profile leaves the bar and Food takes its slot, raised and
+ * in the red set so it reads as a door to another module rather than a fourth
+ * peer screen. Profile is now the person icon in the header — the same
+ * demotion Alerts went through when Saved was promoted here.
+ */
 const TABS: readonly TabItem[] = [
   { id: 'explore', label: 'Explore', icon: 'search' },
   { id: 'saved', label: 'Saved', icon: 'bookmark' },
   { id: 'bookings', label: 'Bookings', icon: 'calendar' },
-  { id: 'profile', label: 'Profile', icon: 'sharing' },
+  { id: 'food', label: 'Food', icon: 'food', raised: true, tone: 'danger' },
 ];
 
 /** Mock only — the real one comes from the account. */
@@ -186,6 +194,8 @@ export default function Home() {
         // Alerts is not a tab — the pivot promoted Saved into the tab bar. The
         // bell keeps it one tap from the feed, and it is also a Profile row.
         onPressAlerts={() => router.push('/notifications')}
+        // Profile lost its tab to Food; the header is now its one door.
+        onPressProfile={() => setTab('profile')}
       />
 
       {/* Persistent, and it always states the age of what is on screen — a
@@ -364,6 +374,16 @@ export default function Home() {
             </>
           )}
         </ScrollView>
+      ) : tab === 'food' ? (
+        /* The Food module, behind its environment gate: production gets the
+           promise, dev gets the work in progress. The gate lives in
+           constants/food.ts and defaults to production — a missing env value
+           must never leak the unfinished module. */
+        FOOD_MODE === 'dev' ? (
+          <FoodHome />
+        ) : (
+          <FoodComingSoon onExplore={() => setTab('explore')} />
+        )
       ) : tab === 'profile' ? (
         /* Screen 64. Every row carries its current value, so most visits here
            end without a tap. */
