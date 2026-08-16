@@ -165,11 +165,7 @@ export default function ListingCard({ item, index = 0, view = 'grid' }) {
           </span>
 
           <div className="xp-card__actions">
-            {tel && (
-              <a className="exp-call" href={`tel:${tel}`} aria-label={`Call ${item.ownerName}`}>
-                Call
-              </a>
-            )}
+
             <Link className="xp-card__details" to={`/explore/${item.id}`}>
               Details <span aria-hidden="true">→</span>
             </Link>

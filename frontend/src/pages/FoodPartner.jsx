@@ -1,3 +1,11 @@
+import ComingSoon from '../components/ComingSoon';
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ORIGINAL FOOD PARTNER PAGE CODE (COMMENTED OUT TEMPORARILY FOR LATER USE)
+   To restore original page: uncomment the section below and remove the
+   active default export.
+   ══════════════════════════════════════════════════════════════════════════
+
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Icon from '../components/Icon';
@@ -5,21 +13,6 @@ import { SecHead } from '../components/Chrome';
 import { Modal } from '../components/partner/OnboardingFields';
 import { BENEFITS, FAQS, HOW_STEPS, STATS } from '../data/partner';
 
-/* ══════════════════════════════════════════════════════════════════════════
-   Food partner — the page a kitchen owner lands on.
-
-   Its whole job is to get someone to the onboarding form knowing what will be
-   asked of them, so the four steps and the document list are on this page
-   rather than discovered halfway through the form. The one decision taken
-   here is which kind of partner they are: a restaurant builds a menu during
-   onboarding, a meat centre does not.
-   ══════════════════════════════════════════════════════════════════════════ */
-
-/* The hero art. Drawn in the page rather than loaded as a picture, for the
-   reason Banners.jsx gives: an <img> is an isolated document that cannot see
-   the site's tokens or its webfont, so a baked screenshot would drift the
-   moment either changed. It shows the one thing a kitchen owner wants to see
-   on this page — an order arriving, and the money that follows it. */
 const ORDER = [
   { qty: 1, name: 'Chicken biryani', price: 320 },
   { qty: 2, name: 'Butter naan', price: 80 },
@@ -86,7 +79,7 @@ const TYPES = [
   },
 ];
 
-export default function FoodPartner() {
+function OriginalFoodPartner() {
   const [picking, setPicking] = useState(false);
   const [openFaq, setOpenFaq] = useState(null);
   const navigate = useNavigate();
@@ -257,4 +250,9 @@ export default function FoodPartner() {
       )}
     </>
   );
+}
+══════════════════════════════════════════════════════════════════════════ */
+
+export default function FoodPartner() {
+  return <ComingSoon />;
 }

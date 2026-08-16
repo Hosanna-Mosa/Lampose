@@ -88,7 +88,6 @@ export default function Listing() {
   const images = Array.isArray(item?.images) ? item.images : (item?.imageUrl ? [item.imageUrl] : []);
   const shots = images.length;
   const amenities = Array.isArray(item?.amenities) ? item.amenities : [];
-  const ownerMobile = item?.ownerMobile ? String(item.ownerMobile) : '';
   const description = item?.description || item?.details?.description || item?.overview || item?.summary || item?.about;
 
   // Wraps, so the arrows never dead-end and there is no disabled state to
@@ -170,13 +169,6 @@ export default function Listing() {
   const facts = [
     ['Rent', item.rent != null ? `${rupees(item.rent)} ${item.pricePeriod || ''}`.trim() : null, 'big'],
     ['Deposit', item.deposit ? rupees(item.deposit) : null],
-    ['Owner / manager', item.ownerName || null],
-    ['Contact', ownerMobile ? (
-      <a className="lst-tel" href={`tel:${ownerMobile.replace(/\s/g, '')}`}>
-        <Icon name="megaphone" className="exp-ico" />
-        {ownerMobile}
-      </a>
-    ) : null],
     ['Category', item.category || null],
     ['Stay type', item.stayType || null],
     ['Minimum term', item.longStayDuration || null],
