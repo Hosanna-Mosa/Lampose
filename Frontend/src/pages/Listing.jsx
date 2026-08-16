@@ -33,7 +33,7 @@ const formatValue = v => {
   return String(v);
 };
 
-/* Rendered as the occupancy chooser above the button, so they would only be
+/* Rendered as the occupancy chooser in the rail, so they would only be
    repeated as rows in the table below it. Keyed by category because that is
    how the panel writes them — see backend/src/utils/sharing.js. */
 const OCCUPANCY_KEY = {
@@ -56,6 +56,7 @@ export default function Listing() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [shot, setShot] = useState(0);
+  const [lightbox, setLightbox] = useState(false);
   const [toast, setToast] = useState('');
   const [askOpen, setAskOpen] = useState(false);
   const [showAllAmenities, setShowAllAmenities] = useState(false);
@@ -122,8 +123,9 @@ export default function Listing() {
   }, [toast]);
 
   // A different listing means a different gallery; without this the index
-  // would carry over and land past the end of a shorter one.
-  useEffect(() => { setShot(0); }, [id]);
+  // would carry over and land past the end of a shorter one — with the
+  // previous listing's lightbox still open over it.
+  useEffect(() => { setShot(0); setLightbox(false); }, [id]);
 
   /* Nothing is preselected. Most listings quote only one stay track, and
      filling it in for the visitor made the page look like it had decided —
@@ -146,7 +148,6 @@ export default function Listing() {
   const images = Array.isArray(item?.images) ? item.images : (item?.imageUrl ? [item.imageUrl] : []);
   const shots = images.length;
   const amenities = Array.isArray(item?.amenities) ? item.amenities : [];
-  const ownerMobile = item?.ownerMobile ? String(item.ownerMobile) : '';
   // Normalised by the API from whichever key this category uses.
   const sharingOptions = Array.isArray(item?.sharingOptions) ? item.sharingOptions : [];
   const description = item?.description || item?.details?.description || item?.overview || item?.summary || item?.about;
@@ -154,6 +155,29 @@ export default function Listing() {
   // Wraps, so the arrows never dead-end and there is no disabled state to
   // explain on a gallery of three photos.
   const go = step => setShot(i => (i + step + shots) % shots);
+
+  const openShot = i => { setShot(i); setLightbox(true); };
+
+  /* The lightbox owns the keyboard while it is up — Escape closes, arrows
+     move — and parks the page scroll so the wheel pages photos' backdrop,
+     not the listing underneath it. */
+  useEffect(() => {
+    if (!lightbox) return undefined;
+    const onKey = e => {
+      if (e.key === 'Escape') setLightbox(false);
+      if (shots < 2) return;
+      if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
+    };
+    window.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+    // `go` closes over `shots`, so the listener is rebuilt with it.
+  }, [lightbox, shots]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Swipe. One pointer position in, one out — enough for a gallery, and it
      costs nothing on desktop where the arrows do the work. */
@@ -276,7 +300,7 @@ export default function Listing() {
   })();
 
   /* The first unanswered thing, named — a disabled button with no reason is
-     just a dead end. Order matches the order they appear on the page. */
+     just a dead end. Order matches the order they appear in the rail. */
   const missing = (() => {
     if (sharingOptions.length > 0 && !intent.sharing) return 'Pick a room type to continue.';
     if (simple) return null;
@@ -295,20 +319,13 @@ export default function Listing() {
   /* Only facts the panel actually holds for this row. A null is a field the
      owner left blank, and a blank row on screen is worse than no row.
 
-     Rent, deposit and the owner's contact used to sit in a card of their own
-     beside this table. They read as one set of facts about the property, so
-     they are rows here now — the rent flagged `big`, since it is the number
-     people came for. */
+     The rent is not a row here: it is the headline of the booking rail,
+     where it updates into the live quote as the stay is chosen. The deposit
+     appears in both places on purpose — under the price as a cost, here as
+     a fact beside the others. */
   const facts = [
-    ['Rent', item.rent != null ? `${rupees(item.rent)} ${item.pricePeriod || ''}`.trim() : null, 'big'],
     ['Deposit', item.deposit ? rupees(item.deposit) : null],
     ['Owner / manager', item.ownerName || null],
-    ['Contact', ownerMobile ? (
-      <a className="lst-tel" href={`tel:${ownerMobile.replace(/\s/g, '')}`}>
-        <Icon name="megaphone" className="exp-ico" />
-        {ownerMobile}
-      </a>
-    ) : null],
     ['Category', item.category || null],
     ['Stay type', item.stayType || null],
     ['Minimum term', item.longStayDuration || null],
@@ -321,8 +338,8 @@ export default function Listing() {
     ['Listed', item.listedAt && new Date(item.listedAt).toLocaleDateString('en-IN', {
       day: 'numeric', month: 'short', year: 'numeric',
     })],
-    /* `sharingPrices` and the category's occupancy key are the chooser above
-       the button; repeating them here would say the same thing twice, and
+    /* `sharingPrices` and the category's occupancy key are the chooser in
+       the rail; repeating them here would say the same thing twice, and
        `description` is already the About section. */
     ...Object.entries(item.details || {})
       .filter(([k]) => ![
@@ -331,6 +348,20 @@ export default function Listing() {
       .map(([k, v]) => [labelise(k), formatValue(v)]),
   ].filter(([, v]) => v !== null && v !== undefined && v !== '');
 
+  const tiles = images.slice(0, 5);
+
+  const chips = (
+    <span className="lst-mosaic__chips">
+      <span className="exp-chip exp-chip--light">{item.category}</span>
+      {item.stayType && <span className="exp-chip exp-chip--dark">{item.stayType}</span>}
+    </span>
+  );
+
+  /* What the rail quotes before anything is chosen: the headline rent, so
+     the page never opens on a blank price. It hands over to the live quote
+     the moment there is one. */
+  const headlineRent = item.rent || rates.long?.monthlyPrice || null;
+
   return (
     <section id="listing" className={`exp-card--${item.categorySlug}`}>
       <div className="sec-inner">
@@ -338,48 +369,276 @@ export default function Listing() {
           <span aria-hidden="true">←</span> All listings
         </Link>
 
-        {/* ── Hero carousel ────────────────────────────────────────────
-            Owners upload several photos through the panel and the collection
-            keeps them in order. The track slides rather than cross-fading, so
-            it is obvious there is more than one and which way you are moving.
-            Arrows on desktop, swipe on touch, arrow keys once focused, and a
-            thumbnail strip to jump straight to one. */}
-        <header className="lst-hero reveal">
-          <div
-            className="lst-hero__art"
-            role={shots > 1 ? 'group' : undefined}
-            aria-roledescription={shots > 1 ? 'carousel' : undefined}
-            aria-label={shots > 1 ? `${item.name} photos` : undefined}
-            tabIndex={shots > 1 ? 0 : undefined}
-            onKeyDown={e => {
-              if (shots < 2) return;
-              // Scoped to the gallery, so arrow keys still scroll the page.
-              if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
-              if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
-            }}
-            {...(shots > 1 ? swipe : {})}
-          >
-            {shots > 0 && (
-              <div
-                className="lst-track"
-                style={{ transform: `translateX(-${shot * 100}%)` }}
-              >
-                {images.map((src, i) => (
+        {/* ── Mosaic gallery ───────────────────────────────────────────
+            Up to five photos at once, big one first, so the property reads
+            at a glance instead of one photo hiding the rest. Any tile — or
+            the count pill — opens the lightbox at that photo, where the
+            arrows, keys, swipe and thumbnails live. */}
+        <header className="lst-top reveal">
+          {shots > 0 ? (
+            <div className={`lst-mosaic lst-mosaic--${Math.min(shots, 5)}`}>
+              {tiles.map((src, i) => (
+                <button
+                  key={src}
+                  type="button"
+                  className="lst-mosaic__ph"
+                  onClick={() => openShot(i)}
+                  aria-label={`Open photo ${i + 1} of ${shots}`}
+                >
                   <img
-                    key={src}
                     src={src}
                     alt={i === 0 ? item.name : ''}
                     loading={i === 0 ? 'eager' : 'lazy'}
                     decoding="async"
-                    aria-hidden={i !== shot}
                     onError={e => { e.currentTarget.style.visibility = 'hidden'; }}
                   />
-                ))}
-              </div>
+                </button>
+              ))}
+              {chips}
+              {shots > 1 && (
+                <button
+                  type="button"
+                  className="lst-mosaic__all"
+                  onClick={() => openShot(0)}
+                >
+                  View all {shots} photos
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="lst-mosaic lst-mosaic--0">
+              {chips}
+            </div>
+          )}
+
+          <div className="lst-head">
+            <h1 className="lst-title">{item.name}</h1>
+
+            <p className="lst-where">
+              <Icon name="pin" className="exp-ico" />
+              {item.place}
+            </p>
+
+            <div className="lst-scores">
+              <span className="lst-kind">
+                <Icon name={iconFor(item.category)} className="exp-ico" />
+                {item.category}
+              </span>
+              {/* Only where the panel recorded it — hostels carry a type,
+                  PGs have no gender field and get no badge rather than a
+                  guessed one. */}
+              {item.gender && (
+                <span className="lst-kind">
+                  <Icon name="users" className="exp-ico" />
+                  {item.gender}
+                </span>
+              )}
+              {amenities.length > 0 && (
+                <span className="lst-kind">
+                  <Icon name="verified" className="exp-ico" />
+                  {amenities.length} facilities listed
+                </span>
+              )}
+            </div>
+          </div>
+        </header>
+
+        {/* ── Body ─────────────────────────────────────────────────────
+            Content on the left, the booking rail on the right. From 980px
+            the rail sticks, so the price and the button follow the reader
+            down the page; on a phone the columns stack and the rail comes
+            after the facts, where the old inline flow sat. */}
+        <div className="lst-cols">
+          <div className="lst-main">
+            {description && (
+              <section className="lst-block reveal">
+                <h2 className="lst-h2">About this property</h2>
+                <p className="lst-desc-body">
+                  {description}
+                </p>
+              </section>
             )}
 
-            <span className="exp-chip exp-chip--light">{item.category}</span>
-            {item.stayType && <span className="exp-chip exp-chip--dark">{item.stayType}</span>}
+            {/* Meals, from the two fields the panel actually collects. No
+                servings, timings or notes — those are not recorded, and a
+                plausible-looking invention would be read as a promise. */}
+            {item.meals && (
+              <section className="lst-block reveal">
+                <h2 className="lst-h2">Meals</h2>
+                <p className="lst-desc-body">
+                  {item.meals.included
+                    ? <>Food is <strong>included in the rent</strong>{item.meals.foodType ? <> — {item.meals.foodType}</> : null}.</>
+                    : <>Meals are <strong>not included</strong> in the rent{item.meals.foodType ? <> ({item.meals.foodType} available)</> : null}.</>}
+                </p>
+              </section>
+            )}
+
+            {amenities.length > 0 && (
+              <section className="lst-block reveal">
+                <h2 className="lst-h2">What is included</h2>
+                {/* Six is enough to judge a place by; the rest are one tap away
+                    rather than a wall to scroll past. */}
+                <ul className="lst-amenities">
+                  {(showAllAmenities ? amenities : amenities.slice(0, 6)).map(a => (
+                    <li key={a}>
+                      <Icon name="verified" className="exp-ico" />
+                      {a}
+                    </li>
+                  ))}
+                </ul>
+                {amenities.length > 6 && (
+                  <button
+                    className="xp-linkbtn lst-seeall"
+                    onClick={() => setShowAllAmenities(v => !v)}
+                  >
+                    {showAllAmenities ? 'Show fewer' : `See all ${amenities.length}`}
+                  </button>
+                )}
+              </section>
+            )}
+
+            <section className="lst-block reveal">
+              <h2 className="lst-h2">Property details</h2>
+              <dl className="lst-facts">
+                {facts.map(([k, v]) => (
+                  <div key={k}>
+                    <dt className="exp-lbl">{k}</dt>
+                    <dd>{v}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          </div>
+
+          {/* ── Booking rail ───────────────────────────────────────────
+              Price on top, the stay questions under it, one button. Once
+              the owner has been asked, the whole flow is replaced by the
+              status card: pressing again would only ring the same phone
+              about the same room. The old record stays until a new one
+              replaces it, so cancelling the dialog cannot lose the answer
+              already on screen. */}
+          <aside className="lst-rail reveal">
+            <div className="lst-block lst-rail__card">
+              {visit ? (
+                <VisitStatus request={visit} onAskAgain={() => setAskOpen(true)} />
+              ) : (
+                <>
+                  {/* The bar restates what was chosen and what it costs, so
+                      nobody presses the button without seeing the number.
+                      Before anything is chosen it shows the headline rent —
+                      the number the visitor opened the page for. */}
+                  <div className="lst-rail__price">
+                    {quote ? (
+                      <>
+                        <strong>{rupees(quote.amount)}</strong>
+                        <span>{quote.unitLabel}</span>
+                        {quote.durationLabel && <em>· {quote.durationLabel}</em>}
+                      </>
+                    ) : headlineRent ? (
+                      <>
+                        <strong>{rupees(headlineRent)}</strong>
+                        <span>{item.pricePeriod || '/mo'}</span>
+                      </>
+                    ) : (
+                      <span className="lst-rail__unpriced">Choose your stay to see the rate</span>
+                    )}
+                  </div>
+                  {item.deposit ? (
+                    <p className="lst-rail__dep">Deposit {rupees(item.deposit)}</p>
+                  ) : null}
+
+                  <StayIntentPicker listing={item} value={intent} onChange={setIntent} />
+
+                  {/* Consent, with the real pages behind it — both routes
+                      exist on this site, so neither link is a placeholder. */}
+                  {!item.simpleSharingPath && (
+                    <label className="lst-consent">
+                      <input
+                        type="checkbox"
+                        checked={intent.consented === true}
+                        onChange={e => setIntent(v => ({ ...v, consented: e.target.checked }))}
+                      />
+                      <span>
+                        I accept the <Link to="/privacy">Privacy Policy</Link> and{' '}
+                        <Link to="/terms">Terms and Conditions</Link>.
+                      </span>
+                    </label>
+                  )}
+
+                  <button className="exp-book" disabled={!ready} onClick={() => setAskOpen(true)}>
+                    Request a visit
+                  </button>
+
+                  {/* Pro-rated only where it is real: a long stay with a
+                      monthly rate and a chosen date. */}
+                  {quote?.prorated && !quote.prorated.full && (
+                    <p className="lst-prorate">
+                      First month is pro-rated to <strong>{rupees(quote.prorated.amount)}</strong>
+                      {' '}— {quote.prorated.daysCharged} of {quote.prorated.daysInMonth} days.
+                    </p>
+                  )}
+
+                  {!ready && missing && <p className="lst-sharing__hint">{missing}</p>}
+                </>
+              )}
+
+              <p className="lst-note">
+                Listed through the Lampose onboarding panel. Nothing is paid through
+                this site — arrange the visit with the owner directly.
+              </p>
+            </div>
+          </aside>
+        </div>
+
+        {/* The heading has to describe what actually came back: a listing in a
+            city of its own falls through to same-category matches elsewhere,
+            and "More in Guntur" over three Bangalore rooms would be a lie. */}
+        {related.length > 0 && (
+          <section className="lst-related">
+            <h2 className="lst-h2">
+              {related.every(l => l.city === item.city)
+                ? `More in ${item.city}`
+                : 'More like this'}
+            </h2>
+            <div className="exp-grid">
+              {related.map((l, i) => <ListingCard key={l.id} item={l} index={i} />)}
+            </div>
+          </section>
+        )}
+      </div>
+
+      {/* ── Lightbox ─────────────────────────────────────────────────────
+          The full gallery: arrows on desktop, swipe on touch, arrow keys
+          from the window, thumbnails to jump. Clicking the backdrop closes;
+          clicking the photo or the controls does not. */}
+      {lightbox && shots > 0 && (
+        <div
+          className="lst-lb"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${item.name} photos`}
+          onClick={() => setLightbox(false)}
+        >
+          <button
+            type="button"
+            className="lst-lb__close"
+            onClick={e => { e.stopPropagation(); setLightbox(false); }}
+            aria-label="Close photos"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6 L18 18 M18 6 L6 18" /></svg>
+          </button>
+
+          <div
+            className="lst-lb__stage"
+            onClick={e => e.stopPropagation()}
+            {...(shots > 1 ? swipe : {})}
+          >
+            <img
+              src={images[shot]}
+              alt={item.name}
+              decoding="async"
+              onError={e => { e.currentTarget.style.visibility = 'hidden'; }}
+            />
 
             {shots > 1 && (
               <>
@@ -406,7 +665,7 @@ export default function Listing() {
           </div>
 
           {shots > 1 && (
-            <div className="lst-shots">
+            <div className="lst-shots" onClick={e => e.stopPropagation()}>
               {images.map((src, i) => (
                 <button
                   key={src}
@@ -420,205 +679,8 @@ export default function Listing() {
               ))}
             </div>
           )}
-
-          <div className="lst-hero__head">
-            <h1 className="lst-title">{item.name}</h1>
-
-            <p className="lst-where">
-              <Icon name="pin" className="exp-ico" />
-              {item.place}
-            </p>
-
-            <div className="lst-scores">
-              <span className="lst-kind">
-                <Icon name={iconFor(item.category)} className="exp-ico" />
-                {item.category}
-              </span>
-              {/* Shown only where the panel actually recorded it. A listing
-                  with nothing on file is not "unverified" — it is unstated,
-                  and there is no honest badge for that. */}
-              {item.isVerified && (
-                <span className="lst-kind lst-kind--verified">
-                  <Icon name="verified" className="exp-ico" />
-                  Verified by Lampose
-                </span>
-              )}
-              {/* Only where the panel recorded it — hostels carry a type,
-                  PGs have no gender field and get no badge rather than a
-                  guessed one. */}
-              {item.gender && (
-                <span className="lst-kind">
-                  <Icon name="users" className="exp-ico" />
-                  {item.gender}
-                </span>
-              )}
-              {amenities.length > 0 && (
-                <span className="lst-kind">
-                  <Icon name="verified" className="exp-ico" />
-                  {amenities.length} facilities listed
-                </span>
-              )}
-            </div>
-
-            {description && (
-              <p className="lst-hero-desc">
-                {description}
-              </p>
-            )}
-          </div>
-        </header>
-
-        {/* ── Body ─────────────────────────────────────────────────────
-            One column. The booking rail that used to sit on the right held
-            rent, deposit and the owner's number — all facts about the
-            property, so they are rows in the table below rather than a second
-            card repeating them. */}
-        <div className="lst-main">
-          {description && (
-            <section className="lst-block reveal">
-              <h2 className="lst-h2">About this property</h2>
-              <p className="lst-desc-body">
-                {description}
-              </p>
-            </section>
-          )}
-
-          {/* Meals, from the two fields the panel actually collects. No
-              servings, timings or notes — those are not recorded, and a
-              plausible-looking invention would be read as a promise. */}
-          {item.meals && (
-            <section className="lst-block reveal">
-              <h2 className="lst-h2">Meals</h2>
-              <p className="lst-desc-body">
-                {item.meals.included
-                  ? <>Food is <strong>included in the rent</strong>{item.meals.foodType ? <> — {item.meals.foodType}</> : null}.</>
-                  : <>Meals are <strong>not included</strong> in the rent{item.meals.foodType ? <> ({item.meals.foodType} available)</> : null}.</>}
-              </p>
-            </section>
-          )}
-
-          {amenities.length > 0 && (
-            <section className="lst-block reveal">
-              <h2 className="lst-h2">What is included</h2>
-              {/* Six is enough to judge a place by; the rest are one tap away
-                  rather than a wall to scroll past. */}
-              <ul className="lst-amenities">
-                {(showAllAmenities ? amenities : amenities.slice(0, 6)).map(a => (
-                  <li key={a}>
-                    <Icon name="verified" className="exp-ico" />
-                    {a}
-                  </li>
-                ))}
-              </ul>
-              {amenities.length > 6 && (
-                <button
-                  className="xp-linkbtn lst-seeall"
-                  onClick={() => setShowAllAmenities(v => !v)}
-                >
-                  {showAllAmenities ? 'Show fewer' : `See all ${amenities.length}`}
-                </button>
-              )}
-            </section>
-          )}
-
-          <section className="lst-block reveal">
-            <h2 className="lst-h2">Property details</h2>
-            <dl className="lst-facts">
-              {facts.map(([k, v, big]) => (
-                <div key={k} className={big ? 'is-big' : undefined}>
-                  <dt className="exp-lbl">{k}</dt>
-                  <dd>{v}</dd>
-                </div>
-              ))}
-            </dl>
-
-            <div className="lst-actions">
-              {/* Once the owner has been asked, the button is gone: pressing it
-                  again would only ring the same phone about the same room. The
-                  old record stays until a new one replaces it, so cancelling
-                  the dialog cannot lose the answer already on screen. */}
-              {visit ? (
-                <VisitStatus request={visit} onAskAgain={() => setAskOpen(true)} />
-              ) : (
-                <>
-                  <StayIntentPicker listing={item} value={intent} onChange={setIntent} />
-
-                  {/* Consent, with the real pages behind it — both routes
-                      exist on this site, so neither link is a placeholder. */}
-                  {!item.simpleSharingPath && (
-                    <label className="lst-consent">
-                      <input
-                        type="checkbox"
-                        checked={intent.consented === true}
-                        onChange={e => setIntent(v => ({ ...v, consented: e.target.checked }))}
-                      />
-                      <span>
-                        I accept the <Link to="/privacy">Privacy Policy</Link> and{' '}
-                        <Link to="/terms">Terms and Conditions</Link>.
-                      </span>
-                    </label>
-                  )}
-
-                  {/* The bar restates what was chosen and what it costs, so
-                      nobody presses the button without seeing the number. */}
-                  <div className="lst-bar">
-                    <div className="lst-bar__sum">
-                      {quote ? (
-                        <>
-                          <strong>{rupees(quote.amount)}</strong>
-                          <span>{quote.unitLabel}</span>
-                          {quote.durationLabel && <em>· {quote.durationLabel}</em>}
-                        </>
-                      ) : (
-                        <span className="lst-bar__empty">Choose your stay to see the rate</span>
-                      )}
-                      {item.deposit ? (
-                        <span className="lst-bar__dep">Deposit {rupees(item.deposit)}</span>
-                      ) : null}
-                    </div>
-
-                    <button className="exp-book" disabled={!ready} onClick={() => setAskOpen(true)}>
-                      Request a visit
-                    </button>
-                  </div>
-
-                  {/* Pro-rated only where it is real: a long stay with a
-                      monthly rate and a chosen date. */}
-                  {quote?.prorated && !quote.prorated.full && (
-                    <p className="lst-prorate">
-                      First month is pro-rated to <strong>{rupees(quote.prorated.amount)}</strong>
-                      {' '}— {quote.prorated.daysCharged} of {quote.prorated.daysInMonth} days.
-                    </p>
-                  )}
-
-                  {!ready && missing && <p className="lst-sharing__hint">{missing}</p>}
-                </>
-              )}
-
-              <p className="lst-note">
-                Listed through the Lampose onboarding panel. Nothing is paid through
-                this site — arrange the visit with the owner directly.
-              </p>
-            </div>
-          </section>
         </div>
-
-        {/* The heading has to describe what actually came back: a listing in a
-            city of its own falls through to same-category matches elsewhere,
-            and "More in Guntur" over three Bangalore rooms would be a lie. */}
-        {related.length > 0 && (
-          <section className="lst-related">
-            <h2 className="lst-h2">
-              {related.every(l => l.city === item.city)
-                ? `More in ${item.city}`
-                : 'More like this'}
-            </h2>
-            <div className="exp-grid">
-              {related.map((l, i) => <ListingCard key={l.id} item={l} index={i} />)}
-            </div>
-          </section>
-        )}
-      </div>
+      )}
 
       {askOpen && (
         <VisitRequestDialog

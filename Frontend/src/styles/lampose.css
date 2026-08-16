@@ -8083,7 +8083,7 @@ footer {
 /* ══════════════════════════════════════════════════════════════════════════
    LISTING DETAIL — /explore/:id
 
-   One column on a phone. From 900px the content and the booking rail split,
+   One column on a phone. From 980px the content and the booking rail split,
    and the rail sticks. `--accent` is inherited from the exp-card--<category>
    class on the section, so the page tints itself the same way its card does.
    ══════════════════════════════════════════════════════════════════════════ */
@@ -8112,50 +8112,98 @@ footer {
   gap: 0.65rem;
 }
 
-/* ── Hero ───────────────────────────────────────────────────────────── */
-.lst-hero {
+/* ── Mosaic gallery ─────────────────────────────────────────────────────
+   Up to five photos in one frame: the big one carries the page, the small
+   ones say "there are more". The grid template is keyed to how many photos
+   the listing actually has, so two photos are two half-frames rather than
+   a big one beside an empty cell. Every tile opens the lightbox. */
+.lst-top {
   display: grid;
   gap: 1.25rem;
   margin-bottom: 2rem;
 }
-.lst-hero__art {
+.lst-mosaic {
   position: relative;
-  /* `width` must be explicit. With only `aspect-ratio` and a `max-height`,
-     an auto width resolves from the capped height — the frame came out
-     995px inside a 1220px column and sat narrower than the cards below it. */
   width: 100%;
-  aspect-ratio: 16 / 9;
-  /* 16:9 across a 1220px column is a 690px-tall picture that fills the screen
-     before a word of the listing is visible. The cap keeps the ratio on
-     narrow columns and takes the crop on wide ones. */
-  max-height: min(62vh, 560px);
+  height: min(56vh, 460px);
+  display: grid;
+  grid-template-columns: 1.85fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 10px;
   border-radius: var(--rl);
   overflow: hidden;
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
   box-shadow: var(--shadow);
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  padding: 1rem;
 }
-.lst-hero__art:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
+.lst-mosaic__ph {
+  position: relative;
+  padding: 0;
+  border: none;
+  overflow: hidden;
+  background: var(--bg2);
+  cursor: none;
 }
-
-/* One slide per photo, moved as a strip. Transform rather than a fade so the
-   direction of travel is visible. */
-.lst-track {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  transition: transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+.lst-mosaic__ph:first-child {
+  grid-row: 1 / -1;
 }
-.lst-track img {
-  flex: 0 0 100%;
+.lst-mosaic__ph img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lst-mosaic__ph:hover img {
+  transform: scale(1.04);
+}
+.lst-mosaic__ph:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+  z-index: 1;
+}
+
+/* Fewer photos, honest frames. */
+.lst-mosaic--1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.lst-mosaic--2 { grid-template-columns: 1.6fr 1fr; grid-template-rows: 1fr; }
+.lst-mosaic--3 { grid-template-columns: 1.85fr 1fr; }
+.lst-mosaic--4 { grid-template-columns: 1.85fr 1fr 1fr; }
+.lst-mosaic--4 .lst-mosaic__ph:nth-child(4) { grid-column: 2 / 4; }
+
+/* No photos on file: the category gradient the old hero fell back to. */
+.lst-mosaic--0 {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
+}
+
+.lst-mosaic__chips {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  z-index: 2;
+  display: flex;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+.lst-mosaic__all {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 2;
+  padding: 0.45rem 1rem;
+  border: none;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  font-weight: 700;
+  box-shadow: var(--shadow);
+  cursor: none;
+  transition: background 0.3s, transform 0.3s;
+}
+.lst-mosaic__all:hover {
+  background: #ffffff;
+  transform: translateY(-2px);
 }
 
 .lst-nav {
@@ -8182,7 +8230,7 @@ footer {
 }
 .lst-nav--back { left: 1rem; }
 .lst-nav--next { right: 1rem; }
-.lst-hero__art:hover .lst-nav,
+.lst-lb__stage:hover .lst-nav,
 .lst-nav:focus-visible {
   opacity: 1;
 }
@@ -8216,16 +8264,85 @@ footer {
   font-weight: 600;
   letter-spacing: 0.04em;
 }
-.lst-hero__head {
+.lst-head {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0.5rem;
 }
 
+/* ── Lightbox ───────────────────────────────────────────────────────────
+   The full gallery, over everything. The stage keeps the photo whole
+   (contain, not cover) — this is where someone judges the room, not a
+   crop to fill a frame. */
+.lst-lb {
+  position: fixed;
+  inset: 0;
+  z-index: 6000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 3.5rem 1.25rem 1.25rem;
+  background: rgba(13, 15, 14, 0.94);
+  animation: lstLbIn 0.25s ease both;
+}
+@keyframes lstLbIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.lst-lb__stage {
+  position: relative;
+  width: min(1100px, 100%);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lst-lb__stage img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--r);
+}
+.lst-lb__close {
+  position: absolute;
+  top: 1rem;
+  right: 1.25rem;
+  z-index: 2;
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  cursor: none;
+  transition: background 0.3s;
+}
+.lst-lb__close:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+.lst-lb__close svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
 /* Gallery strip. Owners upload up to a handful of photos through the panel;
-   the strip scrolls sideways rather than wrapping, so the hero keeps its
-   height on a phone. */
+   inside the lightbox the strip scrolls sideways rather than wrapping, so
+   the stage keeps its height. */
+.lst-lb .lst-shots {
+  flex: none;
+  max-width: 100%;
+  justify-content: safe center;
+}
 .lst-shots {
   display: flex;
   gap: 0.6rem;
@@ -8301,12 +8418,75 @@ footer {
   color: var(--accent);
 }
 
-/* ── Content ────────────────────────────────────────────────────────── */
+/* ── Content ────────────────────────────────────────────────────────────
+   One column on a phone: content first, the booking rail after it, where
+   the old inline flow sat. From 980px they sit side by side and the rail
+   sticks, so the price and the button follow the reader down the page. */
+.lst-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+@media (min-width: 980px) {
+  .lst-cols {
+    grid-template-columns: minmax(0, 1fr) 380px;
+    gap: 1.75rem;
+  }
+  .lst-rail {
+    position: sticky;
+    /* Clears the fixed site chrome, same offset the section pads for. */
+    top: 5.5rem;
+  }
+}
 .lst-main {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
   min-width: 0;
+}
+
+.lst-rail__card {
+  box-shadow: var(--shadow-lg);
+}
+.lst-rail__card .exp-book {
+  width: 100%;
+}
+.lst-rail__price {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-family: var(--font-body);
+}
+.lst-rail__price strong {
+  font-family: var(--font-head);
+  font-size: 1.9rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--ink);
+}
+.lst-rail__price span { font-size: 0.85rem; color: var(--ink-light); }
+.lst-rail__price em { font-style: normal; font-size: 0.85rem; color: var(--ink-mid); }
+.lst-rail__unpriced { font-size: 0.9rem; color: var(--ink-light); }
+.lst-rail__dep {
+  margin-top: 0.15rem;
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  color: var(--ink-ghost);
+}
+/* The price hands over to the picker. */
+.lst-rail__price + .si,
+.lst-rail__dep + .si {
+  margin-top: 1.15rem;
+  padding-top: 1.15rem;
+  border-top: 1px solid var(--border-l);
+}
+.lst-rail__card .lst-note {
+  margin-top: 1.1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-l);
 }
 .lst-block {
   background: var(--surface);
@@ -8345,74 +8525,35 @@ footer {
   color: var(--accent);
 }
 
+/* Label left, value right, a dashed rule per row — reads as a ledger, and
+   two columns of it fit the left column without the values drifting far
+   from their labels the way the old loose grid let them. */
 .lst-facts {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 1rem 1.5rem;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 1.75rem;
+}
+.lst-facts > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px dashed var(--border);
 }
 .lst-facts dt {
-  margin-bottom: 0.2rem;
+  flex: none;
 }
 .lst-facts dd {
   font-family: var(--font-head);
   font-size: 0.92rem;
   font-weight: 600;
   color: var(--ink);
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 
-/* The rent is why anyone opened the page, so it keeps the weight it had in
-   the booking card — it just does so as the first row of the table rather
-   than as a card of its own. It spans the row so the number is never
-   squeezed against the next field. */
-.lst-facts .is-big {
-  grid-column: 1 / -1;
-  padding-bottom: 0.9rem;
-  margin-bottom: 0.2rem;
-  border-bottom: 1px solid var(--border-l);
-}
-.lst-facts .is-big dd {
-  font-size: 1.9rem;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.1;
-}
-
-.lst-tel {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.32rem 0.8rem;
-  margin-top: 0.1rem;
-  border-radius: 100px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-family: var(--font-body);
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-decoration: none;
-  cursor: none;
-  transition: background 0.3s, color 0.3s;
-}
-.lst-tel:hover {
-  background: var(--accent);
-  color: #ffffff;
-}
-.exp-card--dormitory .lst-tel {
-  color: var(--ink);              /* that accent is the near-black */
-}
-
-.lst-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.85rem 1.25rem;
-  margin-top: 1.5rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--border-l);
-}
 .lst-note {
-  flex: 1;
-  min-width: 220px;
   font-size: 0.76rem;
   font-weight: 300;
   line-height: 1.6;
@@ -8429,8 +8570,11 @@ footer {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .lst-track {
+  .lst-mosaic__ph img {
     transition: none;
+  }
+  .lst-lb {
+    animation: none;
   }
 }
 
@@ -8438,16 +8582,37 @@ footer {
   #listing {
     padding-top: 6rem;
   }
-  .lst-hero__art {
-    aspect-ratio: 4 / 3;
-    max-height: none;             /* a phone column is narrow; let it be tall */
+  /* A five-tile mosaic across a phone is a contact sheet, not a gallery:
+     the big photo takes the full width, two small ones sit under it, and
+     anything past the third lives behind "View all". */
+  .lst-mosaic {
+    height: auto;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: none;
+    gap: 8px;
   }
+  .lst-mosaic__ph:first-child {
+    grid-row: auto;
+    grid-column: 1 / -1;
+    aspect-ratio: 16 / 10;
+  }
+  .lst-mosaic__ph {
+    aspect-ratio: 16 / 7;
+  }
+  .lst-mosaic__ph:nth-child(n + 4) {
+    display: none;
+  }
+  .lst-mosaic--4 .lst-mosaic__ph:nth-child(4) { grid-column: auto; }
+  .lst-mosaic--0 { min-height: 220px; }
   .lst-nav {
     width: 38px;
     height: 38px;
   }
   .lst-nav--back { left: 0.6rem; }
   .lst-nav--next { right: 0.6rem; }
+  .lst-lb {
+    padding: 3.25rem 0.75rem 0.9rem;
+  }
 }
 
 @media (max-width: 580px) {
@@ -8457,12 +8622,8 @@ footer {
   .lst-amenities {
     grid-template-columns: 1fr 1fr;
   }
-  .lst-actions .exp-book {
-    width: 100%;
-  }
   .lst-facts {
     grid-template-columns: 1fr;
-    gap: 0.85rem;
   }
   .lst-related {
     margin-top: 2rem;
@@ -8510,15 +8671,6 @@ footer {
 /* ══════════════════════════════════════════════════════════════════════════
    Listing Detail Description
    ══════════════════════════════════════════════════════════════════════════ */
-.lst-hero-desc {
-  margin-top: 0.88rem;
-  font-family: var(--font-body);
-  font-size: 1rem;
-  line-height: 1.6;
-  color: var(--ink-light);
-  max-width: 680px;
-}
-
 .lst-desc-body {
   font-family: var(--font-body);
   font-size: 1rem;
@@ -8954,13 +9106,6 @@ footer {
 }
 .exp-book:disabled:hover { background: var(--forest); transform: none; }
 
-/* Verification, shown only where the panel recorded it. */
-.lst-kind--verified {
-  color: var(--green);
-  background: var(--green-t);
-  border-color: var(--green-p);
-}
-
 @media (max-width: 480px) {
   .lst-sharing__opts { flex-direction: column; }
   .lst-share { width: 100%; flex-direction: row; align-items: baseline; justify-content: space-between; }
@@ -8970,7 +9115,11 @@ footer {
    The six answers that must be given before the owner is asked anything.
    Each group reuses the .lst-share chip so a room, a stay track and a date
    all read as the same kind of choice. */
-.si { display: flex; flex-direction: column; gap: 1.35rem; margin-bottom: 1.2rem; }
+/* The picker is a <section>, so the global `section { padding: 4rem 3.5rem }`
+   element rule reaches it — inside the rail card that read as a huge dead
+   zone under the chips and a 56px indent on every group. Zeroed here; the
+   divider rule below adds back the only padding the rail wants. */
+.si { display: flex; flex-direction: column; gap: 1.35rem; margin-bottom: 1.2rem; padding: 0; }
 .si-group { display: flex; flex-direction: column; gap: 0.55rem; }
 .si-group--date {
   display: grid;
@@ -8984,25 +9133,40 @@ footer {
 .si-field { display: flex; flex-direction: column; gap: 0.4rem; }
 .si-hint { font-family: var(--font-body); font-size: 0.76rem; color: var(--ink-ghost); }
 
+/* Filled fields, not outlined ones: they sit on the white rail card, so a
+   soft grey fill separates them from the ground without another border
+   fighting the option chips. The border exists but stays invisible until
+   the field is addressed — hover tints it, focus turns it green and lifts
+   the field back to white so the caret has contrast. */
 .si-date,
 .si-select {
   width: 100%;
-  padding: 0.68rem 0.85rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  max-width: none;
+  padding: 0.78rem 1rem;
+  background: var(--bg);
+  border: 1.5px solid transparent;
   border-radius: 12px;
   font-family: var(--font-body);
   font-size: 0.92rem;
+  font-weight: 500;
   color: var(--ink);
   cursor: none;
+  transition: background 0.25s, border-color 0.25s, box-shadow 0.25s;
+}
+.si-date:hover,
+.si-select:hover {
+  border-color: var(--green-p);
 }
 .si-date:focus,
 .si-select:focus {
   outline: none;
+  background: var(--surface);
   border-color: var(--green);
   box-shadow: 0 0 0 3px var(--green-t);
 }
-.si-select { max-width: 260px; }
+.si-select {
+  padding-right: 2.4rem;          /* room for the chevron it inherits */
+}
 
 .si-flex { border: none; padding: 0; margin: 0; }
 .si-flex legend { padding: 0; margin-bottom: 0.4rem; }
@@ -9049,41 +9213,6 @@ footer {
 }
 .lst-consent a { color: var(--green); text-decoration: underline; text-underline-offset: 3px; }
 
-/* ── Action bar ─────────────────────────────────────────────────────── */
-.lst-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1rem 1.15rem;
-  background: var(--surface2);
-  border: 1px solid var(--border-l);
-  border-radius: 14px;
-}
-.lst-bar__sum {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.4rem;
-  font-family: var(--font-body);
-}
-.lst-bar__sum strong {
-  font-family: var(--font-head);
-  font-size: 1.45rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--ink);
-}
-.lst-bar__sum span { font-size: 0.82rem; color: var(--ink-light); }
-.lst-bar__sum em { font-style: normal; font-size: 0.85rem; color: var(--ink-mid); }
-.lst-bar__empty { font-size: 0.88rem; color: var(--ink-light); }
-.lst-bar__dep {
-  flex-basis: 100%;
-  font-size: 0.78rem !important;
-  color: var(--ink-ghost) !important;
-}
-
 .lst-prorate {
   margin-top: 0.7rem;
   font-family: var(--font-body);
@@ -9095,7 +9224,5 @@ footer {
 .lst-seeall { margin-top: 0.85rem; display: inline-block; }
 
 @media (max-width: 580px) {
-  .lst-bar { flex-direction: column; align-items: stretch; }
-  .lst-bar .exp-book { width: 100%; }
   .si-select { max-width: none; }
 }
