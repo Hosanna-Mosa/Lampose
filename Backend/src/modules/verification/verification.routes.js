@@ -120,7 +120,7 @@ router.get('/review/:token', async (req, res) => {
  */
 router.get('/', async (req, res) => {
   try {
-    const { search, status } = req.query;
+    const { search, status, employeeEmail } = req.query;
     const query = {};
 
     if (search) {
@@ -133,6 +133,15 @@ router.get('/', async (req, res) => {
 
     if (status && status !== 'All') {
       query.status = status;
+    }
+
+    /* The onboarding employee is never a top-level field here — it only ever
+       lives inside the snapshot taken when the request was created, because
+       that is the one copy that survives the listing being edited or deleted
+       later. See property.model.js's header on why properties itself can't
+       answer "who onboarded this" for anything that never got verified. */
+    if (employeeEmail) {
+      query['pendingPropertyData.employeeEmail'] = String(employeeEmail).trim();
     }
 
     const items = await VerificationRequest.find(query)
