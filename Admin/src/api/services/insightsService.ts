@@ -1,10 +1,12 @@
-import { api } from '../apiCaller';
+import { api, unwrapList } from '../apiCaller';
 import type {
   ActivityEntity,
   ApiResponse,
   HealthEntity,
+  OnboarderEntity,
   StatsEntity,
   SystemEntity,
+  VerifierEntity,
 } from '../types';
 
 /**
@@ -25,6 +27,19 @@ export const insightsService = {
   async getSystem(): Promise<ApiResponse<SystemEntity | null>> {
     const res = await api.get<SystemEntity>('/admin/system');
     return res.success ? res : { ...res, data: null };
+  },
+
+  /** Every onboarding employee's funnel — total / verified / pending / rejected. */
+  async getOnboarders(params?: { search?: string }): Promise<ApiResponse<OnboarderEntity[]>> {
+    const res = await api.get<any>('/admin/onboarders', params);
+    return res.success ? { ...res, data: unwrapList(res.data) } : { ...res, data: [] };
+  },
+
+  /** The verification team's workload — how many requests each verifier was
+   *  handed, and how those turned out. */
+  async getVerifiers(): Promise<ApiResponse<VerifierEntity[]>> {
+    const res = await api.get<any>('/admin/verifiers');
+    return res.success ? { ...res, data: unwrapList(res.data) } : { ...res, data: [] };
   },
 
   /**
