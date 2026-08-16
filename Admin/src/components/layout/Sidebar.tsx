@@ -1,14 +1,21 @@
 import React from 'react';
 import {
   BarChart3,
+  Briefcase,
   Building2,
+  CalendarCheck,
   ChevronsLeft,
+  Globe,
   KeyRound,
   LayoutDashboard,
+  ListChecks,
   LogOut,
+  Package,
+  Radar,
   Server,
   Settings,
   ShieldCheck,
+  UserCog,
   Users,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -24,6 +31,9 @@ export interface NavItem {
 interface NavGroup {
   heading: string;
   items: NavItem[];
+  /** Rendered only for that role — the backend enforces this independently;
+   *  hiding it here is just so the link isn't shown where it would 403. */
+  restrictedTo?: 'Super Admin';
 }
 
 export const NAV_GROUPS: NavGroup[] = [
@@ -32,6 +42,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+      { id: 'web-analytics', label: 'Web Analytics', icon: Globe },
     ],
   },
   {
@@ -39,8 +50,20 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'properties', label: 'Properties', icon: Building2 },
       { id: 'verifications', label: 'Verifications', icon: ShieldCheck },
+      { id: 'onboarding-team', label: 'Onboarding Team', icon: Briefcase },
       { id: 'permissions', label: 'Permissions', icon: KeyRound },
       { id: 'users', label: 'Administrators', icon: Users },
+    ],
+  },
+  {
+    heading: 'Database',
+    restrictedTo: 'Super Admin',
+    items: [
+      { id: 'visit-requests', label: 'Visit Requests', icon: CalendarCheck },
+      { id: 'scriper-users', label: 'Leads Panel Team', icon: UserCog },
+      { id: 'scraper-jobs', label: 'Scrape Jobs', icon: Radar },
+      { id: 'scraper-leads', label: 'Scraped Leads', icon: ListChecks },
+      { id: 'products', label: 'Products', icon: Package },
     ],
   },
   {
@@ -122,7 +145,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-3 px-2.5 space-y-5">
-          {NAV_GROUPS.map((group) => (
+          {NAV_GROUPS.filter((group) => !group.restrictedTo || group.restrictedTo === user?.role).map((group) => (
             <div key={group.heading}>
               {!collapsed && (
                 <p className="text-micro uppercase text-ink-3 px-2.5 mb-1.5">{group.heading}</p>

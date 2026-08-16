@@ -49,6 +49,73 @@ const authorizeEmployeeWrite = async (req, action, propertyId) => {
   return { allowed: true, grant, employeeEmail };
 };
 
+/**
+ * A listing that hasn't been verified yet is not a document in `properties` —
+ * it exists only as `pendingPropertyData`, a snapshot on its VerificationRequest
+ * (see the POST handler below and property.model.js's header). GET / merges
+ * both kinds into one list so the admin console can show them side by side —
+ * which means an admin editing or deleting a card there has no way to know,
+ * or reason to care, which kind of id they're holding. PUT/DELETE fall back
+ * to these whenever the id isn't a real Property document, so both kinds
+ * work from the one set of buttons instead of a confusing 404.
+ */
+const PENDING_STATUSES = ['sent', 'pending', 'failed'];
+
+/** Fields the onboarding form and the admin console's edit form send. Kept
+ *  to this list so a caller can't use the pending path to smuggle in
+ *  `isVerified` or the pre-generated `_id` itself. */
+const EDITABLE_PROPERTY_FIELDS = [
+  'name', 'place', 'ownerName', 'ownerMobile', 'category', 'employeeEmail',
+  'stayType', 'shortStayDuration', 'dailyPrice', 'longStayDuration', 'monthlyPrice',
+  'rent', 'deposit', 'address', 'description', 'imageUrl', 'images', 'amenities', 'categoryDetails',
+];
+
+const findPendingVerification = (id) => {
+  if (!mongoose.Types.ObjectId.isValid(id)) return null;
+  return VerificationRequest.findOne({
+    'pendingPropertyData._id': new mongoose.Types.ObjectId(id),
+    status: { $in: PENDING_STATUSES },
+  });
+};
+
+/** Applies `changes` to the pending snapshot in place of a real Property
+ *  document. Returns the merged snapshot, shaped like a GET /properties row,
+ *  or null when `id` isn't a pending listing either. */
+const updatePendingProperty = async (id, changes) => {
+  const verification = await findPendingVerification(id);
+  if (!verification || !verification.pendingPropertyData) return null;
+
+  const merged = { ...verification.pendingPropertyData };
+  for (const field of EDITABLE_PROPERTY_FIELDS) {
+    if (changes[field] !== undefined) merged[field] = changes[field];
+  }
+
+  verification.pendingPropertyData = merged;
+  verification.markModified('pendingPropertyData'); // Mixed field — whole-object reassignment needs this to persist.
+  await verification.save();
+
+  return { ...merged, verificationStatus: 'pending', isVerified: false };
+};
+
+/** "Deleting" a pending listing means the onboarding request it lives inside
+ *  never gets to happen, so this cancels the VerificationRequest itself
+ *  rather than trying to delete a Property document that was never created.
+ *  Returns the snapshot that was cancelled, or null when `id` isn't a
+ *  pending listing either. */
+const cancelPendingProperty = async (id) => {
+  const verification = await findPendingVerification(id);
+  if (!verification || !verification.pendingPropertyData) return null;
+  await verification.deleteOne();
+  return { ...verification.pendingPropertyData, verificationStatus: 'rejected', isVerified: false };
+};
+
+/** The in-memory failover's equivalent of findPendingVerification — pending
+ *  listings live in the process-local array, not a VerificationRequest. */
+const findPendingInMemoryIndex = (id) => {
+  global.pendingInMemoryProperties = global.pendingInMemoryProperties || [];
+  return global.pendingInMemoryProperties.findIndex((p) => String(p._id) === String(id));
+};
+
 // @route   POST /api/properties/upload-image
 // @desc    Upload single image to Cloudinary and return secure URL
 router.post('/upload-image', upload.single('image'), async (req, res) => {
@@ -522,18 +589,36 @@ router.put('/:id', async (req, res) => {
 
     if (getIsInMemory()) {
       const index = inMemoryStore.findIndex(p => p._id === id);
-      if (index === -1) {
+      if (index !== -1) {
+        inMemoryStore[index] = { ...inMemoryStore[index], ...req.body, updatedAt: new Date().toISOString() };
+        console.log(`   ✅ [In-Memory Updated] Property ID: ${id}`);
+        if (gate.grant) await permissionStore.markUsed(gate.grant._id);
+        return res.json({ success: true, message: 'Property updated successfully', data: inMemoryStore[index] });
+      }
+
+      const pendingIndex = findPendingInMemoryIndex(id);
+      if (pendingIndex === -1) {
         return res.status(404).json({ success: false, error: 'Property not found' });
       }
-      inMemoryStore[index] = { ...inMemoryStore[index], ...req.body, updatedAt: new Date().toISOString() };
-      console.log(`   ✅ [In-Memory Updated] Property ID: ${id}`);
+      const merged = { ...global.pendingInMemoryProperties[pendingIndex] };
+      for (const field of EDITABLE_PROPERTY_FIELDS) {
+        if (req.body[field] !== undefined) merged[field] = req.body[field];
+      }
+      global.pendingInMemoryProperties[pendingIndex] = merged;
+      console.log(`   ✅ [In-Memory Updated] Pending property ID: ${id}`);
       if (gate.grant) await permissionStore.markUsed(gate.grant._id);
-      return res.json({ success: true, message: 'Property updated successfully', data: inMemoryStore[index] });
+      return res.json({ success: true, message: 'Property updated successfully', data: merged });
     }
 
     const property = await Property.findByIdAndUpdate(id, req.body, { new: true, runValidators: true });
     if (!property) {
-      return res.status(404).json({ success: false, error: 'Property not found' });
+      const pendingUpdate = await updatePendingProperty(id, req.body);
+      if (!pendingUpdate) {
+        return res.status(404).json({ success: false, error: 'Property not found' });
+      }
+      console.log(`   ✅ [MongoDB Updated] Pending property ID: ${id}`);
+      if (gate.grant) await permissionStore.markUsed(gate.grant._id);
+      return res.json({ success: true, message: 'Property updated successfully', data: pendingUpdate });
     }
     console.log(`   ✅ [MongoDB Updated] Property ID: ${id}`);
     if (gate.grant) await permissionStore.markUsed(gate.grant._id);
@@ -559,18 +644,32 @@ router.delete('/:id', async (req, res) => {
 
     if (getIsInMemory()) {
       const index = inMemoryStore.findIndex(p => p._id === id);
-      if (index === -1) {
+      if (index !== -1) {
+        const deleted = inMemoryStore.splice(index, 1);
+        console.log(`   ✅ [In-Memory Deleted] Property ID: ${id} ("${deleted[0].name}")`);
+        if (gate.grant) await permissionStore.markUsed(gate.grant._id);
+        return res.json({ success: true, message: 'Property deleted successfully', data: deleted[0] });
+      }
+
+      const pendingIndex = findPendingInMemoryIndex(id);
+      if (pendingIndex === -1) {
         return res.status(404).json({ success: false, error: 'Property not found' });
       }
-      const deleted = inMemoryStore.splice(index, 1);
-      console.log(`   ✅ [In-Memory Deleted] Property ID: ${id} ("${deleted[0].name}")`);
+      const [cancelled] = global.pendingInMemoryProperties.splice(pendingIndex, 1);
+      console.log(`   ✅ [In-Memory Deleted] Pending property ID: ${id} ("${cancelled.name}")`);
       if (gate.grant) await permissionStore.markUsed(gate.grant._id);
-      return res.json({ success: true, message: 'Property deleted successfully', data: deleted[0] });
+      return res.json({ success: true, message: 'Property deleted successfully', data: cancelled });
     }
 
     const property = await Property.findByIdAndDelete(id);
     if (!property) {
-      return res.status(404).json({ success: false, error: 'Property not found' });
+      const cancelled = await cancelPendingProperty(id);
+      if (!cancelled) {
+        return res.status(404).json({ success: false, error: 'Property not found' });
+      }
+      console.log(`   ✅ [MongoDB Deleted] Pending property ID: ${id} ("${cancelled.name}")`);
+      if (gate.grant) await permissionStore.markUsed(gate.grant._id);
+      return res.json({ success: true, message: 'Property deleted successfully', data: cancelled });
     }
     console.log(`   ✅ [MongoDB Deleted] Property ID: ${id} ("${property.name}")`);
     if (gate.grant) await permissionStore.markUsed(gate.grant._id);

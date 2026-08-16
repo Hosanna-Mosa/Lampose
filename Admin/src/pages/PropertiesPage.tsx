@@ -2,10 +2,12 @@ import React, { useMemo, useState } from 'react';
 import {
   Building2,
   Calendar,
+  Hourglass,
   ImageOff,
   LayoutGrid,
   List,
   MapPin,
+  Pencil,
   Phone,
   Plus,
   RefreshCw,
@@ -84,6 +86,163 @@ const Thumb: React.FC<{ property: PropertyEntity; className?: string }> = ({ pro
   );
 };
 
+/* ── Category details ─────────────────────────────────────────────────────
+   `categoryDetails` is `Mixed` in property.model.js — its shape depends on
+   `category` and isn't validated, so it's read and edited generically rather
+   than through a form that would have to guess a schema. The known keys
+   (documented in Backend/src/modules/listings/sharing.util.js) get a
+   friendly label and layout below; anything else still shows, just less
+   dressed up, so nothing the onboarding app sends is ever hidden. */
+
+const KNOWN_DETAIL_KEYS = new Set([
+  'sharingTypes', 'roomTypes', 'bedType', 'roomType', 'sharingPrices',
+  'foodIncluded', 'foodType', 'curfewTime', 'hostelType', 'rateType',
+]);
+
+const humanizeKey = (key: string): string =>
+  key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
+
+interface DetailRow {
+  key: string;
+  label: string;
+  value: React.ReactNode;
+}
+
+/** Read-only, category-aware rendering of `categoryDetails` for the detail drawer. */
+const describeCategoryDetails = (details: Record<string, unknown>): DetailRow[] => {
+  const rows: DetailRow[] = [];
+
+  const sharingList = details.sharingTypes ?? details.roomTypes;
+  if (Array.isArray(sharingList) && sharingList.length) {
+    rows.push({
+      key: details.sharingTypes ? 'sharingTypes' : 'roomTypes',
+      label: details.sharingTypes ? 'Sharing types' : 'Room types',
+      value: sharingList.join(', '),
+    });
+  }
+  if (typeof details.bedType === 'string' && details.bedType) {
+    rows.push({ key: 'bedType', label: 'Bed type', value: details.bedType });
+  }
+  if (typeof details.roomType === 'string' && details.roomType) {
+    rows.push({ key: 'roomType', label: 'Room type', value: details.roomType });
+  }
+
+  const prices = details.sharingPrices;
+  if (prices && typeof prices === 'object' && !Array.isArray(prices) && Object.keys(prices).length) {
+    rows.push({
+      key: 'sharingPrices',
+      label: 'Pricing by option',
+      value: (
+        <div className="space-y-1">
+          {Object.entries(prices as Record<string, unknown>).map(([label, price]) => (
+            <div key={label} className="flex items-center justify-between gap-3">
+              <span className="text-ink">{label}</span>
+              <span className="tabular">{rupees(Number(price) || 0)}</span>
+            </div>
+          ))}
+        </div>
+      ),
+    });
+  }
+
+  if (details.foodIncluded !== undefined && details.foodIncluded !== null) {
+    rows.push({ key: 'foodIncluded', label: 'Food included', value: details.foodIncluded ? 'Yes' : 'No' });
+  }
+  if (typeof details.foodType === 'string' && details.foodType) {
+    rows.push({ key: 'foodType', label: 'Food type', value: details.foodType });
+  }
+  if (typeof details.curfewTime === 'string' && details.curfewTime) {
+    rows.push({ key: 'curfewTime', label: 'Curfew', value: details.curfewTime });
+  }
+  if (typeof details.hostelType === 'string' && details.hostelType) {
+    rows.push({ key: 'hostelType', label: 'Gender / hostel type', value: details.hostelType });
+  }
+  if (typeof details.rateType === 'string' && details.rateType) {
+    rows.push({ key: 'rateType', label: 'Rate type', value: details.rateType });
+  }
+
+  for (const [key, value] of Object.entries(details)) {
+    if (KNOWN_DETAIL_KEYS.has(key) || value === undefined || value === null || value === '') continue;
+    rows.push({
+      key,
+      label: humanizeKey(key),
+      value: typeof value === 'object' ? JSON.stringify(value) : String(value),
+    });
+  }
+
+  return rows;
+};
+
+interface KVRow {
+  key: string;
+  value: string;
+}
+
+/** `categoryDetails` (or any plain object) → editable rows. Non-string values
+ *  are shown as their JSON so an editor round-trips numbers/arrays/objects
+ *  unchanged when nothing about that row is touched. */
+const objectToRows = (obj: Record<string, unknown>): KVRow[] =>
+  Object.entries(obj || {}).map(([key, value]) => ({
+    key,
+    value: typeof value === 'string' ? value : JSON.stringify(value),
+  }));
+
+/** The inverse of objectToRows: each value is parsed as JSON when it is
+ *  valid JSON (so "8000" becomes 8000, "true" becomes true, and
+ *  '["Single","2 Sharing"]' becomes an array) and kept as plain text
+ *  otherwise. Blank keys are dropped. */
+const rowsToObject = (rows: KVRow[]): Record<string, unknown> => {
+  const obj: Record<string, unknown> = {};
+  for (const { key, value } of rows) {
+    const k = key.trim();
+    if (!k) continue;
+    if (value.trim() === '') {
+      obj[k] = '';
+      continue;
+    }
+    try {
+      obj[k] = JSON.parse(value);
+    } catch {
+      obj[k] = value;
+    }
+  }
+  return obj;
+};
+
+/** Generic editor for a schema-less object — every field on `categoryDetails`
+ *  the onboarding app might send, without this console having to know its
+ *  shape in advance. */
+const KeyValueEditor: React.FC<{ rows: KVRow[]; onChange: (rows: KVRow[]) => void }> = ({ rows, onChange }) => {
+  const update = (i: number, patch: Partial<KVRow>) =>
+    onChange(rows.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
+  const remove = (i: number) => onChange(rows.filter((_, idx) => idx !== i));
+
+  return (
+    <div className="space-y-2">
+      {rows.map((row, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <Input
+            placeholder="key"
+            value={row.key}
+            onChange={(e) => update(i, { key: e.target.value })}
+            className="w-2/5 font-mono text-sm"
+          />
+          <Input
+            placeholder="value"
+            value={row.value}
+            onChange={(e) => update(i, { value: e.target.value })}
+            className="flex-1 font-mono text-sm"
+          />
+          <IconButton icon={Trash2} label={`Remove ${row.key || 'field'}`} tone="danger" onClick={() => remove(i)} />
+        </div>
+      ))}
+      <Button type="button" size="sm" variant="secondary" icon={Plus} onClick={() => onChange([...rows, { key: '', value: '' }])}>
+        Add field
+      </Button>
+    </div>
+  );
+};
+
 export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
   const [category, setCategory] = useState('All');
   const [stayType, setStayType] = useState('All');
@@ -96,6 +255,10 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const [editing, setEditing] = useState<PropertyEntity | null>(null);
+  const [editForm, setEditForm] = useState<typeof EMPTY_FORM & { description: string } | null>(null);
+  const [editDetailRows, setEditDetailRows] = useState<KVRow[]>([]);
 
   const { data, loading, error, refreshing, reload } = useFetch(
     () =>
@@ -154,7 +317,12 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
     setDeleting(false);
 
     if (res.success) {
-      setToast({ tone: 'good', message: `“${pendingDelete.name}” deleted.` });
+      setToast({
+        tone: 'good',
+        message: pendingDelete.isVerified
+          ? `“${pendingDelete.name}” deleted.`
+          : `Onboarding request for “${pendingDelete.name}” cancelled.`,
+      });
       if (selected?.id === pendingDelete.id) setSelected(null);
       setPendingDelete(null);
       reload();
@@ -166,6 +334,59 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
 
   const setField = (key: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const openEdit = (p: PropertyEntity) => {
+    setEditing(p);
+    setEditForm({
+      name: p.name,
+      place: p.place,
+      address: p.address,
+      category: p.category,
+      ownerName: p.ownerName,
+      ownerMobile: p.ownerMobile,
+      rent: String(p.rent),
+      deposit: String(p.deposit),
+      stayType: p.stayType,
+      description: p.description,
+    });
+    setEditDetailRows(objectToRows(p.categoryDetails));
+  };
+
+  const setEditField =
+    (key: keyof typeof EMPTY_FORM | 'description') => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+      setEditForm((f) => f && { ...f, [key]: e.target.value });
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editing || !editForm) return;
+    setSaving(true);
+
+    const res = await propertyService.updateProperty(editing.id, {
+      name: editForm.name.trim(),
+      place: editForm.place.trim(),
+      address: editForm.address.trim(),
+      category: editForm.category,
+      stayType: editForm.stayType,
+      ownerName: editForm.ownerName.trim(),
+      ownerMobile: editForm.ownerMobile.trim(),
+      rent: Number(editForm.rent) || 0,
+      deposit: Number(editForm.deposit) || 0,
+      description: editForm.description.trim(),
+      categoryDetails: rowsToObject(editDetailRows),
+    });
+
+    setSaving(false);
+
+    if (res.success) {
+      setToast({ tone: 'good', message: `"${editForm.name}" updated.` });
+      if (selected?.id === editing.id) setSelected(res.data);
+      setEditing(null);
+      setEditForm(null);
+      reload();
+    } else {
+      setToast({ tone: 'crit', message: res.message || 'Update failed.' });
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -335,6 +556,12 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                   {p.place || 'Location not recorded'}
                 </p>
 
+                {!p.isVerified && (
+                  <Badge tone="warn" icon={Hourglass} className="mt-2 self-start">
+                    Awaiting verification
+                  </Badge>
+                )}
+
                 <div className="mt-3 pt-3 border-t border-line flex items-end justify-between gap-3">
                   <div>
                     <p className="text-micro uppercase text-ink-3">Monthly rent</p>
@@ -342,6 +569,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                   </div>
                   <div className="flex items-center gap-1">
                     <span className="text-label text-ink-3 tabular mr-1">{formatDate(p.createdAt)}</span>
+                    <IconButton icon={Pencil} label={`Edit ${p.name}`} onClick={() => openEdit(p)} />
                     <IconButton
                       icon={Trash2}
                       label={`Delete ${p.name}`}
@@ -387,7 +615,14 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                     </button>
                   </Td>
                   <Td>
-                    <Badge tone="neutral">{p.category}</Badge>
+                    <div className="flex flex-col items-start gap-1">
+                      <Badge tone="neutral">{p.category}</Badge>
+                      {!p.isVerified && (
+                        <Badge tone="warn" icon={Hourglass}>
+                          Awaiting verification
+                        </Badge>
+                      )}
+                    </div>
                   </Td>
                   <Td>
                     <span className="block text-sm text-ink truncate max-w-40">{p.ownerName || '—'}</span>
@@ -398,12 +633,15 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                   <Td className="text-right text-ink tabular">{rupees(p.rent)}</Td>
                   <Td className="tabular">{formatDate(p.createdAt)}</Td>
                   <Td className="text-right">
-                    <IconButton
-                      icon={Trash2}
-                      label={`Delete ${p.name}`}
-                      tone="danger"
-                      onClick={() => setPendingDelete(p)}
-                    />
+                    <div className="flex items-center justify-end gap-0.5">
+                      <IconButton icon={Pencil} label={`Edit ${p.name}`} onClick={() => openEdit(p)} />
+                      <IconButton
+                        icon={Trash2}
+                        label={`Delete ${p.name}`}
+                        tone="danger"
+                        onClick={() => setPendingDelete(p)}
+                      />
+                    </div>
                   </Td>
                 </Tr>
               ))}
@@ -428,10 +666,24 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
             <div className="h-14 px-4 border-b border-line flex items-center justify-between gap-3 shrink-0">
               <div className="min-w-0">
                 <h2 className="text-section text-ink truncate">{selected.name}</h2>
-                <p className="text-label text-ink-3">{selected.category}</p>
+                <p className="text-label text-ink-3 flex items-center gap-1.5">
+                  {selected.category}
+                  {!selected.isVerified && (
+                    <Badge tone="warn" icon={Hourglass}>
+                      Awaiting verification
+                    </Badge>
+                  )}
+                </p>
               </div>
               <IconButton icon={X} label="Close" onClick={() => setSelected(null)} />
             </div>
+
+            {!selected.isVerified && (
+              <p className="px-4 pt-3 text-label text-ink-3 leading-relaxed">
+                Not yet a live listing — this is a snapshot from an onboarding request still awaiting owner or
+                verifier confirmation on WhatsApp. Editing or deleting it updates or cancels that request.
+              </p>
+            )}
 
             <div className="flex-1 overflow-y-auto">
               {selected.images.length > 0 && (
@@ -489,6 +741,29 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                   </section>
                 )}
 
+                {selected.description && (
+                  <section>
+                    <h3 className="text-micro uppercase text-ink-3 mb-1">Description</h3>
+                    <p className="text-sm text-ink-2 leading-relaxed whitespace-pre-wrap">
+                      {selected.description}
+                    </p>
+                  </section>
+                )}
+
+                {(() => {
+                  const detailRows = describeCategoryDetails(selected.categoryDetails);
+                  return detailRows.length > 0 ? (
+                    <section>
+                      <h3 className="text-micro uppercase text-ink-3 mb-1">
+                        {selected.category} details
+                      </h3>
+                      {detailRows.map((row) => (
+                        <DataRow key={row.key} label={row.label} value={row.value} />
+                      ))}
+                    </section>
+                  ) : null;
+                })()}
+
                 <section>
                   <h3 className="text-micro uppercase text-ink-3 mb-1">Record</h3>
                   <DataRow label="Onboarded by" value={selected.employeeEmail || 'Not recorded'} />
@@ -499,7 +774,10 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
               </div>
             </div>
 
-            <div className="p-3 border-t border-line flex justify-end shrink-0">
+            <div className="p-3 border-t border-line flex justify-between gap-2 shrink-0">
+              <Button variant="secondary" icon={Pencil} onClick={() => openEdit(selected)}>
+                Edit
+              </Button>
               <Button variant="danger" icon={Trash2} onClick={() => setPendingDelete(selected)}>
                 Delete property
               </Button>
@@ -609,6 +887,99 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
         </form>
       </Modal>
 
+      {/* Edit */}
+      <Modal
+        open={!!editing && !!editForm}
+        onClose={() => {
+          setEditing(null);
+          setEditForm(null);
+        }}
+        title={`Edit ${editing?.name ?? ''}`}
+        description="Updates the document in the properties collection."
+        size="lg"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setEditing(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" form="edit-property" type="submit" loading={saving}>
+              Save changes
+            </Button>
+          </>
+        }
+      >
+        {editForm && (
+          <form id="edit-property" onSubmit={handleUpdate} className="space-y-4">
+            <Field label="Property name" required>
+              <Input required value={editForm.name} onChange={setEditField('name')} />
+            </Field>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Category" required>
+                <Select value={editForm.category} onChange={setEditField('category')}>
+                  {PROPERTY_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Stay type">
+                <Select value={editForm.stayType} onChange={setEditField('stayType')}>
+                  {STAY_TYPES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+
+            <Field label="Place" required>
+              <Input required value={editForm.place} onChange={setEditField('place')} />
+            </Field>
+
+            <Field label="Full address">
+              <Input value={editForm.address} onChange={setEditField('address')} />
+            </Field>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Owner name" required>
+                <Input required value={editForm.ownerName} onChange={setEditField('ownerName')} />
+              </Field>
+              <Field label="Owner mobile" required>
+                <Input required value={editForm.ownerMobile} onChange={setEditField('ownerMobile')} className="font-mono" />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Monthly rent (₹)" required>
+                <Input required type="number" min="0" value={editForm.rent} onChange={setEditField('rent')} className="tabular" />
+              </Field>
+              <Field label="Deposit (₹)">
+                <Input type="number" min="0" value={editForm.deposit} onChange={setEditField('deposit')} className="tabular" />
+              </Field>
+            </div>
+
+            <Field label="Description" hint="Free text shown to whoever reads this listing's full detail.">
+              <textarea
+                value={editForm.description}
+                onChange={setEditField('description')}
+                rows={3}
+                className="field min-h-20 resize-y"
+              />
+            </Field>
+
+            <Field
+              label={`${editForm.category} details`}
+              hint='Schema-less by design — values are parsed as JSON when possible (8000, true, ["Single","2 Sharing"]), otherwise kept as plain text.'
+            >
+              <KeyValueEditor rows={editDetailRows} onChange={setEditDetailRows} />
+            </Field>
+          </form>
+        )}
+      </Modal>
+
       {/* Delete confirmation */}
       <Modal
         open={!!pendingDelete}
@@ -627,8 +998,17 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
         }
       >
         <p className="text-body text-ink-2">
-          “<span className="text-ink font-medium">{pendingDelete?.name}</span>” will be removed from the
-          properties collection. This cannot be undone.
+          {pendingDelete?.isVerified ? (
+            <>
+              “<span className="text-ink font-medium">{pendingDelete?.name}</span>” will be removed from the
+              properties collection. This cannot be undone.
+            </>
+          ) : (
+            <>
+              “<span className="text-ink font-medium">{pendingDelete?.name}</span>” hasn't been verified yet — this
+              cancels its onboarding request instead of deleting a live listing. This cannot be undone.
+            </>
+          )}
         </p>
         {pendingDelete && (
           <div className="mt-3 space-y-1">

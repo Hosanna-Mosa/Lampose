@@ -182,6 +182,173 @@ router.get('/stats', async (req, res) => {
   }
 });
 
+/* Buckets every VerificationRequest.status value into the four outcomes the
+   admin console shows per employee. Kept as one place so /onboarders and any
+   future caller can't drift from what the Verifications page already means
+   by "pending" / "rejected" (see Admin/src/lib/domain.ts's VERIFICATION_META,
+   which this mirrors). */
+const ONBOARD_BUCKETS = {
+  verified: ['verified'],
+  pending: ['pending', 'sent', 'delivered', 'owner_approved'],
+  rejected: ['rejected', 'verifier_rejected'],
+  failed: ['failed'],
+  expired: ['expired'],
+};
+
+const bucketCond = (statuses) => ({ $sum: { $cond: [{ $in: ['$status', statuses] }, 1, 0] } });
+
+/**
+ * @route   GET /api/admin/onboarders
+ * @desc    Every onboarding employee, with a full funnel breakdown — not just
+ *          their verified count (topOnboarders in /stats only ever counted
+ *          Property documents, which is to say verified listings — an
+ *          employee whose owners kept saying no was invisible there). Source
+ *          is verificationrequests because it is the only collection with a
+ *          row for every onboarding attempt regardless of outcome; see the
+ *          employeeEmail comment on GET /api/verifications.
+ * @access  Admin
+ */
+router.get('/onboarders', async (req, res) => {
+  try {
+    const { search } = req.query;
+
+    const match = { 'pendingPropertyData.employeeEmail': { $nin: ['', null] } };
+    if (search) {
+      match['pendingPropertyData.employeeEmail'] = {
+        $regex: String(search).trim(),
+        $options: 'i',
+      };
+    }
+
+    const rows = await VerificationRequest.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: '$pendingPropertyData.employeeEmail',
+          total: { $sum: 1 },
+          verified: bucketCond(ONBOARD_BUCKETS.verified),
+          pending: bucketCond(ONBOARD_BUCKETS.pending),
+          rejected: bucketCond(ONBOARD_BUCKETS.rejected),
+          failed: bucketCond(ONBOARD_BUCKETS.failed),
+          expired: bucketCond(ONBOARD_BUCKETS.expired),
+          firstOnboardedAt: { $min: '$createdAt' },
+          lastOnboardedAt: { $max: '$createdAt' },
+        },
+      },
+      { $sort: { total: -1 } },
+    ]);
+
+    const data = rows.map((r) => {
+      // Still-open requests (pending) are excluded — a success rate only
+      // means something once a request has actually reached an outcome.
+      const terminal = r.verified + r.rejected + r.failed + r.expired;
+      return {
+        employeeEmail: r._id,
+        total: r.total,
+        verified: r.verified,
+        pending: r.pending,
+        rejected: r.rejected,
+        failed: r.failed,
+        expired: r.expired,
+        successRate: terminal > 0 ? (r.verified / terminal) * 100 : null,
+        firstOnboardedAt: r.firstOnboardedAt,
+        lastOnboardedAt: r.lastOnboardedAt,
+      };
+    });
+
+    return res.json({ success: true, count: data.length, data, items: data });
+  } catch (error) {
+    console.error('❌ [GET /api/admin/onboarders Error]:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error computing onboarding-employee statistics.',
+    });
+  }
+});
+
+/**
+ * @route   GET /api/admin/verifiers
+ * @desc    Every member of the verification team, with how many requests were
+ *          put in front of them and how those turned out. A verifier is only
+ *          ever a WhatsApp number from VERIFICATION_TEAM_NUMBERS — there is no
+ *          Verifier collection (see property.routes.v1.js's webhook, which
+ *          picks one at random into assignedVerifierMobileE164 the moment the
+ *          owner replies YES) — so the roster itself comes from that env var,
+ *          not from the database. Numbers currently in the env var but with
+ *          no history yet still get a row, at zero; a number that did work in
+ *          the past but has since been removed from the env var still shows
+ *          up too, because the aggregation is what's authoritative for "did
+ *          this number verify anything", not the roster.
+ * @access  Admin
+ */
+router.get('/verifiers', async (req, res) => {
+  try {
+    const rows = await VerificationRequest.aggregate([
+      { $match: { assignedVerifierMobileE164: { $nin: ['', null] } } },
+      {
+        $group: {
+          _id: '$assignedVerifierMobileE164',
+          totalAssigned: { $sum: 1 },
+          verified: bucketCond(['verified']),
+          rejected: bucketCond(['verifier_rejected']),
+          // Handed to this verifier and still waiting on their WhatsApp reply.
+          awaiting: bucketCond(['owner_approved']),
+          firstAssignedAt: { $min: '$createdAt' },
+          lastDecisionAt: { $max: '$respondedAt' },
+        },
+      },
+    ]);
+
+    const byNumber = new Map(rows.map((r) => [r._id, r]));
+
+    // The configured roster, so a verifier who hasn't been sent anything yet
+    // still appears — at zero, not simply missing.
+    const rosterNumbers = String(process.env.VERIFICATION_TEAM_NUMBERS || '')
+      .split(',')
+      .map((n) => n.trim())
+      .filter(Boolean);
+
+    for (const number of rosterNumbers) {
+      if (!byNumber.has(number)) {
+        byNumber.set(number, {
+          _id: number,
+          totalAssigned: 0,
+          verified: 0,
+          rejected: 0,
+          awaiting: 0,
+          firstAssignedAt: null,
+          lastDecisionAt: null,
+        });
+      }
+    }
+
+    const data = Array.from(byNumber.values())
+      .map((r) => {
+        const terminal = r.verified + r.rejected;
+        return {
+          verifierMobileE164: r._id,
+          onRoster: rosterNumbers.includes(r._id),
+          totalAssigned: r.totalAssigned,
+          verified: r.verified,
+          rejected: r.rejected,
+          awaiting: r.awaiting,
+          successRate: terminal > 0 ? (r.verified / terminal) * 100 : null,
+          firstAssignedAt: r.firstAssignedAt,
+          lastDecisionAt: r.lastDecisionAt,
+        };
+      })
+      .sort((a, b) => b.totalAssigned - a.totalAssigned);
+
+    return res.json({ success: true, count: data.length, data, items: data });
+  } catch (error) {
+    console.error('❌ [GET /api/admin/verifiers Error]:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error computing verification-team statistics.',
+    });
+  }
+});
+
 /**
  * @route   GET /api/admin/activity
  * @desc    Recent activity feed merged from the properties, verificationrequests

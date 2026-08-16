@@ -28,7 +28,10 @@ const normalize = (raw: any): PropertyEntity => {
     imageUrl: raw.imageUrl || images[0] || '',
     images: images.length ? images : raw.imageUrl ? [raw.imageUrl] : [],
     amenities: Array.isArray(raw.amenities) ? raw.amenities.filter(Boolean) : [],
+    description: raw.description || '',
     categoryDetails: raw.categoryDetails && typeof raw.categoryDetails === 'object' ? raw.categoryDetails : {},
+    isVerified: raw.isVerified === true,
+    verificationStatus: raw.verificationStatus || (raw.isVerified ? 'verified' : 'pending'),
     createdAt: raw.createdAt || null,
     updatedAt: raw.updatedAt || null,
   };

@@ -7,12 +7,14 @@ import {
   ShieldCheck,
   Trash2,
   TriangleAlert,
+  UserCheck,
   X,
 } from 'lucide-react';
 import {
   Badge,
   Button,
   Card,
+  CardHeader,
   DataRow,
   EmptyState,
   ErrorState,
@@ -31,23 +33,15 @@ import {
   type ToastState,
 } from '../components/ui';
 import { verificationService } from '../api/services/verificationService';
+import { insightsService } from '../api/services/insightsService';
 import { useFetch } from '../lib/useFetch';
-import { verificationMeta } from '../lib/domain';
-import { formatDateTime, relativeTime } from '../lib/format';
+import { VERIFICATION_STATUSES, verificationMeta } from '../lib/domain';
+import { formatDateTime, percent, relativeTime } from '../lib/format';
 import type { VerificationEntity, VerificationStatus } from '../api/types';
 
 interface VerificationsPageProps {
   search: string;
 }
-
-const STATUSES: VerificationStatus[] = [
-  'pending',
-  'sent',
-  'delivered',
-  'verified',
-  'failed',
-  'expired',
-];
 
 const isExpired = (v: VerificationEntity): boolean =>
   !!v.expiresAt && new Date(v.expiresAt).getTime() < Date.now() && v.status !== 'verified';
@@ -67,6 +61,8 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
     [status]
   );
 
+  const verifiers = useFetch(() => insightsService.getVerifiers(), []);
+
   const rows = useMemo(() => {
     const list = data ?? [];
     const q = search.trim().toLowerCase();
@@ -84,7 +80,8 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
       total: list.length,
       verified: list.filter((v) => v.status === 'verified').length,
       failed: list.filter((v) => v.status === 'failed').length,
-      awaiting: list.filter((v) => ['pending', 'sent', 'delivered'].includes(v.status)).length,
+      // owner_approved means a verifier now has to reply — still in flight, not done.
+      awaiting: list.filter((v) => ['pending', 'sent', 'delivered', 'owner_approved'].includes(v.status)).length,
     };
   }, [data]);
 
@@ -179,11 +176,86 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
         ))}
       </div>
 
+      {/* Verification team workload — which verifier gets sent how many
+          requests, and how those turned out. */}
+      <Card padded={false}>
+        <div className="p-4 pb-3">
+          <CardHeader
+            icon={UserCheck}
+            title="Verification team"
+            description="Every WhatsApp number in VERIFICATION_TEAM_NUMBERS, and how the requests randomly forwarded to them turned out."
+            action={
+              <IconButton
+                icon={RefreshCw}
+                label="Reload verification team"
+                onClick={verifiers.reload}
+                spinning={verifiers.refreshing || verifiers.loading}
+              />
+            }
+          />
+        </div>
+        {verifiers.error ? (
+          <div className="px-4 pb-4">
+            <ErrorState message={verifiers.error} onRetry={verifiers.reload} />
+          </div>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Verifier</Th>
+                <Th className="text-right">Assigned</Th>
+                <Th className="text-right">Verified</Th>
+                <Th className="text-right">Rejected</Th>
+                <Th className="text-right">Awaiting reply</Th>
+                <Th className="text-right">Success rate</Th>
+                <Th>Last decision</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {verifiers.loading ? (
+                <TableSkeleton cols={7} />
+              ) : !verifiers.data?.length ? (
+                <tr>
+                  <td colSpan={7}>
+                    <EmptyState
+                      icon={UserCheck}
+                      title="No verification team configured"
+                      description="Set VERIFICATION_TEAM_NUMBERS in the backend .env to put a verifier in the loop — without it, an owner's YES auto-verifies with no second pair of eyes."
+                    />
+                  </td>
+                </tr>
+              ) : (
+                verifiers.data.map((v) => (
+                  <Tr key={v.verifierMobileE164}>
+                    <Td>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-mono tabular text-ink">
+                          {v.verifierMobileE164.replace(/^whatsapp:/, '')}
+                        </span>
+                        {!v.onRoster && <Badge tone="neutral">Removed from roster</Badge>}
+                      </div>
+                    </Td>
+                    <Td className="text-right tabular">{v.totalAssigned}</Td>
+                    <Td className="text-right tabular text-good">{v.verified}</Td>
+                    <Td className="text-right tabular text-crit">{v.rejected}</Td>
+                    <Td className="text-right tabular text-warn">{v.awaiting}</Td>
+                    <Td className="text-right tabular">
+                      {v.successRate === null ? '—' : percent(v.successRate, 0)}
+                    </Td>
+                    <Td className="tabular">{relativeTime(v.lastDecisionAt)}</Td>
+                  </Tr>
+                ))
+              )}
+            </tbody>
+          </Table>
+        )}
+      </Card>
+
       <Card padded={false} className="p-3">
         <div className="flex flex-wrap items-center gap-2.5">
           <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-auto min-w-36">
             <option value="All">All statuses</option>
-            {STATUSES.map((s) => (
+            {VERIFICATION_STATUSES.map((s) => (
               <option key={s} value={s}>
                 {verificationMeta(s).label}
               </option>
@@ -211,6 +283,7 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
               <tr>
                 <Th>Owner mobile</Th>
                 <Th>Property</Th>
+                <Th>Assigned verifier</Th>
                 <Th>Status</Th>
                 <Th className="text-right">Attempts</Th>
                 <Th>Last update</Th>
@@ -219,10 +292,10 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
             </thead>
             <tbody>
               {loading ? (
-                <TableSkeleton cols={6} />
+                <TableSkeleton cols={7} />
               ) : !rows.length ? (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <EmptyState
                       icon={ShieldCheck}
                       title={search || status !== 'All' ? 'No matching requests' : 'No verification requests'}
@@ -258,6 +331,16 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
                           </>
                         ) : (
                           <span className="text-ink-3">Not linked</span>
+                        )}
+                      </Td>
+                      <Td>
+                        {v.assignedVerifierMobileE164 ? (
+                          <span className="text-sm font-mono tabular text-ink flex items-center gap-1.5">
+                            <UserCheck className="size-3.5 text-ink-3 shrink-0" strokeWidth={1.75} />
+                            {v.assignedVerifierMobileE164.replace(/^whatsapp:/, '')}
+                          </span>
+                        ) : (
+                          <span className="text-ink-3">Not yet assigned</span>
                         )}
                       </Td>
                       <Td>
@@ -365,6 +448,26 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
               )}
 
               <section>
+                <h3 className="text-micro uppercase text-ink-3 mb-1 flex items-center gap-1.5">
+                  <UserCheck className="size-3" strokeWidth={2} /> Verification team
+                </h3>
+                <DataRow
+                  label="Assigned verifier"
+                  value={
+                    selected.assignedVerifierMobileE164
+                      ? selected.assignedVerifierMobileE164.replace(/^whatsapp:/, '')
+                      : 'Not yet assigned'
+                  }
+                  mono={!!selected.assignedVerifierMobileE164}
+                />
+                <p className="text-label text-ink-3 mt-1.5 leading-relaxed">
+                  {selected.assignedVerifierMobileE164
+                    ? 'Randomly picked from VERIFICATION_TEAM_NUMBERS once the owner replied YES. This member\'s own YES/NO on WhatsApp decides the outcome below.'
+                    : 'Set once the owner approves — picked at random from the configured verification team.'}
+                </p>
+              </section>
+
+              <section>
                 <h3 className="text-micro uppercase text-ink-3 mb-1">Timeline</h3>
                 <DataRow label="Created" value={formatDateTime(selected.createdAt)} />
                 <DataRow label="Sent" value={formatDateTime(selected.sentAt)} />
@@ -446,7 +549,7 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
               value={editStatus}
               onChange={(e) => setEditStatus(e.target.value as VerificationStatus)}
             >
-              {STATUSES.map((s) => (
+              {VERIFICATION_STATUSES.map((s) => (
                 <option key={s} value={s}>
                   {verificationMeta(s).label}
                 </option>

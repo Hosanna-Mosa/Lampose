@@ -39,3 +39,11 @@ yarn-error.*
 .vercel
 
 .env
+
+# Google Analytics / Google Cloud service-account keys — never commit these.
+# Covers a key placed anywhere in the backend (config/, the repo root, etc.)
+# regardless of the exact filename it was downloaded as.
+*service-account*.json
+*service_account*.json
+lampose-analytics*.json
+config/*.json

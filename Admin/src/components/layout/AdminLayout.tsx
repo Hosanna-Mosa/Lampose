@@ -23,7 +23,13 @@ const HEALTH_POLL_MS = 60_000;
 const SEARCH_PLACEHOLDERS: Record<string, string> = {
   properties: 'Filter by name, place, owner or agent',
   verifications: 'Filter by mobile, token, property or error',
+  'onboarding-team': 'Filter by employee email',
   users: 'Filter by name, email or role',
+  'visit-requests': 'Filter by property, customer or owner mobile',
+  'scriper-users': 'Filter by name, email or role',
+  'scraper-jobs': 'Filter by job name, query or location',
+  'scraper-leads': 'Filter by business, city, category, phone or email',
+  products: 'Filter by name or description',
 };
 
 export const AdminLayout: React.FC<AdminLayoutProps> = ({
