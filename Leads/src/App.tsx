@@ -95,7 +95,9 @@ function MainAppContent() {
             <EmployeeWorkstation currentUser={user} />
           )}
 
-          {activeTab === 'properties' && (
+          {/* Admin-gated to match the sidebar. Without the guard a rep who was
+              left on this tab by a role change would keep the page. */}
+          {activeTab === 'properties' && isAdmin && (
             <AccommodationPropertiesPage />
           )}
 

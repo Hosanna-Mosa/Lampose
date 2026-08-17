@@ -38,6 +38,8 @@ export interface ScrapedLead {
   leadStatus?: 'NEW' | 'CONTACTED' | 'INTERESTED' | 'QUALIFIED' | 'CALLBACK' | 'CLOSED_WON' | 'CLOSED_LOST';
   notes?: LeadNote[];
   lastActivityAt?: string;
+  /** Who last moved the status. Written by the server on every change. */
+  lastActivityBy?: { userId: string | null; name: string | null };
 }
 
 export interface ScrapeJob {
@@ -54,6 +56,31 @@ export interface ScrapeJob {
   resultCount?: number;
   createdAt?: string;
   error?: string;
+}
+
+export interface LeadQuery {
+  jobId?: string;
+  source?: string;
+  hasPhone?: string;
+  hasWebsite?: string;
+  assignedUserId?: string;
+  leadStatus?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface LeadsResponse {
+  success: boolean;
+  /** Rows in THIS page. `total` is the size of the whole result. */
+  count: number;
+  total: number;
+  page: number;
+  pages: number;
+  limit?: number;
+  data: ScrapedLead[];
+  error?: string;
+  message?: string;
 }
 
 export interface DashboardStats {
@@ -113,8 +140,15 @@ export const scraperApi = {
     return res.data;
   },
 
-  // Get leads with RBAC & jobId filters
-  async getLeads(filters: { jobId?: string; source?: string; hasPhone?: string; hasWebsite?: string; assignedUserId?: string; leadStatus?: string; search?: string }) {
+  /**
+   * Leads, one page at a time.
+   *
+   * `limit` is opt-in: leave it off and the server answers with everything,
+   * which is what the export path and any older caller still expect.
+   * `assignedUserId` is accepted but ignored for an EMPLOYEE — the server
+   * scopes their list from the session, not from the query string.
+   */
+  async getLeads(filters: LeadQuery): Promise<LeadsResponse> {
     const res = await apiClient.get('/scraper/leads', { params: filters });
     return res.data;
   },

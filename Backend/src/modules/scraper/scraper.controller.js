@@ -19,6 +19,53 @@ const leadFilters = (query) => ({
   search: query.search,
 });
 
+/**
+ * The same filters, with the assignment boundary applied.
+ *
+ * An EMPLOYEE sees exactly the leads an admin has assigned to them, and the
+ * server decides that — the `assignedUserId` the client sent is overwritten,
+ * not trusted. This is the fix for a real leak rather than a tidy-up: the
+ * panel was asking for its own id and, whenever that id was missing from the
+ * session, sending no filter at all — which the query treats as "no filter"
+ * and answers with every lead in the database.
+ *
+ * An ADMIN keeps the query string as written; filtering by one rep is how the
+ * team view works.
+ */
+const scopedLeadFilters = (req) => {
+  const filters = leadFilters(req.query);
+  if (req.user && req.user.role === 'EMPLOYEE') {
+    filters.assignedUserId = req.user.userId;
+  }
+  return filters;
+};
+
+/** The hard ceiling on a page. A client asking for 100000 gets 200. */
+const MAX_PAGE_SIZE = 200;
+
+/**
+ * The page the caller asked for, if they asked for one.
+ *
+ * `limit` absent means "everything", which is what every caller got before
+ * pagination existed — the CSV export still needs it, and so does any
+ * integration written against the old shape. Pagination is opt-in, so nothing
+ * that worked yesterday returns a truncated list today.
+ */
+const readPaging = (query) => {
+  const limit = parseInt(query.limit, 10);
+  if (!Number.isFinite(limit) || limit <= 0) return null;
+  const page = Math.max(1, parseInt(query.page, 10) || 1);
+  const size = Math.min(limit, MAX_PAGE_SIZE);
+  return { page, limit: size, skip: (page - 1) * size };
+};
+
+/** True when this caller may move this lead. Admins may move any. */
+const mayEditLead = (user, lead) => {
+  if (!user || user.role === 'ADMIN') return true;
+  const owner = lead && lead.assignedTo && lead.assignedTo.userId;
+  return Boolean(owner) && owner === user.userId;
+};
+
 // @route POST /api/v2/scraper/start
 const startScrape = async (req, res, next) => {
   try {
@@ -122,8 +169,37 @@ const stopScrape = async (req, res, next) => {
 // @route GET /api/v2/scraper/leads
 const getLeads = async (req, res, next) => {
   try {
-    const leads = await dbStore.getLeads(leadFilters(req.query));
-    return res.json({ success: true, count: leads.length, data: leads });
+    const filters = scopedLeadFilters(req);
+    const paging = readPaging(req.query);
+
+    if (!paging) {
+      const leads = await dbStore.getLeads(filters);
+      return res.json({
+        success: true,
+        count: leads.length,
+        total: leads.length,
+        page: 1,
+        pages: 1,
+        data: leads,
+      });
+    }
+
+    /* The count runs against the same filter as the page, so the pager can
+       never advertise a page the query would not fill. */
+    const [total, leads] = await Promise.all([
+      dbStore.countLeads(filters),
+      dbStore.getLeads(filters, { skip: paging.skip, limit: paging.limit }),
+    ]);
+
+    return res.json({
+      success: true,
+      count: leads.length,
+      total,
+      page: paging.page,
+      pages: Math.max(1, Math.ceil(total / paging.limit)),
+      limit: paging.limit,
+      data: leads,
+    });
   } catch (error) {
     return next(error);
   }
@@ -157,7 +233,19 @@ const updateLeadStatus = async (req, res, next) => {
 
     if (!status) return fail(res, 400, 'Status is required.');
 
-    const updated = await dbStore.updateLeadStatus(id, status, noteText, authorName);
+    /* A rep may only move a lead that is theirs. Without this an employee who
+       learned any lead id could re-status somebody else's pipeline, and the
+       admin's team numbers would quietly stop meaning anything. */
+    const lead = await dbStore.getLeadById(id);
+    if (!lead) return fail(res, 404, 'Lead not found.');
+    if (!mayEditLead(req.user, lead)) {
+      return fail(res, 403, 'This lead is not assigned to you.');
+    }
+
+    const actor = req.user ? { userId: req.user.userId, name: req.user.name } : null;
+    const author = authorName || (req.user && req.user.name) || 'User';
+
+    const updated = await dbStore.updateLeadStatus(id, status, noteText, author, actor);
     if (!updated) return fail(res, 404, 'Lead not found.');
 
     return res.json({ success: true, message: 'Lead status & notes updated successfully.' });
@@ -228,7 +316,7 @@ const CSV_COLUMNS = [
 const exportLeads = async (req, res, next) => {
   try {
     const format = String(req.query.format || 'csv').toLowerCase();
-    const leads = await dbStore.getLeads(leadFilters(req.query));
+    const leads = await dbStore.getLeads(scopedLeadFilters(req));
     const stamp = new Date().toISOString().slice(0, 10);
 
     if (format === 'json') {

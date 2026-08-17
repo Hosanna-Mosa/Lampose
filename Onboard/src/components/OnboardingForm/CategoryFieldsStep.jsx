@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Utensils, ShieldCheck, Bed, Key, Check, Snowflake, Plus, X } from 'lucide-react';
+import FieldError, { errorBorder } from './FieldError.jsx';
+import { sharingPriceKey, sharingAcPriceKey } from '../../services/validation.js';
 
 const MEAL_OPTIONS = ['Breakfast', 'Lunch', 'Dinner'];
 
@@ -27,7 +29,7 @@ const DEPENDENT_MAPS = {
   mealsProvided: ['mealTimings']
 };
 
-export default function CategoryFieldsStep({ category, details = {}, onChangeDetails }) {
+export default function CategoryFieldsStep({ category, details = {}, onChangeDetails, errors = {} }) {
   if (!category) return null;
 
   const handleToggle = (field, value) => {
@@ -122,8 +124,8 @@ export default function CategoryFieldsStep({ category, details = {}, onChangeDet
 
           {/* Meals Served — which of the three, and when */}
           {details.foodIncluded && (
-            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-              <label className="form-label">Meals Provided</label>
+            <div id="mealsProvided" className="form-group" style={{ gridColumn: '1 / -1' }}>
+              <label className="form-label">Meals Provided *</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
                 {MEAL_OPTIONS.map((meal) => {
                   const isSelected = selectedMeals.includes(meal);
@@ -150,6 +152,7 @@ export default function CategoryFieldsStep({ category, details = {}, onChangeDet
                   );
                 })}
               </div>
+              <FieldError message={errors['categoryDetails.mealsProvided']} />
 
               {/* Serving time for each meal that is actually served */}
               {selectedMeals.length > 0 && (
@@ -183,6 +186,7 @@ export default function CategoryFieldsStep({ category, details = {}, onChangeDet
             onChangeDetails={onChangeDetails}
             onToggleType={(type) => handleCheckboxArray('sharingTypes', type)}
             setMapValue={setMapValue}
+            errors={errors}
           />
 
           {/* AC is captured per sharing option above, with its own rate, so there
@@ -226,6 +230,7 @@ export default function CategoryFieldsStep({ category, details = {}, onChangeDet
               type="tel"
               placeholder="e.g. +91 98765 00000"
               value={details.wardenContact || ''}
+              id="wardenContact"
               onChange={(e) => onChangeDetails('wardenContact', e.target.value)}
               className="form-input"
             />
@@ -269,6 +274,7 @@ export default function CategoryFieldsStep({ category, details = {}, onChangeDet
               type="number"
               placeholder="e.g. 24"
               value={details.totalBeds || ''}
+              id="totalBeds"
               onChange={(e) => onChangeDetails('totalBeds', Number(e.target.value))}
               className="form-input"
             />
@@ -309,6 +315,7 @@ export default function CategoryFieldsStep({ category, details = {}, onChangeDet
               type="number"
               placeholder="e.g. 6"
               value={details.washroomsCount || ''}
+              id="washroomsCount"
               onChange={(e) => onChangeDetails('washroomsCount', Number(e.target.value))}
               className="form-input"
             />
@@ -396,7 +403,7 @@ export default function CategoryFieldsStep({ category, details = {}, onChangeDet
  * unticked — deriving the list from the ticked options alone would make an
  * option vanish the moment an agent unticked it to compare against another.
  */
-function SharingOptions({ details, onChangeDetails, onToggleType, setMapValue }) {
+function SharingOptions({ details, onChangeDetails, onToggleType, setMapValue, errors = {} }) {
   const [customOpen, setCustomOpen] = useState(false);
   const [customCount, setCustomCount] = useState('');
   const [customError, setCustomError] = useState('');
@@ -455,8 +462,9 @@ function SharingOptions({ details, onChangeDetails, onToggleType, setMapValue })
   };
 
   return (
-    <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-      <label className="form-label">Sharing Options Available</label>
+    <div id="sharingOptions" className="form-group" style={{ gridColumn: '1 / -1' }}>
+      <label className="form-label">Sharing Options Available *</label>
+      <FieldError message={errors['categoryDetails.sharingTypes']} />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
         {options.map((type) => {
           const isSelected = selected.includes(type);
@@ -617,14 +625,16 @@ function SharingOptions({ details, onChangeDetails, onToggleType, setMapValue })
                 >
                   <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>{type} Rent *</span>
                   <input
+                    id={`sharingPrice-${type}`}
                     type="number"
                     min="0"
                     placeholder="e.g. 6000"
                     value={currentPrice || ''}
                     onChange={(e) => setMapValue('sharingPrices', type, Number(e.target.value) || '')}
                     className="form-input"
-                    style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+                    style={{ padding: '8px 12px', fontSize: '0.85rem', borderColor: errorBorder(errors[sharingPriceKey(type)]) }}
                   />
+                  <FieldError message={errors[sharingPriceKey(type)]} />
 
                   {/* AC is priced per sharing option, not per property */}
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '2px' }}>
@@ -650,16 +660,18 @@ function SharingOptions({ details, onChangeDetails, onToggleType, setMapValue })
 
                   {hasAC && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <span style={{ fontSize: '0.75rem', color: '#45855a', fontWeight: 600 }}>{type} AC Rent (₹)</span>
+                      <span style={{ fontSize: '0.75rem', color: '#45855a', fontWeight: 600 }}>{type} AC Rent (₹) *</span>
                       <input
+                        id={`sharingAcPrice-${type}`}
                         type="number"
                         min="0"
                         placeholder="e.g. 8000"
                         value={acPrice || ''}
                         onChange={(e) => setMapValue('sharingAcPrices', type, Number(e.target.value) || '')}
                         className="form-input"
-                        style={{ padding: '8px 12px', fontSize: '0.85rem', borderColor: '#c2e2cc' }}
+                        style={{ padding: '8px 12px', fontSize: '0.85rem', borderColor: errorBorder(errors[sharingAcPriceKey(type)]) || '#c2e2cc' }}
                       />
+                      <FieldError message={errors[sharingAcPriceKey(type)]} />
                     </div>
                   )}
                 </div>

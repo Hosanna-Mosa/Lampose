@@ -12,7 +12,8 @@ import PropertyCard from './components/Listings/PropertyCard.jsx';
 import PropertyDetailModal from './components/Listings/PropertyDetailModal.jsx';
 import { fetchProperties, onboardProperty, deleteProperty } from './services/api.js';
 import { getCurrentUser, logout, getSavedEmployeeEmail } from './services/auth.js';
-import { PlusCircle, AlertCircle, Building2, Loader2, CloudUpload, Database } from 'lucide-react';
+import { validateOnboarding, firstErrorKey, anchorFor } from './services/validation.js';
+import { PlusCircle, AlertCircle, Building2, Loader2, CloudUpload, Database, ShieldAlert, WifiOff } from 'lucide-react';
 
 const INITIAL_FORM_STATE = {
   name: '',
@@ -71,11 +72,16 @@ export default function App() {
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [submitStage, setSubmitStage] = useState('');
+  /* Why the last submit did not save. Held in state rather than thrown at an
+     alert(): an alert is gone the moment it is dismissed, and the thing it was
+     explaining — a backend that is not running — is still true afterwards. */
+  const [submitError, setSubmitError] = useState(null);
   const [recentlyOnboarded, setRecentlyOnboarded] = useState(null);
 
   // Filter State
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
+  const [ownershipFilter, setOwnershipFilter] = useState('mine'); // 'mine' | 'all'
 
   // Modal State
   const [activeModalProperty, setActiveModalProperty] = useState(null);
@@ -189,6 +195,25 @@ export default function App() {
 
   // Handle Category Details Field Changes
   const handleCategoryDetailChange = (field, value) => {
+    /* Clear the messages this edit could have answered, so a corrected sharing
+       rent stops shouting the moment it is typed rather than at the next
+       submit. Prices are keyed per option, so the whole `sharingPrice:` family
+       is cleared and re-derived by the next validation pass. */
+    setFormErrors(prev => {
+      const next = { ...prev };
+      delete next[`categoryDetails.${field}`];
+      if (['sharingPrices', 'sharingAcPrices', 'sharingTypes', 'sharingAC'].includes(field)) {
+        Object.keys(next).forEach((key) => {
+          if (key.startsWith('sharingPrice:') || key.startsWith('sharingAcPrice:')) delete next[key];
+        });
+        delete next['categoryDetails.sharingTypes'];
+      }
+      if (field === 'mealsProvided' || field === 'foodIncluded') {
+        delete next['categoryDetails.mealsProvided'];
+      }
+      return next;
+    });
+
     setFormData(prev => {
       const updatedDetails = {
         ...prev.categoryDetails,
@@ -222,53 +247,43 @@ export default function App() {
     });
   };
 
-  // Form Validation
-  const validateForm = () => {
-    const errs = {};
-    if (!formData.name.trim()) errs.name = 'Property name is required';
-    if (!formData.place.trim()) errs.place = 'Place / Location is required';
-    if (!formData.ownerName.trim()) errs.ownerName = 'Owner name is required';
-    if (!formData.ownerMobile.trim()) errs.ownerMobile = 'Owner WhatsApp number is required';
 
-    /* The second number is optional, so an empty box is never an error. A
-       half-typed one is: silently storing "98765" would look like a recorded
-       contact and be useless to whoever calls it. */
-    const altMobile = (formData.ownerAltMobile || '').trim();
-    if (altMobile && altMobile.replace(/\D/g, '').length < 10) {
-      errs.ownerAltMobile = 'Enter the full mobile number, or leave this blank';
-    }
-    return errs;
-  };
-
-  // Handle Form Submission (Uploads Images to Cloudinary on Submit & Saves to DB)
+  /**
+   * Submit — but only if the form is actually a property.
+   *
+   * The order here is the whole point of this function. Validation runs FIRST
+   * and returns on any failure, so an incomplete form never reaches the photo
+   * upload and never reaches the database. Before this, the only checks were
+   * four `.trim()` tests, so a listing with a nine-digit owner number, a ₹0
+   * rent or no sharing prices at all was uploaded to Cloudinary and POSTed —
+   * and the only sign anything was wrong was a red line in the console.
+   */
   const handleSubmitForm = async (e) => {
     e.preventDefault();
-    const errs = validateForm();
+
+    // A fresh attempt: whatever the last one failed on is no longer the story.
+    setSubmitError(null);
+
+    const errs = validateOnboarding(formData);
     if (Object.keys(errs).length > 0) {
       setFormErrors(errs);
 
-      // Map error fields to element IDs for scrolling
-      const idMap = {
-        name: 'propertyName',
-        place: 'propertyPlace',
-        ownerName: 'ownerName',
-        ownerMobile: 'ownerMobile',
-        ownerAltMobile: 'ownerAltMobile'
-      };
-
-      const firstErrorField = Object.keys(errs)[0];
-      const targetId = idMap[firstErrorField];
+      /* Land the user on the first problem in page order, not in object-key
+         order. On a form this long an un-scrolled error is an invisible one,
+         and the button appears to do nothing. */
+      const targetId = anchorFor(firstErrorKey(errs));
       if (targetId) {
         const el = document.getElementById(targetId);
         if (el) {
           el.scrollIntoView({ behavior: 'smooth', block: 'center' });
           // Focus the input directly so the user can start correcting it
-          el.focus({ preventScroll: true });
+          if (typeof el.focus === 'function') el.focus({ preventScroll: true });
         }
       }
       return;
     }
 
+    setFormErrors({});
     setSubmitting(true);
     setSubmitStage('Preparing property photos...');
 
@@ -373,14 +388,35 @@ export default function App() {
           employeeEmail: activeEmpEmail
         });
         setFormErrors({});
+        setSubmitError(null);
         loadData();
       } else {
         console.error('❌ [Onboarding Error]:', response?.error || response?.message);
-        alert(`Failed to onboard property: ${response.error || response.message || 'Unknown error'}`);
+        const reason = response?.error || response?.message || '';
+
+        /* The two failures read completely differently to the person standing
+           in a building with an owner waiting. "The server is off" is somebody
+           else's problem and the form is safe; "the server refused this" is
+           theirs and something has to change. Saying "Unknown error" for both
+           is what sends them to re-type a form that was never lost. */
+        const unreachable = /network|unavailable|failed to fetch|econnrefused/i.test(reason);
+        setSubmitError({
+          kind: unreachable ? 'offline' : 'rejected',
+          title: unreachable
+            ? 'Could not reach the Lampose server'
+            : 'The server would not accept this property',
+          detail: unreachable
+            ? 'Nothing was saved and nothing was lost — everything you typed is still on this page. Check that the backend is running, then press Submit again.'
+            : reason || 'The server rejected the request without saying why.'
+        });
       }
     } catch (submitErr) {
       console.error('❌ [Submission Exception]:', submitErr);
-      alert('An error occurred while uploading photos or saving property. Please try again.');
+      setSubmitError({
+        kind: 'offline',
+        title: 'The photos or the save did not go through',
+        detail: 'Nothing was lost — everything you typed is still on this page. Check your connection and press Submit again.'
+      });
     } finally {
       setSubmitting(false);
       setSubmitStage('');
@@ -397,13 +433,24 @@ export default function App() {
     }
     return res;
   };
-
   // Handle an approved edit landing — keep the grid and the open modal in step
   const handlePropertyUpdated = (updated) => {
     if (!updated || !updated._id) return;
     setProperties(prev => prev.map(p => (p._id === updated._id ? { ...p, ...updated } : p)));
     setActiveModalProperty(prev => (prev && prev._id === updated._id ? { ...prev, ...updated } : prev));
   };
+
+  const activeEmployeeEmail = (user?.email || getSavedEmployeeEmail() || user?.name || '').toLowerCase().trim();
+
+  const isMyProperty = (p, userEmailStr) => {
+    if (!userEmailStr) return true;
+    const emp = (p.employeeEmail || p.empEmail || '').toLowerCase().trim();
+    if (!emp) return false;
+    return emp === userEmailStr || emp.includes(userEmailStr) || userEmailStr.includes(emp);
+  };
+
+  const myPropertiesCount = properties.filter(p => isMyProperty(p, activeEmployeeEmail)).length;
+  const allPropertiesCount = properties.length;
 
   // If user is not logged in, display full-screen Login Screen first
   if (!user) {
@@ -412,6 +459,10 @@ export default function App() {
 
   // Filtered Properties for Display Page
   const filteredProperties = properties.filter(p => {
+    if (ownershipFilter === 'mine' && activeEmployeeEmail) {
+      if (!isMyProperty(p, activeEmployeeEmail)) return false;
+    }
+
     const matchesCategory = selectedCategory === 'All' || p.category.toLowerCase() === selectedCategory.toLowerCase();
     const q = searchTerm.toLowerCase();
     const matchesSearch = !searchTerm || (
@@ -419,7 +470,7 @@ export default function App() {
       p.place.toLowerCase().includes(q) ||
       p.ownerName.toLowerCase().includes(q) ||
       p.ownerMobile.includes(q) ||
-      (p.employeeEmail && p.employeeEmail.toLowerCase().includes(q))
+      ((p.employeeEmail || p.empEmail) && (p.employeeEmail || p.empEmail).toLowerCase().includes(q))
     );
     return matchesCategory && matchesSearch;
   });
@@ -456,6 +507,11 @@ export default function App() {
                 searchTerm={searchTerm}
                 onSearchChange={setSearchTerm}
                 totalCount={filteredProperties.length}
+                ownershipFilter={ownershipFilter}
+                onOwnershipFilterChange={setOwnershipFilter}
+                myCount={myPropertiesCount}
+                allCount={allPropertiesCount}
+                userEmail={activeEmployeeEmail}
               />
 
               {/* Error Message */}
@@ -491,16 +547,33 @@ export default function App() {
                   color: 'var(--text-muted)'
                 }}>
                   <Building2 size={48} style={{ margin: '0 auto 12px', opacity: 0.4, color: '#45855a' }} />
-                  <h3 style={{ fontSize: '1.2rem', color: 'var(--text-main)', marginBottom: '4px' }}>No Accommodations Found</h3>
-                  <p style={{ fontSize: '0.88rem' }}>Try adjusting your search or category filters, or onboard a new property.</p>
-                  <button
-                    onClick={() => setActiveTab('onboard')}
-                    className="btn btn-primary"
-                    style={{ marginTop: '16px', padding: '8px 20px' }}
-                  >
-                    <PlusCircle size={16} />
-                    <span>Onboard First Property</span>
-                  </button>
+                  <h3 style={{ fontSize: '1.2rem', color: 'var(--text-main)', marginBottom: '4px' }}>
+                    {ownershipFilter === 'mine' ? 'No Accommodations Added By You Yet' : 'No Accommodations Found'}
+                  </h3>
+                  <p style={{ fontSize: '0.88rem' }}>
+                    {ownershipFilter === 'mine'
+                      ? 'You have not onboarded any properties under your account yet. Onboard a property now or explore all platform properties.'
+                      : 'Try adjusting your search or category filters, or onboard a new property.'}
+                  </p>
+                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginTop: '16px', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => setActiveTab('onboard')}
+                      className="btn btn-primary"
+                      style={{ padding: '8px 20px' }}
+                    >
+                      <PlusCircle size={16} />
+                      <span>Onboard Property</span>
+                    </button>
+                    {ownershipFilter === 'mine' && (
+                      <button
+                        onClick={() => setOwnershipFilter('all')}
+                        className="btn btn-secondary"
+                        style={{ padding: '8px 20px' }}
+                      >
+                        <span>View All Platform Properties ({allPropertiesCount})</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="property-grid">
@@ -550,6 +623,7 @@ export default function App() {
                   category={formData.category}
                   details={formData.categoryDetails}
                   onChangeDetails={handleCategoryDetailChange}
+                  errors={formErrors}
                 />
 
                 {/* Step 4: Pricing, Stay Types (Short/Long) & Amenities */}
@@ -558,6 +632,89 @@ export default function App() {
                   onChange={handleInputChange}
                   errors={formErrors}
                 />
+
+                {/*
+                  Why the last press did nothing.
+
+                  The per-field messages are the real answer, but on a form this
+                  tall the failing field is usually off screen — so the count
+                  goes here, next to the button that refused, and doubles as the
+                  way back to it.
+                */}
+                {Object.keys(formErrors).length > 0 && (
+                  <div
+                    role="alert"
+                    style={{
+                      display: 'flex', alignItems: 'flex-start', gap: '10px',
+                      padding: '14px 16px', marginBottom: '16px',
+                      background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '12px'
+                    }}
+                  >
+                    <ShieldAlert size={18} color="#dc2626" style={{ flexShrink: 0, marginTop: '1px' }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <strong style={{ color: '#991b1b', fontSize: '0.9rem' }}>
+                        {Object.keys(formErrors).length === 1
+                          ? '1 field needs fixing before this can be saved'
+                          : `${Object.keys(formErrors).length} fields need fixing before this can be saved`}
+                      </strong>
+                      <p style={{ color: '#b91c1c', fontSize: '0.82rem', margin: '3px 0 0' }}>
+                        Nothing has been sent to the database. Each one is marked in red above.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const id = anchorFor(firstErrorKey(formErrors));
+                          const el = id && document.getElementById(id);
+                          if (el) {
+                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            if (typeof el.focus === 'function') el.focus({ preventScroll: true });
+                          }
+                        }}
+                        style={{
+                          marginTop: '8px', padding: 0, background: 'none', border: 'none',
+                          color: '#991b1b', fontWeight: 700, fontSize: '0.82rem',
+                          textDecoration: 'underline', cursor: 'pointer'
+                        }}
+                      >
+                        Go to the first one
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* The form was valid, the save was attempted, and it failed. */}
+                {submitError && (
+                  <div
+                    role="alert"
+                    style={{
+                      display: 'flex', alignItems: 'flex-start', gap: '10px',
+                      padding: '14px 16px', marginBottom: '16px',
+                      background: submitError.kind === 'offline' ? '#fffbeb' : '#fef2f2',
+                      border: `1px solid ${submitError.kind === 'offline' ? '#fde68a' : '#fecaca'}`,
+                      borderRadius: '12px'
+                    }}
+                  >
+                    {submitError.kind === 'offline'
+                      ? <WifiOff size={18} color="#b45309" style={{ flexShrink: 0, marginTop: '1px' }} />
+                      : <AlertCircle size={18} color="#dc2626" style={{ flexShrink: 0, marginTop: '1px' }} />}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <strong style={{ color: submitError.kind === 'offline' ? '#92400e' : '#991b1b', fontSize: '0.9rem' }}>
+                        {submitError.title}
+                      </strong>
+                      <p style={{ color: submitError.kind === 'offline' ? '#b45309' : '#b91c1c', fontSize: '0.82rem', margin: '3px 0 0' }}>
+                        {submitError.detail}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSubmitError(null)}
+                      aria-label="Dismiss"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0 }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
 
                 {/* Submit Button */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'flex-end', paddingTop: '16px', borderTop: '1px solid var(--border-glass)' }}>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Building2, MapPin, User, Phone, UserCheck, Mail, MessageCircle } from 'lucide-react';
+import FieldError, { errorBorder } from './FieldError.jsx';
 
 export default function BasicDetailsStep({ formData, onChange, errors = {}, userEmail = '' }) {
   const activeEmployeeEmail = formData.employeeEmail || userEmail || '';
@@ -35,10 +36,11 @@ export default function BasicDetailsStep({ formData, onChange, errors = {}, user
                 background: '#f8faf8',
                 fontWeight: 600,
                 color: '#181e1b',
-                borderColor: '#c2e2cc'
+                borderColor: errorBorder(errors.employeeEmail) || '#c2e2cc'
               }}
             />
           </div>
+          <FieldError message={errors.employeeEmail} />
         </div>
 
         {/* Property Name */}
@@ -55,10 +57,10 @@ export default function BasicDetailsStep({ formData, onChange, errors = {}, user
               value={formData.name || ''}
               onChange={onChange}
               className="form-input"
-              style={{ borderColor: errors.name ? '#f43f5e' : undefined }}
+              style={{ borderColor: errorBorder(errors.name) }}
             />
           </div>
-          {errors.name && <span style={{ color: '#f43f5e', fontSize: '0.8rem', marginTop: '4px', display: 'block' }}>{errors.name}</span>}
+          <FieldError message={errors.name} />
         </div>
 
         {/* Place / Location */}
@@ -75,10 +77,10 @@ export default function BasicDetailsStep({ formData, onChange, errors = {}, user
               value={formData.place || ''}
               onChange={onChange}
               className="form-input"
-              style={{ borderColor: errors.place ? '#f43f5e' : undefined }}
+              style={{ borderColor: errorBorder(errors.place) }}
             />
           </div>
-          {errors.place && <span style={{ color: '#f43f5e', fontSize: '0.8rem', marginTop: '4px', display: 'block' }}>{errors.place}</span>}
+          <FieldError message={errors.place} />
         </div>
 
         {/* Owner Name */}
@@ -95,10 +97,10 @@ export default function BasicDetailsStep({ formData, onChange, errors = {}, user
               value={formData.ownerName || ''}
               onChange={onChange}
               className="form-input"
-              style={{ borderColor: errors.ownerName ? '#f43f5e' : undefined }}
+              style={{ borderColor: errorBorder(errors.ownerName) }}
             />
           </div>
-          {errors.ownerName && <span style={{ color: '#f43f5e', fontSize: '0.8rem', marginTop: '4px', display: 'block' }}>{errors.ownerName}</span>}
+          <FieldError message={errors.ownerName} />
         </div>
 
         {/* Owner WhatsApp No — named for what it actually is. The onboarding
@@ -117,14 +119,14 @@ export default function BasicDetailsStep({ formData, onChange, errors = {}, user
               value={formData.ownerMobile || ''}
               onChange={onChange}
               className="form-input"
-              style={{ borderColor: errors.ownerMobile ? '#f43f5e' : undefined }}
+              style={{ borderColor: errorBorder(errors.ownerMobile) }}
             />
           </div>
           <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', color: '#64748b', marginTop: '4px' }}>
             <MessageCircle size={13} color="#45855a" />
             <span>The verification message is sent to this number — it must be on WhatsApp.</span>
           </span>
-          {errors.ownerMobile && <span style={{ color: '#f43f5e', fontSize: '0.8rem', marginTop: '4px', display: 'block' }}>{errors.ownerMobile}</span>}
+          <FieldError message={errors.ownerMobile} />
         </div>
 
         {/* Owner Mobile No — optional call number, for owners whose WhatsApp
@@ -144,13 +146,13 @@ export default function BasicDetailsStep({ formData, onChange, errors = {}, user
               value={formData.ownerAltMobile || ''}
               onChange={onChange}
               className="form-input"
-              style={{ paddingLeft: '36px', borderColor: errors.ownerAltMobile ? '#f43f5e' : undefined }}
+              style={{ paddingLeft: '36px', borderColor: errorBorder(errors.ownerAltMobile) }}
             />
           </div>
           <span style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '4px', display: 'block' }}>
             A number to call the owner on. Leave blank if it is the same as the WhatsApp number.
           </span>
-          {errors.ownerAltMobile && <span style={{ color: '#f43f5e', fontSize: '0.8rem', marginTop: '4px', display: 'block' }}>{errors.ownerAltMobile}</span>}
+          <FieldError message={errors.ownerAltMobile} />
         </div>
       </div>
     </div>
