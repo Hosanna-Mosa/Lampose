@@ -81,15 +81,41 @@ const styles = StyleSheet.create({
     paddingRight: 12,
     borderRadius: radius.pill,
     alignSelf: 'flex-start',
+    /*
+     * The pill yields width; whatever sits beside it does not.
+     *
+     * `label` below already carries `flexShrink: 1`, but that only lets the
+     * TEXT give way INSIDE the pill — it does nothing about the pill's own
+     * width in the header row. React Native defaults `flexShrink` to 0 (unlike
+     * the web, where it is 1), so without this the pill sized itself to a
+     * property name of whatever length and pushed the availability switch and
+     * the notification bell straight off the right edge of the screen. On a
+     * standard-width handset "Apex Luxury Studio & Co-Living Stay" left the
+     * bell entirely invisible and the switch as a sliver.
+     *
+     * `minWidth: 0` is what actually lets a flex child narrow below its own
+     * content in React Native — `flexShrink` alone is ignored without it.
+     *
+     * The pill is the right thing to sacrifice: its label is already
+     * `numberOfLines={1}`, so it degrades to an ellipsis, whereas a 36pt round
+     * button has nothing to give and simply disappears.
+     */
+    flexShrink: 1,
+    minWidth: 0,
   },
   swatch: {
     width: 20,
     height: 20,
     borderRadius: radius.sm,
+    /* Explicit, because the pill above is now shrinkable and this must not
+       shrink with it. A squashed swatch reads as a rendering glitch, and it is
+       the property's thumbnail slot — the one part of the pill that is not
+       text and cannot be truncated gracefully. */
+    flexShrink: 0,
   },
   label: {
     fontFamily: fonts.bold,
-    fontSize: 13.5,
+    fontSize: 14,
     lineHeight: 18,
     flexShrink: 1,
   },

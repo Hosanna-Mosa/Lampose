@@ -42,19 +42,22 @@ export const ownerWindowLabel = (): string =>
     : `${OWNER_WINDOW_MINUTES} minutes`;
 
 /**
- * The same window in seconds, which is what a draining bar needs.
+ * How long a screen holds a student's attention while they wait.
  *
- * There is exactly one clock. An earlier draft had two — a short one for the
- * screen and a long one for the request — on the assumption that killing a
- * request in three minutes would kill most bookings with it. The client was
- * clear: three minutes is the deadline, and running out cancels the request.
+ * **It is no longer the request's deadline.** That reverses what this file
+ * said, and the reversal came from the server rather than from a design
+ * meeting: `VISIT_TTL_MS` in the visit-request controller gives an owner
+ * twenty-four hours, and that is the deadline a request actually dies on. The
+ * note here used to read "three minutes is the deadline, and running out
+ * cancels the request", with the consequence spelled out — an owner who is
+ * asleep or driving loses the booking. Against a real backend that consequence
+ * was never real; what was real was the app telling a student their request
+ * had been cancelled while an owner was reading it.
  *
- * Derived rather than written twice, so the bar and the copy can never disagree
- * about how long an owner has.
- *
- * The consequence is worth stating plainly: an owner who is asleep, driving or
- * away from their phone loses the booking. That is a business decision, not a
- * bug, but it is the number to revisit first if acceptance rates are low.
+ * So this is now a presentation constant and nothing more: the length of the
+ * bar on the confirmation screen, after which that screen stops holding
+ * somebody and says the request is still open. Anything that decides whether a
+ * request is alive reads `expiresAt` off the request itself.
  */
 export const SCREEN_WAIT_SECONDS = OWNER_WINDOW_MINUTES * 60;
 

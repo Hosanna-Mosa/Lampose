@@ -3,32 +3,48 @@ import { Share, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen, Text, Button, IconButton, Badge, Avatar, Divider } from '@/components/ui';
 import {
-  REFERRALS,
-  REFERRAL_CODE,
   POINTS_PER_REFERRAL,
   MIN_WITHDRAW_POINTS,
-  availablePoints,
-  canWithdraw,
   shareMessage,
-  subscribeReferrals,
   type Referral,
 } from '@/lib/referrals';
 import { initials, formatShortDate } from '@/lib/format';
+import { fetchReferralsApi } from '@/services/api/domain.api';
 import { radius } from '@/constants/layout';
-import { fonts } from '@/constants/typography';
+import { fonts, type } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 
 export default function ReferAndEarnScreen() {
   const c = useColors();
   const router = useRouter();
+  const [refInfo, setRefInfo] = useState<any>(null);
 
-  // Withdrawing changes the available balance — the hero card and the
-  // "unlock" progress both have to reflect it the moment you're back here.
-  const [revision, setRevision] = useState(0);
-  useEffect(() => subscribeReferrals(() => setRevision((r) => r + 1)), []);
+  const loadReferrals = async () => {
+    try {
+      const data = await fetchReferralsApi();
+      setRefInfo(data);
+    } catch (err) {
+      console.warn('Failed to fetch referrals:', err);
+    }
+  };
 
-  const available = availablePoints();
-  const unlocked = canWithdraw();
+  useEffect(() => {
+    loadReferrals();
+  }, []);
+
+  const referralCode = refInfo?.code || 'PAR-9600';
+  const available = typeof refInfo?.points === 'number' ? refInfo.points : 500;
+  const historyList: Referral[] = (refInfo?.history || []).map((h: any, idx: number) => ({
+    id: `ref_${idx}`,
+    ownerName: h.name || 'Property Owner',
+    propertyName: h.propertyName || 'Hostel / PG',
+    phone: h.phone || '9876543210',
+    status: (h.status === 'Joined' ? 'joined' : 'invited') as any,
+    invitedAt: new Date(h.date || Date.now()),
+    joinedAt: h.status === 'Joined' ? new Date(h.date || Date.now()) : undefined,
+  }));
+
+  const unlocked = available >= MIN_WITHDRAW_POINTS;
   const pointsToGo = Math.max(0, MIN_WITHDRAW_POINTS - available);
   const referralsToGo = Math.ceil(pointsToGo / POINTS_PER_REFERRAL);
   const progress = Math.min(1, available / MIN_WITHDRAW_POINTS);
@@ -38,12 +54,18 @@ export default function ReferAndEarnScreen() {
   };
 
   return (
-    <Screen contentStyle={styles.stack} key={revision}>
-      <View style={styles.backRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-      </View>
+    <Screen
+      contentStyle={styles.stack}
+      stickyHeader={
+        <>
+          <View style={styles.backRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+          </View>
 
-      <Text variant="screenTitle">Refer &amp; earn</Text>
+          <Text variant="screenTitle">Refer &amp; earn</Text>
+        </>
+      }
+    >
       <Text variant="bodySm" color="textSecondary" style={styles.subtitle}>
         Invite another property owner. Once they join, you get {POINTS_PER_REFERRAL} points — ₹
         {POINTS_PER_REFERRAL}.
@@ -89,7 +111,7 @@ export default function ReferAndEarnScreen() {
             Your referral code
           </Text>
           <Text variant="cardTitle" tabular style={styles.code}>
-            {REFERRAL_CODE}
+            {referralCode}
           </Text>
         </View>
         <Button label="Share invite" onPress={share} variant="secondary" icon="send" />
@@ -107,7 +129,7 @@ export default function ReferAndEarnScreen() {
         Your referrals
       </Text>
       <View style={[styles.list, { borderColor: c.borderCard, backgroundColor: c.surface }]}>
-        {REFERRALS.map((r, i) => (
+        {historyList.map((r, i) => (
           <View key={r.id}>
             {i > 0 ? <Divider /> : null}
             <ReferralRow referral={r} />
@@ -165,7 +187,7 @@ const styles = StyleSheet.create({
   subtitle: { lineHeight: 20, marginTop: -4 },
 
   hero: { borderRadius: radius.card, padding: 18, gap: 4 },
-  heroValue: { fontFamily: fonts.extrabold, fontSize: 30, lineHeight: 36, marginTop: 2 },
+  heroValue: { ...type.metric, marginTop: 2 },
   heroRupees: { fontFamily: fonts.semibold, fontSize: 15 },
   track: { height: 8, borderRadius: 4, overflow: 'hidden', marginTop: 10, marginBottom: 4 },
   trackFill: { height: '100%', borderRadius: 4 },

@@ -12,6 +12,7 @@ import {
   EmptyState,
 } from '@/components/ui';
 import { getBooking } from '@/lib/bookings';
+import { checkInBookingApi } from '@/services/api/domain.api';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 
@@ -67,12 +68,13 @@ export default function CheckInScreen() {
   const expired = forced === 'expired' || now - openedAt > CODE_TTL_MS;
   const complete = code.length === CODE_LENGTH;
 
-  const verify = () => {
+  const verify = async () => {
     if (!complete || verifying || expired || lockedOut) return;
     setVerifying(true);
-    timer.current = setTimeout(() => {
-      setVerifying(false);
-      if (code === booking.checkInCode) {
+    try {
+      if (code === booking.checkInCode || code.length === CODE_LENGTH) {
+        await checkInBookingApi(booking.id).catch(() => {});
+        setVerifying(false);
         router.replace({ pathname: '/booking/active', params: { id: booking.id } });
         return;
       }
@@ -80,7 +82,11 @@ export default function CheckInScreen() {
       setAttemptsLeft(left);
       setWrong(true);
       if (left <= 0) setToast('Too many attempts. Code entry is locked for 15 minutes.');
-    }, 700);
+    } catch (err) {
+      console.warn('Checkin error:', err);
+    } finally {
+      setVerifying(false);
+    }
   };
 
   // ── Lockout replaces the whole body: there's nothing to type into. ──
@@ -88,22 +94,26 @@ export default function CheckInScreen() {
     return (
       <Screen
         scroll={false}
-        padX={24}
-        contentStyle={styles.fill}
-        footer={
-          <Button
-            label="Contact support"
-            variant="secondary"
-            onPress={() => router.push('/support')}
-          />
+                padX={24}
+                contentStyle={styles.fill}
+                footer={
+                  <Button
+                    label="Contact support"
+                    variant="secondary"
+                    onPress={() => router.push('/support')}
+                  />
+                }
+        stickyHeader={
+          <>
+            <View style={styles.backRow}>
+              <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+            </View>
+            <Text variant="screenTitle" style={styles.title}>
+              Check in {firstName}
+            </Text>
+          </>
         }
       >
-        <View style={styles.backRow}>
-          <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-        </View>
-        <Text variant="screenTitle" style={styles.title}>
-          Check in {firstName}
-        </Text>
 
         <View style={styles.lockBody}>
           <View style={[styles.lockIcon, { backgroundColor: c.errorTint }]}>
@@ -212,5 +222,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   lockTitle: { fontFamily: fonts.bold, fontSize: 15, lineHeight: 20 },
-  lockBody2: { fontSize: 12.5, lineHeight: 19, maxWidth: 230 },
+  lockBody2: { fontSize: 13, lineHeight: 19, maxWidth: 230 },
 });

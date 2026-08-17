@@ -183,6 +183,7 @@ export function SearchField({ value, onClear, containerStyle, ...rest }: SearchF
         placeholderTextColor={colors.textTertiary}
         selectionColor={colors.brand}
         returnKeyType="search"
+        numberOfLines={1}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         style={[
@@ -190,8 +191,8 @@ export function SearchField({ value, onClear, containerStyle, ...rest }: SearchF
           {
             color: colors.textPrimary,
             fontFamily: resolveFontFamily('body', 400),
-            fontSize: typeScale.bodyLg.size,
-            paddingVertical: space[3],
+            fontSize: typeScale.body.size,
+            paddingVertical: space[2],
           },
         ]}
         {...rest}

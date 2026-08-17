@@ -15,7 +15,8 @@ import {
 } from '@/lib/shareTypes';
 import { pendingCount, soonestPendingHours, subscribeRequests } from '@/lib/requests';
 import { radius, shadow } from '@/constants/layout';
-import { fonts } from '@/constants/typography';
+import { type } from '@/constants/typography';
+import colors from '@/constants/colors';
 import { useColors } from '@/hooks/useColors';
 
 // ── Static content, as shown in the design ────────────────────────────────
@@ -28,6 +29,10 @@ const PROPERTY_COUNT = 2;
 const TODAY = { arrivals: 3, departures: 2, inHouse: 5 };
 const EARNINGS = { today: '₹9,600', week: '₹58,400' };
 
+import { fetchSummary } from '@/services/api/portfolio.api';
+import { fetchNotificationsApi, toggleShareTypesAvailabilityApi } from '@/services/api/domain.api';
+import { useAuth } from '@/context/AuthContext';
+
 type DashboardState = 'loading' | 'ready' | 'empty' | 'error';
 
 function greeting(hour: number) {
@@ -39,33 +44,21 @@ function greeting(hour: number) {
 export default function TodayTab() {
   const c = useColors();
   const router = useRouter();
-  // `?state=` forces a state for review; without it the screen simulates a fetch.
+  const { partner } = useAuth();
   const { state: forced } = useLocalSearchParams<{ state?: DashboardState }>();
 
   const [state, setState] = useState<DashboardState>('loading');
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [summaryData, setSummaryData] = useState<any>(null);
+  const [unread, setUnread] = useState(0);
+  const [available, setAvailableLocal] = useState(true);
 
-  // The Requests, Complaints, and Share types banners all read live counts on
-  // every render — without this, accepting a request or resolving a
-  // complaint elsewhere would leave a stale number here until something
-  // unrelated happened to re-render.
   const [, setRevision] = useState(0);
-  // The availability toggle gets its own local mirror, on top of that. A
-  // banner re-reading a fresh value on the next render is fine when nothing
-  // on this screen changed it — but this toggle is pressed *on this screen*,
-  // and waiting on a subscription round trip through the same module it just
-  // wrote to is exactly the failure mode that made Share types miss its own
-  // taps. Local state guarantees the switch reflects its own press instantly;
-  // the subscription below still keeps it in sync when something *else*
-  // changes it (Share types saving down to zero, forcing this offline).
-  const [available, setAvailableLocal] = useState(() => isAvailable());
 
   useEffect(() => {
     const unsubRequests = subscribeRequests(() => setRevision((r) => r + 1));
     const unsubComplaints = subscribeComplaints(() => setRevision((r) => r + 1));
     const unsubShareTypes = subscribeShareTypes(() => {
       setRevision((r) => r + 1);
-      setAvailableLocal(isAvailable());
     });
     return () => {
       unsubRequests();
@@ -74,43 +67,84 @@ export default function TodayTab() {
     };
   }, []);
 
-  const load = useCallback(() => {
+  const loadData = useCallback(async () => {
     if (forced && forced !== 'loading') {
       setState(forced);
       return;
     }
     setState('loading');
-    timer.current = setTimeout(() => setState('ready'), 1200);
+    try {
+      const [sum, notifs] = await Promise.all([
+        fetchSummary(),
+        fetchNotificationsApi().catch(() => ({ items: [], unreadCount: 0 })),
+      ]);
+      setSummaryData(sum);
+      setUnread(notifs.unreadCount);
+      if (typeof sum.isAvailable === 'boolean') {
+        setAvailableLocal(sum.isAvailable);
+      }
+      setState('ready');
+    } catch (err) {
+      /*
+       * A failed load is an error state, not a ready one.
+       *
+       * This used to `setState('ready')` on failure, which painted the whole
+       * dashboard from the fallbacks below — so a dropped connection showed an
+       * owner a confident "₹9,600 today" instead of telling them nothing had
+       * loaded. `ErrorBody` already exists and offers a retry; this is what
+       * routes to it.
+       */
+      console.warn('Error fetching dashboard summary:', err);
+      setState('error');
+    }
   }, [forced]);
 
   useEffect(() => {
-    load();
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, [load]);
+    loadData();
+  }, [loadData]);
 
-  const hasData = state === 'ready';
-  // Real count, not a hardcoded "1" — the bell was wired to nothing until
-  // checkpoint 30 gave it a screen to open.
-  const unread = unreadCount();
+  /*
+   * Real values only. There are no invented defaults here any more.
+   *
+   * Every line below used to end in `|| 'Anjali'`, `|| 'Sea View Villa'`,
+   * `|| { arrivals: 3, … }`, `|| '₹9,600'`. Those are the numbers in the
+   * screenshot that started this — the dashboard was showing fixture figures
+   * whenever the server returned nothing, and an owner has no way to tell an
+   * invented ₹9,600 from a real one.
+   *
+   * `??` rather than `||` where a default still exists, because `0` and `''`
+   * are answers: `0 || 5` is 5, and that is the same bug one operator down.
+   */
+  const ownerName = partner?.name?.trim() || null;
+  const propertyName = summaryData?.propertyName ?? null;
+  const todayStats = summaryData?.today ?? { arrivals: 0, departures: 0, inHouse: 0 };
+  const earningsData = summaryData?.earnings ?? { today: '₹0', week: '₹0' };
 
-  const toggleAvailable = (next: boolean) => {
+  const toggleAvailable = async (next: boolean) => {
+    setAvailableLocal(next);
     if (next) {
-      // Every attempt to go online routes through Share types to confirm
-      // what's actually being offered — not only when nothing's selected
-      // yet. The switch stays off here; Share types is what turns it on.
       router.push({ pathname: '/share-types', params: { reason: 'accepting' } });
       return;
     }
-    // Going offline needs no confirmation — always allowed, immediate.
-    if (setAvailable(false)) setAvailableLocal(false);
+    try {
+      await toggleShareTypesAvailabilityApi(false);
+      setAvailable(false);
+    } catch (err) {
+      console.warn('Failed to update availability:', err);
+    }
   };
 
   return (
-    <Screen tabBarSpacing background="bg" contentStyle={styles.stack}>
-      {/* Header stays put in every state — only the body below it changes. */}
-      <View style={styles.headerRow}>
+    <Screen
+      tabBarSpacing
+      background="bg"
+      contentStyle={styles.stack}
+      /* Pinned. The property switcher, the availability toggle and the bell are
+         the screen's controls, not its content — losing them behind a scroll
+         meant scrolling back up to change property or read an alert. */
+      stickyHeader={
+        // Header stays put in every state — only the body below it changes.
+        <View style={styles.headerRow}>
         {state === 'loading' ? (
           <>
             <Skeleton width={150} height={36} radius={18} />
@@ -118,10 +152,15 @@ export default function TodayTab() {
           </>
         ) : (
           <>
+            {/* No property matched to this number is a real state, not a
+                loading one — three of the properties in the catalogue have no
+                owner mobile recorded at all, so their owner will land here and
+                match nothing. Saying so beats naming a property that was never
+                theirs. */}
             <HeaderPill
-              label={PROPERTY}
+              label={propertyName ?? 'No property linked'}
               swatch
-              onPress={PROPERTY_COUNT > 1 ? () => {} : undefined}
+              onPress={() => {}}
             />
             <View style={styles.headerRight}>
               <Switch value={available} onChange={toggleAvailable} size="sm" accessibilityLabel="Rooms available for booking" />
@@ -143,49 +182,43 @@ export default function TodayTab() {
               </Pressable>
             </View>
           </>
-        )}
-      </View>
-
+          )}
+        </View>
+      }
+    >
       {state === 'loading' ? (
         <LoadingBody />
       ) : state === 'error' ? (
-        <ErrorBody onRetry={load} />
+        <ErrorBody onRetry={loadData} />
       ) : (
         <>
-          <HeroCard greetingText={greeting(new Date().getHours())} owner={OWNER} available={available} />
+          <HeroCard greetingText={greeting(new Date().getHours())} owner={ownerName} available={available} />
 
           <View style={styles.halfRow}>
             <BookingCard
-              arrivals={hasData ? TODAY.arrivals : 0}
-              departures={hasData ? TODAY.departures : 0}
-              inHouse={hasData ? TODAY.inHouse : 0}
+              arrivals={todayStats.arrivals}
+              departures={todayStats.departures}
+              inHouse={todayStats.inHouse}
               onPress={() => router.push('/bookings')}
             />
-            <EarningsMiniCard
-              today={hasData ? EARNINGS.today : '₹0'}
-              week={hasData ? EARNINGS.week : '₹0'}
-              onPress={() => router.push('/payouts')}
-            />
+            {/* No `onPress`: the Payouts tab it used to open is gone. The tile
+                stays as a read-only stat rather than being deleted — it is one
+                half of a two-up row, and removing it would leave Bookings as a
+                lone half-width card. A tile that looks tappable and goes
+                nowhere is the worse of the two options. */}
+            <EarningsMiniCard today={earningsData.today} week={earningsData.week} />
           </View>
 
-          {hasData ? (
-            <RequestsBanner onPress={() => router.push('/requests')} />
-          ) : (
-            <Card variant="elevated" style={styles.emptyCard}>
-              <View style={[styles.emptyIcon, { backgroundColor: c.accentTint }]}>
-                <Icon name="calendar" size={20} color={c.accent} />
-              </View>
-              <Text variant="cardTitle" center>
-                No bookings yet
-              </Text>
-              <Text variant="caption" color="textSecondary" center style={styles.emptyBody}>
-                Once your listing is live, requests and earnings will show up here.
-              </Text>
-            </Card>
-          )}
+          <RequestsBanner
+            count={summaryData?.requests?.awaitingYou ?? 0}
+            onPress={() => router.push('/requests')}
+          />
 
           <ReferEarnBanner onPress={() => router.push('/referrals')} />
-          <ComplaintsBanner onPress={() => router.push('/complaints')} />
+          <ComplaintsBanner
+            open={summaryData?.openComplaints ?? 0}
+            onPress={() => router.push('/complaints')}
+          />
           <ShareTypesBanner onPress={() => router.push('/share-types')} />
         </>
       )}
@@ -246,7 +279,10 @@ function HeroCard({
   available,
 }: {
   greetingText: string;
-  owner: string;
+  /** Null until the profile carries a name. Greeted without one rather than
+      greeted as somebody else — 'Anjali' was the fixture, and addressing an
+      owner by a stranger's name is worse than addressing them by none. */
+  owner: string | null;
   available: boolean;
 }) {
   const c = useColors();
@@ -261,9 +297,10 @@ function HeroCard({
         <Icon name="bed" size={168} color="rgba(255,255,255,0.07)" strokeWidth={1.1} />
       </View>
 
-      <View accessible accessibilityLabel={`${greetingText}, ${owner}. ${available ? 'Rooms available, accepting bookings' : 'Not accepting new bookings'}.`}>
+      <View accessible accessibilityLabel={`${greetingText}${owner ? `, ${owner}` : ''}. ${available ? 'Rooms available, accepting bookings' : 'Not accepting new bookings'}.`}>
         <Text style={styles.heroGreeting}>
-          {greetingText}, {owner}
+          {greetingText}
+          {owner ? `, ${owner}` : ''}
         </Text>
         <Text style={styles.heroSubtitle}>Here&apos;s what&apos;s happening today</Text>
 
@@ -329,7 +366,14 @@ function BookingCard({
   );
 }
 
-function EarningsMiniCard({ today, week, onPress }: { today: string; week: string; onPress: () => void }) {
+/**
+ * Read-only since the Payouts tab was removed.
+ *
+ * `onPress` is optional rather than deleted: `Card` renders a plain View
+ * without one, so the tile stops offering a press it can no longer honour, and
+ * the prop is still here for whenever a destination exists again.
+ */
+function EarningsMiniCard({ today, week, onPress }: { today: string; week: string; onPress?: () => void }) {
   const c = useColors();
   return (
     <Card variant="elevated" onPress={onPress} style={[styles.halfCard, { backgroundColor: c.successTint }]}>
@@ -350,10 +394,23 @@ function EarningsMiniCard({ today, week, onPress }: { today: string; week: strin
 }
 
 /** Count and soonest-expiry are both live from `lib/requests.ts` — accepting or rejecting one updates this immediately. */
-function RequestsBanner({ onPress }: { onPress: () => void }) {
+/**
+ * The count comes from the summary, not from `lib/requests`.
+ *
+ * `pendingCount()` read a fixture array, which is why this banner said
+ * "3 pending requests · soonest expires in 1h" on an account whose real
+ * figure was one. The server counts `pending_owner` visit requests against
+ * this owner's properties, and that is the number a tap actually opens.
+ *
+ * The expiry line is gone with it. The fixture carried a per-request
+ * `expiresAt` that the backend has no equivalent for — a visit request's
+ * 24-hour window is enforced server-side and not currently projected — so
+ * the urgent red countdown was pure invention. It comes back when the API
+ * carries the deadline.
+ */
+function RequestsBanner({ count, onPress }: { count: number; onPress: () => void }) {
   const c = useColors();
-  const count = pendingCount();
-  const soonest = soonestPendingHours();
+  const soonest: number | null = null;
 
   return (
     <Card variant="elevated" onPress={onPress} style={styles.banner}>
@@ -404,9 +461,10 @@ function ReferEarnBanner({ onPress }: { onPress: () => void }) {
 }
 
 /** Count is live from `lib/complaints.ts` — not a static figure like the requests banner's. */
-function ComplaintsBanner({ onPress }: { onPress: () => void }) {
+/** `open` comes from the summary — `openComplaintsCount()` read a fixture that
+    reported 2 open complaints on an account that had none. */
+function ComplaintsBanner({ open, onPress }: { open: number; onPress: () => void }) {
   const c = useColors();
-  const open = openComplaintsCount();
   return (
     <Card variant="elevated" onPress={onPress} style={styles.banner}>
       <View style={[styles.bannerIcon, { backgroundColor: c.errorTint }]}>
@@ -455,7 +513,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  /*
+   * The controls never give up width — the pill beside them does.
+   *
+   * `flexShrink: 0` is React Native's default, so this is written down rather
+   * than relied on: it is the half of the arrangement that must not change.
+   * A 36pt bell and a switch have no way to degrade gracefully; the pill's
+   * label truncates to an ellipsis instead. See the note on `pill` in
+   * `components/ui/HeaderPill.tsx`.
+   */
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
   bell: {
     width: 36,
     height: 36,
@@ -484,17 +551,20 @@ const styles = StyleSheet.create({
     right: -34,
     bottom: -30,
   },
+  /*
+   * The hero sits on the accent gradient, so its type is white rather than an
+   * ink token — but white from the palette, not a literal. `#FFFFFF` typed into
+   * a screen is the one that survives a theme change and turns invisible.
+   *
+   * The subtitle keeps an alpha it cannot get from a token; it is written
+   * against `colors.white` so the two are visibly the same colour.
+   */
   heroGreeting: {
-    fontFamily: fonts.extrabold,
-    fontSize: 21,
-    lineHeight: 26,
-    letterSpacing: -0.2,
-    color: '#FFFFFF',
+    ...type.screenTitle,
+    color: colors.light.white,
   },
   heroSubtitle: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
-    lineHeight: 18,
+    ...type.caption,
     color: 'rgba(255,255,255,0.78)',
     marginTop: 3,
     marginBottom: 16,
@@ -511,10 +581,8 @@ const styles = StyleSheet.create({
   },
   heroDot: { width: 6, height: 6, borderRadius: 3 },
   heroChipText: {
-    fontFamily: fonts.semibold,
-    fontSize: 11.5,
-    lineHeight: 16,
-    color: '#FFFFFF',
+    ...type.badge,
+    color: colors.light.white,
   },
 
   halfRow: { flexDirection: 'row', gap: 10 },
@@ -539,7 +607,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   bannerBody: { flex: 1 },
-  bannerTitle: { fontSize: 14.5, marginBottom: 2 },
+  bannerTitle: { fontSize: 15, marginBottom: 2 },
   urgencyRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   dot: { width: 6, height: 6, borderRadius: 3 },
 

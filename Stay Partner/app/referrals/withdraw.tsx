@@ -6,7 +6,7 @@ import { METHODS, defaultMethod, shortLabel } from '@/lib/payouts';
 import { availablePoints, canWithdraw, withdraw, MIN_WITHDRAW_POINTS } from '@/lib/referrals';
 import { formatINR } from '@/lib/format';
 import { radius } from '@/constants/layout';
-import { fonts } from '@/constants/typography';
+import { fonts, type } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 
 /**
@@ -40,8 +40,7 @@ export default function WithdrawReferralsScreen() {
   // "unlocked," but nothing stops someone from navigating here by hand.
   if (!eligible) {
     return (
-      <Screen scroll={false} padX={20} background="bg">
-        {backRow}
+      <Screen scroll={false} padX={20} background="bg" stickyHeader={backRow}>
         <EmptyState
           icon="wallet"
           title="Not enough points yet"
@@ -53,7 +52,7 @@ export default function WithdrawReferralsScreen() {
 
   if (done) {
     return (
-      <Screen scroll={false} padX={20} background="bg">
+      <Screen scroll={false} padX={20} background="bg" stickyHeader={backRow}>
         <EmptyState
           icon="check-circle"
           title="Withdrawal started"
@@ -75,6 +74,14 @@ export default function WithdrawReferralsScreen() {
     <Screen
       padX={22}
       contentStyle={styles.fill}
+      stickyHeader={
+        <>
+          {backRow}
+          <Text variant="pageTitleSm" style={styles.title}>
+            Withdraw
+          </Text>
+        </>
+      }
       footer={
         <Button
           label={`Withdraw ${formatINR(available)}`}
@@ -83,11 +90,6 @@ export default function WithdrawReferralsScreen() {
         />
       }
     >
-      {backRow}
-
-      <Text variant="pageTitleSm" style={styles.title}>
-        Withdraw
-      </Text>
 
       <View style={[styles.amountCard, { backgroundColor: c.successTint }]}>
         <Text variant="badge" style={{ color: c.successOnTint }}>
@@ -133,7 +135,7 @@ const styles = StyleSheet.create({
   title: { marginBottom: 18 },
 
   amountCard: { borderRadius: radius.card, padding: 18, gap: 4, marginBottom: 20, alignItems: 'center' },
-  amount: { fontFamily: fonts.extrabold, fontSize: 30, lineHeight: 36 },
+  amount: { ...type.metric },
 
   field: { marginBottom: 16 },
   noMethod: { borderWidth: 1, borderRadius: radius.card, padding: 16, gap: 12, alignItems: 'center' },

@@ -1,10 +1,11 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
-import { Button, Icon, Text, TextField } from '@/components/ui';
+import { Button, Icon, InlineAlert, Text, TextField } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import {
   REPORT_DETAIL_HINT,
   REPORT_EMERGENCY_NOTE,
@@ -13,6 +14,7 @@ import {
   reportReasons,
 } from '@/data/support';
 import { useTheme } from '@/context/ThemeContext';
+import { useCreateSupportRequest } from '@/services';
 
 /**
  * Screen 62 — reporting a serious problem.
@@ -46,6 +48,33 @@ export default function ReportProblem() {
   const reason = reportReasons.find((item) => item.id === reasonId);
   const short = detail.trim().length < REPORT_MIN_CHARS;
 
+  const { submitReport, isSubmittingReport, reportError } = useCreateSupportRequest();
+
+  /**
+   * Files it, then opens the thread.
+   *
+   * The thread already contains a system line stating what a report does —
+   * that it went to the safety team, that the owner is not told until we have
+   * looked, that somebody reads every one. Landing there rather than back on
+   * the list is what makes those promises re-readable at 2am by somebody who
+   * is now worrying about having filed it. On the form they have just left,
+   * they are not.
+   *
+   * A failure keeps every word on screen. This is the one form in the app
+   * where losing the text would be worst: it is 50+ characters typed by
+   * somebody upset, about dates and amounts they had to remember, and asking
+   * them to type it twice is how a report stops being filed at all.
+   */
+  const send = async () => {
+    if (!reasonId || short) return;
+    try {
+      const created = await submitReport({ reason: reasonId, body: detail.trim() });
+      router.replace(`/support/${created.reference}` as never);
+    } catch {
+      /* Held in `reportError`, rendered beside the button. */
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
@@ -55,7 +84,7 @@ export default function ReportProblem() {
         onAction={() => router.back()}
       />
 
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
         contentContainerStyle={{ padding: layout.gutter, gap: space[5], paddingBottom: space[8] }}
         keyboardShouldPersistTaps="handled"
       >
@@ -182,20 +211,36 @@ export default function ReportProblem() {
           </View>
         ) : null}
 
+        {/* A failed report must never look like a sent one. There is no
+            optimistic state on this screen and no navigation until the server
+            has the record — somebody who believes the safety team was told,
+            when it was not, is the worst outcome this app can produce. */}
+        {reportError ? (
+          <InlineAlert
+            tone="error"
+            title="Not sent"
+            body={reportError.displayMessage}
+            actionLabel="Try again"
+            onAction={send}
+          />
+        ) : null}
+
         <View style={{ gap: space[2] }}>
           <Button
             label="Send to the safety team"
+            loadingLabel="Sending"
+            loading={isSubmittingReport}
             variant="destructive"
             fullWidth
-            disabled={!reasonId || short}
-            onPress={() => router.replace('/support')}
+            disabled={!reasonId || short || isSubmittingReport}
+            onPress={send}
           />
           <Text variant="caption" color="tertiary" style={styles.centred}>
             Someone reads every report. You will hear from us either way, even if we decide there is
             nothing we can do.
           </Text>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
     </View>
   );
 }

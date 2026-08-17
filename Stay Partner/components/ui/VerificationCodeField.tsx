@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Text } from './Text';
 import { Button, TextButton } from './Button';
@@ -6,16 +6,16 @@ import { Icon } from './Icon';
 import { OTPInput } from './OTPInput';
 import { FieldLabel } from './Field';
 import { formatPhone, PHONE_LENGTH } from './PhoneField';
+import { ApiError } from '@/services/api/client';
+import { startGuestOtp, verifyGuestOtp } from '@/services/api/addCustomer.api';
 import { useColors } from '@/hooks/useColors';
 
+/** Overwritten by the server's own answer on the first send. */
 const CODE_LENGTH = 6;
-/** Seconds before "Resend code" becomes available again. */
 const RESEND_AFTER = 30;
-/** Stands in for the code the backend would text the guest — same idea as login's own demo code. */
-const DEMO_CODE = '246810';
 
 type Props = {
-  /** Raw digits — where the code is "sent." */
+  /** Raw ten digits, as typed. Normalised to E.164 before it is sent. */
   phone: string;
   verified: boolean;
   onVerifiedChange: (next: boolean) => void;
@@ -35,8 +35,9 @@ export function VerificationCodeField({ phone, verified, onVerifiedChange }: Pro
   const [sending, setSending] = useState(false);
   const [code, setCode] = useState('');
   const [invalid, setInvalid] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [length, setLength] = useState(CODE_LENGTH);
   const [resendIn, setResendIn] = useState(RESEND_AFTER);
-  const sendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!sent || verified) return;
@@ -44,38 +45,79 @@ export function VerificationCodeField({ phone, verified, onVerifiedChange }: Pro
     return () => clearInterval(id);
   }, [sent, verified]);
 
-  useEffect(
-    () => () => {
-      if (sendTimer.current) clearTimeout(sendTimer.current);
-    },
-    [],
-  );
-
   const phoneReady = phone.length === PHONE_LENGTH;
   const display = formatPhone(phone);
+  /* The server takes E.164 and normalises anyway; sending the ten digits alone
+     would have it guess a country. */
+  const e164 = `+91${phone}`;
 
-  const send = () => {
+  /**
+   * Sends a real code.
+   *
+   * This was a 700ms `setTimeout` that flipped a flag, and the code it checked
+   * against was the literal '246810'. Both are gone: `POST /partners/
+   * guest-otp/start` texts six digits the server generated and stored as a
+   * salted hash, and the cooldown below is the one the server reports rather
+   * than a constant this file picked.
+   */
+  const send = async (isResend = false) => {
     if (!phoneReady || sending) return;
     setSending(true);
-    sendTimer.current = setTimeout(() => {
-      setSending(false);
-      setSent(true);
-      setResendIn(RESEND_AFTER);
-    }, 700);
-  };
-
-  const resend = () => {
-    setCode('');
+    setProblem(null);
     setInvalid(false);
-    setResendIn(RESEND_AFTER);
+    if (isResend) setCode('');
+
+    try {
+      const challenge = await startGuestOtp(e164);
+      setLength(challenge.otpLength);
+      setResendIn(challenge.resendInSeconds);
+      setSent(true);
+    } catch (err) {
+      /*
+       * A cooldown is not a failure to hide the boxes for. The server refuses
+       * a second send within a minute, and one is already on the guest's
+       * phone — so the flow advances and the countdown says when another can
+       * be asked for.
+       */
+      if (err instanceof ApiError && err.status === 429) {
+        const payload = err.payload as { retryAfter?: number } | null;
+        setResendIn(payload?.retryAfter ?? 60);
+        setSent(true);
+      } else {
+        setProblem(err instanceof ApiError ? err.displayMessage : 'We could not send that code.');
+      }
+    } finally {
+      setSending(false);
+    }
   };
 
-  const change = (next: string) => {
+  const resend = () => send(true);
+
+  /**
+   * Verifies against the server, on the last digit.
+   *
+   * A wrong code does NOT clear the boxes — one mistyped digit should be
+   * fixable, not retyped from scratch with a guest waiting.
+   */
+  const change = async (next: string) => {
     setCode(next);
     if (invalid) setInvalid(false);
-    if (next.length === CODE_LENGTH) {
-      if (next === DEMO_CODE) onVerifiedChange(true);
-      else setInvalid(true);
+    if (problem) setProblem(null);
+    if (next.length !== length) return;
+
+    try {
+      await verifyGuestOtp(e164, next);
+      onVerifiedChange(true);
+    } catch (err) {
+      setInvalid(true);
+      if (err instanceof ApiError) {
+        const payload = (err.payload ?? {}) as { attemptsLeft?: number };
+        if (err.code === 'OTP_EXPIRED') setProblem('That code has expired. Send a new one.');
+        else if (err.code === 'OTP_LOCKED') setProblem('Too many tries. Send a new code.');
+        else if (typeof payload.attemptsLeft === 'number' && payload.attemptsLeft > 0) {
+          setProblem(`That code isn't right — ${payload.attemptsLeft} left.`);
+        } else setProblem(err.displayMessage);
+      }
     }
   };
 
@@ -99,14 +141,14 @@ export function VerificationCodeField({ phone, verified, onVerifiedChange }: Pro
         <FieldLabel>Verification code</FieldLabel>
         <Text variant="badge" color="textSecondary" style={styles.hint}>
           {phoneReady
-            ? `Send a ${CODE_LENGTH}-digit code to +91 ${display} and have the guest read it back to confirm these details.`
+            ? `Send a ${length}-digit code to +91 ${display} and have the guest read it back to confirm these details.`
             : 'Enter the guest’s phone number above to send a verification code.'}
         </Text>
         <Button
           label={sending ? 'Sending…' : 'Send verification code'}
           variant="secondary"
           size="sm"
-          onPress={send}
+          onPress={() => send()}
           loading={sending}
           disabled={!phoneReady}
           fullWidth={false}
@@ -122,13 +164,20 @@ export function VerificationCodeField({ phone, verified, onVerifiedChange }: Pro
         Code sent to +91 {display}
       </Text>
       <OTPInput
-        length={CODE_LENGTH}
+        length={length}
         value={code}
         onChangeText={change}
         invalid={invalid}
         accessibilityLabel="Verification code"
       />
-      {invalid ? (
+      {/* The server's own sentence where it wrote one — only it knows whether
+          the code expired, was locked, or how many tries are left. The generic
+          line is the fallback for a failure it never spoke about. */}
+      {problem ? (
+        <Text variant="badge" color="error" style={styles.error}>
+          {problem}
+        </Text>
+      ) : invalid ? (
         <Text variant="badge" color="error" style={styles.error}>
           That code isn&apos;t right. Check with the guest and try again.
         </Text>

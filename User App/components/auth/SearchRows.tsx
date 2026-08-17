@@ -27,6 +27,22 @@ export function LocalityRow({
   const { colors, space, touch } = useTheme();
   const empty = locality.listingCount === 0;
 
+  /* "1 places" was on every row of this screen, because each area in the
+     catalogue currently holds exactly one property — which is the case a
+     hardcoded plural is guaranteed to get wrong. */
+  const places = `${locality.listingCount} ${locality.listingCount === 1 ? 'place' : 'places'}`;
+
+  /**
+   * Areas whose only listing is priced by the night have no monthly median,
+   * and the server sends `null` rather than converting one — a ₹450 dormitory
+   * bed is not ₹13,500 a month, and nobody quoted that.
+   *
+   * The row used to render nothing at all in that case, leaving a gap where
+   * every neighbouring row has a number. A blank in a column of prices reads
+   * as a value that failed to load, so the reason is said instead.
+   */
+  const rentUnknown = !empty && locality.medianRent === null;
+
   return (
     <Pressable
       onPress={empty ? undefined : onPress}
@@ -36,7 +52,11 @@ export function LocalityRow({
       accessibilityLabel={
         empty
           ? `${locality.name}, no places listed yet`
-          : `${locality.name}, ${locality.listingCount} places, median rent ${formatRupees(locality.medianRent ?? 0)}`
+          : `${locality.name}, ${places}${
+              locality.medianRent !== null
+                ? `, median rent ${formatRupees(locality.medianRent)}`
+                : ', priced by the night'
+            }`
       }
       android_ripple={{ color: colors.surfaceSunken }}
       style={({ pressed }) => [
@@ -55,18 +75,24 @@ export function LocalityRow({
         <Text variant="numMeta" color="tertiary" numberOfLines={1}>
           {empty
             ? 'no places listed yet'
-            : `${locality.listingCount} places${locality.nearestLandmark ? ` · near ${locality.nearestLandmark}` : ''}`}
+            : `${places}${locality.nearestLandmark ? ` · near ${locality.nearestLandmark}` : ''}`}
         </Text>
       </View>
 
-      {!empty && locality.medianRent !== null ? (
+      {empty ? null : rentUnknown ? (
         <View style={styles.rentCol}>
-          <Text variant="priceSm">{formatRupees(locality.medianRent)}</Text>
+          <Text variant="numMeta" color="tertiary">
+            by the night
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.rentCol}>
+          <Text variant="priceSm">{formatRupees(locality.medianRent as number)}</Text>
           <Text variant="numMeta" color="tertiary">
             median
           </Text>
         </View>
-      ) : null}
+      )}
     </Pressable>
   );
 }

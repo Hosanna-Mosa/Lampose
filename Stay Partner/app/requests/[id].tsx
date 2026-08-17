@@ -134,22 +134,26 @@ function ActiveDetail({
   return (
     <Screen
       padX={22}
-      contentStyle={styles.stack}
-      footer={
-        <View style={styles.actions}>
-          <Button
-            label="Reject"
-            variant="dangerOutline"
-            onPress={() => router.push({ pathname: '/requests/reject', params: { id: request.id } })}
-            style={styles.reject}
-          />
-          <Button label="Accept booking" variant="success" onPress={accept} style={styles.accept} />
-        </View>
+            contentStyle={styles.stack}
+            footer={
+              <View style={styles.actions}>
+                <Button
+                  label="Reject"
+                  variant="dangerOutline"
+                  onPress={() => router.push({ pathname: '/requests/reject', params: { id: request.id } })}
+                  style={styles.reject}
+                />
+                <Button label="Accept booking" variant="success" onPress={accept} style={styles.accept} />
+              </View>
+            }
+      stickyHeader={
+        <>
+          <View style={styles.backRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={onBack} />
+          </View>
+        </>
       }
     >
-      <View style={styles.backRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={onBack} />
-      </View>
 
       <CountdownBanner msLeft={msLeft} />
 
@@ -560,5 +564,5 @@ const styles = StyleSheet.create({
   readOnly: { opacity: 0.55, gap: 14 },
   readOnlyCard: { marginTop: 4 },
   spacer: { flex: 1, minHeight: 24 },
-  expiredNote: { fontSize: 12.5, lineHeight: 19 },
+  expiredNote: { fontSize: 13, lineHeight: 19 },
 });

@@ -13,6 +13,7 @@ import {
   EmptyState,
 } from '@/components/ui';
 import { getBooking } from '@/lib/bookings';
+import { cancelBookingApi } from '@/services/api/domain.api';
 import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
@@ -29,6 +30,18 @@ export default function CancelBookingScreen() {
 
   const [reason, setReason] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  const [cancelling, setCancelling] = useState(false);
+
+  const handleCancel = async () => {
+    if (!reason || !id) return;
+    setCancelling(true);
+    try {
+      await cancelBookingApi(id).catch(() => {});
+    } finally {
+      setCancelling(false);
+      router.replace('/bookings');
+    }
+  };
 
   if (!booking) {
     return (
@@ -50,32 +63,36 @@ export default function CancelBookingScreen() {
   return (
     <Screen
       padX={22}
-      contentStyle={styles.fill}
-      footer={
-        <View style={styles.actions}>
-          <Button
-            label="Go back"
-            variant="secondary"
-            onPress={() => router.back()}
-            style={styles.action}
-          />
-          <Button
-            label="Cancel booking"
-            variant="destructive"
-            onPress={() => router.replace('/bookings')}
-            disabled={!reason}
-            style={styles.action}
-          />
-        </View>
+            contentStyle={styles.fill}
+            footer={
+              <View style={styles.actions}>
+                <Button
+                  label="Go back"
+                  variant="secondary"
+                  onPress={() => router.back()}
+                  style={styles.action}
+                />
+                <Button
+                  label="Cancel booking"
+                  variant="destructive"
+                  onPress={handleCancel}
+                  disabled={!reason || cancelling}
+                  style={styles.action}
+                />
+              </View>
+            }
+      stickyHeader={
+        <>
+          <View style={styles.backRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+          </View>
+
+          <Text variant="screenTitle" style={styles.title}>
+            Cancel booking
+          </Text>
+        </>
       }
     >
-      <View style={styles.backRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-      </View>
-
-      <Text variant="screenTitle" style={styles.title}>
-        Cancel booking
-      </Text>
 
       <View style={[styles.warning, { backgroundColor: c.warningTint }]}>
         <Icon name="alert-circle" size={16} color={c.warningOnTint} strokeWidth={2} />
@@ -128,7 +145,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     marginBottom: 20,
   },
-  warningText: { flex: 1, fontFamily: fonts.medium, fontSize: 12.5, lineHeight: 17.5 },
+  warningText: { flex: 1, fontFamily: fonts.medium, fontSize: 13, lineHeight: 17.5 },
   label: { marginBottom: 4 },
   chips: { marginBottom: 12 },
   spacer: { flex: 1, minHeight: 16 },

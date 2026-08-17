@@ -18,9 +18,10 @@ export type BadgeProps = {
   tone?: 'neutral' | 'brand' | 'success' | 'warning' | 'danger';
   /** A bare dot means "something changed". It may never stand in for a number. */
   dot?: boolean;
+  size?: 'sm' | 'md';
 };
 
-export function Badge({ label, count, tone = 'neutral', dot = false }: BadgeProps) {
+export function Badge({ label, count, tone = 'neutral', dot = false, size = 'md' }: BadgeProps) {
   const { colors, space, radius } = useTheme();
 
   const sets = {
@@ -38,6 +39,34 @@ export function Badge({ label, count, tone = 'neutral', dot = false }: BadgeProp
         accessibilityLabel="Updated"
         style={{ width: 8, height: 8, borderRadius: radius.pill, backgroundColor: colors.danger.base }}
       />
+    );
+  }
+
+  if (size === 'sm') {
+    return (
+      <View
+        style={{
+          alignSelf: 'flex-start',
+          backgroundColor: tone === 'danger' ? colors.danger.base : set.bg,
+          borderRadius: radius.pill,
+          minWidth: 16,
+          height: 16,
+          paddingHorizontal: space[1],
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Text
+          style={{
+            color: tone === 'danger' ? '#FFFFFF' : set.fg,
+            fontSize: 10,
+            lineHeight: 12,
+            fontWeight: '700',
+          }}
+        >
+          {count !== undefined ? (count > 99 ? '99+' : count) : label}
+        </Text>
+      </View>
     );
   }
 

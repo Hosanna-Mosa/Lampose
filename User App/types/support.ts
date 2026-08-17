@@ -19,7 +19,16 @@
  * Tickets
  * ------------------------------------------------------------------ */
 
-export type TicketState = 'open' | 'awaiting-you' | 'resolved';
+/**
+ * `closed` is separate from `resolved`, and the difference is what the row is
+ * allowed to offer.
+ *
+ * Resolved means something happened and the thread is still repliable — a
+ * student who says "the pump broke again" reopens it. Closed means it is
+ * finished and the server will refuse a reply, so the screen has to offer a
+ * new request instead of a text box that returns a 409.
+ */
+export type TicketState = 'open' | 'awaiting-you' | 'resolved' | 'closed';
 
 export type TicketCategoryId =
   | 'property'
@@ -37,7 +46,25 @@ export type TicketCategory = {
 };
 
 export type Ticket = {
+  /** The server's reference — "TKT-K4M2PX". Shown on the row and read to
+      support down a phone line, which is why it is not a Mongo id. */
   id: string;
+  /**
+   * Which of the two things this is.
+   *
+   * A field on the row rather than a second type, and worth saying why given
+   * how hard the rest of this file insists on the distinction. What must never
+   * merge is the two SUBMISSION paths and the two queues — a report reaching
+   * support because a string was misspelled is the failure being guarded
+   * against, and that guard lives on separate endpoints, separate API
+   * functions and an immutable discriminator in the database.
+   *
+   * A customer's own list is the one place both belong together: somebody who
+   * filed a report is owed sight of it, and hiding it here would make the app
+   * look like it had thrown the thing away. The row uses this to say "Safety
+   * report" rather than a category label.
+   */
+  kind: 'ticket' | 'report';
   categoryLabel: string;
   title: string;
   /** "Bhavana Girls PG · LAM-4192" — always tied to a booking where there is one. */

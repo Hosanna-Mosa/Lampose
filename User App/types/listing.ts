@@ -37,12 +37,26 @@ export const genderMeta: Record<Gender, { letter: string; label: string; shape: 
  * site. A bed count says "3 free"; a whole unit says "Vacant"; a dormitory
  * counts tonight. `availabilityLabel` below is the only place these strings
  * are produced.
+ *
+ * `UNSTATED` is the fifth, and it is the one the live API actually returns
+ * today. The `properties` collection records no bed counts and no vacancy
+ * flag — an owner is onboarded by a field agent who asks for rent, sharing
+ * types and photographs, and nobody has ever been asked how many beds are
+ * free this afternoon. Every other member of this union would put a number or
+ * a word on screen that no owner ever said: "Vacant" is a claim, and "3 free"
+ * is a claim with a figure attached.
+ *
+ * So it carries nothing, renders nothing, and is neither scarce nor gone. The
+ * chip is absent rather than empty. When the panel starts recording occupancy
+ * this becomes the fallback for listings that still have not, rather than
+ * something to delete.
  */
 export type Availability =
   | { kind: 'BEDS'; count: number }
   | { kind: 'UNIT'; vacant: boolean }
   | { kind: 'TONIGHT'; count: number }
-  | { kind: 'FILLED'; minutesAgo: number };
+  | { kind: 'FILLED'; minutesAgo: number }
+  | { kind: 'UNSTATED' };
 
 /** Two or fewer left is the point where the chip goes warning. */
 export const SCARCE_AT = 2;
@@ -62,6 +76,13 @@ export function availabilityLabel(availability: Availability): string {
         : `${availability.count} beds free tonight`;
     case 'FILLED':
       return `Filled ${availability.minutesAgo} min ago`;
+    case 'UNSTATED':
+      /* Empty on purpose, and every caller treats an empty label as "draw
+         nothing". A placeholder — "availability unknown", a dash — would be a
+         line of chrome saying we have no information, which is worse than the
+         silence it replaces: it draws the eye to the absence on every card in
+         the feed. */
+      return '';
   }
 }
 
@@ -107,7 +128,23 @@ export type AmenityName =
   | 'visitors'
   | 'curfew'
   | 'drinkingWater'
-  | 'bicycle';
+  | 'bicycle'
+  /**
+   * An amenity the owner named that this set has no icon for.
+   *
+   * The panel's amenity field is free text — real rows carry "Gaming &
+   * Community Lounge", "3-tier security", "RO Water". Twenty-two glyphs will
+   * never cover that, and the alternatives were both bad: forcing a near
+   * match puts the wrong icon beside a real fact, and dropping the string
+   * silently deletes something the owner chose to advertise.
+   *
+   * So it keeps its own words. `Amenity.label` carries the raw text and the
+   * glyph is a plain tick — "this is here", which is all we can honestly
+   * claim about a string we do not recognise. It is deliberately absent from
+   * the filter sheet: you cannot filter on a category whose contents are
+   * whatever anybody typed.
+   */
+  | 'other';
 
 /**
  * `unknown` is omitted from the UI entirely rather than drawn as a guess —
@@ -115,6 +152,47 @@ export type AmenityName =
  * them is safe to show.
  */
 export type AmenityState = 'present' | 'absent' | 'unknown';
+
+/**
+ * The word for each amenity.
+ *
+ * Here rather than beside the icon set, because it is vocabulary rather than
+ * presentation: the adapter that turns an owner's free text into these names
+ * needs to know what each one is called, in order to decide whether the
+ * owner's own phrasing adds anything to it. Having that live in a React
+ * component meant the data layer imported React Native to read a string map.
+ *
+ * `components/discovery/AmenityIcon` re-exports this, so nothing that already
+ * imported it from there had to change.
+ */
+export const AMENITY_LABEL: Record<AmenityName, string> = {
+  wifi: 'WiFi',
+  powerBackup: 'Power backup',
+  waterSupply: 'Water supply',
+  laundry: 'Laundry',
+  mess: 'Mess / food',
+  ac: 'AC',
+  attachedBath: 'Attached bathroom',
+  studyTable: 'Study table',
+  cupboard: 'Cupboard',
+  parking: 'Two-wheeler parking',
+  cctv: 'CCTV',
+  housekeeping: 'Housekeeping',
+  hotWater: 'Hot water',
+  lift: 'Lift',
+  tv: 'Common TV',
+  fridge: 'Refrigerator',
+  gym: 'Gym',
+  warden: 'Warden on site',
+  visitors: 'Visitor rules',
+  curfew: 'Entry curfew',
+  drinkingWater: 'Drinking water',
+  bicycle: 'Bicycle stand',
+  /* Only ever seen if an `other` amenity arrives without its text, which
+     would be a bug in the adapter rather than a listing worth describing this
+     way. It exists so the Record stays total. */
+  other: 'Also included',
+};
 
 export type Amenity = {
   name: AmenityName;
@@ -124,6 +202,16 @@ export type Amenity = {
    * a fact; "Water · timed 6–9am" is the thing a student needs before signing.
    */
   qualifier?: string;
+  /**
+   * Overrides the standard label for this amenity.
+   *
+   * Required for `other`, where the owner's own words are the only thing we
+   * have. Available to the rest so a listing can say "Mess · 3 meals" in the
+   * owner's phrasing rather than ours, but the standard label is the default
+   * and should stay so: a consistent vocabulary is what lets two listings be
+   * compared at a glance.
+   */
+  label?: string;
 };
 
 /* ------------------------------------------------------------------ *
@@ -138,9 +226,15 @@ export type MealSlot = {
 
 export type MealPlan = {
   included: boolean;
-  mealsPerDay: number;
-  /** "Veg only", "Veg and non-veg". */
-  dietary: string;
+  /**
+   * How many meals a day. Absent when the panel recorded that food is
+   * included without saying how much of it — "0 meals a day included in
+   * rent" is a sentence that contradicts itself, and it is what a required
+   * field produced for every listing whose owner ticked the box and stopped.
+   */
+  mealsPerDay?: number;
+  /** "Veg only", "Veg and non-veg". Absent when unrecorded. */
+  dietary?: string;
   slots: readonly MealSlot[];
   note?: string;
 };
@@ -222,7 +316,18 @@ export type SharingOption = {
   id: string;
   label: string;
   /** Always per person per month. Never a room price. */
-  pricePerPerson: number;
+  /**
+   * Per person, per month. Never a room price.
+   *
+   * Optional, because the panel prices sharing options separately from the
+   * listing and very often does not. Where it did not, the honest rendering
+   * is "ask the owner" — the alternative was falling back to the headline
+   * rent for every option, which put Single and Four-sharing on screen at the
+   * same figure. A single room is never the price of a bed in a four, so that
+   * fallback was not a rough answer but a wrong one, and it flattened the
+   * cheaper-by comparison this control exists for to zero on every row.
+   */
+  pricePerPerson?: number;
   /**
    * What this sharing costs at each stay rate the listing quotes, per person
    * per unit — a single room by the night, four-sharing by the month.
@@ -238,7 +343,20 @@ export type SharingOption = {
   ratePerUnit?: Partial<Record<StayTypeId, number>>;
   deposit?: number;
   depositMonths?: number;
-  bedsLeft: number;
+  /**
+   * How many beds are free in this sharing option.
+   *
+   * Optional, because the live API cannot answer it — the `properties`
+   * collection records which sharing types a place offers and what each
+   * costs, and nothing about occupancy. Absent means unknown: the row says
+   * nothing about beds rather than "0 free", which would grey out and
+   * un-select every option on every listing in the app.
+   *
+   * Zero still means zero and still reads as sold out. The difference between
+   * "none left" and "we were never told" is the whole reason this is
+   * `number | undefined` rather than defaulting to a figure.
+   */
+  bedsLeft?: number;
   /** The median choice for this listing — the only thing that may pre-select. */
   median?: boolean;
 };
@@ -254,6 +372,16 @@ export type Listing = {
   locality: string;
   /** "near station" — appended to the locality, never replacing it. */
   localityNote?: string;
+  /**
+   * What the owner wrote about the place, in their own words.
+   *
+   * The panel has had this field since the leads backend was merged in and
+   * nothing in the app has ever shown it — a paragraph an owner took the
+   * trouble to write, invisible to every student who opened the listing.
+   * Rendered verbatim and never truncated to a preview: it is prose, and the
+   * useful half is rarely the first sentence.
+   */
+  description?: string;
   /**
    * How people here navigate the last 200 metres — "Opp. Ratnadeep, lane 3".
    *
@@ -276,10 +404,33 @@ export type Listing = {
    * the difference between walking in and walking away.
    */
   ownerName?: string;
-  gender: Gender;
+  /**
+   * Boys, girls or co-ed — and `undefined` when nobody recorded it.
+   *
+   * This was required, and it could not stay that way once the data was
+   * real: only hostels carry a `hostelType` in the panel, so a PG has no
+   * gender field at all. Defaulting the gap to `COED` would have printed
+   * "Co-ed" under a listing whose owner never said so — on this particular
+   * fact that is not a cosmetic error but a wasted trip across a city.
+   *
+   * Absent means the badge is not drawn, and `matchesQuerySpec` does not
+   * exclude the listing: an unknown rule is not a rule against you, and a
+   * girl filtering for girls-only should see the place and find out on the
+   * visit rather than never see it at all.
+   */
+  gender?: Gender;
   photoCount: number;
   /** Request at twice the layout size, never at full resolution. */
   photoUri?: string;
+  /**
+   * The gallery, in the order the owner uploaded it.
+   *
+   * `photoUri` is the cover and stays the single source for a card that shows
+   * one image. This is what makes the card's swipe real: it used to page
+   * through the same cover repeated, because a mock listing had a photo count
+   * and no photos. Cloudinary URLs from the onboarding upload land here.
+   */
+  photoUris?: readonly string[];
 
   /**
    * How many people have opened this listing.

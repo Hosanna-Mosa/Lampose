@@ -51,7 +51,10 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="index" options={{ title: 'Today', tabBarIcon: tab('home') }} />
       <Tabs.Screen name="bookings" options={{ title: 'Bookings', tabBarIcon: tab('bookings') }} />
-      <Tabs.Screen name="payouts" options={{ title: 'Payouts', tabBarIcon: tab('wallet') }} />
+      {/* The Payouts tab is gone with the screens behind it — the app does not
+          display payouts. Payout METHODS survive as a Profile row: a bank
+          account is where referral money lands, which is a different thing from
+          a payout history. */}
       <Tabs.Screen name="menu" options={{ title: 'Profile', tabBarIcon: tab('user') }} />
     </Tabs>
   );

@@ -10,6 +10,8 @@ import { addMethod, bankNameForIFSC } from '@/lib/payouts';
  * different code actually changes what's shown rather than the field being a
  * static prop dressed up as a derivation.
  */
+import { addPaymentMethodApi } from '@/services/api/domain.api';
+
 export default function AddMethodScreen() {
   const router = useRouter();
 
@@ -17,6 +19,7 @@ export default function AddMethodScreen() {
   const [accountNumber, setAccountNumber] = useState('');
   const [ifsc, setIfsc] = useState('');
   const [ifscTouched, setIfscTouched] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const bankName = bankNameForIFSC(ifsc);
   const ifscLooksComplete = ifsc.trim().length >= 11;
@@ -25,24 +28,42 @@ export default function AddMethodScreen() {
   const canSave =
     holderName.trim().length > 0 &&
     accountNumber.replace(/\D/g, '').length >= 9 &&
-    Boolean(bankName);
+    Boolean(bankName) &&
+    !saving;
 
-  const save = () => {
+  const save = async () => {
     if (!canSave) return;
-    addMethod({ holderName: holderName.trim(), accountNumber, ifsc });
-    // The methods list is the natural place to see the new account appear.
-    router.replace('/earnings/methods');
+    setSaving(true);
+    try {
+      await addPaymentMethodApi({
+        type: 'bank_account',
+        accountName: holderName.trim(),
+        accountNumber,
+        ifsc,
+        isPrimary: true,
+      });
+      addMethod({ holderName: holderName.trim(), accountNumber, ifsc });
+    } catch (err) {
+      console.warn('Failed to save payment method:', err);
+    } finally {
+      setSaving(false);
+      router.replace('/earnings/methods');
+    }
   };
 
   return (
     <Screen
       padX={22}
-      contentStyle={styles.fill}
-      footer={<Button label="Save payout method" onPress={save} disabled={!canSave} />}
+            contentStyle={styles.fill}
+            footer={<Button label="Save payout method" onPress={save} disabled={!canSave} />}
+      stickyHeader={
+        <>
+          <View style={styles.backRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+          </View>
+        </>
+      }
     >
-      <View style={styles.backRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-      </View>
 
       <Text variant="pageTitleSm" style={styles.title}>
         Add bank account

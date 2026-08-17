@@ -3,37 +3,67 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen, Text, TextButton, IconButton, Icon, EmptyState, type IconName } from '@/components/ui';
 import {
-  NOTIFICATIONS,
   groupedNotifications,
-  markAllRead,
-  markRead,
   relativeTime,
-  subscribeNotifications,
-  unreadCount,
   type AppNotification,
   type NotificationType,
 } from '@/lib/notifications';
+import { fetchNotificationsApi, markNotificationReadApi } from '@/services/api/domain.api';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 
-/**
- * Chronological, grouped by day, one coloured icon per event type. Unread
- * rows carry a dot and a bolder title; read rows dim to 70% — both states are
- * real, driven by `read`, not a static split like the design's frame.
- */
 export default function NotificationsScreen() {
   const c = useColors();
   const router = useRouter();
-  const [revision, setRevision] = useState(0);
-  useEffect(() => subscribeNotifications(() => setRevision((r) => r + 1)), []);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
-  const groups = groupedNotifications(NOTIFICATIONS);
-  const unread = unreadCount(NOTIFICATIONS);
+  const loadNotifications = async () => {
+    try {
+      const res = await fetchNotificationsApi();
+      const mapped: AppNotification[] = (res.items || []).map((n: any) => ({
+        id: n.id || n._id,
+        type: (n.category || 'support') as NotificationType,
+        title: n.title,
+        body: n.message,
+        occurredAt: new Date(n.createdAt || Date.now()),
+        read: Boolean(n.read),
+      }));
+      setNotifications(mapped);
+      setUnreadCount(res.unreadCount || mapped.filter((item) => !item.read).length);
+    } catch (err) {
+      console.warn('Failed to load notifications:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadNotifications();
+  }, []);
+
+  const handleMarkAllRead = async () => {
+    try {
+      await markNotificationReadApi('all');
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      setUnreadCount(0);
+    } catch (err) {
+      console.warn('Failed to mark all read:', err);
+    }
+  };
+
+  const handleMarkRead = async (id: string) => {
+    try {
+      await markNotificationReadApi(id);
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    } catch (err) {
+      console.warn('Failed to mark read:', err);
+    }
+  };
+
+  const groups = groupedNotifications(notifications);
 
   const typeStyle: Record<NotificationType, { icon: IconName; bg: string; fg: string }> = {
     request: { icon: 'calendar', bg: c.accentTint, fg: c.accent },
-    // Amber icon on amber tint — darkened, same fix as every other instance of
-    // this pairing in the app.
     payout: { icon: 'bank', bg: c.warningTint, fg: c.warningOnTint },
     checkin: { icon: 'suitcase', bg: c.infoTint, fg: c.info },
     review: { icon: 'star', bg: c.surfaceSunken, fg: c.warning },
@@ -42,14 +72,20 @@ export default function NotificationsScreen() {
   };
 
   return (
-    <Screen contentStyle={styles.stack} key={revision}>
-      <View style={styles.backRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-      </View>
+    <Screen
+      contentStyle={styles.stack}
+      stickyHeader={
+        <>
+          <View style={styles.backRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+          </View>
+        </>
+      }
+    >
 
       <View style={styles.head}>
         <Text variant="screenTitle">Notifications</Text>
-        {unread > 0 ? <TextButton label="Mark all read" onPress={markAllRead} /> : null}
+        {unreadCount > 0 ? <TextButton label="Mark all read" onPress={handleMarkAllRead} /> : null}
       </View>
 
       {groups.length > 0 ? (
@@ -59,7 +95,7 @@ export default function NotificationsScreen() {
               {group.label}
             </Text>
             {group.items.map((n) => (
-              <NotificationRow key={n.id} notification={n} style={typeStyle[n.type]} />
+              <NotificationRow key={n.id} notification={n} style={typeStyle[n.type] || typeStyle.support} onRead={handleMarkRead} />
             ))}
           </View>
         ))
@@ -78,16 +114,18 @@ export default function NotificationsScreen() {
 function NotificationRow({
   notification,
   style,
+  onRead,
 }: {
   notification: AppNotification;
   style: { icon: IconName; bg: string; fg: string };
+  onRead?: (id: string) => void;
 }) {
   const c = useColors();
   const unread = !notification.read;
 
   return (
     <Pressable
-      onPress={() => markRead(notification.id)}
+      onPress={() => onRead?.(notification.id)}
       disabled={notification.read}
       accessibilityRole="button"
       accessibilityLabel={`${notification.title}. ${notification.body}. ${unread ? 'Unread' : 'Read'}`}
@@ -127,7 +165,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   group: { marginBottom: 4 },
-  groupLabel: { fontSize: 10.5, marginTop: 4, marginBottom: 4 },
+  groupLabel: { fontSize: 11, marginTop: 4, marginBottom: 4 },
 
   row: {
     flexDirection: 'row',
@@ -145,8 +183,8 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   body: { flex: 1 },
-  title: { fontSize: 13.5, lineHeight: 18, marginBottom: 2 },
-  rowBody: { fontSize: 12.5, lineHeight: 17 },
+  title: { fontSize: 14, lineHeight: 18, marginBottom: 2 },
+  rowBody: { fontSize: 13, lineHeight: 17 },
   rightCol: { alignItems: 'flex-end', flexShrink: 0 },
   time: { fontSize: 11 },
   dot: { width: 7, height: 7, borderRadius: 3.5, marginTop: 5 },

@@ -14,7 +14,7 @@ import {
 } from '@/components/discovery';
 import { useAppState } from '@/context/AppStateContext';
 import { useTheme } from '@/context/ThemeContext';
-import { feedListings } from '@/data/listings';
+import { useListings } from '@/services';
 import { isGone } from '@/types/listing';
 import type { StayCategory } from '@/constants/tokens';
 import {
@@ -51,11 +51,37 @@ export default function Results() {
   );
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
+
+  /*
+   * The same query the feed runs, and therefore the same cached response.
+   *
+   * "See all" from home lands here with the category it was showing, and the
+   * key matches the one home used — so this screen paints from cache on the
+   * first frame rather than re-downloading a list the student was looking at
+   * a moment ago.
+   *
+   * The rent ceiling stays off the wire for the reason home documents: the
+   * no-results recovery below counts how many places sit just above it, and
+   * cannot do that from a response they were filtered out of.
+   */
+  const {
+    listings,
+    isPending: loading,
+    error,
+    refetch,
+    isFetching,
+  } = useListings({
+    category: category ?? null,
+    city: locality?.city ?? null,
+    /* The area, matching what home sends — otherwise "See all" would open a
+       wider list than the feed it was tapped from, and the count in the
+       header would not be the count on the screen behind it. */
+    locality: locality?.name ?? null,
+  });
 
   const inventory = useMemo(
-    () => feedListings.filter((listing) => !isGone(listing.availability)),
-    [],
+    () => listings.filter((listing) => !isGone(listing.availability)),
+    [listings],
   );
   const results = useMemo(() => applyQuery(inventory, query), [inventory, query]);
   const suggestions = useMemo(
@@ -68,7 +94,7 @@ export default function Results() {
   /** The query, in words. Both ceilings always shown — a filter you cannot
       see is a filter you forget you set. */
   const summary = [
-    locality?.name ?? 'Hyderabad',
+    locality?.name ?? locality?.city ?? 'Everywhere',
     ...query.categories.map((c) => CATEGORY_LABEL[c]),
     query.gender === 'BOYS' ? 'Boys' : query.gender === 'GIRLS' ? 'Girls' : query.gender ? 'Co-ed' : null,
     query.rentCeiling !== null ? `≤ ₹${query.rentCeiling.toLocaleString('en-IN')}` : null,
@@ -81,7 +107,7 @@ export default function Results() {
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader
         title={title}
-        subtitle={`${results.length} ${results.length === 1 ? 'place' : 'places'} in ${locality?.name ?? 'Hyderabad'}`}
+        subtitle={`${results.length} ${results.length === 1 ? 'place' : 'places'} in ${locality?.name ?? locality?.city ?? 'all areas'}`}
         onBack={() => router.back()}
       />
 
@@ -158,6 +184,21 @@ export default function Results() {
       >
         {loading ? (
           [0, 1, 2].map((key) => <ListingCardSkeleton key={key} variant="list" />)
+        ) : error ? (
+          /* Not an empty result set. The recovery below offers to loosen
+             filters, which would be advice about the wrong problem. */
+          <View style={{ gap: space[3] }}>
+            <Text variant="title1">We could not load places</Text>
+            <Text variant="bodyLg" color="secondary">
+              {error.displayMessage}
+            </Text>
+            <Button
+              label={isFetching ? 'Trying…' : 'Try again'}
+              onPress={() => refetch()}
+              disabled={isFetching}
+              fullWidth
+            />
+          </View>
         ) : results.length === 0 ? (
           <View style={{ gap: space[4] }}>
             <View style={{ gap: space[2] }}>
@@ -215,14 +256,6 @@ export default function Results() {
           ))
         )}
 
-        {__DEV__ && results.length > 0 ? (
-          <Button
-            label={loading ? 'show results' : 'show loading'}
-            size="sm"
-            variant="secondary"
-            onPress={() => setLoading((value) => !value)}
-          />
-        ) : null}
       </ScrollView>
 
       <SortSheet

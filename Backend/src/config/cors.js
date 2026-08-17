@@ -79,6 +79,14 @@ const createCorsOptions = (origins = []) => {
       'X-Correlation-ID',
       'x-employee-email', // Identifies the field agent on gated v1 writes
       'x-user-email',
+      /* Every Lampose client names itself, and pairs its own console line
+         with this server's through the id. A React Native app sends no
+         Origin, so these are the only thing that identifies it in the log.
+         Listed here because a browser preflight rejects any header the
+         server did not allow — Expo web would fail on them otherwise. */
+      'X-Client',
+      'X-Client-Version',
+      'X-Request-Id',
     ],
     exposedHeaders: ['Content-Disposition', 'Content-Length'],
     credentials: true,

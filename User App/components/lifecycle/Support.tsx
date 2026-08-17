@@ -21,6 +21,10 @@ const STATE_STYLE: Record<TicketState, { icon: 'clock' | 'check' | 'alert' }> = 
   open: { icon: 'clock' },
   'awaiting-you': { icon: 'alert' },
   resolved: { icon: 'check' },
+  /* Closed takes the same glyph as resolved. The two differ in whether a
+     reply is still accepted, which is a fact about the thread screen and not
+     something a 16pt icon on a list row can carry. */
+  closed: { icon: 'check' },
 };
 
 export type TicketRowProps = { ticket: Ticket; onPress?: () => void };
@@ -29,7 +33,7 @@ export function TicketRow({ ticket, onPress }: TicketRowProps) {
   const { colors, space, radius } = useTheme();
 
   const tone =
-    ticket.state === 'resolved'
+    ticket.state === 'resolved' || ticket.state === 'closed'
       ? { bg: colors.surfaceSunken, ink: colors.textSecondary, border: colors.border }
       : ticket.state === 'awaiting-you'
         ? { bg: colors.danger.tint, ink: colors.danger.ink, border: colors.danger.border }

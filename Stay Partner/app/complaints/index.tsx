@@ -1,54 +1,103 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Screen, Text, Button, IconButton, Badge } from '@/components/ui';
-import {
-  COMPLAINTS,
-  resolveComplaint,
-  statusLabel,
-  subscribeComplaints,
-  type Complaint,
-} from '@/lib/complaints';
+import { Screen, Text, Button, IconButton, Badge, EmptyState } from '@/components/ui';
+import { statusLabel, type Complaint } from '@/lib/complaints';
 import { relativeTime } from '@/lib/notifications';
+import { fetchComplaintsApi, updateComplaintStatusApi } from '@/services/api/domain.api';
 import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 
 export default function ComplaintsScreen() {
   const router = useRouter();
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Resolving one has to actually move it out of "open" for real, on this
-  // same screen — same subscription shape as every other mutable list here.
-  const [revision, setRevision] = useState(0);
-  useEffect(() => subscribeComplaints(() => setRevision((r) => r + 1)), []);
+  const loadComplaints = async () => {
+    setLoading(true);
+    try {
+      const items = await fetchComplaintsApi();
+      const mapped: Complaint[] = (items || []).map((c: any) => ({
+        id: c.id || c._id,
+        guestName: 'Guest',
+        subject: c.title || 'Property Issue',
+        description: c.description || '',
+        status: (c.status === 'open' || c.status === 'in_progress' ? 'open' : 'resolved') as any,
+        raisedAt: new Date(c.createdAt || Date.now()),
+      }));
+      setComplaints(mapped);
+    } catch (err) {
+      console.warn('Failed to load complaints:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  // Open first, most recent within each group first — what needs a decision
-  // belongs above what's already settled.
-  const sorted = [...COMPLAINTS].sort((a, b) => {
+  useEffect(() => {
+    loadComplaints();
+  }, []);
+
+  const sorted = [...complaints].sort((a, b) => {
     if (a.status !== b.status) return a.status === 'open' ? -1 : 1;
     return b.raisedAt.getTime() - a.raisedAt.getTime();
   });
 
   return (
-    <Screen contentStyle={styles.stack} key={revision}>
-      <View style={styles.backRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-      </View>
+    <Screen
+      contentStyle={styles.stack}
+      stickyHeader={
+        <>
+          <View style={styles.backRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+          </View>
 
-      <Text variant="screenTitle" style={styles.title}>
-        Complaints
-      </Text>
+          <Text variant="screenTitle" style={styles.title}>
+            Complaints
+          </Text>
+        </>
+      }
+    >
 
-      {sorted.map((c) => (
-        <ComplaintCard key={c.id} complaint={c} />
-      ))}
+      {sorted.length > 0 ? (
+        sorted.map((c) => (
+          <ComplaintCard key={c.id} complaint={c} onResolved={loadComplaints} />
+        ))
+      ) : (
+        <EmptyState
+          icon="message"
+          title="No open complaints"
+          body="Issues reported by guests or property staff will show up here."
+        />
+      )}
     </Screen>
   );
 }
 
-function ComplaintCard({ complaint }: { complaint: Complaint }) {
+function ComplaintCard({ complaint, onResolved }: { complaint: Complaint; onResolved: () => void }) {
   const c = useColors();
   const open = complaint.status === 'open';
+  const [resolving, setResolving] = useState(false);
+
+  /*
+   * Writes, then reloads from the server.
+   *
+   * Not optimistic: the row is a record of somebody's unresolved problem, and
+   * flipping it to resolved on a request that then failed would hide a
+   * complaint that is still open. `onResolved` re-fetches the list so the
+   * screen shows what was actually stored.
+   */
+  const resolve = async () => {
+    setResolving(true);
+    try {
+      await updateComplaintStatusApi(complaint.id, 'resolved');
+      onResolved();
+    } catch (err) {
+      console.warn('Could not resolve complaint:', err);
+    } finally {
+      setResolving(false);
+    }
+  };
 
   return (
     <View
@@ -75,11 +124,13 @@ function ComplaintCard({ complaint }: { complaint: Complaint }) {
 
       {open ? (
         <Button
-          label="Mark resolved"
+          label={resolving ? 'Saving…' : 'Mark resolved'}
           variant="secondary"
           size="sm"
+          loading={resolving}
+          disabled={resolving}
           fullWidth={false}
-          onPress={() => resolveComplaint(complaint.id)}
+          onPress={resolve}
           style={styles.resolveButton}
         />
       ) : null}

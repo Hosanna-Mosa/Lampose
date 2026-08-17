@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AppState, type AppStateStatus } from 'react-native';
+import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -36,6 +37,23 @@ import * as SplashScreen from 'expo-splash-screen';
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
+
+/**
+ * Teach React Query what "focused" means on a phone.
+ *
+ * Its default notion of focus is a browser's `window.focus` event, which
+ * never fires here — so `refetchOnWindowFocus` is silently dead on native
+ * unless this is wired up. That is not a nicety on this app: the screen
+ * waiting for an owner's reply is exactly the screen a student backgrounds,
+ * and coming back to a rent and a status frozen at whatever they were twenty
+ * minutes ago is the one moment stale data actually costs something.
+ *
+ * Registered at module scope so it is installed once per app launch rather
+ * than per mount of the root component.
+ */
+AppState.addEventListener('change', (status: AppStateStatus) => {
+  focusManager.setFocused(status === 'active');
+});
 
 /**
  * Three faces, each with a job.

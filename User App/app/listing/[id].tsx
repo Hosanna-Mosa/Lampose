@@ -1,14 +1,21 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
 
 import { Button, Checkbox, RentDisplay, Text } from '@/components/ui';
-import { PHOTO_HERO_HEIGHT, PhotoHeader, PhotoHero, StateTemplate, StickyCtaBar } from '@/components/shell';
+import {
+  PhotoHeader,
+  PhotoHero,
+  StateTemplate,
+  StickyCtaBar,
+  usePhotoHeroHeight,
+} from '@/components/shell';
 import {
   AmenityGrid,
   GenderBadge,
+  HeroCarousel,
   MealPlanCard,
   PhotoGallery,
   ListingCard,
@@ -21,8 +28,9 @@ import {
   type PhotoGroup,
 } from '@/components/discovery';
 import { errorStates } from '@/constants/copy';
+import { useAppState } from '@/context/AppStateContext';
 import { useTheme } from '@/context/ThemeContext';
-import { feedListings, findListing } from '@/data/listings';
+import { useListing, useListings, useSaved } from '@/services';
 import { availabilityLabel, isGone } from '@/types/listing';
 import { actions } from '@/constants/actions';
 
@@ -44,14 +52,51 @@ import { actions } from '@/constants/actions';
 
 export default function ListingDetail() {
   const { colors, space, layout, mode, radius } = useTheme();
+  /* The same height PhotoHero measures for this device, so the pager's pages
+     fill the slot exactly rather than being sized from a constant that is
+     wrong on a short screen. */
+  const heroHeight = usePhotoHeroHeight();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { locality } = useAppState();
 
-  const listing = useMemo(() => (id ? findListing(id) : undefined), [id]);
+  const { listing, isPending, error, notFound, refetch, isFetching } = useListing(id);
+  const { isSaved, toggleSaved } = useSaved();
+  const saved = listing ? isSaved(listing.id) : false;
 
-  const [sharing, setSharing] = useState<string | null>(() =>
-    listing?.sharingOptions ? defaultSharingSelection(listing.sharingOptions) : null,
-  );
+  /*
+   * Nothing is pre-selected on the first render any more.
+   *
+   * This used to initialise from `listing?.sharingOptions`, which worked when
+   * the listing was a synchronous lookup in a fixture array. It is a fetch
+   * now: the first render has no listing at all, so a lazy initialiser would
+   * settle on `null` and never run again. The effect below picks the default
+   * once the response lands, and only when the student has not already
+   * chosen — a selection must never be moved under somebody mid-decision.
+   */
+  const [sharing, setSharing] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (sharing !== null) return;
+    if (!listing?.sharingOptions?.length) return;
+    setSharing(defaultSharingSelection(listing.sharingOptions));
+  }, [listing, sharing]);
+
+  /*
+   * Neighbours, fetched only for a listing that has filled.
+   *
+   * Enabled off the listing's own availability so the query never runs for
+   * the common case — a live listing has no dead end to rescue, and this
+   * screen should not pull a second list on every open. Answered from the
+   * feed's cache whenever the student arrived from a feed of the same
+   * category.
+   */
+  const isFilled = Boolean(listing && isGone(listing.availability));
+  const { listings: neighbours } = useListings({
+    category: listing?.category ?? null,
+    city: locality?.city ?? null,
+    enabled: isFilled,
+  });
   /**
    * PG and hostel price by stay length, so the listing asks how long rather
    * than which bed. Defaults to the monthly rate — this is a monthly-rental
@@ -79,7 +124,26 @@ export default function ListingDetail() {
     scrollY.value = event.contentOffset.y;
   });
 
-  if (!listing) {
+  /*
+   * Three states before there is a listing, and they are three different
+   * screens.
+   *
+   * A single `if (!listing)` returning "not found" was correct against
+   * fixtures, where a missing id was the only way to get here. Against the
+   * API it would have shown "this listing does not exist" for the whole of
+   * every fetch, and again for every dropped connection — telling a student
+   * a place is gone when it is merely slow.
+   */
+  if (isPending) {
+    return (
+      <View style={[{ flex: 1, backgroundColor: colors.bg }, styles.centre]}>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <ActivityIndicator color={colors.brand} />
+      </View>
+    );
+  }
+
+  if (notFound) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
@@ -92,6 +156,27 @@ export default function ListingDetail() {
     );
   }
 
+  if (error || !listing) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <View style={{ flex: 1, justifyContent: 'center', padding: layout.gutter, gap: space[3] }}>
+          <Text variant="title1">We could not open this place</Text>
+          <Text variant="bodyLg" color="secondary">
+            {error?.displayMessage ?? 'Something went wrong. Please try again.'}
+          </Text>
+          <Button
+            label={isFetching ? 'Trying…' : 'Try again'}
+            onPress={() => refetch()}
+            disabled={isFetching}
+            fullWidth
+          />
+          <Button label="Back to places" variant="ghost" onPress={() => router.back()} fullWidth />
+        </View>
+      </View>
+    );
+  }
+
   const gone = isGone(listing.availability);
 
   /**
@@ -100,7 +185,7 @@ export default function ListingDetail() {
    * guess, and pretending otherwise would be a ranking nobody can explain.
    */
   const similar = gone
-    ? feedListings
+    ? neighbours
         .filter(
           (other) =>
             other.id !== listing.id &&
@@ -117,17 +202,40 @@ export default function ListingDetail() {
   const byStay = listing.stayRates?.length ? listing.stayRates : null;
   const totals = byStay ? stayTotals(byStay, intent, listing.sharingOptions) : null;
 
-  // The headline number follows whatever the student is actually choosing.
-  const shownRent = totals ? totals.perUnit : selected ? selected.pricePerPerson : listing.rent;
+  /*
+   * The headline number follows whatever the student is actually choosing.
+   *
+   * A selected option with no price of its own falls back to the listing's
+   * headline rent rather than blanking the display: the rent is a real
+   * figure for this place, and `RentDisplay` renders `null` as "the owner
+   * has not set a rent" — a different and untrue statement.
+   */
+  const shownRent = totals
+    ? totals.perUnit
+    : selected
+      ? selected.pricePerPerson ?? listing.rent
+      : listing.rent;
   const shownDeposit = totals ? totals.deposit : selected ? selected.deposit : listing.deposit;
   const shownDepositMonths = totals ? undefined : selected ? selected.depositMonths : listing.depositMonths;
 
-  const groups: readonly PhotoGroup[] = [
-    { id: 'room', label: listing.sharingLabel ?? 'The room', count: Math.max(2, Math.round(listing.photoCount * 0.4)) },
-    { id: 'common', label: 'Common areas', count: Math.max(1, Math.round(listing.photoCount * 0.3)) },
-    { id: 'bath', label: 'Bathroom', count: Math.max(1, Math.round(listing.photoCount * 0.2)) },
-    { id: 'outside', label: 'Building', count: Math.max(1, Math.round(listing.photoCount * 0.1)) },
-  ];
+  /*
+   * One group, holding the photographs the owner actually uploaded.
+   *
+   * This used to split the count four ways — 40% "The room", 30% "Common
+   * areas", 20% "Bathroom", 10% "Building" — and label them. Nothing in the
+   * data supports that: the property document carries a flat, unlabelled list
+   * of Cloudinary URLs, so those four headings were assigning rooms to
+   * photographs nobody had looked at, and a student tapping "Bathroom" got
+   * whatever happened to be 70% of the way through the upload.
+   *
+   * Grouping comes back when the panel asks the field agent which room each
+   * photograph is of. Until then the gallery says how many there are and
+   * shows them in the order they were taken.
+   */
+  const photos = listing.photoUris ?? [];
+  const groups: readonly PhotoGroup[] = photos.length
+    ? [{ id: 'all', label: 'Photos', count: photos.length, uris: photos }]
+    : [];
 
   // No sign-in check: auth is the first gate in the app, so anyone on this
   // screen already has an account.
@@ -146,9 +254,32 @@ export default function ListingDetail() {
         id: listing.id,
         ...(intent.stayType ? { stayType: intent.stayType } : null),
         ...(intent.units !== null ? { units: String(intent.units) } : null),
-        ...(intent.sharingId ? { sharingId: intent.sharingId } : null),
+        /*
+         * Whichever selector this listing showed.
+         *
+         * Stay-priced listings carry the bed choice inside the intent;
+         * bed-priced ones (Bachelor Room) keep it in `sharing`, from the
+         * sharing selector. Only the first was being sent, so a request for a
+         * bachelor unit arrived at the server with no sharing at all and was
+         * refused with BAD_SHARING — for a choice the page had plainly
+         * offered and the student had plainly made.
+         */
+        ...(intent.sharingId ?? sharing ? { sharingId: (intent.sharingId ?? sharing) as string } : null),
         ...(intent.joinDate ? { joinDate: intent.joinDate } : null),
         flexibleJoin: intent.flexibleJoin ? '1' : '0',
+        /*
+         * The consent tick travels with the request.
+         *
+         * The server refuses a stay-intent request without it and records the
+         * moment it was given, because that record is what says a student
+         * agreed before their name and number reached a property owner. It
+         * was ticked on this screen, so this screen is what can honestly
+         * report it — the next screen asserting `true` on its own behalf
+         * would be a signature nobody wrote.
+         *
+         * Sharing-only listings have no consent gate here and none there.
+         */
+        consented: byStay && consented ? '1' : '0',
       },
     } as never);
 
@@ -160,8 +291,9 @@ export default function ListingDetail() {
         title={listing.name}
         scrollY={scrollY}
         onBack={() => router.back()}
-        onAction={() => {}}
+        onAction={() => listing && toggleSaved(listing.id)}
         actionIcon="bookmark"
+        actionActive={saved}
       />
 
       <Animated.ScrollView
@@ -170,18 +302,46 @@ export default function ListingDetail() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: ctaHeight + space[6] }}
       >
-        <Pressable onPress={() => setGalleryOpen(true)} accessibilityRole="button" accessibilityLabel={`${listing.photoCount} photos`}>
-          <PhotoHero scrollY={scrollY}>
-            <View style={[StyleSheet.absoluteFill, styles.hero]} />
-            <View style={[styles.photoCount, { bottom: space[3], right: space[3] }]}>
-              <Text variant="numMeta" style={{ color: '#FFFFFF' }}>
-                1 / {listing.photoCount}
-              </Text>
-            </View>
-          </PhotoHero>
-        </Pressable>
+        <PhotoHero scrollY={scrollY}>
+          {/* The tinted block stays as the ground, so a photograph that is
+              still downloading has something behind it rather than a white
+              gap the header floats over. */}
+          <View style={[StyleSheet.absoluteFill, styles.hero]} />
 
-        <View style={{ padding: layout.gutter, gap: space[5] }}>
+          {/*
+            The outer Pressable that used to wrap this is gone.
+
+            A horizontal pager inside a Pressable is a fight over the same
+            gesture: on Android the press responder can claim a drag that was
+            meant to be a swipe, so the photographs would not move. Each page
+            carries its own tap instead, which keeps both — swipe to see the
+            next, tap to open it full screen.
+          */}
+          <HeroCarousel
+            photos={photos}
+            height={heroHeight}
+            onPressPhoto={() => setGalleryOpen(true)}
+          />
+        </PhotoHero>
+
+        {/*
+          The body paints the ground, and that is load bearing rather than
+          cosmetic.
+
+          `PhotoHero` parallaxes: it translates DOWN by 35% of the scroll
+          offset, so by the time the hero has scrolled away its painted box
+          overlaps the top of this block by a third of the distance travelled.
+          A transform moves pixels and not layout, so nothing here shifts —
+          but with a transparent body the photograph was simply visible
+          THROUGH the listing name, the locality and the rent, and it grew
+          worse the further down the screen went.
+
+          Painting `colors.bg` here is what makes the body opaque to the hero
+          sliding under it. It is the same colour the screen root already
+          paints, so nothing changes visually except that the photo stops
+          showing through.
+        */}
+        <View style={{ padding: layout.gutter, gap: space[5], backgroundColor: colors.bg }}>
           {/* Identity */}
           <View style={{ gap: space[2] }}>
             <GenderBadge gender={listing.gender} />
@@ -282,6 +442,22 @@ export default function ListingDetail() {
             />
           ) : null}
 
+          {/* What the owner wrote, where they wrote one. It sits under the
+              choice and above the facilities: a student who has decided how
+              long they want reads the description to decide whether to keep
+              reading at all. */}
+          {listing.description ? (
+            <View style={{ gap: space[2] }}>
+              <Text variant="title3">About this place</Text>
+              <Text variant="body" color="secondary">
+                {listing.description}
+              </Text>
+              <Text variant="caption" color="tertiary">
+                Written by the owner.
+              </Text>
+            </View>
+          ) : null}
+
           {/* The meal plan, whenever there is one. It used to be hidden when
               "without mess" was selected; there is no selection any more, so
               the serving windows are simply a fact about the place. */}
@@ -355,7 +531,12 @@ export default function ListingDetail() {
           disabled={
             byStay
               ? !stayIntentComplete(intent, Boolean(listing.sharingOptions?.length)) || !consented
-              : false
+              : /* A listing that offers a choice of bed must have one picked.
+                   The server validates the sharing label against the
+                   property's own list and refuses a request without it, so
+                   leaving the button live here only moved the refusal to a
+                   screen where the student can no longer fix it. */
+                Boolean(listing.sharingOptions?.length) && !sharing
           }
           note={byStay ? '5 free requests per week' : 'Free to request · you pay only after the owner accepts'}
           onMeasure={setCtaHeight}
@@ -373,13 +554,7 @@ export default function ListingDetail() {
 }
 
 const styles = StyleSheet.create({
+  centre: { alignItems: 'center', justifyContent: 'center' },
   hero: { backgroundColor: '#3a4553' },
   row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
-  photoCount: {
-    position: 'absolute',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    backgroundColor: 'rgba(16,21,28,0.55)',
-  },
 });

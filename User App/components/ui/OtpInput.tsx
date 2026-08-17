@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { StyleSheet, TextInput, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -92,11 +92,22 @@ export function OtpInput({
 
   return (
     <View style={{ gap: space[2] }}>
-      <Pressable
-        onPress={() => inputRef.current?.focus()}
-        accessibilityRole="none"
-        accessibilityLabel={`Verification code, ${length} digits`}
-      >
+      {/*
+        The boxes are a picture of the value; the input is the whole surface
+        on top of them.
+
+        It used to be a 1×1, `opacity: 0` input parked behind the row, focused
+        by a Pressable wrapped around the boxes. That does not work on
+        Android: a zero-opacity view is not reliably focusable, so tapping the
+        boxes called `.focus()` on something the platform would not give focus
+        to, no keyboard appeared, and the code could not be typed at all.
+
+        Now the real TextInput covers the row and takes the tap itself. It is
+        invisible because its text is transparent and its caret is hidden —
+        not because it has no size and no opacity, which are the two things
+        that were stopping it working.
+      */}
+      <View>
         <Animated.View style={[styles.row, rowStyle, { gap: GAP }]}>
           {Array.from({ length }).map((_, index) => (
             <OtpBox
@@ -112,22 +123,24 @@ export function OtpInput({
             />
           ))}
         </Animated.View>
-      </Pressable>
 
-      {/* The real input sits behind the boxes so the system keyboard, SMS
-          autofill and paste all work without reimplementing any of them. */}
-      <TextInput
-        ref={inputRef}
-        value={value}
-        onChangeText={handleChange}
-        keyboardType="number-pad"
-        textContentType="oneTimeCode"
-        autoComplete="sms-otp"
-        maxLength={length}
-        autoFocus={autoFocus}
-        caretHidden
-        style={styles.hiddenInput}
-      />
+        <TextInput
+          ref={inputRef}
+          value={value}
+          onChangeText={handleChange}
+          keyboardType="number-pad"
+          /* Both are needed and they are not the same thing: iOS reads the
+             code from the Messages banner off `textContentType`, Android
+             fills it from the SMS Retriever API off `autoComplete`. */
+          textContentType="oneTimeCode"
+          autoComplete="sms-otp"
+          maxLength={length}
+          autoFocus={autoFocus}
+          caretHidden
+          accessibilityLabel={`Verification code, ${length} digits`}
+          style={[StyleSheet.absoluteFill, styles.overlayInput]}
+        />
+      </View>
 
       {state === 'error' && errorMessage ? (
         <View style={[styles.message, { gap: space[1] }]}>
@@ -219,6 +232,8 @@ function OtpBox({ index, digit, width, radius, state, active, colors, reduceMoti
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignSelf: 'center' },
   box: { alignItems: 'center', justifyContent: 'center' },
-  hiddenInput: { position: 'absolute', opacity: 0, height: 1, width: 1 },
+  /* Full size and fully opaque, so it is focusable and takes the tap. The
+     text and the caret are what are invisible, not the control. */
+  overlayInput: { color: 'transparent', backgroundColor: 'transparent', textAlign: 'center' },
   message: { flexDirection: 'row', alignItems: 'center', alignSelf: 'center' },
 });

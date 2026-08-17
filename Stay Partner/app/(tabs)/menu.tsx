@@ -14,19 +14,20 @@ import { useColors } from '@/hooks/useColors';
  * before ship.
  */
 
-const PROPERTY_NAME = 'Sea View Villa';
-
 type NavRow = { label: string; href: Href };
 
-const PROPERTY_ROWS: NavRow[] = [
-  { label: `${PROPERTY_NAME} · details`, href: { pathname: '/settings/stub', params: { key: 'property' } } },
-  { label: 'Rooms & amenities', href: { pathname: '/settings/stub', params: { key: 'rooms' } } },
-  { label: 'Complaints', href: '/complaints' },
-  { label: 'Share types', href: '/share-types' },
-];
+/* The module-level `PROPERTY_ROWS` that used to sit here is gone with the
+   `PROPERTY_NAME = 'Sea View Villa'` constant it interpolated. Both were dead
+   once the rows moved inside the component to read the real property name off
+   the summary — and a fixture property name left in module scope is exactly
+   the thing that reappears on screen a month later. */
 
 const ACCOUNT_ROWS: NavRow[] = [
-  { label: 'Edit profile', href: { pathname: '/settings/stub', params: { key: 'profile' } } },
+  /* Walk-ins logged by hand, with their KYC. Under Account rather than
+     Property because it is a record of people this owner entered, not a fact
+     about the building. */
+  { label: 'Customers', href: '/customers' },
+  { label: 'Edit profile', href: '/settings/profile' },
   { label: 'Payout methods', href: '/earnings/methods' },
   { label: 'Staff & permissions', href: '/staff' },
   { label: 'Refer & earn', href: '/referrals' },
@@ -41,38 +42,26 @@ const NOTIF_ROWS: { key: NotifKey; label: string }[] = [
   { key: 'marketingTips', label: 'Marketing tips' },
 ];
 
-// ── Dev scaffolding — nothing below this line is in the design set. ────────
-// All 38 checkpoints are built as of this screen; nothing is pending anymore.
 
-const QUICK_ACCESS: NavRow[] = [
-  { label: 'Pricing', href: '/inventory/pricing' },
-  { label: 'Reviews', href: '/reviews' },
-  { label: 'Notifications', href: '/notifications' },
-  { label: 'Support', href: '/support' },
-  { label: 'Raise a dispute', href: '/support/dispute' },
-];
 
-const REFERENCES: NavRow[] = [
-  { label: 'Design system', href: '/design-system' },
-  { label: 'Splash', href: '/splash' },
-  { label: 'Login', href: '/login' },
-  { label: 'OTP verification', href: '/otp' },
-  { label: 'Profile setup', href: '/profile-setup' },
-  { label: 'Dashboard · empty', href: { pathname: '/', params: { state: 'empty' } } },
-  { label: 'Dashboard · error', href: { pathname: '/', params: { state: 'error' } } },
-  { label: 'Check-in · expired', href: { pathname: '/booking/checkin', params: { id: 'LB-1189', state: 'expired' } } },
-  { label: 'Check-in · lockout', href: { pathname: '/booking/checkin', params: { id: 'LB-1189', state: 'lockout' } } },
-  // Orphaned when the Payouts tab lost its "Total earnings" card and Recent
-  // bookings list — the screen itself wasn't asked to go, so it stays reachable here.
-  { label: 'Earnings breakdown', href: { pathname: '/earnings/breakdown', params: { period: 'week' } } },
-];
+import { useAuth } from '@/context/AuthContext';
+import { fetchSummary } from '@/services/api/portfolio.api';
+import { useEffect } from 'react';
 
 export default function MenuTab() {
   const c = useColors();
   const router = useRouter();
+  const { partner, signOut } = useAuth();
+  const [propertyName, setPropertyName] = useState('Sea View Villa');
 
-  // Local and unread by any other screen — nothing else in the app reads a
-  // notification preference, so there's nothing to subscribe.
+  useEffect(() => {
+    fetchSummary()
+      .then((sum) => {
+        if (sum?.propertyName) setPropertyName(sum.propertyName);
+      })
+      .catch((err) => console.warn('Failed to load summary in profile:', err));
+  }, []);
+
   const [notifs, setNotifs] = useState<Record<NotifKey, boolean>>({
     bookingRequests: true,
     messages: true,
@@ -80,12 +69,52 @@ export default function MenuTab() {
     marketingTips: false,
   });
 
+  /* Real screens now, not the "never designed" stub. All three read the
+     backend — see the notes at the top of each. */
+  const propertyRows: NavRow[] = [
+    {
+      label: propertyName ? `${propertyName} · details` : 'Property details',
+      href: '/settings/property',
+    },
+    { label: 'Rooms & amenities', href: '/settings/rooms' },
+    { label: 'Complaints', href: '/complaints' },
+    { label: 'Share types', href: '/share-types' },
+  ];
+
   return (
-    <Screen tabBarSpacing contentStyle={styles.stack} background="bg">
-      <Text variant="screenTitle">Settings</Text>
+    <Screen
+      tabBarSpacing contentStyle={styles.stack} background="bg"
+      stickyHeader={
+        <>
+          <Text variant="screenTitle">Profile & Settings</Text>
+        </>
+      }
+    >
+
+      {/* Partner Profile Card */}
+      <Card variant="elevated" style={styles.profileCard}>
+        <View style={styles.profileRow}>
+          <View style={[styles.avatarCircle, { backgroundColor: c.accentTint }]}>
+            <Text style={[styles.avatarInitial, { color: c.accentInk }]}>
+              {partner?.name ? partner.name.charAt(0).toUpperCase() : 'P'}
+            </Text>
+          </View>
+          <View style={styles.profileInfo}>
+            <Text variant="h3" style={styles.profileName}>
+              {partner?.name || 'Partner Account'}
+            </Text>
+            <Text variant="caption" color="textSecondary">
+              {partner?.phone || '+91 97047 26252'}
+            </Text>
+            <Text variant="badge" color="accent" style={{ marginTop: 2 }}>
+              {propertyName}
+            </Text>
+          </View>
+        </View>
+      </Card>
 
       <SettingsSection title="Property">
-        {PROPERTY_ROWS.map((r, i) => (
+        {propertyRows.map((r, i) => (
           <Fragment key={r.label}>
             {i > 0 ? <Divider /> : null}
             <Pressable
@@ -132,8 +161,12 @@ export default function MenuTab() {
         ))}
       </SettingsSection>
 
+      {/* Log out button at the very bottom */}
       <Pressable
-        onPress={() => router.replace('/login')}
+        onPress={async () => {
+          await signOut();
+          router.replace('/login');
+        }}
         accessibilityRole="button"
         style={({ pressed }) => [
           styles.logout,
@@ -144,47 +177,6 @@ export default function MenuTab() {
           Log out
         </Text>
       </Pressable>
-
-      <Text variant="overline" color="textTertiary" style={styles.overline}>
-        Quick access (dev)
-      </Text>
-      <Card padded={false}>
-        {QUICK_ACCESS.map((r, i) => (
-          <Fragment key={r.label}>
-            {i > 0 ? <Divider /> : null}
-            <Pressable
-              onPress={() => router.push(r.href)}
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
-            >
-              <Text variant="bodySm">{r.label}</Text>
-              <Icon name="chevron-right" size={16} color={c.textTertiary} />
-            </Pressable>
-          </Fragment>
-        ))}
-      </Card>
-
-      <Text variant="overline" color="textTertiary" style={styles.overline}>
-        Build reference
-      </Text>
-      <Card padded={false}>
-        {REFERENCES.map((r, i) => (
-          <Fragment key={r.label}>
-            {i > 0 ? <Divider /> : null}
-            <Pressable
-              onPress={() => router.push(r.href)}
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
-            >
-              <Text variant="bodySm">{r.label}</Text>
-              <Icon name="chevron-right" size={16} color={c.textTertiary} />
-            </Pressable>
-          </Fragment>
-        ))}
-      </Card>
-      <Text variant="caption" color="textTertiary" style={styles.note}>
-        Scaffolding for review. All of it comes out before ship.
-      </Text>
     </Screen>
   );
 }
@@ -202,6 +194,34 @@ function SettingsSection({ title, children }: { title: string; children: ReactNo
 
 const styles = StyleSheet.create({
   stack: { gap: 4 },
+  profileCard: {
+    padding: 16,
+    borderRadius: 16,
+    marginVertical: 6,
+  },
+  profileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  avatarCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarInitial: {
+    fontFamily: fonts.extrabold,
+    fontSize: 22,
+  },
+  profileInfo: {
+    flex: 1,
+  },
+  profileName: {
+    fontFamily: fonts.bold,
+    fontSize: 16,
+  },
   overline: {
     marginTop: 8,
     marginBottom: 8,

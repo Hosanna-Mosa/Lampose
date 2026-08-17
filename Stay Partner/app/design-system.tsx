@@ -328,7 +328,7 @@ const styles = StyleSheet.create({
   stateBox: { height: 200, padding: 0 },
   swatch: { width: 76, gap: 4 },
   chipColor: { height: 44, borderRadius: radius.chip, borderWidth: 1 },
-  swatchLabel: { fontSize: 9.5 },
+  swatchLabel: { fontSize: 10 },
   iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   iconCell: {
     width: 44,

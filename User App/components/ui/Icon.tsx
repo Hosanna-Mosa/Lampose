@@ -6,6 +6,7 @@ import {
   Archive,
   ArrowUpDown,
   Ban,
+  Bell,
   Bike,
   Bookmark,
   Calendar,
@@ -209,6 +210,7 @@ const LUCIDE_GLYPHS = {
   phone: Phone,
   calendar: Calendar,
   clock: Clock,
+  bell: Bell,
   verified: ShieldCheck,
   chevronLeft: ChevronLeft,
   chevronRight: ChevronRight,
@@ -260,6 +262,7 @@ export type IconProps = {
    * an icon that only works in light mode is the usual way dark mode breaks.
    */
   color?: string;
+  fill?: string;
 };
 
 /**
@@ -269,7 +272,7 @@ export type IconProps = {
  * alone. Money and status always carry words as well, because colour and shape
  * are not available to every reader.
  */
-export function Icon({ name, size = 24, color }: IconProps) {
+export function Icon({ name, size = 24, color, fill }: IconProps) {
   const { colors } = useTheme();
   const resolved = color ?? colors.textPrimary;
   const strokeWidth = strokeFor(size);
@@ -280,5 +283,5 @@ export function Icon({ name, size = 24, color }: IconProps) {
   }
 
   const Glyph = LUCIDE_GLYPHS[name as keyof typeof LUCIDE_GLYPHS];
-  return <Glyph size={size} color={resolved} strokeWidth={strokeWidth} absoluteStrokeWidth />;
+  return <Glyph size={size} color={resolved} fill={fill ?? 'none'} strokeWidth={strokeWidth} absoluteStrokeWidth />;
 }

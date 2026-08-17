@@ -77,25 +77,57 @@ export type CategoryTabsProps = {
  * identity, not decoration awarded to the active one.
  */
 export function CategoryTabs({ value, onChange, categories = CATEGORY_ORDER }: CategoryTabsProps) {
-  const { space, layout } = useTheme();
+  const { space, layout, touch } = useTheme();
 
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      accessibilityRole="tablist"
-      accessibilityLabel="Stay type"
-      contentContainerStyle={{ paddingHorizontal: layout.gutter, gap: space[2] }}
-    >
-      {categories.map((category) => (
-        <CategoryTab
-          key={category}
-          category={category}
-          active={category === value}
-          onPress={() => onChange(category)}
-        />
-      ))}
-    </ScrollView>
+    /*
+     * The host View is load bearing. It is not a wrapper for styling.
+     *
+     * This row is dropped straight into the feed's vertical scroll column, and
+     * React Native's `ScrollView` ships `flexShrink: 1` in its own base style —
+     * so a bare one is the single child of that column the layout is permitted
+     * to squeeze. When the keyboard closes, the column is re-measured against a
+     * bounded height, Yoga takes the shrink out of this row alone, and a 44pt
+     * pill ends up in a 15pt box: the tabs are sliced off halfway down and the
+     * search field below them rides up into the space that was taken away.
+     *
+     * A plain View defaults to `flexShrink: 0` in React Native (unlike the web,
+     * where it is 1), so it absorbs that pressure and the rail keeps its height.
+     * `FilterChipRow` directly below has never shown the bug for exactly this
+     * reason — it happens to wrap its own rail in a View.
+     *
+     * `minHeight` is the second line of defence: even if something else in the
+     * tree ever bounds this row, it cannot collapse past the height of the pill
+     * it exists to show. It is a floor, not a cap, so a larger OS font setting
+     * still grows the row normally.
+     */
+    <View style={[styles.host, { minHeight: touch.min }]}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        accessibilityRole="tablist"
+        accessibilityLabel="Stay type"
+        /* Neither grows nor shrinks inside the host — its height is the pills'
+           height and nothing is entitled to negotiate it. */
+        style={styles.rail}
+        contentContainerStyle={{
+          paddingHorizontal: layout.gutter,
+          gap: space[2],
+          /* Centred rather than stretched: a pill that stretches to fill a
+             taller row loses its own pill geometry. */
+          alignItems: 'center',
+        }}
+      >
+        {categories.map((category) => (
+          <CategoryTab
+            key={category}
+            category={category}
+            active={category === value}
+            onPress={() => onChange(category)}
+          />
+        ))}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -185,6 +217,8 @@ function CategoryTab({
 }
 
 const styles = StyleSheet.create({
+  host: { flexGrow: 0, flexShrink: 0, justifyContent: 'center' },
+  rail: { flexGrow: 0, flexShrink: 0 },
   tab: { flexDirection: 'row', alignItems: 'center' },
   monogram: { minWidth: 30, height: 30, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 },
   restLabel: { alignItems: 'flex-start', justifyContent: 'center' },

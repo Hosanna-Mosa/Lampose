@@ -82,10 +82,21 @@ export function ExploreHeader({
         </Pressable>
 
         <View>
-          <IconButton name="clock" onPress={onPressAlerts} accessibilityLabel="Alerts" />
+          {/* 20, matching the chevron on the locality beside it.
+              At the IconButton default of 24 the bell was the largest mark in
+              the bar — heavier than the row it sits next to and heavier than
+              the title it shares the line with, which read as the alert being
+              the header's main affordance rather than its secondary one. The
+              tap target is still the full 44pt; only the glyph moved. */}
+          <IconButton
+            name="bell"
+            size={20}
+            onPress={onPressAlerts}
+            accessibilityLabel="Notifications"
+          />
           {alertCount ? (
             <View style={styles.headerBadge} pointerEvents="none">
-              <Badge count={alertCount} tone="danger" />
+              <Badge count={alertCount} tone="danger" size="sm" />
             </View>
           ) : null}
         </View>
@@ -231,6 +242,7 @@ export type PhotoHeaderProps = {
   onBack?: () => void;
   onAction?: () => void;
   actionIcon?: 'bookmark' | 'phone';
+  actionActive?: boolean;
   heroHeight?: number;
 };
 
@@ -253,6 +265,7 @@ export function PhotoHeader({
   onBack,
   onAction,
   actionIcon,
+  actionActive,
   heroHeight,
 }: PhotoHeaderProps) {
   const { colors, space, layout } = useTheme();
@@ -340,9 +353,9 @@ export function PhotoHeader({
         <View>
           {actionIcon && onAction ? (
             <>
-              <IconButton name={actionIcon} onPress={onAction} accessibilityLabel={actionIcon} variant="onImage" />
+              <IconButton name={actionIcon} onPress={onAction} accessibilityLabel={actionIcon} variant="onImage" active={actionActive} />
               <Animated.View style={[StyleSheet.absoluteFill, glyphStyle]} pointerEvents="none">
-                <IconButton name={actionIcon} accessibilityLabel={actionIcon} />
+                <IconButton name={actionIcon} accessibilityLabel={actionIcon} active={actionActive} />
               </Animated.View>
             </>
           ) : null}
@@ -385,7 +398,16 @@ export function PhotoHero({ scrollY, heroHeight, children }: PhotoHeroProps) {
   }));
 
   return (
-    <Animated.View style={[{ height: hero }, parallaxStyle]}>
+    /*
+     * Clipped to its own slot.
+     *
+     * The slot's height is measured from the viewport, and a caller that hands
+     * it a fixed-height child — a placeholder block sized from
+     * `PHOTO_HERO_HEIGHT` — hands it something taller than the slot on a short
+     * screen. Without clipping that child simply draws past the bottom edge and
+     * over the first section of the body.
+     */
+    <Animated.View style={[styles.hero, { height: hero }, parallaxStyle]}>
       {children}
       <Animated.View style={[StyleSheet.absoluteFill, scrimStyle]} pointerEvents="none">
         <LinearGradient
@@ -481,9 +503,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   content: { minHeight: HEADER_HEIGHT, flexDirection: 'row', alignItems: 'center' },
+  hero: { overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center' },
   flex: { flex: 1 },
-  headerBadge: { position: 'absolute', top: 0, right: 0 },
+  headerBadge: { position: 'absolute', top: 2, right: 2 },
   searchPill: {
     flex: 1,
     minHeight: 48,

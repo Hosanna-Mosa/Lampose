@@ -15,15 +15,23 @@ import { Icon, Text } from '@/components/ui';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { useCountdown, formatRemaining } from '@/hooks/useCountdown';
-import { SCREEN_WAIT_SECONDS } from '@/types/request';
 
 /**
  * The live request, following the student around the app.
  *
- * A request runs for three minutes and then cancels itself. Anyone who leaves
- * the confirmation screen in that window — to compare one more place, which is
+ * A request runs until the owner answers or their window closes — twenty-four
+ * hours, set by the server, not by this app. Anyone who leaves the
+ * confirmation screen in that window — to compare one more place, which is
  * exactly what they will do — needs a way back that does not depend on
  * remembering which listing it was.
+ *
+ * ## The bar is only drawn for a window a bar can describe
+ *
+ * It used to drain over three minutes, because the request used to die after
+ * three minutes. Over a day it would sit at 100% for hours and say nothing,
+ * so it is drawn only for short windows and the pill is a plain "waiting for
+ * Padma" otherwise. A progress bar that never visibly moves is worse than no
+ * bar: it reads as a stuck process rather than a long one.
  *
  * ## A floating pill, not a banner
  *
@@ -130,27 +138,42 @@ export function WaitingPill() {
   if (HIDDEN_ON.some((prefix) => pathname.startsWith(prefix))) return null;
 
   const accepted = request.status === 'accepted';
+  const declined = request.status === 'declined';
   const cancelled = request.status === 'cancelled';
+  /** Both endings that offer nothing to do next, for tint and dismissal. */
+  const over = declined || cancelled;
 
   const tint = accepted
     ? colors.success.tint
-    : cancelled
+    : over
       ? colors.warning.tint
       : colors.surface;
   const edge = accepted
     ? colors.success.border
-    : cancelled
+    : over
       ? colors.warning.border
       : colors.success.border;
 
   const title = accepted
     ? `${request.owner} confirmed — tap to finish`
-    : cancelled
-      ? 'Request cancelled — no answer'
-      : `Waiting for ${request.owner}`;
+    : declined
+      ? // The owner answered. Saying "no answer" here was telling a student
+        // the opposite of what happened.
+        `${request.owner} has nothing free`
+      : cancelled
+        ? 'Request closed — no answer'
+        : `Waiting for ${request.owner}`;
+
+  /**
+   * A bar only where it can be seen to move.
+   *
+   * An hour is the ceiling: below it a student can watch the fill change
+   * within a session, above it the bar is decoration that implies a stall.
+   */
+  const showBar = waiting && request.windowSeconds <= 3600;
 
   const open = () => {
-    if (cancelled) return;
+    if (over) return;
     router.push({
       pathname: '/confirm/[id]',
       params: { id: request.listingId, ...request.params },
@@ -169,8 +192,8 @@ export function WaitingPill() {
       <GestureDetector gesture={pan}>
         <Pressable
           onPress={open}
-          disabled={cancelled}
-          accessibilityRole={cancelled ? 'text' : 'button'}
+          disabled={over}
+          accessibilityRole={over ? 'text' : 'button'}
           accessibilityLabel={
             waiting ? `${title}. ${formatRemaining(secondsRemaining)} left. Opens the request.` : title
           }
@@ -194,7 +217,7 @@ export function WaitingPill() {
             style={[
               styles.dot,
               {
-                backgroundColor: cancelled ? colors.warning.base : colors.brand,
+                backgroundColor: over ? colors.warning.base : colors.brand,
                 borderRadius: radius.pill,
               },
             ]}
@@ -204,9 +227,10 @@ export function WaitingPill() {
             <Text variant="bodyStrong" numberOfLines={1}>
               {title}
             </Text>
-            {/* The draining bar, at pill scale. Only while there is something to
-                drain — once answered the bar would be a clock with no meaning. */}
-            {waiting ? (
+            {/* The draining bar, at pill scale. Only while there is something
+                to drain, and only over a window short enough that draining is
+                visible — see `showBar`. */}
+            {showBar ? (
               <View
                 style={[
                   styles.track,
@@ -217,7 +241,7 @@ export function WaitingPill() {
                   style={[
                     styles.fill,
                     {
-                      width: `${Math.max(0, Math.min(1, secondsRemaining / SCREEN_WAIT_SECONDS)) * 100}%`,
+                      width: `${Math.max(0, Math.min(1, secondsRemaining / request.windowSeconds)) * 100}%`,
                       backgroundColor: secondsRemaining <= 30 ? colors.warning.base : colors.brand,
                       borderRadius: radius.pill,
                     },
@@ -227,8 +251,9 @@ export function WaitingPill() {
             ) : null}
           </View>
 
-          {/* Only a dead request offers a way to get rid of it. */}
-          {cancelled ? (
+          {/* Only a finished request offers a way to get rid of it. A live one
+              and an unpaid confirmation both still have to be acted on. */}
+          {over ? (
             <Pressable
               onPress={clear}
               accessibilityRole="button"

@@ -62,5 +62,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  label: { fontFamily: fonts.medium, fontSize: 13.5, lineHeight: 18, flex: 1 },
+  label: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 18, flex: 1 },
 });

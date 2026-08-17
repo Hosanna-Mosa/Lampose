@@ -1,6 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
+import {
+  ApiError,
+  fetchMe,
+  resendAuthCode,
+  setAuthToken,
+  setSessionExpiredHandler,
+  startAuth,
+  updateMe,
+  verifyAuth,
+} from '@/services';
 import type { AppConfig, AuthStatus, AuthUser, SendFailure } from '@/types/auth';
 
 /**
@@ -11,32 +21,82 @@ import type { AppConfig, AuthStatus, AuthUser, SendFailure } from '@/types/auth'
  * needs in order to call, so asking for it is not an extra step — it is the
  * step, and the heading on the login screen says so.
  *
- * Three rules encoded here rather than left to the screens:
+ * ## This talks to the server now
  *
- *  - Browsing never requires auth. The default state is `guest`, and a failed
- *    token check enters the app as a guest rather than blocking it.
- *  - The resend cooldown resets on a resend, never on a wrong code. A cooldown
- *    that punishes typing mistakes is the fastest way to make someone give up.
- *  - A lockout is on the code, not on the person — changing the number stays
- *    available throughout.
+ * It used to be a simulation: a 600ms `setTimeout`, a hardcoded `MOCK_CODE`
+ * of '123456', and a "session" that was whatever the device had written to
+ * AsyncStorage. Nothing was verified and nothing existed server-side, so two
+ * things followed that are easy to miss — an owner receiving a visit request
+ * had no reason to believe the number attached to it, and a student who
+ * reinstalled lost an account that had never been anywhere else.
+ *
+ * The codes are real, sent over the DLT-registered SMS route to the number
+ * typed in, and the account lives in `app_customers`.
+ *
+ * ## Three rules, encoded here rather than left to the screens
+ *
+ *  - **Browsing never requires auth.** The default state is `guest`, and a
+ *    failed token check enters the app as a guest rather than blocking it.
+ *  - **The resend cooldown resets on a resend, never on a wrong code.** A
+ *    cooldown that punishes typing mistakes is the fastest way to make
+ *    somebody give up. The server enforces the same rule against its own
+ *    clock; the number below comes from its response rather than being
+ *    guessed here, so the two can never disagree.
+ *  - **A lockout is on the code, not on the person.** Changing the number
+ *    stays available throughout, and asking for a new code clears it.
+ *
+ * ## What is stored on the device
+ *
+ * The token and a copy of the profile — the copy so the app can paint a name
+ * on the first frame rather than after a round trip. The server is asked who
+ * the token belongs to on every launch, and its answer wins.
  */
 
 const SESSION_KEY = '@lampose/session';
-const OTP_LENGTH: AppConfig['otpLength'] = 6;
 
-/** Mock only. The real code never reaches the client. */
-const MOCK_CODE = '123456';
+/**
+ * Six, until the server says otherwise.
+ *
+ * The DLT-registered template promises a six-digit code and the registered
+ * text cannot be changed on a whim, so this follows it. `startAuth` returns
+ * the real length and it replaces this the moment a code is requested — the
+ * constant only has to be right for the frame before that.
+ */
+const DEFAULT_OTP_LENGTH: AppConfig['otpLength'] = 6;
 
-export const RESEND_COOLDOWN_SECONDS = 30;
-export const MAX_ATTEMPTS = 3;
-export const LOCK_MINUTES = 10;
-/** After this many sends, offer WhatsApp rather than a fourth SMS. */
+/** Until the server's own cooldown arrives on the first send. */
+const DEFAULT_RESEND_SECONDS = 60;
+
+export const RESEND_COOLDOWN_SECONDS = DEFAULT_RESEND_SECONDS;
+export const MAX_ATTEMPTS = 5;
+/** After this many sends the server refuses more, so a fourth is not offered. */
 export const MAX_SMS_SENDS = 3;
 
 export type VerifyResult =
   | { ok: true }
   | { ok: false; reason: 'wrong'; attemptsLeft: number }
-  | { ok: false; reason: 'locked'; unlocksAtLabel: string };
+  | { ok: false; reason: 'locked'; unlocksAtLabel: string }
+  | { ok: false; reason: 'failed'; message: string };
+
+/**
+ * What `sendCode` tells the screen to do next.
+ *
+ * Three outcomes, not two, because "refused" splits into two cases that need
+ * opposite handling:
+ *
+ *   sent      a code is on its way. Go to the code screen.
+ *   pending   refused because one was sent moments ago and the cooldown has
+ *             not run out — so a valid code IS in the student's messages.
+ *             Also go to the code screen; stopping them on the form to wait
+ *             out a timer for a code they already have is nonsense.
+ *   failed    nothing was sent and nothing is coming. Stay, and show why.
+ */
+export type SendResult = 'sent' | 'pending' | 'failed';
+
+/** The sign-up fields, held between the form screen and the code screen. */
+export type PendingProfile = { name?: string; email?: string };
+
+type StoredSession = { token: string; user: AuthUser };
 
 type AuthContextValue = {
   status: AuthStatus;
@@ -45,8 +105,12 @@ type AuthContextValue = {
 
   /** The number a code was sent to, kept so the OTP screen can show it. */
   pendingPhone: string | null;
+  /** "•••••43210", from the server. Safer to show than the raw number. */
+  pendingPhoneMasked: string | null;
   isSubmitting: boolean;
   sendFailure: SendFailure | null;
+  /** The server's own sentence, when it wrote one worth showing. */
+  failureMessage: string | null;
 
   /** Seconds until a resend is allowed. Zero means it is enabled. */
   resendIn: number;
@@ -54,13 +118,22 @@ type AuthContextValue = {
   attemptsLeft: number;
   lockedUntilLabel: string | null;
 
-  sendCode: (phone: string, channel?: 'sms' | 'whatsapp') => Promise<boolean>;
-  resendCode: (channel?: 'sms' | 'whatsapp') => Promise<boolean>;
-  /** `profile` is supplied by the sign-up path, so the name lands in the same write. */
-  verifyCode: (code: string, profile?: { name?: string; email?: string }) => Promise<VerifyResult>;
+  /**
+   * Sends a code, and carries the sign-up fields until it is confirmed.
+   *
+   * `profile` is held here rather than passed to the code screen as a route
+   * param — the two are separate screens now, and a student's name in a
+   * navigation URL is both untidy and visible in the address bar on web.
+   */
+  sendCode: (phone: string, profile?: PendingProfile) => Promise<SendResult>;
+  resendCode: () => Promise<SendResult>;
+  /** The held profile lands in the same write that proves the number. */
+  verifyCode: (code: string) => Promise<VerifyResult>;
   changeNumber: () => void;
 
   completeProfile: (params: { name: string; email?: string }) => Promise<void>;
+  /** Mirrors the device's category onto the account, for a reinstall. */
+  syncCategory: (category: string) => void;
   signOut: () => Promise<void>;
 };
 
@@ -69,168 +142,316 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('hydrating');
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [token, setToken] = useState<string | null>(null);
 
   const [pendingPhone, setPendingPhone] = useState<string | null>(null);
+  const [pendingPhoneMasked, setPendingPhoneMasked] = useState<string | null>(null);
+  const [pendingProfile, setPendingProfile] = useState<PendingProfile | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [sendFailure, setSendFailure] = useState<SendFailure | null>(null);
+  const [failureMessage, setFailureMessage] = useState<string | null>(null);
 
+  const [otpLength, setOtpLength] = useState<AppConfig['otpLength']>(DEFAULT_OTP_LENGTH);
   const [resendIn, setResendIn] = useState(0);
   const [sendCount, setSendCount] = useState(0);
   const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS);
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
 
   const config = useMemo<AppConfig>(
-    () => ({ serverTimeOffsetMs: 0, otpLength: OTP_LENGTH }),
-    [],
+    () => ({ serverTimeOffsetMs: 0, otpLength }),
+    [otpLength],
   );
 
-  // Restore the session. A failure here is not a blocker: the app opens as a
-  // guest, because browsing does not require auth.
+  /* ── Persistence ───────────────────────────────────────────────────── */
+
+  const persist = useCallback(async (session: StoredSession | null) => {
+    if (!session) {
+      setUser(null);
+      setToken(null);
+      /* Cleared in the client FIRST. A request that fires between these two
+         lines would otherwise carry a token the app has decided to forget. */
+      setAuthToken(null);
+      await AsyncStorage.removeItem(SESSION_KEY);
+      return;
+    }
+    setUser(session.user);
+    setToken(session.token);
+    setAuthToken(session.token);
+    await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  }, []);
+
+  /* ── Restore, then revalidate ──────────────────────────────────────────
+     The stored copy paints the first frame; the server decides whether the
+     session is still real. A token can be revoked or an account deleted long
+     before the JWT's own expiry, and only /me knows. */
   useEffect(() => {
     let active = true;
-    AsyncStorage.getItem(SESSION_KEY)
-      .then((stored) => {
-        if (!active) return;
-        if (stored) {
-          try {
-            setUser(JSON.parse(stored) as AuthUser);
-            setStatus('signedIn');
-            return;
-          } catch {
-            // A corrupt session is a guest session, not an error screen.
-          }
-        }
+
+    (async () => {
+      let stored: StoredSession | null = null;
+      try {
+        const raw = await AsyncStorage.getItem(SESSION_KEY);
+        if (raw) stored = JSON.parse(raw) as StoredSession;
+      } catch {
+        // A corrupt session is a guest session, not an error screen.
+      }
+
+      if (!active) return;
+
+      if (!stored?.token) {
         setStatus('guest');
-      })
-      .catch(() => {
-        if (active) setStatus('guest');
-      });
+        return;
+      }
+
+      // Optimistic: the app opens signed in and corrects itself if wrong.
+      setUser(stored.user);
+      setToken(stored.token);
+      setAuthToken(stored.token);
+      setStatus('signedIn');
+
+      try {
+        const me = await fetchMe();
+        if (!active) return;
+        await persist({ token: stored.token, user: toAuthUser(me) });
+      } catch (error) {
+        if (!active) return;
+        /* Offline is not signed out. A student on a train keeps the session
+           they had; only the server actually rejecting it ends one, and the
+           client's session handler below covers that case. */
+        if (error instanceof ApiError && error.isNetwork) return;
+        if (error instanceof ApiError && error.status >= 500) return;
+        await persist(null);
+        setStatus('guest');
+      }
+    })();
+
     return () => {
       active = false;
     };
-  }, []);
+  }, [persist]);
 
-  // The resend cooldown. It is driven from the send, never from an attempt.
+  /* The client reports a token the server has stopped accepting, from
+     wherever in the app it was noticed. Registered once. */
+  useEffect(() => {
+    setSessionExpiredHandler(() => {
+      void persist(null);
+      setStatus('guest');
+    });
+    return () => setSessionExpiredHandler(null);
+  }, [persist]);
+
+  /* ── The resend cooldown ────────────────────────────────────────────────
+     Driven from the send, never from an attempt. */
   useEffect(() => {
     if (resendIn <= 0) return;
     const timer = setTimeout(() => setResendIn((value) => Math.max(0, value - 1)), 1000);
     return () => clearTimeout(timer);
   }, [resendIn]);
 
-  const persist = useCallback(async (next: AuthUser) => {
-    setUser(next);
-    await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(next));
+  /* ── Sending a code ────────────────────────────────────────────────────── */
+
+  /**
+   * Turns a failure into the one of three things the screen can say.
+   *
+   * Every branch names whose fault it is. A student on patchy 4G who is told
+   * "invalid request" assumes their data pack died and stops trying.
+   */
+  const readFailure = useCallback((error: unknown): SendFailure => {
+    if (!(error instanceof ApiError)) return 'offline';
+    if (error.isNetwork) return 'offline';
+    if (error.status === 429) return 'rateLimited';
+    return 'smsProvider';
   }, []);
 
   const doSend = useCallback(
-    async (phone: string, channel: 'sms' | 'whatsapp') => {
+    async (phone: string, resending: boolean): Promise<SendResult> => {
       setIsSubmitting(true);
       setSendFailure(null);
+      setFailureMessage(null);
       try {
-        await new Promise((resolve) => setTimeout(resolve, 600));
+        const challenge = resending ? await resendAuthCode(phone) : await startAuth({ phone });
+
         setPendingPhone(phone);
+        setPendingPhoneMasked(challenge.phoneMasked);
+        setOtpLength(challenge.otpLength === 4 ? 4 : 6);
         setStatus('awaitingCode');
         setSendCount((count) => count + 1);
-        setResendIn(RESEND_COOLDOWN_SECONDS);
-        // A fresh code gets a fresh set of attempts.
-        setAttemptsLeft(MAX_ATTEMPTS);
+        setResendIn(challenge.resendInSeconds || DEFAULT_RESEND_SECONDS);
+        // A fresh code gets a fresh set of attempts, and clears any lock.
+        setAttemptsLeft(challenge.maxAttempts || MAX_ATTEMPTS);
         setLockedUntil(null);
-        return true;
-      } catch {
-        setSendFailure(channel === 'sms' ? 'smsProvider' : 'offline');
-        return false;
+        return 'sent';
+      } catch (error) {
+        setSendFailure(readFailure(error));
+        if (error instanceof ApiError) {
+          setFailureMessage(error.displayMessage);
+          const payload = error.payload as { retryAfter?: number } | null;
+
+          /*
+           * `RESEND_TOO_SOON` and `RATE_LIMITED` both carry a `retryAfter`
+           * and mean opposite things, so they are told apart by the code
+           * rather than by the field they share.
+           *
+           * The first is the server's per-number cooldown: a code went out in
+           * the last minute, so one is sitting in the student's messages
+           * right now and the screen should move on to accept it. The second
+           * is the route limiter — nothing was sent, and moving on would put
+           * somebody in front of six empty boxes with no code coming.
+           */
+          if (error.code === 'RESEND_TOO_SOON') {
+            if (typeof payload?.retryAfter === 'number') setResendIn(payload.retryAfter);
+            setPendingPhone(phone);
+            setStatus('awaitingCode');
+            return 'pending';
+          }
+
+          if (typeof payload?.retryAfter === 'number') setResendIn(payload.retryAfter);
+        }
+        return 'failed';
       } finally {
         setIsSubmitting(false);
       }
     },
-    [],
+    [readFailure],
   );
 
+  /**
+   * SMS only, and there is no `channel` parameter any more.
+   *
+   * It used to take one, and the sign-in screen offered WhatsApp after three
+   * failed sends. There was nothing behind that button: the Twilio number in
+   * this system messages property OWNERS on templates approved for
+   * verification and visit availability, and codes go over the
+   * DLT-registered SMS gateway. Removing the argument is what stops the
+   * choice being offered again by a future call site.
+   */
   const sendCode = useCallback(
-    (phone: string, channel: 'sms' | 'whatsapp' = 'sms') => doSend(phone, channel),
+    (phone: string, profile?: PendingProfile) => {
+      /* Held until the code comes back correct, then written in the same
+         request that proves the number. Cleared on `changeNumber`. */
+      setPendingProfile(profile ?? null);
+      return doSend(phone, false);
+    },
     [doSend],
   );
 
-  const resendCode = useCallback(
-    (channel: 'sms' | 'whatsapp' = 'sms') => {
-      if (!pendingPhone || resendIn > 0) return Promise.resolve(false);
-      return doSend(pendingPhone, channel);
-    },
-    [pendingPhone, resendIn, doSend],
-  );
+  const resendCode = useCallback((): Promise<SendResult> => {
+    if (!pendingPhone || resendIn > 0) return Promise.resolve('failed');
+    return doSend(pendingPhone, true);
+  }, [pendingPhone, resendIn, doSend]);
+
+  /* ── Verifying ─────────────────────────────────────────────────────────── */
+
+  /* The category chosen on the entry screen, mirrored onto the account at
+     sign-in so a reinstall does not ask again. A ref because it is written by
+     a different provider and only ever read at the moment of the call. */
+  const categoryRef = useRef<string | null>(null);
+  const syncCategory = useCallback((category: string) => {
+    categoryRef.current = category;
+  }, []);
 
   const verifyCode = useCallback(
-    async (code: string, profile?: { name?: string; email?: string }): Promise<VerifyResult> => {
+    async (code: string): Promise<VerifyResult> => {
+      if (!pendingPhone) {
+        return { ok: false, reason: 'failed', message: 'Ask for a code first.' };
+      }
       if (lockedUntil && Date.now() < lockedUntil) {
         return { ok: false, reason: 'locked', unlocksAtLabel: labelFor(lockedUntil) };
       }
 
       setIsSubmitting(true);
+      setFailureMessage(null);
       try {
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        const session = await verifyAuth({
+          phone: pendingPhone,
+          otp: code,
+          name: pendingProfile?.name,
+          email: pendingProfile?.email,
+          category: categoryRef.current,
+        });
 
-        if (code !== MOCK_CODE) {
-          const left = attemptsLeft - 1;
+        await persist({ token: session.token, user: toAuthUser(session.customer) });
+        setStatus('signedIn');
+        setPendingPhone(null);
+        setPendingPhoneMasked(null);
+        setPendingProfile(null);
+        setSendCount(0);
+        setResendIn(0);
+        return { ok: true };
+      } catch (error) {
+        if (!(error instanceof ApiError)) {
+          return { ok: false, reason: 'failed', message: 'Something went wrong. Please try again.' };
+        }
+
+        const payload = error.payload as { attemptsLeft?: number; unlocksAt?: string } | null;
+
+        if (error.code === 'OTP_LOCKED') {
+          const until = payload?.unlocksAt ? Date.parse(payload.unlocksAt) : Date.now() + 10 * 60_000;
+          setLockedUntil(until);
+          setAttemptsLeft(0);
+          return { ok: false, reason: 'locked', unlocksAtLabel: labelFor(until) };
+        }
+
+        if (error.code === 'OTP_WRONG') {
+          /* Note what does NOT happen here: the resend cooldown is untouched. */
+          const left = typeof payload?.attemptsLeft === 'number'
+            ? payload.attemptsLeft
+            : Math.max(0, attemptsLeft - 1);
           setAttemptsLeft(left);
-          if (left <= 0) {
-            const until = Date.now() + LOCK_MINUTES * 60_000;
-            setLockedUntil(until);
-            return { ok: false, reason: 'locked', unlocksAtLabel: labelFor(until) };
-          }
-          // Note what does NOT happen here: the resend cooldown is untouched.
           return { ok: false, reason: 'wrong', attemptsLeft: left };
         }
 
-        const base: AuthUser = user ?? {
-          id: `usr-${pendingPhone ?? 'unknown'}`,
-          name: '',
-          phone: pendingPhone ?? '',
-        };
-        // One write, so there is never a frame where the user is signed in
-        // without the name they just typed.
-        await persist({
-          ...base,
-          name: profile?.name?.trim() || base.name,
-          email: profile?.email?.trim() || base.email,
-        });
-        setStatus('signedIn');
-        return { ok: true };
+        /* Expired, blocked, a bad email on the sign-up path, a disconnected
+           database. All of them have a sentence the server wrote, and all of
+           them need the student to do something other than retype a digit. */
+        return { ok: false, reason: 'failed', message: error.displayMessage };
       } finally {
         setIsSubmitting(false);
       }
     },
-    [attemptsLeft, lockedUntil, pendingPhone, user, persist],
+    [pendingPhone, pendingProfile, lockedUntil, attemptsLeft, persist],
   );
 
   const changeNumber = useCallback(() => {
     // Available even while the code is locked — the lock is on the code.
     setPendingPhone(null);
+    setPendingPhoneMasked(null);
+    setPendingProfile(null);
     setSendFailure(null);
+    setFailureMessage(null);
     setResendIn(0);
     setSendCount(0);
     setAttemptsLeft(MAX_ATTEMPTS);
     setLockedUntil(null);
-    setStatus('guest');
-  }, []);
+    setStatus(user ? 'signedIn' : 'guest');
+  }, [user]);
+
+  /* ── The profile ───────────────────────────────────────────────────────── */
 
   const completeProfile = useCallback(
     async ({ name, email }: { name: string; email?: string }) => {
-      const base: AuthUser = user ?? {
-        id: `usr-${pendingPhone ?? 'unknown'}`,
-        name: '',
-        phone: pendingPhone ?? '',
-      };
-      await persist({ ...base, name, email: email?.trim() ? email.trim() : undefined });
+      const updated = await updateMe({ name, ...(email !== undefined ? { email } : null) });
+      if (!token) return;
+      await persist({ token, user: toAuthUser(updated) });
     },
-    [user, pendingPhone, persist],
+    [token, persist],
   );
 
   const signOut = useCallback(async () => {
-    await AsyncStorage.removeItem(SESSION_KEY);
-    setUser(null);
+    /*
+     * Local only, and there is no endpoint to call.
+     *
+     * The token is a stateless JWT — nothing server-side is tracking it, so
+     * there is nothing to revoke and a round trip would be theatre. It stops
+     * working when it expires. Worth knowing if a "sign out of all devices"
+     * feature is ever asked for: that needs a token version on the customer
+     * document, and this is where it would be bumped.
+     */
+    await persist(null);
     setPendingPhone(null);
+    setPendingPhoneMasked(null);
     setStatus('guest');
-  }, []);
+  }, [persist]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -238,8 +459,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       config,
       pendingPhone,
+      pendingPhoneMasked,
       isSubmitting,
       sendFailure,
+      failureMessage,
       resendIn,
       sendCount,
       attemptsLeft,
@@ -249,6 +472,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       verifyCode,
       changeNumber,
       completeProfile,
+      syncCategory,
       signOut,
     }),
     [
@@ -256,8 +480,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       config,
       pendingPhone,
+      pendingPhoneMasked,
       isSubmitting,
       sendFailure,
+      failureMessage,
       resendIn,
       sendCount,
       attemptsLeft,
@@ -267,11 +493,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       verifyCode,
       changeNumber,
       completeProfile,
+      syncCategory,
       signOut,
     ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+/**
+ * The server's customer, as the app's user.
+ *
+ * `name` and `email` come back as empty strings for a customer who has not
+ * given them — the collection's default. They become `undefined` here,
+ * because every screen tests them for truthiness and an empty string that
+ * renders as a blank line is the thing those tests exist to avoid.
+ */
+function toAuthUser(customer: {
+  id: string;
+  phone: string;
+  name: string;
+  email: string;
+  category: string | null;
+}): AuthUser {
+  return {
+    id: customer.id,
+    name: customer.name || '',
+    phone: customer.phone,
+    email: customer.email || undefined,
+    category: (customer.category as AuthUser['category']) ?? undefined,
+  };
 }
 
 /** A lock is stated as a clock time, never as "try again later". */

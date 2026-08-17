@@ -1,3 +1,4 @@
+import type { StyleProp, ViewStyle } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { useColors } from '@/hooks/useColors';
 
@@ -59,9 +60,10 @@ type Props = {
   size?: number;
   color?: string;
   strokeWidth?: number;
+  style?: StyleProp<ViewStyle>;
 };
 
-export function Icon({ name, size = 24, color, strokeWidth = 1.75 }: Props) {
+export function Icon({ name, size = 24, color, strokeWidth = 1.75, style }: Props) {
   const c = useColors();
   const stroke = color ?? c.textPrimary;
   const common = {
@@ -73,7 +75,7 @@ export function Icon({ name, size = 24, color, strokeWidth = 1.75 }: Props) {
   };
 
   return (
-    <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Svg width={size} height={size} viewBox="0 0 24 24" style={style}>
       {renderPaths(name, common, stroke)}
     </Svg>
   );

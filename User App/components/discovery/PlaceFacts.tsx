@@ -36,30 +36,45 @@ export function MealPlanCard({ plan }: MealPlanCardProps) {
         <Icon name="mess" size={24} color={colors.textPrimary} />
         <View style={styles.flex}>
           <Text variant="title3">
-            {plan.included
-              ? `${plan.mealsPerDay} ${plan.mealsPerDay === 1 ? 'meal' : 'meals'} a day included in rent`
-              : 'No meals included'}
+            {!plan.included
+              ? 'No meals included'
+              : plan.mealsPerDay === undefined
+                ? /* The owner ticked "food included" and did not say how much.
+                     That is still worth stating; a count we do not have is
+                     not, and "0 meals a day included in rent" is what a
+                     required field printed instead. */
+                  'Meals included in rent'
+                : `${plan.mealsPerDay} ${plan.mealsPerDay === 1 ? 'meal' : 'meals'} a day included in rent`}
           </Text>
-          <Text variant="numMeta" color="secondary">
-            {plan.dietary}
-          </Text>
+          {plan.dietary ? (
+            <Text variant="numMeta" color="secondary">
+              {plan.dietary}
+            </Text>
+          ) : null}
         </View>
       </View>
 
-      <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.borderSubtle }} />
+      {/* The divider and the timetable belong to each other. A card with an
+          included line, a rule, and nothing under it reads as a section that
+          failed to load. */}
+      {plan.slots.length ? (
+        <>
+          <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.borderSubtle }} />
 
-      <View style={{ gap: space[2] }}>
-        {plan.slots.map((slot) => (
-          <View key={slot.label} style={styles.slotRow}>
-            <Text variant="body" color={slot.window ? 'primary' : 'tertiary'}>
-              {slot.label}
-            </Text>
-            <Text variant={slot.window ? 'priceSm' : 'numMeta'} color={slot.window ? 'primary' : 'tertiary'}>
-              {slot.window ?? 'not served'}
-            </Text>
+          <View style={{ gap: space[2] }}>
+            {plan.slots.map((slot) => (
+              <View key={slot.label} style={styles.slotRow}>
+                <Text variant="body" color={slot.window ? 'primary' : 'tertiary'}>
+                  {slot.label}
+                </Text>
+                <Text variant={slot.window ? 'priceSm' : 'numMeta'} color={slot.window ? 'primary' : 'tertiary'}>
+                  {slot.window ?? 'not served'}
+                </Text>
+              </View>
+            ))}
           </View>
-        ))}
-      </View>
+        </>
+      ) : null}
 
       {plan.note ? (
         <Text variant="caption" color="secondary">

@@ -290,7 +290,7 @@ export default function DiscoveryPreview() {
                 </Text>
                 {selectedSharing ? (
                   <RentDisplay
-                    rent={selectedSharing.pricePerPerson}
+                    rent={selectedSharing.pricePerPerson ?? null}
                     deposit={selectedSharing.deposit}
                     depositMonths={selectedSharing.depositMonths}
                     perBed

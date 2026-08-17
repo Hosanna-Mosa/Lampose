@@ -49,12 +49,16 @@ export default function NewTicketScreen() {
   return (
     <Screen
       padX={22}
-      contentStyle={styles.fill}
-      footer={<Button label="Submit ticket" onPress={submit} disabled={!canSubmit} />}
+            contentStyle={styles.fill}
+            footer={<Button label="Submit ticket" onPress={submit} disabled={!canSubmit} />}
+      stickyHeader={
+        <>
+          <View style={styles.backRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+          </View>
+        </>
+      }
     >
-      <View style={styles.backRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-      </View>
 
       <Text variant="pageTitleSm" style={styles.title}>
         New support ticket

@@ -86,22 +86,28 @@ export default function RequestsInbox() {
   const list = grouped[category];
 
   return (
-    <Screen contentStyle={styles.stack} key={revision}>
-      {/*
-        The design draws no back affordance here — it assumes you arrive from a
-        tab. This screen is pushed from the dashboard, so it gets the same inline
-        chevron every other pushed screen in the set uses.
-      */}
-      <View style={styles.headerRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-        <IconButton
-          name="plus"
-          label="Add customer"
-          onPress={() => router.push('/requests/add-customer')}
-        />
-      </View>
+    <Screen
+      contentStyle={styles.stack} key={revision}
+      stickyHeader={
+        <>
+          {/*
+            The design draws no back affordance here — it assumes you arrive from a
+            tab. This screen is pushed from the dashboard, so it gets the same inline
+            chevron every other pushed screen in the set uses.
+          */}
+          <View style={styles.headerRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+            <IconButton
+              name="plus"
+              label="Add customer"
+              onPress={() => router.push('/requests/add-customer')}
+            />
+          </View>
 
-      <Text variant="screenTitle">Requests</Text>
+          <Text variant="screenTitle">Requests</Text>
+        </>
+      }
+    >
 
       <Segmented options={CATEGORIES} value={category} onChange={setCategory} labels={CATEGORY_LABELS} />
 

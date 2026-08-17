@@ -1,12 +1,14 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
-import { Button, Icon, Text, TextField } from '@/components/ui';
+import { Button, Icon, InlineAlert, Text, TextField } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { SUPPORT_HOURS_NOTE, ticketCategories } from '@/data/support';
 import { useTheme } from '@/context/ThemeContext';
+import { useCreateSupportRequest } from '@/services';
 import type { TicketCategoryId } from '@/types/support';
 
 /**
@@ -30,6 +32,35 @@ export default function NewTicket() {
   const [categoryId, setCategoryId] = useState<TicketCategoryId | null>(null);
   const [body, setBody] = useState('');
 
+  const { submitTicket, isSubmittingTicket, ticketError } = useCreateSupportRequest();
+
+  /**
+   * Sends, then opens the thread it created.
+   *
+   * Landing on the new ticket rather than back on the list is the difference
+   * between "something was submitted" and "here is your ticket, with its
+   * reference, and what you wrote in it". The reference is the first thing
+   * support asks for, and this is the only moment the student is guaranteed
+   * to see it.
+   *
+   * `replace` rather than `push`, so Back from the thread goes to the list.
+   * Leaving this form on the stack would let somebody back into a filled-in
+   * copy of a ticket they have already sent and send it again.
+   *
+   * A failure keeps them here with everything they typed still in the box.
+   * The alert below says what happened; the throw is swallowed because the
+   * mutation has already recorded it.
+   */
+  const send = async () => {
+    if (!categoryId || body.trim().length === 0) return;
+    try {
+      const created = await submitTicket({ category: categoryId, body: body.trim() });
+      router.replace(`/support/${created.reference}` as never);
+    } catch {
+      /* Held in `ticketError`, rendered below. */
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
@@ -39,7 +70,7 @@ export default function NewTicket() {
         onAction={() => router.back()}
       />
 
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
         contentContainerStyle={{ padding: layout.gutter, gap: space[5], paddingBottom: space[8] }}
         keyboardShouldPersistTaps="handled"
       >
@@ -94,12 +125,28 @@ export default function NewTicket() {
           </View>
         ) : null}
 
+        {/* Nothing is optimistic here. A ticket that appears to send and
+            silently rolls back on a dead connection is the failure that
+            matters most on this screen — somebody believes they told us, and
+            nobody has it. So the button waits for the server. */}
+        {ticketError ? (
+          <InlineAlert
+            tone="error"
+            title="Not sent"
+            body={ticketError.displayMessage}
+            actionLabel="Try again"
+            onAction={send}
+          />
+        ) : null}
+
         <View style={{ gap: space[2] }}>
           <Button
             label="Send to support"
+            loadingLabel="Sending"
+            loading={isSubmittingTicket}
             fullWidth
-            disabled={!categoryId || body.trim().length === 0}
-            onPress={() => router.replace('/support')}
+            disabled={!categoryId || body.trim().length === 0 || isSubmittingTicket}
+            onPress={send}
           />
           <Text variant="caption" color="tertiary" style={styles.centred}>
             {SUPPORT_HOURS_NOTE}
@@ -126,7 +173,7 @@ export default function NewTicket() {
             onPress={() => router.push('/support/report')}
           />
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
     </View>
   );
 }

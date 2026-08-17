@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, View, type ViewProps, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, View, type StyleProp, type ViewProps, type ViewStyle } from 'react-native';
 import { layout, radius, shadow } from '@/constants/layout';
 import { useColors } from '@/hooks/useColors';
 
@@ -10,7 +10,7 @@ type Props = ViewProps & {
   variant?: 'elevated' | 'outlined';
   padded?: boolean;
   onPress?: () => void;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 };
 
 export function Card({ variant = 'outlined', padded = true, onPress, style, children, ...rest }: Props) {
