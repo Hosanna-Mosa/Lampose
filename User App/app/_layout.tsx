@@ -8,6 +8,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { WaitingPill } from '@/components/shell';
 import { AppStateProvider } from '@/context/AppStateContext';
 import { AuthProvider } from '@/context/AuthContext';
+import { FoodProvider } from '@/context/FoodContext';
 import { PendingRequestProvider } from '@/context/PendingRequestContext';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import {
@@ -152,6 +153,11 @@ export default function RootLayout() {
             <AuthProvider>
               <AppStateProvider>
                 <PendingRequestProvider>
+                  {/* The cart has to outlive the screens that build it: a student
+                      adds a thali, wanders into a listing, comes back. It sits
+                      inside PendingRequestProvider because the docked cart bar
+                      claims the bottom edge from that same registry. */}
+                  <FoodProvider>
               {/* `flex: 1` is required here — without it the view collapses and
                   the scene below it is what fills the window. The themed ground
                   itself comes from the Stack's `contentStyle` above, since this
@@ -161,6 +167,7 @@ export default function RootLayout() {
                   <Shell />
                 </KeyboardProvider>
               </GestureHandlerRootView>
+                  </FoodProvider>
                 </PendingRequestProvider>
               </AppStateProvider>
             </AuthProvider>

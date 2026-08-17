@@ -107,8 +107,11 @@ export default function PropertyDetailModal({ property, onClose, onDelete, onUpd
     if (res && res.success) {
       onClose();
     } else {
-      setNotice({ tone: 'bad', text: res?.error || res?.message || 'Delete failed.' });
-      loadAccess();
+      const errorMsg = res?.error || res?.message || 'Delete failed.';
+      setNotice({ tone: 'bad', text: errorMsg });
+      if (!errorMsg.toLowerCase().includes('not found')) {
+        loadAccess();
+      }
     }
   };
 
@@ -119,12 +122,15 @@ export default function PropertyDetailModal({ property, onClose, onDelete, onUpd
 
     if (res && res.success) {
       setIsEditing(false);
-      setNotice({ tone: 'good', text: 'Listing updated. Your edit permission is now closed.' });
+      setNotice({ tone: 'good', text: 'Listing updated successfully!' });
+      if (onUpdated && res.data) onUpdated(res.data);
       loadAccess();
-      if (onUpdated) onUpdated(res.data);
     } else {
-      setNotice({ tone: 'bad', text: res?.error || res?.message || 'Update failed.' });
-      loadAccess();
+      const errorMsg = res?.error || res?.message || 'Update failed.';
+      setNotice({ tone: 'bad', text: errorMsg });
+      if (!errorMsg.toLowerCase().includes('not found')) {
+        loadAccess();
+      }
     }
   };
 

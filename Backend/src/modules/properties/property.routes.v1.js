@@ -70,10 +70,15 @@ const EDITABLE_PROPERTY_FIELDS = [
   'rent', 'deposit', 'address', 'description', 'imageUrl', 'images', 'amenities', 'categoryDetails',
 ];
 
-const findPendingVerification = (id) => {
-  if (!mongoose.Types.ObjectId.isValid(id)) return null;
+const findPendingVerification = async (id) => {
+  if (!id) return null;
+  const idStr = String(id).trim();
+  const matchCriteria = [{ 'pendingPropertyData._id': idStr }];
+  if (mongoose.Types.ObjectId.isValid(idStr)) {
+    matchCriteria.push({ 'pendingPropertyData._id': new mongoose.Types.ObjectId(idStr) });
+  }
   return VerificationRequest.findOne({
-    'pendingPropertyData._id': new mongoose.Types.ObjectId(id),
+    $or: matchCriteria,
     status: { $in: PENDING_STATUSES },
   });
 };
@@ -269,8 +274,8 @@ router.post('/upload-images', upload.array('images', 10), async (req, res) => {
 router.get('/', async (req, res) => {
   const timestamp = new Date().toLocaleTimeString();
   try {
-    const { category, search, place, stayType, includeUnverified } = req.query;
-    console.log(`\n📋 [${timestamp}] [API GET /properties] Query filters -> category: "${category || 'All'}", search: "${search || 'None'}"`);
+    const { category, search, place, stayType, includeUnverified, employeeEmail } = req.query;
+    console.log(`\n📋 [${timestamp}] [API GET /properties] Query filters -> category: "${category || 'All'}", search: "${search || 'None'}", employeeEmail: "${employeeEmail || 'All'}"`);
 
     if (getIsInMemory()) {
       let filtered = [...inMemoryStore];
@@ -282,6 +287,11 @@ router.get('/', async (req, res) => {
         combined = [...global.pendingInMemoryProperties, ...filtered];
       } else {
         combined = [...filtered];
+      }
+
+      if (employeeEmail) {
+        const empQ = employeeEmail.toLowerCase().trim();
+        combined = combined.filter(p => (p.employeeEmail || p.empEmail || '').toLowerCase().includes(empQ));
       }
 
       if (category && category !== 'All') {
@@ -311,6 +321,9 @@ router.get('/', async (req, res) => {
     // MongoDB Mode
     // 1. Fetch verified properties
     const verifiedQuery = { verificationStatus: 'verified' };
+    if (employeeEmail) {
+      verifiedQuery.employeeEmail = { $regex: employeeEmail.trim(), $options: 'i' };
+    }
     if (category && category !== 'All') {
       verifiedQuery.category = category;
     }
@@ -344,6 +357,10 @@ router.get('/', async (req, res) => {
         }));
 
       // Apply query filters to pending properties
+      if (employeeEmail) {
+        const empQ = employeeEmail.toLowerCase().trim();
+        pendingProps = pendingProps.filter(p => (p.employeeEmail || p.empEmail || '').toLowerCase().includes(empQ));
+      }
       if (category && category !== 'All') {
         pendingProps = pendingProps.filter(p => p.category === category);
       }
@@ -388,7 +405,13 @@ router.get('/:id', async (req, res) => {
 
   try {
     if (getIsInMemory()) {
-      const property = inMemoryStore.find(p => p._id === id);
+      let property = inMemoryStore.find(p => String(p._id) === String(id));
+      if (!property) {
+        const pendingIdx = findPendingInMemoryIndex(id);
+        if (pendingIdx !== -1) {
+          property = { ...global.pendingInMemoryProperties[pendingIdx], verificationStatus: 'pending', isVerified: false };
+        }
+      }
       if (!property) {
         console.warn(`   ⚠️ Property with ID "${id}" not found in memory store`);
         return res.status(404).json({ success: false, error: 'Property not found' });
@@ -396,8 +419,22 @@ router.get('/:id', async (req, res) => {
       return res.json({ success: true, data: property });
     }
 
-    const property = await Property.findById(id);
+    let property = null;
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      property = await Property.findById(id);
+    }
+
     if (!property) {
+      const pendingReq = await findPendingVerification(id);
+      if (pendingReq && pendingReq.pendingPropertyData) {
+        property = {
+          ...pendingReq.pendingPropertyData,
+          verificationStatus: 'pending',
+          isVerified: false
+        };
+        console.log(`   ✅ Loaded pending property details for: "${property.name}" (${property.category})`);
+        return res.json({ success: true, data: property });
+      }
       console.warn(`   ⚠️ Property with ID "${id}" not found in MongoDB`);
       return res.status(404).json({ success: false, error: 'Property not found' });
     }

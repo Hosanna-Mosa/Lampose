@@ -1,6 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import Animated, {
+  runOnJS,
+  type SharedValue,
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
@@ -10,7 +12,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, Text, type IconName } from '@/components/ui';
-import { easing } from '@/constants/motion';
+import { component, easing } from '@/constants/motion';
 import { elevation } from '@/constants/tokens';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
@@ -38,6 +40,49 @@ export type TabBarProps = {
   tabs: readonly TabItem[];
   activeId: string;
   onChange: (id: string) => void;
+  /**
+   * Collapse the bar to this single button while a module owns the screen.
+   *
+   * Food is a place, not a fourth sibling screen. Once you are inside it,
+   * Explore / Saved / Bookings are not peers to flick between — they are the
+   * app you stepped out of, and a bar still offering all three says the
+   * opposite. So the chrome goes: surface, top border and the other tabs, all
+   * of it, leaving one button to bring you back.
+   *
+   * The button keeps the ACTIVE tab's slot, so the door out appears exactly
+   * where the door in was — tap the red Food disc at the right-hand end and it
+   * becomes a green Explore disc without moving a pixel.
+   *
+   * The bar keeps its footprint rather than dropping out of layout. The disc
+   * is a floating control with a text label under it, and content scrolling
+   * beneath that label is the one thing that would make it unreadable; the
+   * band it leaves is plain page background, which is what "the bar is gone"
+   * looks like. The measured height is still reported either way, so the
+   * snackbar and the waiting pill read one number whichever state it is in.
+   */
+  collapsedTo?: TabItem | null;
+  /**
+   * Names the SET of destinations currently in the bar — `stay`, `food`.
+   *
+   * A change here, and only a change here, plays the swap. It cannot be
+   * inferred from `tabs`: that array is rebuilt whenever a badge or a dot
+   * changes, and animating the whole bar because an order went live would be
+   * movement with nothing behind it. A string the caller controls says
+   * "this is a different set of places" and nothing else does.
+   *
+   * Leave it undefined and the bar behaves exactly as it did before — every
+   * change is a straight cut.
+   */
+  setId?: string;
+};
+
+/** Everything needed to draw one frame of the bar, so an outgoing set can be
+ *  held on screen after the props that produced it have already changed. */
+type BarFrame = {
+  tabs: readonly TabItem[];
+  activeId: string;
+  collapsedTo: TabItem | null;
+  setId?: string;
 };
 
 /**
@@ -53,9 +98,65 @@ export type TabBarProps = {
  * lateral move does not have. A pill also animates position during a screen
  * swap, so a stuttering swap leaves it stranded between two tabs.
  */
-export function TabBar({ tabs, activeId, onChange }: TabBarProps) {
+export function TabBar({ tabs, activeId, onChange, collapsedTo, setId }: TabBarProps) {
   const { colors, space, layout } = useTheme();
   const insets = useSafeAreaInsets();
+  const reduceMotion = useReduceMotion();
+
+  const live: BarFrame = { tabs, activeId, collapsedTo: collapsedTo ?? null, setId };
+
+  /*
+   * The set that is on its way out, kept mounted until the swap finishes.
+   *
+   * React would otherwise unmount it the instant the props changed, and there
+   * would be nothing left to animate away — the whole point of the transition
+   * is that both sets are on screen at once for 280ms.
+   */
+  const [outgoing, setOutgoing] = useState<BarFrame | null>(null);
+  /** The frame the previous render drew, which is the one that has to leave. */
+  const lastFrame = useRef<BarFrame>(live);
+
+  /** 0 at the start of a swap, 1 at rest. */
+  const swap = useSharedValue(1);
+  /** The bar's own width, so a cell's travel is measured, never guessed. */
+  const barWidth = useSharedValue(360);
+
+  const settled = useCallback(() => setOutgoing(null), []);
+
+  useEffect(() => {
+    const before = lastFrame.current;
+
+    // No set named, or the same set — a badge changed, not the destinations.
+    if (!setId || !before.setId || before.setId === setId) return;
+
+    setOutgoing(before);
+    swap.value = 0;
+    swap.value = withTiming(
+      1,
+      {
+        duration: reduceMotion ? component.tabSetSwap.reducedDuration : component.tabSetSwap.duration,
+        easing: component.tabSetSwap.easing,
+      },
+      (finished) => {
+        if (finished) runOnJS(settled)();
+      },
+    );
+    // `live` is rebuilt every render; the set name is the only real dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setId, reduceMotion, swap, settled]);
+
+  /*
+   * Remember what was just drawn — every render, and deliberately declared
+   * AFTER the swap effect so it runs after it on the same commit.
+   *
+   * Updating this inside the swap effect instead would only refresh it on the
+   * renders that swapped, so the frame animating out would be whatever the bar
+   * looked like at the last swap rather than a moment ago: leave Food from
+   * Orders and you would watch Home slide away.
+   */
+  useEffect(() => {
+    lastFrame.current = live;
+  });
 
   /*
    * The bar owns the bottom edge, so the floating request pill sits above it
@@ -66,33 +167,268 @@ export function TabBar({ tabs, activeId, onChange }: TabBarProps) {
   const { reserveBottom, releaseBottom } = usePendingRequest();
   useEffect(() => () => releaseBottom('tabbar'), [releaseBottom]);
 
-  const measure = (event: LayoutChangeEvent) =>
+  const measure = (event: LayoutChangeEvent) => {
     reserveBottom('tabbar', event.nativeEvent.layout.height);
+    barWidth.value = event.nativeEvent.layout.width;
+  };
+
+  /* Reduced motion keeps the crossfade and drops the travel and the scale.
+     The user still learns that one set replaced another; they are just not
+     moved to learn it. */
+  const moves = !reduceMotion;
+  const collapsedNow = resolveCollapsed(live);
+  const gap = space[1] + 1;
 
   return (
     <View
-      accessibilityRole="tablist"
+      // Not a tablist when it is holding one button: a screen reader that
+      // announces "tab 4 of 4" for a lone way-out control is describing a bar
+      // that is not on screen.
+      accessibilityRole={collapsedNow ? undefined : 'tablist'}
       onLayout={measure}
       style={[
         styles.bar,
-        {
-          backgroundColor: colors.surface,
-          borderTopColor: colors.borderSubtle,
-          paddingBottom: insets.bottom + layout.bottomInsetExtra,
-        },
+        collapsedNow
+          ? styles.barCollapsed
+          : { backgroundColor: colors.surface, borderTopColor: colors.borderSubtle },
+        { paddingBottom: insets.bottom + layout.bottomInsetExtra },
       ]}
     >
-      {tabs.map((tab) => (
-        <TabButton
-          key={tab.id}
-          tab={tab}
-          active={tab.id === activeId}
-          onPress={() => onChange(tab.id)}
-          gap={space[1] + 1}
+      {/*
+        The three flat tabs on their way out, converging on the disc.
+
+        `pointerEvents="none"` and never the other way round: the motion rules
+        forbid an animation gating an interaction, so the arriving tabs are
+        tappable from their first frame while these are already untouchable.
+      */}
+      {outgoing ? (
+        <View
+          pointerEvents="none"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={styles.overlayRow}
+        >
+          <FlatCells
+            frame={outgoing}
+            mode="leaving"
+            progress={swap}
+            barWidth={barWidth}
+            moves={moves}
+            onChange={onChange}
+            gap={gap}
+          />
+        </View>
+      ) : null}
+
+      {/* The live three. In normal flow, so this row is what gives the bar its
+          height — the overlays above and below it are all absolute. */}
+      <View style={styles.row}>
+        <FlatCells
+          frame={live}
+          mode="arriving"
+          progress={swap}
+          barWidth={barWidth}
+          moves={moves}
+          onChange={onChange}
+          gap={gap}
         />
-      ))}
+      </View>
+
+      {/*
+        The disc, and only the disc — stationary, and drawn last so the flat
+        tabs pass UNDERNEATH it on their way in and out. That is the whole
+        illusion: they are going into the door, not past it.
+
+        It swaps its icon and its tone the instant it is pressed rather than
+        crossfading. Two filled discs of different colours dissolved through
+        each other spend 100ms as a muddy brown, and an instant change on the
+        thing under the thumb reads as a response to the press.
+
+        `box-none` so only the disc itself catches a touch; the empty slots
+        beside it let taps fall through to the live row underneath.
+      */}
+      <View pointerEvents="box-none" style={styles.overlayRow}>
+        <RaisedCell frame={live} onChange={onChange} gap={gap} />
+      </View>
     </View>
   );
+}
+
+/** Which slot the lone button inherits. Guarded rather than assumed: an
+ *  `activeId` that is not in `tabs` (Profile, which lost its tab to Food and is
+ *  now reached from the header) has no slot to hold, and collapsing onto slot
+ *  -1 would silently park the button on the left edge. */
+function collapsedSlotOf(frame: BarFrame): number {
+  return frame.collapsedTo ? frame.tabs.findIndex((tab) => tab.id === frame.activeId) : -1;
+}
+
+function resolveCollapsed(frame: BarFrame): TabItem | null {
+  return collapsedSlotOf(frame) >= 0 ? frame.collapsedTo : null;
+}
+
+/**
+ * Which slot holds the raised disc — the one cell that never moves.
+ *
+ * In a collapsed bar the lone button IS the raised one, so the two ideas
+ * resolve to the same slot and the rest of the bar is empty either way.
+ */
+function raisedSlotOf(frame: BarFrame): number {
+  const collapsedSlot = collapsedSlotOf(frame);
+  if (collapsedSlot >= 0) return collapsedSlot;
+  return frame.tabs.findIndex((tab) => tab.raised);
+}
+
+/** An empty cell. It exists to hold a position, so it must never take a touch. */
+function Spacer() {
+  return <View pointerEvents="none" style={styles.cell} />;
+}
+
+/**
+ * The flat tabs of one set, each carrying its own distance to the disc.
+ *
+ * Every slot is rendered — the raised one as an empty spacer — because the
+ * four flex:1 cells are the only thing keeping the three sets (leaving, live,
+ * disc) in the same columns as each other.
+ */
+function FlatCells({
+  frame,
+  mode,
+  progress,
+  barWidth,
+  moves,
+  onChange,
+  gap,
+}: {
+  frame: BarFrame;
+  mode: 'leaving' | 'arriving';
+  progress: SharedValue<number>;
+  barWidth: SharedValue<number>;
+  moves: boolean;
+  onChange: (id: string) => void;
+  gap: number;
+}) {
+  const raisedSlot = raisedSlotOf(frame);
+  const collapsed = resolveCollapsed(frame);
+  const count = frame.tabs.length || 1;
+
+  return (
+    <>
+      {frame.tabs.map((tab, index) => {
+        // The disc's own slot, and every slot of a collapsed bar, stays empty
+        // here — a collapsed bar has no flat tabs to fly anywhere.
+        if (index === raisedSlot || collapsed) return <Spacer key={tab.id} />;
+
+        return (
+          <SlidingCell
+            key={tab.id}
+            mode={mode}
+            progress={progress}
+            barWidth={barWidth}
+            moves={moves}
+            /* Cells are equal width, so the gap from this slot's centre to the
+               disc's is exactly this fraction of the bar. */
+            offsetRatio={(raisedSlot - index) / count}
+          >
+            <TabButton
+              tab={tab}
+              active={tab.id === frame.activeId}
+              onPress={() => onChange(tab.id)}
+              gap={gap}
+            />
+          </SlidingCell>
+        );
+      })}
+    </>
+  );
+}
+
+/** The raised disc of one set, in its slot, with the rest of the row empty. */
+function RaisedCell({
+  frame,
+  onChange,
+  gap,
+}: {
+  frame: BarFrame;
+  onChange: (id: string) => void;
+  gap: number;
+}) {
+  const raisedSlot = raisedSlotOf(frame);
+  const collapsed = resolveCollapsed(frame);
+
+  return (
+    <>
+      {frame.tabs.map((tab, index) => {
+        if (index !== raisedSlot) return <Spacer key={tab.id} />;
+
+        /* Keyed by the SLOT, not by the button in it. Keyed by the button,
+           `explore` would collide with the empty first slot — and the swap
+           would also tear down the node it is replacing, losing the disc that
+           is standing in exactly that spot. */
+        return collapsed ? (
+          <TabButton
+            key={tab.id}
+            tab={collapsed}
+            active={false}
+            emphasised
+            role="button"
+            onPress={() => onChange(collapsed.id)}
+            gap={gap}
+          />
+        ) : (
+          <TabButton
+            key={tab.id}
+            tab={tab}
+            active={tab.id === frame.activeId}
+            onPress={() => onChange(tab.id)}
+            gap={gap}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * One flat tab, travelling to or from the disc.
+ *
+ * A component rather than a loop of `useAnimatedStyle` calls, because hooks
+ * cannot be called per item of a list whose length is not fixed.
+ *
+ * The distance is read from `barWidth` inside the worklet rather than passed in
+ * as a number, so a rotation mid-transition lands the cell in the right place
+ * instead of the place the old width implied.
+ */
+function SlidingCell({
+  mode,
+  progress,
+  barWidth,
+  moves,
+  offsetRatio,
+  children,
+}: {
+  mode: 'leaving' | 'arriving';
+  progress: SharedValue<number>;
+  barWidth: SharedValue<number>;
+  moves: boolean;
+  offsetRatio: number;
+  children: React.ReactNode;
+}) {
+  const { scaleFrom } = component.tabSetSwap;
+
+  const style = useAnimatedStyle(() => {
+    const settledness = progress.value;
+    // 1 while the cell is at the disc, 0 once it is home.
+    const away = mode === 'leaving' ? settledness : 1 - settledness;
+    const distance = moves ? barWidth.value * offsetRatio * away : 0;
+    const scale = moves ? 1 - (1 - scaleFrom) * away : 1;
+
+    return {
+      opacity: mode === 'leaving' ? 1 - settledness : settledness,
+      transform: [{ translateX: distance }, { scale }],
+    };
+  });
+
+  return <Animated.View style={[styles.cell, style]}>{children}</Animated.View>;
 }
 
 function TabButton({
@@ -100,19 +436,35 @@ function TabButton({
   active,
   onPress,
   gap,
+  /**
+   * Wear the active label treatment without being the selected tab.
+   *
+   * The collapsed button is never "selected" — the module is. But it is the
+   * only control left on the bar, and a tertiary-grey name under a filled
+   * brand disc reads as something switched off.
+   */
+  emphasised = false,
+  /** A collapsed bar holds a way out, not one of several destinations. */
+  role = 'tab',
 }: {
   tab: TabItem;
   active: boolean;
   onPress: () => void;
   gap: number;
+  emphasised?: boolean;
+  role?: 'tab' | 'button';
 }) {
   const { colors } = useTheme();
   const reduceMotion = useReduceMotion();
   const scale = useSharedValue(1);
 
   const progress = useDerivedValue(
-    () => withTiming(active ? 1 : 0, { duration: reduceMotion ? 100 : 160, easing: easing.standard }),
-    [active, reduceMotion],
+    () =>
+      withTiming(active || emphasised ? 1 : 0, {
+        duration: reduceMotion ? 100 : 160,
+        easing: easing.standard,
+      }),
+    [active, emphasised, reduceMotion],
   );
 
   const handlePress = () => {
@@ -132,11 +484,16 @@ function TabButton({
   const activeLabelStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
 
   const badgeLabel = tab.badge ? (tab.badge > 9 ? '9+' : String(tab.badge)) : undefined;
-  const accessibilityLabel = badgeLabel
-    ? `${tab.label}, ${tab.badge} new`
-    : tab.dot
-      ? `${tab.label}, updated`
-      : tab.label;
+  const accessibilityLabel =
+    role === 'button'
+      ? // The label alone would announce "Explore" on a screen that is not
+        // Explore. Said in full, it is the one thing this control does.
+        `Back to ${tab.label}`
+      : badgeLabel
+        ? `${tab.label}, ${tab.badge} new`
+        : tab.dot
+          ? `${tab.label}, updated`
+          : tab.label;
 
   /* The raised disc is a solid fill, so its glyph takes the `on` ink of its
      tone — never white by assumption; both flip between modes. The active
@@ -148,8 +505,8 @@ function TabButton({
   return (
     <Pressable
       onPress={handlePress}
-      accessibilityRole="tab"
-      accessibilityState={{ selected: active }}
+      accessibilityRole={role}
+      accessibilityState={role === 'tab' ? { selected: active } : undefined}
       accessibilityLabel={accessibilityLabel}
       style={[styles.tab, { gap }]}
     >
@@ -208,8 +565,32 @@ function TabButton({
 }
 
 const styles = StyleSheet.create({
-  bar: { flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth },
+  bar: { borderTopWidth: StyleSheet.hairlineWidth },
+  /* One set of tabs. Two of these exist during a swap, stacked. */
+  row: { flexDirection: 'row' },
+  /*
+     A row stacked over the live one — the leaving tabs, and the disc.
+
+     Pinned to the top of the bar's content box rather than stretched with
+     `absoluteFill`: that would give it the bar's full height INCLUDING the
+     safe-area padding, and its cells — `flex: 1` in a row, so stretched on the
+     cross axis — would sit taller and lower than the ones they line up with.
+     Every layer has to be pixel-aligned or the swap reads as a jump.
+  */
+  overlayRow: { position: 'absolute', left: 0, right: 0, top: 0, flexDirection: 'row' },
+  /* The whole bar, minus the bar: no fill and no edge, so what is left is the
+     page showing through and one button standing on it. */
+  barCollapsed: { backgroundColor: 'transparent', borderTopWidth: 0 },
   tab: { flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center' },
+  /*
+     The cell a tab sits in, and the thing that gets translated.
+
+     It holds the column and NOTHING else — no `alignItems: 'center'`. Centring
+     here would size the button to its own text instead of stretching it across
+     the cell, quietly shrinking a 97pt touch target to the width of the word
+     "Bookings". The button already centres its own contents.
+  */
+  cell: { flex: 1, minHeight: 56 },
   /* 46pt disc lifted 26pt above the bar, ringed in `surface` so it reads as
      punched through the edge rather than pasted on top of it. */
   raisedDisc: {

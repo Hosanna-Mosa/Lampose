@@ -429,8 +429,12 @@ const run = async () => {
 
   const LEAD_FIELDS = ['_id', 'jobId', 'source', 'businessName', 'phone', 'email', 'website', 'hasWebsite', 'address', 'rating', 'reviewsCount', 'category', 'city', 'landmark', 'mapsUrl', 'scrapedAt', 'assignedTo', 'leadStatus', 'notes'];
 
+  /* Every call below carries the admin token, because the panel's axios
+     client attaches one to every request and the routes now require it. The
+     suite used to call them bare, which only passed because the whole scraper
+     surface was unauthenticated. */
   await check('scraperApi.getLeads()  →  GET /api/v2/scraper/leads  (ScrapedLeadsDashboard)', async () => {
-    const { status, body } = await call('GET', '/api/v2/scraper/leads');
+    const { status, body } = await call('GET', '/api/v2/scraper/leads', { token });
     expect(status === 200, `expected 200, got ${status}`);
     expect(body.success === true && Array.isArray(body.data), 'the page checks res.success && res.data');
     if (body.data.length === 0) return '0 leads — shape not verifiable';
@@ -439,7 +443,7 @@ const run = async () => {
 
   await check("scraperApi.getLeads(all 7 filters)  →  the dashboard's filter bar", async () => {
     const query = `jobId=${fixtureJobId}&source=GoogleMaps&hasPhone=true&hasWebsite=true&leadStatus=NEW&search=Verify&assignedUserId=`;
-    const { status, body } = await call('GET', `/api/v2/scraper/leads?${query}`);
+    const { status, body } = await call('GET', `/api/v2/scraper/leads?${query}`, { token });
     expect(status === 200 && Array.isArray(body.data), `expected 200, got ${status}`);
     return `${body.count} rows through every filter`;
   });
@@ -447,10 +451,11 @@ const run = async () => {
   await check('scraperApi.assignLeads()  →  POST /api/v2/scraper/assign  (AssignLeadsModal)', async () => {
     if (!fixtureLeadId) return 'skipped — JSON store mode';
     const { status, body } = await call('POST', '/api/v2/scraper/assign', {
+      token,
       body: { leadIds: [fixtureLeadId], userObj: { userId: employeeUserId, name: 'Verify Employee', email: employeeEmail } },
     });
     expect(status === 200 && body.success === true, `expected 200, got ${status}: ${body.error}`);
-    const after = await call('GET', `/api/v2/scraper/leads?jobId=${fixtureJobId}`);
+    const after = await call('GET', `/api/v2/scraper/leads?jobId=${fixtureJobId}`, { token });
     const assigned = after.body.data[0] && after.body.data[0].assignedTo;
     expect(assigned && assigned.userId === employeeUserId, 'assignedTo was not persisted');
     return 'assigned to an employee and persisted';
@@ -459,10 +464,11 @@ const run = async () => {
   await check('scraperApi.updateLeadStatus()  →  PATCH /api/v2/scraper/leads/:id/status  (LeadStatusModal)', async () => {
     if (!fixtureLeadId) return 'skipped — JSON store mode';
     const { status, body } = await call('PATCH', `/api/v2/scraper/leads/${fixtureLeadId}/status`, {
+      token,
       body: { status: 'CONTACTED', noteText: 'called the owner', authorName: 'Verify Admin' },
     });
     expect(status === 200 && body.success === true, `expected 200, got ${status}`);
-    const after = await call('GET', `/api/v2/scraper/leads?jobId=${fixtureJobId}`);
+    const after = await call('GET', `/api/v2/scraper/leads?jobId=${fixtureJobId}`, { token });
     const lead = after.body.data[0];
     expect(lead.leadStatus === 'CONTACTED', `status is ${lead.leadStatus}`);
     expect(lead.notes && lead.notes.length === 1, 'the note was not appended');
@@ -470,20 +476,20 @@ const run = async () => {
   });
 
   await check('scraperApi.getJobs()  →  GET /api/v2/scraper/jobs  (ScrapeHistoryPage)', async () => {
-    const { status, body } = await call('GET', '/api/v2/scraper/jobs');
+    const { status, body } = await call('GET', '/api/v2/scraper/jobs', { token });
     expect(status === 200 && Array.isArray(body.data), `expected 200, got ${status}`);
     if (body.data.length === 0) return '0 jobs — shape not verifiable';
     return `${body.count} jobs, ${expectFields(body.data[0], ['jobId', 'name', 'source', 'status', 'progress', 'statusMessage', 'resultCount', 'createdAt'], 'job')}`;
   });
 
   await check('scraperApi.getStats()  →  GET /api/v2/scraper/stats  (DashboardOverview)', async () => {
-    const { status, body } = await call('GET', '/api/v2/scraper/stats');
+    const { status, body } = await call('GET', '/api/v2/scraper/stats', { token });
     expect(status === 200 && body.success === true, `expected 200, got ${status}`);
     return expectFields(body.data, ['totalLeads', 'withPhoneCount', 'phonePercentage', 'withWebsiteCount', 'websitePercentage', 'withEmailCount', 'assignedLeadsCount', 'totalJobs', 'completedJobs'], 'DashboardStats');
   });
 
   await check('scraperApi.getTeamStats()  →  GET /api/v2/scraper/team-stats  (AdminTeamOverview)', async () => {
-    const { status, body } = await call('GET', '/api/v2/scraper/team-stats');
+    const { status, body } = await call('GET', '/api/v2/scraper/team-stats', { token });
     expect(status === 200 && body.success === true, `expected 200, got ${status}`);
     expectFields(body.data, ['teamBreakdown', 'unassignedCount', 'totalLeads'], 'TeamStatsResponse');
     const mine = body.data.teamBreakdown.find((m) => m.user && m.user.userId === employeeUserId);
@@ -494,6 +500,100 @@ const run = async () => {
     expect(mine.totalAssigned === 1, `totalAssigned is ${mine.totalAssigned}, expected 1`);
     expect(mine.contacted === 1, `contacted is ${mine.contacted}, expected 1`);
     return `breakdown correct: assigned=${mine.totalAssigned} contacted=${mine.contacted}, ${body.data.teamBreakdown.length} member(s)`;
+  });
+
+  /* ── the assignment boundary ──────────────────────────────────────────
+     What the employee workstation depends on, and what it did NOT have: the
+     rep's list is scoped by the SERVER, not by a query parameter the browser
+     chose to send. These four checks are the regression net for the bug where
+     "My Assigned Leads (226)" listed every lead in the database. */
+
+  let employeeToken = null;
+
+  await check('an employee can sign in  →  the token the workstation runs on', async () => {
+    const { status, body } = await call('POST', '/api/v2/auth/login', {
+      body: { email: employeeEmail, password: 'employee123' },
+    });
+    expect(status === 200 && body.data && body.data.token, `expected a token, got ${status}`);
+    employeeToken = body.data.token;
+    expect(body.data.user.role === 'EMPLOYEE', `role is ${body.data.user.role}`);
+    return 'signed in as EMPLOYEE';
+  });
+
+  await check('GET /scraper/leads without a token is refused  (it used to answer with everything)', async () => {
+    const { status } = await call('GET', '/api/v2/scraper/leads');
+    expect(status === 401, `expected 401, got ${status}`);
+    return 'refused';
+  });
+
+  await check("EmployeeWorkstation  →  an employee sees ONLY leads assigned to them", async () => {
+    if (!fixtureLeadId) return 'skipped — JSON store mode';
+    /* No assignedUserId is sent, exactly as the workstation now calls it. */
+    const { status, body } = await call('GET', '/api/v2/scraper/leads', { token: employeeToken });
+    expect(status === 200 && Array.isArray(body.data), `expected 200, got ${status}`);
+    const foreign = body.data.filter((l) => !l.assignedTo || l.assignedTo.userId !== employeeUserId);
+    expect(foreign.length === 0, `${foreign.length} lead(s) came back that belong to someone else`);
+    expect(body.data.some((l) => String(l._id) === fixtureLeadId), 'the lead assigned to this employee is missing');
+    return `${body.count} lead(s), all of them theirs`;
+  });
+
+  await check('an employee cannot widen the filter to another rep by asking', async () => {
+    /* The panel could send any id it liked. The server overwrites it. */
+    const { status, body } = await call('GET', `/api/v2/scraper/leads?assignedUserId=${adminUserId}`, { token: employeeToken });
+    expect(status === 200, `expected 200, got ${status}`);
+    const foreign = body.data.filter((l) => !l.assignedTo || l.assignedTo.userId !== employeeUserId);
+    expect(foreign.length === 0, 'the query string overrode the session — the scope is not enforced');
+    return 'query string ignored, session wins';
+  });
+
+  await check('an employee cannot assign leads  (that is the admin\'s job)', async () => {
+    if (!fixtureLeadId) return 'skipped — JSON store mode';
+    const { status } = await call('POST', '/api/v2/scraper/assign', {
+      token: employeeToken,
+      body: { leadIds: [fixtureLeadId], userObj: { userId: employeeUserId, name: 'x', email: employeeEmail } },
+    });
+    expect(status === 403, `expected 403, got ${status}`);
+    return 'refused';
+  });
+
+  await check('LeadStatusModal  →  an employee CAN move a lead that is theirs, and the admin sees it', async () => {
+    if (!fixtureLeadId) return 'skipped — JSON store mode';
+    const { status, body } = await call('PATCH', `/api/v2/scraper/leads/${fixtureLeadId}/status`, {
+      token: employeeToken,
+      body: { status: 'QUALIFIED', noteText: 'owner wants a callback', authorName: 'Verify Employee' },
+    });
+    expect(status === 200 && body.success === true, `expected 200, got ${status}: ${body.error}`);
+
+    /* Read it back as the ADMIN — this is the "does the admin panel reflect
+       the employee's change" question, asked of the API rather than the UI. */
+    const seen = await call('GET', `/api/v2/scraper/leads?jobId=${fixtureJobId}`, { token });
+    const lead = seen.body.data[0];
+    expect(lead.leadStatus === 'QUALIFIED', `admin still sees ${lead.leadStatus}`);
+    expect(lead.lastActivityBy && lead.lastActivityBy.userId === employeeUserId,
+      'lastActivityBy does not name the employee who made the change');
+    expect(lead.notes && lead.notes.length === 2, `expected 2 notes, found ${lead.notes && lead.notes.length}`);
+    return 'employee wrote it, admin reads it back with the author';
+  });
+
+  await check('an employee cannot move a lead that is not theirs', async () => {
+    if (!fixtureLeadId) return 'skipped — JSON store mode';
+    /* Hand it back to the admin, then try again as the employee. */
+    await call('POST', '/api/v2/scraper/assign', {
+      token,
+      body: { leadIds: [fixtureLeadId], userObj: { userId: adminUserId, name: 'Verify Admin', email: adminEmail } },
+    });
+    const { status } = await call('PATCH', `/api/v2/scraper/leads/${fixtureLeadId}/status`, {
+      token: employeeToken,
+      body: { status: 'CLOSED_WON' },
+    });
+    expect(status === 403, `expected 403, got ${status}`);
+
+    // Put it back so the team-stats check above keeps its fixture.
+    await call('POST', '/api/v2/scraper/assign', {
+      token,
+      body: { leadIds: [fixtureLeadId], userObj: { userId: employeeUserId, name: 'Verify Employee', email: employeeEmail } },
+    });
+    return 'refused with 403';
   });
 
   await check("scraperApi.getExportUrl('csv')  →  window.open, so it must work with no Authorization header", async () => {

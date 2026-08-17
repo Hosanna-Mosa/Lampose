@@ -74,43 +74,37 @@ export function ExploreHeader({
           onPress={onPressLocality}
           accessibilityRole="button"
           accessibilityLabel={`Looking in ${locality}${city ? `, ${city}` : ''}. Change location.`}
-          style={[styles.flex, { gap: 1 }]}
+          style={[styles.flex, { gap: 1, marginRight: space[3] }]}
         >
           <Text variant="caption" color="tertiary">
             Looking in
           </Text>
           <View style={[styles.row, { gap: space[1] }]}>
-            <Text variant="title2" numberOfLines={1}>
+            <Text variant="title3" numberOfLines={1} style={{ flexShrink: 1 }}>
               {locality}
               {city ? `, ${city}` : ''}
             </Text>
-            <Icon name="chevronRight" size={20} color={colors.textSecondary} />
+            <Icon name="chevronRight" size={16} color={colors.textSecondary} />
           </View>
         </Pressable>
 
-        <View>
-          {/* 20, matching the chevron on the locality beside it.
-              At the IconButton default of 24 the bell was the largest mark in
-              the bar — heavier than the row it sits next to and heavier than
-              the title it shares the line with, which read as the alert being
-              the header's main affordance rather than its secondary one. The
-              tap target is still the full 44pt; only the glyph moved. */}
-          <IconButton
-            name="bell"
-            size={20}
-            onPress={onPressAlerts}
-            accessibilityLabel="Notifications"
-          />
-          {alertCount ? (
-            <View style={styles.headerBadge} pointerEvents="none">
-              <Badge count={alertCount} tone="danger" size="sm" />
-            </View>
         <View style={styles.row}>
           <View>
-            <IconButton name="clock" onPress={onPressAlerts} accessibilityLabel="Alerts" />
+            {/* 20, matching the chevron on the locality beside it.
+                At the IconButton default of 24 the bell was the largest mark in
+                the bar — heavier than the row it sits next to and heavier than
+                the title it shares the line with, which read as the alert being
+                the header's main affordance rather than its secondary one. The
+                tap target is still the full 44pt; only the glyph moved. */}
+            <IconButton
+              name="bell"
+              size={20}
+              onPress={onPressAlerts}
+              accessibilityLabel="Notifications"
+            />
             {alertCount ? (
               <View style={styles.headerBadge} pointerEvents="none">
-                <Badge count={alertCount} tone="danger" />
+                <Badge count={alertCount} tone="danger" size="sm" />
               </View>
             ) : null}
           </View>

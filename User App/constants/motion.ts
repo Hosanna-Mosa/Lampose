@@ -109,6 +109,30 @@ export const component = {
    */
   tabDot: { duration: 240, easing: easing.standard, width: [7, 22] },
   /**
+   * The bottom bar swapping one whole set of destinations for another —
+   * the stay tabs leaving as the Food module's own three arrive.
+   *
+   * It earns its place under the audit's question because a straight cut here
+   * is genuinely ambiguous: four labels are replaced by four different labels
+   * in the same four positions, and with no movement a user cannot tell
+   * whether the bar changed or the app navigated somewhere. The travel says
+   * "this set left and that set arrived" in the one frame nothing else can.
+   *
+   * The raised disc does not take part. It is the door — the thing that was
+   * tapped and the thing that will be tapped to come back — and a door that
+   * slides away with the room is not a door. Only the three flat tabs move,
+   * and they move INTO and OUT OF that disc: each one travels the exact
+   * distance from its own slot to the disc's, so the outgoing three converge
+   * on it and the incoming three fan out of it. That is why there is no
+   * `travel` constant here — the distance is geometry, read from which slot
+   * the disc occupies, not a number to taste.
+   *
+   * `scaleFrom` is what makes it read as emerging from the disc rather than
+   * merely sliding: something coming out of a 46pt circle should be small when
+   * it leaves it.
+   */
+  tabSetSwap: { duration: 280, easing: easing.standard, scaleFrom: 0.86, reducedDuration: 160 },
+  /**
    * A money figure changing. Deliberately overlapped so the screen is never
    * without the number — tabular digits hold the width steady through it.
    */

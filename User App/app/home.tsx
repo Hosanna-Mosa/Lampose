@@ -17,11 +17,12 @@ import {
   type SavedEntry,
 } from '@/components/discovery';
 import { BookingRow, BookingSegments, ProfileGroup, ProfileRow } from '@/components/lifecycle';
-import { FoodComingSoon, FoodHome } from '@/components/food';
+import { FoodComingSoon, FoodModule } from '@/components/food';
 import { FOOD_MODE } from '@/constants/food';
 import { emptyStates } from '@/constants/copy';
 import { useAppState } from '@/context/AppStateContext';
 import { useAuth } from '@/context/AuthContext';
+import { useFood, type FoodTab } from '@/context/FoodContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useTheme, type ThemePreference } from '@/context/ThemeContext';
 import { allBookings, segmentOf, type BookingSegment } from '@/data/bookings';
@@ -75,6 +76,33 @@ const TABS: readonly TabItem[] = [
   { id: 'food', label: 'Food', icon: 'food', raised: true, tone: 'danger' },
 ];
 
+/**
+ * And what the bar becomes once Food is open.
+ *
+ * Stepping into the module takes the stay tabs with it — Explore, Saved and
+ * Bookings are the app you left, not three places to keep flicking between
+ * while you read a mess menu. In their place the SAME bar, in the same
+ * position, carries the module's own three screens, and the fourth slot keeps
+ * the raised disc: the button you pressed to get in is the button you press to
+ * get out, wearing the stay side's brand instead of the module's red.
+ *
+ * The disc takes a map pin rather than Explore's magnifier, because Food has a
+ * Search of its own two slots to the left and one bar cannot carry two
+ * magnifying glasses meaning different things.
+ *
+ * `food:` ids are namespaced so `changeTab` can tell a module screen from a
+ * stay tab without knowing what the module's screens are called.
+ */
+const FOOD_EXIT: TabItem = {
+  id: 'explore',
+  label: 'Explore',
+  icon: 'search',
+  raised: true,
+  tone: 'brand',
+};
+
+const FOOD_TAB_IDS = { home: 'food:home', search: 'food:search', orders: 'food:orders' } as const;
+
 
 export default function Home() {
   const { colors, space, layout, mode, radius, preference, setPreference } = useTheme();
@@ -84,6 +112,9 @@ export default function Home() {
   /* How much of the bottom edge the tab bar is occupying, measured by the bar
      itself. The snackbar has to clear it. */
   const { reservedBottom } = usePendingRequest();
+  /* The bottom bar belongs to this screen, so while Food is open this screen is
+     the one that has to know which of the module's screens is showing. */
+  const { foodTab, setFoodTab, liveOrder } = useFood();
 
   const [tab, setTab] = useState('explore');
   const [undo, setUndo] = useState<SavedEntry | null>(null);
@@ -363,9 +394,35 @@ export default function Home() {
     setUndo(entry);
   };
 
+  /*
+   * Only the BUILT module gets a food bar. On a production build the tab opens
+   * "coming soon", which has no Home, Search or Orders to navigate to — so the
+   * bar collapses to the way out instead of offering three dead destinations.
+   */
+  const inFoodModule = tab === 'food' && FOOD_MODE === 'dev';
+
+  const FOOD_TABS = useMemo<readonly TabItem[]>(
+    () => [
+      { id: FOOD_TAB_IDS.home, label: 'Home', icon: 'food' },
+      { id: FOOD_TAB_IDS.search, label: 'Search', icon: 'search' },
+      // The dot, not a count: there is only ever one order in flight, so a
+      // number would always read "1" and say nothing the dot does not.
+      { id: FOOD_TAB_IDS.orders, label: 'Orders', icon: 'agreement', dot: liveOrder !== null },
+      FOOD_EXIT,
+    ],
+    [liveOrder],
+  );
+
   // No guard on Profile any more: auth is the first gate, so nothing reaches
   // this screen without an account.
-  const changeTab = (next: string) => setTab(next);
+  const changeTab = (next: string) => {
+    // A module screen never leaves the Food tab; only the raised disc does.
+    if (next.startsWith('food:')) {
+      setFoodTab(next.slice('food:'.length) as FoodTab);
+      return;
+    }
+    setTab(next);
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -637,7 +694,7 @@ export default function Home() {
            constants/food.ts and defaults to production — a missing env value
            must never leak the unfinished module. */
         FOOD_MODE === 'dev' ? (
-          <FoodHome />
+          <FoodModule />
         ) : (
           <FoodComingSoon onExplore={() => setTab('explore')} />
         )
@@ -761,7 +818,21 @@ export default function Home() {
         </ScrollView>
       )}
 
-      <TabBar tabs={TABS} activeId={tab} onChange={changeTab} />
+      {/*
+        One bar, two vocabularies. Inside the built module it carries the
+        module's screens; on the "coming soon" build there are no screens to
+        carry, so it collapses to the way out instead.
+      */}
+      <TabBar
+        tabs={inFoodModule ? FOOD_TABS : TABS}
+        activeId={inFoodModule ? FOOD_TAB_IDS[foodTab] : tab}
+        onChange={changeTab}
+        collapsedTo={tab === 'food' && !inFoodModule ? FOOD_EXIT : null}
+        /* Which set is in the bar, so it can animate the handover. Switching
+           between the module's own screens keeps the same name and gets no
+           transition — only crossing between the stay side and Food does. */
+        setId={tab === 'food' ? 'food' : 'stay'}
+      />
 
       {/* Six seconds, because a mis-tap on a bus is the case undo exists for. */}
       <Snackbar

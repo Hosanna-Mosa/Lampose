@@ -65,6 +65,21 @@ const scrapedLeadSchema = new mongoose.Schema(
     // Direct Google Maps deep-link for this business location
     mapsUrl: { type: String, default: '' },
     scrapedAt: { type: Date, default: Date.now },
+    /**
+     * What makes this row the same business as another one.
+     *
+     * Re-running "hostels in sr nagar" returns the same places Google returned
+     * last week, and without this every run wrote the whole list again — the
+     * table filled with triplicates and a rep worked leads a colleague had
+     * already called.
+     *
+     * Deliberately NOT a unique index. The collection already holds duplicates
+     * from before this existed, and a unique index cannot be built over them —
+     * it would fail at startup and take the leads panel with it. The check
+     * happens in the store instead, where a clash can be skipped rather than
+     * thrown.
+     */
+    dedupeKey: { type: String, default: '', index: true },
     assignedTo: {
       userId: { type: String, default: null },
       name: { type: String, default: null },
@@ -83,6 +98,14 @@ const scrapedLeadSchema = new mongoose.Schema(
       createdAt: { type: Date, default: Date.now },
     }],
     lastActivityAt: Date,
+    /* Who last moved this lead, so the admin's table can show that an employee
+       changed it rather than only that something changed. The notes array
+       carries an author too, but a status can be changed without a note and
+       that is the common case — a rep taps "Contacted" and moves on. */
+    lastActivityBy: {
+      userId: { type: String, default: null },
+      name: { type: String, default: null },
+    },
   },
   { timestamps: true, collection: 'scriper_leads' },
 );

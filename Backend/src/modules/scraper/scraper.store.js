@@ -50,6 +50,31 @@ const newId = (prefix) => `${prefix}_${crypto.randomUUID().replace(/-/g, '').sli
    read path below returns lean objects, and creates are converted here. */
 const plain = (doc) => (doc && typeof doc.toObject === 'function' ? doc.toObject() : doc);
 
+/* Letters and digits only, folded to lowercase: "VR Executive Boys Hostel SR
+   Nagar" and "vr executive boys hostel, sr nagar" are one business. */
+const slug = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+/**
+ * The identity of a scraped business.
+ *
+ * Phone first, because it is the one field a business does not have two of,
+ * and the last ten digits make the formats comparable — the same hostel comes
+ * back as "+91 7204476336" from one card and "09505189220" from another, and
+ * comparing the strings would call those different places.
+ *
+ * Name plus city is the fallback for a listing with no phone. It is weaker —
+ * two "Sri Sai Hostel" in one city would collapse into one — and that is the
+ * right way to be wrong here: a missed duplicate costs a rep a wasted call,
+ * while a missed lead costs a customer.
+ */
+const leadDedupeKey = (lead) => {
+  const digits = String(lead.phone || '').replace(/\D/g, '');
+  if (digits.length >= 10) return `p:${digits.slice(-10)}`;
+  const name = slug(lead.businessName);
+  if (!name) return '';
+  return `n:${name}|${slug(lead.city)}`;
+};
+
 const withoutPassword = (user) => {
   if (!user) return null;
   const { password, __v, ...rest } = plain(user);
@@ -57,6 +82,54 @@ const withoutPassword = (user) => {
 };
 
 /* ── Local JSON store ─────────────────────────────────────────────────── */
+
+/* The lead filter, expressed once for each backend. Kept out of `getLeads`
+   so the paged read and the count can never disagree about what matches. */
+const buildLeadQuery = (filters = {}) => {
+  const query = {};
+  if (filters.jobId) query.jobId = filters.jobId;
+  if (filters.source && filters.source !== 'ALL') query.source = filters.source;
+  if (filters.hasPhone === 'true') query.phone = { $nin: ['', null] };
+  if (filters.hasWebsite === 'true') query.hasWebsite = true;
+  if (filters.assignedUserId) query['assignedTo.userId'] = filters.assignedUserId;
+  if (filters.leadStatus && filters.leadStatus !== 'ALL') query.leadStatus = filters.leadStatus;
+  if (filters.search) {
+    /* User input goes into a RegExp, so regex metacharacters have to be
+       neutralised — an unescaped "(" is a syntax error that would surface as
+       a 500 on an ordinary search. */
+    const regex = new RegExp(escapeRegex(filters.search), 'i');
+    query.$or = [
+      { businessName: regex },
+      { city: regex },
+      { category: regex },
+      { phone: regex },
+      { email: regex },
+      { address: regex },
+      { landmark: regex },
+    ];
+  }
+  return query;
+};
+
+/* The same filter over the flat-file store. `loadLocalData` is called by the
+   caller's path already, but repeating it here keeps this usable on its own. */
+const filterLocalLeads = (filters = {}) => {
+  loadLocalData();
+  let results = [...localLeads];
+  if (filters.jobId) results = results.filter((l) => l.jobId === filters.jobId);
+  if (filters.source && filters.source !== 'ALL') results = results.filter((l) => l.source === filters.source);
+  if (filters.hasPhone === 'true') results = results.filter((l) => l.phone && l.phone.trim());
+  if (filters.hasWebsite === 'true') results = results.filter((l) => l.hasWebsite || (l.website && l.website.length > 0));
+  if (filters.assignedUserId) results = results.filter((l) => l.assignedTo && l.assignedTo.userId === filters.assignedUserId);
+  if (filters.leadStatus && filters.leadStatus !== 'ALL') results = results.filter((l) => l.leadStatus === filters.leadStatus);
+  if (filters.search) {
+    const needle = String(filters.search).toLowerCase();
+    const has = (value) => String(value || '').toLowerCase().includes(needle);
+    results = results.filter((l) => has(l.businessName) || has(l.city) || has(l.category)
+      || has(l.phone) || has(l.email) || has(l.address) || has(l.landmark));
+  }
+  return results;
+};
 
 const DEFAULT_USER_SEEDS = [
   {
@@ -363,13 +436,18 @@ const dbStore = {
 
   /* ── Leads ── */
 
+  /* Every insert carries its dedupe key, whether or not the caller asked for
+     deduplication — the key is what the NEXT scrape matches against, so a row
+     written without one is a row that will be duplicated later. */
   async saveLeads(leads) {
     if (!Array.isArray(leads) || leads.length === 0) return [];
 
-    if (useMongo) return (await ScrapedLead.insertMany(leads)).map(plain);
+    const keyed = leads.map((lead) => ({ ...lead, dedupeKey: lead.dedupeKey || leadDedupeKey(lead) }));
+
+    if (useMongo) return (await ScrapedLead.insertMany(keyed)).map(plain);
 
     loadLocalData();
-    const formatted = leads.map((lead) => ({
+    const formatted = keyed.map((lead) => ({
       ...lead,
       _id: lead._id || newId('lead'),
       assignedTo: lead.assignedTo || { userId: null, name: null, email: null },
@@ -382,48 +460,125 @@ const dbStore = {
     return formatted;
   },
 
-  async getLeads(filters = {}) {
-    if (useMongo) {
-      const query = {};
-      if (filters.jobId) query.jobId = filters.jobId;
-      if (filters.source && filters.source !== 'ALL') query.source = filters.source;
-      if (filters.hasPhone === 'true') query.phone = { $nin: ['', null] };
-      if (filters.hasWebsite === 'true') query.hasWebsite = true;
-      if (filters.assignedUserId) query['assignedTo.userId'] = filters.assignedUserId;
-      if (filters.leadStatus && filters.leadStatus !== 'ALL') query.leadStatus = filters.leadStatus;
-      if (filters.search) {
-        /* User input goes into a RegExp, so regex metacharacters have to be
-           neutralised — an unescaped "(" is a syntax error that would surface
-           as a 500 on an ordinary search. */
-        const regex = new RegExp(escapeRegex(filters.search), 'i');
-        query.$or = [
-          { businessName: regex },
-          { city: regex },
-          { category: regex },
-          { phone: regex },
-          { email: regex },
-          { address: regex },
-          { landmark: regex },
-        ];
+  /**
+   * Give every stored lead a dedupe key, once.
+   *
+   * Rows written before this feature existed have no key, so a re-scrape would
+   * match none of them and duplicate the lot. Run lazily rather than as a
+   * migration the operator has to remember: it is cheap, it only touches rows
+   * that are missing a key, and after the first pass it is a single indexed
+   * count that finds nothing.
+   */
+  async backfillDedupeKeys() {
+    if (!useMongo) {
+      loadLocalData();
+      let touched = 0;
+      localLeads.forEach((lead) => {
+        if (!lead.dedupeKey) {
+          lead.dedupeKey = leadDedupeKey(lead);
+          touched += 1;
+        }
+      });
+      if (touched) saveLocalData();
+      return touched;
+    }
+
+    const stale = await ScrapedLead
+      .find({ $or: [{ dedupeKey: { $exists: false } }, { dedupeKey: '' }] }, '_id businessName phone city')
+      .lean();
+    if (stale.length === 0) return 0;
+
+    const writes = stale
+      .map((lead) => ({ id: lead._id, key: leadDedupeKey(lead) }))
+      .filter((entry) => entry.key)
+      .map(({ id, key }) => ({ updateOne: { filter: { _id: id }, update: { $set: { dedupeKey: key } } } }));
+
+    if (writes.length === 0) return 0;
+    await ScrapedLead.bulkWrite(writes, { ordered: false });
+    return writes.length;
+  },
+
+  /**
+   * Split a freshly scraped batch into what is new and what we already hold.
+   *
+   * Two passes, and both are needed: the database is checked for businesses
+   * stored by an earlier job, and the batch is checked against ITSELF, because
+   * one scroll of Google Maps happily returns the same place twice.
+   */
+  async filterNewLeads(leads) {
+    if (!Array.isArray(leads) || leads.length === 0) return { fresh: [], duplicates: 0 };
+
+    await this.backfillDedupeKeys();
+
+    const keyed = leads.map((lead) => ({ ...lead, dedupeKey: leadDedupeKey(lead) }));
+    const keys = [...new Set(keyed.map((lead) => lead.dedupeKey).filter(Boolean))];
+
+    let known = new Set();
+    if (keys.length > 0) {
+      if (useMongo) {
+        const rows = await ScrapedLead.find({ dedupeKey: { $in: keys } }, 'dedupeKey').lean();
+        known = new Set(rows.map((row) => row.dedupeKey));
+      } else {
+        loadLocalData();
+        known = new Set(localLeads.map((lead) => lead.dedupeKey || leadDedupeKey(lead)));
       }
-      return ScrapedLead.find(query).sort({ scrapedAt: -1 }).lean();
+    }
+
+    const seen = new Set();
+    const fresh = [];
+    keyed.forEach((lead) => {
+      /* A lead with no usable key — no phone and no name — cannot be matched
+         against anything, so it is kept rather than silently dropped. */
+      if (!lead.dedupeKey) {
+        fresh.push(lead);
+        return;
+      }
+      if (known.has(lead.dedupeKey) || seen.has(lead.dedupeKey)) return;
+      seen.add(lead.dedupeKey);
+      fresh.push(lead);
+    });
+
+    return { fresh, duplicates: leads.length - fresh.length };
+  },
+
+  /**
+   * One page of leads, newest first.
+   *
+   * `limit` of 0 means "everything", which is what every caller got before
+   * pagination existed and what the CSV export still needs.
+   */
+  async getLeads(filters = {}, { skip = 0, limit = 0 } = {}) {
+    if (useMongo) {
+      let cursor = ScrapedLead.find(buildLeadQuery(filters)).sort({ scrapedAt: -1 });
+      if (skip > 0) cursor = cursor.skip(skip);
+      if (limit > 0) cursor = cursor.limit(limit);
+      return cursor.lean();
+    }
+
+    const results = filterLocalLeads(filters);
+    if (limit > 0) return results.slice(skip, skip + limit);
+    return skip > 0 ? results.slice(skip) : results;
+  },
+
+  /** How many leads match, ignoring the page — the pager needs the total. */
+  async countLeads(filters = {}) {
+    if (useMongo) return ScrapedLead.countDocuments(buildLeadQuery(filters));
+    return filterLocalLeads(filters).length;
+  },
+
+  /* One lead, by id. Needed before an employee's status change is accepted:
+     the server has to know who the lead belongs to before it lets them move
+     it, and `getLeads` returning an array is the wrong shape for that. */
+  async getLeadById(leadId) {
+    if (!leadId) return null;
+
+    if (useMongo) {
+      if (!mongoose.Types.ObjectId.isValid(leadId)) return null;
+      return ScrapedLead.findById(leadId).lean();
     }
 
     loadLocalData();
-    let results = [...localLeads];
-    if (filters.jobId) results = results.filter((l) => l.jobId === filters.jobId);
-    if (filters.source && filters.source !== 'ALL') results = results.filter((l) => l.source === filters.source);
-    if (filters.hasPhone === 'true') results = results.filter((l) => l.phone && l.phone.trim());
-    if (filters.hasWebsite === 'true') results = results.filter((l) => l.hasWebsite || (l.website && l.website.length > 0));
-    if (filters.assignedUserId) results = results.filter((l) => l.assignedTo && l.assignedTo.userId === filters.assignedUserId);
-    if (filters.leadStatus && filters.leadStatus !== 'ALL') results = results.filter((l) => l.leadStatus === filters.leadStatus);
-    if (filters.search) {
-      const needle = String(filters.search).toLowerCase();
-      const has = (value) => String(value || '').toLowerCase().includes(needle);
-      results = results.filter((l) => has(l.businessName) || has(l.city) || has(l.category)
-        || has(l.phone) || has(l.email) || has(l.address) || has(l.landmark));
-    }
-    return results;
+    return localLeads.find((l) => l._id === leadId) || null;
   },
 
   async assignLeads(leadIds, userObj) {
@@ -455,15 +610,22 @@ const dbStore = {
     return count;
   },
 
-  async updateLeadStatus(leadId, status, noteText = '', authorName = 'User') {
+  async updateLeadStatus(leadId, status, noteText = '', authorName = 'User', actor = null) {
     const now = new Date().toISOString();
     const note = noteText
       ? { id: newId('note'), text: noteText, authorName, createdAt: now }
       : null;
+    /* Stamped whether or not a note was written. A status moved with no note
+       is the normal case, and the admin still has to be able to see who moved
+       it. */
+    const lastActivityBy = {
+      userId: (actor && actor.userId) || null,
+      name: (actor && actor.name) || authorName || null,
+    };
 
     if (useMongo) {
       if (!mongoose.Types.ObjectId.isValid(leadId)) return false;
-      const update = { $set: { leadStatus: status, lastActivityAt: now } };
+      const update = { $set: { leadStatus: status, lastActivityAt: now, lastActivityBy } };
       if (note) update.$push = { notes: note };
       const result = await ScrapedLead.findByIdAndUpdate(leadId, update, { returnDocument: 'after' }).lean();
       return Boolean(result);
@@ -474,6 +636,7 @@ const dbStore = {
     if (!lead) return false;
     lead.leadStatus = status;
     lead.lastActivityAt = now;
+    lead.lastActivityBy = lastActivityBy;
     if (!Array.isArray(lead.notes)) lead.notes = [];
     if (note) lead.notes.unshift(note);
     saveLocalData();

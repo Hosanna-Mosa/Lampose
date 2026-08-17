@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { User } from '../api/userApi';
 import { scraperApi, ScrapedLead } from '../api/scraperApi';
+import { LEAD_STATUSES, leadStatusMeta, timeAgo } from '../api/leadStatus';
+import { Pagination } from '../components/Pagination';
 import { LeadStatusModal } from '../components/LeadStatusModal';
 import { MapLocationButton } from '../components/MapLocationButton';
 import { Search, Phone, Globe, Star, RefreshCw, CheckCircle2, MessageSquare, Tag, Building2, MapPin } from 'lucide-react';
@@ -15,20 +17,50 @@ export const EmployeeWorkstation: React.FC<EmployeeWorkstationProps> = ({ curren
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [selectedLead, setSelectedLead] = useState<ScrapedLead | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+  const [pageInfo, setPageInfo] = useState({ total: 0, pages: 1 });
 
+  /* The name is only ever decoration here — it is the session's `userId` the
+     server matches on, and it does that itself. Falling back keeps the
+     sentence readable when a session comes back without a name rather than
+     printing "Assigned business leads for ." */
+  const displayName = currentUser.name || currentUser.email || 'you';
+
+  /**
+   * The rep's queue.
+   *
+   * No `assignedUserId` is sent. The server reads it off the session and
+   * ignores anything the client claims — which is the point: this screen used
+   * to pass `currentUser.userId`, and on a session where that was missing the
+   * parameter vanished and the API answered with EVERY lead in the database.
+   * Asking for "my leads" and being handed all 226 is not a filter, it is a
+   * leak, and it cannot be fixed anywhere but the server.
+   */
   const fetchMyLeads = async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await scraperApi.getLeads({
-        assignedUserId: currentUser.userId,
         search,
-        leadStatus: statusFilter !== 'ALL' ? statusFilter : undefined
+        leadStatus: statusFilter !== 'ALL' ? statusFilter : undefined,
+        page,
+        limit
       });
       if (res.success) {
         setLeads(res.data || []);
+        setPageInfo({ total: res.total ?? res.count ?? 0, pages: res.pages ?? 1 });
+      } else {
+        setError(res.error || res.message || 'Could not load your assigned leads.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching assigned leads:', err);
+      setError(
+        err?.response?.status === 401
+          ? 'Your session has expired. Sign in again to see your leads.'
+          : 'Could not reach the leads server. Nothing has been lost — try Refresh.'
+      );
     } finally {
       setLoading(false);
     }
@@ -36,23 +68,23 @@ export const EmployeeWorkstation: React.FC<EmployeeWorkstationProps> = ({ curren
 
   useEffect(() => {
     fetchMyLeads();
-  }, [currentUser.userId, search, statusFilter]);
+  }, [currentUser.userId, search, statusFilter, page, limit]);
 
+  // A new search starts at the top of its own results, not on page 7 of the old ones.
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, limit]);
+
+  /* One table for all seven, shared with the admin's view — CALLBACK used to
+     fall through this switch and render as "New Lead", so a rep who set a
+     call-back saw their own card deny it. */
   const getStatusBadge = (status?: string) => {
-    switch (status) {
-      case 'CONTACTED':
-        return <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-600 border border-blue-200 text-2xs font-bold">📞 Contacted</span>;
-      case 'INTERESTED':
-        return <span className="px-2.5 py-0.5 rounded-full bg-cyan-100 text-cyan-600 border border-cyan-200 text-2xs font-bold">🔥 Interested</span>;
-      case 'QUALIFIED':
-        return <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-600 border border-amber-200 text-2xs font-bold">⭐ Qualified</span>;
-      case 'CLOSED_WON':
-        return <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-600 border border-emerald-200 text-2xs font-bold">🎉 Closed Won</span>;
-      case 'CLOSED_LOST':
-        return <span className="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-600 border border-rose-200 text-2xs font-bold">❌ Closed Lost</span>;
-      default:
-        return <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-300 text-2xs font-bold">🆕 New Lead</span>;
-    }
+    const meta = leadStatusMeta(status);
+    return (
+      <span className={`px-2.5 py-0.5 rounded-full border text-2xs font-bold whitespace-nowrap ${meta.chip}`}>
+        {meta.label}
+      </span>
+    );
   };
 
   return (
@@ -64,9 +96,9 @@ export const EmployeeWorkstation: React.FC<EmployeeWorkstationProps> = ({ curren
             <CheckCircle2 className="w-3.5 h-3.5" />
             <span>Employee Workstation</span>
           </div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">My Assigned Leads ({leads.length})</h1>
+          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">My Assigned Leads ({pageInfo.total})</h1>
           <p className="text-xs text-slate-500">
-            Assigned business leads for <strong className="text-cyan-600">{currentUser.name}</strong>. Call, update status, and log notes.
+            Assigned business leads for <strong className="text-cyan-600">{displayName}</strong>. Call, update status, and log notes.
           </p>
         </div>
 
@@ -98,14 +130,19 @@ export const EmployeeWorkstation: React.FC<EmployeeWorkstationProps> = ({ curren
           className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-cyan-500 transition cursor-pointer"
         >
           <option value="ALL">All Statuses</option>
-          <option value="NEW">🆕 New Leads</option>
-          <option value="CONTACTED">📞 Contacted</option>
-          <option value="INTERESTED">🔥 Interested</option>
-          <option value="QUALIFIED">⭐ Qualified</option>
-          <option value="CLOSED_WON">🎉 Closed Won</option>
-          <option value="CLOSED_LOST">❌ Closed Lost</option>
+          {/* Driven by the shared list, so the filter can never offer fewer
+              statuses than the modal can set — Call Back was missing here. */}
+          {LEAD_STATUSES.map((entry) => (
+            <option key={entry.value} value={entry.value}>{entry.label}</option>
+          ))}
         </select>
       </div>
+
+      {error && (
+        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
+          {error}
+        </div>
+      )}
 
       {/* Assigned Leads Grid */}
       {loading ? (
@@ -166,6 +203,7 @@ export const EmployeeWorkstation: React.FC<EmployeeWorkstationProps> = ({ curren
               <div className="pt-3 border-t border-slate-200 flex items-center justify-between">
                 <span className="text-3xs text-slate-400 font-mono">
                   {lead.rating ? `★ ${lead.rating}` : 'No rating'}
+                  {lead.lastActivityAt ? ` · touched ${timeAgo(lead.lastActivityAt)}` : ''}
                 </span>
 
                 <button
@@ -180,6 +218,17 @@ export const EmployeeWorkstation: React.FC<EmployeeWorkstationProps> = ({ curren
           ))}
         </div>
       )}
+
+      <Pagination
+        page={page}
+        pages={pageInfo.pages}
+        total={pageInfo.total}
+        count={leads.length}
+        limit={limit}
+        onPageChange={setPage}
+        onLimitChange={setLimit}
+        noun="assigned leads"
+      />
 
       {/* Lead Status Update Modal */}
       {selectedLead && (
