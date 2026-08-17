@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Icon, Text, type IconName } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
-import type { Amenity, AmenityName } from '@/types/listing';
+import { AMENITY_LABEL, type Amenity, type AmenityName } from '@/types/listing';
 import type { StayCategory } from '@/constants/tokens';
 
 /**
@@ -42,32 +42,21 @@ export const AMENITY_ICON: Record<AmenityName, IconName> = {
   curfew: 'curfew',
   drinkingWater: 'drinkingWater',
   bicycle: 'bicycle',
+  /* A plain tick, because "this is here" is the whole of what we can claim
+     about a string we do not recognise. Reaching for a near-match glyph
+     would put a wifi symbol beside "3-tier security". */
+  other: 'check',
 };
 
-export const AMENITY_LABEL: Record<AmenityName, string> = {
-  wifi: 'WiFi',
-  powerBackup: 'Power backup',
-  waterSupply: 'Water supply',
-  laundry: 'Laundry',
-  mess: 'Mess / food',
-  ac: 'AC',
-  attachedBath: 'Attached bathroom',
-  studyTable: 'Study table',
-  cupboard: 'Cupboard',
-  parking: 'Two-wheeler parking',
-  cctv: 'CCTV',
-  housekeeping: 'Housekeeping',
-  hotWater: 'Hot water',
-  lift: 'Lift',
-  tv: 'Common TV',
-  fridge: 'Refrigerator',
-  gym: 'Gym',
-  warden: 'Warden on site',
-  visitors: 'Visitor rules',
-  curfew: 'Entry curfew',
-  drinkingWater: 'Drinking water',
-  bicycle: 'Bicycle stand',
-};
+/**
+ * Re-exported from `types/listing`, where it now lives.
+ *
+ * It moved because the adapter that maps an owner's free text onto these
+ * names has to read it, and importing a React component from the data layer
+ * pulled React Native in with it. Every existing import of
+ * `AMENITY_LABEL` from this module keeps working.
+ */
+export { AMENITY_LABEL } from '@/types/listing';
 
 /**
  * Which amenities a card is allowed to promote, per category.
@@ -94,6 +83,11 @@ export type AmenityIconProps = {
   state?: Amenity['state'];
   /** The qualifier is the whole value — "40 Mbps" turns a claim into a fact. */
   qualifier?: string;
+  /**
+   * The owner's own words, in place of the standard label. Carried by every
+   * `other` amenity, since there is no standard label to fall back to.
+   */
+  label?: string;
   /** Stacks the label under the glyph instead of beside it. */
   stacked?: boolean;
   /**
@@ -112,6 +106,7 @@ export function AmenityIcon({
   size = 24,
   state = 'present',
   qualifier,
+  label: labelOverride,
   stacked = false,
   maxLines,
 }: AmenityIconProps) {
@@ -123,7 +118,7 @@ export function AmenityIcon({
   if (state === 'unknown') return null;
 
   const absent = state === 'absent';
-  const label = AMENITY_LABEL[name];
+  const label = labelOverride?.trim() || AMENITY_LABEL[name];
   const text = qualifier && !absent ? `${label} · ${qualifier}` : label;
 
   return (
@@ -186,7 +181,13 @@ export function AmenityRow({ amenities, category, max = 3 }: AmenityRowProps) {
   return (
     <View style={[styles.wrapRow, { gap: space[3] }]}>
       {shown.map((amenity) => (
-        <AmenityIcon key={amenity.name} name={amenity.name} size={20} qualifier={undefined} />
+        <AmenityIcon
+          key={amenity.label ?? amenity.name}
+          name={amenity.name}
+          size={20}
+          qualifier={undefined}
+          label={amenity.label}
+        />
       ))}
     </View>
   );
@@ -291,13 +292,18 @@ export function AmenityGrid({ amenities, category, initial = 6 }: AmenityGridPro
   return (
     <View style={{ gap: space[3] }}>
       <View style={[styles.grid, { columnGap: space[3], rowGap: space[3] }]}>
+        {/* Keyed on the label rather than the name: every free-text amenity
+            shares the name `other`, so a listing advertising both a gaming
+            lounge and biometric security would otherwise render two cells
+            under one key and React would drop one of them. */}
         {shown.map((amenity) => (
-          <View key={amenity.name} style={styles.cell}>
+          <View key={amenity.label ?? amenity.name} style={styles.cell}>
             <AmenityIcon
               name={amenity.name}
               size={24}
               state={amenity.state}
               qualifier={amenity.qualifier}
+              label={amenity.label}
               maxLines={3}
             />
           </View>

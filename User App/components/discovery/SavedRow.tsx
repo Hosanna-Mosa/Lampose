@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
 
 import { Icon, RentDisplay, Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
@@ -39,6 +39,7 @@ export function SavedRow({ entry, onPress, onRemove }: SavedRowProps) {
   const { colors, space, radius } = useTheme();
   const { listing, rentWhenSaved, changedLabel } = entry;
 
+  const photoUri = listing.photoUri ?? listing.photoUris?.[0];
   const gone = isGone(listing.availability);
   const delta =
     rentWhenSaved !== undefined && listing.rent !== null ? listing.rent - rentWhenSaved : null;
@@ -62,12 +63,20 @@ export function SavedRow({ entry, onPress, onRemove }: SavedRowProps) {
         },
       ]}
     >
-      <View
-        style={[
-          styles.thumb,
-          { borderRadius: radius.chip, backgroundColor: colors.surfaceSunken },
-        ]}
-      />
+      {photoUri ? (
+        <Image
+          source={{ uri: photoUri }}
+          style={[styles.thumb, { borderRadius: radius.chip }]}
+          resizeMode="cover"
+        />
+      ) : (
+        <View
+          style={[
+            styles.thumb,
+            { borderRadius: radius.chip, backgroundColor: colors.surfaceSunken },
+          ]}
+        />
+      )}
 
       <View style={[styles.flex, { gap: space[1] }]}>
         <Text variant="bodyStrong" numberOfLines={1}>
@@ -125,7 +134,7 @@ export function SavedRow({ entry, onPress, onRemove }: SavedRowProps) {
         accessibilityLabel={`Remove ${listing.name} from saved`}
         style={styles.remove}
       >
-        <Icon name="bookmark" size={24} color={colors.brandInk} />
+        <Icon name="bookmark" size={24} color={colors.brandInk} fill={colors.brandInk} />
       </Pressable>
     </Pressable>
   );

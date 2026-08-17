@@ -58,7 +58,15 @@ export function activeFilterCount(query: SearchQuery): number {
  * ------------------------------------------------------------------ */
 
 export function matchesQuerySpec(listing: Listing, query: SearchQuery): boolean {
-  if (query.gender && listing.gender !== query.gender && listing.gender !== 'COED') return false;
+  /* A listing whose gender rule was never recorded is NOT excluded.
+     Hiding it would be the app inventing a rule on the owner's behalf and
+     then enforcing it — a girls-only hostel that nobody tagged would become
+     invisible to the only people who can stay in it. Shown, unbadged, and
+     the truth arrives on the visit. `COED` passes for the same reason it
+     always did: it is a stated rule that excludes nobody. */
+  if (query.gender && listing.gender && listing.gender !== query.gender && listing.gender !== 'COED') {
+    return false;
+  }
   if (query.categories.length && !query.categories.includes(listing.category)) return false;
   if (query.rentCeiling !== null && listing.rent !== null && listing.rent > query.rentCeiling) return false;
   if (query.sharing.length && !query.sharing.includes(listing.sharingLabel ?? '')) return false;

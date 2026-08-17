@@ -110,6 +110,13 @@ const DEFAULT_ORIGINS = [
   'http://127.0.0.1:5173',
   'http://127.0.0.1:5174',
   'http://127.0.0.1:5175',
+  /* Expo. 8081 is Metro's own port and the origin `expo start --web` serves
+     the User App and the driver app from; 19006 is the older web port.
+     A native build sends no Origin at all and never reaches this list. */
+  'http://localhost:8081',
+  'http://localhost:19006',
+  'http://127.0.0.1:8081',
+  'http://127.0.0.1:19006',
 ];
 
 const envOrigins = [
@@ -147,6 +154,13 @@ const config = {
     /* Bodies are redacted, never raw — see middleware/requestLogger.js. */
     bodies: bool(process.env.REQUEST_LOG_BODY, true),
     maxBodyChars: Number(process.env.REQUEST_LOG_BODY_CHARS) || 500,
+    /* The response payload, on the departure line. On by default because the
+       question this console is opened to answer is almost always "what did
+       the app actually receive". Redacted by the same rules as a request. */
+    responses: bool(process.env.REQUEST_LOG_RESPONSE, true),
+    /* Roomier than a request body: a listings reply is the thing being
+       inspected, and 500 characters cuts off inside the first document. */
+    maxResponseChars: Number(process.env.REQUEST_LOG_RESPONSE_CHARS) || 900,
   },
 
   db: {

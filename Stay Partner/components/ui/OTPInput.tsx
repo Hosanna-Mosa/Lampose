@@ -147,7 +147,7 @@ const styles = StyleSheet.create({
   },
   digit: {
     fontFamily: fonts.bold,
-    fontSize: 19,
+    fontSize: 18,
     lineHeight: 24,
   },
   hidden: {

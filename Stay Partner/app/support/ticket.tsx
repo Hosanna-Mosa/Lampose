@@ -63,39 +63,43 @@ export default function TicketThreadScreen() {
   return (
     <Screen
       scroll={false}
-      padX={20}
-      contentStyle={styles.fill}
-      key={revision}
-      footer={
-        <View style={styles.composer}>
-          <View style={[styles.inputPill, { borderColor: c.border }]}>
-            <TextInput
-              value={draft}
-              onChangeText={setDraft}
-              placeholder="Type a message…"
-              placeholderTextColor={c.textTertiary}
-              multiline
-              style={[styles.input, { color: c.textPrimary }]}
-            />
+            padX={20}
+            contentStyle={styles.fill}
+            key={revision}
+            footer={
+              <View style={styles.composer}>
+                <View style={[styles.inputPill, { borderColor: c.border }]}>
+                  <TextInput
+                    value={draft}
+                    onChangeText={setDraft}
+                    placeholder="Type a message…"
+                    placeholderTextColor={c.textTertiary}
+                    multiline
+                    style={[styles.input, { color: c.textPrimary }]}
+                  />
+                </View>
+                <Pressable
+                  onPress={send}
+                  disabled={!draft.trim()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Send message"
+                  style={({ pressed }) => [
+                    styles.sendButton,
+                    { backgroundColor: draft.trim() ? c.accent : c.borderSubtle, opacity: pressed ? 0.8 : 1 },
+                  ]}
+                >
+                  <Icon name="send" size={17} color={draft.trim() ? c.white : c.textTertiary} strokeWidth={2} />
+                </Pressable>
+              </View>
+            }
+      stickyHeader={
+        <>
+          <View style={styles.backRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
           </View>
-          <Pressable
-            onPress={send}
-            disabled={!draft.trim()}
-            accessibilityRole="button"
-            accessibilityLabel="Send message"
-            style={({ pressed }) => [
-              styles.sendButton,
-              { backgroundColor: draft.trim() ? c.accent : c.borderSubtle, opacity: pressed ? 0.8 : 1 },
-            ]}
-          >
-            <Icon name="send" size={17} color={draft.trim() ? c.white : c.textTertiary} strokeWidth={2} />
-          </Pressable>
-        </View>
+        </>
       }
     >
-      <View style={styles.backRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-      </View>
 
       <Text style={styles.subject} numberOfLines={2}>
         {ticket.subject}
@@ -146,7 +150,7 @@ function Bubble({ message }: { message: TicketMessage }) {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   backRow: { height: 44, justifyContent: 'center', marginLeft: -10, marginTop: 2 },
-  subject: { fontFamily: fonts.extrabold, fontSize: 17, lineHeight: 22, marginBottom: 6 },
+  subject: { fontFamily: fonts.extrabold, fontSize: 16, lineHeight: 22, marginBottom: 6 },
   badge: { marginBottom: 14 },
   divider: { marginBottom: 4 },
 
@@ -155,8 +159,8 @@ const styles = StyleSheet.create({
   bubble: { maxWidth: '80%', borderRadius: 14, paddingVertical: 10, paddingHorizontal: 14 },
   bubbleOwner: { borderBottomRightRadius: 4 },
   bubbleSupport: { borderBottomLeftRadius: 4 },
-  bubbleText: { fontFamily: fonts.regular, fontSize: 13.5, lineHeight: 20 },
-  bubbleMeta: { fontSize: 10.5 },
+  bubbleText: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 20 },
+  bubbleMeta: { fontSize: 11 },
 
   composer: { flexDirection: 'row', gap: 8, alignItems: 'flex-end' },
   inputPill: {
@@ -169,7 +173,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     justifyContent: 'center',
   },
-  input: { fontFamily: fonts.regular, fontSize: 13.5, padding: 0, maxHeight: 90 },
+  input: { fontFamily: fonts.regular, fontSize: 14, padding: 0, maxHeight: 90 },
   sendButton: {
     width: 42,
     height: 42,

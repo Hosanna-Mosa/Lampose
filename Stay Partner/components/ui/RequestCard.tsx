@@ -91,7 +91,7 @@ const styles = StyleSheet.create({
   },
   identity: { flex: 1 },
   guest: { fontFamily: fonts.bold, fontSize: 15, lineHeight: 20 },
-  meta: { fontSize: 12.5, marginTop: 1 },
+  meta: { fontSize: 13, marginTop: 1 },
   amount: { fontFamily: fonts.extrabold, fontSize: 15, lineHeight: 20 },
   bottomRow: {
     flexDirection: 'row',

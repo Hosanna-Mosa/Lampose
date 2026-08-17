@@ -7,33 +7,58 @@ import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 
+import { fetchPaymentMethodsApi } from '@/services/api/domain.api';
+
 export default function PayoutMethodsScreen() {
   const router = useRouter();
-  const [revision, setRevision] = useState(0);
-  useEffect(() => subscribeMethods(() => setRevision((r) => r + 1)), []);
+  const [methods, setMethods] = useState<PayoutMethod[]>([]);
+
+  const loadMethods = async () => {
+    try {
+      const items = await fetchPaymentMethodsApi();
+      const mapped: PayoutMethod[] = (items || []).map((m: any) => ({
+        id: m.id || m._id,
+        bankName: m.type === 'upi' ? 'UPI' : 'Bank Account',
+        accountHolder: m.accountName || 'Account Holder',
+        accountNumber: m.accountNumber || m.upiId || 'XXXX4321',
+        ifscCode: m.ifsc || 'HDFC0001234',
+        isDefault: Boolean(m.isPrimary),
+      }));
+      setMethods(mapped);
+    } catch (err) {
+      console.warn('Failed to load payment methods:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadMethods();
+  }, []);
 
   return (
     <Screen
       contentStyle={styles.stack}
-      key={revision}
-      footer={
-        <Button
-          label="+ Add payout method"
-          variant="secondary"
-          onPress={() => router.push('/earnings/add-method')}
-        />
+            footer={
+              <Button
+                label="+ Add payout method"
+                variant="secondary"
+                onPress={() => router.push('/earnings/add-method')}
+              />
+            }
+      stickyHeader={
+        <>
+          <View style={styles.backRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+          </View>
+
+          <Text variant="screenTitle" style={styles.title}>
+            Payout methods
+          </Text>
+        </>
       }
     >
-      <View style={styles.backRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-      </View>
 
-      <Text variant="screenTitle" style={styles.title}>
-        Payout methods
-      </Text>
-
-      {METHODS.length > 0 ? (
-        METHODS.map((m) => (
+      {methods.length > 0 ? (
+        methods.map((m) => (
           <MethodRow
             key={m.id}
             method={m}

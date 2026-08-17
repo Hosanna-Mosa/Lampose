@@ -1,47 +1,60 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen, Text, Button, IconButton, Icon, Switch, Divider } from '@/components/ui';
 import { SHARE_TYPES, saveShareTypes, setAvailable } from '@/lib/shareTypes';
+import { fetchShareTypesApi, toggleShareTypesAvailabilityApi } from '@/services/api/domain.api';
 import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 
-/**
- * Per-sharing-type visibility, staged then saved — not live per-toggle.
- *
- * A toggle driven by a remount (mutate the shared list, subscribe, force a
- * fresh render via `key`) is the wrong shape for something the same screen
- * is actively pressing: the flip has to show the instant the finger lifts,
- * every time, which only plain local state guarantees. So the switches here
- * read and write a local draft; Save is what actually reaches
- * `lib/shareTypes.ts` — and what the Dashboard banner reads.
- */
 export default function ShareTypesScreen() {
   const c = useColors();
   const router = useRouter();
-  // Set on every attempt to turn the Dashboard's availability toggle on —
-  // going online always confirms what's actually offered here first, rather
-  // than only stopping by when nothing was selected yet.
   const { reason } = useLocalSearchParams<{ reason?: string }>();
 
+  const [shareTypesList, setShareTypesList] = useState<any[]>(SHARE_TYPES);
   const [draft, setDraft] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(SHARE_TYPES.map((t) => [t.id, t.available])),
   );
 
-  const dirty = SHARE_TYPES.some((t) => draft[t.id] !== t.available);
+  const loadShareTypes = async () => {
+    try {
+      const data = await fetchShareTypesApi();
+      if (Array.isArray(data) && data.length > 0) {
+        const mapped = data.map((st: any) => ({
+          id: st.shareTypeId || st.id || st._id,
+          label: st.name || 'Room',
+          pricePerBed: `₹${(st.monthlyPrice || 8000).toLocaleString('en-IN')}`,
+          available: Boolean(st.isAvailable),
+        }));
+        setShareTypesList(mapped);
+        setDraft(Object.fromEntries(mapped.map((t) => [t.id, t.available])));
+      }
+    } catch (err) {
+      console.warn('Failed to fetch share types:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadShareTypes();
+  }, []);
+
+  const dirty = shareTypesList.some((t) => draft[t.id] !== t.available);
   const draftVisibleCount = Object.values(draft).filter(Boolean).length;
-  // Arrived here specifically to confirm before going online — every "turn
-  // on" attempt on the Dashboard routes through this screen now, not only
-  // when nothing was selected. Confirming with an already-fine selection has
-  // to work even though nothing changed, so this doesn't gate on `dirty`.
   const confirming = reason === 'accepting';
   const canSubmit = confirming ? draftVisibleCount > 0 : dirty;
 
-  const save = () => {
-    saveShareTypes(draft);
-    if (confirming && draftVisibleCount > 0) {
-      setAvailable(true);
+  const save = async () => {
+    try {
+      const isOnline = draftVisibleCount > 0;
+      await toggleShareTypesAvailabilityApi(isOnline);
+      saveShareTypes(draft);
+      if (confirming && isOnline) {
+        setAvailable(true);
+      }
+    } catch (err) {
+      console.warn('Failed to save share types availability:', err);
     }
     router.back();
   };
@@ -49,17 +62,21 @@ export default function ShareTypesScreen() {
   return (
     <Screen
       contentStyle={styles.stack}
-      footer={
-        <Button label={confirming ? 'Confirm & go online' : 'Save'} onPress={save} disabled={!canSubmit} />
+            footer={
+              <Button label={confirming ? 'Confirm & go online' : 'Save'} onPress={save} disabled={!canSubmit} />
+            }
+      stickyHeader={
+        <>
+          <View style={styles.backRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+          </View>
+
+          <Text variant="screenTitle" style={styles.title}>
+            Share types
+          </Text>
+        </>
       }
     >
-      <View style={styles.backRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-      </View>
-
-      <Text variant="screenTitle" style={styles.title}>
-        Share types
-      </Text>
       <Text variant="bodySm" color="textSecondary" style={styles.subtitle}>
         Turn a sharing type on to make it visible and bookable to customers. Turning one off hides
         it without deleting it.
@@ -75,7 +92,7 @@ export default function ShareTypesScreen() {
       ) : null}
 
       <View style={[styles.list, { borderColor: c.borderCard, backgroundColor: c.surface }]}>
-        {SHARE_TYPES.map((t, i) => (
+        {shareTypesList.map((t, i) => (
           <View key={t.id}>
             {i > 0 ? <Divider /> : null}
             <View style={styles.row}>

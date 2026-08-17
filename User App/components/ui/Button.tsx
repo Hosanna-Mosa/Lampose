@@ -8,7 +8,7 @@ import { usePressAnimation } from '@/hooks/usePressAnimation';
 import { useTheme } from '@/context/ThemeContext';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive';
-export type ButtonSize = 'lg' | 'md' | 'sm';
+export type ButtonSize = 'lg' | 'md' | 'sm' | 'xs';
 
 export type ButtonProps = {
   label: string;
@@ -32,14 +32,31 @@ export type ButtonProps = {
  *
  * Batch 1 originally paired each size with its own radius (14 / 12 / 10). The
  * Batch 12 audit deleted those: a radius is chosen by what an element is, and
- * all three of these are buttons. So the radius is constant and `sm` is a
- * padding change rather than a different shape — which is also how the sheet
- * described `sm` in the first place, since it can never go below 44pt.
+ * all four of these are buttons. So the radius is constant and a smaller size
+ * is a height and padding change rather than a different shape.
+ *
+ * ## `xs` draws below 44pt, and the tap target does not follow it
+ *
+ * The sheet said a button "can never go below 44pt", and that held while `sm`
+ * at 44 was the floor. `xs` is deliberately under it: it is for an inline
+ * offer that sits in the middle of content rather than at the end of a flow —
+ * "See all 4 in Bangalore" above the feed — where an `sm` button reads as the
+ * thing the screen is asking you to do, and it is not.
+ *
+ * What must NOT shrink with the box is the thing a thumb has to hit. The
+ * shortfall against `touch.min` is handed back as vertical `hitSlop` below, so
+ * the button looks 30pt and is still a 44pt target. That is the same trade the
+ * system already makes twice: `touch.iconButtonVisual` is 36 with hitSlop out
+ * to 44, and the Filters chip is a 40pt box with the same correction.
+ *
+ * `borderWidth` is per size for the reason the height is — 1.5pt is
+ * proportionate on a 48pt button and reads as a heavy box at 30.
  */
 const SIZES = {
-  lg: { height: 52, paddingHorizontal: 24 },
-  md: { height: 48, paddingHorizontal: 20 },
-  sm: { height: 44, paddingHorizontal: 16 },
+  lg: { height: 52, paddingHorizontal: 24, borderWidth: 1.5 },
+  md: { height: 48, paddingHorizontal: 20, borderWidth: 1.5 },
+  sm: { height: 44, paddingHorizontal: 16, borderWidth: 1.5 },
+  xs: { height: 30, paddingHorizontal: 12, borderWidth: 1 },
 } as const;
 
 export function Button({
@@ -56,7 +73,7 @@ export function Button({
   accessibilityHint,
   testID,
 }: ButtonProps) {
-  const { colors, radius } = useTheme();
+  const { colors, radius, touch } = useTheme();
   const { animatedStyle, onPressIn, onPressOut, progress } = usePressAnimation(
     fullWidth ? 'buttonFullWidth' : 'button',
   );
@@ -64,6 +81,13 @@ export function Button({
 
   const inert = disabled || loading;
   const metrics = SIZES[size];
+
+  /*
+   * Whatever the drawn box gives up against the 44pt minimum, taken back as
+   * touch area. Zero for every size at or above it, so this is inert unless a
+   * size actually draws short — see the note on `SIZES`.
+   */
+  const shortfall = Math.max(0, touch.min - metrics.height) / 2;
 
   // Resting and pressed backgrounds per variant. Only `primary` is ever
   // filled — a destructive action is an outline, so it can never be the
@@ -128,6 +152,7 @@ export function Button({
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
       disabled={inert}
+      hitSlop={shortfall ? { top: shortfall, bottom: shortfall } : undefined}
       accessibilityRole="button"
       accessibilityState={{ disabled: inert, busy: loading }}
       accessibilityLabel={loading ? (loadingLabel ?? label) : label}
@@ -144,7 +169,9 @@ export function Button({
             height: metrics.height,
             paddingHorizontal: metrics.paddingHorizontal,
             borderRadius: radius.button,
-            borderWidth: border.width,
+            // The variant decides WHETHER there is an outline; the size decides
+            // how heavy it is.
+            borderWidth: border.width > 0 ? metrics.borderWidth : 0,
             borderColor: inert ? colors.borderInput : border.color,
             // Loading only. Disabled is carried by the fill, not by fading.
             opacity: loading && !disabled ? 0.7 : 1,
@@ -161,9 +188,19 @@ export function Button({
         {loading ? (
           <ActivityIndicator size="small" color={labelColor} />
         ) : icon ? (
-          <Icon name={icon} size={20} color={labelColor} />
+          // Down a rung on the grid at `xs` — a 20px glyph fills two thirds of
+          // a 30pt box and turns the button into an icon with a caption.
+          <Icon name={icon} size={size === 'xs' ? 16 : 20} color={labelColor} />
         ) : null}
 
+        {/*
+          The label does not change face or weight with the size, and that is
+          the point of the scale. `Text` owns typography by variant — a size
+          that reached in and set its own `fontSize` would be the drift the
+          component exists to prevent, and setting `fontWeight` here does
+          nothing anyway: React Native cannot synthesise a weight, so the
+          family resolved from the variant is what actually renders.
+        */}
         <Text variant="bodyStrong" style={{ color: labelColor }} numberOfLines={1}>
           {loading ? (loadingLabel ?? label) : label}
         </Text>
@@ -192,13 +229,25 @@ export type IconButtonProps = {
   /** Required. An icon-only control is unusable without it. */
   accessibilityLabel: string;
   variant?: 'default' | 'brand' | 'onImage';
+  active?: boolean;
   disabled?: boolean;
+  /**
+   * The glyph size, from the icon grid. 24 is the default and stays right for
+   * a control that is the only thing on its side of a bar — a back arrow, the
+   * bookmark over a photo.
+   *
+   * It drops to 20 where the button sits beside other glyphs at 20 and the
+   * default would make it the loudest mark in the row for no reason. The
+   * PRESSABLE is unaffected either way: the 44pt target is set below and is
+   * not negotiable, so this only changes what is drawn inside it.
+   */
+  size?: 16 | 20 | 24;
   style?: ViewStyle;
   testID?: string;
 };
 
 /**
- * A 44pt target around a 24px glyph.
+ * A 44pt target around the glyph.
  *
  * The visual box is allowed to be smaller than the target — `onImage` draws a
  * 36pt scrim disc — but the pressable itself never is.
@@ -208,7 +257,9 @@ export function IconButton({
   onPress,
   accessibilityLabel,
   variant = 'default',
+  active = false,
   disabled = false,
+  size = 24,
   style,
   testID,
 }: IconButtonProps) {
@@ -217,12 +268,14 @@ export function IconButton({
 
   const glyphColor = disabled
     ? colors.textTertiary
-    : variant === 'brand'
-      // A glyph drawn in green on a light surface is type, not fill.
+    : active
       ? colors.brandInk
-      : variant === 'onImage'
-        ? '#FFFFFF'
-        : colors.textPrimary;
+      : variant === 'brand'
+        // A glyph drawn in green on a light surface is type, not fill.
+        ? colors.brandInk
+        : variant === 'onImage'
+          ? '#FFFFFF'
+          : colors.textPrimary;
 
   return (
     <Pressable
@@ -233,7 +286,7 @@ export function IconButton({
       hitSlop={touch.iconButtonHitSlop}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled, selected: active }}
       testID={testID}
       style={[{ width: touch.min, height: touch.min }, styles.iconButton, style]}
     >
@@ -252,7 +305,7 @@ export function IconButton({
           },
         ]}
       >
-        <Icon name={name} size={24} color={glyphColor} />
+        <Icon name={name} size={size} color={glyphColor} fill={active ? glyphColor : 'none'} />
       </Animated.View>
     </Pressable>
   );

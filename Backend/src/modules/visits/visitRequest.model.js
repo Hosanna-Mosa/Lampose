@@ -175,6 +175,13 @@ visitRequestSchema.methods.toPublic = function toPublic() {
       ? { label: this.sharing.label, price: this.sharing.price || null }
       : null,
     createdAt: this.createdAt,
+    /* When the customer's own code came back correct — and therefore when
+       the owner was messaged, which happens in the same request.
+       Projected because the client draws a progress trail from it, and
+       without it the "your number is confirmed" step can only be inferred
+       from `status` no longer being otp_pending. It is the requester's own
+       timestamp about their own phone; nothing here belongs to anyone else. */
+    phoneVerifiedAt: this.phoneVerifiedAt || null,
     decidedAt: this.decidedAt,
     expiresAt: this.expiresAt,
   };

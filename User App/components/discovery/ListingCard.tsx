@@ -55,6 +55,13 @@ export function AvailabilityChip({ availability }: { availability: Availability 
   const { colors, space, radius } = useTheme();
   const gone = isGone(availability);
   const scarce = isScarce(availability);
+  const label = availabilityLabel(availability);
+
+  /* No label, no chip. An `UNSTATED` availability — which is every listing the
+     live API returns, because the panel records no occupancy — would
+     otherwise draw an empty tinted pill on each card: a green badge asserting
+     nothing, which reads as a value that failed to load. */
+  if (!label) return null;
 
   const set = gone
     ? { bg: colors.surfaceSunken, ink: colors.textSecondary }
@@ -81,7 +88,7 @@ export function AvailabilityChip({ availability }: { availability: Availability 
     >
       {scarce ? <Icon name="alert" size={16} color={set.ink} /> : null}
       <Text variant="numMeta" style={{ color: set.ink }}>
-        {availabilityLabel(availability)}
+        {label}
       </Text>
     </View>
   );
@@ -120,9 +127,27 @@ function PhotoCarousel({
   const { colors, space, radius } = useTheme();
   const [index, setIndex] = useState(0);
 
+  /*
+   * The gallery, or the cover repeated, or nothing.
+   *
+   * `photoUris` is what the server sends — the Cloudinary URLs the field
+   * agent uploaded. Before it existed this carousel paged through
+   * `photoCount` copies of a single `photoUri`, which was invisible against
+   * fixtures that had a count and no photographs and became a swipe between
+   * four identical images the moment the data was real.
+   *
+   * `photoCount` is still the count, because a listing may report more
+   * photographs than the feed response carries.
+   */
+  const photos = listing.photoUris?.length
+    ? listing.photoUris
+    : listing.photoUri
+      ? [listing.photoUri]
+      : [];
+
   // At most five pages — a card is for deciding whether to open the listing,
   // not for viewing eighteen photos.
-  const pages = Math.max(1, Math.min(listing.photoCount, 5));
+  const pages = Math.max(1, Math.min(photos.length || listing.photoCount, 5));
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     setIndex(Math.round(event.nativeEvent.contentOffset.x / width));
@@ -130,10 +155,11 @@ function PhotoCarousel({
 
   const page = (pageIndex: number) => {
     const [from, to] = PLACEHOLDERS[pageIndex % PLACEHOLDERS.length];
+    const uri = photos[pageIndex];
     return (
       <View key={pageIndex} style={{ width, height, backgroundColor: from }}>
-        {listing.photoUri ? (
-          <Image source={{ uri: listing.photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        {uri ? (
+          <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
         ) : (
           <View style={[StyleSheet.absoluteFill, { backgroundColor: to, opacity: 0.55 }]} />
         )}
@@ -235,6 +261,7 @@ function Body({ listing, onToggleSave }: { listing: Listing; onToggleSave?: () =
               name="bookmark"
               size={20}
               color={listing.saved ? colors.brandInk : colors.textTertiary}
+              fill={listing.saved ? colors.brandInk : 'none'}
             />
           </Pressable>
         ) : null}

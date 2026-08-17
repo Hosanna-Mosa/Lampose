@@ -15,31 +15,50 @@ import {
 import { formatShortDate } from '@/lib/format';
 import { RATING_SUMMARY, REVIEWS, postReply, subscribeReviews, type Review } from '@/lib/reviews';
 import { radius } from '@/constants/layout';
-import { fonts } from '@/constants/typography';
+import { fonts, type } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
+
+import { fetchReviewsApi } from '@/services/api/domain.api';
 
 const STARS = [5, 4, 3, 2, 1] as const;
 
-/** Deterministic, not random — the same reviewer always gets the same colour. */
 function toneFor(name: string): 'accent' | 'success' | 'info' {
   const tones = ['accent', 'success', 'info'] as const;
   const sum = [...name].reduce((s, ch) => s + ch.charCodeAt(0), 0);
   return tones[sum % tones.length];
 }
 
-/**
- * The composer opens inline, directly under the review it replies to — the
- * design's own framing, not a pushed screen. Only one composer is open at a
- * time; switching targets discards whatever draft was mid-type, the same
- * trade-off a single "compose" slot makes anywhere else in the app.
- */
 export default function ReviewsListScreen() {
   const router = useRouter();
-  const [revision, setRevision] = useState(0);
-  useEffect(() => subscribeReviews(() => setRevision((r) => r + 1)), []);
-
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [avgRating, setAvgRating] = useState(4.8);
   const [replyingId, setReplyingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+
+  const loadReviews = async () => {
+    try {
+      const res = await fetchReviewsApi();
+      const mapped: Review[] = (res.reviews || []).map((r: any) => ({
+        id: r.id || r._id,
+        guestName: r.author || r.guestName || 'Guest',
+        roomType: r.propertyName || r.roomType || 'Deluxe Room',
+        date: new Date(r.date || Date.now()),
+        rating: r.rating || 5,
+        text: r.comment || r.text || '',
+        reply: r.reply
+          ? { author: 'Owner', text: typeof r.reply === 'string' ? r.reply : r.reply.text || '' }
+          : undefined,
+      }));
+      setReviews(mapped);
+      setAvgRating(res.averageRating || 4.8);
+    } catch (err) {
+      console.warn('Failed to load reviews:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadReviews();
+  }, []);
 
   const startReply = (id: string) => {
     setReplyingId(id);
@@ -51,23 +70,33 @@ export default function ReviewsListScreen() {
   };
   const postAndClose = (id: string) => {
     if (!draft.trim()) return;
-    postReply(id, draft);
+    setReviews((prev) =>
+      prev.map((r) =>
+        r.id === id ? { ...r, reply: { author: 'Sea View Villa (You)', text: draft } } : r
+      )
+    );
     setReplyingId(null);
     setDraft('');
   };
 
   return (
-    <Screen contentStyle={styles.stack} key={revision}>
-      <View style={styles.backRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-      </View>
+    <Screen
+      contentStyle={styles.stack}
+      stickyHeader={
+        <>
+          <View style={styles.backRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+          </View>
 
-      <Text variant="screenTitle">Reviews</Text>
+          <Text variant="screenTitle">Reviews</Text>
+        </>
+      }
+    >
 
-      <RatingSummary />
+      <RatingSummary average={avgRating} count={reviews.length} />
 
-      {REVIEWS.length > 0 ? (
-        REVIEWS.map((r) => (
+      {reviews.length > 0 ? (
+        reviews.map((r) => (
           <ReviewCard
             key={r.id}
             review={r}
@@ -91,17 +120,17 @@ export default function ReviewsListScreen() {
   );
 }
 
-function RatingSummary() {
+function RatingSummary({ average = 4.8, count = 2 }: { average?: number; count?: number }) {
   const c = useColors();
   return (
     <View style={[styles.summary, { borderColor: c.borderCard }]}>
       <View style={styles.summaryLeft}>
         <Text tabular style={styles.average}>
-          {RATING_SUMMARY.average.toFixed(1)}
+          {average.toFixed(1)}
         </Text>
-        <StarRow rating={RATING_SUMMARY.average} size={12} />
+        <StarRow rating={average} size={12} />
         <Text variant="badge" color="textCaption" style={styles.count}>
-          {RATING_SUMMARY.totalReviews} reviews
+          {count} reviews
         </Text>
       </View>
 
@@ -229,8 +258,8 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   summaryLeft: { alignItems: 'center', flexShrink: 0 },
-  average: { fontFamily: fonts.extrabold, fontSize: 30, lineHeight: 36 },
-  count: { fontSize: 10.5, marginTop: 3 },
+  average: { ...type.metric },
+  count: { fontSize: 11, marginTop: 3 },
   distribution: { flex: 1, gap: 5 },
   distRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   distLabel: { width: 8, fontSize: 10 },
@@ -240,19 +269,19 @@ const styles = StyleSheet.create({
   card: { borderRadius: 14, padding: 16, gap: 8 },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   identity: { flex: 1 },
-  name: { fontFamily: fonts.bold, fontSize: 13.5, lineHeight: 18 },
+  name: { fontFamily: fonts.bold, fontSize: 14, lineHeight: 18 },
   meta: { fontSize: 11, marginTop: 1 },
   stars: { marginTop: -2 },
   reviewText: { lineHeight: 20 },
 
   composer: { gap: 8, marginTop: 2 },
-  composerLabel: { fontSize: 11.5 },
+  composerLabel: { fontSize: 12 },
   composerField: { marginBottom: 0 },
   composerActions: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
 
   replyBox: { flexDirection: 'row', gap: 8, borderRadius: 10, padding: 12 },
   replyBody: { flex: 1 },
-  replyAuthor: { fontFamily: fonts.bold, fontSize: 11.5, marginBottom: 2 },
-  replyText: { lineHeight: 19, fontSize: 12.5 },
+  replyAuthor: { fontFamily: fonts.bold, fontSize: 12, marginBottom: 2 },
+  replyText: { lineHeight: 19, fontSize: 13 },
   empty: { minHeight: 260 },
 });

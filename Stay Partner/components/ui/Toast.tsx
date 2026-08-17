@@ -73,7 +73,7 @@ const styles = StyleSheet.create({
   },
   text: {
     flex: 1,
-    fontSize: 12.5,
+    fontSize: 13,
     lineHeight: 17.5,
   },
 });

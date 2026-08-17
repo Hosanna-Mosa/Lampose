@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginBottom: 18,
   },
-  title: { fontFamily: fonts.extrabold, fontSize: 19, lineHeight: 25, marginBottom: 6 },
+  title: { fontFamily: fonts.extrabold, fontSize: 18, lineHeight: 25, marginBottom: 6 },
   subtitle: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 18, marginBottom: 18 },
   footer: { flexDirection: 'row', gap: 10, marginTop: 4 },
 });

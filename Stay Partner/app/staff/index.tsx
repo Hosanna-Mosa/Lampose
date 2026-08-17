@@ -1,38 +1,64 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Screen, Text, Button, IconButton, Badge, Avatar } from '@/components/ui';
-import { STAFF, avatarToneFor, statusLabel, subscribeStaff, type StaffMember } from '@/lib/staff';
+import { Screen, Text, Button, IconButton, Badge, Avatar, EmptyState } from '@/components/ui';
+import { avatarToneFor, statusLabel, type StaffMember } from '@/lib/staff';
 import { initials } from '@/lib/format';
+import { fetchStaffApi } from '@/services/api/domain.api';
 import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 
 export default function StaffListScreen() {
   const router = useRouter();
+  const [staff, setStaff] = useState<StaffMember[]>([]);
 
-  // A sent invite has to actually show up here — same subscription shape as
-  // every other mutable list in the app.
-  const [revision, setRevision] = useState(0);
-  useEffect(() => subscribeStaff(() => setRevision((r) => r + 1)), []);
+  const loadStaff = async () => {
+    try {
+      const items = await fetchStaffApi();
+      const mapped: StaffMember[] = (items || []).map((s: any) => ({
+        id: s.id || s._id,
+        name: s.name || 'Staff Member',
+        role: (s.role || 'Manager') as any,
+        status: (s.status || 'active') as any,
+        phone: s.phone || '',
+      }));
+      setStaff(mapped);
+    } catch (err) {
+      console.warn('Failed to load staff:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadStaff();
+  }, []);
 
   return (
     <Screen
       contentStyle={styles.stack}
-      key={revision}
-      footer={<Button label="+ Invite staff" onPress={() => router.push('/staff/invite')} />}
+            footer={<Button label="+ Invite staff" onPress={() => router.push('/staff/invite')} />}
+      stickyHeader={
+        <>
+          <View style={styles.backRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+          </View>
+
+          <Text variant="screenTitle" style={styles.title}>
+            Staff
+          </Text>
+        </>
+      }
     >
-      <View style={styles.backRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-      </View>
 
-      <Text variant="screenTitle" style={styles.title}>
-        Staff
-      </Text>
-
-      {STAFF.map((m) => (
-        <StaffRow key={m.id} member={m} />
-      ))}
+      {staff.length > 0 ? (
+        staff.map((m) => <StaffRow key={m.id} member={m} />)
+      ) : (
+        <EmptyState
+          icon="user"
+          title="No staff invited"
+          body="Invite property managers and staff to help manage bookings."
+        />
+      )}
     </Screen>
   );
 }

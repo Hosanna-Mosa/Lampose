@@ -8,7 +8,6 @@ import {
   DetailSkeleton,
   ExploreHeader,
   ListSkeleton,
-  PHOTO_HERO_HEIGHT,
   PhotoHeader,
   PhotoHero,
   SearchHeader,
@@ -17,6 +16,7 @@ import {
   StickyCtaBar,
   SuccessState,
   TabBar,
+  usePhotoHeroHeight,
   type TabItem,
 } from '@/components/shell';
 import { emptyStates, errorStates, successCopy } from '@/constants/copy';
@@ -41,6 +41,7 @@ const VIEWS = ['Headers', 'CTA bar', 'States', 'Photo'] as const;
 
 export default function ShellPreview() {
   const { colors, space, layout } = useTheme();
+  const heroHeight = usePhotoHeroHeight();
   const [tab, setTab] = useState('explore');
   const [view, setView] = useState<(typeof VIEWS)[number]>('Headers');
   const [sharing, setSharing] = useState(2);
@@ -69,9 +70,23 @@ export default function ShellPreview() {
             />
             <Animated.ScrollView onScroll={onScroll} scrollEventThrottle={16}>
               <PhotoHero scrollY={scrollY}>
-                <View style={{ height: PHOTO_HERO_HEIGHT, backgroundColor: colors.surfaceSunken }} />
+                {/* Sized from the same hook the hero slot uses. The flat
+                    `PHOTO_HERO_HEIGHT` constant is 352 and the slot is
+                    viewport-derived, so on a short screen the placeholder was
+                    a hundred points taller than the box holding it. */}
+                <View style={{ height: heroHeight, backgroundColor: colors.surfaceSunken }} />
               </PhotoHero>
-              <View style={{ padding: layout.gutter, gap: space[4], paddingBottom: barHeight + space[6] }}>
+              {/* Opaque, because the hero above it parallaxes down over this
+                  block as the page scrolls — see the note on the listing
+                  detail screen. */}
+              <View
+                style={{
+                  padding: layout.gutter,
+                  gap: space[4],
+                  paddingBottom: barHeight + space[6],
+                  backgroundColor: colors.bg,
+                }}
+              >
                 <Text variant="title1">Sai Krishna Boys PG</Text>
                 <Text variant="body" color="secondary">
                   Gachibowli · 22 min to IIIT-H · boys only · 2 meals

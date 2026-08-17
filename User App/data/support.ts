@@ -1,23 +1,53 @@
-import type {
-  AppNotification,
-  NotificationDay,
-  ReportReason,
-  Ticket,
-  TicketCategory,
-  TicketMessage,
-} from '@/types/support';
+import type { ReportReason, TicketCategory } from '@/types/support';
 
 /**
- * Support and notification fixtures.
+ * The choices the support screens offer, and the sentences they must print.
  *
- * The reply-time promise below is the one number in this file that must come
- * from whoever actually staffs the queue. It is stated on the ticket list and
- * again on the new-ticket screen, and a promise made twice and kept never is
- * worse than no promise at all. Flagged as open in the handoff.
+ * ## What used to be here, and where it went
+ *
+ * This file held three fixture ticket threads, a fake notification inbox and a
+ * `findTicket` that searched them. Every support screen read from it, so the
+ * whole feature was a rehearsal: "Send to support" navigated away without
+ * sending anything, the reply box cleared itself, and every ticket id opened
+ * the identical conversation about a water pump. Tickets come from
+ * `/api/v2/support` now — see `services/hooks/useTickets.ts` — and the
+ * notification fixtures went when the alerts screen was wired to the server.
+ *
+ * ## Why the lists below did NOT go with them
+ *
+ * They are not data about anybody. They are the form's options and the
+ * product's own copy, and they belong with the app that renders them for two
+ * reasons.
+ *
+ * The picker must work offline and on the first frame. A student opening
+ * "What's wrong?" on a train should see six choices immediately, not a
+ * spinner over a list of categories that have not changed in a year.
+ *
+ * And the server stores the ID that was chosen, never the sentence. A label
+ * stored on a record is a label that goes stale the first time anybody rewords
+ * the form, and then a two-month-old ticket disagrees with the picker that
+ * created it. The ids here and the enums in
+ * `Backend/src/modules/support/ticket.model.js` are the contract; everything
+ * else on this page is wording, and wording is allowed to change.
+ */
+
+/**
+ * OPEN QUESTION, and it is a promise rather than a fact.
+ *
+ * This is printed twice — on the ticket list and again on the new-ticket
+ * screen — and nothing in the system measures or enforces it. It has been
+ * flagged since the fixtures were written and it is still nobody's number.
+ * Whoever staffs the queue owns it; a promise made twice and kept never is
+ * worse than no promise at all.
  */
 export const SUPPORT_HOURS_NOTE =
   'Most tickets get a first reply within 4 hours, 9 am to 9 pm.';
 
+/**
+ * The six categories, by the ids the server validates against.
+ *
+ * `id` is the contract. `label` and `hint` are wording.
+ */
 export const ticketCategories: readonly TicketCategory[] = [
   {
     id: 'property',
@@ -39,77 +69,18 @@ export const ticketCategories: readonly TicketCategory[] = [
   { id: 'other', label: 'Something else', hint: 'Anything that does not fit above.' },
 ];
 
-export const tickets: readonly Ticket[] = [
-  {
-    id: 'TKT-2204',
-    categoryLabel: 'Something at the place',
-    title: 'Water pressure very low in the mornings',
-    place: 'Bhavana Girls PG · LAM-4192',
-    state: 'open',
-    stateLabel: 'Support replied',
-    whenLabel: '2 days ago',
-    unread: true,
-  },
-  {
-    id: 'TKT-2188',
-    categoryLabel: 'My deposit',
-    title: 'Deposit refund not received after 14 days',
-    place: 'Sri Vidya Hostel · LAM-3871',
-    state: 'resolved',
-    // The outcome, not the state name. "Resolved" tells a student nothing.
-    stateLabel: 'Resolved · refund arrived 19 Mar',
-    whenLabel: '3 weeks ago',
-  },
-  {
-    id: 'TKT-2140',
-    categoryLabel: 'A payment',
-    title: 'Charged twice for the joining fee',
-    place: 'LAM-3871',
-    state: 'resolved',
-    stateLabel: 'Refunded ₹1,000',
-    whenLabel: 'Jun 2026',
-  },
-];
-
-export function findTicket(id: string): Ticket | undefined {
-  return tickets.find((ticket) => ticket.id === id);
-}
-
-export const ticketThread: readonly TicketMessage[] = [
-  {
-    id: 'm1',
-    author: 'you',
-    body: 'There is almost no water pressure in the bathrooms between 7 and 9 in the morning, which is when everyone needs it. It has been like this for two weeks. I told Padma twice.',
-    whenLabel: '4 days ago, 8:12 am',
-  },
-  {
-    id: 'm2',
-    author: 'system',
-    body: 'We asked Padma about this on 10 August. She has 3 working days to respond.',
-    whenLabel: '4 days ago, 9:03 am',
-    systemNote: true,
-  },
-  {
-    id: 'm3',
-    author: 'support',
-    // A named human. "LAMPOSE Support" answers nobody.
-    authorName: 'Sneha',
-    body: 'Padma has replied — the overhead tank pump is undersized for the morning load and she has ordered a replacement. She says it will be fitted by 20 August. I have made a note to check with you on the 21st.',
-    whenLabel: '2 days ago, 3:18 pm',
-  },
-  {
-    id: 'm4',
-    author: 'system',
-    body: 'If the pump is not fitted by 20 August, this ticket reopens automatically. You do not have to chase it.',
-    whenLabel: '2 days ago, 3:18 pm',
-    systemNote: true,
-  },
-];
-
 /* ------------------------------------------------------------------ *
- * Reports
+ * Reports — the heavier path
  * ------------------------------------------------------------------ */
 
+/**
+ * `evidenceRequired` is repeated on the server.
+ *
+ * Not duplicated by accident: the flag here decides whether the form asks for
+ * a screenshot, and the copy in `ticket.model.js` decides whether the safety
+ * queue is told to chase for one. A client that is the only thing enforcing a
+ * rule is a client that can turn the rule off.
+ */
 export const reportReasons: readonly ReportReason[] = [
   { id: 'deposit-threat', label: 'Owner is threatening to keep my deposit', evidenceRequired: true },
   { id: 'not-as-listed', label: 'The place is not what was listed', evidenceRequired: true },
@@ -135,87 +106,12 @@ export const REPORT_WEIGHT_NOTE =
 export const REPORT_DETAIL_HINT =
   'Dates, amounts and exact words matter here — this may be used in a dispute.';
 
-/** Long enough to be investigable, short enough not to be a wall. */
+/**
+ * Long enough to be investigable, short enough not to be a wall.
+ *
+ * Enforced here on the button AND on the server, which refuses a shorter one
+ * with the reason attached. The server check is the real one: this is the
+ * record that may end up in front of somebody arbitrating a deposit, and
+ * "owner is bad" costs the safety queue an investigation it cannot run.
+ */
 export const REPORT_MIN_CHARS = 50;
-
-/* ------------------------------------------------------------------ *
- * Notifications
- * ------------------------------------------------------------------ */
-
-const today: readonly AppNotification[] = [
-  {
-    id: 'n1',
-    kind: 'owner',
-    title: 'Padma accepted your request',
-    body: 'Pay ₹26,499 within 2 hours to confirm the bed.',
-    timeLabel: '9:41 am',
-    unread: true,
-  },
-  {
-    id: 'n2',
-    kind: 'payment',
-    title: 'Payment received · ₹26,499',
-    body: 'Booking LAM-4192 is confirmed. Receipt saved to your bookings.',
-    timeLabel: '9:44 am',
-    unread: true,
-    money: true,
-  },
-  {
-    id: 'n3',
-    kind: 'visit',
-    title: 'Visit confirmed for tomorrow, 4:30 pm',
-    body: 'Vasavi Ladies PG · ask for Padma at the gate.',
-    timeLabel: '8:02 am',
-  },
-];
-
-const yesterday: readonly AppNotification[] = [
-  {
-    id: 'n4',
-    kind: 'rent',
-    title: 'Rent of ₹8,500 due in 4 days',
-    // We remind; we do not collect. Stated every time, because a student who
-    // thinks LAMPOSE takes the rent will not pay the owner.
-    body: 'Pay Padma directly on 5 September. We only remind you.',
-    timeLabel: '6:00 pm',
-    money: true,
-  },
-  {
-    id: 'n5',
-    kind: 'refund',
-    title: '₹16,260 sent to your UPI',
-    body: 'Deposit refund for LAM-3871 · reference RFD-3871-A.',
-    timeLabel: '11:02 am',
-    money: true,
-  },
-];
-
-const earlier: readonly AppNotification[] = [
-  {
-    id: 'n6',
-    kind: 'support',
-    title: 'Support replied to TKT-2204',
-    body: 'About the water pressure at Bhavana Girls PG.',
-    timeLabel: '3:18 pm',
-  },
-  {
-    id: 'n7',
-    kind: 'booking',
-    title: 'A bed opened at Sri Vidya Hostel',
-    body: 'You asked to be told. Two-sharing, ₹6,900 per bed.',
-    timeLabel: '9:30 am',
-  },
-];
-
-export const notificationDays: readonly NotificationDay[] = [
-  { label: 'Today', items: today },
-  { label: 'Yesterday', items: yesterday },
-  { label: '11 August', items: earlier },
-];
-
-export function unreadCount(days: readonly NotificationDay[]): number {
-  return days.reduce(
-    (sum, day) => sum + day.items.filter((item) => item.unread).length,
-    0,
-  );
-}

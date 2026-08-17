@@ -21,7 +21,16 @@ import { SCREEN_WAIT_SECONDS } from '@/types/request';
  * replaces the first — the screen that starts it is responsible for asking.
  */
 
-export type PendingRequestStatus = 'waiting' | 'accepted' | 'cancelled';
+/**
+ * `declined` is separate from `cancelled`, and the difference is the pill's
+ * whole sentence.
+ *
+ * An owner who replied "not available" has answered; a request that ran out
+ * of time has not. Both used to be `cancelled`, so the pill told a student
+ * "Request cancelled — no answer" about a request the owner had answered
+ * within the minute.
+ */
+export type PendingRequestStatus = 'waiting' | 'accepted' | 'declined' | 'cancelled';
 
 export type PendingRequest = {
   listingId: string;
@@ -30,6 +39,16 @@ export type PendingRequest = {
   owner: string;
   /** Absolute ISO timestamp. A duration would restart on every re-render. */
   deadline: string;
+  /**
+   * How long the whole window is, in seconds — the denominator of the bar.
+   *
+   * It cannot be a constant any more. The server gives an owner twenty-four
+   * hours to answer, and `SCREEN_WAIT_SECONDS` was being used as the total on
+   * a bar whose deadline is now the server's: every request would have shown
+   * a bar pinned at 100% and then a pill claiming it had been cancelled three
+   * minutes in, while the owner was still perfectly able to reply.
+   */
+  windowSeconds: number;
   status: PendingRequestStatus;
   /** The stay choices, carried through to payment. */
   params: Record<string, string>;
@@ -37,7 +56,9 @@ export type PendingRequest = {
 
 type PendingRequestValue = {
   request: PendingRequest | null;
-  start: (request: Omit<PendingRequest, 'status' | 'deadline'> & { deadline?: string }) => void;
+  start: (
+    request: Omit<PendingRequest, 'status' | 'deadline' | 'windowSeconds'> & { deadline?: string },
+  ) => void;
   settle: (status: Exclude<PendingRequestStatus, 'waiting'>) => void;
   /** Clears it entirely. Only a cancelled request may be dismissed this way. */
   clear: () => void;
@@ -69,10 +90,20 @@ export function PendingRequestProvider({ children }: { children: React.ReactNode
   const [claims, setClaims] = useState<Record<string, number>>({});
 
   const start: PendingRequestValue['start'] = useCallback((next) => {
+    /* The caller's deadline is the server's — the moment the owner's window
+       actually closes. `SCREEN_WAIT_SECONDS` is only the fallback for a
+       request started before one is known. */
+    const deadline =
+      next.deadline ?? new Date(Date.now() + SCREEN_WAIT_SECONDS * 1000).toISOString();
+    const remaining = Math.max(1, Math.round((Date.parse(deadline) - Date.now()) / 1000));
+
     setRequest({
       ...next,
       status: 'waiting',
-      deadline: next.deadline ?? new Date(Date.now() + SCREEN_WAIT_SECONDS * 1000).toISOString(),
+      deadline,
+      /* Measured once, at the start, so the bar has a fixed denominator. Read
+         live it would shrink alongside the numerator and never move. */
+      windowSeconds: Number.isFinite(remaining) ? remaining : SCREEN_WAIT_SECONDS,
     });
   }, []);
 

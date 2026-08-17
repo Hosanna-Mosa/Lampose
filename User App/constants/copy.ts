@@ -116,6 +116,25 @@ export const emptyStates = {
     primaryAction: 'Schedule from your shortlist',
     secondaryAction: 'What happens on a visit?',
   }),
+
+  /**
+   * Calm, like `noNotifications`, and for the same reason: having no open
+   * support requests is the good outcome. A brand-filled button would read as
+   * an invitation to find something to complain about.
+   *
+   * The body names what this screen is for rather than describing its
+   * emptiness. Somebody arriving here has usually not needed support yet, and
+   * the useful thing to leave them with is where to come when they do —
+   * `replyNote` carries the promise, passed in so the number lives in one
+   * place rather than being restated here.
+   */
+  noTickets: ({ replyNote }: { replyNote: string }): StateCopy => ({
+    headline: 'Nothing open',
+    body: 'When something goes wrong — the water, your deposit, a payment an owner will not explain — this is where you tell us, and where our replies land.',
+    primaryAction: 'New support request',
+    footnote: replyNote,
+    calm: true,
+  }),
 };
 
 /* ------------------------------------------------------------------ *

@@ -29,10 +29,16 @@ export default function PricingScreen() {
   const base = BASE_PRICE[roomType];
 
   return (
-    <Screen contentStyle={styles.stack} key={revision}>
-      <View style={styles.backRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-      </View>
+    <Screen
+      contentStyle={styles.stack} key={revision}
+      stickyHeader={
+        <>
+          <View style={styles.backRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+          </View>
+        </>
+      }
+    >
 
       <View style={styles.head}>
         <Text variant="screenTitle">Pricing</Text>
@@ -186,8 +192,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   ruleBody: { flex: 1, paddingVertical: 6 },
-  ruleName: { fontFamily: fonts.bold, fontSize: 13.5, lineHeight: 18 },
-  rulePeriod: { fontSize: 11.5, marginTop: 3 },
+  ruleName: { fontFamily: fonts.bold, fontSize: 14, lineHeight: 18 },
+  rulePeriod: { fontSize: 12, marginTop: 3 },
   ruleAmount: { fontFamily: fonts.extrabold, fontSize: 15, lineHeight: 20 },
   empty: { minHeight: 220 },
 });

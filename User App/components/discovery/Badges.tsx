@@ -159,7 +159,15 @@ export function DepositBadge({
  * ------------------------------------------------------------------ */
 
 export type GenderBadgeProps = {
-  gender: Gender;
+  /**
+   * `undefined` when nobody recorded the rule, and then nothing is drawn.
+   *
+   * Optional here rather than guarded at each call site, because there are
+   * four of them and the failure mode of forgetting one is the badge
+   * asserting a gender rule the owner never stated. A component that cannot
+   * render a claim it was not given is the version that stays correct.
+   */
+  gender?: Gender;
   /**
    * False means this listing does not match the filter the user set. Arriving
    * at a girls' PG as a boy is a trust failure, not a filtering preference, so
@@ -182,6 +190,10 @@ export type GenderBadgeProps = {
  */
 export function GenderBadge({ gender, matchesUser = true, onPhoto = false, compact = false }: GenderBadgeProps) {
   const { colors, space, radius } = useTheme();
+
+  // Unstated is not co-ed. See the prop's note.
+  if (!gender) return null;
+
   const meta = genderMeta[gender];
 
   const background = onPhoto ? 'rgba(16,21,28,0.72)' : colors.graphite;

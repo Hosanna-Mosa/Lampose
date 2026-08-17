@@ -1,12 +1,14 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
-import { Button, Text, TextField } from '@/components/ui';
+import { Button, InlineAlert, Text, TextField } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
+import { ApiError } from '@/services';
 
 /**
  * Screen 65 — editing the profile.
@@ -26,17 +28,50 @@ import { useTheme } from '@/context/ThemeContext';
 export default function EditProfile() {
   const { colors, space, layout, mode } = useTheme();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, completeProfile } = useAuth();
 
   const [name, setName] = useState(user?.name ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  /* Nothing to save is not an error and not a round trip — it is the Back
+     button, which is what the student pressed. */
+  const dirty = name.trim() !== (user?.name ?? '') || email.trim() !== (user?.email ?? '');
+
+  const save = async () => {
+    if (!dirty) {
+      router.back();
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      /* The email is always sent, including as an empty string. This is the
+         editor: clearing the field is how somebody removes an address they no
+         longer use, and omitting it would make that impossible. */
+      await completeProfile({ name: name.trim(), email: email.trim() });
+      router.back();
+    } catch (caught) {
+      /* The server validates the email and owns the message — it is the only
+         thing that knows whether the address was malformed or the session had
+         expired underneath. */
+      setError(
+        caught instanceof ApiError
+          ? caught.displayMessage
+          : 'We could not save that. Please try again.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader title="Edit profile" onBack={() => router.back()} />
 
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
         contentContainerStyle={{ padding: layout.gutter, gap: space[5], paddingBottom: space[8] }}
         keyboardShouldPersistTaps="handled"
       >
@@ -66,13 +101,22 @@ export default function EditProfile() {
           helper="Changing this needs a code sent to both your old and new number. Message support and we will do it with you."
         />
 
+        {error ? <InlineAlert tone="error" title="Not saved" body={error} /> : null}
+
         <View style={{ gap: space[2] }}>
-          <Button label="Save changes" fullWidth onPress={() => router.back()} />
+          <Button
+            label="Save changes"
+            loadingLabel="Saving"
+            loading={saving}
+            disabled={saving || name.trim().length === 0}
+            fullWidth
+            onPress={save}
+          />
           <Text variant="caption" color="tertiary" style={styles.centred}>
             Changing your name does not change the name on bookings you have already made.
           </Text>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
     </View>
   );
 }

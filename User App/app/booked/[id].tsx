@@ -1,7 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useMemo } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -13,7 +13,7 @@ import { errorStates } from '@/constants/copy';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { addressVisible, confirmedBookingFor } from '@/data/bookings';
-import { findListing } from '@/data/listings';
+import { useListing } from '@/services';
 
 /**
  * Screen two of two: it is yours.
@@ -73,7 +73,17 @@ export default function Booked() {
   }>();
 
   const { clear } = usePendingRequest();
-  const listing = useMemo(() => (id ? findListing(id) : undefined), [id]);
+
+  /*
+   * The listing comes from the database; the booking below does not.
+   *
+   * There is no bookings endpoint — nothing server-side records that a
+   * student took a bed — so `confirmedBookingFor` still mints the booking on
+   * the device. Everything it is built from (the name, the owner, the rent,
+   * the sharing label) is now real, which is what stops this screen showing
+   * "not found" for the Mongo id the confirmation flow hands it.
+   */
+  const { listing, isPending, notFound } = useListing(id);
 
   /*
    * The booking the confirmed request became.
@@ -99,7 +109,21 @@ export default function Booked() {
     [listing, sharingId, joinDate],
   );
 
-  if (!listing || !booking) {
+  /* A fetch in flight is not a missing booking. Showing "not found" while the
+     listing loads would tell a student their confirmation had gone. */
+  if (isPending) {
+    // `styles.centre` only centres horizontally and is used by blocks that
+    // rely on that, so centring both axes is inline rather than a change to it.
+    return (
+      <View
+        style={[styles.flex, { backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' }]}
+      >
+        <ActivityIndicator color={colors.brand} />
+      </View>
+    );
+  }
+
+  if (notFound || !listing || !booking) {
     return <StateTemplate copy={errorStates.notFound()} onPrimary={() => router.replace('/home')} />;
   }
 

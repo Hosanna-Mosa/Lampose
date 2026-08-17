@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
@@ -11,7 +11,9 @@ import {
   EmptyState,
 } from '@/components/ui';
 import { formatINR, formatStayRange } from '@/lib/format';
-import { HISTORY, UPCOMING, type Booking, payoutOf } from '@/lib/bookings';
+import { type Booking, payoutOf } from '@/lib/bookings';
+import { fetchBookings } from '@/services/api/domain.api';
+import { ApiError } from '@/services/api/client';
 import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
@@ -25,26 +27,130 @@ const OUTCOMES: { key: Outcome; label: string }[] = [
   { key: 'cancelled', label: 'Cancelled' },
 ];
 
+const STATUS_MAP: Record<string, Booking['status']> = {
+  in_house: 'inHouse',
+  arriving: 'confirmed',
+  departing: 'inHouse',
+  upcoming: 'confirmed',
+  completed: 'completed',
+  cancelled: 'cancelled',
+};
+
+/**
+ * A stored booking, in the shape the cards render.
+ *
+ * Every field here now comes off the record. The first version of this mapper
+ * filled the gaps with plausible-looking constants — `gross: b.totalAmount ||
+ * 8000`, `checkInCode: '1234'`, `payment: 'paid'`, `checkOutBy: '11:00 AM'` —
+ * and each of those is a claim about somebody's money or their guest.
+ * `|| 8000` is the worst of them: a booking with no amount recorded rendered
+ * as ₹8,000, and `0 || 8000` is 8000, so a genuinely free stay did too.
+ *
+ * `payment` is DERIVED rather than asserted, because the schema stores
+ * `paidAmount` and `totalAmount` and the answer is arithmetic on the two.
+ * `checkInCode` is simply absent — the schema has no such column, and a card
+ * showing a made-up code is a guest turned away at the door.
+ */
+function mapBackendBookingToUI(b: any): Booking {
+  const checkIn = new Date(b.checkInDate);
+  const checkOut = new Date(b.checkOutDate);
+
+  const total = Number(b.totalAmount ?? 0);
+  const paid = Number(b.paidAmount ?? 0);
+
+  /* Dates are stored as strings and may be unparseable on an old row. One
+     millisecond of guarding beats an "Invalid Date" on every card. */
+  const validSpan = !Number.isNaN(checkIn.getTime()) && !Number.isNaN(checkOut.getTime());
+  const nights = validSpan
+    ? Math.max(1, Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000))
+    : 1;
+
+  return {
+    id: String(b.id ?? b._id ?? ''),
+    guest: b.guestName ?? '',
+    roomType: b.shareType || b.roomNumber || '',
+    checkIn,
+    checkOut,
+    /* The schema records one guest per booking — no headcount column — so the
+       label states what is known rather than inventing a party size. */
+    guests: b.roomNumber ? `Room ${b.roomNumber}` : '',
+    nights,
+    status: STATUS_MAP[b.status] ?? 'confirmed',
+    /*
+     * Derived from the two amounts the schema actually stores.
+     *
+     * `PaymentStatus` has no `partial` member, so a part-paid booking reads as
+     * `pending` — which is the honest side to err on: money is still owed. It
+     * is deliberately not rounded up to `paid`, because a card saying "paid"
+     * on a booking with a balance outstanding is how an owner stops chasing it.
+     */
+    payment: total > 0 && paid >= total ? 'paid' : 'pending',
+    gross: total,
+  };
+}
+
 export default function BookingsTab() {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>('upcoming');
   const [outcome, setOutcome] = useState<Outcome>('all');
+  const [allBookings, setAllBookings] = useState<Booking[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const history = useMemo(
-    () => (outcome === 'all' ? HISTORY : HISTORY.filter((b) => b.status === outcome)),
-    [outcome],
+  const loadBookings = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await fetchBookings();
+      /*
+       * Set unconditionally, including when the server returns nothing.
+       *
+       * This was guarded by `data.length > 0`, which means an empty response
+       * left whatever was in state — so a booking that had since been
+       * cancelled stayed on the screen through every refresh, and the list
+       * could only ever grow. An empty list is a result, not a non-answer.
+       */
+      setAllBookings(Array.isArray(data) ? data.map(mapBackendBookingToUI) : []);
+      setError(null);
+    } catch (err) {
+      /* A failed load is not "no bookings". Leaving the empty state up would
+         tell an owner they have none when we simply could not ask. */
+      console.warn('Failed to fetch bookings:', err);
+      setError(err instanceof ApiError ? err.displayMessage : 'We could not load your bookings.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadBookings();
+  }, [loadBookings]);
+
+  const upcomingList = useMemo(
+    () => allBookings.filter((b) => b.status === 'inHouse' || b.status === 'confirmed'),
+    [allBookings]
   );
 
-  const rows = tab === 'upcoming' ? UPCOMING : history;
+  const historyList = useMemo(() => {
+    const past = allBookings.filter((b) => b.status === 'completed' || b.status === 'cancelled');
+    return outcome === 'all' ? past : past.filter((b) => b.status === outcome);
+  }, [allBookings, outcome]);
+
+  const rows = tab === 'upcoming' ? upcomingList : historyList;
 
   const open = (b: Booking) =>
     router.push({ pathname: '/booking/[id]', params: { id: b.id } });
 
   return (
-    <Screen tabBarSpacing contentStyle={styles.stack}>
-      <Text variant="screenTitle" style={styles.title}>
-        Bookings
-      </Text>
+    <Screen
+      tabBarSpacing contentStyle={styles.stack}
+      stickyHeader={
+        <>
+          <Text variant="screenTitle" style={styles.title}>
+            Bookings
+          </Text>
+        </>
+      }
+    >
 
       <ChipRow style={styles.filters}>
         <Chip
@@ -61,7 +167,6 @@ export default function BookingsTab() {
         />
       </ChipRow>
 
-      {/* Subordinate to the row above, so it takes the lighter treatment. */}
       {tab === 'history' ? (
         <ChipRow style={styles.filters}>
           {OUTCOMES.map((o) => (
@@ -78,7 +183,22 @@ export default function BookingsTab() {
         </ChipRow>
       ) : null}
 
-      {rows.length > 0 ? (
+      {/* A failure and an empty list are different facts and must not share a
+          screen. "No upcoming bookings" over a dropped connection tells an
+          owner they have none when we simply could not ask — and this is the
+          screen they check before turning a guest away at the door. */}
+      {error ? (
+        <EmptyState
+          icon="clock"
+          title="We could not load your bookings"
+          body={error}
+          actionLabel="Try again"
+          onAction={loadBookings}
+          style={styles.empty}
+        />
+      ) : loading ? (
+        <EmptyState icon="bookings" title="Loading…" body="" style={styles.empty} />
+      ) : rows.length > 0 ? (
         rows.map((b) => <BookingRow key={b.id} booking={b} onPress={() => open(b)} />)
       ) : (
         <EmptyState
@@ -152,7 +272,7 @@ const styles = StyleSheet.create({
   topRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
   identity: { flex: 1 },
   guest: { fontFamily: fonts.bold, fontSize: 15, lineHeight: 20 },
-  meta: { fontSize: 12.5, marginTop: 1 },
+  meta: { fontSize: 13, marginTop: 1 },
   amount: { fontFamily: fonts.extrabold, fontSize: 15, lineHeight: 20 },
   badges: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   empty: { minHeight: 320, borderRadius: radius.card },

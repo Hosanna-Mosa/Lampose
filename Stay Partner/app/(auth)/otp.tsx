@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import {
   Screen,
   Text,
@@ -14,103 +14,152 @@ import {
 } from '@/components/ui';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
-
-const CODE_LENGTH = 6;
-/** Seconds before "Resend code" becomes available. */
-const RESEND_AFTER = 30;
-/** Seconds before the code itself stops working. */
-const CODE_TTL = 90;
-/** Stands in for the code the backend would have sent. */
-const DEMO_CODE = '482915';
+import { useAuth } from '@/context/AuthContext';
 
 function mmss(total: number) {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
 /**
- * OTP verification — mid-entry, verifying, rejected, and resent are real states
- * driven by the code, a resend countdown, and a code lifetime.
+ * OTP verification.
+ *
+ * ## Every number on this screen is the server's
+ *
+ * It used to hold a `DEMO_CODE` of '482915', a 30-second resend timer and a
+ * 90-second code lifetime, all invented here. All three are now the backend's:
+ * the code is checked by `POST /partners/auth/verify`, the cooldown comes back
+ * on the send response, and the expiry is enforced server-side against the
+ * database — which is the only place it can be enforced, since a client clock
+ * can be wrong or simply restarted.
+ *
+ * ## Three ways to be wrong, and they are not interchangeable
+ *
+ * A wrong digit says how many tries are left. A lock says the code is spent and
+ * offers a new one. An expired code says exactly that. Showing "that code isn't
+ * right" for an expired one sends somebody retyping digits that were never the
+ * problem.
+ *
+ * ## A wrong code does NOT clear the boxes
+ *
+ * One mistyped digit should be fixable, not retyped from scratch on the way to
+ * a property. Only a resend clears them, because a new code makes whatever is
+ * in them wrong by definition.
  */
 export default function OtpScreen() {
   const c = useColors();
   const router = useRouter();
-  const { phone } = useLocalSearchParams<{ phone?: string }>();
+
+  const {
+    pendingPhone,
+    pendingPhoneMasked,
+    otpLength,
+    resendIn,
+    isSubmitting,
+    verifyCode,
+    resendCode,
+    changeNumber,
+  } = useAuth();
 
   const [code, setCode] = useState('');
-  const [verifying, setVerifying] = useState(false);
   const [invalid, setInvalid] = useState(false);
   const [toast, setToast] = useState<{ message: string } | null>(null);
-  const [resendIn, setResendIn] = useState(RESEND_AFTER);
-  const [age, setAge] = useState(0);
   const [resent, setResent] = useState(false);
-  const verifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // One ticker drives both the resend countdown and the code's own lifetime.
+  /*
+   * No number, no screen.
+   *
+   * Reachable by a back gesture after signing in, by a deep link, and by a
+   * reload in development — in each case there is no code in flight and nothing
+   * here would work. Sent back to the number rather than left on six boxes that
+   * can never be right.
+   */
   useEffect(() => {
-    const id = setInterval(() => {
-      setResendIn((s) => (s > 0 ? s - 1 : 0));
-      setAge((s) => s + 1);
-    }, 1000);
-    return () => clearInterval(id);
-  }, []);
+    if (!pendingPhone) setCode('');
+  }, [pendingPhone]);
 
-  useEffect(() => () => {
-    if (verifyTimer.current) clearTimeout(verifyTimer.current);
-  }, []);
+  if (!pendingPhone) return <Redirect href="/login" />;
 
-  const complete = code.length === CODE_LENGTH;
-  const expired = age >= CODE_TTL;
+  const complete = code.length === otpLength;
 
-  const verify = () => {
-    if (!complete || verifying) return;
-    setVerifying(true);
+  const verify = async () => {
+    if (!complete || isSubmitting) return;
     setToast(null);
 
-    verifyTimer.current = setTimeout(() => {
-      setVerifying(false);
-      if (expired) {
-        setInvalid(true);
-        setToast({ message: 'That code has expired. Request a new one.' });
-      } else if (code !== DEMO_CODE) {
-        setInvalid(true);
-        setToast({ message: "That code isn't right. Check the message and try again." });
-      } else {
-        router.replace('/profile-setup');
-      }
-    }, 1200);
+    const result = await verifyCode(code);
+
+    if (result.ok) {
+      /* Straight past setup for a returning owner who has already given their
+         name. Asking again on every login would be a form nobody can dismiss. */
+      router.replace(result.profileComplete ? '/' : '/profile-setup');
+      return;
+    }
+
+    setInvalid(true);
+    setResent(false);
+
+    if (result.reason === 'locked') {
+      setToast({ message: `Too many tries. Ask for a new code after ${result.unlocksAtLabel}.` });
+    } else if (result.reason === 'expired') {
+      setToast({ message: 'That code has expired. Request a new one.' });
+    } else if (result.reason === 'wrong') {
+      setToast({
+        message: result.attemptsLeft > 0
+          ? `That code isn't right — ${result.attemptsLeft} ${result.attemptsLeft === 1 ? 'try' : 'tries'} left.`
+          : "That code isn't right.",
+      });
+    } else {
+      setToast({ message: result.message });
+    }
   };
 
-  const resend = () => {
+  const resend = async () => {
+    /* Cleared here and only here: a new code makes whatever is in the boxes
+       wrong by definition, which is the one case where clearing is help. */
     setCode('');
     setInvalid(false);
     setToast(null);
-    setResendIn(RESEND_AFTER);
-    setAge(0);
-    setResent(true);
+
+    const result = await resendCode();
+    if (result === 'sent') setResent(true);
+    else setToast({ message: 'We could not send another code just yet.' });
   };
 
-  const display = phone ? formatPhone(phone.replace(/\D/g, '')) : '98765 43210';
+  /* The server's own masking of the number it actually messaged. Echoing what
+     was typed would hide a normalisation the server did. */
+  const display = pendingPhoneMasked ?? formatPhone(pendingPhone.replace(/\D/g, '').slice(-10));
 
   return (
-    <Screen scroll={false} padX={24} contentStyle={styles.fill}>
-      {toast ? <Toast message={toast.message} tone="error" onDismiss={() => setToast(null)} /> : null}
-
-      <View style={styles.backRow}>
-        {router.canGoBack() ? (
+    <Screen
+      scroll={false}
+      padX={24}
+      contentStyle={styles.fill}
+      stickyHeader={
+        <View style={styles.backRow}>
+          {/* Back is the number field, which is exactly where somebody who
+              mistyped it needs to go — and it abandons the code in flight
+              rather than leaving a half-finished sign-in behind. */}
           <IconButton
             name="chevron-left"
             label="Go back"
-            color={verifying ? c.textTertiary : c.textPrimary}
-            onPress={() => router.back()}
+            color={isSubmitting ? c.textTertiary : c.textPrimary}
+            onPress={() => {
+              changeNumber();
+              if (router.canGoBack()) router.back();
+              else router.replace('/login');
+            }}
           />
-        ) : null}
-      </View>
+        </View>
+      }
+    >
+      {/* Stays in the body: a toast belongs over the content it is about, not
+          wedged into the header above it. */}
+      {toast ? <Toast message={toast.message} tone="error" onDismiss={() => setToast(null)} /> : null}
 
       <Text variant="pageTitleSm" style={styles.title}>
         Verify your number
       </Text>
       <Text variant="bodySm" color="textSecondary" style={styles.subtitle}>
-        Enter the {CODE_LENGTH}-digit code sent to +91 {display}
+        Enter the {otpLength}-digit code sent to {display}
       </Text>
 
       <OTPInput
@@ -119,9 +168,9 @@ export default function OtpScreen() {
           setCode(next);
           if (invalid) setInvalid(false);
         }}
-        length={CODE_LENGTH}
+        length={otpLength}
         invalid={invalid}
-        disabled={verifying}
+        disabled={isSubmitting}
         autoFocus
       />
 
@@ -147,10 +196,10 @@ export default function OtpScreen() {
       <View style={styles.spacer} />
 
       <Button
-        label={verifying ? 'Verifying…' : 'Verify'}
+        label={isSubmitting ? 'Verifying…' : 'Verify'}
         onPress={verify}
-        loading={verifying}
-        disabled={!complete}
+        loading={isSubmitting}
+        disabled={!complete || isSubmitting}
       />
     </Screen>
   );

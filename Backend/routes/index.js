@@ -31,6 +31,11 @@
      /api/scraper        → v2
      /api/health         → shared
 
+   /customers, /support and /partners are deliberately NOT in that list, bare
+   or /api-prefixed. All three are new — no frontend was ever written against
+   an unversioned form of any of them — and an alias exists to keep old callers
+   working, not to give new ones a second spelling to drift onto.
+
    ── One webhook, two workflows ──────────────────────────────────────────
    /api/whatsapp/webhook is the only Twilio inbound URL and stays where it
    is. Two unrelated business flows arrive through it and are told apart by
@@ -66,6 +71,9 @@ const v2PropertyRoutes = require('../src/modules/properties/property.routes.v2')
 const v2AuthRoutes = require('../src/modules/auth/auth.routes');
 const v2UserRoutes = require('../src/modules/users/user.routes');
 const v2ScraperRoutes = require('../src/modules/scraper/scraper.routes');
+const v2CustomerRoutes = require('../src/modules/customers/customer.routes');
+const v2SupportRoutes = require('../src/modules/support/ticket.routes');
+const v2PartnerRoutes = require('../src/modules/partners/partner.routes');
 
 /* [mount path, router, one-line description]. The description is what the
    banner and GET /api print, so it is worth keeping accurate. */
@@ -93,6 +101,20 @@ const V2_GROUPS = [
   ['/auth', v2AuthRoutes, 'leads panel + onboarding employee login'],
   ['/users', v2UserRoutes, 'leads panel team management'],
   ['/scraper', v2ScraperRoutes, 'Google Maps lead scraping, leads, exports'],
+  /* The mobile app's own accounts — students, in `app_customers`. A THIRD
+     identity system, and separate from /auth above on purpose: that one is
+     staff, with an email, a password and a role. See customer.model.js. */
+  ['/customers', v2CustomerRoutes, 'mobile app accounts: phone + one-time code, profile'],
+  /* Support tickets and safety reports from the app. Its own group rather
+     than a branch of /customers because a ticket has its own collection, its
+     own lifecycle and a reader who is not the customer — the same reason
+     /visit-requests is not under /customers either. */
+  ['/support', v2SupportRoutes, 'mobile app support tickets and safety reports'],
+  /* Property owners, in `app_partners`. A FOURTH identity system — see
+     partnerAuth.middleware.js. Their properties and their customers' visit
+     requests are scoped by the phone number they proved, which is the same
+     number the onboarding flow already recorded on the property. */
+  ['/partners', v2PartnerRoutes, 'Stay Partner app: owner accounts, their properties and visit requests'],
 ];
 
 /* Which version answers each unversioned path, and whether it also answers

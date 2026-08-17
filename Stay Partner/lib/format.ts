@@ -106,8 +106,10 @@ export function parseDateInput(digits: string): Date | null {
 }
 
 /** Initials for an avatar: "Priya Nair" -> "PN". */
-export function initials(name: string): string {
+export function initials(name?: string): string {
+  if (!name || typeof name !== 'string') return '?';
   return name
+    .trim()
     .split(/\s+/)
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? '')

@@ -80,8 +80,12 @@ export function sendFailureCopy(
     case 'smsProvider':
       return {
         headline: "The SMS didn't send",
-        body: 'Our SMS provider rejected it, not your number. Try again, or use WhatsApp instead.',
-        action: 'Get the code on WhatsApp',
+        /* The WhatsApp offer that used to be here is gone: codes go over the
+           DLT-registered SMS gateway, and the Twilio number in this system
+           messages property owners on templates approved for something else.
+           There was nothing behind the button. */
+        body: 'Our SMS provider rejected it, not your number. Please try again in a moment.',
+        action: 'Try again',
       };
     case 'offline':
       return {

@@ -41,10 +41,16 @@ export default function SupportTicketsScreen() {
   }, [filter, revision]);
 
   return (
-    <Screen contentStyle={styles.stack}>
-      <View style={styles.backRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-      </View>
+    <Screen
+      contentStyle={styles.stack}
+      stickyHeader={
+        <>
+          <View style={styles.backRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+          </View>
+        </>
+      }
+    >
 
       <View style={styles.head}>
         <Text variant="screenTitle">Support</Text>
@@ -131,6 +137,6 @@ const styles = StyleSheet.create({
   subject: { flex: 1, fontSize: 14, lineHeight: 19 },
   dot: { width: 7, height: 7, borderRadius: 3.5, marginTop: 5, flexShrink: 0 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  metaText: { fontSize: 11.5 },
+  metaText: { fontSize: 12 },
   empty: { minHeight: 260, borderRadius: radius.card },
 });

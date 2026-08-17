@@ -56,26 +56,30 @@ export default function ActiveStayScreen() {
   return (
     <Screen
       padX={22}
-      contentStyle={styles.fill}
-      footer={
-        departsToday ? (
-          <Button
-            label="Confirm checkout"
-            onPress={() =>
-              router.push({ pathname: '/booking/checkout', params: { id: booking.id } })
+            contentStyle={styles.fill}
+            footer={
+              departsToday ? (
+                <Button
+                  label="Confirm checkout"
+                  onPress={() =>
+                    router.push({ pathname: '/booking/checkout', params: { id: booking.id } })
+                  }
+                />
+              ) : (
+                <Button
+                  label={`Checkout available ${MONTHS[booking.checkOut.getMonth()]} ${booking.checkOut.getDate()}`}
+                  disabled
+                />
+              )
             }
-          />
-        ) : (
-          <Button
-            label={`Checkout available ${MONTHS[booking.checkOut.getMonth()]} ${booking.checkOut.getDate()}`}
-            disabled
-          />
-        )
+      stickyHeader={
+        <>
+          <View style={styles.backRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+          </View>
+        </>
       }
     >
-      <View style={styles.backRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-      </View>
 
       <View style={styles.guestRow}>
         <View style={[styles.avatar, { backgroundColor: c.accentTint }]}>
@@ -100,7 +104,7 @@ export default function ActiveStayScreen() {
           accessibilityRole="progressbar"
           accessibilityValue={{ min: 0, max: totalDays, now: currentDay }}
         >
-          <View style={[styles.fill, { width: `${ratio * 100}%`, backgroundColor: c.accent }]} />
+          <View style={[styles.trackFill, { width: `${ratio * 100}%`, backgroundColor: c.accent }]} />
         </View>
         <Text style={[styles.checkoutLine, { color: c.accentInk }]}>
           Checkout {formatDayDate(booking.checkOut)} · {booking.checkOutBy}
@@ -108,16 +112,13 @@ export default function ActiveStayScreen() {
       </View>
 
       <View style={styles.shortcuts}>
-        {/* No message thread exists in the design set; this stays inert. */}
-        <Shortcut icon="message" label="Message" onPress={() => {}} />
         <Shortcut
-          icon="calendar"
-          label="Booking"
-          onPress={() => router.push({ pathname: '/booking/[id]', params: { id: booking.id } })}
+          icon="message"
+          label="Message guest"
+          onPress={() => router.push({ pathname: '/support', params: { topic: 'guest' } })}
         />
+        <Shortcut icon="checkout" label="Checkout" onPress={openCheckout} />
       </View>
-
-      <View style={styles.spacer} />
     </Screen>
   );
 }
@@ -136,12 +137,17 @@ function Shortcut({
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
+      accessibilityLabel={label}
       style={({ pressed }) => [
         styles.shortcut,
-        { borderColor: c.borderCard, opacity: pressed ? 0.7 : 1 },
+        {
+          borderColor: c.borderCard,
+          backgroundColor: c.surface,
+          opacity: pressed ? 0.75 : 1,
+        },
       ]}
     >
-      <Icon name={icon} size={17} color={c.accent} />
+      <Icon name={icon} size={18} color={c.textPrimary} />
       <Text variant="badge" style={styles.shortcutLabel}>
         {label}
       </Text>
@@ -150,7 +156,7 @@ function Shortcut({
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1 },
+  container: { flex: 1 },
   backRow: { height: 44, justifyContent: 'center', marginLeft: -10, marginBottom: 6 },
   guestRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
   avatar: {
@@ -161,14 +167,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   avatarText: { fontFamily: fonts.bold, fontSize: 15, lineHeight: 20 },
-  guestName: { fontFamily: fonts.bold, fontSize: 17, lineHeight: 22 },
+  guestName: { fontFamily: fonts.bold, fontSize: 16, lineHeight: 22 },
   roomType: { fontSize: 12, marginTop: 1 },
   badge: { marginBottom: 20 },
 
   progressCard: { borderRadius: radius.card, padding: 16, marginBottom: 16, gap: 8 },
   track: { height: 6, borderRadius: 3, overflow: 'hidden' },
-  fill: { height: '100%', borderRadius: 3 },
-  checkoutLine: { fontFamily: fonts.medium, fontSize: 12.5, lineHeight: 17 },
+  trackFill: { height: '100%', borderRadius: 3 },
+  checkoutLine: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 17 },
 
   shortcuts: { flexDirection: 'row', gap: 10 },
   shortcut: {
@@ -181,6 +187,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
   },
-  shortcutLabel: { fontSize: 11.5 },
+  shortcutLabel: { fontSize: 12 },
   spacer: { flex: 1 },
 });

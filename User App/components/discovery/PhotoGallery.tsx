@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -32,6 +33,19 @@ export type PhotoGroup = {
   /** "Two-sharing room", "Mess & kitchen", "Bathroom". */
   label: string;
   count: number;
+  /**
+   * The photographs themselves, in order.
+   *
+   * Optional, and where it is absent the tinted placeholders below are drawn
+   * instead — which is what this gallery did for every group until listings
+   * came from the database. The onboarding upload puts Cloudinary URLs on the
+   * property document; nothing groups them by room yet, so a real listing
+   * arrives as one group holding all of them.
+   *
+   * `count` stays the count. A group may know it has eighteen photographs and
+   * have been handed four.
+   */
+  uris?: readonly string[];
 };
 
 export type PhotoGalleryProps = {
@@ -108,15 +122,27 @@ export function PhotoGallery({
         >
           {Array.from({ length: group.count }, (_, index) => {
             const [from, to] = PLACEHOLDERS[index % PLACEHOLDERS.length];
+            const uri = group.uris?.[index];
             return (
               <View
                 key={index}
                 style={{ width, flex: 1, backgroundColor: from, alignItems: 'center', justifyContent: 'center' }}
               >
-                <View style={[StyleSheet.absoluteFill, { backgroundColor: to, opacity: 0.5 }]} />
-                <Text variant="numMeta" style={{ color: colors.onGraphiteMuted }}>
-                  {group.label} · {index + 1}
-                </Text>
+                {uri ? (
+                  /* `contain`, not `cover`. This is the screen somebody opens
+                     to judge a room before spending a deposit on it, and a
+                     cropped photograph is the wrong trade at that moment —
+                     letterboxing costs nothing here, where the ground is
+                     already dark. */
+                  <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="contain" />
+                ) : (
+                  <>
+                    <View style={[StyleSheet.absoluteFill, { backgroundColor: to, opacity: 0.5 }]} />
+                    <Text variant="numMeta" style={{ color: colors.onGraphiteMuted }}>
+                      {group.label} · {index + 1}
+                    </Text>
+                  </>
+                )}
               </View>
             );
           })}

@@ -12,6 +12,8 @@ import { getBooking } from '@/lib/bookings';
  * arrives pre-satisfied is decoration, so these start empty and Confirm waits
  * for both — the point is that the owner has actually looked.
  */
+import { checkOutBookingApi } from '@/services/api/domain.api';
+
 export default function CheckoutSheet() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -22,6 +24,13 @@ export default function CheckoutSheet() {
 
   const ready = inspected && keyReturned;
   const close = () => router.back();
+
+  const handleCheckout = async () => {
+    if (id) {
+      await checkOutBookingApi(id).catch(() => {});
+    }
+    router.replace('/bookings');
+  };
 
   return (
     <>
@@ -37,7 +46,7 @@ export default function CheckoutSheet() {
             <Button label="Not yet" variant="secondary" onPress={close} style={styles.action} />
             <Button
               label="Confirm checkout"
-              onPress={() => router.replace('/bookings')}
+              onPress={handleCheckout}
               disabled={!ready}
               style={styles.action}
             />

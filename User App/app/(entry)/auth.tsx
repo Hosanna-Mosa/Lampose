@@ -1,46 +1,34 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import {
-  Button,
-  InlineAlert,
-  OtpInput,
-  SegmentedControl,
-  Text,
-  TextField,
-  type OtpState,
-} from '@/components/ui';
+import { Button, InlineAlert, SegmentedControl, Text, TextField } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
-import { MAX_SMS_SENDS, useAuth } from '@/context/AuthContext';
-import { useReduceMotion, useTheme } from '@/context/ThemeContext';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
+import { useAuth } from '@/context/AuthContext';
+import { useTheme } from '@/context/ThemeContext';
 import { isValidIndianMobile, phoneError, sendFailureCopy } from '@/types/auth';
 
 /**
- * Sign in and sign up, on one screen.
+ * Who you are and how to reach you. The code is the screen after this one.
  *
  * The two paths differ by two fields, not by two screens: signing up adds a
  * name and an optional email above the number. A toggle at the top says which
  * you are doing, so nothing is guessed from the number.
  *
- * The one thing that cannot collapse is order — a code cannot be typed before
- * it has been sent. So the screen reveals in two beats, and the code appears
- * directly beneath the number it was sent to rather than at the bottom of the
- * form, where it would be separated from the thing it verifies.
+ * ## The code moved to its own screen
  *
- * "Change number" is not a link here. The field is on screen, so editing it is
- * how you change it — and doing so discards the code that was sent to the old
- * one, because a code is bound to a number.
+ * It used to appear inline, below the number, on a second beat. The reasoning
+ * was that a code belongs next to the thing it verifies — which is true, and
+ * was outweighed by what actually happened on a phone: the boxes were the
+ * fourth control on a scrolling form, they appeared below the fold with the
+ * numeric keyboard already covering that half of the screen, and they could
+ * not be reached or typed into.
  *
- * The rules the separate OTP screen carried are unchanged:
- *
- *  - A wrong code does NOT clear the boxes. One mistyped digit should be
- *    fixable, not retyped from scratch on a bus.
- *  - The resend cooldown resets on a resend, never on a wrong code.
- *  - A lockout is on the code, not the person — the number stays editable.
+ * A screen of its own has one job, one control, and nothing above it to
+ * scroll past. `(entry)/verify.tsx`.
  */
 
 const MODES = ['Sign in', 'Sign up'] as const;
@@ -50,18 +38,8 @@ export default function AuthScreen() {
   const { colors, space, layout, mode: themeMode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const reduceMotion = useReduceMotion();
 
-  const {
-    config,
-    sendCode,
-    resendCode,
-    verifyCode,
-    isSubmitting,
-    sendFailure,
-    resendIn,
-    sendCount,
-  } = useAuth();
+  const { sendCode, isSubmitting, sendFailure, failureMessage, resendIn } = useAuth();
 
   /** Where to return once signed in — set by whatever triggered the gate. */
   const { next } = useLocalSearchParams<{ next?: string }>();
@@ -72,75 +50,50 @@ export default function AuthScreen() {
   const [digits, setDigits] = useState('');
   const [touched, setTouched] = useState(false);
 
-  const [codeSent, setCodeSent] = useState(false);
-  const [code, setCode] = useState('');
-  const [otpState, setOtpState] = useState<OtpState>('idle');
-  const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null);
-  const [lockedLabel, setLockedLabel] = useState<string | null>(null);
-
   const signingUp = mode === 'Sign up';
   const numberValid = isValidIndianMobile(digits);
   const numberError = touched ? phoneError(digits) : undefined;
   const nameReady = !signingUp || name.trim().length > 1;
 
-  /** Editing the number discards the code — a code belongs to one number. */
   const changeNumber = (value: string) => {
     setDigits(value.replace(/[^0-9]/g, '').slice(0, 10));
-    if (codeSent) {
-      setCodeSent(false);
-      setCode('');
-      setOtpState('idle');
-      setAttemptsLeft(null);
-      setLockedLabel(null);
-    }
   };
 
-  const send = async (channel: 'sms' | 'whatsapp' = 'sms') => {
+  const send = async () => {
     setTouched(true);
-    if (!numberValid) return;
-    const sent = await sendCode(`+91${digits}`, channel);
-    if (sent) setCodeSent(true);
+    if (!numberValid || !nameReady) return;
+
+    const result = await sendCode(
+      `+91${digits}`,
+      signingUp ? { name: name.trim(), email: email.trim() } : undefined,
+    );
+
+    /*
+     * `pending` advances too.
+     *
+     * It means the server refused because it sent a code moments ago — so one
+     * is already in the student's messages, and holding them on this form to
+     * wait out a cooldown for a code they can read right now would be
+     * perverse. Only an outright failure keeps them here, where the alert
+     * below says what went wrong.
+     */
+    if (result === 'failed') return;
+
+    router.push({
+      pathname: '/(entry)/verify',
+      /* `next` rides along so a deep link into a listing still survives the
+         sign-in, now that there is a screen between here and the router. */
+      params: next ? { next } : undefined,
+    } as never);
   };
 
-  const submit = async (value: string) => {
-    if (!nameReady) return;
-    setOtpState('verifying');
-    const result = await verifyCode(value, signingUp ? { name, email } : undefined);
-
-    if (result.ok) {
-      /*
-       * Back to the router, not straight to home.
-       *
-       * Auth is now the FIRST gate rather than an interruption, so the two
-       * entry questions still have to run after it. `/` re-evaluates the whole
-       * chain — locality, then category, then home — and lands wherever the
-       * student actually is. Replacing with '/home' here would skip both and
-       * drop them into a feed with no locality and no category.
-       *
-       * `next` is still honoured, because a deep link into a specific listing
-       * should survive the sign-in.
-       */
-      router.replace(next ? (next as never) : '/');
-      return;
-    }
-    if (result.reason === 'locked') {
-      setLockedLabel(result.unlocksAtLabel);
-      setOtpState('error');
-      return;
-    }
-    setAttemptsLeft(result.attemptsLeft);
-    setOtpState('error');
-  };
-
-  const codeError = lockedLabel
-    ? `Too many wrong tries. Try again after ${lockedLabel}, or use a different number.`
-    : attemptsLeft !== null
-      ? `That code is wrong — ${attemptsLeft} ${attemptsLeft === 1 ? 'try' : 'tries'} left.`
-      : undefined;
-
-  const failure = sendFailure ? sendFailureCopy(sendFailure, { retryAfterLabel: '9:41' }) : null;
-  const whatsappOffered = sendCount >= MAX_SMS_SENDS;
-  const canSubmit = codeSent && code.length === config.otpLength && nameReady && !lockedLabel;
+  /* The retry label is the server's remaining cooldown, not a fixed clock
+     time. It used to be the literal string '9:41'. */
+  const failure = sendFailure
+    ? sendFailureCopy(sendFailure, {
+        retryAfterLabel: resendIn > 0 ? `${resendIn} seconds` : 'a few minutes',
+      })
+    : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -150,13 +103,20 @@ export default function AuthScreen() {
           who arrived here from a deep link can still go back. */}
       <StandardHeader title="" onBack={router.canGoBack() ? () => router.back() : undefined} />
 
-      <ScrollView
+      {/* The mobile number is the third field on the sign-up path, below the
+          name and the email, and on a 6" phone it sits under the keyboard the
+          moment it is focused — which is where this screen was being typed
+          into blind. */}
+      <KeyboardAwareScrollViewCompat
         contentContainerStyle={{
           paddingHorizontal: layout.gutter,
+          /* Every other screen opens its scroll body on a gutter. Without one
+             the headline sits flush against the header's hairline and the two
+             read as a single squashed block. */
+          paddingTop: space[4],
           paddingBottom: insets.bottom + space[8],
           gap: space[5],
         }}
-        keyboardShouldPersistTaps="handled"
       >
         <View style={{ gap: space[2] }}>
           <Text variant="display2">
@@ -219,64 +179,20 @@ export default function AuthScreen() {
           placeholder="98490 12345"
           maxLength={10}
           error={numberError}
-          helper={
-            codeSent
-              ? 'Editing this sends a new code.'
-              : `We'll send a ${config.otpLength}-digit code to this number.`
-          }
+          helper="We'll send a code to this number on the next screen."
         />
 
-        {/* The code sits directly under the number it was sent to. */}
-        {codeSent ? (
-          <Animated.View
-            entering={reduceMotion ? FadeIn.duration(120) : FadeIn.duration(240)}
-            style={{ gap: space[3] }}
-          >
-            <OtpInput
-              value={code}
-              onChange={(nextCode) => {
-                setCode(nextCode);
-                if (otpState === 'error' && !lockedLabel) setOtpState('idle');
-              }}
-              length={config.otpLength}
-              state={otpState}
-              errorMessage={codeError}
-              onComplete={submit}
-              autoFocus
-            />
-
-            {lockedLabel ? (
-              <InlineAlert
-                tone="warning"
-                title="Code locked"
-                body={`Three wrong tries, so we have paused this code until ${lockedLabel}. The lock is on the code, not on you — change the number above and start again now.`}
-              />
-            ) : resendIn > 0 ? (
-              <Text variant="caption" color="tertiary" style={styles.centred}>
-                You can ask for another code in {resendIn}s.
-              </Text>
-            ) : whatsappOffered ? (
-              // After three SMS sends, a fourth is unlikely to be the problem.
-              <Button
-                label="Get the code on WhatsApp"
-                variant="secondary"
-                onPress={() => resendCode('whatsapp')}
-                fullWidth
-              />
-            ) : (
-              <Button label="Resend the code" variant="ghost" onPress={() => resendCode('sms')} fullWidth />
-            )}
-          </Animated.View>
-        ) : null}
-
-        {/* Every failure names whose fault it is. */}
+        {/* Every failure names whose fault it is. The body is the server's own
+            sentence where it wrote one — it knows whether the gateway refused
+            the message or the number is blocked, and the generic copy does
+            not. */}
         {failure ? (
           <InlineAlert
             tone={sendFailure === 'rateLimited' ? 'warning' : 'error'}
             title={failure.headline}
-            body={failure.body}
+            body={failureMessage ?? failure.body}
             actionLabel={failure.action}
-            onAction={failure.action ? () => send('whatsapp') : undefined}
+            onAction={failure.action ? () => send() : undefined}
           />
         ) : null}
 
@@ -288,31 +204,21 @@ export default function AuthScreen() {
             </Text>
           ) : null}
 
-          {codeSent ? (
-            <Button
-              label={signingUp ? 'Create account' : 'Sign in'}
-              loadingLabel="Checking the code"
-              loading={isSubmitting}
-              disabled={!canSubmit}
-              onPress={() => submit(code)}
-              fullWidth
-            />
-          ) : (
-            <Button
-              label="Send code"
-              loadingLabel="Sending the code"
-              loading={isSubmitting}
-              disabled={!numberValid}
-              onPress={() => send('sms')}
-              fullWidth
-            />
-          )}
+          <Button
+            label="Send code"
+            loadingLabel="Sending the code"
+            loading={isSubmitting}
+            /* The name is a gate on the sign-up path: it is written in the
+               same request that proves the number, and the owner sees it on
+               a request. Letting the send through without one would create
+               the account nameless. */
+            disabled={!numberValid || !nameReady}
+            onPress={send}
+            fullWidth
+          />
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  centred: { textAlign: 'center' },
-});

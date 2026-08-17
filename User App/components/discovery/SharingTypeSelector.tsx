@@ -19,8 +19,36 @@ const TICK = { duration: 160, easing: easing.enter };
  * price they did not agree to.
  */
 export function defaultSharingSelection(options: readonly SharingOption[]): string | null {
-  const median = options.find((option) => option.median && option.bedsLeft > 0);
+  /* An unknown bed count does not disqualify the median choice — only a
+     known zero does. Reading `undefined > 0` as false would have meant no
+     listing from the live API ever pre-selects anything, because none of
+     them carry occupancy at all. */
+  const median = options.find((option) => option.median && option.bedsLeft !== 0);
   return median ? median.id : null;
+}
+
+/**
+ * What an option with no recorded price says instead of a number.
+ *
+ * Not "₹0" and not a blank. The panel prices sharing options separately from
+ * the listing and frequently leaves them empty, and this control's whole job
+ * is a price comparison — so an option it cannot price has to say which of
+ * the two it is, rather than looking like a free bed or a failed render.
+ */
+const PRICE_UNKNOWN = 'Price on request';
+
+/** What a screen reader says for the price. Never reads out a missing one. */
+function priceSpoken(option: SharingOption): string {
+  return option.pricePerPerson === undefined
+    ? PRICE_UNKNOWN
+    : `${formatRupees(option.pricePerPerson)} per person per month`;
+}
+
+/** "3 beds free", or nothing at all when occupancy was never recorded. */
+function bedsLine(option: SharingOption): string | null {
+  if (option.bedsLeft === undefined) return null;
+  if (option.bedsLeft === 0) return 'none free';
+  return `${option.bedsLeft} ${option.bedsLeft === 1 ? 'bed' : 'beds'} free`;
 }
 
 export type SharingTypeSelectorProps = {
@@ -64,7 +92,10 @@ export function SharingTypeSelector({ options, value, onChange, note }: SharingT
         >
           <Text variant="bodyStrong">{only.label}</Text>
           <Text variant="numMeta" color="secondary">
-            {formatRupees(only.pricePerPerson)} per person, per month · {only.bedsLeft} free
+            {only.pricePerPerson === undefined
+              ? PRICE_UNKNOWN
+              : `${formatRupees(only.pricePerPerson)} per person, per month`}
+            {bedsLine(only) ? ` · ${bedsLine(only)}` : ''}
           </Text>
         </View>
         {note ? (
@@ -97,7 +128,14 @@ export function SharingTypeSelector({ options, value, onChange, note }: SharingT
             key={option.id}
             option={option}
             selected={option.id === value}
-            delta={option.pricePerPerson - reference.pricePerPerson}
+            /* Only comparable when both sides carry a price. Treating an
+               unpriced option as zero produced a "−₹14,500 cheaper" line
+               against a bed whose price nobody has told us. */
+            delta={
+              option.pricePerPerson !== undefined && reference.pricePerPerson !== undefined
+                ? option.pricePerPerson - reference.pricePerPerson
+                : null
+            }
             first={index === 0}
             onSelect={() => onChange(option.id)}
           />
@@ -122,13 +160,17 @@ function SharingRow({
 }: {
   option: SharingOption;
   selected: boolean;
-  delta: number;
+  /** `null` when either side of the comparison has no price. */
+  delta: number | null;
   first: boolean;
   onSelect: () => void;
 }) {
   const { colors, space, touch } = useTheme();
   const reduceMotion = useReduceMotion();
+  /* Strictly zero. `undefined` is "never recorded", and treating that as sold
+     out would grey out every row of every listing the live API returns. */
   const soldOut = option.bedsLeft === 0;
+  const beds = bedsLine(option);
 
   const progress = useDerivedValue(() => withTiming(selected ? 1 : 0, TICK), [selected]);
 
@@ -168,26 +210,41 @@ function SharingRow({
         <Text variant={selected ? 'bodyStrong' : 'bodyLg'} color={soldOut ? 'tertiary' : 'primary'}>
           {option.label}
         </Text>
-        <Text variant="numMeta" color={soldOut ? 'tertiary' : 'secondary'}>
-          {soldOut
-            ? 'none free'
-            : `${option.bedsLeft} ${option.bedsLeft === 1 ? 'bed' : 'beds'} free`}
-          {option.depositMonths ? ` · ${option.depositMonths} mo deposit` : ''}
-        </Text>
+        {/* The whole line disappears when there is neither a bed count nor a
+            deposit to state. An empty sub-line under every row is worse than
+            a tighter row: it reads as a value that failed to load. */}
+        {beds || option.depositMonths ? (
+          <Text variant="numMeta" color={soldOut ? 'tertiary' : 'secondary'}>
+            {beds ?? ''}
+            {beds && option.depositMonths ? ' · ' : ''}
+            {option.depositMonths ? `${option.depositMonths} mo deposit` : ''}
+          </Text>
+        ) : null}
       </View>
 
       <View style={styles.priceCol}>
-        <Text variant="priceSm" color={soldOut ? 'tertiary' : 'primary'}>
-          {formatRupees(option.pricePerPerson)}
-        </Text>
-        {/* The unit is repeated on every row. The header is not enough — a
-            user scrolling a list reads one row, not the column head. */}
-        <Text variant="numMeta" color="tertiary">
-          per person / mo
-        </Text>
+        {option.pricePerPerson === undefined ? (
+          /* Smaller and quieter than a price, because it is not one. Reusing
+             the price type here would make an unpriced row the loudest thing
+             in the column. */
+          <Text variant="numMeta" color="tertiary">
+            {PRICE_UNKNOWN}
+          </Text>
+        ) : (
+          <>
+            <Text variant="priceSm" color={soldOut ? 'tertiary' : 'primary'}>
+              {formatRupees(option.pricePerPerson)}
+            </Text>
+            {/* The unit is repeated on every row. The header is not enough — a
+                user scrolling a list reads one row, not the column head. */}
+            <Text variant="numMeta" color="tertiary">
+              per person / mo
+            </Text>
+          </>
+        )}
         {/* The decision is comparative, so a cheaper option says how much
             cheaper rather than leaving the reader to subtract. */}
-        {!soldOut && delta < 0 ? (
+        {!soldOut && delta !== null && delta < 0 ? (
           <Text variant="numMeta" style={{ color: colors.success.ink }}>
             −{formatRupees(Math.abs(delta))}
           </Text>
@@ -198,7 +255,7 @@ function SharingRow({
 
   if (soldOut) {
     return (
-      <View accessible accessibilityLabel={`${option.label}, none free, ${formatRupees(option.pricePerPerson)} per person per month`}>
+      <View accessible accessibilityLabel={`${option.label}, none free, ${priceSpoken(option)}`}>
         {body}
       </View>
     );
@@ -209,7 +266,7 @@ function SharingRow({
       onPress={onSelect}
       accessibilityRole="radio"
       accessibilityState={{ selected, disabled: false }}
-      accessibilityLabel={`${option.label}, ${formatRupees(option.pricePerPerson)} per person per month, ${option.bedsLeft} free`}
+      accessibilityLabel={`${option.label}, ${priceSpoken(option)}${beds ? `, ${beds}` : ''}`}
       style={{ minHeight: touch.min }}
     >
       {body}

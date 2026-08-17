@@ -14,8 +14,10 @@ import {
   VerificationCodeField,
 } from '@/components/ui';
 import { ROOM_TYPES, type RoomType } from '@/lib/inventory';
-import { AADHAR_LENGTH, addCustomer, formatAadhar, type KYC } from '@/lib/requests';
+import { AADHAR_LENGTH, formatAadhar } from '@/lib/requests';
 import { formatDateInput, parseDateInput } from '@/lib/format';
+import { ApiError } from '@/services/api/client';
+import { createBooking, type KycImage } from '@/services/api/addCustomer.api';
 
 /**
  * Reached from Requests → Approved, for a guest the owner already knows —
@@ -38,20 +40,62 @@ export default function AddCustomerScreen() {
   const [guests, setGuests] = useState('');
   const [address, setAddress] = useState('');
   const [aadhar, setAadhar] = useState('');
-  const [uploaded, setUploaded] = useState(false);
+  /* Cloudinary results, not a boolean. The old `uploaded` flag was a tick the
+     owner set by tapping a dashed box, and the record simply asserted it. */
+  const [aadharImages, setAadharImages] = useState<KycImage[]>([]);
   const [verified, setVerified] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const checkIn = parseDateInput(checkInDigits);
   const checkOut = parseDateInput(checkOutDigits);
-  const rangeInvalid = Boolean(checkIn && checkOut && checkOut.getTime() <= checkIn.getTime());
 
-  const checkInError = checkInDigits.length === 8 && !checkIn ? 'Enter a valid date.' : undefined;
-  const checkOutError =
-    checkOutDigits.length === 8 && !checkOut
-      ? 'Enter a valid date.'
-      : rangeInvalid
-        ? 'Must be after check-in.'
-        : undefined;
+  /*
+   * A calendar-valid date is not the same as a plausible one.
+   *
+   * `parseDateInput` is already strict about the calendar — it rejects 31/02,
+   * 29/02 in a non-leap year, month 13, day 00. What it cannot judge is the
+   * YEAR, and that is where the typo people actually make lives: 2062 for
+   * 2026 is an ordinary-looking date thirty-six years out, and it used to save
+   * without a murmur.
+   *
+   * The same bounds are enforced server-side, which is the real check — these
+   * exist so the owner is told while they are still looking at the field
+   * rather than after pressing Save with a guest waiting.
+   */
+  const MAX_BACKDATE_DAYS = 365;
+  const MAX_FUTURE_DAYS = 730;
+  const MAX_STAY_DAYS = 365;
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const daysFromToday = (d: Date) => Math.round((d.getTime() - today.getTime()) / DAY_MS);
+
+  const checkInError = (() => {
+    if (checkInDigits.length !== 8) return undefined;
+    if (!checkIn) return 'Not a real date.';
+    const offset = daysFromToday(checkIn);
+    /* Backdating is allowed a year: logging a walk-in late is ordinary. */
+    if (offset < -MAX_BACKDATE_DAYS) return 'More than a year ago — check the year.';
+    if (offset > MAX_FUTURE_DAYS) return 'More than two years away — check the year.';
+    return undefined;
+  })();
+
+  const checkOutError = (() => {
+    if (checkOutDigits.length !== 8) return undefined;
+    if (!checkOut) return 'Not a real date.';
+    if (!checkIn) return undefined;
+    if (checkOut.getTime() <= checkIn.getTime()) return 'Must be after check-in.';
+    const stay = Math.round((checkOut.getTime() - checkIn.getTime()) / DAY_MS);
+    if (stay > MAX_STAY_DAYS) return 'Longer than a year — check the year.';
+    return undefined;
+  })();
+
+  /* One flag for the save gate, so a bounds failure blocks it exactly as a
+     malformed date does. */
+  const datesInvalid = Boolean(checkInError || checkOutError);
 
   const canSave =
     name.trim().length > 0 &&
@@ -59,37 +103,77 @@ export default function AddCustomerScreen() {
     roomType !== null &&
     Boolean(checkIn) &&
     Boolean(checkOut) &&
-    !rangeInvalid &&
+    !datesInvalid &&
     guests.trim().length > 0 &&
     address.trim().length > 0 &&
     aadhar.length === AADHAR_LENGTH &&
-    uploaded &&
-    verified;
+    aadharImages.length > 0 &&
+    verified &&
+    !saving;
 
-  const save = () => {
+  /** `YYYY-MM-DD` — date-only, so no timezone can shift a check-in by a day. */
+  const isoDay = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  /**
+   * Saves to the database.
+   *
+   * This used to call `addCustomer` from `lib/requests`, which pushed onto a
+   * fixture array in memory — the row appeared in the Approved list and was
+   * gone on the next launch, along with the Aadhar number and the address
+   * somebody had just read out.
+   *
+   * Nothing is optimistic. The record carries identity documents and a
+   * verified phone number, and an owner who believes a walk-in is logged when
+   * it is not is how a guest is turned away at the door.
+   */
+  const save = async () => {
     if (!canSave || !roomType || !checkIn || !checkOut) return;
-    const kyc: KYC = { address: address.trim(), aadharNumber: aadhar, aadharUploaded: uploaded, verified };
-    addCustomer({
-      guest: name.trim(),
-      phone,
-      roomType,
-      checkIn,
-      checkOut,
-      guests: guests.trim(),
-      kyc,
-    });
-    router.back();
+    setSaving(true);
+    setError(null);
+    try {
+      await createBooking({
+        guestName: name.trim(),
+        guestPhone: `+91${phone}`,
+        shareType: roomType,
+        checkInDate: isoDay(checkIn),
+        checkOutDate: isoDay(checkOut),
+        guestsLabel: guests.trim(),
+        address: address.trim(),
+        aadharNumber: aadhar,
+        aadharImages,
+      });
+      /*
+       * Into Customers, not back where they came from.
+       *
+       * `back()` returned to the Requests inbox, which does not show this
+       * record — so a form that had just succeeded looked like it had done
+       * nothing. `replace` rather than `push` so Back from Customers does not
+       * reopen a filled-in form that has already been saved.
+       */
+      router.replace('/customers');
+    } catch (err) {
+      /* The server's own sentence: it is the only thing that knows whether the
+         verification had expired or an image URL was refused. */
+      setError(err instanceof ApiError ? err.displayMessage : 'We could not save that.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <Screen
       padX={22}
-      contentStyle={styles.stack}
-      footer={<Button label="Save customer" onPress={save} disabled={!canSave} />}
+            contentStyle={styles.stack}
+            footer={<Button label={saving ? 'Saving…' : 'Save customer'} onPress={save} loading={saving} disabled={!canSave} />}
+      stickyHeader={
+        <>
+          <View style={styles.backRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+          </View>
+        </>
+      }
     >
-      <View style={styles.backRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-      </View>
 
       <Text variant="pageTitleSm" style={styles.title}>
         Add customer
@@ -180,10 +264,16 @@ export default function AddCustomerScreen() {
         containerStyle={styles.field}
       />
       <View style={styles.field}>
-        <AadharUploadTile uploaded={uploaded} onToggle={() => setUploaded((u) => !u)} />
+        <AadharUploadTile images={aadharImages} onChange={setAadharImages} />
       </View>
 
       <VerificationCodeField phone={phone} verified={verified} onVerifiedChange={setVerified} />
+
+      {error ? (
+        <Text variant="badge" color="error" style={styles.saveError}>
+          {error}
+        </Text>
+      ) : null}
     </Screen>
   );
 }
@@ -197,4 +287,5 @@ const styles = StyleSheet.create({
   field: { marginBottom: 16 },
   row: { flexDirection: 'row', gap: 12 },
   half: { flex: 1, marginBottom: 16 },
+  saveError: { marginTop: 12 },
 });

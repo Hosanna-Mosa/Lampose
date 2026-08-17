@@ -26,6 +26,8 @@ const PERMISSION_ROWS: { key: keyof StaffPermissions; label: string }[] = [
  * a sheet — but the pieces are all reused: `PhoneField` from Login, `Chip`
  * from a dozen screens back, `Switch` from Settings two checkpoints ago.
  */
+import { inviteStaffApi } from '@/services/api/domain.api';
+
 export default function InviteStaffScreen() {
   const router = useRouter();
 
@@ -33,8 +35,7 @@ export default function InviteStaffScreen() {
   const [phone, setPhone] = useState('');
   const [phoneTouched, setPhoneTouched] = useState(false);
   const [role, setRole] = useState<RoleChip | null>(null);
-  // Defaults mirror the design's own example exactly, not a blank slate —
-  // whoever's inviting front-desk staff shouldn't have to turn bookings on.
+  const [saving, setSaving] = useState(false);
   const [permissions, setPermissions] = useState<StaffPermissions>({
     manageBookings: true,
     managePricing: false,
@@ -47,23 +48,40 @@ export default function InviteStaffScreen() {
       ? `Enter a valid ${PHONE_LENGTH}-digit mobile number.`
       : undefined;
 
-  const canSubmit = name.trim().length > 0 && phoneComplete && Boolean(role);
+  const canSubmit = name.trim().length > 0 && phoneComplete && Boolean(role) && !saving;
 
-  const submit = () => {
+  const submit = async () => {
     if (!role || !canSubmit) return;
-    addStaffMember({ name: name.trim(), role, permissions });
-    router.replace('/staff');
+    setSaving(true);
+    try {
+      await inviteStaffApi({
+        name: name.trim(),
+        phone: `+91${phone}`,
+        role,
+        permissions: Object.keys(permissions).filter((k) => (permissions as any)[k]),
+      });
+      addStaffMember({ name: name.trim(), role, permissions });
+    } catch (err) {
+      console.warn('Failed to send staff invite:', err);
+    } finally {
+      setSaving(false);
+      router.replace('/staff');
+    }
   };
 
   return (
     <Screen
       padX={22}
-      contentStyle={styles.fill}
-      footer={<Button label="Send invite" onPress={submit} disabled={!canSubmit} />}
+            contentStyle={styles.fill}
+            footer={<Button label="Send invite" onPress={submit} disabled={!canSubmit} />}
+      stickyHeader={
+        <>
+          <View style={styles.backRow}>
+            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+          </View>
+        </>
+      }
     >
-      <View style={styles.backRow}>
-        <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-      </View>
 
       <Text variant="pageTitleSm" style={styles.title}>
         Invite staff

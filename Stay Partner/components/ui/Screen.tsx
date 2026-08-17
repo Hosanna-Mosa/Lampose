@@ -68,7 +68,29 @@ type ScreenProps = {
   padded?: boolean;
   /** Overrides the side margin. Auth and wizard screens use 24 rather than 20. */
   padX?: number;
+  /**
+   * Self-contained chrome pinned above the scroll — this is `TopHeader`'s slot.
+   * It owns its own safe-area inset, background and border, so it is rendered
+   * raw.
+   */
   header?: ReactNode;
+  /**
+   * A pinned header made of ordinary screen content — a back chevron, a title,
+   * an action or two.
+   *
+   * Separate from `header` because the two need opposite treatment. `TopHeader`
+   * is finished chrome and is rendered untouched; this is body JSX that happens
+   * to belong at the top, so `Screen` gives it the safe-area inset, the side
+   * margin and the background that the scrolling body would otherwise have
+   * given it.
+   *
+   * It exists because almost every screen in this app had its title and back
+   * button as the FIRST CHILDREN of the scroll view, which meant they scrolled
+   * away — you lost the way back the moment you moved down a list. Moving that
+   * JSX into this prop is the whole fix, and it keeps the padding and inset
+   * maths in one place rather than re-derived per screen.
+   */
+  stickyHeader?: ReactNode;
   /** Pinned to the bottom above the safe area — primary actions in wizards and forms. */
   footer?: ReactNode;
   /** Add bottom room for the tab bar. Screens inside (tabs) want this. */
@@ -88,6 +110,7 @@ export function Screen({
   padded = true,
   padX,
   header,
+  stickyHeader,
   footer,
   tabBarSpacing = false,
   background = 'surface',
@@ -117,16 +140,38 @@ export function Screen({
     </View>
   );
 
+  /* Either kind of pinned chrome means the body no longer owes the status bar
+     its inset — the header above has already taken it. */
+  const pinned = Boolean(header || stickyHeader);
+
   return (
     <View style={[styles.flex, { backgroundColor: bg }]}>
       {header}
+
+      {stickyHeader ? (
+        <View
+          style={[
+            styles.stickyHeader,
+            {
+              paddingTop: insets.top,
+              paddingHorizontal: padded ? padX ?? layout.screenX : 0,
+              /* Opaque, and it has to be: this sits over a scrolling list, and
+                 a transparent header would show rows sliding through the title. */
+              backgroundColor: bg,
+            },
+          ]}
+        >
+          {stickyHeader}
+        </View>
+      ) : null}
+
       {scroll ? (
         // Auto-scrolls a focused input above the keyboard — every form screen
         // gets this for free rather than each one re-solving it.
         <KeyboardAwareScrollViewCompat
           style={styles.flex}
           contentContainerStyle={{
-            paddingTop: header ? 16 : insets.top + 16,
+            paddingTop: pinned ? 16 : insets.top + 16,
             paddingBottom: footer ? 16 : bottomPad,
           }}
           bottomOffset={footer ? 90 : 20}
@@ -138,7 +183,7 @@ export function Screen({
         <View
           style={[
             styles.flex,
-            { paddingTop: header ? 16 : insets.top + 16, paddingBottom: footer ? 0 : bottomPad },
+            { paddingTop: pinned ? 16 : insets.top + 16, paddingBottom: footer ? 0 : bottomPad },
           ]}
         >
           {body(true)}
@@ -165,6 +210,11 @@ export function Screen({
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   padded: { paddingHorizontal: layout.screenX },
+  /* No border by default. Most of these headers are a chevron and a title on
+     the same ground as the body, and a hairline under them would draw a line
+     across a screen the design does not divide. A screen that wants one adds
+     it to its own header JSX. */
+  stickyHeader: { paddingBottom: 4 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -33,6 +33,9 @@ export { DirectionsButton, type DirectionsButtonProps } from './DirectionsButton
 
 export { PhotoGallery, type PhotoGalleryProps, type PhotoGroup } from './PhotoGallery';
 
+/** The detail screen's hero. Swipe-driven, and deliberately never automatic. */
+export { HeroCarousel, type HeroCarouselProps } from './HeroCarousel';
+
 export { SavedRow, type SavedRowProps, type SavedEntry } from './SavedRow';
 
 export {
