@@ -432,6 +432,14 @@ nav.scrolled .btn-nav-ghost:hover {
 nav.scrolled .hamburger span {
         background: var(--ink);
       }
+/* Eleven items at 30px did not fit a phone: the first and last links sat
+   under the navbar and off the bottom edge with no way to reach them. The
+   sheet now scrolls, and the type is sized so it normally does not have to.
+
+   `justify-content` stays `flex-start` on purpose — centring a column that
+   overflows its scroll container clips the top, which is the bug being
+   fixed. The auto margins below centre the stack only while there is spare
+   room, and collapse to zero the moment there is not. */
 .mob-menu {
         display: none;
         position: fixed;
@@ -440,15 +448,28 @@ nav.scrolled .hamburger span {
         background: var(--forest);
         flex-direction: column;
         align-items: center;
-        justify-content: center;
-        gap: 25px;
+        justify-content: flex-start;
+        gap: clamp(0.6rem, 2.2vh, 1rem);
+        padding:
+          calc(env(safe-area-inset-top, 0px) + 5.25rem) 1.25rem
+          calc(env(safe-area-inset-bottom, 0px) + 2rem);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
       }
 .mob-menu.open {
         display: flex;
       }
+.mob-menu > :first-child {
+        margin-top: auto;
+      }
+.mob-menu > :last-child {
+        margin-bottom: auto;
+      }
 .mob-menu a {
         font-family: var(--font-head);
-        font-size: 30px;
+        font-size: clamp(1.15rem, 5vw, 1.45rem);
+        line-height: 1.25;
         font-weight: 600;
         color: #f8f6f1;
         text-decoration: none;
@@ -458,6 +479,26 @@ nav.scrolled .hamburger span {
 .mob-menu a:hover {
         color: var(--amber-l);
       }
+.mob-menu .mob-menu__cta {
+        margin-top: 0.5rem;
+        font-size: 0.95rem;
+        padding: 0.7rem 1.75rem;
+      }
+/* Landscape phones and small windows: the links have to give up height
+   before the sheet starts scrolling. */
+@media (max-height: 640px) {
+  .mob-menu {
+    gap: 0.5rem;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 4.5rem);
+  }
+  .mob-menu a {
+    font-size: 1.05rem;
+  }
+  .mob-menu .mob-menu__cta {
+    font-size: 0.9rem;
+    padding: 0.6rem 1.5rem;
+  }
+}
 /* ══ New Light Hero Layout ═══════════════════════════════════════════════ */
 .hero-light-section {
   position: relative;

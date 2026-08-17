@@ -65,7 +65,7 @@ const PENDING_STATUSES = ['sent', 'pending', 'failed'];
  *  to this list so a caller can't use the pending path to smuggle in
  *  `isVerified` or the pre-generated `_id` itself. */
 const EDITABLE_PROPERTY_FIELDS = [
-  'name', 'place', 'ownerName', 'ownerMobile', 'category', 'employeeEmail',
+  'name', 'place', 'ownerName', 'ownerMobile', 'ownerAltMobile', 'category', 'employeeEmail',
   'stayType', 'shortStayDuration', 'dailyPrice', 'longStayDuration', 'monthlyPrice',
   'rent', 'deposit', 'address', 'description', 'imageUrl', 'images', 'amenities', 'categoryDetails',
 ];
@@ -422,6 +422,7 @@ router.post('/', async (req, res) => {
       place,
       ownerName,
       ownerMobile,
+      ownerAltMobile,
       category,
       stayType,
       shortStayDuration,
@@ -446,7 +447,8 @@ router.post('/', async (req, res) => {
     console.log(`📍 Place / Location: "${place}"`);
     console.log(`🏷️  Category:         ${category} (${stayType || 'Long Stay'})`);
     console.log(`👤 Owner Name:       "${ownerName}"`);
-    console.log(`📞 Owner Mobile:     "${ownerMobile}"`);
+    console.log(`📞 Owner WhatsApp:   "${ownerMobile}"`);
+    console.log(`📱 Owner Mobile:     "${ownerAltMobile || '— not given —'}"`);
     console.log(`👨‍💼 Onboarded By:     "${assignedEmpEmail}"`);
     console.log(`💰 Pricing:          Monthly: ₹${monthlyPrice || rent || 0} | Daily: ₹${dailyPrice || 0} | Deposit: ₹${deposit || 0}`);
     console.log(`✨ Amenities:        ${Array.isArray(amenities) && amenities.length > 0 ? amenities.join(', ') : 'None'}`);
@@ -484,6 +486,9 @@ router.post('/', async (req, res) => {
       place,
       ownerName,
       ownerMobile,
+      /* Optional. Stored as '' rather than left undefined so every row has
+         the same shape whether or not the agent had a second number. */
+      ownerAltMobile: String(ownerAltMobile || '').trim(),
       category,
       employeeEmail: assignedEmpEmail !== 'N/A' ? assignedEmpEmail : '',
       stayType: stayType || 'Long Stay',
