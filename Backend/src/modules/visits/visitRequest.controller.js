@@ -26,6 +26,7 @@
    This flow is entirely separate from property verification. It never reads
    or writes VerificationRequest, and the word it listens for is AVAILABLE.
    ══════════════════════════════════════════════════════════════════════════ */
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 
 const Property = require('../properties/property.model');
@@ -39,14 +40,81 @@ const SIMPLE_PATH_CATEGORIES = ['Bachelor Room'];
 const { sendOtpSms, smsConfigProblem } = require('../../infrastructure/sms/sms');
 const {
   toE164, isIndianMobile, maskPhone,
-  sendVisitRequestMessage, sendVisitOutcomeMessage,
+  sendVisitRequestMessage, sendVisitOutcomeMessage, sendVisitConfirmationToCustomer,
 } = require('../../infrastructure/twilio/twilio');
 const {
   OTP_TTL_MS, OTP_MAX_ATTEMPTS, OTP_MAX_RESENDS, OTP_RESEND_COOLDOWN_MS,
   generateOtp, newSalt, hashOtp, verifyOtp,
 } = require('./otp.util');
 
-const VISIT_TTL_MS = 24 * 60 * 60 * 1000;
+/* ── Two different clocks, deliberately separate ───────────────────────────
+   These were one constant, and they must not be: it was used both for how
+   long the OWNER has to answer and for how long a CUSTOMER is blocked from
+   asking the same property again. Shortening the reply window to minutes
+   would otherwise have quietly shortened the anti-spam window to minutes
+   too, letting one person re-approach the same owner every few minutes. */
+
+/** How long the owner has to answer before the request lapses.
+    Five minutes by default — a client decision; tune without a deploy. */
+const OWNER_REPLY_WINDOW_MINUTES =
+  Math.max(1, Number(process.env.VISIT_REPLY_WINDOW_MINUTES) || 5);
+const OWNER_REPLY_WINDOW_MS = OWNER_REPLY_WINDOW_MINUTES * 60 * 1000;
+
+/** One approach per property per phone per day, answered or not. */
+const DUPLICATE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/* ── Visit reference ───────────────────────────────────────────────────────
+   Issued when the owner confirms, and sent to BOTH sides so they can match
+   it at the door.
+
+   The "LV-" prefix is not decoration. WhatsApp rejected the first version of
+   these templates with INCORRECT_CATEGORY: a bare six-digit number reads to
+   Meta's classifier as a login passcode, which may only be sent under the
+   AUTHENTICATION category — and that category forbids the property name,
+   address and dates this message exists to carry. Prefixed, it reads as what
+   it actually is: a booking reference, which is ordinary utility content.
+
+   Six digits behind the prefix, never trimmed, because it is read aloud at a
+   gate and must always be the same length. */
+const generateEntryPin = () => `LV-${String(crypto.randomInt(0, 1000000)).padStart(6, '0')}`;
+
+/** The choice the customer actually made, as one line: room, stay, price. */
+const describeSelection = (doc) => {
+  const intent = doc.intent || {};
+  const parts = [];
+
+  if (doc.sharing && doc.sharing.label) parts.push(doc.sharing.label);
+
+  if (intent.duration && intent.durationUnit) {
+    const unit = intent.duration === 1 ? intent.durationUnit.replace(/s$/, '') : intent.durationUnit;
+    parts.push(`${intent.stayType === 'short' ? 'short stay' : 'long stay'}, ${intent.duration} ${unit}`);
+  } else if (intent.stayType) {
+    parts.push(intent.stayType === 'short' ? 'short stay' : 'long stay');
+  }
+
+  if (intent.rateAmount && intent.rateUnit) {
+    parts.push(`₹${Number(intent.rateAmount).toLocaleString('en-IN')}/${intent.rateUnit}`);
+  } else if (doc.sharing && doc.sharing.price) {
+    parts.push(`₹${Number(doc.sharing.price).toLocaleString('en-IN')}/month`);
+  }
+
+  if (intent.totalAmount) parts.push(`total ₹${Number(intent.totalAmount).toLocaleString('en-IN')}`);
+
+  return parts.join(' · ');
+};
+
+/** The joining date in words, or the older free-text preference. */
+const describeJoiningDate = (doc) => {
+  const intent = doc.intent || {};
+  if (intent.joiningDate) {
+    const d = new Date(`${intent.joiningDate}T00:00:00Z`);
+    const when = d.toLocaleDateString('en-IN', {
+      day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+    });
+    return intent.flexibleJoin ? `${when} (flexible)` : when;
+  }
+  return [doc.preferredDate, doc.preferredTime].filter(Boolean).join(' at ') || '';
+};
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const OBJECT_ID = /^[0-9a-fA-F]{24}$/;
 
@@ -248,7 +316,7 @@ const createVisitRequest = async (req, res, next) => {
       listingId: String(listingId),
       'customer.phone': customerPhone,
       phoneVerifiedAt: { $ne: null },
-      createdAt: { $gt: new Date(Date.now() - VISIT_TTL_MS) },
+      createdAt: { $gt: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
     });
     if (recent >= 1) {
       return res.status(429).json({
@@ -374,12 +442,31 @@ const verifyVisitRequest = async (req, res, next) => {
       await doc.save();
     }
 
+    /* The address is not snapshotted on the request, so it is read from the
+       listing at send time. A listing that has since been removed simply
+       drops the line rather than blocking a verified customer's request. */
+    let listingAddress = '';
+    try {
+      const listing = await Property.findById(doc.listingId).select('address place').lean();
+      if (listing) {
+        listingAddress = listing.address && listing.place
+          && String(listing.address).toLowerCase().includes(String(listing.place).toLowerCase())
+          ? listing.address
+          : [listing.address, listing.place].filter(Boolean).join(', ');
+      }
+    } catch (err) {
+      console.warn('[visit-requests] Could not read the listing address:', err.message);
+    }
+
     const sent = await sendVisitRequestMessage({
       ownerMobile: doc.ownerMobile,
       ownerName: doc.ownerName,
       propertyName: doc.propertyName,
       customerName: doc.customer.name,
       sharingLabel: doc.sharing && doc.sharing.label,
+      address: listingAddress,
+      selectionSummary: describeSelection(doc),
+      joiningDate: describeJoiningDate(doc),
       /* The intent in words, built from what was actually recorded — an
          absent field drops out of the sentence rather than printing null.
          Falls back to the free-text preferences for older requests. */
@@ -401,7 +488,7 @@ const verifyVisitRequest = async (req, res, next) => {
 
     doc.status = 'pending_owner';
     doc.ownerMessageSid = sent.messageSid;
-    doc.expiresAt = new Date(Date.now() + VISIT_TTL_MS);
+    doc.expiresAt = new Date(Date.now() + OWNER_REPLY_WINDOW_MS);
     await doc.save();
 
     return res.json({ success: true, data: doc.toPublic() });
@@ -576,20 +663,84 @@ const handleAvailabilityReply = async ({ from, body, buttonPayload }) => {
       doc.decidedAt = new Date();
       doc.ownerReplyRaw = payload || text;
       await doc.save();
-      return `That visit request for ${what} expired before it was answered, so we have `
-        + 'let the customer know. Thank you for replying.';
+      /* The window is minutes long now, so an owner who taps late needs more
+         than "it expired" — they need to know the next one will also be
+         short, or they will keep missing them. The duration is read from the
+         same constant that sets the deadline, so the sentence cannot drift
+         out of step with the actual window. */
+      return `This visit request for ${what} has expired — it was not answered within `
+        + `${OWNER_REPLY_WINDOW_MINUTES} minutes, so we have let the customer know.\n\n`
+        + 'Please watch out for the next request and reply as soon as it arrives: '
+        + `requests stay open for only ${OWNER_REPLY_WINDOW_MINUTES} minutes.`;
     }
 
     doc.status = confirmed ? 'confirmed' : 'declined';
     doc.decidedAt = new Date();
     doc.ownerReplyRaw = payload || text;
+
+    /* The entry PIN exists only for a confirmed visit, and only once: a
+       second confirmation of the same request must not hand out a second
+       number, or the two sides end up holding different PINs and neither is
+       wrong. (The already-decided branch above normally catches a repeat, so
+       this guard is for the race where two taps arrive together.) */
+    if (confirmed && !doc.entryPin) {
+      doc.entryPin = generateEntryPin();
+      doc.entryPinIssuedAt = new Date();
+    }
+
     await doc.save();
+
+    /* Confirmed: only the CUSTOMER is messaged. The owner's copy used to go
+       out here too and arrived as a near-duplicate of the reply below, which
+       is what a live test showed — so the reply is now their single copy.
+       Fired without awaiting: the owner's decision is already saved, and
+       holding the webhook open on another Twilio call risks a timeout and a
+       retry of the whole tap. */
+    if (confirmed) {
+      let pinAddress = '';
+      try {
+        const listing = await Property.findById(doc.listingId).select('address place').lean();
+        if (listing) {
+          pinAddress = listing.address && listing.place
+            && String(listing.address).toLowerCase().includes(String(listing.place).toLowerCase())
+            ? listing.address
+            : [listing.address, listing.place].filter(Boolean).join(', ');
+        }
+      } catch (err) {
+        console.warn('[availability] Could not read the listing address for the PIN message:', err.message);
+      }
+
+      // Only where they opted in — WhatsApp will not carry a business message
+      // to someone who never wrote first, template or not.
+      if (doc.consentWhatsApp) {
+        sendVisitConfirmationToCustomer({
+          customerPhone: doc.customer.phone,
+          customerName: doc.customer.name,
+          propertyName: doc.propertyName,
+          address: pinAddress,
+          sharingLabel: doc.sharing && doc.sharing.label,
+          joiningDate: describeJoiningDate(doc),
+          pin: doc.entryPin,
+        }).then((result) => {
+          if (!result.success) {
+            console.error('[availability] Visit confirmation to customer failed:', result.error);
+            return;
+          }
+          VisitRequest.updateOne({ _id: doc._id }, { customerMessageSid: result.messageSid })
+            .catch((err) => console.error('[availability] Could not record the customer message SID:', err.message));
+        }).catch((err) => console.error('[availability] Visit confirmation send failed:', err.message));
+      }
+    }
 
     /* The customer's page is polling and will show this within seconds. The
        WhatsApp note is the courtesy on top, and only where they asked for it
        — so a failure is logged and dropped, never surfaced to the owner whose
-       reply was recorded perfectly well. */
-    if (doc.consentWhatsApp) {
+       reply was recorded perfectly well.
+
+       A confirmed visit already sends the PIN message above, which carries
+       the same news plus the code — so this plain outcome note is now only
+       for a decline. */
+    if (doc.consentWhatsApp && !confirmed) {
       sendVisitOutcomeMessage({
         customerPhone: doc.customer.phone,
         customerName: doc.customer.name,
@@ -609,9 +760,14 @@ const handleAvailabilityReply = async ({ from, body, buttonPayload }) => {
     console.log(`${confirmed ? '✅' : '❌'} [Availability] ${sender} marked ${what} `
       + `${confirmed ? 'available' : 'unavailable'} for ${doc.customer.name}.`);
 
+    /* The PIN is repeated in this reply as well as its own message. The
+       owner has just tapped a button and is looking at the chat right now,
+       and the separate template can be delayed or fail — this reply cannot,
+       because it is the response to their own inbound message. */
     return confirmed
-      ? `Thank you. We have told ${doc.customer.name} that ${what} is available, `
-        + 'and shared your number so they can arrange the visit.'
+      ? `Thank you. We have told ${doc.customer.name} that ${what} is available.\n\n`
+        + `Visit reference: ${doc.entryPin}\n\n`
+        + `${doc.customer.name} has the same reference number. Please ask them for it when they arrive and check that it matches.`
       : `Thank you. We have let ${doc.customer.name} know that ${what} is not `
         + 'available at the moment.';
   } catch (error) {

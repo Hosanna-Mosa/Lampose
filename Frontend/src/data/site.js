@@ -8,6 +8,7 @@ export const NAV_LINKS = [
   { label: 'Cities', to: '/cities' },
   { label: 'Partners', to: '/partners' },
   { label: 'Food', to: '/food' },
+  { label: 'Food Partner', to: '/food-partner' },
   { label: 'Download', to: '/download' },
   { label: 'Contact', to: '/contact' },
 ];
@@ -27,7 +28,7 @@ export const FOOTER_COLS = [
     title: 'Partners',
     links: [
       { label: 'Hostel Owners', to: '/partners' },
-      { label: 'Restaurants', to: '/partners' },
+      { label: 'Restaurants', to: '/food-partner' },
       { label: 'Delivery Partners', to: '/partners' },
       { label: 'Partner Login', to: '/download' },
     ],
@@ -48,6 +49,7 @@ export const FOOTER_COLS = [
       { label: 'hello@lampose.com', href: 'mailto:hello@lampose.com' },
       { label: '— 6302321942 —', href: 'tel:+916302321942' },
       { label: 'Visakhapatnam, AP', href: '#top' },
+      { label: 'Hyderabad, TS', href: '#top' },
       { label: 'Send a Message', to: '/contact' },
     ],
   },

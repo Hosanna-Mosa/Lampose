@@ -58,6 +58,12 @@ const v1AdminRoutes = require('../src/modules/admins/admin.routes');
 const v1StatsRoutes = require('../src/modules/admins/stats.routes');
 const v1VerificationRoutes = require('../src/modules/verification/verification.routes');
 const v1PermissionRoutes = require('../src/modules/permissions/permission.routes');
+const v1AnalyticsRoutes = require('../src/modules/analytics/analytics.routes');
+const v1VisitRequestAdminRoutes = require('../src/modules/visits/visitRequest.admin.routes');
+const v1ScriperUserAdminRoutes = require('../src/modules/scraper/scriperUser.admin.routes');
+const v1ScraperJobAdminRoutes = require('../src/modules/scraper/scraperJob.admin.routes');
+const v1ScraperLeadAdminRoutes = require('../src/modules/scraper/scraperLead.admin.routes');
+const v1ProductAdminRoutes = require('../src/modules/properties/product.routes');
 
 const v2ListingRoutes = require('../src/modules/listings/listing.routes');
 const v2VisitRequestRoutes = require('../src/modules/visits/visitRequest.routes');
@@ -76,9 +82,15 @@ const V1_GROUPS = [
   ['/properties', v1PropertyRoutes, 'onboarding CRUD, Cloudinary upload, WhatsApp verification'],
   ['/admin', v1AdminRoutes, 'admin console accounts (admins collection)'],
   ['/admin', v1StatsRoutes, 'dashboard stats, activity feed, system telemetry'],
+  ['/admin/analytics', v1AnalyticsRoutes, 'GA4 website analytics (Google Analytics Data API)'],
   ['/verifications', v1VerificationRoutes, 'owner/verifier verification requests'],
   ['/whatsapp', v1VerificationRoutes, 'Twilio inbound webhook'],
   ['/permissions', v1PermissionRoutes, 'employee edit/delete permission requests'],
+  ['/admin/visit-requests', v1VisitRequestAdminRoutes, 'Super Admin CRUD — visitrequests collection'],
+  ['/admin/scriper-users', v1ScriperUserAdminRoutes, 'Super Admin CRUD — leads panel accounts (scriper_users)'],
+  ['/admin/scriper-jobs', v1ScraperJobAdminRoutes, 'Super Admin CRUD — scrape job history (scriper_jobs)'],
+  ['/admin/scriper-leads', v1ScraperLeadAdminRoutes, 'Super Admin CRUD — scraped leads (scriper_leads)'],
+  ['/admin/products', v1ProductAdminRoutes, 'Super Admin CRUD — products collection'],
 ];
 
 const V2_GROUPS = [
@@ -113,9 +125,15 @@ const LEGACY_ALIASES = [
   ['/properties', v1PropertyRoutes, false],
   ['/admin', v1AdminRoutes, false],
   ['/admin', v1StatsRoutes, false],
+  ['/admin/analytics', v1AnalyticsRoutes, false],
   ['/verifications', v1VerificationRoutes, false],
   ['/whatsapp', v1VerificationRoutes, false],
   ['/permissions', v1PermissionRoutes, false],
+  ['/admin/visit-requests', v1VisitRequestAdminRoutes, false],
+  ['/admin/scriper-users', v1ScriperUserAdminRoutes, false],
+  ['/admin/scriper-jobs', v1ScraperJobAdminRoutes, false],
+  ['/admin/scriper-leads', v1ScraperLeadAdminRoutes, false],
+  ['/admin/products', v1ProductAdminRoutes, false],
   ['/listings', v2ListingRoutes, true],
   ['/visit-requests', v2VisitRequestRoutes, true],
   ['/auth', v2AuthRoutes, true],

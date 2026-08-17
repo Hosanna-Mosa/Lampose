@@ -70,10 +70,76 @@ function formatWhatsAppNumber(phone) {
   return e164 ? `whatsapp:${e164}` : null;
 }
 
+/* ── Full-data verification template helpers ────────────────────────────────
+   The owner-approval template carries the whole submission (address, stay
+   options with prices, mess, amenities). Two WhatsApp rules shape these:
+   template variables may not contain newlines or tabs, and the rendered body
+   must stay under 1024 characters — so every list is joined onto one line
+   and capped, never dumped raw. */
+
+const inr = (n) => `₹${Number(n).toLocaleString('en-IN')}`;
+
+/** Collapses any whitespace to single spaces and truncates with an ellipsis. */
+const oneLine = (value, max) => {
+  const s = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
+};
+
+/** Every stay type the property offers, with duration and price, plus deposit. */
+function describeStayOptions(property) {
+  const p = property || {};
+  const daily = Number(p.dailyPrice) || 0;
+  const monthly = Number(p.monthlyPrice) || Number(p.rent) || 0;
+  const stayType = p.stayType || 'Long Stay';
+  const parts = [];
+  if (stayType !== 'Long Stay' && daily) {
+    parts.push(`Short stay (${p.shortStayDuration || '1-7 days'}) ${inr(daily)}/day`);
+  }
+  if (stayType !== 'Short Stay' && monthly) {
+    parts.push(`Long stay (${p.longStayDuration || '1 month+'}) ${inr(monthly)}/month`);
+  }
+  if (!parts.length && monthly) parts.push(`${inr(monthly)}/month`);
+  if (Number(p.deposit)) parts.push(`deposit ${inr(p.deposit)}`);
+  return parts.join(' · ') || 'Not specified';
+}
+
+/* The onboarding form records food on categoryDetails (foodIncluded/foodType);
+   older rows may only carry "Food" in amenities, so both are consulted. */
+function describeMess(property) {
+  const p = property || {};
+  const details = p.categoryDetails || {};
+  if (details.foodIncluded === true) return details.foodType ? `Available – ${details.foodType}` : 'Available';
+  if (details.foodIncluded === false) return 'Not available';
+  const amenities = (Array.isArray(p.amenities) ? p.amenities : []).map((a) => String(a).toLowerCase());
+  if (amenities.some((a) => a.includes('food') || a.includes('mess'))) return 'Available';
+  return 'Not specified';
+}
+
+function describeAmenities(property) {
+  const list = (property && Array.isArray(property.amenities) ? property.amenities : [])
+    .map((a) => String(a).trim())
+    .filter(Boolean);
+  if (!list.length) return 'None listed';
+  const shown = list.slice(0, 10);
+  const more = list.length - shown.length;
+  return shown.join(' · ') + (more > 0 ? ` +${more} more` : '');
+}
+
 /**
- * Sends approval request message to property owner
+ * Sends approval request message to property owner.
+ *
+ * With a `property` object it fills the full-data template (7 variables:
+ * name, address, stay options, mess, owner number, amenities). Extra
+ * variables are ignored by a template that does not reference them, so this
+ * is safe to ship while TWILIO_VERIFY_CONTENT_SID still points at the old
+ * two-variable template awaiting the new one's Meta approval.
+ *
+ * `requestId` is the verification request's id. It rides in the quick-reply
+ * button payloads (VERIFY_YES:<id>) rather than the body, so a tap names the
+ * property it was shown against — see the webhook for why that matters.
  */
-async function sendVerificationMessage(ownerMobile, ownerName, propertyName) {
+async function sendVerificationMessage(ownerMobile, ownerName, propertyName, property, requestId) {
   if (!client) {
     console.error('❌ Twilio client not initialized.');
     return { success: false, error: 'Twilio client not initialized' };
@@ -84,15 +150,29 @@ async function sendVerificationMessage(ownerMobile, ownerName, propertyName) {
   // pointed at a template this account may not even own.
   const contentSid = process.env.TWILIO_VERIFY_CONTENT_SID;
 
+  const contentVariables = property
+    ? JSON.stringify({
+      '1': oneLine(ownerName, 60) || 'Property Owner',
+      '2': oneLine(propertyName, 80) || 'your property',
+      '3': addressOneLine(property, 110) || 'Not specified',
+      '4': oneLine(describeStayOptions(property), 160),
+      '5': oneLine(describeMess(property), 60),
+      '6': oneLine(toE164(ownerMobile) || ownerMobile, 20),
+      '7': oneLine(describeAmenities(property), 140),
+      // Rides in the button payloads (VERIFY_YES:<id>), never in the body.
+      '8': String(requestId || ''),
+    })
+    : JSON.stringify({
+      '1': ownerName || 'Property Owner',
+      '2': propertyName || 'your property'
+    });
+
   try {
     const message = await client.messages.create({
       from: whatsappFrom,
       to,
       contentSid,
-      contentVariables: JSON.stringify({
-        '1': ownerName || 'Property Owner',
-        '2': propertyName || 'your property'
-      })
+      contentVariables
     });
     console.log(`📤 WhatsApp verification template sent successfully to ${to} using Content SID ${contentSid}. Message SID: ${message.sid}`);
     return { success: true, messageSid: message.sid };
@@ -130,10 +210,33 @@ async function sendConfirmationMessage(ownerMobile, isApproved) {
   }
 }
 
+/** One line of address; skips appending the place when the address names it. */
+function addressOneLine(property, max) {
+  if (!property) return '';
+  const joined = property.address && property.place
+    && String(property.address).toLowerCase().includes(String(property.place).toLowerCase())
+    ? property.address
+    : [property.address, property.place].filter(Boolean).join(', ');
+  return oneLine(joined, max);
+}
+
 /**
- * Sends approval request message to verification team member
+ * Sends approval request message to verification team member.
+ *
+ * Variable numbering is kept compatible across template generations: the
+ * live 3-variable template reads {{1}} owner name, {{2}} owner mobile,
+ * {{3}} property name; the full-data replacement adds {{4}} address,
+ * {{5}} Google Maps link, {{6}} the review-page URL. A template ignores
+ * variables it does not reference, so all six are always sent and switching
+ * templates stays a one-line .env swap.
+ *
+ * `extras` = { property, token, requestId } — the pending submission
+ * snapshot, the verification request's token (which the maps and review
+ * links are built from) and its id, which rides in the quick-reply button
+ * payloads so a tap names the property it was shown against. Without them
+ * the link variables degrade to "Not available".
  */
-async function sendTeamVerificationMessage(verifierMobile, ownerName, ownerMobile, propertyName) {
+async function sendTeamVerificationMessage(verifierMobile, ownerName, ownerMobile, propertyName, extras) {
   if (!client) {
     console.error('❌ Twilio client not initialized.');
     return { success: false, error: 'Twilio client not initialized' };
@@ -141,16 +244,39 @@ async function sendTeamVerificationMessage(verifierMobile, ownerName, ownerMobil
 
   const to = formatWhatsAppNumber(verifierMobile);
   const teamContentSid = process.env.TWILIO_TEAM_CONTENT_SID;
-  
+
   // If no team content SID is provided, fallback to owner verify SID
   const contentSid = teamContentSid || process.env.TWILIO_VERIFY_CONTENT_SID;
+
+  const property = (extras && extras.property) || null;
+  const token = (extras && extras.token) || '';
+  const requestId = (extras && extras.requestId) || '';
+
+  /* No coordinates are captured at onboarding, so the map link is a search
+     for the typed address — as accurate as the agent's typing, no more. */
+  const addressLine = addressOneLine(property, 110);
+  const mapsUrl = addressLine
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressLine)}`
+    : 'Not available';
+
+  /* The token-gated review page served by this process (photos + numbers).
+     PUBLIC_BASE_URL makes it absolute in production; localhost otherwise. */
+  const publicBase = (process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+  const reviewUrl = token
+    ? `${publicBase || `http://localhost:${process.env.PORT || 5001}`}/api/verifications/review/${token}`
+    : 'Not available';
 
   // Prepare variables based on template SID used
   const contentVariables = teamContentSid
     ? JSON.stringify({
-        '1': ownerName || 'Property Owner',
-        '2': ownerMobile || 'N/A',
-        '3': propertyName || 'your property'
+        '1': oneLine(ownerName, 60) || 'Property Owner',
+        '2': oneLine(toE164(ownerMobile) || ownerMobile, 20) || 'N/A',
+        '3': oneLine(propertyName, 80) || 'your property',
+        '4': addressLine || 'Not specified',
+        '5': mapsUrl,
+        '6': reviewUrl,
+        // Rides in the button payloads (VERIFY_YES:<id>), never in the body.
+        '7': String(requestId)
       })
     : JSON.stringify({
         '1': ownerName || 'Property Owner',
@@ -195,6 +321,7 @@ async function sendTeamVerificationMessage(verifierMobile, ownerName, ownerMobil
 async function sendVisitRequestMessage({
   ownerMobile, ownerName, propertyName, customerName, sharingLabel,
   stayDescription, preferredDate, preferredTime, requestId,
+  address, selectionSummary, joiningDate,
 }) {
   if (!client) {
     console.error('❌ Twilio client not initialized.');
@@ -212,7 +339,16 @@ async function sendVisitRequestMessage({
   const when = stayDescription
     || [preferredDate, preferredTime].filter(Boolean).join(' at ')
     || 'as soon as possible';
-  const contentSid = process.env.TWILIO_VISIT_REQUEST_CONTENT_SID;
+
+  /* Two generations of this template, and they number their variables
+     differently — v3 inserts address and joining date, which shifts
+     everything after {{2}}. Sending v3's mapping to v2 would put the address
+     where the customer's name belongs, so the version is chosen by WHICH SID
+     is configured rather than by a flag: setting the v3 variable is the whole
+     switch, and leaving it unset keeps the approved v2 message exactly as it
+     is. */
+  const v3Sid = process.env.TWILIO_VISIT_REQUEST_V3_CONTENT_SID;
+  const contentSid = v3Sid || process.env.TWILIO_VISIT_REQUEST_CONTENT_SID;
 
   try {
     const payload = contentSid
@@ -220,14 +356,24 @@ async function sendVisitRequestMessage({
         from: whatsappFrom,
         to,
         contentSid,
-        contentVariables: JSON.stringify({
-          1: ownerName || 'there',
-          2: propertyName,
-          3: customerName,
-          4: room,
-          5: when,
-          6: String(requestId),
-        }),
+        contentVariables: v3Sid
+          ? JSON.stringify({
+            1: oneLine(ownerName, 60) || 'there',
+            2: oneLine(propertyName, 80),
+            3: oneLine(address, 110) || 'Address not recorded',
+            4: oneLine(customerName, 60),
+            5: oneLine(selectionSummary || room, 160),
+            6: oneLine(joiningDate, 40) || 'Not specified',
+            7: String(requestId),
+          })
+          : JSON.stringify({
+            1: ownerName || 'there',
+            2: propertyName,
+            3: customerName,
+            4: room,
+            5: when,
+            6: String(requestId),
+          }),
       }
       : {
         from: whatsappFrom,
@@ -296,9 +442,121 @@ async function sendVisitOutcomeMessage({
   }
 }
 
+/**
+ * Tells the CUSTOMER their visit is confirmed: where to go, how to get there,
+ * and the booking reference the owner will ask for at the door.
+ *
+ * Customer only, deliberately. The owner is not sent a copy: they have just
+ * tapped a button, so the webhook's own reply reaches them for certain and
+ * already carries the reference. Sending a second, near-identical message
+ * was live-tested and read as duplicate spam.
+ *
+ * The maps link is built from the address rather than stored coordinates —
+ * onboarding never captures a pin, so this is a search for the typed address
+ * and is only as accurate as what the agent entered.
+ */
+async function sendVisitConfirmationToCustomer({
+  customerPhone, customerName, propertyName, address, sharingLabel, joiningDate, pin,
+}) {
+  if (!client) {
+    console.error('❌ Twilio client not initialized.');
+    return { success: false, error: 'Twilio client not initialized' };
+  }
+
+  const to = formatWhatsAppNumber(customerPhone);
+  if (!to) return { success: false, error: 'That phone number is not valid.' };
+
+  const addressLine = oneLine(address, 110);
+
+  /* Short host deliberately: the whole thing rides inside ONE template
+     variable next to the address, and the rendered body still has to clear
+     WhatsApp's 1024-character limit. */
+  const mapsUrl = addressLine
+    ? `https://maps.google.com/?q=${encodeURIComponent(addressLine)}`
+    : '';
+
+  /* Address and directions share the address variable, so the approved
+     template needs no new line and no re-approval — Meta reviews a template's
+     body, not the values substituted into it at send time. Variables may not
+     contain newlines, so the link is appended inline. */
+  const addressWithDirections = addressLine
+    ? (mapsUrl ? `${addressLine} — Directions: ${mapsUrl}` : addressLine)
+    : 'Address not recorded';
+
+  /* Room and joining date share one variable so the date can simply be absent.
+     A template cannot drop a line, so a separate date variable would print
+     "Not specified" for every simple-path category — Bachelor Rooms never
+     collect a joining date at all. */
+  const roomLine = [sharingLabel || 'the room', joiningDate ? `joining ${joiningDate}` : '']
+    .filter(Boolean).join(' · ');
+
+  /* Two approved generations with incompatible variable orders, chosen by
+     which SID is configured — the same guard used for the visit-request
+     template. The live v2 numbers address at {{3}} and the joining date at
+     {{5}}; the directions build renumbers both. Sending one mapping to the
+     other template silently prints the address under "Room" and a URL under
+     "Joining date", so this must never be a flag or a guess. */
+  const directionsSid = process.env.TWILIO_VISIT_CONFIRM_CUSTOMER_CONTENT_SID;
+  const contentSid = directionsSid || process.env.TWILIO_VISIT_PIN_CUSTOMER_CONTENT_SID;
+
+  try {
+    const message = await client.messages.create(
+      contentSid
+        ? {
+          from: whatsappFrom,
+          to,
+          contentSid,
+          contentVariables: JSON.stringify(directionsSid
+            ? {
+              /* Merged build: room and joining date share {{3}}, so a
+                 request that never collects a date (Bachelor Rooms take the
+                 simple path) simply omits it instead of printing
+                 "Not specified" against a label the template cannot drop. */
+              1: oneLine(customerName, 60),
+              2: oneLine(propertyName, 80),
+              3: oneLine(roomLine, 90),
+              4: addressWithDirections,
+              5: String(pin),
+            }
+            : {
+              /* Live ordering — do not renumber: {{3}} is the address line
+                 and {{5}} the joining date.
+
+                 The date's fallback is a sentence, not "Not specified".
+                 Bachelor Rooms take the simple path and never ask for a
+                 date, and the template cannot drop the line, so the only
+                 thing left to control is whether it says something useful.
+                 "To be decided with the owner" is both true and actionable. */
+              1: oneLine(customerName, 60),
+              2: oneLine(propertyName, 80),
+              3: addressWithDirections,
+              4: oneLine(sharingLabel || 'the room', 60),
+              5: oneLine(joiningDate, 40) || 'To be decided with the owner',
+              6: String(pin),
+            }),
+        }
+        : {
+          from: whatsappFrom,
+          to,
+          body: `✅ Visit confirmed — Lampose\n\nGood news ${customerName} — the owner has confirmed `
+            + `${roomLine} at "${propertyName}" is free to visit.\n\n`
+            + `Address: ${addressLine || 'Address not recorded'}\n`
+            + (mapsUrl ? `Directions: ${mapsUrl}\n` : '')
+            + `\nBooking reference: ${pin}\n\n`
+            + 'Please show this booking reference to the owner when you arrive. They have been given the same one.',
+        },
+    );
+    return { success: true, messageSid: message.sid };
+  } catch (error) {
+    console.error(`❌ Failed to send the visit confirmation to ${to}:`, error.message);
+    return { success: false, error: error.message };
+  }
+}
+
 module.exports = {
   sendVerificationMessage,
   sendConfirmationMessage,
+  sendVisitConfirmationToCustomer,
   sendTeamVerificationMessage,
   formatWhatsAppNumber,
   toE164,

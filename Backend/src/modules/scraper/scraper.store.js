@@ -260,6 +260,31 @@ const dbStore = {
     return localUsers.length < before;
   },
 
+  /* Admin-console edit — name/email/role/avatar, and an optional password
+     reset. Re-hashes the password the same way registerUser does; every
+     other field is written as given. */
+  async updateUser(userId, changes = {}) {
+    const updates = {};
+    if (changes.name !== undefined) updates.name = String(changes.name).trim();
+    if (changes.email !== undefined) updates.email = String(changes.email).toLowerCase().trim();
+    if (changes.role !== undefined) updates.role = changes.role === 'ADMIN' ? 'ADMIN' : 'EMPLOYEE';
+    if (changes.avatar !== undefined) updates.avatar = changes.avatar;
+    if (changes.password) updates.password = bcrypt.hashSync(String(changes.password), 10);
+
+    if (useMongo) {
+      return withoutPassword(
+        await User.findOneAndUpdate({ userId }, updates, { returnDocument: 'after', runValidators: true }).lean(),
+      );
+    }
+
+    loadLocalData();
+    const user = localUsers.find((u) => u.userId === userId);
+    if (!user) return null;
+    Object.assign(user, updates);
+    saveLocalData();
+    return withoutPassword(user);
+  },
+
   /* ── Scrape jobs ── */
 
   async createJob(jobData) {
@@ -321,6 +346,19 @@ const dbStore = {
 
     loadLocalData();
     return [...localJobs].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  },
+
+  async deleteJob(jobId) {
+    if (useMongo) {
+      const result = await ScrapeJob.deleteOne({ jobId });
+      return result.deletedCount > 0;
+    }
+
+    loadLocalData();
+    const before = localJobs.length;
+    localJobs = localJobs.filter((j) => j.jobId !== jobId);
+    saveLocalData();
+    return localJobs.length < before;
   },
 
   /* ── Leads ── */
@@ -440,6 +478,44 @@ const dbStore = {
     if (note) lead.notes.unshift(note);
     saveLocalData();
     return true;
+  },
+
+  /* Admin-console create — a single lead entered by hand rather than found by
+     a scrape job. Thin wrapper so callers don't need to know saveLeads takes
+     an array. */
+  async createLead(leadData) {
+    const [created] = await this.saveLeads([leadData]);
+    return created || null;
+  },
+
+  /* Admin-console edit — any field on the lead, not just status/notes (see
+     updateLeadStatus above for that narrower, scraper-facing path). */
+  async updateLead(leadId, changes = {}) {
+    if (useMongo) {
+      if (!mongoose.Types.ObjectId.isValid(leadId)) return null;
+      return ScrapedLead.findByIdAndUpdate(leadId, changes, { returnDocument: 'after', runValidators: true }).lean();
+    }
+
+    loadLocalData();
+    const index = localLeads.findIndex((l) => l._id === leadId);
+    if (index === -1) return null;
+    localLeads[index] = { ...localLeads[index], ...changes };
+    saveLocalData();
+    return localLeads[index];
+  },
+
+  async deleteLead(leadId) {
+    if (useMongo) {
+      if (!mongoose.Types.ObjectId.isValid(leadId)) return false;
+      const result = await ScrapedLead.deleteOne({ _id: leadId });
+      return result.deletedCount > 0;
+    }
+
+    loadLocalData();
+    const before = localLeads.length;
+    localLeads = localLeads.filter((l) => l._id !== leadId);
+    saveLocalData();
+    return localLeads.length < before;
   },
 
   /* ── Aggregates ── */

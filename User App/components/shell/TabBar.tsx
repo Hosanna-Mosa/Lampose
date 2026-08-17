@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, Text, type IconName } from '@/components/ui';
 import { easing } from '@/constants/motion';
+import { elevation } from '@/constants/tokens';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 
@@ -22,6 +23,15 @@ export type TabItem = {
   badge?: number;
   /** A bare dot: "something changed", with no count to report. */
   dot?: boolean;
+  /**
+   * Renders as a filled disc lifted above the bar's top edge — the one
+   * sanctioned break from "tabs are peers". A raised tab is a door to another
+   * module, not a fourth sibling screen, and the highlight has to read at rest:
+   * a module door matters most when it is NOT the active tab.
+   */
+  raised?: boolean;
+  /** Palette of the raised disc. The Food module ships in the red set. */
+  tone?: 'brand' | 'danger';
 };
 
 export type TabBarProps = {
@@ -128,6 +138,13 @@ function TabButton({
       ? `${tab.label}, updated`
       : tab.label;
 
+  /* The raised disc is a solid fill, so its glyph takes the `on` ink of its
+     tone — never white by assumption; both flip between modes. The active
+     label follows the same tone so the door and its name agree. */
+  const discBg = tab.tone === 'danger' ? colors.danger.base : colors.brand;
+  const discInk = tab.tone === 'danger' ? colors.danger.on : colors.onBrand;
+  const activeInk = tab.tone === 'danger' ? colors.danger.ink : colors.brandInk;
+
   return (
     <Pressable
       onPress={handlePress}
@@ -136,8 +153,19 @@ function TabButton({
       accessibilityLabel={accessibilityLabel}
       style={[styles.tab, { gap }]}
     >
-      <Animated.View style={iconStyle}>
-        <Icon name={tab.icon} size={24} color={active ? colors.brandInk : colors.textTertiary} />
+      <Animated.View
+        style={[
+          iconStyle,
+          tab.raised
+            ? [styles.raisedDisc, { backgroundColor: discBg, borderColor: colors.surface }, elevation.float]
+            : null,
+        ]}
+      >
+        <Icon
+          name={tab.icon}
+          size={24}
+          color={tab.raised ? discInk : active ? activeInk : colors.textTertiary}
+        />
         {badgeLabel ? (
           <View style={[styles.badge, { backgroundColor: colors.danger.base, borderColor: colors.surface }]}>
             {/* The one deliberate override left. A badge sits inside a 16pt
@@ -165,7 +193,7 @@ function TabButton({
           backwards — uppercasing and tracking are part of the width. */}
       <View>
         <Animated.View style={activeLabelStyle}>
-          <Text variant="label" style={{ color: colors.brandInk, letterSpacing: 0 }}>
+          <Text variant="label" style={{ color: activeInk, letterSpacing: 0 }}>
             {tab.label}
           </Text>
         </Animated.View>
@@ -182,6 +210,17 @@ function TabButton({
 const styles = StyleSheet.create({
   bar: { flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth },
   tab: { flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center' },
+  /* 46pt disc lifted 26pt above the bar, ringed in `surface` so it reads as
+     punched through the edge rather than pasted on top of it. */
+  raisedDisc: {
+    width: 46,
+    height: 46,
+    borderRadius: 999,
+    borderWidth: 3,
+    marginTop: -26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   badge: {
     position: 'absolute',
     top: -6,

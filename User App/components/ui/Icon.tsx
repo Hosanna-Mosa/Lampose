@@ -185,8 +185,26 @@ function OfferGlyph(p: GlyphProps) {
   );
 }
 
+/**
+ * A steaming bowl on its base — the Food module's tab glyph.
+ *
+ * Distinct from `mess` deliberately: `mess` is an *amenity* mark ("meals
+ * included" on a PG), while this is a *destination* — the door to the whole
+ * Food module. Reusing the amenity glyph would make the tab read as a filter.
+ */
+function FoodGlyph(p: GlyphProps) {
+  return (
+    <Svg width={p.size} height={p.size} viewBox="0 0 24 24">
+      <Path d="M4 11h16a8 8 0 0 1-16 0z" {...common(p)} />
+      <Path d="M9 7c0-1.5 1-1.5 1-3M14 7c0-1.5 1-1.5 1-3" {...common(p)} />
+      <Path d="M8 21h8M12 19v2" {...common(p)} />
+    </Svg>
+  );
+}
+
 const CUSTOM_GLYPHS = {
   mess: MessGlyph,
+  food: FoodGlyph,
   offer: OfferGlyph,
   powerBackup: PowerBackupGlyph,
   waterSupply: WaterSupplyGlyph,

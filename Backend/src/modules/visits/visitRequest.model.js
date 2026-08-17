@@ -110,6 +110,16 @@ const visitRequestSchema = new mongoose.Schema(
     },
     phoneVerifiedAt: { type: Date, default: null },
 
+    /* The entry PIN, issued only when the owner confirms the visit.
+       Unlike the one-time code above this one IS stored in readable form,
+       and deliberately: it is not a credential that proves identity to the
+       server, it is a shared token the two of them compare at the door.
+       Both sides are sent the same value, so there is nothing to verify
+       against a hash — and the owner must be able to be told it again if
+       they lose the message. */
+    entryPin: { type: String, default: null },
+    entryPinIssuedAt: { type: Date, default: null },
+
     ownerMessageSid: { type: String, default: null },
     customerMessageSid: { type: String, default: null },
     ownerReplyRaw: { type: String, default: null },

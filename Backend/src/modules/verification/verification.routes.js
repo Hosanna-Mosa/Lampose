@@ -6,6 +6,113 @@ const VerificationRequest = require('./verificationRequest.model');
 const Property = require('../properties/property.model');
 const { getIsInMemory, getMemoryStore } = require('../../infrastructure/database/db');
 
+/* HTML-escape for the review page — every stored value passes through this. */
+const esc = (value) => String(value == null ? '' : value)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+/**
+ * @route   GET /api/verifications/review/:token
+ * @desc    The verifier's review page, linked from the team WhatsApp message.
+ *
+ * Public but capability-gated: the token is 16 random bytes, unique to one
+ * request, and the page reports expiry alongside the request's own 48-hour
+ * TTL. It renders the pendingPropertyData snapshot — the property does not
+ * exist anywhere else yet, so this is the one place a verifier can see the
+ * photos and numbers before tapping Accept.
+ */
+router.get('/review/:token', async (req, res) => {
+  res.set('X-Robots-Tag', 'noindex');
+
+  if (getIsInMemory()) {
+    return res.status(503).send('<h3>Review unavailable</h3><p>The database is offline; pending submissions are held in memory and cannot be shown here. Try again shortly.</p>');
+  }
+
+  try {
+    const doc = await VerificationRequest.findOne({ token: req.params.token }).lean();
+    if (!doc) {
+      return res.status(404).send('<h3>Not found</h3><p>This review link does not match any onboarding request. It may have been mistyped.</p>');
+    }
+
+    const p = doc.pendingPropertyData || {};
+    const expired = doc.expiresAt && new Date(doc.expiresAt) <= new Date()
+      && !['verified', 'rejected', 'verifier_rejected'].includes(doc.status);
+
+    const statusLabel = expired ? 'Expired'
+      : doc.status === 'owner_approved' ? 'Owner approved — awaiting your verification'
+      : doc.status === 'verified' ? 'Verified & live'
+      : doc.status === 'rejected' || doc.status === 'verifier_rejected' ? 'Rejected'
+      : 'Awaiting owner approval';
+    const statusColor = expired ? '#8E1B21'
+      : doc.status === 'verified' ? '#17803D'
+      : doc.status === 'owner_approved' ? '#6E4700'
+      : doc.status === 'rejected' || doc.status === 'verifier_rejected' ? '#8E1B21'
+      : '#3D4247';
+
+    const details = p.categoryDetails || {};
+    const mess = details.foodIncluded === true
+      ? `Available${details.foodType ? ` – ${details.foodType}` : ''}`
+      : details.foodIncluded === false ? 'Not available' : 'Not specified';
+
+    const priceRows = [
+      p.stayType ? ['Stay type', p.stayType] : null,
+      Number(p.dailyPrice) ? ['Daily price', `₹${Number(p.dailyPrice).toLocaleString('en-IN')}/day (${p.shortStayDuration || '1-7 days'})`] : null,
+      Number(p.monthlyPrice || p.rent) ? ['Monthly price', `₹${Number(p.monthlyPrice || p.rent).toLocaleString('en-IN')}/month (${p.longStayDuration || '1 month+'})`] : null,
+      Number(p.deposit) ? ['Deposit', `₹${Number(p.deposit).toLocaleString('en-IN')}`] : null,
+      ['Mess / food', mess],
+      ['Category', p.category || '—'],
+      ['Owner', `${p.ownerName || '—'} · ${p.ownerMobile || '—'}`],
+      ['Onboarded by', p.employeeEmail || '—'],
+    ].filter(Boolean);
+
+    const addressLine = [p.address, p.place].filter(Boolean).join(', ');
+    const mapsUrl = addressLine
+      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressLine)}`
+      : '';
+
+    const images = Array.isArray(p.images) ? p.images.filter((u) => /^https?:\/\//i.test(String(u))) : [];
+
+    res.send(`<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex"><title>Verify: ${esc(p.name || 'Property')}</title>
+<style>
+  body{margin:0;background:#F1F2F4;color:#101214;font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
+  .wrap{max-width:640px;margin:0 auto;padding:24px 16px 64px}
+  .card{background:#fff;border:1px solid #E3E6EA;border-radius:16px;padding:20px;margin-top:16px}
+  h1{font-size:22px;margin:8px 0 2px;letter-spacing:-0.02em}
+  .status{display:inline-block;font-size:12px;font-weight:700;padding:3px 12px;border-radius:999px;background:#fff;border:1.5px solid ${statusColor};color:${statusColor}}
+  .addr{color:#3D4247;margin:6px 0 0}
+  .addr a{color:#17803D;font-weight:600}
+  table{width:100%;border-collapse:collapse;margin-top:4px}
+  td{padding:8px 0;border-top:1px solid #EEF0F3;vertical-align:top;font-size:14px}
+  td:first-child{color:#5F6670;width:38%;padding-right:12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:4px}
+  .grid img{width:100%;height:140px;object-fit:cover;border-radius:10px;border:1px solid #E3E6EA;background:#E9EBEE}
+  h2{font-size:15px;margin:0 0 8px}
+  .amen{display:flex;flex-wrap:wrap;gap:6px}
+  .amen span{font-size:12px;background:#E9F5ED;color:#17803D;border:1px solid #B7D8C4;border-radius:999px;padding:2px 10px}
+  .foot{color:#5F6670;font-size:12.5px;margin-top:18px}
+</style></head><body><div class="wrap">
+  <span class="status">${esc(statusLabel)}</span>
+  <h1>${esc(p.name || 'Property')}</h1>
+  <p class="addr">📍 ${esc(addressLine || 'No address recorded')}${mapsUrl ? ` — <a href="${esc(mapsUrl)}" rel="noopener">open in Google Maps</a>` : ''}</p>
+  <div class="card"><h2>Photos (${images.length})</h2>
+    ${images.length ? `<div class="grid">${images.map((u) => `<img src="${esc(u)}" alt="Property photo" loading="lazy">`).join('')}</div>` : '<p style="color:#5F6670">No photos were uploaded with this submission.</p>'}
+  </div>
+  <div class="card"><h2>Details</h2><table>
+    ${priceRows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}
+  </table></div>
+  <div class="card"><h2>Amenities</h2>
+    ${Array.isArray(p.amenities) && p.amenities.length ? `<div class="amen">${p.amenities.map((a) => `<span>${esc(a)}</span>`).join('')}</div>` : '<p style="color:#5F6670">None listed.</p>'}
+  </div>
+  <p class="foot">Checked everything? Reply on WhatsApp — tap <b>Accept</b> to put this property live, or <b>Reject</b> to cancel the request. This link expires with the request${doc.expiresAt ? ` (${new Date(doc.expiresAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST)` : ''}.</p>
+</div></body></html>`);
+  } catch (err) {
+    console.error('❌ [Review Page Error]:', err.message);
+    res.status(500).send('<h3>Something went wrong</h3><p>Could not load this review page. Try again shortly.</p>');
+  }
+});
+
 /**
  * @route   GET /api/verifications
  * @desc    Fetch all verification requests from MongoDB Atlas
@@ -13,7 +120,7 @@ const { getIsInMemory, getMemoryStore } = require('../../infrastructure/database
  */
 router.get('/', async (req, res) => {
   try {
-    const { search, status } = req.query;
+    const { search, status, employeeEmail } = req.query;
     const query = {};
 
     if (search) {
@@ -26,6 +133,15 @@ router.get('/', async (req, res) => {
 
     if (status && status !== 'All') {
       query.status = status;
+    }
+
+    /* The onboarding employee is never a top-level field here — it only ever
+       lives inside the snapshot taken when the request was created, because
+       that is the one copy that survives the listing being edited or deleted
+       later. See property.model.js's header on why properties itself can't
+       answer "who onboarded this" for anything that never got verified. */
+    if (employeeEmail) {
+      query['pendingPropertyData.employeeEmail'] = String(employeeEmail).trim();
     }
 
     const items = await VerificationRequest.find(query)
@@ -176,7 +292,18 @@ router.post('/webhook', async (req, res) => {
 
   try {
     const senderMobile = From.trim(); // contains "whatsapp:+91..."
-    const textBody = Body.trim().toLowerCase();
+    let textBody = Body.trim().toLowerCase();
+
+    /* The full-data verification template carries Accept / Reject quick-reply
+       buttons; a tap arrives as the button title in Body plus a VERIFY_YES /
+       VERIFY_NO payload. Both are normalised here to the yes/no words every
+       comparison below already understands, so a tapped button and a typed
+       YES stay one flow. (VISIT_* payloads belong to the availability flow
+       and pass through untouched.) */
+    const verifyButton = String(req.body.ButtonPayload || '').trim().toUpperCase();
+    // Matches both the plain payload and the id-carrying one (VERIFY_YES:<id>).
+    if (/^VERIFY_YES(:|$)/.test(verifyButton) || textBody === 'accept') textBody = 'yes';
+    else if (/^VERIFY_NO(:|$)/.test(verifyButton) || textBody === 'reject') textBody = 'no';
 
     /* ── Availability (visit requests) ──────────────────────────────────────
        A second, unrelated business flow shares this webhook because Twilio
@@ -325,12 +452,96 @@ router.post('/webhook', async (req, res) => {
     }
 
     // ==================== MONGODB DATABASE MODE ====================
+
+    /* ── Which request did this tap belong to? ────────────────────────────
+       The approval buttons carry their own request id (VERIFY_YES:<id>), the
+       same way the visit-availability template carries VISIT_YES:<id>.
+
+       Without it the only way to choose a request is "the newest one still
+       pending for this number", and WhatsApp keeps every past message's
+       buttons live forever — so a tap on an older message silently decided a
+       DIFFERENT property, and a second tap on an already-answered message
+       landed on the next listing in the queue instead of being refused.
+
+       Messages sent before the tagged templates were approved carry no id.
+       Those fall through to the legacy lookups below, unchanged. */
+    let tagged = null;
+    const taggedMatch = verifyButton.match(/^VERIFY_(?:YES|NO):([0-9A-F]{24})$/);
+
+    if (taggedMatch) {
+      tagged = await VerificationRequest.findById(taggedMatch[1].toLowerCase());
+
+      if (!tagged) {
+        twiml.message('That onboarding request no longer exists, so nothing has been changed.');
+        res.type('text/xml');
+        return res.send(twiml.toString());
+      }
+
+      const isOwnerOfIt = tagged.ownerMobileE164 === senderMobile;
+      const isAssignedToIt = tagged.assignedVerifierMobileE164 === senderMobile;
+
+      /* A payload naming a request that belongs to neither role on this
+         number. Never act on it — this is the check that makes a forwarded
+         message harmless. */
+      if (!isOwnerOfIt && !isAssignedToIt) {
+        console.warn(`⚠️ [Webhook] ${senderMobile} tapped a button for request ${tagged._id}, which is not theirs.`);
+        twiml.message('That onboarding request is not linked to this number, so nothing has been changed.');
+        res.type('text/xml');
+        return res.send(twiml.toString());
+      }
+
+      const taggedName = (tagged.pendingPropertyData || {}).name || 'that property';
+
+      /* The point of the id: a decision already made is reported back rather
+         than repeated on some other listing. This is what makes the second
+         button on an answered message inert. */
+      const settled = {
+        verified: `"${taggedName}" has already been verified and is live on Lampose. Nothing has been changed.`,
+        rejected: `The onboarding request for "${taggedName}" was already cancelled. Nothing has been changed.`,
+        verifier_rejected: `"${taggedName}" was already rejected by our verification team. Nothing has been changed.`,
+        expired: `The onboarding request for "${taggedName}" has expired, so it can no longer be answered.`,
+      }[tagged.status];
+
+      if (settled) {
+        console.log(`ℹ️ [Webhook] ${senderMobile} tapped ${verifyButton} on "${taggedName}", already ${tagged.status}.`);
+        twiml.message(settled);
+        res.type('text/xml');
+        return res.send(twiml.toString());
+      }
+
+      /* Owner has approved and it is with the team. The owner tapping the
+         other button now must not cancel it behind the verifier's back. */
+      if (tagged.status === 'owner_approved' && !isAssignedToIt) {
+        twiml.message(`You have already approved "${taggedName}". It is with our verification team now, and we will let you know as soon as it is live.`);
+        res.type('text/xml');
+        return res.send(twiml.toString());
+      }
+
+      if (tagged.expiresAt && tagged.expiresAt <= new Date()) {
+        tagged.status = 'expired';
+        await tagged.save();
+        twiml.message(`The onboarding request for "${taggedName}" expired before it was answered. Please ask our team to send it again.`);
+        res.type('text/xml');
+        return res.send(twiml.toString());
+      }
+    }
+
     let verification = null;
     if (isSenderVerifier) {
-      verification = await VerificationRequest.findOne({
-        assignedVerifierMobileE164: senderMobile,
-        status: 'owner_approved'
-      }).sort({ createdAt: -1 });
+      if (tagged) {
+        /* Only a tap the verifier is actually entitled to make counts as a
+           verifier decision; anything else falls through to the owner branch,
+           which is the right home for a team member onboarding their own
+           property. */
+        if (tagged.assignedVerifierMobileE164 === senderMobile && tagged.status === 'owner_approved') {
+          verification = tagged;
+        }
+      } else {
+        verification = await VerificationRequest.findOne({
+          assignedVerifierMobileE164: senderMobile,
+          status: 'owner_approved'
+        }).sort({ createdAt: -1 });
+      }
     }
 
     // Case A: Sender is a Verifier and has a request assigned
@@ -355,9 +566,18 @@ router.post('/webhook', async (req, res) => {
 
           try {
             const twilioClient = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-            const websiteUrl = process.env.PRODUCTION_WEBSITE_URL || 'https://lampose.com';
+            /* Trailing slash trimmed: PRODUCTION_WEBSITE_URL is written by hand
+               in .env, and "https://lampose.com/" would otherwise build a link
+               with a double slash in it. */
+            const websiteUrl = (process.env.PRODUCTION_WEBSITE_URL || 'https://lampose.com').replace(/\/+$/, '');
+            /* The listing's own page rather than the homepage — the owner has
+               just been told their property is live, and the next thing they
+               want is to look at it, not to search for it. `/explore/:id` takes
+               the property's _id, which is the same value listing.formatter.js
+               publishes as `id`. */
+            const listingUrl = `${websiteUrl}/explore/${prop._id}`;
             await twilioClient.messages.create({
-              body: `Your property "${prop.name}" has been successfully verified! You can check it live on our website: ${websiteUrl}`,
+              body: `Your property "${prop.name}" has been successfully verified! You can check it live on our website: ${listingUrl}`,
               from: process.env.TWILIO_WHATSAPP_FROM,
               to: verification.ownerMobileE164
             });
@@ -429,7 +649,9 @@ router.post('/webhook', async (req, res) => {
       return res.send(twiml.toString());
     } else {
       // Case B: Sender is the Property Owner
-      verification = await VerificationRequest.findOne({
+      // A tagged tap names its own request; only an untagged one has to guess
+      // at the newest still-open submission for this number.
+      verification = tagged || await VerificationRequest.findOne({
         ownerMobileE164: senderMobile,
         status: { $in: ['pending', 'sent', 'failed'] }
       }).sort({ createdAt: -1 });
@@ -459,7 +681,15 @@ router.post('/webhook', async (req, res) => {
             randomVerifier,
             pendingProperty.ownerName,
             pendingProperty.ownerMobile,
-            pendingProperty.name
+            pendingProperty.name,
+            // Snapshot + token build the maps and review links; the id rides
+            // in the button payloads so the verifier's tap names this exact
+            // property rather than whichever is newest in their queue.
+            {
+              property: pendingProperty,
+              token: verification.token,
+              requestId: String(verification._id),
+            }
           );
           
           twiml.message("Thanks for the Confirmation, Our Verification team will process Your Request and send you the confirmation after its verify.");

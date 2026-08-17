@@ -138,25 +138,6 @@ export default function ListingCard({ item, index = 0, view = 'grid' }) {
           <span>{item.place}</span>
         </p>
 
-        {facts.length > 0 && (
-          <dl className="xp-card__facts">
-            {facts.map(f => (
-              <div key={f.label}>
-                <dt>{f.label}</dt>
-                <dd>{f.value}</dd>
-              </div>
-            ))}
-          </dl>
-        )}
-
-        {amenities.length > 0 && (
-          <ul className="xp-card__tags">
-            {amenities.slice(0, view === 'list' ? 6 : 3).map(a => <li key={a}>{a}</li>)}
-            {amenities.length > (view === 'list' ? 6 : 3) && (
-              <li className="is-more">+{amenities.length - (view === 'list' ? 6 : 3)}</li>
-            )}
-          </ul>
-        )}
 
         <div className="xp-card__foot">
           <span className="xp-card__owner">
@@ -165,11 +146,7 @@ export default function ListingCard({ item, index = 0, view = 'grid' }) {
           </span>
 
           <div className="xp-card__actions">
-            {tel && (
-              <a className="exp-call" href={`tel:${tel}`} aria-label={`Call ${item.ownerName}`}>
-                Call
-              </a>
-            )}
+
             <Link className="xp-card__details" to={`/explore/${item.id}`}>
               Details <span aria-hidden="true">→</span>
             </Link>

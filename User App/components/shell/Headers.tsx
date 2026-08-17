@@ -30,6 +30,12 @@ export type ExploreHeaderProps = {
   onPressLocality: () => void;
   onPressAlerts: () => void;
   alertCount?: number;
+  /**
+   * Account access. Present since the Food pivot took Profile's slot in the
+   * tab bar — the header is now the one door to the account, the same
+   * demotion Alerts went through when Saved took its tab.
+   */
+  onPressProfile?: () => void;
 };
 
 /**
@@ -46,6 +52,7 @@ export function ExploreHeader({
   onPressLocality,
   onPressAlerts,
   alertCount,
+  onPressProfile,
 }: ExploreHeaderProps) {
   const { colors, space, layout } = useTheme();
   const insets = useSafeAreaInsets();
@@ -98,6 +105,17 @@ export function ExploreHeader({
             <View style={styles.headerBadge} pointerEvents="none">
               <Badge count={alertCount} tone="danger" size="sm" />
             </View>
+        <View style={styles.row}>
+          <View>
+            <IconButton name="clock" onPress={onPressAlerts} accessibilityLabel="Alerts" />
+            {alertCount ? (
+              <View style={styles.headerBadge} pointerEvents="none">
+                <Badge count={alertCount} tone="danger" />
+              </View>
+            ) : null}
+          </View>
+          {onPressProfile ? (
+            <IconButton name="sharing" onPress={onPressProfile} accessibilityLabel="Your profile" />
           ) : null}
         </View>
       </View>
