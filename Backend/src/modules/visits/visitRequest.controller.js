@@ -40,7 +40,7 @@ const SIMPLE_PATH_CATEGORIES = ['Bachelor Room'];
 const { sendOtpSms, smsConfigProblem } = require('../../infrastructure/sms/sms');
 const {
   toE164, isIndianMobile, maskPhone,
-  sendVisitRequestMessage, sendVisitOutcomeMessage, sendVisitEntryPin,
+  sendVisitRequestMessage, sendVisitOutcomeMessage, sendVisitConfirmationToCustomer,
 } = require('../../infrastructure/twilio/twilio');
 const {
   OTP_TTL_MS, OTP_MAX_ATTEMPTS, OTP_MAX_RESENDS, OTP_RESEND_COOLDOWN_MS,
@@ -690,10 +690,12 @@ const handleAvailabilityReply = async ({ from, body, buttonPayload }) => {
 
     await doc.save();
 
-    /* Confirmed: both sides get the same PIN to compare at the door. Fired
-       without awaiting — the owner's reply is already recorded, and holding
-       the webhook open on two more Twilio calls risks Twilio timing it out
-       and retrying the whole tap. Failures are logged per side. */
+    /* Confirmed: only the CUSTOMER is messaged. The owner's copy used to go
+       out here too and arrived as a near-duplicate of the reply below, which
+       is what a live test showed — so the reply is now their single copy.
+       Fired without awaiting: the owner's decision is already saved, and
+       holding the webhook open on another Twilio call risks a timeout and a
+       retry of the whole tap. */
     if (confirmed) {
       let pinAddress = '';
       try {
@@ -708,28 +710,26 @@ const handleAvailabilityReply = async ({ from, body, buttonPayload }) => {
         console.warn('[availability] Could not read the listing address for the PIN message:', err.message);
       }
 
-      sendVisitEntryPin({
-        ownerMobile: doc.ownerMobile,
-        // Only where they opted in — WhatsApp will not carry a business
-        // message to someone who never wrote first, template or not.
-        customerPhone: doc.consentWhatsApp ? doc.customer.phone : null,
-        ownerName: doc.ownerName,
-        customerName: doc.customer.name,
-        propertyName: doc.propertyName,
-        address: pinAddress,
-        sharingLabel: doc.sharing && doc.sharing.label,
-        joiningDate: describeJoiningDate(doc),
-        pin: doc.entryPin,
-      }).then((result) => {
-        if (!result.owner.success) console.error('[availability] Entry PIN to owner failed:', result.owner.error);
-        if (doc.consentWhatsApp && !result.customer.success) {
-          console.error('[availability] Entry PIN to customer failed:', result.customer.error);
-        }
-        if (result.customer.success) {
-          VisitRequest.updateOne({ _id: doc._id }, { customerMessageSid: result.customer.messageSid })
+      // Only where they opted in — WhatsApp will not carry a business message
+      // to someone who never wrote first, template or not.
+      if (doc.consentWhatsApp) {
+        sendVisitConfirmationToCustomer({
+          customerPhone: doc.customer.phone,
+          customerName: doc.customer.name,
+          propertyName: doc.propertyName,
+          address: pinAddress,
+          sharingLabel: doc.sharing && doc.sharing.label,
+          joiningDate: describeJoiningDate(doc),
+          pin: doc.entryPin,
+        }).then((result) => {
+          if (!result.success) {
+            console.error('[availability] Visit confirmation to customer failed:', result.error);
+            return;
+          }
+          VisitRequest.updateOne({ _id: doc._id }, { customerMessageSid: result.messageSid })
             .catch((err) => console.error('[availability] Could not record the customer message SID:', err.message));
-        }
-      }).catch((err) => console.error('[availability] Entry PIN send failed:', err.message));
+        }).catch((err) => console.error('[availability] Visit confirmation send failed:', err.message));
+      }
     }
 
     /* The customer's page is polling and will show this within seconds. The
