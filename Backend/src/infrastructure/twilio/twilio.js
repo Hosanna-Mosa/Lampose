@@ -443,78 +443,120 @@ async function sendVisitOutcomeMessage({
 }
 
 /**
- * The entry PIN, sent to both sides once the owner confirms a visit.
+ * Tells the CUSTOMER their visit is confirmed: where to go, how to get there,
+ * and the booking reference the owner will ask for at the door.
  *
- * Both messages carry the SAME pin — it is compared at the door, not verified
- * against the server, so there is nothing secret to protect on our side and
- * both parties must be able to read it.
+ * Customer only, deliberately. The owner is not sent a copy: they have just
+ * tapped a button, so the webhook's own reply reaches them for certain and
+ * already carries the reference. Sending a second, near-identical message
+ * was live-tested and read as duplicate spam.
  *
- * Each send is independent: the owner's message failing must not cost the
- * customer theirs, so the two are reported separately and neither throws.
- * Templates are optional — without one the plain text still reaches the owner
- * (their reply has just opened a 24-hour window) but will only reach the
- * customer inside a window they may not have.
+ * The maps link is built from the address rather than stored coordinates —
+ * onboarding never captures a pin, so this is a search for the typed address
+ * and is only as accurate as what the agent entered.
  */
-async function sendVisitEntryPin({
-  ownerMobile, customerPhone, ownerName, customerName,
-  propertyName, address, sharingLabel, joiningDate, pin,
+async function sendVisitConfirmationToCustomer({
+  customerPhone, customerName, propertyName, address, sharingLabel, joiningDate, pin,
 }) {
   if (!client) {
     console.error('❌ Twilio client not initialized.');
-    return { owner: { success: false, error: 'Twilio client not initialized' }, customer: { success: false, error: 'Twilio client not initialized' } };
+    return { success: false, error: 'Twilio client not initialized' };
   }
 
-  const room = sharingLabel || 'the room';
-  const when = joiningDate || 'Not specified';
-  const ownerSid = process.env.TWILIO_VISIT_PIN_OWNER_CONTENT_SID;
-  const customerSid = process.env.TWILIO_VISIT_PIN_CUSTOMER_CONTENT_SID;
+  const to = formatWhatsAppNumber(customerPhone);
+  if (!to) return { success: false, error: 'That phone number is not valid.' };
 
-  const send = async (to, contentSid, variables, body) => {
-    if (!to) return { success: false, error: 'No number to send to.' };
-    try {
-      const message = await client.messages.create(
-        contentSid
-          ? { from: whatsappFrom, to, contentSid, contentVariables: JSON.stringify(variables) }
-          : { from: whatsappFrom, to, body },
-      );
-      return { success: true, messageSid: message.sid };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  };
+  const addressLine = oneLine(address, 110);
 
-  const ownerTo = formatWhatsAppNumber(ownerMobile);
-  const customerTo = formatWhatsAppNumber(customerPhone);
+  /* Short host deliberately: the whole thing rides inside ONE template
+     variable next to the address, and the rendered body still has to clear
+     WhatsApp's 1024-character limit. */
+  const mapsUrl = addressLine
+    ? `https://maps.google.com/?q=${encodeURIComponent(addressLine)}`
+    : '';
 
-  const [owner, customer] = await Promise.all([
-    send(ownerTo, ownerSid, {
-      1: oneLine(ownerName, 60) || 'there',
-      2: oneLine(customerName, 60),
-      3: oneLine(propertyName, 80),
-      4: oneLine(room, 60),
-      5: oneLine(when, 40),
-      6: String(pin),
-    }, `✅ Visit confirmed — Lampose\n\nThank you ${ownerName || 'there'}. We have told ${customerName} that ${room} at "${propertyName}" is available.\n\n`
-      + `Visit reference: ${pin}\n\n${customerName} has been given the same reference number. Please ask them for it when they arrive and check that it matches.`),
+  /* Address and directions share the address variable, so the approved
+     template needs no new line and no re-approval — Meta reviews a template's
+     body, not the values substituted into it at send time. Variables may not
+     contain newlines, so the link is appended inline. */
+  const addressWithDirections = addressLine
+    ? (mapsUrl ? `${addressLine} — Directions: ${mapsUrl}` : addressLine)
+    : 'Address not recorded';
 
-    send(customerTo, customerSid, {
-      1: oneLine(customerName, 60),
-      2: oneLine(propertyName, 80),
-      3: oneLine(address, 110) || 'Address not recorded',
-      4: oneLine(room, 60),
-      5: oneLine(when, 40),
-      6: String(pin),
-    }, `✅ Visit confirmed — Lampose\n\nGood news ${customerName} — the owner has confirmed ${room} at "${propertyName}" is free to visit.\n\n`
-      + `Visit reference: ${pin}\n\nPlease show this reference number to the owner when you arrive. They have been given the same one.`),
-  ]);
+  /* Room and joining date share one variable so the date can simply be absent.
+     A template cannot drop a line, so a separate date variable would print
+     "Not specified" for every simple-path category — Bachelor Rooms never
+     collect a joining date at all. */
+  const roomLine = [sharingLabel || 'the room', joiningDate ? `joining ${joiningDate}` : '']
+    .filter(Boolean).join(' · ');
 
-  return { owner, customer };
+  /* Two approved generations with incompatible variable orders, chosen by
+     which SID is configured — the same guard used for the visit-request
+     template. The live v2 numbers address at {{3}} and the joining date at
+     {{5}}; the directions build renumbers both. Sending one mapping to the
+     other template silently prints the address under "Room" and a URL under
+     "Joining date", so this must never be a flag or a guess. */
+  const directionsSid = process.env.TWILIO_VISIT_CONFIRM_CUSTOMER_CONTENT_SID;
+  const contentSid = directionsSid || process.env.TWILIO_VISIT_PIN_CUSTOMER_CONTENT_SID;
+
+  try {
+    const message = await client.messages.create(
+      contentSid
+        ? {
+          from: whatsappFrom,
+          to,
+          contentSid,
+          contentVariables: JSON.stringify(directionsSid
+            ? {
+              /* Merged build: room and joining date share {{3}}, so a
+                 request that never collects a date (Bachelor Rooms take the
+                 simple path) simply omits it instead of printing
+                 "Not specified" against a label the template cannot drop. */
+              1: oneLine(customerName, 60),
+              2: oneLine(propertyName, 80),
+              3: oneLine(roomLine, 90),
+              4: addressWithDirections,
+              5: String(pin),
+            }
+            : {
+              /* Live ordering — do not renumber: {{3}} is the address line
+                 and {{5}} the joining date.
+
+                 The date's fallback is a sentence, not "Not specified".
+                 Bachelor Rooms take the simple path and never ask for a
+                 date, and the template cannot drop the line, so the only
+                 thing left to control is whether it says something useful.
+                 "To be decided with the owner" is both true and actionable. */
+              1: oneLine(customerName, 60),
+              2: oneLine(propertyName, 80),
+              3: addressWithDirections,
+              4: oneLine(sharingLabel || 'the room', 60),
+              5: oneLine(joiningDate, 40) || 'To be decided with the owner',
+              6: String(pin),
+            }),
+        }
+        : {
+          from: whatsappFrom,
+          to,
+          body: `✅ Visit confirmed — Lampose\n\nGood news ${customerName} — the owner has confirmed `
+            + `${roomLine} at "${propertyName}" is free to visit.\n\n`
+            + `Address: ${addressLine || 'Address not recorded'}\n`
+            + (mapsUrl ? `Directions: ${mapsUrl}\n` : '')
+            + `\nBooking reference: ${pin}\n\n`
+            + 'Please show this booking reference to the owner when you arrive. They have been given the same one.',
+        },
+    );
+    return { success: true, messageSid: message.sid };
+  } catch (error) {
+    console.error(`❌ Failed to send the visit confirmation to ${to}:`, error.message);
+    return { success: false, error: error.message };
+  }
 }
 
 module.exports = {
   sendVerificationMessage,
   sendConfirmationMessage,
-  sendVisitEntryPin,
+  sendVisitConfirmationToCustomer,
   sendTeamVerificationMessage,
   formatWhatsAppNumber,
   toE164,
