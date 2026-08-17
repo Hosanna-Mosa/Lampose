@@ -3,49 +3,33 @@ import Icon from './Icon';
 /* ══ Connection error ═════════════════════════════════════════════════════
    Shown in place of the listings when they could not be fetched.
 
-   The site keeps no local copy of the data, so this panel is what a broken
-   link looks like — and it is worth more than a shrug. Each failure names the
-   part that is down, what to check, and the exact endpoint that was tried, so
-   the fix is a step rather than an investigation.
+   Written for the visitor, not for whoever has to fix it. The API address,
+   the port, the CORS allow-list and the command that starts the backend are
+   all things a visitor can do nothing about, and printing them on a public
+   page tells a stranger more about the deployment than it tells the person
+   who came here to find a room. The full diagnosis — kind, status, endpoint
+   and the raw message — is still classified in listingsApi and logged to the
+   console by the page that caught it, which is where a developer looks.
+
+   Offline stays its own case: it is the one failure the visitor can act on.
    ════════════════════════════════════════════════════════════════════════ */
 
 const REPORTS = {
   offline: {
     icon: 'reach',
     title: 'You appear to be offline',
-    lead: 'The browser has no network connection, so the listings could not be requested.',
-    steps: ['Reconnect to a network, then retry.'],
+    lead: 'Your device has no network connection right now. Reconnect and try again.',
   },
-  server: {
+  default: {
     icon: 'track',
-    title: 'Cannot reach the Lampose server',
-    lead: 'Nothing answered at the API address, so no listings could be loaded.',
-    steps: [
-      'Start the backend: cd backend && npm run dev',
-      'Confirm it is listening on the port in frontend/.env (VITE_API_BASE_URL).',
-      'If the server is running, check its CORS allow-list covers this origin.',
-    ],
-  },
-  database: {
-    icon: 'wallet',
-    title: 'Database not connected',
-    lead: 'The server is running, but it cannot reach MongoDB — so there are no listings to show.',
-    steps: [
-      'Check MONGO_URI in backend/.env.',
-      'Confirm the database is up and this machine is allowed to connect.',
-      'Read the backend console for the connection error.',
-    ],
-  },
-  api: {
-    icon: 'bell',
-    title: 'The listings service returned an error',
-    lead: 'The server answered, but not with listings.',
-    steps: ['Check the backend console for the failing request.'],
+    title: 'Something went wrong at our end',
+    lead: 'We could not load this just now. Please try again in a moment — if it '
+        + 'keeps happening, let us know and we will look into it.',
   },
 };
 
 export default function ConnectionError({ error, onRetry, busy = false }) {
-  const report = REPORTS[error?.kind] || REPORTS.api;
+  const report = error?.kind === 'offline' ? REPORTS.offline : REPORTS.default;
 
   return (
     <div className="xp-err" role="alert">
@@ -56,23 +40,11 @@ export default function ConnectionError({ error, onRetry, busy = false }) {
       <h3 className="xp-err__title">{report.title}</h3>
       <p className="xp-err__lead">{report.lead}</p>
 
-      {error?.message && <p className="xp-err__detail">{error.message}</p>}
-
-      <ol className="xp-err__steps">
-        {report.steps.map(step => <li key={step}>{step}</li>)}
-      </ol>
-
       <div className="xp-err__foot">
         <button className="exp-more" onClick={onRetry} disabled={busy}>
           {busy ? 'Retrying…' : 'Retry'}
           {!busy && <span aria-hidden="true">→</span>}
         </button>
-        {error?.endpoint && (
-          <p className="xp-err__endpoint">
-            Tried <code>{error.endpoint}/listings</code>
-            {error.status ? ` · HTTP ${error.status}` : ''}
-          </p>
-        )}
       </div>
     </div>
   );

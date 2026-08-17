@@ -42,6 +42,9 @@ export function useCursor() {
           const angle = Math.atan2(dy, dx) * (180 / Math.PI);
           ring.current.style.transform = `translate(-100%, -50%) rotate(${angle}deg)`;
           ring.current.style.opacity = '1';
+          if (dot.current) {
+            dot.current.style.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
+          }
         } else {
           ring.current.style.opacity = '0';
         }

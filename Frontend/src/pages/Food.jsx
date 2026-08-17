@@ -1,3 +1,11 @@
+import ComingSoon from '../components/ComingSoon';
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ORIGINAL FOOD PAGE CODE (COMMENTED OUT TEMPORARILY FOR LATER USE)
+   To restore original page: uncomment the section below and remove the
+   active default export.
+   ══════════════════════════════════════════════════════════════════════════
+
 import { useEffect } from 'react';
 import Icon from '../components/Icon';
 import { SecHead } from '../components/Chrome';
@@ -82,8 +90,6 @@ const PHONES = [
   },
 ];
 
-/* A highlight walks down every phone's rows in step, so the three screens read
-   as one connected system rather than three static mockups. */
 function useRowPulse() {
   useEffect(() => {
     if (REDUCED) return;
@@ -99,7 +105,7 @@ function useRowPulse() {
   }, []);
 }
 
-export default function Food() {
+function OriginalFood() {
   useRowPulse();
 
   return (
@@ -164,4 +170,9 @@ export default function Food() {
       </section>
     </>
   );
+}
+══════════════════════════════════════════════════════════════════════════ */
+
+export default function Food() {
+  return <ComingSoon />;
 }

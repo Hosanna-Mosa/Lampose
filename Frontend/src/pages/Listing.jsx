@@ -330,9 +330,6 @@ export default function Listing() {
     ['Stay type', item.stayType || null],
     ['Minimum term', item.longStayDuration || null],
     ['Short stay', item.shortStayDuration || null],
-    ['City', item.city || null],
-    ['Locality', item.locality || null],
-    ['Address', item.address || null],
     ['Monthly rent', item.monthlyPrice && rupees(item.monthlyPrice)],
     ['Daily rate', item.dailyPrice && rupees(item.dailyPrice)],
     ['Listed', item.listedAt && new Date(item.listedAt).toLocaleDateString('en-IN', {
@@ -507,6 +504,20 @@ export default function Listing() {
                   </div>
                 ))}
               </dl>
+
+              {/* The city, locality and door number are deliberately not rows
+                  above. A public page that prints an owner's exact address
+                  invites people to turn up unannounced, so it is held back
+                  until the owner has agreed to the visit. Saying so here —
+                  where the address would have been — answers the question
+                  the missing rows would otherwise raise. */}
+              <p className="lst-addr-note">
+                <Icon name="pin" className="exp-ico" />
+                <span>
+                  The full address is shared on <strong>WhatsApp</strong> once your
+                  visit is confirmed.
+                </span>
+              </p>
             </section>
           </div>
 

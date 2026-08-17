@@ -566,9 +566,18 @@ router.post('/webhook', async (req, res) => {
 
           try {
             const twilioClient = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-            const websiteUrl = process.env.PRODUCTION_WEBSITE_URL || 'https://lampose.com';
+            /* Trailing slash trimmed: PRODUCTION_WEBSITE_URL is written by hand
+               in .env, and "https://lampose.com/" would otherwise build a link
+               with a double slash in it. */
+            const websiteUrl = (process.env.PRODUCTION_WEBSITE_URL || 'https://lampose.com').replace(/\/+$/, '');
+            /* The listing's own page rather than the homepage — the owner has
+               just been told their property is live, and the next thing they
+               want is to look at it, not to search for it. `/explore/:id` takes
+               the property's _id, which is the same value listing.formatter.js
+               publishes as `id`. */
+            const listingUrl = `${websiteUrl}/explore/${prop._id}`;
             await twilioClient.messages.create({
-              body: `Your property "${prop.name}" has been successfully verified! You can check it live on our website: ${websiteUrl}`,
+              body: `Your property "${prop.name}" has been successfully verified! You can check it live on our website: ${listingUrl}`,
               from: process.env.TWILIO_WHATSAPP_FROM,
               to: verification.ownerMobileE164
             });
