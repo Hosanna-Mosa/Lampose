@@ -19,6 +19,8 @@ const INITIAL_FORM_STATE = {
   place: '',
   ownerName: '',
   ownerMobile: '',
+  // Optional second number. Blank is a valid answer and is stored as blank.
+  ownerAltMobile: '',
   category: 'PG',
   employeeEmail: '',
   stayType: 'Long Stay',
@@ -43,6 +45,10 @@ const INITIAL_FORM_STATE = {
       Dinner: '8:00 PM - 10:00 PM'
     },
     sharingTypes: ['Single', '2 Sharing'],
+    /* Occupancies added through "Custom" in CategoryFieldsStep. Only the
+       extras are recorded here — the five standard options are a constant in
+       that file, not data. */
+    customSharingTypes: [],
     sharingPrices: {},
     sharingAC: {},
     sharingAcPrices: {},
@@ -138,6 +144,7 @@ export default function App() {
           Dinner: '8:00 PM - 10:00 PM'
         },
         sharingTypes: ['Single', '2 Sharing'],
+        customSharingTypes: [],
         sharingPrices: {},
         sharingAC: {},
         sharingAcPrices: {},
@@ -221,7 +228,15 @@ export default function App() {
     if (!formData.name.trim()) errs.name = 'Property name is required';
     if (!formData.place.trim()) errs.place = 'Place / Location is required';
     if (!formData.ownerName.trim()) errs.ownerName = 'Owner name is required';
-    if (!formData.ownerMobile.trim()) errs.ownerMobile = 'Owner mobile number is required';
+    if (!formData.ownerMobile.trim()) errs.ownerMobile = 'Owner WhatsApp number is required';
+
+    /* The second number is optional, so an empty box is never an error. A
+       half-typed one is: silently storing "98765" would look like a recorded
+       contact and be useless to whoever calls it. */
+    const altMobile = (formData.ownerAltMobile || '').trim();
+    if (altMobile && altMobile.replace(/\D/g, '').length < 10) {
+      errs.ownerAltMobile = 'Enter the full mobile number, or leave this blank';
+    }
     return errs;
   };
 
@@ -237,7 +252,8 @@ export default function App() {
         name: 'propertyName',
         place: 'propertyPlace',
         ownerName: 'ownerName',
-        ownerMobile: 'ownerMobile'
+        ownerMobile: 'ownerMobile',
+        ownerAltMobile: 'ownerAltMobile'
       };
 
       const firstErrorField = Object.keys(errs)[0];

@@ -45,9 +45,21 @@ const propertySchema = new mongoose.Schema(
       required: [true, 'Owner name is required'],
       trim: true
     },
+    /* The number the v1 verification chain runs on: the approval message is
+       sent here and the owner's YES has to come back from it. Required for
+       that reason, not merely as contact detail. */
     ownerMobile: {
       type: String,
       required: [true, 'Owner mobile number is required'],
+      trim: true
+    },
+    /* A second number to reach the owner on, when the phone they answer is
+       not the one their WhatsApp is registered to. Optional and purely
+       informational — the verification chain stays pinned to `ownerMobile`,
+       because that is the number a reply can be matched back to. */
+    ownerAltMobile: {
+      type: String,
+      default: '',
       trim: true
     },
     category: {

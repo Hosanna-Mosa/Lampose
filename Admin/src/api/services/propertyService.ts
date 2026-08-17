@@ -17,6 +17,7 @@ const normalize = (raw: any): PropertyEntity => {
     category: raw.category || 'Unspecified',
     ownerName: raw.ownerName || '',
     ownerMobile: raw.ownerMobile || '',
+    ownerAltMobile: raw.ownerAltMobile || '',
     employeeEmail: raw.employeeEmail || '',
     stayType: raw.stayType || 'Unspecified',
     shortStayDuration: raw.shortStayDuration || '',

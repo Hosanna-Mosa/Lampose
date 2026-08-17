@@ -138,6 +138,7 @@ const createProperty = async (req, res, next) => {
       deposit: number(body.deposit),
       ownerName: String(body.ownerName).trim(),
       ownerMobile: String(body.ownerMobile).trim(),
+      ownerAltMobile: String(body.ownerAltMobile || '').trim(),
       address: String(body.address || '').trim(),
       description: String(body.description || '').trim(),
       employeeEmail: String(body.employeeEmail || (req.user && req.user.email) || '').trim(),

@@ -341,6 +341,11 @@ export default function Listing() {
     ...Object.entries(item.details || {})
       .filter(([k]) => ![
         'sharingPrices', OCCUPANCY_KEY[item.category], 'description',
+        /* Bookkeeping for the onboarding panel's "Custom" occupancy button:
+           which options an agent typed in by hand. The options themselves are
+           already the chooser in the rail — this would repeat them as a row
+           saying nothing a visitor can use. */
+        'customSharingTypes',
       ].includes(k))
       .map(([k, v]) => [labelise(k), formatValue(v)]),
   ].filter(([, v]) => v !== null && v !== undefined && v !== '');

@@ -25,6 +25,7 @@ export default function PropertyDetailModal({ property, onClose, onDelete, onUpd
     place,
     ownerName,
     ownerMobile,
+    ownerAltMobile = '',
     category,
     stayType = 'Long Stay',
     shortStayDuration = '1-7 Days',
@@ -548,11 +549,21 @@ export default function PropertyDetailModal({ property, onClose, onDelete, onUpd
               </div>
             </div>
             <div>
-              <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 500 }}>Contact:</span>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 500 }}>WhatsApp:</span>
               <div style={{ fontSize: '1rem', fontWeight: 700, color: '#45855a', marginTop: '2px' }}>
                 {ownerMobile}
               </div>
             </div>
+            {/* Only when one was recorded — it is optional, and a blank row
+                would read as a number we failed to capture. */}
+            {ownerAltMobile && (
+              <div>
+                <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 500 }}>Mobile:</span>
+                <div style={{ fontSize: '1rem', fontWeight: 700, color: '#181e1b', marginTop: '2px' }}>
+                  {ownerAltMobile}
+                </div>
+              </div>
+            )}
             {address && (
               <div style={{ width: '100%', paddingTop: '10px', borderTop: '1px solid #e2e8f0' }}>
                 <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 500 }}>Street Address:</span>
@@ -968,6 +979,7 @@ function EditPropertyPanel({ property, saving, onCancel, onSave }) {
     address: property.address || '',
     ownerName: property.ownerName || '',
     ownerMobile: property.ownerMobile || '',
+    ownerAltMobile: property.ownerAltMobile || '',
     monthlyPrice: property.monthlyPrice ?? '',
     dailyPrice: property.dailyPrice ?? '',
     deposit: property.deposit ?? ''
@@ -986,6 +998,7 @@ function EditPropertyPanel({ property, saving, onCancel, onSave }) {
       address: form.address.trim(),
       ownerName: form.ownerName.trim(),
       ownerMobile: form.ownerMobile.trim(),
+      ownerAltMobile: form.ownerAltMobile.trim(),
       monthlyPrice,
       dailyPrice,
       deposit: Number(form.deposit) || 0,
@@ -1053,8 +1066,11 @@ function EditPropertyPanel({ property, saving, onCancel, onSave }) {
             <Labelled label="Owner Name">
               <input value={form.ownerName} onChange={setField('ownerName')} required style={editInputStyle} />
             </Labelled>
-            <Labelled label="Owner Mobile">
+            <Labelled label="Owner WhatsApp">
               <input value={form.ownerMobile} onChange={setField('ownerMobile')} required style={editInputStyle} />
+            </Labelled>
+            <Labelled label="Owner Mobile (optional)">
+              <input value={form.ownerAltMobile} onChange={setField('ownerAltMobile')} style={editInputStyle} />
             </Labelled>
           </div>
 

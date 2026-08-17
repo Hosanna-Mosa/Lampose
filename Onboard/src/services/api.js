@@ -3,7 +3,7 @@ import { getCurrentUser, getSavedEmployeeEmail } from './auth.js';
 
 const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL)
   || (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_URL)
-  || 'http://localhost:5000/api/properties';
+  || 'http://localhost:5001/api/properties';
 
 /** Root of the API (…/api), derived from the properties endpoint. */
 export const API_ROOT = API_BASE_URL.replace(/\/properties\/?$/, '');

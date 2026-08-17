@@ -93,8 +93,7 @@ export function Navbar({ alwaysSolid }) {
           <NavLink key={l.to} to={l.to} onClick={() => setMenu(false)}>{l.label}</NavLink>
         ))}
         <Link
-          to="/download" className="btn-nav-solid"
-          style={{ fontSize: '1rem', padding: '0.85rem 2rem' }}
+          to="/download" className="btn-nav-solid mob-menu__cta"
           onClick={() => setMenu(false)}
         >
           Get Started
