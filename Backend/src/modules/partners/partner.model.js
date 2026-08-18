@@ -119,6 +119,22 @@ const partnerSchema = new mongoose.Schema(
        row to carry a flag. */
     requestsReadAt: { type: Date, default: null },
 
+    /*
+     * The Dashboard's "accepting bookings" switch. Defaults to `false`
+     * deliberately: a partner who has never confirmed anything has nothing
+     * to book, and should not be shown to guests as open. This used to be
+     * DERIVED from whether any `PartnerShareType` document had
+     * `isAvailable: true` — nothing in this codebase ever creates one of
+     * those, so that derivation was always reading an empty collection and
+     * had to guess. It guessed `true` for "nothing configured yet," which
+     * silently put a not-actually-open property in front of guests. This
+     * flag is instead written directly, once, by the same action the app
+     * already gates going online behind: confirming at least one share type
+     * on the Share Types screen. See `updateShareTypeAvailability` in
+     * `partnerDomains.controller.js`.
+     */
+    acceptingBookings: { type: Boolean, default: false },
+
     /* Not an enum with a `deleted` member: an owner's records have retention
        consequences that are handled where bookings live. This flag exists so
        support can stop an abusive number ordering SMS at our expense. */

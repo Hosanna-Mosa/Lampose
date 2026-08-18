@@ -35,6 +35,9 @@ const {
   startGuestOtp, verifyGuestOtp, uploadKycImages, createBooking, updateBooking, deleteBooking,
   MAX_KYC_IMAGES,
 } = require('./addCustomer.controller');
+const {
+  getMyPropertyById, updateMyProperty, uploadPropertyImages, MAX_PROPERTY_IMAGES,
+} = require('./propertyEdit.controller');
 
 /* Held in memory and streamed straight to Cloudinary — nothing identity-
    related touches this server's disk. 10MB is generous for a phone photograph
@@ -42,6 +45,14 @@ const {
 const kycUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: MAX_KYC_IMAGES },
+});
+
+/* Property photographs run larger than an identity document scan — a modern
+   phone camera's ordinary output — so this gets the same 15MB ceiling the v1
+   onboarding upload uses rather than the KYC tile's 10MB. */
+const propertyImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024, files: MAX_PROPERTY_IMAGES },
 });
 
 const {
@@ -125,6 +136,14 @@ router.get('/summary', requireLamposeDb, requirePartner, getSummary);
 
 /* Listings & Requests */
 router.get('/properties', requireLamposeDb, requirePartner, getMyProperties);
+
+/* A single listing, every onboarding field, and the ability to add or correct
+   them — scoped to a property this session's phone number actually owns. See
+   propertyEdit.controller.js for how this differs from the v1 onboarding
+   surface's employee-gated edit, and why an edit here has no review step. */
+router.get('/properties/:id', requireLamposeDb, requirePartner, getMyPropertyById);
+router.patch('/properties/:id', requireLamposeDb, requirePartner, updateMyProperty);
+
 router.get('/requests', requireLamposeDb, requirePartner, getMyRequests);
 router.post('/requests/read', requireLamposeDb, requirePartner, markRequestsRead);
 router.get('/requests/:id', requireLamposeDb, requirePartner, getMyRequest);
@@ -149,6 +168,9 @@ const guestOtpLimit = rateLimit({
 const uploadLimit = rateLimit({
   name: 'partner-kyc-upload', windowMs: 60 * 60 * 1000, max: 60, keyOf: partnerKey,
 });
+const propertyImageUploadLimit = rateLimit({
+  name: 'partner-property-image-upload', windowMs: 60 * 60 * 1000, max: 60, keyOf: partnerKey,
+});
 
 router.post('/guest-otp/start', requireLamposeDb, requirePartner, guestOtpLimit, startGuestOtp);
 router.post('/guest-otp/verify', requireLamposeDb, requirePartner, verifyGuestOtp);
@@ -160,6 +182,15 @@ router.post(
   uploadLimit,
   kycUpload.array('images', MAX_KYC_IMAGES),
   uploadKycImages,
+);
+
+router.post(
+  '/uploads/property-images',
+  requireLamposeDb,
+  requirePartner,
+  propertyImageUploadLimit,
+  propertyImageUpload.array('images', MAX_PROPERTY_IMAGES),
+  uploadPropertyImages,
 );
 
 router.post('/bookings', requireLamposeDb, requirePartner, createBooking);

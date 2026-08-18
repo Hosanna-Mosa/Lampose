@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import {
   Screen,
   TopHeader,
   Text,
   Card,
   Badge,
+  Button,
   DetailRow,
   EmptyState,
   ErrorState,
@@ -19,28 +21,25 @@ import { useColors } from '@/hooks/useColors';
 /**
  * Property details.
  *
- * Replaces the "never designed" stub, and deliberately as a READ-ONLY view
- * rather than the editor the stub described.
+ * Replaces the "never designed" stub. Started as a deliberately READ-ONLY
+ * view: a property was written by the v1 onboarding surface, whose writes
+ * need an administrator's grant an owner does not have, and an edit form
+ * here would either need that privilege or quietly bypass the verification
+ * the catalogue depends on.
  *
- * ## Why it does not edit
- *
- * Not an omission — a property is written by the v1 onboarding surface, whose
- * writes need an administrator's grant, and a listing only becomes live once
- * an owner and a verifier have both confirmed it over WhatsApp. An edit form
- * here would either need privileges an owner does not have, or would quietly
- * bypass the verification the catalogue depends on.
- *
- * What an owner genuinely needs is the other thing: to see their listing
- * exactly as a student sees it. That is how "the rent is stale" and "those are
- * the wrong photos" get noticed at all — so this renders `formatListing`, the
- * same projection the public feed uses, and says who to contact to change it.
+ * The "Edit details" button on each card is the resolution of that, not a
+ * reversal of it: it opens `settings/property-edit.tsx`, which writes
+ * through a narrower, purpose-built endpoint gated on ownership rather than
+ * an employee grant — see `propertyEdit.controller.js` on the backend for the
+ * actual boundary and what it costs (no admin review before a save lands).
  *
  * ## Every value is the server's
  *
  * `GET /partners/properties`, scoped to the phone number this partner proved.
  * A field the catalogue has not recorded renders as "Not recorded" rather than
  * a plausible-looking stand-in — an owner reading their own listing has to be
- * able to tell a real rent from a placeholder.
+ * able to tell a real rent from a placeholder, and knows from the button that
+ * a "Not recorded" field is one they can now fill in themselves.
  */
 
 const dash = (value: unknown): string => {
@@ -73,6 +72,7 @@ const listedOn = (value: unknown): string => {
 };
 
 export default function PropertyDetailsScreen() {
+  const router = useRouter();
   const [properties, setProperties] = useState<BackendListing[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -112,13 +112,20 @@ export default function PropertyDetailsScreen() {
         />
       ) : (
         <View style={styles.stack}>
-          {properties.map((p) => (
-            <PropertyCard key={p.id ?? p._id ?? p.name} property={p} />
-          ))}
+          {properties.map((p) => {
+            const id = p.id ?? p._id;
+            return (
+              <PropertyCard
+                key={id ?? p.name}
+                property={p}
+                onEdit={id ? () => router.push({ pathname: '/settings/property-edit', params: { id } }) : undefined}
+              />
+            );
+          })}
 
           <Text variant="caption" color="textTertiary" style={styles.note}>
-            This is your listing exactly as guests see it. Rent, photos and amenities are
-            changed by Lampose during onboarding — message us and we will update them.
+            This is your listing exactly as guests see it. Tap "Edit details" on a card to add
+            or correct anything onboarding missed.
           </Text>
         </View>
       )}
@@ -126,7 +133,13 @@ export default function PropertyDetailsScreen() {
   );
 }
 
-function PropertyCard({ property }: { property: BackendListing & Record<string, any> }) {
+function PropertyCard({
+  property,
+  onEdit,
+}: {
+  property: BackendListing & Record<string, any>;
+  onEdit?: () => void;
+}) {
   const c = useColors();
 
   const verified = property.isVerified === true;
@@ -145,6 +158,10 @@ function PropertyCard({ property }: { property: BackendListing & Record<string, 
           tone={verified ? 'success' : 'warning'}
         />
       </View>
+
+      {onEdit ? (
+        <Button label="Edit details" onPress={onEdit} variant="secondary" size="sm" fullWidth={false} />
+      ) : null}
 
       {/*
         Short facts only.

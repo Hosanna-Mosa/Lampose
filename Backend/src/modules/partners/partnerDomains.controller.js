@@ -500,7 +500,18 @@ const updateShareTypeAvailability = async (req, res, next) => {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
     const key = getDigits(req.partner);
     const { isAvailable } = req.body;
+
+    /* The Dashboard's actual "accepting bookings" answer — see the note on
+       `acceptingBookings` in partner.model.js for why this is a flag on the
+       partner record rather than derived from PartnerShareType. */
+    req.partner.acceptingBookings = Boolean(isAvailable);
+    await req.partner.save();
+
+    /* Best-effort sync of whatever real share-type documents this partner
+       already has, if any. Harmless no-op today (nothing in this codebase
+       creates one), and picks up real data the moment something does. */
     await PartnerShareType.updateMany({ partnerPhoneDigits: key }, { isAvailable: Boolean(isAvailable) });
+
     return res.json({ success: true, isAvailable: Boolean(isAvailable) });
   } catch (error) {
     return next(error);
