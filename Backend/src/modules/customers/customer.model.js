@@ -122,6 +122,22 @@ const customerSchema = new mongoose.Schema(
       default: [],
     },
 
+    /*
+     * Set once, by a valid owner-invite code entered at signup — see
+     * `partners/customerReferral.controller.js#redeemCustomerReferralCode`.
+     * A property's Mongo id as a string, not a ref: this collection's own
+     * rule (see the header note) is that nothing here points back INTO
+     * `properties` by an ObjectId ref, so a lookup is a query, not a
+     * populate.
+     *
+     * Never reassigned after it is first set. A customer is credited to the
+     * one property whose invite code they actually used, and a second code
+     * entered later (were the app ever to offer that) would find
+     * `redeemCustomerReferralCode` refusing rather than moving the credit.
+     */
+    referredByProperty: { type: String, default: null },
+    referredAt: { type: Date, default: null },
+
     /* Not an enum with a `deleted` member: a deletion request has legal
        retention consequences that are handled where bookings live, and this
        flag exists only so support can stop an abusive number from ordering

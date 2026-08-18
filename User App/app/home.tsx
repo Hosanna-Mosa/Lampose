@@ -26,7 +26,7 @@ import { useFood, type FoodTab } from '@/context/FoodContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useTheme, type ThemePreference } from '@/context/ThemeContext';
 import { allBookings, segmentOf, type BookingSegment } from '@/data/bookings';
-import { useListingMeta, useListings, useNotifications, useSaved } from '@/services';
+import { useListingMeta, useListings, useMyCoupon, useNotifications, useSaved } from '@/services';
 import { BACKEND_CATEGORIES } from '@/services/adapters/listing.adapter';
 import { genderMeta, isGone } from '@/types/listing';
 import { activeFilterCount, applyQuery, EMPTY_QUERY, type SearchQuery } from '@/types/filters';
@@ -107,7 +107,8 @@ const FOOD_TAB_IDS = { home: 'food:home', search: 'food:search', orders: 'food:o
 export default function Home() {
   const { colors, space, layout, mode, radius, preference, setPreference } = useTheme();
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { user, status, signOut } = useAuth();
+  const { coupon } = useMyCoupon(status === 'signedIn');
   const { locality, category, setCategory } = useAppState();
   /* How much of the bottom edge the tab bar is occupying, measured by the bar
      itself. The snackbar has to clear it. */
@@ -724,6 +725,24 @@ export default function Home() {
             <Button label="Edit" size="sm" variant="secondary" onPress={() => router.push('/profile/edit')} />
           </View>
 
+          {/* Only shown once a referral has actually earned one — most
+              customers signed up with no code and have nothing here. Not
+              gated behind FOOD_MODE: the reward exists whether or not the
+              food module itself is finished. */}
+          {coupon && coupon.status === 'active' ? (
+            <View
+              style={[
+                styles.couponCard,
+                { backgroundColor: colors.surfaceSunken, borderRadius: radius.card },
+              ]}
+            >
+              <Text variant="title3">🎉 ₹{coupon.amountRupees} off your first food order</Text>
+              <Text variant="body" color="secondary">
+                From signing up via {coupon.propertyName || 'your referral'}.
+              </Text>
+            </View>
+          ) : null}
+
           <ProfileGroup title="Your stuff">
             <ProfileRow label="Alerts" value={`${unread} unread`} onPress={() => router.push('/notifications')} />
             <ProfileRow label="Saved places" value={String(saved.length)} onPress={() => setTab('saved')} />
@@ -912,6 +931,7 @@ export default function Home() {
 const styles = StyleSheet.create({
   identity: { flexDirection: 'row', alignItems: 'center' },
   avatar: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
+  couponCard: { padding: 16, gap: 2 },
   flex: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
   search: {

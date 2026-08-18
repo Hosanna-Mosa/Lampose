@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Screen,
   Text,
+  Button,
   IconButton,
   Card,
   DetailRow,
@@ -15,7 +16,7 @@ import { formatDateLong } from '@/lib/format';
 import type { BackendRequestStatus } from '@/services';
 
 /**
- * One visit request, read-only.
+ * One visit request, mostly read-only.
  *
  * Replaces a screen that ran entirely on invented data: a countdown to an
  * `expiresAt` the server has never sent, an "Accept booking" button with a
@@ -24,6 +25,13 @@ import type { BackendRequestStatus } from '@/services';
  * owner's only real reply to one happens over WhatsApp
  * (`AVAILABLE` / `NOT AVAILABLE`), not a button here. This shows exactly what
  * `GET /partners/requests/:id` actually recorded, and nothing it didn't.
+ *
+ * The one action that IS real: once a request is `confirmed`, this guest's
+ * name and phone are already known and already proven (the customer's own
+ * OTP, at request time) — "Log this guest" carries both straight into Add
+ * Customer, pre-filled, so the owner is not retyping what the app already
+ * has. It does not create a booking by itself; the owner still finishes the
+ * rest of that form (room, dates, KYC) same as any walk-in.
  */
 
 function statusTone(status: BackendRequestStatus): 'warning' | 'success' | 'error' | 'neutral' {
@@ -77,9 +85,27 @@ export default function RequestDetailScreen() {
   }
 
   const intent = request.intent;
+  const confirmed = request.status === 'confirmed';
 
   return (
-    <Screen padX={22} contentStyle={styles.stack} stickyHeader={backRow}>
+    <Screen
+      padX={22}
+      contentStyle={styles.stack}
+      stickyHeader={backRow}
+      footer={
+        confirmed ? (
+          <Button
+            label="Log this guest"
+            onPress={() =>
+              router.push({
+                pathname: '/requests/add-customer',
+                params: { guestName: request.customer.name, guestPhone: request.customer.phone },
+              })
+            }
+          />
+        ) : undefined
+      }
+    >
       <View style={styles.headRow}>
         <Text variant="h3" style={styles.guestName} numberOfLines={2}>
           {dash(request.customer.name)}
@@ -142,7 +168,9 @@ export default function RequestDetailScreen() {
       <Text variant="caption" color="textTertiary" style={styles.note}>
         {request.status === 'pending_owner'
           ? "Lampose has messaged you on WhatsApp about this request — reply AVAILABLE or NOT AVAILABLE there to respond."
-          : 'This request was answered over WhatsApp.'}
+          : confirmed
+            ? 'Answered over WhatsApp. Once this guest actually moves in, log them below.'
+            : 'This request was answered over WhatsApp.'}
       </Text>
     </Screen>
   );

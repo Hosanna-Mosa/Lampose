@@ -7,13 +7,11 @@ import {
   Button,
   IconButton,
   Input,
-  Select,
   Card,
   ErrorState,
   Skeleton,
 } from '@/components/ui';
-import { ROOM_TYPES, type RoomType } from '@/lib/inventory';
-import { AADHAR_LENGTH, formatAadhar } from '@/lib/requests';
+import { DocumentsChecklist, type DocumentEntry } from '@/components/DocumentsChecklist';
 import { formatDateInput, parseDateInput } from '@/lib/format';
 import { formatPhone } from '@/components/ui/PhoneField';
 import { ApiError } from '@/services/api/client';
@@ -26,16 +24,23 @@ import { useColors } from '@/hooks/useColors';
  *
  * ## What is not on this screen, and why
  *
- * The phone number, the verification, and the Aadhar photograph. The number is
- * the one a code was sent to and answered — editing it would leave the record
+ * The phone number, the verification, and the category. The number is the
+ * one a code was sent to and answered — editing it would leave the record
  * claiming a verification it does not have, so a different number is a new
- * record rather than an edit. The photograph and the verified stamp are
- * evidence; a form that could rewrite them would undo the whole reason the
- * create endpoint refuses a client-set `verified` flag.
+ * record rather than an edit. The verified stamp is evidence; a form that
+ * could rewrite it would undo the whole reason the create endpoint refuses a
+ * client-set `verified` flag. The category is the property's own fact, set
+ * once at onboarding — there is nothing about it to correct per guest.
  *
- * Everything here is a typo somebody can reasonably need to fix: a misheard
- * name, the wrong room, a date a day out, a mistyped Aadhar digit — the
- * photograph is the evidence there, not the digits.
+ * The documents checklist IS editable here, unlike the Aadhar photograph it
+ * replaced: it is a running note of what the owner has seen, not evidence
+ * like `verifiedAt` is, so adding a document later or fixing a mistaken tick
+ * is exactly what this screen is for.
+ *
+ * No Check-out or Guests fields, matching Add Customer — a stay is
+ * open-ended at move-in, and Guests was a free-text count. A record from
+ * before that change keeps whatever it already has; this screen just never
+ * asks for either.
  *
  * The same server-side date bounds the create uses apply again, because a
  * correction is as able to carry a transposed year as the original was.
@@ -44,7 +49,6 @@ import { useColors } from '@/hooks/useColors';
 /** Bounds mirrored from the server, so the message arrives while typing. */
 const MAX_BACKDATE_DAYS = 365;
 const MAX_FUTURE_DAYS = 730;
-const MAX_STAY_DAYS = 365;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** `YYYY-MM-DD` -> the eight digits the date field holds. */
@@ -65,12 +69,9 @@ export default function EditCustomerScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [name, setName] = useState('');
-  const [roomType, setRoomType] = useState<RoomType | null>(null);
   const [checkInDigits, setCheckInDigits] = useState('');
-  const [checkOutDigits, setCheckOutDigits] = useState('');
-  const [guests, setGuests] = useState('');
   const [address, setAddress] = useState('');
-  const [aadhar, setAadhar] = useState('');
+  const [documents, setDocuments] = useState<DocumentEntry[]>([]);
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -82,14 +83,9 @@ export default function EditCustomerScreen() {
       const row = await fetchCustomer(id);
       setCustomer(row);
       setName(row.guestName ?? '');
-      setRoomType((ROOM_TYPES as readonly string[]).includes(row.shareType)
-        ? (row.shareType as RoomType)
-        : null);
       setCheckInDigits(toDigits(row.checkInDate));
-      setCheckOutDigits(toDigits(row.checkOutDate));
-      setGuests(row.guestsLabel ?? '');
       setAddress(row.kyc?.address ?? '');
-      setAadhar((row.kyc?.aadharNumber ?? '').replace(/\D/g, ''));
+      setDocuments(Array.isArray(row.kyc?.documents) ? row.kyc.documents : []);
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.displayMessage : 'We could not open that record.');
     }
@@ -100,7 +96,6 @@ export default function EditCustomerScreen() {
   }, [load]);
 
   const checkIn = parseDateInput(checkInDigits);
-  const checkOut = parseDateInput(checkOutDigits);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -115,43 +110,27 @@ export default function EditCustomerScreen() {
     return undefined;
   })();
 
-  const checkOutError = (() => {
-    if (checkOutDigits.length !== 8) return undefined;
-    if (!checkOut) return 'Not a real date.';
-    if (!checkIn) return undefined;
-    if (checkOut.getTime() <= checkIn.getTime()) return 'Must be after check-in.';
-    if (Math.round((checkOut.getTime() - checkIn.getTime()) / DAY_MS) > MAX_STAY_DAYS) {
-      return 'Longer than a year — check the year.';
-    }
-    return undefined;
-  })();
+  const documentCollected = documents.some((d) => d.collected);
 
   const canSave =
     Boolean(customer) &&
     name.trim().length > 0 &&
-    roomType !== null &&
     Boolean(checkIn) &&
-    Boolean(checkOut) &&
     !checkInError &&
-    !checkOutError &&
-    guests.trim().length > 0 &&
     address.trim().length > 0 &&
-    aadhar.length === AADHAR_LENGTH &&
+    documentCollected &&
     !saving;
 
   const save = async () => {
-    if (!canSave || !id || !roomType || !checkIn || !checkOut) return;
+    if (!canSave || !id || !checkIn) return;
     setSaving(true);
     setSaveError(null);
     try {
       await updateCustomer(id, {
         guestName: name.trim(),
-        shareType: roomType,
         checkInDate: isoDay(checkIn),
-        checkOutDate: isoDay(checkOut),
-        guestsLabel: guests.trim(),
         address: address.trim(),
-        aadharNumber: aadhar,
+        documents,
       });
       router.back();
     } catch (err) {
@@ -217,6 +196,15 @@ export default function EditCustomerScreen() {
         </Text>
       </Card>
 
+      {customer.shareType ? (
+        <Card style={styles.lockedCard}>
+          <Text variant="caption" color="textTertiary">
+            Category
+          </Text>
+          <Text style={[styles.lockedValue, { color: c.textPrimary }]}>{customer.shareType}</Text>
+        </Card>
+      ) : null}
+
       <Text variant="overline" color="textTertiary" style={styles.sectionLabel}>
         Guest details
       </Text>
@@ -231,68 +219,34 @@ export default function EditCustomerScreen() {
       <Text variant="overline" color="textTertiary" style={styles.sectionLabel}>
         Stay details
       </Text>
-      <View style={styles.field}>
-        <Select
-          label="Room type"
-          options={ROOM_TYPES}
-          value={roomType}
-          onChange={setRoomType}
-          placeholder="Select a room type"
-        />
-      </View>
-      <View style={styles.row}>
-        <Input
-          label="Check-in"
-          value={formatDateInput(checkInDigits)}
-          onChangeText={(t) => setCheckInDigits(t.replace(/\D/g, '').slice(0, 8))}
-          placeholder="DD/MM/YYYY"
-          keyboardType="number-pad"
-          maxLength={10}
-          error={checkInError}
-          containerStyle={styles.half}
-        />
-        <Input
-          label="Check-out"
-          value={formatDateInput(checkOutDigits)}
-          onChangeText={(t) => setCheckOutDigits(t.replace(/\D/g, '').slice(0, 8))}
-          placeholder="DD/MM/YYYY"
-          keyboardType="number-pad"
-          maxLength={10}
-          error={checkOutError}
-          containerStyle={styles.half}
-        />
-      </View>
       <Input
-        label="Guests"
-        value={guests}
-        onChangeText={setGuests}
-        placeholder="e.g. 2 adults"
+        label="Check-in"
+        value={formatDateInput(checkInDigits)}
+        onChangeText={(t) => setCheckInDigits(t.replace(/\D/g, '').slice(0, 8))}
+        placeholder="DD/MM/YYYY"
+        keyboardType="number-pad"
+        maxLength={10}
+        error={checkInError}
         containerStyle={styles.field}
       />
 
       <Text variant="overline" color="textTertiary" style={styles.sectionLabel}>
-        KYC
+        Address
       </Text>
       <Input
-        label="Address"
         value={address}
         onChangeText={setAddress}
         multiline
         minHeight={80}
         containerStyle={styles.field}
       />
-      <Input
-        label="Aadhar number"
-        value={formatAadhar(aadhar)}
-        onChangeText={(t) => setAadhar(t.replace(/\D/g, '').slice(0, AADHAR_LENGTH))}
-        keyboardType="number-pad"
-        maxLength={14}
-        containerStyle={styles.field}
-      />
-      <Text variant="caption" color="textTertiary" style={styles.docNote}>
-        The Aadhar photograph on file cannot be replaced here — it is the evidence behind the
-        verification. Delete the record and add the guest again if it is wrong.
+
+      <Text variant="overline" color="textTertiary" style={styles.sectionLabel}>
+        Documents
       </Text>
+      <View style={styles.field}>
+        <DocumentsChecklist documents={documents} onChange={setDocuments} />
+      </View>
 
       {saveError ? (
         <Text variant="badge" color="error" style={styles.saveError}>
@@ -311,8 +265,5 @@ const styles = StyleSheet.create({
   lockedNote: { lineHeight: 18, marginTop: 4 },
   sectionLabel: { marginTop: 10, marginBottom: 10 },
   field: { marginBottom: 16 },
-  row: { flexDirection: 'row', gap: 12 },
-  half: { flex: 1, marginBottom: 16 },
-  docNote: { lineHeight: 17, marginTop: -4 },
   saveError: { marginTop: 12 },
 });

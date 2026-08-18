@@ -34,6 +34,7 @@ const mongoose = require('mongoose');
 
 const Customer = require('./customer.model');
 const { signCustomerToken } = require('./customerAuth.middleware');
+const { redeemCustomerReferralCode } = require('../partners/customerReferral.controller');
 const { sendOtpSms, smsConfigProblem } = require('../../infrastructure/sms/sms');
 const { toE164, isIndianMobile, maskPhone } = require('../../infrastructure/twilio/twilio');
 const {
@@ -250,7 +251,9 @@ const verifyAuth = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
 
-    const { otp, name, email, category } = req.body || {};
+    const {
+      otp, name, email, category, referralCode,
+    } = req.body || {};
     const phone = readPhone(req.body);
     if (!phone) {
       return res.status(400).json({ success: false, code: 'BAD_PHONE', message: 'Please enter a valid mobile number.' });
@@ -351,6 +354,27 @@ const verifyAuth = async (req, res, next) => {
     }
     if (typeof category === 'string' && CATEGORIES.includes(category)) customer.category = category;
 
+    /*
+     * The owner-invite code, if one came in on this same request.
+     *
+     * Applied here — after the OTP is confirmed correct, before the one save
+     * below — so it lands in the same write as the sign-up fields. A bad or
+     * expired code is never a reason to fail the sign-in: it is reported back
+     * as `referral.status` rather than thrown, so the app can tell the
+     * customer what happened without their account creation failing beside
+     * it. See `redeemCustomerReferralCode` for why every branch is a status
+     * string rather than an error.
+     */
+    let referral = null;
+    if (typeof referralCode === 'string' && referralCode.trim()) {
+      try {
+        referral = await redeemCustomerReferralCode(referralCode, customer);
+      } catch (referralError) {
+        console.warn('[customers] referral code redemption failed:', referralError.message);
+        referral = { status: 'invalid' };
+      }
+    }
+
     await customer.save();
 
     return res.json({
@@ -358,6 +382,7 @@ const verifyAuth = async (req, res, next) => {
       data: {
         token: signCustomerToken(customer),
         customer: customer.toPublic(),
+        ...(referral ? { referral } : {}),
       },
     });
   } catch (error) {

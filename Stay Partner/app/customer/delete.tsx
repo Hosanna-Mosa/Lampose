@@ -13,10 +13,12 @@ import { deleteCustomer } from '@/services/api/addCustomer.api';
  * dialog that does not say what it is about is one people learn to tap through,
  * and the row underneath it is somebody's identity documents.
  *
- * The Aadhar photograph goes with the row: the server deletes the Cloudinary
- * asset off the stored `publicId`. Dropping the record and leaving a scan of
- * somebody's ID on a public CDN would be the worst of both outcomes, and the
- * copy says so plainly rather than leaving it to be assumed.
+ * Older records may still carry an Aadhar photograph from before documents
+ * moved to a physical checklist — those go with the row too: the server
+ * deletes the Cloudinary asset off the stored `publicId`. Dropping the record
+ * and leaving a scan of somebody's ID on a public CDN would be the worst of
+ * both outcomes. The copy stays generic rather than promising a photograph
+ * that a newer record never had.
  */
 export default function DeleteCustomerSheet() {
   const router = useRouter();
@@ -50,8 +52,8 @@ export default function DeleteCustomerSheet() {
         title="Delete this customer?"
         subtitle={
           name
-            ? `${name} — their details and the Aadhar photograph are removed for good.`
-            : 'Their details and the Aadhar photograph are removed for good.'
+            ? `${name} — their details and any documents on file are removed for good.`
+            : 'Their details and any documents on file are removed for good.'
         }
         onClose={close}
         footer={

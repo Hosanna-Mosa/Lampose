@@ -83,6 +83,13 @@ export type VerifyAuthInput = {
   email?: string;
   /** Mirrored off the device so a reinstall does not re-ask the entry question. */
   category?: string | null;
+  /**
+   * An owner's invite code, entered on the sign-up form. Applied server-side
+   * in the same write that proves the number — see `verifyAuth` in
+   * `customer.controller.js`. A bad or expired code never fails the sign-in;
+   * it comes back as `referral.status` on the session instead.
+   */
+  referralCode?: string;
   signal?: AbortSignal;
 };
 
@@ -92,6 +99,7 @@ export async function verifyAuth({
   name,
   email,
   category,
+  referralCode,
   signal,
 }: VerifyAuthInput): Promise<BackendSession> {
   const envelope = await api.post<ApiEnvelope<BackendSession>>(
@@ -104,6 +112,7 @@ export async function verifyAuth({
       ...(name?.trim() ? { name: name.trim() } : null),
       ...(email?.trim() ? { email: email.trim() } : null),
       ...(category ? { category } : null),
+      ...(referralCode?.trim() ? { referralCode: referralCode.trim() } : null),
     },
     { signal, token: null },
   );

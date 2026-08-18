@@ -12,6 +12,7 @@ import {
   verifyAuth,
 } from '@/services';
 import type { AppConfig, AuthStatus, AuthUser, SendFailure } from '@/types/auth';
+import type { BackendReferralOutcome } from '@/services/api/types';
 
 /**
  * Phone and a one-time code. There are no passwords in this product.
@@ -73,7 +74,7 @@ export const MAX_ATTEMPTS = 5;
 export const MAX_SMS_SENDS = 3;
 
 export type VerifyResult =
-  | { ok: true }
+  | { ok: true; referralMessage?: string }
   | { ok: false; reason: 'wrong'; attemptsLeft: number }
   | { ok: false; reason: 'locked'; unlocksAtLabel: string }
   | { ok: false; reason: 'failed'; message: string };
@@ -94,7 +95,7 @@ export type VerifyResult =
 export type SendResult = 'sent' | 'pending' | 'failed';
 
 /** The sign-up fields, held between the form screen and the code screen. */
-export type PendingProfile = { name?: string; email?: string };
+export type PendingProfile = { name?: string; email?: string; referralCode?: string };
 
 type StoredSession = { token: string; user: AuthUser };
 
@@ -368,6 +369,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           name: pendingProfile?.name,
           email: pendingProfile?.email,
           category: categoryRef.current,
+          referralCode: pendingProfile?.referralCode,
         });
 
         await persist({ token: session.token, user: toAuthUser(session.customer) });
@@ -377,7 +379,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setPendingProfile(null);
         setSendCount(0);
         setResendIn(0);
-        return { ok: true };
+        return { ok: true, referralMessage: referralMessageFor(session.referral) };
       } catch (error) {
         if (!(error instanceof ApiError)) {
           return { ok: false, reason: 'failed', message: 'Something went wrong. Please try again.' };
@@ -528,6 +530,34 @@ function toAuthUser(customer: {
 /** A lock is stated as a clock time, never as "try again later". */
 function labelFor(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+}
+
+/**
+ * One sentence for whatever the referral code did, or `undefined` when no
+ * code was submitted at all — `session.referral` is entirely absent in that
+ * case, not a status worth mentioning.
+ *
+ * Every failure branch still reads as a plain explanation rather than an
+ * error: the code is a bonus on top of signing up, and a student who typed
+ * one wrong should not read "FAILED" over an account that was created fine.
+ */
+function referralMessageFor(referral: BackendReferralOutcome | undefined): string | undefined {
+  if (!referral) return undefined;
+  switch (referral.status) {
+    case 'applied':
+      return `Signed up via ${referral.propertyName ?? 'your referral'} — you've unlocked ₹${referral.discountRupees ?? 0} off your first food order.`;
+    case 'expired':
+      return 'That referral code has expired, so it was not applied — your account is set up either way.';
+    case 'used':
+      return 'That referral code has already been used, so it was not applied — your account is set up either way.';
+    case 'phone_mismatch':
+      return 'That referral code was issued to a different number, so it was not applied — your account is set up either way.';
+    case 'already_referred':
+      return undefined; // Signing in again on an already-credited account — nothing new to say.
+    case 'invalid':
+    default:
+      return "That referral code isn't valid, so it was not applied — your account is set up either way.";
+  }
 }
 
 export function useAuth(): AuthContextValue {

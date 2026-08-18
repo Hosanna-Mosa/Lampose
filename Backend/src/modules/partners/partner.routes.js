@@ -61,6 +61,7 @@ const {
 const {
   getMyProperties, getMyRequests, getMyRequest, markRequestsRead, getSummary,
 } = require('./portfolio.controller');
+const { createInvite, getInvites } = require('./customerReferral.controller');
 const { requirePartner } = require('./partnerAuth.middleware');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const { rateLimit } = require('../../shared/middleware/rateLimit');
@@ -143,6 +144,13 @@ router.get('/properties', requireLamposeDb, requirePartner, getMyProperties);
    surface's employee-gated edit, and why an edit here has no review step. */
 router.get('/properties/:id', requireLamposeDb, requirePartner, getMyPropertyById);
 router.patch('/properties/:id', requireLamposeDb, requirePartner, updateMyProperty);
+
+/* Refer a CUSTOMER, not another owner — a second, separate growth loop from
+   /referrals below, sharing only the points wallet. Every code is minted off
+   an already-proven phone number and redeemable only by that exact number —
+   see customerReferral.controller.js for why, and what this replaced. */
+router.post('/invites', requireLamposeDb, requirePartner, createInvite);
+router.get('/invites', requireLamposeDb, requirePartner, getInvites);
 
 router.get('/requests', requireLamposeDb, requirePartner, getMyRequests);
 router.post('/requests/read', requireLamposeDb, requirePartner, markRequestsRead);

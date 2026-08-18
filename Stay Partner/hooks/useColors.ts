@@ -7,11 +7,10 @@ import colors from '@/constants/colors';
  * The returned object contains all color tokens for the active palette
  * plus scheme-independent values like `radius`.
  *
- * Falls back to the light palette when no dark key is defined in
- * constants/colors.ts (the scaffold ships light-only by default).
- * When a sibling web artifact's dark tokens are synced into a `dark`
- * key, this hook will automatically switch palettes based on the
- * device's appearance setting.
+ * Switches on the device's own appearance setting (`useColorScheme`) —
+ * there is no in-app toggle, so a user's phone-level light/dark choice is
+ * the only thing that decides this. Both `colors.light` and `colors.dark`
+ * in constants/colors.ts are real, independently-tuned palettes.
  */
 export function useColors() {
   const scheme = useColorScheme();
