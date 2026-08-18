@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen, Text, Button, Card, Icon, Skeleton, HeaderPill, Switch } from '@/components/ui';
 import { unreadCount } from '@/lib/notifications';
 import { POINTS_PER_REFERRAL, POINT_VALUE_RUPEES } from '@/lib/referrals';
@@ -13,7 +13,6 @@ import {
   isAvailable,
   setAvailable,
 } from '@/lib/shareTypes';
-import { pendingCount, soonestPendingHours, subscribeRequests } from '@/lib/requests';
 import { radius, shadow } from '@/constants/layout';
 import { type } from '@/constants/typography';
 import colors from '@/constants/colors';
@@ -55,13 +54,11 @@ export default function TodayTab() {
   const [, setRevision] = useState(0);
 
   useEffect(() => {
-    const unsubRequests = subscribeRequests(() => setRevision((r) => r + 1));
     const unsubComplaints = subscribeComplaints(() => setRevision((r) => r + 1));
     const unsubShareTypes = subscribeShareTypes(() => {
       setRevision((r) => r + 1);
     });
     return () => {
-      unsubRequests();
       unsubComplaints();
       unsubShareTypes();
     };
@@ -99,9 +96,21 @@ export default function TodayTab() {
     }
   }, [forced]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  /*
+   * Refetched every time this tab comes back into focus, not just on mount —
+   * same reasoning as `customers.tsx`. Share Types is a pushed screen that
+   * `back()`s to here, and turning every share type off there takes the
+   * property offline server-side (`getSummary` computes `isAvailable` from
+   * whether ANY share type is still available). A plain mount effect would
+   * never see that: this tab stays mounted underneath the pushed screen, so
+   * it would keep showing the availability it had before the visit — online,
+   * on a card that's actually just been saved with nothing left to book.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData]),
+  );
 
   /*
    * Real values only. There are no invented defaults here any more.
@@ -121,11 +130,19 @@ export default function TodayTab() {
   const earningsData = summaryData?.earnings ?? { today: '₹0', week: '₹0' };
 
   const toggleAvailable = async (next: boolean) => {
-    setAvailableLocal(next);
     if (next) {
+      /* Going online needs at least one visible share type — Share Types is
+         where that's actually confirmed, so the switch does NOT flip yet.
+         It used to call `setAvailableLocal(true)` right here, before the
+         owner had picked anything: back out of that screen with nothing
+         selected (or without saving at all) and the switch was already
+         showing online for a state nobody had confirmed. Now nothing
+         changes here — the switch only reflects what `useFocusEffect`
+         reads back from the server once the owner actually returns. */
       router.push({ pathname: '/share-types', params: { reason: 'accepting' } });
       return;
     }
+    setAvailableLocal(false);
     try {
       await toggleShareTypesAvailabilityApi(false);
       setAvailable(false);
@@ -160,7 +177,7 @@ export default function TodayTab() {
             <HeaderPill
               label={propertyName ?? 'No property linked'}
               swatch
-              onPress={() => {}}
+              onPress={() => router.push('/settings/property')}
             />
             <View style={styles.headerRight}>
               <Switch value={available} onChange={toggleAvailable} size="sm" accessibilityLabel="Rooms available for booking" />
@@ -264,14 +281,20 @@ function ErrorBody({ onRetry }: { onRetry: () => void }) {
 
 // ── Pieces ────────────────────────────────────────────────────────────────
 
+/** How long the crossfade takes. Slow enough to see, not sluggish. */
+const HERO_WIPE_MS = 900;
+
 /**
  * Replaces the old bare greeting line + floating availability pill with one
- * anchored surface — a gradient wash of the brand green, the one place on
- * this screen allowed to be loud, since everything below it goes back to the
- * neutral surface. The oversized bed glyph is decoration only, clipped by the
- * card's own corners; VoiceOver never sees it (the whole card reads as one
- * label). The availability chip is read-only here on purpose — the switch
- * that actually controls it lives in the header above, where the tap started.
+ * anchored surface. The gradient wash of the brand green is only earned while
+ * the owner is actually accepting bookings — the one place on this screen
+ * allowed to be loud, since everything below it goes back to the neutral
+ * surface. While the switch in the header is off, the card goes back to that
+ * same neutral surface too, rather than staying green and claiming an
+ * availability that isn't true.
+ *
+ * Crossfades between the two rather than snapping — see the note inside the
+ * function for why it's a fade and not the wipe originally asked for.
  */
 function HeroCard({
   greetingText,
@@ -286,40 +309,107 @@ function HeroCard({
   available: boolean;
 }) {
   const c = useColors();
+
+  const label = `${greetingText}${owner ? `, ${owner}` : ''}. ${available ? 'Rooms available, accepting bookings' : 'Not accepting new bookings'}.`;
+
+  /*
+   * FIFTH ATTEMPT, a different category this time. Four prior techniques for
+   * a left-to-right WIPE all broke this card in different ways — reanimated
+   * worklets, core `Animated` with a measured pixel translate, core
+   * `Animated` with a percentage `left`, and a plain `requestAnimationFrame`
+   * loop rewriting `LinearGradient`'s own `colors`/`locations` every frame.
+   * Three of those never touched the gradient's own props; the fourth had no
+   * nesting at all. What every one of them DID share is JS-thread work on
+   * every single animation frame — a React re-render, or a `setNativeProps`
+   * call, once per frame for the animation's whole duration.
+   *
+   * This is a plain opacity CROSSFADE instead of a wipe, using
+   * `useNativeDriver: true`. That's not a smaller version of the same idea —
+   * once `.start()` fires, the JS thread does nothing at all until the
+   * animation finishes; the native side owns every frame on its own. It's
+   * the one thing left that doesn't share the trait every failed attempt had
+   * in common. If this ALSO breaks, that says something more fundamental
+   * than "wrong animation technique" and is worth stopping to investigate
+   * properly rather than trying a sixth approach blind.
+   */
+  const fade = useRef(new Animated.Value(available ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(fade, {
+      toValue: available ? 1 : 0,
+      duration: HERO_WIPE_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [available]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
-    <LinearGradient
-      colors={[c.accent, c.accentHover]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.hero}
-    >
-      <View style={styles.heroGlyph} pointerEvents="none">
-        <Icon name="bed" size={168} color="rgba(255,255,255,0.07)" strokeWidth={1.1} />
+    <View style={styles.hero} accessible accessibilityLabel={label}>
+      {/* Bottom layer: white, normal flow — this is what actually sizes the
+          card. Static props, never touched once mounted. */}
+      <View style={[styles.heroLayer, { backgroundColor: c.surface, borderWidth: 1, borderColor: c.borderCard }]}>
+        <HeroCardBody c={c} greetingText={greetingText} owner={owner} tone="off" />
       </View>
 
-      <View accessible accessibilityLabel={`${greetingText}${owner ? `, ${owner}` : ''}. ${available ? 'Rooms available, accepting bookings' : 'Not accepting new bookings'}.`}>
-        <Text style={styles.heroGreeting}>
+      {/* Top layer: green, laid exactly over the white one. Only its OWN
+          opacity is animated — the LinearGradient inside it never has a
+          prop touched during the animation, matching the one thing every
+          working version so far has had in common. */}
+      <Animated.View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFillObject, { opacity: fade }]}
+      >
+        <LinearGradient colors={[c.accent, c.accentHover]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroLayer}>
+          <HeroCardBody c={c} greetingText={greetingText} owner={owner} tone="on" />
+        </LinearGradient>
+      </Animated.View>
+    </View>
+  );
+}
+
+/** One tone's worth of the hero card's content — the glyph, greeting and chip. */
+function HeroCardBody({
+  c,
+  greetingText,
+  owner,
+  tone,
+}: {
+  c: ReturnType<typeof useColors>;
+  greetingText: string;
+  owner: string | null;
+  tone: 'on' | 'off';
+}) {
+  const on = tone === 'on';
+  return (
+    <>
+      <View style={styles.heroGlyph} pointerEvents="none">
+        <Icon name="bed" size={104} color={on ? 'rgba(255,255,255,0.1)' : c.borderSubtle} strokeWidth={1.1} />
+      </View>
+
+      <View>
+        <Text style={[styles.heroGreeting, on ? null : { color: c.textPrimary }]}>
           {greetingText}
           {owner ? `, ${owner}` : ''}
         </Text>
-        <Text style={styles.heroSubtitle}>Here&apos;s what&apos;s happening today</Text>
+        <Text style={[styles.heroSubtitle, on ? null : { color: c.textSecondary, opacity: 1 }]}>
+          Here&apos;s what&apos;s happening today
+        </Text>
 
         <View
           style={[
             styles.heroChip,
-            {
-              backgroundColor: available ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.14)',
-              borderColor: available ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.16)',
-            },
+            on
+              ? { backgroundColor: 'rgba(255,255,255,0.18)', borderColor: 'rgba(255,255,255,0.3)' }
+              : { backgroundColor: c.surfaceSunken, borderColor: c.borderCard },
           ]}
         >
-          <View style={[styles.heroDot, { backgroundColor: available ? c.brandYellow : 'rgba(255,255,255,0.5)' }]} />
-          <Text style={styles.heroChipText}>
-            {available ? 'Rooms available — accepting bookings' : 'Not accepting new bookings'}
+          <View style={[styles.heroDot, { backgroundColor: on ? c.brandYellow : c.textTertiary }]} />
+          <Text style={[styles.heroChipText, on ? null : { color: c.textSecondary }]}>
+            {on ? 'Rooms available — accepting bookings' : 'Not accepting new bookings'}
           </Text>
         </View>
       </View>
-    </LinearGradient>
+    </>
   );
 }
 
@@ -393,20 +483,14 @@ function EarningsMiniCard({ today, week, onPress }: { today: string; week: strin
   );
 }
 
-/** Count and soonest-expiry are both live from `lib/requests.ts` — accepting or rejecting one updates this immediately. */
 /**
- * The count comes from the summary, not from `lib/requests`.
+ * The count comes from the summary — the server counts `pending_owner` visit
+ * requests against this owner's properties, and that is the number a tap
+ * actually opens (`app/requests/index.tsx`, which reads the same real data).
  *
- * `pendingCount()` read a fixture array, which is why this banner said
- * "3 pending requests · soonest expires in 1h" on an account whose real
- * figure was one. The server counts `pending_owner` visit requests against
- * this owner's properties, and that is the number a tap actually opens.
- *
- * The expiry line is gone with it. The fixture carried a per-request
- * `expiresAt` that the backend has no equivalent for — a visit request's
- * 24-hour window is enforced server-side and not currently projected — so
- * the urgent red countdown was pure invention. It comes back when the API
- * carries the deadline.
+ * There's no expiry line: a visit request's 24-hour window is enforced
+ * server-side but not currently projected to the client, so a countdown here
+ * would have to be invented rather than read.
  */
 function RequestsBanner({ count, onPress }: { count: number; onPress: () => void }) {
   const c = useColors();
@@ -542,14 +626,25 @@ const styles = StyleSheet.create({
   },
   hero: {
     borderRadius: 24,
-    padding: 20,
-    paddingVertical: 22,
     overflow: 'hidden',
   },
+  /* Shared by both stacked copies (green + white) so a wipe mid-flight lines
+     their text up exactly — any padding difference between the two would
+     show up as a jump the instant the wipe boundary crosses it. */
+  heroLayer: {
+    padding: 20,
+    paddingVertical: 22,
+  },
+  /* Fully inside the card's own bounds — deliberately not bleeding past the
+     edge the way the original design called for. `overflow: hidden` +
+     `borderRadius` on the card not reliably clipping an absolutely
+     positioned child at the rounded corner is a known Android quirk, and
+     the earlier negative offsets sat it exactly there; positive offsets
+     keep it clear of that corner without depending on the clip at all. */
   heroGlyph: {
     position: 'absolute',
-    right: -34,
-    bottom: -30,
+    right: 10,
+    bottom: 6,
   },
   /*
    * The hero sits on the accent gradient, so its type is white rather than an

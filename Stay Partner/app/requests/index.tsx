@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
@@ -6,88 +6,96 @@ import {
   Text,
   IconButton,
   Segmented,
+  Card,
+  Badge,
   EmptyState,
-  RequestCard,
-  type BookingRequest,
+  ErrorState,
+  Skeleton,
 } from '@/components/ui';
-import {
-  REQUESTS,
-  categoryOf,
-  consumeLastAddedId,
-  grossOf,
-  subscribeRequests,
-  type RequestCategory,
-  type RequestDetail,
-} from '@/lib/requests';
-import { formatINR, formatRange } from '@/lib/format';
+import { useMyRequests, useMarkRequestsRead } from '@/services/hooks/usePortfolio';
+import type { BackendPartnerRequest, BackendRequestStatus } from '@/services';
+import { fonts } from '@/constants/typography';
 
-const CATEGORIES: readonly RequestCategory[] = ['pending', 'approved', 'rejected'];
-const CATEGORY_LABELS: Record<RequestCategory, string> = {
+/**
+ * Requests — visit requests customers have sent to this owner's properties.
+ *
+ * Replaces a screen that was entirely fixture data: five invented guests with
+ * invented Aadhar numbers, an "Accept booking" button, and a price breakdown,
+ * none of which the backend has ever supported. What the backend actually has
+ * is `VisitRequest` — someone proved their own phone number through the User
+ * App and asked to see a property; the owner's only real response happens
+ * over WhatsApp (`AVAILABLE` / `NOT AVAILABLE`), not a button in this app.
+ * `useMyRequests` already read the real thing — the dashboard's pending count
+ * has used it for a while — this screen just hadn't been wired to it.
+ */
+
+type Category = 'pending' | 'confirmed' | 'closed';
+const CATEGORIES: readonly Category[] = ['pending', 'confirmed', 'closed'];
+const CATEGORY_LABELS: Record<Category, string> = {
   pending: 'Pending',
-  approved: 'Approved',
-  rejected: 'Rejected',
+  confirmed: 'Confirmed',
+  closed: 'Closed',
 };
-const EMPTY_COPY: Record<RequestCategory, { title: string; body: string }> = {
+const EMPTY_COPY: Record<Category, { title: string; body: string }> = {
   pending: {
     title: 'No requests right now',
-    body: 'New booking requests arrive here, and you’ll get a notification when they do.',
+    body: 'A visit request lands here the moment a customer verifies their number and asks to see this property.',
   },
-  approved: {
-    title: 'Nothing approved yet',
-    body: 'Accept a pending request and it lands here, ready for KYC.',
+  confirmed: {
+    title: 'Nothing confirmed yet',
+    body: 'Requests you replied AVAILABLE to on WhatsApp show up here.',
   },
-  rejected: {
+  closed: {
     title: 'Nothing here',
     body: 'Declined and expired requests show up in this list.',
   },
 };
 
-function toBookingRequest(r: RequestDetail): BookingRequest {
-  return {
-    id: r.id,
-    guest: r.guest,
-    dates: formatRange(r.checkIn, r.checkOut),
-    roomType: r.roomType,
-    amount: formatINR(grossOf(r)),
-    status: r.status,
-    expiresAt: r.expiresAt,
-  };
+function categoryOf(status: BackendRequestStatus): Category {
+  if (status === 'confirmed') return 'confirmed';
+  if (status === 'declined' || status === 'expired') return 'closed';
+  return 'pending';
+}
+
+function statusTone(status: BackendRequestStatus): 'warning' | 'success' | 'error' | 'neutral' {
+  if (status === 'confirmed') return 'success';
+  if (status === 'declined') return 'error';
+  if (status === 'expired') return 'neutral';
+  return 'warning';
+}
+
+function statusLabel(status: BackendRequestStatus): string {
+  if (status === 'pending_owner') return 'Awaiting your reply';
+  if (status === 'confirmed') return 'Confirmed';
+  if (status === 'declined') return 'Declined';
+  return 'Expired';
+}
+
+/** Everything the server actually recorded about what they're after, in one line. */
+function intentSummary(request: BackendPartnerRequest): string {
+  const intent = request.intent;
+  if (!intent) return 'Details not recorded';
+
+  const parts: string[] = [];
+  if (intent.stayType) parts.push(intent.stayType === 'short' ? 'Short stay' : 'Long stay');
+  if (intent.duration && intent.durationUnit) parts.push(`${intent.duration} ${intent.durationUnit}`);
+  if (intent.rateAmount && intent.rateUnit) {
+    parts.push(`₹${intent.rateAmount.toLocaleString('en-IN')}/${intent.rateUnit}`);
+  }
+  return parts.length ? parts.join(' · ') : 'Details not recorded';
 }
 
 export default function RequestsInbox() {
   const router = useRouter();
-  const [category, setCategory] = useState<RequestCategory>('pending');
+  const [category, setCategory] = useState<Category>('pending');
+  const { requests, unread, isLoading, error, refetch } = useMyRequests();
+  useMarkRequestsRead(unread, !isLoading);
 
-  // Accepting or declining a request changes which tab it lives in — the
-  // inbox has to actually move it, not just leave the count stale.
-  const [revision, setRevision] = useState(0);
-  useEffect(
-    () =>
-      subscribeRequests(() => {
-        setRevision((r) => r + 1);
-        // A customer added by hand from any tab should be easy to find right
-        // after saving, not require switching to Approved yourself.
-        if (consumeLastAddedId()) setCategory('approved');
-      }),
-    [],
-  );
-
-  const grouped = useMemo(() => {
-    const groups: Record<RequestCategory, RequestDetail[]> = { pending: [], approved: [], rejected: [] };
-    for (const r of REQUESTS) groups[categoryOf(r)].push(r);
-    // Soonest-expiring first for pending — that's the one thing actually racing a clock.
-    groups.pending.sort((a, b) => a.expiresAt - b.expiresAt);
-    groups.approved.sort((a, b) => b.requestedAt.getTime() - a.requestedAt.getTime());
-    groups.rejected.sort((a, b) => b.requestedAt.getTime() - a.requestedAt.getTime());
-    return groups;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- revision forces a re-read
-  }, [revision]);
-
-  const list = grouped[category];
+  const list = requests.filter((r) => categoryOf(r.status) === category);
 
   return (
     <Screen
-      contentStyle={styles.stack} key={revision}
+      contentStyle={styles.stack}
       stickyHeader={
         <>
           {/*
@@ -108,14 +116,20 @@ export default function RequestsInbox() {
         </>
       }
     >
-
       <Segmented options={CATEGORIES} value={category} onChange={setCategory} labels={CATEGORY_LABELS} />
 
-      {list.length > 0 ? (
+      {error ? (
+        <ErrorState title="We could not load this" body={error.displayMessage} onRetry={refetch} style={styles.empty} />
+      ) : isLoading ? (
+        <View style={styles.stack}>
+          <Skeleton width="100%" height={92} radius={16} />
+          <Skeleton width="100%" height={92} radius={16} />
+        </View>
+      ) : list.length > 0 ? (
         list.map((r) => (
-          <RequestCard
+          <RequestRow
             key={r.id}
-            request={toBookingRequest(r)}
+            request={r}
             onPress={() => router.push({ pathname: '/requests/[id]', params: { id: r.id } })}
           />
         ))
@@ -131,6 +145,25 @@ export default function RequestsInbox() {
   );
 }
 
+function RequestRow({ request, onPress }: { request: BackendPartnerRequest; onPress: () => void }) {
+  return (
+    <Card variant="elevated" onPress={onPress} style={styles.row}>
+      <View style={styles.rowTop}>
+        <Text variant="bodyMedium" style={styles.guest} numberOfLines={1}>
+          {request.customer.name || 'Unnamed guest'}
+        </Text>
+        <Badge label={statusLabel(request.status)} tone={statusTone(request.status)} />
+      </View>
+      <Text variant="caption" color="textSecondary" numberOfLines={1}>
+        {request.propertyName || 'Property not recorded'}
+      </Text>
+      <Text variant="caption" color="textSecondary" numberOfLines={1}>
+        {intentSummary(request)}
+      </Text>
+    </Card>
+  );
+}
+
 const styles = StyleSheet.create({
   stack: { gap: 14 },
   headerRow: {
@@ -143,4 +176,7 @@ const styles = StyleSheet.create({
     marginBottom: -4,
   },
   empty: { minHeight: 320 },
+  row: { gap: 5 },
+  rowTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+  guest: { flex: 1, fontFamily: fonts.bold, fontSize: 15, lineHeight: 20 },
 });

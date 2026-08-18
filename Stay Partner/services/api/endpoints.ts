@@ -63,11 +63,23 @@ export const endpoints = {
 
   /**
    * This partner's listings, scoped by the phone number they proved.
-   *
-   * Read-only. Editing a property is the v1 onboarding surface's job and needs
-   * an administrator's grant, which an owner does not have.
    */
   partnerProperties: `${V2}/partners/properties`,
+
+  /**
+   * One listing, and where an edit to it is sent.
+   *
+   * Distinct from the v1 onboarding surface's `PUT /api/v1/properties/:id`:
+   * that one is gated on an administrator's grant to an employee email, this
+   * one is gated on the property's `ownerMobile` matching the phone number
+   * this session proved. See `Backend/src/modules/partners/
+   * propertyEdit.controller.js` for why the two are separate routes rather
+   * than one shared with a different header.
+   */
+  partnerProperty: (id: string) => `${V2}/partners/properties/${encodeURIComponent(id)}`,
+
+  /** Property photographs to Cloudinary. Returns the secure URLs to save onto `images`. */
+  partnerPropertyImageUpload: `${V2}/partners/uploads/property-images`,
 
   /**
    * Visit requests customers have sent to this partner's properties.

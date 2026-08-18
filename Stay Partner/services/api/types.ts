@@ -61,13 +61,15 @@ export type BackendPartnerSession = {
  * ------------------------------------------------------------------ */
 
 /**
- * A listing as the public feed projects it.
+ * A listing as the public feed projects it — `formatListing` on the backend.
  *
  * Every field is optional except the id, and that is not laziness: the feed is
  * built from the `properties` collection, which is filled in by field agents
  * over time. A property onboarded this morning may have a name and a city and
  * nothing else, and a client that assumed otherwise would crash on the newest
- * rows rather than the oldest.
+ * rows rather than the oldest. The same looseness is why the property-edit
+ * screen exists: most of what is missing here is exactly what that screen
+ * lets an owner fill in.
  */
 export type BackendListing = {
   id?: string;
@@ -78,13 +80,27 @@ export type BackendListing = {
   place?: string;
   locality?: string;
   landmark?: string;
+  stayType?: string;
+  longStayDuration?: string | null;
+  shortStayDuration?: string | null;
   rent?: number | null;
+  monthlyPrice?: number | null;
+  dailyPrice?: number | null;
   deposit?: number | null;
   gender?: string;
   ownerName?: string;
   ownerMobile?: string;
-  photoUris?: string[];
+  address?: string;
   description?: string;
+  amenities?: string[];
+  /** The gallery, as the backend actually names it. */
+  images?: string[];
+  photoUris?: string[];
+  /** `categoryDetails`, projected under this name by `formatListing`. */
+  details?: Record<string, unknown> | null;
+  isVerified?: boolean;
+  verificationStatus?: string | null;
+  listedAt?: string;
   createdAt?: string;
   updatedAt?: string;
 };
