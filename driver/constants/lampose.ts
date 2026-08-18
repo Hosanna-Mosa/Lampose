@@ -5,7 +5,8 @@
  * Screens read from here rather than inlining copy, so the wording stays in one
  * place when it's swapped for live API data.
  */
-import { colors } from "@/theme";
+import type { IconName } from "@/components/ui";
+import type { ToneName } from "@/theme";
 
 // ─── Delivery flow ────────────────────────────────────────────────────────────
 
@@ -54,40 +55,40 @@ export type Phase =
   | "active"
   | "done";
 
-export const STATUS: Record<Phase, { tone: string; head: string; sub: string }> = {
+export const STATUS: Record<Phase, { tone: ToneName; head: string; sub: string }> = {
   idle: {
-    tone: colors.neutral500,
+    tone: "muted",
     head: "You're offline",
     sub: "Go online to start receiving delivery requests.",
   },
   connecting: {
-    tone: colors.ok,
+    tone: "success",
     head: "You're now online",
     sub: "Connecting you to the Rajahmundry dispatch…",
   },
   searching: {
-    tone: colors.ok,
+    tone: "success",
     head: "You're online",
     sub: "Looking for delivery requests near you…",
   },
   noorders: {
-    tone: colors.warn,
+    tone: "warning",
     head: "No orders right now",
     sub: "Demand is low in Morampudi. Try Danavaipeta — 8 partners are getting orders there.",
   },
-  request: { tone: colors.ok, head: "You're online", sub: "A delivery request is on screen." },
+  request: { tone: "success", head: "You're online", sub: "A delivery request is on screen." },
   expired: {
-    tone: colors.ok,
+    tone: "success",
     head: "You're online",
     sub: "Looking for delivery requests near you…",
   },
-  active: { tone: colors.ok, head: "You're online", sub: "One delivery in progress." },
-  done: { tone: colors.ok, head: "You're online", sub: "Looking for delivery requests near you…" },
+  active: { tone: "success", head: "You're online", sub: "One delivery in progress." },
+  done: { tone: "success", head: "You're online", sub: "Looking for delivery requests near you…" },
 };
 
 /** The online status when idle differs from the offline copy above. */
-export const STATUS_ONLINE_IDLE = {
-  tone: colors.ok,
+export const STATUS_ONLINE_IDLE: { tone: ToneName; head: string; sub: string } = {
+  tone: "success",
   head: "You're online",
   sub: "Stay in a busy zone to get more orders.",
 };
@@ -101,7 +102,7 @@ export type OrderRow = {
   dist: string;
   earn: string;
   status: string;
-  tone: string;
+  tone: ToneName;
 };
 
 export const ORDERS_TABS = ["Active", "Completed", "Cancelled"] as const;
@@ -116,19 +117,19 @@ export const ORDERS: Record<OrdersTab, OrderRow[]> = {
       dist: "4.8 km",
       earn: "₹86",
       status: "Picked up",
-      tone: colors.accent700,
+      tone: "brand",
     },
   ],
   Completed: [
-    { rest: "KFC · Devi Chowk", when: "Today 6:58 pm", id: "#LP48277", dist: "3.1 km", earn: "₹64", status: "Delivered", tone: colors.ok },
-    { rest: "Domino's · Morampudi", when: "Today 6:12 pm", id: "#LP48260", dist: "5.4 km", earn: "₹92", status: "Delivered", tone: colors.ok },
-    { rest: "Sri Sai Tiffins", when: "Today 5:20 pm", id: "#LP48241", dist: "2.2 km", earn: "₹55", status: "Delivered", tone: colors.ok },
-    { rest: "Paradise Biryani", when: "Today 3:04 pm", id: "#LP48198", dist: "6.0 km", earn: "₹104", status: "Delivered", tone: colors.ok },
-    { rest: "Ohri's Tandoor", when: "Yesterday 9:10 pm", id: "#LP48102", dist: "4.0 km", earn: "₹78", status: "Delivered", tone: colors.ok },
+    { rest: "KFC · Devi Chowk", when: "Today 6:58 pm", id: "#LP48277", dist: "3.1 km", earn: "₹64", status: "Delivered", tone: "success" },
+    { rest: "Domino's · Morampudi", when: "Today 6:12 pm", id: "#LP48260", dist: "5.4 km", earn: "₹92", status: "Delivered", tone: "success" },
+    { rest: "Sri Sai Tiffins", when: "Today 5:20 pm", id: "#LP48241", dist: "2.2 km", earn: "₹55", status: "Delivered", tone: "success" },
+    { rest: "Paradise Biryani", when: "Today 3:04 pm", id: "#LP48198", dist: "6.0 km", earn: "₹104", status: "Delivered", tone: "success" },
+    { rest: "Ohri's Tandoor", when: "Yesterday 9:10 pm", id: "#LP48102", dist: "4.0 km", earn: "₹78", status: "Delivered", tone: "success" },
   ],
   Cancelled: [
-    { rest: "KFC · Devi Chowk", when: "Yesterday 8:30 pm", id: "#LP48090", dist: "1.4 km", earn: "₹25", status: "Restaurant closed", tone: colors.err },
-    { rest: "Cream Stone", when: "14 Aug 7:15 pm", id: "#LP47980", dist: "0.0 km", earn: "₹0", status: "Customer cancelled", tone: colors.err },
+    { rest: "KFC · Devi Chowk", when: "Yesterday 8:30 pm", id: "#LP48090", dist: "1.4 km", earn: "₹25", status: "Restaurant closed", tone: "danger" },
+    { rest: "Cream Stone", when: "14 Aug 7:15 pm", id: "#LP47980", dist: "0.0 km", earn: "₹0", status: "Customer cancelled", tone: "danger" },
   ],
 };
 
@@ -142,10 +143,10 @@ export const TIMELINE = [
 ] as const;
 
 export const ORDER_EARNINGS = [
-  { l: "Delivery fee", v: "₹64", tone: colors.text },
-  { l: "Distance pay · 4.8 km", v: "₹12", tone: colors.text },
-  { l: "Customer tip", v: "₹10", tone: colors.ok },
-  { l: "Adjustments", v: "₹0", tone: colors.neutral600 },
+  { l: "Delivery fee", v: "₹64", tone: "info" },
+  { l: "Distance pay · 4.8 km", v: "₹12", tone: "info" },
+  { l: "Customer tip", v: "₹10", tone: "success" },
+  { l: "Adjustments", v: "₹0", tone: "muted" },
 ] as const;
 
 // ─── Earnings ─────────────────────────────────────────────────────────────────
@@ -161,7 +162,7 @@ export type PeriodData = {
   hours: string;
   /** [label, 0–1 height, isHighlighted] */
   bars: [string, number, number][];
-  rows: { l: string; v: string; tone?: string }[];
+  rows: { l: string; v: string; tone?: ToneName }[];
 };
 
 export const PERIODS: Record<Period, PeriodData> = {
@@ -175,9 +176,9 @@ export const PERIODS: Record<Period, PeriodData> = {
     rows: [
       { l: "Delivery earnings", v: "₹648" },
       { l: "Distance pay", v: "₹86" },
-      { l: "Incentives", v: "₹60", tone: colors.ok },
-      { l: "Tips", v: "₹48", tone: colors.ok },
-      { l: "Adjustments", v: "₹0", tone: colors.neutral600 },
+      { l: "Incentives", v: "₹60", tone: "success" },
+      { l: "Tips", v: "₹48", tone: "success" },
+      { l: "Adjustments", v: "₹0", tone: "muted" },
     ],
   },
   Week: {
@@ -190,9 +191,9 @@ export const PERIODS: Record<Period, PeriodData> = {
     rows: [
       { l: "Delivery earnings", v: "₹4,510" },
       { l: "Distance pay", v: "₹620" },
-      { l: "Incentives", v: "₹500", tone: colors.ok },
-      { l: "Tips", v: "₹320", tone: colors.ok },
-      { l: "Adjustments", v: "− ₹10", tone: colors.err },
+      { l: "Incentives", v: "₹500", tone: "success" },
+      { l: "Tips", v: "₹320", tone: "success" },
+      { l: "Adjustments", v: "− ₹10", tone: "danger" },
     ],
   },
   Month: {
@@ -205,18 +206,18 @@ export const PERIODS: Record<Period, PeriodData> = {
     rows: [
       { l: "Delivery earnings", v: "₹16,900" },
       { l: "Distance pay", v: "₹2,180" },
-      { l: "Incentives", v: "₹1,600", tone: colors.ok },
-      { l: "Tips", v: "₹840", tone: colors.ok },
-      { l: "Adjustments", v: "− ₹40", tone: colors.err },
+      { l: "Incentives", v: "₹1,600", tone: "success" },
+      { l: "Tips", v: "₹840", tone: "success" },
+      { l: "Adjustments", v: "− ₹40", tone: "danger" },
     ],
   },
 };
 
 export const PAYOUTS = [
-  { amt: "₹3,240", date: "Scheduled 17 Aug", txn: "Pending", status: "Pending", tone: colors.warn },
-  { amt: "₹6,480", date: "11 Aug 2026", txn: "LPPAY-77401", status: "Completed", tone: colors.ok },
-  { amt: "₹5,910", date: "4 Aug 2026", txn: "LPPAY-76812", status: "Completed", tone: colors.ok },
-  { amt: "₹4,200", date: "28 Jul 2026", txn: "LPPAY-75990", status: "Failed · IFSC", tone: colors.err },
+  { amt: "₹3,240", date: "Scheduled 17 Aug", txn: "Pending", status: "Pending", tone: "warning" },
+  { amt: "₹6,480", date: "11 Aug 2026", txn: "LPPAY-77401", status: "Completed", tone: "success" },
+  { amt: "₹5,910", date: "4 Aug 2026", txn: "LPPAY-76812", status: "Completed", tone: "success" },
+  { amt: "₹4,200", date: "28 Jul 2026", txn: "LPPAY-75990", status: "Failed · IFSC", tone: "danger" },
 ] as const;
 
 export const PAYOUT_ROWS = [
@@ -230,53 +231,60 @@ export const PAYOUT_ROWS = [
 ] as const;
 
 export const INCENTIVES = [
-  { tag: "Active today", tone: colors.accent, title: "Complete 10 deliveries today", sub: "Earn ₹300 extra on top of your trip earnings.", pct: 80, progress: "8 of 10 done", reward: "₹300", expiry: "Ends 11:59 pm" },
-  { tag: "Peak hour", tone: colors.ok, title: "Stay online 7–10 pm", sub: "₹40 bonus for every delivery in the dinner peak.", pct: 45, progress: "1h 21m of 3h", reward: "₹40 / order", expiry: "2h 39m left" },
-  { tag: "Weekly", tone: colors.accent700, title: "75 deliveries this week", sub: "Unlock a ₹1,000 weekly bonus.", pct: 64, progress: "48 of 75 done", reward: "₹1,000", expiry: "Ends Sunday" },
-  { tag: "Locked", tone: colors.neutral500, title: "Refer a partner", sub: "Your friend must complete 30 deliveries in 14 days.", pct: 0, progress: "No referrals yet", reward: "₹1,500", expiry: "Always on" },
+  { tag: "Active today", tone: "brand", title: "Complete 10 deliveries today", sub: "Earn ₹300 extra on top of your trip earnings.", pct: 80, progress: "8 of 10 done", reward: "₹300", expiry: "Ends 11:59 pm" },
+  { tag: "Peak hour", tone: "success", title: "Stay online 7–10 pm", sub: "₹40 bonus for every delivery in the dinner peak.", pct: 45, progress: "1h 21m of 3h", reward: "₹40 / order", expiry: "2h 39m left" },
+  { tag: "Weekly", tone: "brand", title: "75 deliveries this week", sub: "Unlock a ₹1,000 weekly bonus.", pct: 64, progress: "48 of 75 done", reward: "₹1,000", expiry: "Ends Sunday" },
+  { tag: "Locked", tone: "muted", title: "Refer a partner", sub: "Your friend must complete 30 deliveries in 14 days.", pct: 0, progress: "No referrals yet", reward: "₹1,500", expiry: "Always on" },
 ] as const;
 
 // ─── Profile & account ────────────────────────────────────────────────────────
 
-export type ProfileRow = { route: string; t: string; meta: string; tone?: string };
+export type ProfileRow = {
+  route: string;
+  t: string;
+  meta: string;
+  tone?: ToneName;
+  /** Name from the icon set. Every row carries one so the list is scannable. */
+  icon: IconName;
+};
 
 export const PROFILE_ROWS: ProfileRow[] = [
-  { route: "/profile-details", t: "Personal information", meta: "Arjun Kumar" },
-  { route: "/vehicle", t: "Vehicle", meta: "AP 05 CJ 4471" },
-  { route: "/documents", t: "Documents", meta: "1 needs attention", tone: colors.err },
-  { route: "/payouts", t: "Bank details", meta: "HDFC ••••8841" },
-  { route: "/earnings", t: "Performance", meta: "94% acceptance" },
-  { route: "/orders", t: "Ratings & reviews", meta: "4.8 ★" },
-  { route: "/incentives", t: "Incentives", meta: "3 active" },
-  { route: "/support", t: "Help & support", meta: "" },
-  { route: "/settings", t: "Settings", meta: "" },
+  { route: "/profile-details", t: "Personal information", meta: "Arjun Kumar", icon: "profile" },
+  { route: "/vehicle", t: "Vehicle", meta: "AP 05 CJ 4471", icon: "vehicle" },
+  { route: "/documents", t: "Documents", meta: "1 needs attention", tone: "danger", icon: "documents" },
+  { route: "/payouts", t: "Bank details", meta: "HDFC ••••8841", icon: "bank" },
+  { route: "/earnings", t: "Performance", meta: "94% acceptance", icon: "trendingUp" },
+  { route: "/orders", t: "Ratings & reviews", meta: "4.8 ★", icon: "star" },
+  { route: "/incentives", t: "Incentives", meta: "3 active", icon: "rupee" },
+  { route: "/support", t: "Help & support", meta: "", icon: "support" },
+  { route: "/settings", t: "Settings", meta: "", icon: "settings" },
 ];
 
 export const DOCS = [
-  { t: "Driving licence", meta: "AP0320190004471 · expired 2 Aug 2026", status: "Expired", tone: colors.err, act: "Upload new", reason: "Expired document. Upload a renewed licence within 3 days to keep receiving orders." },
-  { t: "Vehicle registration", meta: "AP 05 CJ 4471 · valid till Mar 2027", status: "Verified", tone: colors.ok, act: "Replace" },
-  { t: "Aadhaar (ID proof)", meta: "•••• •••• 4412", status: "Verified", tone: colors.ok, act: "Replace" },
-  { t: "Vehicle insurance", meta: "Uploaded 14 Aug · under review", status: "Pending", tone: colors.warn, act: "Replace" },
-  { t: "PAN card", meta: "Photo was blurred", status: "Rejected", tone: colors.err, act: "Resubmit", reason: "Rejected: the number was not readable. Take the photo in good light, without flash glare." },
+  { t: "Driving licence", meta: "AP0320190004471 · expired 2 Aug 2026", status: "Expired", tone: "danger", act: "Upload new", reason: "Expired document. Upload a renewed licence within 3 days to keep receiving orders." },
+  { t: "Vehicle registration", meta: "AP 05 CJ 4471 · valid till Mar 2027", status: "Verified", tone: "success", act: "Replace" },
+  { t: "Aadhaar (ID proof)", meta: "•••• •••• 4412", status: "Verified", tone: "success", act: "Replace" },
+  { t: "Vehicle insurance", meta: "Uploaded 14 Aug · under review", status: "Pending", tone: "warning", act: "Replace" },
+  { t: "PAN card", meta: "Photo was blurred", status: "Rejected", tone: "danger", act: "Resubmit", reason: "Rejected: the number was not readable. Take the photo in good light, without flash glare." },
 ] as const;
 
 export const VEHICLE_ROWS = [
-  { l: "Vehicle type", v: "Two-wheeler", tone: colors.text },
-  { l: "Registration", v: "AP 05 CJ 4471", tone: colors.text },
-  { l: "Model", v: "Honda Activa 6G", tone: colors.text },
-  { l: "RC status", v: "Verified", tone: colors.ok },
-  { l: "Insurance", v: "Under review", tone: colors.warn },
-  { l: "Delivery bag", v: "Issued 12 Mar 2024", tone: colors.text },
+  { l: "Vehicle type", v: "Two-wheeler", tone: "info" },
+  { l: "Registration", v: "AP 05 CJ 4471", tone: "info" },
+  { l: "Model", v: "Honda Activa 6G", tone: "info" },
+  { l: "RC status", v: "Verified", tone: "success" },
+  { l: "Insurance", v: "Under review", tone: "warning" },
+  { l: "Delivery bag", v: "Issued 12 Mar 2024", tone: "info" },
 ] as const;
 
 export const NOTIFS = [
-  { cat: "Account", tone: colors.err, t: "Your driving licence expired. Upload a renewed copy to keep receiving orders.", at: "9:02 pm", unread: true },
-  { cat: "Earnings", tone: colors.ok, t: "₹86 credited for order #LP48291.", at: "8:06 pm", unread: true },
-  { cat: "Incentives", tone: colors.accent700, t: "2 more deliveries to unlock your ₹300 daily bonus.", at: "7:30 pm", unread: true },
-  { cat: "New order", tone: colors.text, t: "Delivery request from KFC Devi Chowk was declined.", at: "6:44 pm", unread: false },
-  { cat: "Payouts", tone: colors.ok, t: "₹6,480 paid to HDFC ••••8841.", at: "11 Aug", unread: false },
-  { cat: "Support", tone: colors.text, t: "Support replied to ticket TCK-3391.", at: "15 Aug", unread: false },
-  { cat: "System", tone: colors.neutral600, t: "App updated to 4.2.1 — faster order acceptance.", at: "12 Aug", unread: false },
+  { cat: "Account", tone: "danger", t: "Your driving licence expired. Upload a renewed copy to keep receiving orders.", at: "9:02 pm", unread: true },
+  { cat: "Earnings", tone: "success", t: "₹86 credited for order #LP48291.", at: "8:06 pm", unread: true },
+  { cat: "Incentives", tone: "brand", t: "2 more deliveries to unlock your ₹300 daily bonus.", at: "7:30 pm", unread: true },
+  { cat: "New order", tone: "info", t: "Delivery request from KFC Devi Chowk was declined.", at: "6:44 pm", unread: false },
+  { cat: "Payouts", tone: "success", t: "₹6,480 paid to HDFC ••••8841.", at: "11 Aug", unread: false },
+  { cat: "Support", tone: "info", t: "Support replied to ticket TCK-3391.", at: "15 Aug", unread: false },
+  { cat: "System", tone: "muted", t: "App updated to 4.2.1 — faster order acceptance.", at: "12 Aug", unread: false },
 ] as const;
 
 export const SWITCHES = [
@@ -309,9 +317,9 @@ export const SUPPORT_TILES = [
 ] as const;
 
 export const TICKETS = [
-  { t: "Payment missing for #LP48102", id: "TCK-3391", at: "15 Aug, 9:24 pm", status: "Open", tone: colors.warn },
-  { t: "Restaurant was closed · #LP48090", id: "TCK-3350", at: "14 Aug", status: "Resolved", tone: colors.ok },
-  { t: "GPS not updating during delivery", id: "TCK-3288", at: "9 Aug", status: "Resolved", tone: colors.ok },
+  { t: "Payment missing for #LP48102", id: "TCK-3391", at: "15 Aug, 9:24 pm", status: "Open", tone: "warning" },
+  { t: "Restaurant was closed · #LP48090", id: "TCK-3350", at: "14 Aug", status: "Resolved", tone: "success" },
+  { t: "GPS not updating during delivery", id: "TCK-3288", at: "9 Aug", status: "Resolved", tone: "success" },
 ] as const;
 
 export const CHAT = [
@@ -338,8 +346,8 @@ export const ONB_STEPS = [
 
 export type OnbStep = (typeof ONB_STEPS)[number];
 
-export type OnbField = { l: string; v: string; hint?: string; tone?: string };
-export type OnbListItem = { t: string; sub: string; status: string; tone: string };
+export type OnbField = { l: string; v: string; hint?: string; tone?: ToneName };
+export type OnbListItem = { t: string; sub: string; status: string; tone: ToneName };
 
 export type OnbSpec = {
   step?: number;
@@ -357,7 +365,7 @@ export type OnbSpec = {
   list?: OnbListItem[];
   otp?: boolean;
   badge?: string;
-  badgeTone?: string;
+  badgeTone?: ToneName;
   badgeSize?: number;
 };
 
@@ -401,7 +409,7 @@ export const ONB: Record<OnbStep, OnbSpec> = {
       { l: "Full name", v: "Arjun Kumar", hint: "Edit" },
       { l: "Date of birth", v: "14 Jun 1996", hint: "Edit" },
       { l: "City", v: "Rajahmundry", hint: "Edit" },
-      { l: "Profile photo", v: "arjun-photo.jpg", hint: "Retake", tone: colors.ok },
+      { l: "Profile photo", v: "arjun-photo.jpg", hint: "Retake", tone: "success" },
     ],
   },
   vehicle: {
@@ -423,10 +431,10 @@ export const ONB: Record<OnbStep, OnbSpec> = {
     cta: "Submit documents",
     next: "bank",
     list: [
-      { t: "Driving licence", sub: "Front and back", status: "Uploaded", tone: colors.ok },
-      { t: "Vehicle registration", sub: "RC book", status: "Uploaded", tone: colors.ok },
-      { t: "Aadhaar card", sub: "ID proof", status: "Uploaded", tone: colors.ok },
-      { t: "PAN card", sub: "Required for payouts", status: "Add", tone: colors.accent },
+      { t: "Driving licence", sub: "Front and back", status: "Uploaded", tone: "success" },
+      { t: "Vehicle registration", sub: "RC book", status: "Uploaded", tone: "success" },
+      { t: "Aadhaar card", sub: "ID proof", status: "Uploaded", tone: "success" },
+      { t: "PAN card", sub: "Required for payouts", status: "Add", tone: "brand" },
     ],
   },
   bank: {
@@ -450,7 +458,7 @@ export const ONB: Record<OnbStep, OnbSpec> = {
     cta: "Check status",
     next: "rejected",
     badge: "⌛",
-    badgeTone: colors.warn,
+    badgeTone: "warning",
     badgeSize: 64,
     alt: "Talk to support",
     altRoute: "/support",
@@ -463,10 +471,10 @@ export const ONB: Record<OnbStep, OnbSpec> = {
     cta: "Resubmit PAN card",
     next: "approved",
     list: [
-      { t: "PAN card", sub: "Rejected: number not readable, glare on the card", status: "Redo", tone: colors.err },
-      { t: "Driving licence", sub: "Verified 16 Aug", status: "Verified", tone: colors.ok },
-      { t: "Vehicle registration", sub: "Verified 16 Aug", status: "Verified", tone: colors.ok },
-      { t: "Aadhaar card", sub: "Verified 16 Aug", status: "Verified", tone: colors.ok },
+      { t: "PAN card", sub: "Rejected: number not readable, glare on the card", status: "Redo", tone: "danger" },
+      { t: "Driving licence", sub: "Verified 16 Aug", status: "Verified", tone: "success" },
+      { t: "Vehicle registration", sub: "Verified 16 Aug", status: "Verified", tone: "success" },
+      { t: "Aadhaar card", sub: "Verified 16 Aug", status: "Verified", tone: "success" },
     ],
   },
   approved: {
@@ -477,7 +485,7 @@ export const ONB: Record<OnbStep, OnbSpec> = {
     cta: "Start driving",
     next: null,
     badge: "✓",
-    badgeTone: colors.ok,
+    badgeTone: "success",
     badgeSize: 72,
     fine: "Partner ID LPD-11742",
   },

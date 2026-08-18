@@ -10,7 +10,12 @@ import AuthScreen from './components/Auth/AuthScreen.jsx';
 import FilterBar from './components/Listings/FilterBar.jsx';
 import PropertyCard from './components/Listings/PropertyCard.jsx';
 import PropertyDetailModal from './components/Listings/PropertyDetailModal.jsx';
-import { fetchProperties, onboardProperty, deleteProperty } from './services/api.js';
+import {
+  deleteProperty,
+  fetchProperties,
+  onboardProperty,
+  uploadPropertyImages,
+} from './services/api.js';
 import { getCurrentUser, logout, getSavedEmployeeEmail } from './services/auth.js';
 import { validateOnboarding, firstErrorKey, anchorFor } from './services/validation.js';
 import { PlusCircle, AlertCircle, Building2, Loader2, CloudUpload, Database, ShieldAlert, WifiOff } from 'lucide-react';
@@ -287,73 +292,18 @@ export default function App() {
     setSubmitting(true);
     setSubmitStage('Preparing property photos...');
 
+    /* Photos upload before the property is created, so a failure during that
+       phase leaves nothing behind and is safe to retry. Once the POST has
+       been issued that stops being true. */
+    let saveAttempted = false;
+
     try {
       const localImages = Array.isArray(formData.localImages) ? formData.localImages : [];
-      const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5001/api/properties';
-      const singleEndpoint = API_BASE.replace(/\/properties\/?$/, '/properties/upload-image');
-      const batchEndpoint = API_BASE.replace(/\/properties\/?$/, '/properties/upload-images');
 
-      const finalUrls = [];
-
-      // Separate items with pending files from existing URLs
-      const filesToUpload = localImages.filter(item => item.file);
-
-      if (filesToUpload.length > 0) {
-        setSubmitStage(`Uploading ${filesToUpload.length} photo(s) to Cloudinary CDN...`);
-
-        // Try batch upload endpoint first
-        let batchSuccess = false;
-        try {
-          const batchFd = new FormData();
-          filesToUpload.forEach(item => batchFd.append('images', item.file));
-          
-          const batchRes = await fetch(batchEndpoint, {
-            method: 'POST',
-            body: batchFd
-          });
-
-          if (batchRes.ok) {
-            const batchJson = await batchRes.json();
-            if (batchJson.success && Array.isArray(batchJson.urls) && batchJson.urls.length === filesToUpload.length) {
-              let urlIdx = 0;
-              localImages.forEach(item => {
-                if (item.file) {
-                  finalUrls.push(batchJson.urls[urlIdx++]);
-                } else if (item.url) {
-                  finalUrls.push(item.url);
-                }
-              });
-              batchSuccess = true;
-            }
-          }
-        } catch (bErr) {
-          console.warn('Batch upload route skipped, using direct upload:', bErr);
-        }
-
-        // Fallback to concurrent single uploads if batch did not return
-        if (!batchSuccess) {
-          for (let i = 0; i < localImages.length; i++) {
-            const item = localImages[i];
-            if (item.file) {
-              setSubmitStage(`Uploading photo ${i + 1} of ${localImages.length} to Cloudinary...`);
-              const singleFd = new FormData();
-              singleFd.append('image', item.file);
-              const res = await fetch(singleEndpoint, { method: 'POST', body: singleFd });
-              const json = await res.json();
-              if (json.success && json.url) {
-                finalUrls.push(json.url);
-              }
-            } else if (item.url) {
-              finalUrls.push(item.url);
-            }
-          }
-        }
-      } else {
-        // Only existing URLs or presets
-        localImages.forEach(item => {
-          if (item.url) finalUrls.push(item.url);
-        });
-      }
+      /* Photos go through the one API caller, which owns the base URL, the
+         batch-then-single fallback and the ordering rules. This block used to
+         re-derive its own endpoints from a second copy of VITE_API_URL. */
+      const finalUrls = await uploadPropertyImages(localImages, setSubmitStage);
 
       // If no photos were chosen, apply default brand splash fallback
       const resolvedImages = finalUrls.length > 0 ? finalUrls : ['/lampose-logo-splash.png'];
@@ -374,6 +324,9 @@ export default function App() {
       console.log(`   👨‍💼 Employee Email: "${assignedEmail}"`);
       console.log(`   📸 Images Array (${resolvedImages.length}):`, resolvedImages);
 
+      /* From this line on, a failure is AMBIGUOUS: the request is in flight
+         and the server may complete it whatever the browser goes on to see. */
+      saveAttempted = true;
       const response = await onboardProperty(payload);
 
       console.log('📥 [Onboarding Response]:', response);
@@ -391,32 +344,68 @@ export default function App() {
         setSubmitError(null);
         loadData();
       } else {
-        console.error('❌ [Onboarding Error]:', response?.error || response?.message);
+        console.error('❌ [Onboarding Error]:', response?.kind, response?.error || response?.message);
         const reason = response?.error || response?.message || '';
 
-        /* The two failures read completely differently to the person standing
-           in a building with an owner waiting. "The server is off" is somebody
-           else's problem and the form is safe; "the server refused this" is
-           theirs and something has to change. Saying "Unknown error" for both
-           is what sends them to re-type a form that was never lost. */
-        const unreachable = /network|unavailable|failed to fetch|econnrefused/i.test(reason);
-        setSubmitError({
-          kind: unreachable ? 'offline' : 'rejected',
-          title: unreachable
-            ? 'Could not reach the Lampose server'
-            : 'The server would not accept this property',
-          detail: unreachable
-            ? 'Nothing was saved and nothing was lost — everything you typed is still on this page. Check that the backend is running, then press Submit again.'
-            : reason || 'The server rejected the request without saying why.'
-        });
+        /* Three outcomes, and they are not interchangeable to the person
+           standing in a building with the owner waiting.
+
+           'server'  the API answered and refused. Their problem to fix, and
+                     the server's own words are the useful ones.
+           timeout /
+           network   NO answer came back. This does NOT mean nothing
+                     happened: POST /properties only replies after the
+                     backend has handed the owner's approval message to
+                     Twilio, so a lost answer usually means the property IS
+                     saved and the owner HAS been messaged. Telling them
+                     "nothing was saved, press Submit again" is what creates
+                     a duplicate listing and a second WhatsApp to the owner. */
+        if (response?.kind === 'timeout' || response?.kind === 'uncertain') {
+          setSubmitError({
+            kind: 'uncertain',
+            title: 'No answer from the server — this may already have gone through',
+            detail:
+              'The request was sent but the reply never arrived, so we cannot tell whether it '
+              + 'was saved. It often was: the owner may already have the WhatsApp approval. '
+              + 'Open Listings and check before submitting again — submitting now can create a '
+              + 'second listing and message the owner twice.',
+          });
+        } else if (response?.kind === 'offline' || response?.kind === 'network') {
+          setSubmitError({
+            kind: 'offline',
+            title: 'Could not reach the Lampose server',
+            detail:
+              'The server is not answering, so nothing was saved and nothing was lost — '
+              + 'everything you typed is still on this page. Check that the backend is '
+              + 'running, then press Submit again.',
+          });
+        } else {
+          setSubmitError({
+            kind: 'rejected',
+            title: 'The server would not accept this property',
+            detail: reason || 'The server rejected the request without saying why.',
+          });
+        }
       }
     } catch (submitErr) {
       console.error('❌ [Submission Exception]:', submitErr);
-      setSubmitError({
-        kind: 'offline',
-        title: 'The photos or the save did not go through',
-        detail: 'Nothing was lost — everything you typed is still on this page. Check your connection and press Submit again.'
-      });
+      setSubmitError(
+        saveAttempted
+          ? {
+            kind: 'uncertain',
+            title: 'No answer from the server — this may already have gone through',
+            detail:
+              'The property was sent but the reply never arrived, so we cannot tell whether it '
+              + 'was saved. Open Listings and check before submitting again.',
+          }
+          : {
+            kind: 'offline',
+            title: 'The photos did not upload',
+            detail:
+              'Nothing was saved and nothing was lost — everything you typed is still on this '
+              + 'page. Check your connection and press Submit again.',
+          },
+      );
     } finally {
       setSubmitting(false);
       setSubmitStage('');
@@ -683,38 +672,68 @@ export default function App() {
                 )}
 
                 {/* The form was valid, the save was attempted, and it failed. */}
-                {submitError && (
-                  <div
-                    role="alert"
-                    style={{
-                      display: 'flex', alignItems: 'flex-start', gap: '10px',
-                      padding: '14px 16px', marginBottom: '16px',
-                      background: submitError.kind === 'offline' ? '#fffbeb' : '#fef2f2',
-                      border: `1px solid ${submitError.kind === 'offline' ? '#fde68a' : '#fecaca'}`,
-                      borderRadius: '12px'
-                    }}
-                  >
-                    {submitError.kind === 'offline'
-                      ? <WifiOff size={18} color="#b45309" style={{ flexShrink: 0, marginTop: '1px' }} />
-                      : <AlertCircle size={18} color="#dc2626" style={{ flexShrink: 0, marginTop: '1px' }} />}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <strong style={{ color: submitError.kind === 'offline' ? '#92400e' : '#991b1b', fontSize: '0.9rem' }}>
-                        {submitError.title}
-                      </strong>
-                      <p style={{ color: submitError.kind === 'offline' ? '#b45309' : '#b91c1c', fontSize: '0.82rem', margin: '3px 0 0' }}>
-                        {submitError.detail}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setSubmitError(null)}
-                      aria-label="Dismiss"
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0 }}
+                {submitError && (() => {
+                  /* 'rejected' is the only red one. The other two are amber:
+                     nothing is broken about the property, the network is just
+                     in the way — and 'uncertain' in particular must not read
+                     as a failure, because the listing has probably been
+                     created. */
+                  const rejected = submitError.kind === 'rejected';
+                  const uncertain = submitError.kind === 'uncertain';
+                  const ink = rejected ? '#991b1b' : '#92400e';
+                  const inkSoft = rejected ? '#b91c1c' : '#b45309';
+
+                  return (
+                    <div
+                      role="alert"
+                      style={{
+                        display: 'flex', alignItems: 'flex-start', gap: '10px',
+                        padding: '14px 16px', marginBottom: '16px',
+                        background: rejected ? '#fef2f2' : '#fffbeb',
+                        border: `1px solid ${rejected ? '#fecaca' : '#fde68a'}`,
+                        borderRadius: '12px'
+                      }}
                     >
-                      ✕
-                    </button>
-                  </div>
-                )}
+                      {rejected
+                        ? <AlertCircle size={18} color="#dc2626" style={{ flexShrink: 0, marginTop: '1px' }} />
+                        : uncertain
+                          ? <ShieldAlert size={18} color="#b45309" style={{ flexShrink: 0, marginTop: '1px' }} />
+                          : <WifiOff size={18} color="#b45309" style={{ flexShrink: 0, marginTop: '1px' }} />}
+
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <strong style={{ color: ink, fontSize: '0.9rem' }}>
+                          {submitError.title}
+                        </strong>
+                        <p style={{ color: inkSoft, fontSize: '0.82rem', margin: '3px 0 0' }}>
+                          {submitError.detail}
+                        </p>
+
+                        {/* The way out of an ambiguous save is to LOOK, not to
+                            press Submit again. So the only button offered is
+                            the one that answers the question. */}
+                        {uncertain && (
+                          <button
+                            type="button"
+                            onClick={() => { setSubmitError(null); setActiveTab('listings'); loadData(); }}
+                            className="btn btn-secondary"
+                            style={{ marginTop: '10px', fontSize: '0.8rem', padding: '7px 14px', borderRadius: '9px' }}
+                          >
+                            Open Listings and check
+                          </button>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setSubmitError(null)}
+                        aria-label="Dismiss"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0 }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  );
+                })()}
 
                 {/* Submit Button */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'flex-end', paddingTop: '16px', borderTop: '1px solid var(--border-glass)' }}>

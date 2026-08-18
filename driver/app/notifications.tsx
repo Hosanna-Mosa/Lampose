@@ -1,11 +1,11 @@
 import React from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Sheet, Toast, TopBar } from "@/components/ui";
+import { Chip, Sheet, Text, Toast, TopBar } from "@/components/ui";
 import { NOTIFS } from "@/constants/lampose";
 import { useSheet } from "@/hooks/useSheet";
 import { useFlowStore } from "@/store/flowStore";
-import { colors, font, ms, radius, space } from "@/theme";
+import { colors, layout, radius, space } from "@/theme";
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
@@ -14,40 +14,45 @@ export default function NotificationsScreen() {
 
   return (
     <View style={styles.root}>
-      <View style={{ paddingTop: insets.top }}>
-        <TopBar back="Home" />
-      </View>
+      <TopBar
+        back="Home"
+        title="Notifications"
+        action="Mark all read"
+        onAction={() => say("All notifications marked as read.")}
+      />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.head}>
-          <Text style={styles.title}>Notifications</Text>
-          <Pressable onPress={() => say("All notifications marked as read.")} hitSlop={8}>
-            <Text style={styles.link}>Mark all read</Text>
-          </Pressable>
-        </View>
-
-        <View style={{ marginTop: ms(16) }}>
+        {/*
+          Unread is a tinted card, not a coloured dot. A 7pt dot at the left
+          edge is the first thing that disappears in sunlight, and "which of
+          these have I already seen" is the only question this screen answers.
+        */}
+        <View style={{ gap: space[2] }}>
           {NOTIFS.map((n, i) => (
-            <View key={`${n.cat}-${i}`} style={styles.row}>
-              <View
-                style={[
-                  styles.dot,
-                  { backgroundColor: n.unread ? colors.accent : "transparent" },
-                ]}
-              />
-              <View style={{ flex: 1 }}>
-                <View style={styles.rowHead}>
-                  <Text style={[styles.cat, { color: n.tone }]}>{n.cat}</Text>
-                  <Text style={styles.at}>{n.at}</Text>
-                </View>
-                <Text style={styles.body}>{n.t}</Text>
+            <View
+              key={`${n.cat}-${i}`}
+              style={[
+                styles.row,
+                n.unread
+                  ? { backgroundColor: colors.surface, borderColor: colors.border }
+                  : { backgroundColor: colors.surfaceRaised, borderColor: colors.borderSubtle },
+              ]}
+            >
+              <View style={styles.rowHead}>
+                <Chip label={n.cat} tone={n.tone} />
+                <Text variant="numMeta" color="tertiary">
+                  {n.at}
+                </Text>
               </View>
+              <Text variant="bodyLg" color={n.unread ? "primary" : "secondary"}>
+                {n.t}
+              </Text>
             </View>
           ))}
         </View>
       </ScrollView>
 
-      <Toast message={toast} top={insets.top + ms(8)} />
+      <Toast message={toast} top={insets.top + space[2]} />
       <Sheet {...sheet} />
     </View>
   );
@@ -55,37 +60,12 @@ export default function NotificationsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: space[4], paddingBottom: ms(26) },
-  head: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
-  title: { ...font.headingBold, fontSize: ms(30), lineHeight: ms(33), color: colors.text },
-  link: { ...font.body, fontSize: ms(12.5), color: colors.accent700 },
+  content: { paddingHorizontal: layout.gutter, paddingBottom: space[6], gap: space[4] },
   row: {
-    flexDirection: "row",
-    gap: ms(11),
-    paddingVertical: ms(14),
-    paddingHorizontal: 2,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
+    gap: space[2],
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.card,
+    padding: space[3],
   },
-  dot: { width: ms(7), height: ms(7), borderRadius: radius.pill, marginTop: ms(7) },
-  rowHead: { flexDirection: "row", justifyContent: "space-between", gap: ms(8) },
-  cat: {
-    ...font.bodySemi,
-    fontSize: ms(9.5),
-    letterSpacing: ms(9.5) * 0.14,
-    textTransform: "uppercase",
-  },
-  at: {
-    ...font.body,
-    fontSize: ms(11),
-    color: colors.neutral500,
-    fontVariant: ["tabular-nums"],
-  },
-  body: {
-    ...font.body,
-    fontSize: ms(14.5),
-    lineHeight: ms(20),
-    color: colors.text,
-    marginTop: ms(6),
-  },
+  rowHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: space[2] },
 });

@@ -280,7 +280,8 @@ falls back to something committed. The groups:
 
 | Group | Keys | Absent → |
 | --- | --- | --- |
-| Core | `MONGO_URI` `PORT` `NODE_ENV` `ALLOWED_ORIGINS` `JWT_SECRET` | local-Mongo/JSON fallbacks, 503s on auth |
+| Core | `MONGO_URI` `PORT` `NODE_ENV` `JWT_SECRET` | local-Mongo/JSON fallbacks, 503s on auth |
+| CORS | *(none — the allowlist is `ALLOWED_ORIGINS` at the top of `server.js`)* | an unlisted origin is refused in production |
 | DLT SMS (visit OTPs) | `SMS_API_URL` `SMS_USERNAME` `SMS_APIKEY` `SMS_SENDERID` `SMS_OTP_TEMPLATE_ID` `OTP_SMS_TEMPLATE` | visit requests answer 503 |
 | Twilio / WhatsApp | `TWILIO_ACCOUNT_SID` `TWILIO_AUTH_TOKEN` `TWILIO_WHATSAPP_FROM` `TWILIO_VERIFY_CONTENT_SID` `TWILIO_TEAM_CONTENT_SID` `TWILIO_VISIT_REQUEST_CONTENT_SID` `TWILIO_VISIT_OUTCOME_CONTENT_SID` | WhatsApp sends refused with a named error |
 | Cloudinary (v1 images) | `CLOUDINARY_CLOUD_NAME` `CLOUDINARY_API_KEY` `CLOUDINARY_API_SECRET` | upload answers 503 |

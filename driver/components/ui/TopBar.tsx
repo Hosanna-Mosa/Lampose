@@ -1,124 +1,152 @@
 import { router } from "expo-router";
 import React from "react";
-import { Pressable, StyleSheet, Text, View, ViewStyle } from "react-native";
-import { colors, font, ms, space, typography as t } from "@/theme";
-import { Icon } from "./Icon";
+import { Pressable, StyleSheet, View, ViewStyle } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { colors, layout, space, touch } from "@/theme";
+import { Icon, type IconName } from "./Icon";
+import { Text } from "./Text";
+
+/** The bar's content row, above the safe-area inset. */
+export const HEADER_HEIGHT = 56;
 
 /**
- * In-screen top bar: a back affordance on the left, a tracked kicker in the
- * middle, and an optional text action on the right. Matches the pattern used
- * by every section and the active-order screen.
+ * The sticky screen header.
+ *
+ * Two things make it sticky rather than merely first: it owns the top
+ * safe-area inset itself, and it is always mounted as a SIBLING of the
+ * screen's scroller rather than inside it. A screen that puts this in its
+ * `ScrollView` gets a header that scrolls away, which is the bug this
+ * component exists to make impossible — nothing here reads a scroll offset,
+ * so there is no way to "sticky" it after the fact.
+ *
+ * It paints `surface` and carries a hairline underneath, because a header the
+ * same colour as the ground behind it does not read as fixed — content just
+ * appears to vanish at an arbitrary line.
+ *
+ * The title is LEFT-aligned, never centred. A centred title has to share the
+ * row with a back control and an action, so it truncates at about half the
+ * width — and this app's titles are restaurant names and order ids, which are
+ * exactly the strings that cannot lose their ends.
  */
 export function TopBar({
-  back = "Back",
+  back = null,
   onBack,
-  center,
+  title,
+  subtitle,
   action,
   onAction,
+  actionGlyph,
+  left,
+  right,
   style,
 }: {
-  /** Label beside the chevron. Pass null to hide the back control. */
+  /**
+   * Where back goes, as a destination name. Shown only to screen readers —
+   * the control itself is a chevron, so the row keeps its width for the title.
+   * `null` hides the control.
+   */
   back?: string | null;
   onBack?: () => void;
-  center?: string;
+  title?: string;
+  subtitle?: string;
+  /** A text action. Mutually exclusive with `actionGlyph` — the right side gets one job. */
   action?: string;
   onAction?: () => void;
+  actionGlyph?: IconName;
+  /** Replaces the back control and title, for headers that carry an identity. */
+  left?: React.ReactNode;
+  /** Replaces the action, for anything that is not one button. */
+  right?: React.ReactNode;
   style?: ViewStyle;
 }) {
+  const insets = useSafeAreaInsets();
   const goBack = onBack ?? (() => (router.canGoBack() ? router.back() : router.replace("/")));
+  const showBack = back !== null;
 
   return (
-    <View style={[styles.bar, style]}>
-      <View style={styles.side}>
-        {back !== null && (
+    <View style={[styles.bar, { paddingTop: insets.top }, style]}>
+      <View style={[styles.content, { paddingLeft: showBack ? space[1] : layout.gutter }]}>
+        {showBack && (
           <Pressable
             onPress={goBack}
             accessibilityRole="button"
-            accessibilityLabel={back || "Back"}
-            hitSlop={8}
-            style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
+            accessibilityLabel={back ? `Back to ${back}` : "Back"}
+            hitSlop={touch.iconButtonHitSlop}
+            style={({ pressed }) => [styles.backBtn, pressed && { backgroundColor: colors.surfaceSunken }]}
           >
-            <Icon name="chevronLeft" size={ms(17)} color={colors.neutral700} strokeWidth={1.6} />
-            {!!back && <Text style={styles.backLabel}>{back}</Text>}
+            <Icon name="chevronLeft" size={20} color={colors.textPrimary} />
           </Pressable>
         )}
-      </View>
 
-      {!!center && (
-        <Text style={[t.kicker, styles.center]} numberOfLines={1}>
-          {center}
-        </Text>
-      )}
-
-      <View style={[styles.side, styles.sideRight]}>
-        {!!action && (
-          <Pressable onPress={onAction} hitSlop={8} accessibilityRole="button">
-            <Text style={styles.action}>{action}</Text>
-          </Pressable>
+        {left ?? (
+          <View style={[styles.titleBlock, { paddingHorizontal: showBack ? space[1] : 0 }]}>
+            {!!title && (
+              <Text variant="title2" numberOfLines={1}>
+                {title}
+              </Text>
+            )}
+            {!!subtitle && (
+              <Text variant="numMeta" color="tertiary" numberOfLines={1}>
+                {subtitle}
+              </Text>
+            )}
+          </View>
         )}
-      </View>
-    </View>
-  );
-}
 
-/** Big screen title with an optional supporting line. */
-export function ScreenTitle({
-  title,
-  sub,
-  style,
-}: {
-  title: string;
-  sub?: string;
-  style?: ViewStyle;
-}) {
-  return (
-    <View style={[{ gap: ms(5) }, style]}>
-      <Text style={styles.screenTitle}>{title}</Text>
-      {!!sub && <Text style={styles.screenSub}>{sub}</Text>}
+        {right ??
+          (action && onAction ? (
+            <Pressable
+              onPress={onAction}
+              accessibilityRole="button"
+              accessibilityLabel={action}
+              hitSlop={4}
+              style={styles.textAction}
+            >
+              <Text variant="bodyStrong" color="brand">
+                {action}
+              </Text>
+            </Pressable>
+          ) : actionGlyph && onAction ? (
+            <Pressable
+              onPress={onAction}
+              accessibilityRole="button"
+              hitSlop={touch.iconButtonHitSlop}
+              style={({ pressed }) => [styles.glyphAction, pressed && { backgroundColor: colors.surfaceSunken }]}
+            >
+              <Icon name={actionGlyph} size={20} color={colors.textPrimary} />
+            </Pressable>
+          ) : null)}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   bar: {
+    backgroundColor: colors.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  content: {
+    height: HEADER_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: space[2],
-    paddingHorizontal: space[4],
-    paddingTop: ms(4),
-    paddingBottom: space[3],
+    paddingRight: space[2],
   },
-  side: { minWidth: ms(64), flexShrink: 0 },
-  sideRight: { alignItems: "flex-end" },
-  backBtn: { flexDirection: "row", alignItems: "center", gap: ms(6) },
-  backLabel: {
-    ...font.body,
-    fontSize: ms(13),
-    color: colors.neutral700,
+  backBtn: {
+    width: touch.min,
+    height: touch.min,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 999,
   },
-  center: {
-    flex: 1,
-    textAlign: "center",
-    color: colors.text,
-    fontVariant: ["tabular-nums"],
-  },
-  action: {
-    ...font.body,
-    fontSize: ms(13),
-    color: colors.accent700,
-  },
-  screenTitle: {
-    ...font.headingBold,
-    fontSize: ms(27),
-    lineHeight: ms(31),
-    letterSpacing: -0.3,
-    color: colors.text,
-  },
-  screenSub: {
-    ...font.body,
-    fontSize: ms(12.5),
-    lineHeight: ms(18),
-    color: colors.neutral700,
+  titleBlock: { flex: 1, minWidth: 0, gap: 1 },
+  textAction: { minHeight: touch.min, justifyContent: "center", paddingHorizontal: space[2] },
+  glyphAction: {
+    width: touch.min,
+    height: touch.min,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 999,
   },
 });

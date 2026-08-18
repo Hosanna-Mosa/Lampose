@@ -1,12 +1,12 @@
 import { router } from "expo-router";
 import React, { useEffect, useRef } from "react";
-import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Animated, Easing, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Avatar, BellIcon, Btn, Icon, Sheet, Toast } from "@/components/ui";
+import { Avatar, Bar, Btn, Chip, Icon, Sheet, Text, Toast, TopBar } from "@/components/ui";
 import { DRIVER, STAGES, STATUS, STATUS_ONLINE_IDLE } from "@/constants/lampose";
 import { useSheet } from "@/hooks/useSheet";
 import { useFlowStore } from "@/store/flowStore";
-import { colors, font, ms, radius, space, typography as t } from "@/theme";
+import { colors, elevation, layout, radius, space, tone as resolveTone } from "@/theme";
 
 /** Expanding ring used by the status dot and the "waiting for orders" radar. */
 export function PulseRing({
@@ -50,9 +50,9 @@ export function PulseRing({
           width: size,
           height: size,
           borderRadius: radius.pill,
-          borderWidth: 1,
+          borderWidth: 1.5,
           borderColor: color,
-          opacity: v.interpolate({ inputRange: [0, 1], outputRange: [0.4, 0] }),
+          opacity: v.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0] }),
           transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.6, 2.6] }) }],
         },
         style,
@@ -61,12 +61,14 @@ export function PulseRing({
   );
 }
 
-/** Pale well with a tracked label and a large figure. */
+/** White card with an eyebrow and a figure. The one shape a tally takes. */
 export function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.statCard}>
-      <Text style={t.kicker}>{label}</Text>
-      <Text style={styles.statNum} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+      <Text variant="eyebrow" color="tertiary" numberOfLines={1}>
+        {label}
+      </Text>
+      <Text variant="priceHero" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
         {value}
       </Text>
     </View>
@@ -120,59 +122,80 @@ export default function HomeScreen() {
   }, [toast, clearToast]);
 
   const status = online && phase === "idle" ? STATUS_ONLINE_IDLE : STATUS[phase];
+  const statusInk = resolveTone(status.tone);
   const statusLabel = online ? (phase === "noorders" ? "Online · low demand" : "Online") : "Offline";
 
   return (
     <View style={styles.root}>
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + ms(8) }]}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* ── Identity ───────────────────────────────────────────────── */}
-        <View style={styles.header}>
-          <Avatar name={DRIVER.name} size={ms(44)} />
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.name}>{DRIVER.name}</Text>
-            <Text style={styles.rating}>{DRIVER.rating}</Text>
+      {/*
+        Home has no title — who you are IS the header. The rider's name and
+        rating stay pinned because the bell beside them is the screen's only
+        escape hatch to alerts, and a notification you have to scroll up to
+        reach is one you find out about late.
+      */}
+      <TopBar
+        left={
+          <View style={styles.identity}>
+            <Avatar name={DRIVER.name} size={36} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text variant="title2" numberOfLines={1}>
+                {DRIVER.name}
+              </Text>
+              <Text variant="numMeta" color="tertiary" numberOfLines={1}>
+                {DRIVER.rating}
+              </Text>
+            </View>
           </View>
+        }
+        right={
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Notifications"
             onPress={() => router.push("/notifications")}
-            style={({ pressed }) => [styles.bell, pressed && { opacity: 0.6 }]}
+            hitSlop={6}
+            style={({ pressed }) => [styles.bell, pressed && { backgroundColor: colors.surfaceSunken }]}
           >
-            <BellIcon size={ms(19)} />
+            <Icon name="bell" size={20} color={colors.textPrimary} />
             <View style={styles.bellDot} />
           </Pressable>
-        </View>
+        }
+      />
 
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* ── Duty ───────────────────────────────────────────────────── */}
         <View
           style={[
             styles.statusCard,
-            {
-              borderColor: online ? colors.ok : colors.divider,
-              backgroundColor: online ? "rgba(61, 107, 76, 0.07)" : colors.neutral100,
-            },
+            online
+              ? { borderColor: colors.brandOnDark, backgroundColor: colors.brandTint }
+              : { borderColor: colors.border, backgroundColor: colors.surface },
           ]}
         >
           <View style={styles.statusRow}>
             <View style={styles.dotWrap}>
-              {online && <PulseRing size={ms(9)} color={status.tone} duration={1800} />}
-              <View style={[styles.dot, { backgroundColor: status.tone }]} />
+              {online && <PulseRing size={9} color={statusInk.base} duration={1800} />}
+              <View style={[styles.dot, { backgroundColor: statusInk.base }]} />
             </View>
-            <Text style={[styles.statusLabel, { color: status.tone }]}>{statusLabel}</Text>
+            <Text variant="label" style={{ color: statusInk.ink }}>
+              {statusLabel}
+            </Text>
           </View>
 
-          <Text style={styles.statusHead}>{status.head}</Text>
-          <Text style={styles.statusSub}>{status.sub}</Text>
+          <Text variant="display1" style={{ marginTop: space[2] }}>
+            {status.head}
+          </Text>
+          <Text variant="bodyLg" color="secondary" style={{ marginTop: space[1], maxWidth: 260 }}>
+            {status.sub}
+          </Text>
 
           {searching && (
             <View style={styles.radar}>
               <View style={styles.radarCore} />
-              <PulseRing size={ms(120)} color={colors.ok} style={styles.radarRing} />
-              <PulseRing size={ms(120)} color={colors.ok} delay={1200} style={styles.radarRing} />
-              <Text style={styles.radarLabel}>Waiting for orders…</Text>
+              <PulseRing size={120} color={colors.brand} style={styles.radarRing} />
+              <PulseRing size={120} color={colors.brand} delay={1200} style={styles.radarRing} />
+              <Text variant="label" color="brand" style={styles.radarLabel}>
+                Waiting for orders…
+              </Text>
             </View>
           )}
 
@@ -180,12 +203,15 @@ export default function HomeScreen() {
             label={online ? "Go offline" : "Go online"}
             variant={online ? "ghost" : "ink"}
             large={!online}
+            glyph="power"
             onPress={online ? goOffline : goOnline}
-            style={{ marginTop: online ? ms(18) : ms(20) }}
+            style={{ marginTop: space[5] }}
           />
 
           {online && (
-            <Text style={styles.onlineFor}>Online for 6h 24m · you can go offline any time</Text>
+            <Text variant="numMeta" color="tertiary" style={styles.onlineFor}>
+              Online for 6h 24m · you can go offline any time
+            </Text>
           )}
         </View>
 
@@ -193,19 +219,31 @@ export default function HomeScreen() {
         {hasActive && (
           <Pressable
             onPress={() => router.push("/active")}
-            style={({ pressed }) => [styles.activeCard, pressed && { opacity: 0.85 }]}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.activeCard,
+              pressed && { backgroundColor: colors.surfaceSunken },
+            ]}
           >
             <View style={styles.activeHead}>
-              <Text style={styles.activeHeadLabel}>Active delivery</Text>
-              <Text style={styles.activeHeadId}>#LP48291</Text>
+              <Chip label="Active delivery" tone="brand" glyph="navigate" />
+              <Text variant="numMeta" color="tertiary">
+                #LP48291
+              </Text>
             </View>
             <View style={styles.activeBody}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.activeStage}>{STAGES[stage]}</Text>
-                <Text style={styles.activeName}>Paradise Biryani</Text>
-                <Text style={styles.activeMeta}>4.8 km · ETA 18 min · ₹86</Text>
+              <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+                <Text variant="label" color="brand">
+                  {STAGES[stage]}
+                </Text>
+                <Text variant="title1" numberOfLines={1}>
+                  Paradise Biryani
+                </Text>
+                <Text variant="numMeta" color="tertiary" numberOfLines={1}>
+                  4.8 km · ETA 18 min · ₹86
+                </Text>
               </View>
-              <Icon name="chevronRight" size={ms(20)} />
+              <Icon name="chevronRight" size={18} color={colors.textTertiary} />
             </View>
           </Pressable>
         )}
@@ -220,17 +258,22 @@ export default function HomeScreen() {
         {/* ── Incentive ──────────────────────────────────────────────── */}
         <Pressable
           onPress={() => router.push("/incentives")}
-          style={({ pressed }) => [styles.incentive, pressed && { opacity: 0.85 }]}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.incentive, pressed && { backgroundColor: colors.surfaceSunken }]}
         >
           <View style={styles.incentiveHead}>
-            <Text style={t.kicker}>Today's incentive</Text>
-            <Text style={styles.incentiveEnds}>Ends 11:59 pm</Text>
+            <Chip label="Today's incentive" tone="warning" glyph="trendingUp" />
+            <Text variant="numMeta" color="tertiary">
+              Ends 11:59 pm
+            </Text>
           </View>
-          <Text style={styles.incentiveTitle}>Complete 10 deliveries today · earn ₹300 extra</Text>
-          <View style={styles.incentiveTrack}>
-            <View style={styles.incentiveFill} />
-          </View>
-          <Text style={styles.incentiveMeta}>8 of 10 done · 2 more deliveries</Text>
+          <Text variant="title1" style={{ marginTop: space[3] }}>
+            Complete 10 deliveries today · earn ₹300 extra
+          </Text>
+          <Bar pct={80} style={{ marginTop: space[3] }} />
+          <Text variant="numMeta" color="tertiary" style={{ marginTop: space[2] }}>
+            8 of 10 done · 2 more deliveries
+          </Text>
         </Pressable>
 
         {/* ── Shortcuts ──────────────────────────────────────────────── */}
@@ -238,19 +281,21 @@ export default function HomeScreen() {
           <Btn
             label="Earnings"
             variant="accent"
+            glyph="earnings"
             onPress={() => router.push("/earnings")}
             style={{ flex: 1 }}
           />
           <Btn
             label="Get help"
             variant="accent"
+            glyph="support"
             onPress={() => router.push("/support")}
             style={{ flex: 1 }}
           />
         </View>
       </ScrollView>
 
-      <Toast message={toast} top={insets.top + ms(8)} />
+      <Toast message={toast} top={insets.top + space[2]} />
       <Sheet {...sheet} />
     </View>
   );
@@ -258,217 +303,93 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: space[4], paddingBottom: ms(26) },
+  content: { paddingHorizontal: layout.gutter, paddingTop: space[4], paddingBottom: space[6], gap: space[4] },
 
-  header: { flexDirection: "row", alignItems: "center", gap: ms(12) },
-  name: { ...font.heading, fontSize: ms(19), lineHeight: ms(21), color: colors.text },
-  rating: {
-    ...font.body,
-    fontSize: ms(12),
-    lineHeight: ms(16),
-    color: colors.neutral700,
-    fontVariant: ["tabular-nums"],
-  },
+  identity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space[2] },
   bell: {
-    width: ms(40),
-    height: ms(40),
-    borderWidth: 1,
-    borderColor: colors.divider,
-    borderRadius: radius.md,
+    width: 40,
+    height: 40,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.button,
+    backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
   bellDot: {
     position: "absolute",
-    top: ms(7),
-    right: ms(8),
-    width: ms(7),
-    height: ms(7),
+    top: 7,
+    right: 8,
+    width: 8,
+    height: 8,
     borderRadius: radius.pill,
-    backgroundColor: colors.err,
+    backgroundColor: colors.danger.base,
     borderWidth: 1.5,
-    borderColor: colors.bg,
+    borderColor: colors.surface,
   },
 
   statusCard: {
-    marginTop: ms(18),
-    borderWidth: 1,
-    borderRadius: radius.lg,
-    paddingHorizontal: ms(18),
-    paddingTop: ms(20),
-    paddingBottom: ms(18),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.card,
+    padding: space[4],
     overflow: "hidden",
   },
-  statusRow: { flexDirection: "row", alignItems: "center", gap: ms(9) },
-  dotWrap: { width: ms(9), height: ms(9), alignItems: "center", justifyContent: "center" },
-  dot: { width: ms(9), height: ms(9), borderRadius: radius.pill },
-  statusLabel: {
-    ...font.bodySemi,
-    fontSize: ms(10),
-    letterSpacing: ms(10) * 0.16,
-    textTransform: "uppercase",
-  },
-  statusHead: {
-    ...font.headingBold,
-    fontSize: ms(30),
-    lineHeight: ms(32),
-    letterSpacing: -0.3,
-    color: colors.text,
-    marginTop: ms(10),
-  },
-  statusSub: {
-    ...font.body,
-    fontSize: ms(13.5),
-    lineHeight: ms(20),
-    color: colors.neutral700,
-    marginTop: ms(5),
-    maxWidth: ms(250),
-  },
+  statusRow: { flexDirection: "row", alignItems: "center", gap: space[2] },
+  dotWrap: { width: 9, height: 9, alignItems: "center", justifyContent: "center" },
+  dot: { width: 9, height: 9, borderRadius: radius.pill },
+
   radar: {
-    marginTop: ms(16),
-    height: ms(74),
-    borderTopWidth: 1,
-    borderTopColor: colors.divider,
+    marginTop: space[4],
+    height: 76,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.brandOnDark,
     alignItems: "center",
     justifyContent: "center",
   },
   radarCore: {
     position: "absolute",
-    top: ms(24),
-    width: ms(9),
-    height: ms(9),
+    top: 24,
+    width: 9,
+    height: 9,
     borderRadius: radius.pill,
-    backgroundColor: colors.ok,
+    backgroundColor: colors.brand,
   },
-  radarRing: { top: ms(-32) },
-  radarLabel: {
-    position: "absolute",
-    bottom: 2,
-    ...font.bodySemi,
-    fontSize: ms(10),
-    letterSpacing: ms(10) * 0.14,
-    textTransform: "uppercase",
-    color: colors.ok,
-  },
-  onlineFor: {
-    textAlign: "center",
-    ...font.body,
-    fontSize: ms(11.5),
-    color: colors.neutral600,
-    marginTop: ms(9),
-  },
+  radarRing: { top: -32 },
+  radarLabel: { position: "absolute", bottom: 2 },
+  onlineFor: { textAlign: "center", marginTop: space[2] },
 
   activeCard: {
-    marginTop: ms(16),
-    borderWidth: 1,
-    borderColor: colors.ink,
-    borderRadius: radius.lg,
-    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    backgroundColor: colors.surface,
+    padding: space[4],
+    gap: space[3],
+    ...elevation.raised,
   },
-  activeHead: {
-    backgroundColor: colors.ink,
-    paddingHorizontal: ms(14),
-    paddingVertical: ms(9),
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  activeHeadLabel: {
-    ...font.bodySemi,
-    fontSize: ms(9.5),
-    letterSpacing: ms(9.5) * 0.16,
-    textTransform: "uppercase",
-    color: colors.bg,
-  },
-  activeHeadId: {
-    ...font.bodySemi,
-    fontSize: ms(9.5),
-    letterSpacing: ms(9.5) * 0.1,
-    color: colors.bg,
-    fontVariant: ["tabular-nums"],
-  },
-  activeBody: { padding: ms(14), flexDirection: "row", gap: ms(12), alignItems: "center" },
-  activeStage: {
-    ...font.bodySemi,
-    fontSize: ms(10),
-    letterSpacing: ms(10) * 0.14,
-    textTransform: "uppercase",
-    color: colors.accent700,
-  },
-  activeName: {
-    ...font.heading,
-    fontSize: ms(18),
-    lineHeight: ms(21),
-    color: colors.text,
-    marginTop: ms(6),
-  },
-  activeMeta: {
-    ...font.body,
-    fontSize: ms(12.5),
-    lineHeight: ms(17),
-    color: colors.neutral700,
-    fontVariant: ["tabular-nums"],
-  },
+  activeHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: space[2] },
+  activeBody: { flexDirection: "row", gap: space[3], alignItems: "center" },
 
-  statGrid: { flexDirection: "row", gap: ms(9), marginTop: ms(16) },
+  statGrid: { flexDirection: "row", gap: space[2] },
   statCard: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: colors.divider,
-    borderRadius: radius.lg,
-    paddingHorizontal: ms(10),
-    paddingVertical: ms(12),
-    backgroundColor: colors.neutral100,
-  },
-  statNum: {
-    ...font.headingBold,
-    fontSize: ms(27),
-    lineHeight: ms(29),
-    letterSpacing: -0.3,
-    marginTop: ms(8),
-    color: colors.text,
-    fontVariant: ["tabular-nums"],
+    gap: space[2],
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    paddingHorizontal: space[3],
+    paddingVertical: space[3],
+    backgroundColor: colors.surface,
   },
 
   incentive: {
-    marginTop: ms(16),
-    borderWidth: 1,
-    borderColor: colors.divider,
-    borderLeftWidth: 2,
-    borderLeftColor: colors.accent,
-    borderRadius: radius.lg,
-    padding: ms(14),
-    backgroundColor: colors.neutral100,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    padding: space[4],
+    backgroundColor: colors.surface,
   },
-  incentiveHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
-  incentiveEnds: {
-    ...font.body,
-    fontSize: ms(12),
-    color: colors.neutral600,
-    fontVariant: ["tabular-nums"],
-  },
-  incentiveTitle: {
-    ...font.heading,
-    fontSize: ms(17),
-    lineHeight: ms(21),
-    color: colors.text,
-    marginTop: ms(7),
-  },
-  incentiveTrack: {
-    marginTop: ms(11),
-    height: ms(5),
-    borderRadius: 3,
-    backgroundColor: colors.neutral300,
-    overflow: "hidden",
-  },
-  incentiveFill: { width: "80%", height: "100%", backgroundColor: colors.accent },
-  incentiveMeta: {
-    ...font.body,
-    fontSize: ms(12),
-    color: colors.neutral700,
-    marginTop: ms(7),
-    fontVariant: ["tabular-nums"],
-  },
+  incentiveHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: space[2] },
 
-  quickGrid: { flexDirection: "row", gap: ms(9), marginTop: ms(16) },
+  quickGrid: { flexDirection: "row", gap: space[2] },
 });

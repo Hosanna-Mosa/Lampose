@@ -3,7 +3,6 @@ import { useMemo } from "react";
 import type { SheetSpec } from "@/components/ui";
 import { useDriverStore } from "@/store/driverStore";
 import { useFlowStore, type OverlayKey } from "@/store/flowStore";
-import { colors } from "@/theme";
 
 /**
  * Builds the bottom-sheet content for whichever overlay is open, with its
@@ -36,7 +35,7 @@ export function useSheet(): {
     const table: Record<Exclude<OverlayKey, null>, SheetSpec> = {
       gps: {
         kicker: "Location off",
-        tone: colors.err,
+        tone: "danger",
         title: "Turn on GPS to go online",
         body: "Lampose needs your live location to send you delivery requests and to navigate to restaurants.",
         primary: "Open location settings",
@@ -44,7 +43,7 @@ export function useSheet(): {
       },
       permission: {
         kicker: "Permission needed",
-        tone: colors.err,
+        tone: "danger",
         title: "Allow location access",
         body: 'Set location to "Allow all the time" so orders keep coming while the app is in the background.',
         primary: "Allow location",
@@ -52,7 +51,7 @@ export function useSheet(): {
       },
       network: {
         kicker: "Poor network",
-        tone: colors.warn,
+        tone: "warning",
         title: "Weak connection",
         body: "You are still online. We will keep retrying — your orders and earnings are saved and will sync.",
         primary: "Retry now",
@@ -60,7 +59,7 @@ export function useSheet(): {
       },
       server: {
         kicker: "Unable to go online",
-        tone: colors.err,
+        tone: "danger",
         title: "Something went wrong",
         body: "We could not reach Lampose servers (error 503). Try again in a moment or contact support.",
         primary: "Try again",
@@ -68,7 +67,7 @@ export function useSheet(): {
       },
       docexpired: {
         kicker: "Document expired",
-        tone: colors.err,
+        tone: "danger",
         title: "Your driving licence expired",
         body: "Upload a valid licence to keep receiving orders. You can stay online for 3 more days.",
         primary: "Upload new licence",
@@ -76,7 +75,7 @@ export function useSheet(): {
       },
       problem: {
         kicker: "Report a problem",
-        tone: colors.warn,
+        tone: "warning",
         title: "What went wrong at the restaurant?",
         body: "Pick an issue and support will take over. Your earnings for this trip are protected.",
         primary: "Contact support",
@@ -90,7 +89,7 @@ export function useSheet(): {
       },
       cancel: {
         kicker: "Confirm",
-        tone: colors.err,
+        tone: "danger",
         title: "Cancel this delivery?",
         body: "Cancelling after pickup affects your acceptance score and today's incentive progress.",
         primary: "Yes, cancel delivery",
@@ -98,7 +97,7 @@ export function useSheet(): {
       },
       logout: {
         kicker: "Confirm",
-        tone: colors.err,
+        tone: "danger",
         title: "Log out of Lampose Driver?",
         body: "You will stop receiving delivery requests until you log in again.",
         primary: "Log out",
@@ -106,7 +105,7 @@ export function useSheet(): {
       },
       withdraw: {
         kicker: "Withdraw",
-        tone: colors.accent700,
+        tone: "brand",
         title: "Withdraw ₹3,240 to HDFC ••••8841?",
         body: "Instant payouts reach your bank within 30 minutes. A ₹5 processing fee applies.",
         primary: "Confirm withdrawal",

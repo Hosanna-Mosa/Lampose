@@ -1,46 +1,96 @@
 import React from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextStyle,
-  View,
-  ViewStyle,
-} from "react-native";
-import { colors, font, ms, radius, space, typography as t } from "@/theme";
+import { ActivityIndicator, Pressable, StyleSheet, TextStyle, View, ViewStyle } from "react-native";
+import { colors, elevation, radius, space, tone as resolveTone, touch, type ToneName } from "@/theme";
+import { Icon, type IconName } from "./Icon";
+import { Text } from "./Text";
 
 // ─── Rules & eyebrows ─────────────────────────────────────────────────────────
 
-export function Rule({ style }: { style?: ViewStyle }) {
-  return <View style={[styles.rule, style]} />;
+export function Rule({ style, subtle }: { style?: ViewStyle; subtle?: boolean }) {
+  return (
+    <View
+      style={[{ height: StyleSheet.hairlineWidth, backgroundColor: subtle ? colors.borderSubtle : colors.border }, style]}
+    />
+  );
 }
 
 export function Kicker({ children, style }: { children: string; style?: TextStyle }) {
-  return <Text style={[t.kicker, style]}>{children}</Text>;
+  return (
+    <Text variant="eyebrow" color="tertiary" style={style}>
+      {children}
+    </Text>
+  );
+}
+
+/** Section heading: a title on the left, an optional count or link on the right. */
+export function SectionHeader({
+  title,
+  trailing,
+  onPressTrailing,
+}: {
+  title: string;
+  trailing?: string;
+  onPressTrailing?: () => void;
+}) {
+  const right = trailing ? (
+    <Text variant="numMeta" color={onPressTrailing ? "brand" : "tertiary"}>
+      {trailing}
+    </Text>
+  ) : null;
+
+  return (
+    <View style={styles.sectionHeader}>
+      <Text variant="title2" style={{ flex: 1 }} numberOfLines={1}>
+        {title}
+      </Text>
+      {onPressTrailing ? (
+        <Pressable onPress={onPressTrailing} hitSlop={8} accessibilityRole="button">
+          {right}
+        </Pressable>
+      ) : (
+        right
+      )}
+    </View>
+  );
 }
 
 // ─── Surfaces ─────────────────────────────────────────────────────────────────
 
-/** Hairline-bordered panel on the page ground. */
+/**
+ * A white card on the grey ground — the food module's one container.
+ *
+ * Hairline border rather than a heavy shadow: on a grey ground a 1px edge
+ * separates the card without the drop shadow that would make every list look
+ * like it is floating.
+ */
 export function Card({
   children,
   style,
   tone,
+  raised,
 }: {
   children: React.ReactNode;
   style?: ViewStyle | ViewStyle[];
   /** Overrides the hairline with a status colour (expired docs, errors). */
   tone?: string;
+  /** Lifts the card off another card — used where a card nests. */
+  raised?: boolean;
 }) {
   return (
-    <View style={[styles.card, tone ? { borderColor: tone } : null, style as ViewStyle]}>
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: raised ? colors.surfaceRaised : colors.surface },
+        tone ? { borderColor: tone } : null,
+        style as ViewStyle,
+      ]}
+    >
       {children}
     </View>
   );
 }
 
-/** Same frame, but filled with the pale well colour. */
+/** The same frame, sunk into the ground rather than lifted off it. */
 export function Well({
   children,
   style,
@@ -52,9 +102,57 @@ export function Well({
 }) {
   return (
     <View
-      style={[styles.card, styles.well, tone ? { borderColor: tone } : null, style as ViewStyle]}
+      style={[
+        styles.card,
+        { backgroundColor: colors.surfaceSunken, borderColor: colors.borderSubtle },
+        tone ? { borderColor: tone } : null,
+        style as ViewStyle,
+      ]}
     >
       {children}
+    </View>
+  );
+}
+
+/**
+ * A tinted notice — the food module's one way of saying something that is not
+ * a row of content. Always a glyph and a word, never colour alone.
+ */
+export function Notice({
+  tone = "info",
+  title,
+  body,
+  glyph,
+  style,
+}: {
+  tone?: ToneName;
+  title: string;
+  body?: string;
+  glyph?: IconName;
+  style?: ViewStyle;
+}) {
+  const t = resolveTone(tone);
+  const fallback: IconName = tone === "danger" || tone === "warning" ? "alert" : "info";
+
+  return (
+    <View
+      style={[
+        styles.notice,
+        { backgroundColor: t.tint, borderColor: t.border },
+        style,
+      ]}
+    >
+      <Icon name={glyph ?? fallback} size={18} color={t.ink} />
+      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+        <Text variant="title3" style={{ color: t.ink }}>
+          {title}
+        </Text>
+        {!!body && (
+          <Text variant="caption" style={{ color: t.ink, opacity: 0.85 }}>
+            {body}
+          </Text>
+        )}
+      </View>
     </View>
   );
 }
@@ -75,14 +173,13 @@ export function DataRow({
 }) {
   return (
     <View style={[styles.dataRow, !first && styles.dataRowDivided]}>
-      <Text style={[t.bodySm, { color: colors.neutral700, flex: 1 }]}>{label}</Text>
+      <Text variant="body" color="secondary" style={{ flex: 1 }}>
+        {label}
+      </Text>
       <Text
-        style={[
-          t.bodySm,
-          { color: valueTone ?? colors.text },
-          tabular ? { fontVariant: ["tabular-nums"] } : null,
-          { ...font.bodyMedium },
-        ]}
+        variant={tabular ? "priceMd" : "bodyStrong"}
+        color={valueTone ? "inherit" : "primary"}
+        style={valueTone ? { color: valueTone } : undefined}
       >
         {value}
       </Text>
@@ -94,38 +191,52 @@ export function DataRow({
 
 export type BtnVariant = "ink" | "ghost" | "accent" | "quiet" | "danger";
 
+/**
+ * The button set.
+ *
+ * `ink` keeps its name and loses its colour: the primary action is the brand
+ * green with a NEAR-BLACK label, because white on this green measures 3.26:1
+ * and a 13pt semibold label is not large text. That is also why the pressed
+ * state goes lighter — darkening it would squeeze the very label that has to
+ * stay readable under a thumb.
+ */
 const BTN: Record<
   BtnVariant,
-  { bg: string; fg: string; border?: string; padV: number; label: TextStyle }
+  { bg: string; bgPressed: string; fg: string; border?: string; height: number }
 > = {
-  ink: { bg: colors.ink, fg: colors.bg, padV: ms(18), label: t.ctaInk },
+  ink: {
+    bg: colors.brand,
+    bgPressed: colors.brandPressed,
+    fg: colors.onBrand,
+    height: touch.primaryCta,
+  },
   ghost: {
-    bg: "transparent",
-    fg: colors.text,
-    border: colors.divider,
-    padV: ms(14),
-    label: t.ctaGhost,
+    bg: colors.surface,
+    bgPressed: colors.surfaceSunken,
+    fg: colors.textPrimary,
+    border: colors.border,
+    height: touch.min,
   },
   accent: {
-    bg: "transparent",
-    fg: colors.accent700,
-    border: colors.accent,
-    padV: ms(15),
-    label: { ...t.ctaSmall, fontSize: ms(12), letterSpacing: ms(12) * 0.1 },
+    bg: colors.brandTint,
+    bgPressed: colors.brandOnDark,
+    fg: colors.brandInk,
+    border: colors.brandOnDark,
+    height: touch.min,
   },
   quiet: {
     bg: "transparent",
-    fg: colors.text,
-    border: colors.divider,
-    padV: ms(14),
-    label: { ...t.ctaSmall, fontSize: ms(11.5), letterSpacing: ms(11.5) * 0.09 },
+    bgPressed: colors.surfaceSunken,
+    fg: colors.textSecondary,
+    border: colors.border,
+    height: touch.min,
   },
   danger: {
-    bg: "transparent",
-    fg: colors.err,
-    border: colors.err,
-    padV: ms(14),
-    label: { ...t.ctaSmall, fontSize: ms(11.5), letterSpacing: ms(11.5) * 0.09 },
+    bg: colors.danger.tint,
+    bgPressed: colors.danger.border,
+    fg: colors.danger.ink,
+    border: colors.danger.border,
+    height: touch.min,
   },
 };
 
@@ -136,15 +247,18 @@ export function Btn({
   large,
   disabled,
   loading,
+  glyph,
   style,
 }: {
   label: string;
   onPress?: () => void;
   variant?: BtnVariant;
-  /** The oversized "Go online" treatment — taller, larger type. */
+  /** The oversized "Go online" treatment — taller, one step up the scale. */
   large?: boolean;
   disabled?: boolean;
   loading?: boolean;
+  /** Optional leading glyph. Never the only thing carrying the meaning. */
+  glyph?: IconName;
   style?: ViewStyle | ViewStyle[];
 }) {
   const v = BTN[variant];
@@ -159,12 +273,11 @@ export function Btn({
       style={({ pressed }) => [
         styles.btn,
         {
-          backgroundColor: v.bg,
+          backgroundColor: pressed && !inert ? v.bgPressed : v.bg,
           borderColor: v.border ?? "transparent",
-          borderWidth: v.border ? 1 : 0,
-          paddingVertical: large ? ms(22) : v.padV,
+          borderWidth: v.border ? StyleSheet.hairlineWidth : 0,
+          minHeight: large ? 60 : v.height,
         },
-        pressed && styles.pressed,
         inert && styles.disabled,
         style as ViewStyle,
       ]}
@@ -172,32 +285,37 @@ export function Btn({
       {loading ? (
         <ActivityIndicator size="small" color={v.fg} />
       ) : (
-        <Text
-          style={[
-            v.label,
-            { color: v.fg },
-            large ? { fontSize: ms(17), letterSpacing: ms(17) * 0.1 } : null,
-          ]}
-        >
-          {label}
-        </Text>
+        <>
+          {glyph ? <Icon name={glyph} size={18} color={v.fg} /> : null}
+          <Text variant={large ? "display2" : "title2"} style={{ color: v.fg }} numberOfLines={1}>
+            {label}
+          </Text>
+        </>
       )}
     </Pressable>
   );
 }
 
-/** 38pt square, accent hairline — call / message / navigate. */
+/**
+ * A square icon button.
+ *
+ * 36pt visually, 44pt to a thumb — the visual size is a layout decision and
+ * the touch target is not negotiable, so `hitSlop` makes up the difference
+ * rather than the box growing.
+ */
 export function IconBtn({
   children,
+  glyph,
   onPress,
-  size = ms(38),
-  tone = colors.accent,
-  fg = colors.accent700,
-  bg = "transparent",
+  size = touch.iconButtonVisual,
+  tone = colors.border,
+  fg = colors.textPrimary,
+  bg = colors.surface,
   accessibilityLabel,
   style,
 }: {
-  children: React.ReactNode;
+  children?: React.ReactNode;
+  glyph?: IconName;
   onPress?: () => void;
   size?: number;
   tone?: string;
@@ -211,45 +329,67 @@ export function IconBtn({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       onPress={onPress}
+      hitSlop={touch.iconButtonHitSlop}
       style={({ pressed }) => [
         styles.iconBtn,
-        { width: size, height: size, borderColor: tone, backgroundColor: bg },
-        pressed && styles.pressed,
+        {
+          width: size,
+          height: size,
+          borderColor: tone,
+          backgroundColor: pressed ? colors.surfaceSunken : bg,
+        },
         style,
       ]}
     >
-      <View style={{ opacity: 1 }}>
-        {typeof children === "string" ? (
-          <Text style={{ color: fg, ...font.body, fontSize: ms(15) }}>{children}</Text>
-        ) : (
-          children
-        )}
-      </View>
+      {glyph ? <Icon name={glyph} size={Math.round(size * 0.52)} color={fg} /> : children}
     </Pressable>
   );
 }
 
 // ─── Chips ────────────────────────────────────────────────────────────────────
 
-/** Outlined status pill — the tone colours both border and label. */
-export function Chip({ label, tone, style }: { label: string; tone: string; style?: ViewStyle }) {
+/**
+ * A status chip: tint fill, ink label, hairline in the same family.
+ *
+ * The old chip was an outline in one colour, because a single colour string
+ * cannot paint a tinted surface. Naming a tone instead gets all four steps,
+ * which is what makes these read as chips rather than as tiny buttons.
+ */
+export function Chip({
+  label,
+  tone = "muted",
+  glyph,
+  style,
+}: {
+  label: string;
+  tone?: ToneName;
+  glyph?: IconName;
+  style?: ViewStyle;
+}) {
+  const t = resolveTone(tone);
   return (
-    <View style={[styles.chip, { borderColor: tone }, style]}>
-      <Text style={[t.chip, { color: tone }]}>{label}</Text>
+    <View style={[styles.chip, { backgroundColor: t.tint, borderColor: t.border }, style]}>
+      {glyph ? <Icon name={glyph} size={12} color={t.ink} /> : null}
+      <Text variant="label" style={{ color: t.ink }} numberOfLines={1}>
+        {label}
+      </Text>
     </View>
   );
 }
 
-export function Dot({ tone, size = ms(7) }: { tone: string; size?: number }) {
-  return (
-    <View
-      style={{ width: size, height: size, borderRadius: radius.pill, backgroundColor: tone }}
-    />
-  );
+export function Dot({ tone = colors.textTertiary, size = 8 }: { tone?: string; size?: number }) {
+  return <View style={{ width: size, height: size, borderRadius: radius.pill, backgroundColor: tone }} />;
 }
 
 // ─── Segmented control ────────────────────────────────────────────────────────
 
+/**
+ * Segmented control — a sunken track with a white pill on the selected option.
+ *
+ * The old control filled the selection with ink, which made a period picker
+ * look like four primary buttons with three of them switched off. A raised
+ * white pill says "this one" without claiming to be an action.
+ */
 export function Seg<T extends string>({
   options,
   value,
@@ -271,9 +411,18 @@ export function Seg<T extends string>({
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
             onPress={() => onChange(opt)}
-            style={[styles.segOpt, active && { backgroundColor: colors.ink }]}
+            style={[
+              styles.segOpt,
+              active && {
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+                ...elevation.raised,
+              },
+            ]}
           >
-            <Text style={[t.seg, { color: active ? colors.bg : colors.neutral700 }]}>{opt}</Text>
+            <Text variant="title3" color={active ? "primary" : "tertiary"} numberOfLines={1}>
+              {opt}
+            </Text>
           </Pressable>
         );
       })}
@@ -297,16 +446,18 @@ export function Toggle({
       accessibilityRole="switch"
       accessibilityState={{ checked: value }}
       accessibilityLabel={accessibilityLabel}
+      hitSlop={8}
       onPress={() => onChange(!value)}
       style={[
         styles.track,
         {
-          backgroundColor: value ? colors.ink : colors.neutral300,
+          backgroundColor: value ? colors.brand : colors.surfaceSunken,
+          borderColor: value ? colors.brand : colors.border,
           justifyContent: value ? "flex-end" : "flex-start",
         },
       ]}
     >
-      <View style={styles.knob} />
+      <View style={[styles.knob, { backgroundColor: value ? colors.onBrand : colors.surface }]} />
     </Pressable>
   );
 }
@@ -315,9 +466,9 @@ export function Toggle({
 
 export function Bar({
   pct,
-  tone = colors.ink,
-  height = ms(6),
-  track = colors.neutral200,
+  tone = colors.brand,
+  height = 6,
+  track = colors.surfaceSunken,
   style,
 }: {
   /** 0–100. */
@@ -329,8 +480,8 @@ export function Bar({
 }) {
   const clamped = Math.max(0, Math.min(100, Number.isFinite(pct) ? pct : 0));
   return (
-    <View style={[{ height, backgroundColor: track, borderRadius: radius.sm, overflow: "hidden" }, style]}>
-      <View style={{ height: "100%", width: `${clamped}%`, backgroundColor: tone }} />
+    <View style={[{ height, backgroundColor: track, borderRadius: radius.pill, overflow: "hidden" }, style]}>
+      <View style={{ height: "100%", width: `${clamped}%`, backgroundColor: tone, borderRadius: radius.pill }} />
     </View>
   );
 }
@@ -339,8 +490,8 @@ export function Bar({
 export function StepBars({
   total,
   current,
-  height = ms(4),
-  activeTone = colors.accent,
+  height = 4,
+  activeTone = colors.brand,
   style,
 }: {
   total: number;
@@ -351,15 +502,15 @@ export function StepBars({
   style?: ViewStyle;
 }) {
   return (
-    <View style={[{ flexDirection: "row", gap: ms(5) }, style]}>
+    <View style={[{ flexDirection: "row", gap: space[1] + 1 }, style]}>
       {Array.from({ length: total }, (_, i) => (
         <View
           key={i}
           style={{
             flex: 1,
             height,
-            borderRadius: radius.sm,
-            backgroundColor: i <= current ? activeTone : colors.neutral300,
+            borderRadius: radius.pill,
+            backgroundColor: i <= current ? activeTone : colors.surfaceSunken,
           }}
         />
       ))}
@@ -369,7 +520,7 @@ export function StepBars({
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
-export function Avatar({ name, size = ms(44) }: { name?: string | null; size?: number }) {
+export function Avatar({ name, size = 44 }: { name?: string | null; size?: number }) {
   const initials = (name ?? "")
     .trim()
     .split(/\s+/)
@@ -379,8 +530,13 @@ export function Avatar({ name, size = ms(44) }: { name?: string | null; size?: n
     .join("");
 
   return (
-    <View style={[styles.avatar, { width: size, height: size, borderRadius: size / 2 }]}>
-      <Text style={{ ...font.heading, fontSize: size * 0.41, color: colors.neutral700 }}>
+    <View
+      style={[
+        styles.avatar,
+        { width: size, height: size, borderRadius: radius.pill },
+      ]}
+    >
+      <Text variant="title2" style={{ color: colors.brandInk }}>
         {initials || "?"}
       </Text>
     </View>
@@ -390,75 +546,91 @@ export function Avatar({ name, size = ms(44) }: { name?: string | null; size?: n
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  rule: { height: 1, backgroundColor: colors.divider },
+  sectionHeader: { flexDirection: "row", alignItems: "center", gap: space[2] },
+
   card: {
-    borderWidth: 1,
-    borderColor: colors.divider,
-    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    padding: space[4],
+  },
+  notice: {
+    flexDirection: "row",
+    gap: space[3],
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.card,
     padding: space[3],
   },
-  well: { backgroundColor: colors.neutral100 },
   dataRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: space[3],
-    paddingVertical: ms(11),
+    paddingVertical: space[3],
   },
-  dataRowDivided: { borderTopWidth: 1, borderTopColor: colors.divider },
+  dataRowDivided: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderSubtle },
+
   btn: {
     width: "100%",
-    borderRadius: radius.md,
+    flexDirection: "row",
+    gap: space[2],
+    borderRadius: radius.button,
+    paddingHorizontal: space[4],
     alignItems: "center",
     justifyContent: "center",
   },
-  pressed: { opacity: 0.7 },
   disabled: { opacity: 0.45 },
   iconBtn: {
-    borderWidth: 1,
-    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.button,
     alignItems: "center",
     justifyContent: "center",
   },
+
   chip: {
     alignSelf: "flex-start",
-    borderWidth: 1,
-    borderRadius: ms(20),
-    paddingHorizontal: ms(9),
-    paddingVertical: ms(5),
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space[1],
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space[2],
+    paddingVertical: 4,
   },
+
   seg: {
     flexDirection: "row",
-    borderWidth: 1,
-    borderColor: colors.divider,
-    borderRadius: radius.md,
-    overflow: "hidden",
+    gap: space[1],
+    backgroundColor: colors.surfaceSunken,
+    borderRadius: radius.button,
+    padding: space[1],
   },
   segOpt: {
     flex: 1,
-    paddingVertical: ms(9),
-    paddingHorizontal: ms(10),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "transparent",
+    borderRadius: radius.chip,
+    paddingVertical: space[2],
+    paddingHorizontal: space[2],
     alignItems: "center",
     justifyContent: "center",
   },
+
   track: {
-    width: ms(44),
-    height: ms(26),
-    borderRadius: ms(14),
-    padding: ms(3),
+    width: 48,
+    height: 28,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.pill,
+    padding: 3,
     flexDirection: "row",
     alignItems: "center",
   },
-  knob: {
-    width: ms(20),
-    height: ms(20),
-    borderRadius: ms(10),
-    backgroundColor: colors.bg,
-  },
+  knob: { width: 20, height: 20, borderRadius: radius.pill },
+
   avatar: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.divider,
+    backgroundColor: colors.brandTint,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.brandOnDark,
     alignItems: "center",
     justifyContent: "center",
   },

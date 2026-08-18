@@ -25,7 +25,9 @@
 const config = require('../src/config/env');
 const { connectDB, closeConnections } = require('../src/infrastructure/database/db');
 const { initStore } = require('../src/modules/scraper/scraper.store');
-const app = require('../app');
+/* The app server.js built — same CORS allowlist a browser hits in
+   production, so the preflight checks below test the real policy. */
+const { app } = require('../server');
 
 const RUN_SCRAPE = process.argv.includes('--scrape');
 

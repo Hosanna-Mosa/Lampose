@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Mail, Lock, User, Phone, Eye, EyeOff, LogIn, UserPlus, Server, Loader2, AlertCircle, CheckCircle2, ShieldCheck } from 'lucide-react';
-import { loginUser, registerUser, getAuthApiUrl, setAuthApiUrl } from '../../services/auth';
+import { loginUser, registerUser, API_BASE_URL } from '../../services/api.js';
 
 export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
   if (!isOpen) return null;
@@ -17,18 +17,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
   const [role, setRole] = useState('Property Owner');
-
-  // Custom Auth Backend URL Settings
-  const [showUrlSettings, setShowUrlSettings] = useState(false);
-  const [customUrl, setCustomUrl] = useState(getAuthApiUrl());
-
-  const handleSaveUrl = () => {
-    setAuthApiUrl(customUrl);
-    setShowUrlSettings(false);
-    setErrorMsg('');
-    setSuccessMsg('Auth backend URL updated!');
-    setTimeout(() => setSuccessMsg(''), 2500);
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -405,58 +393,31 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
           </button>
         </form>
 
-        {/* Backend Auth URL Settings Expandable */}
+        {/*
+          The API host, shown but NOT editable.
+
+          This used to be a "Configure" box that wrote the auth URL into
+          localStorage. It meant a browser could be pinned to a host the rest
+          of the site never called, which no server-side CORS allowlist can
+          fix — so the address now comes from VITE_API_BASE_URL and the only
+          way to change it is to change the deployment. It stays on screen
+          because "which backend am I talking to" is still the first question
+          worth answering when a login fails.
+        */}
         <div style={{ marginTop: '20px', paddingTop: '14px', borderTop: '1px solid #f1f5f2' }}>
-          <button
-            type="button"
-            onClick={() => setShowUrlSettings(!showUrlSettings)}
+          <div
             style={{
-              background: 'none',
-              border: 'none',
               color: '#64748b',
               fontSize: '0.74rem',
-              cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
-              gap: '5px',
-              margin: '0 auto'
+              justifyContent: 'center',
+              gap: '5px'
             }}
           >
             <Server size={12} color="#45855a" />
-            <span>Auth Backend URL: <strong>{getAuthApiUrl()}</strong> (Configure)</span>
-          </button>
-
-          {showUrlSettings && (
-            <div className="animate-fade-in" style={{
-              marginTop: '10px',
-              padding: '12px',
-              borderRadius: '12px',
-              background: '#f8faf8',
-              border: '1px solid #e2e8f0'
-            }}>
-              <span style={{ fontSize: '0.72rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>
-                Set your custom authentication backend endpoint:
-              </span>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                <input
-                  type="url"
-                  value={customUrl}
-                  onChange={(e) => setCustomUrl(e.target.value)}
-                  placeholder="https://your-auth-backend.com/api/auth"
-                  className="form-input"
-                  style={{ fontSize: '0.78rem', padding: '6px 10px', flex: 1 }}
-                />
-                <button
-                  type="button"
-                  onClick={handleSaveUrl}
-                  className="btn btn-secondary"
-                  style={{ fontSize: '0.75rem', padding: '6px 12px', borderRadius: '8px' }}
-                >
-                  Save URL
-                </button>
-              </div>
-            </div>
-          )}
+            <span>API: <strong>{API_BASE_URL}</strong></span>
+          </div>
         </div>
       </div>
     </div>

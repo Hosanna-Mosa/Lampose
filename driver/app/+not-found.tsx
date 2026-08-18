@@ -1,59 +1,49 @@
 import { router, Stack } from "expo-router";
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
-import { Btn } from "@/components/ui";
-import { colors, font, ms, radius } from "@/theme";
+import { StyleSheet, View } from "react-native";
+import { Btn, Icon, Text, TopBar } from "@/components/ui";
+import { colors, layout, radius, space } from "@/theme";
 
 export default function NotFoundScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Not found" }} />
       <View style={styles.root}>
-        <View style={styles.mark}>
-          <Text style={styles.markGlyph}>?</Text>
+        <TopBar title="Not found" />
+        <View style={styles.body}>
+          <View style={styles.mark}>
+            <Icon name="search" size={26} color={colors.textTertiary} />
         </View>
-        <Text style={styles.title}>This screen doesn't exist</Text>
-        <Text style={styles.body}>
-          The link you followed points somewhere the app doesn't have. Let's get you back.
+        <Text variant="display1" style={styles.centered}>
+          This screen doesn&apos;t exist
         </Text>
-        <Btn label="Back to home" onPress={() => router.replace("/")} style={{ marginTop: ms(20) }} />
+        <Text variant="bodyLg" color="secondary" style={styles.centered}>
+          The link you followed points somewhere the app doesn&apos;t have. Let&apos;s get you back.
+        </Text>
+        <Btn label="Back to home" glyph="home" onPress={() => router.replace("/")} style={{ marginTop: space[3] }} />
+        </View>
       </View>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
+  root: { flex: 1, backgroundColor: colors.bg },
+  body: {
     flex: 1,
-    backgroundColor: colors.bg,
     justifyContent: "center",
-    paddingHorizontal: ms(24),
+    paddingHorizontal: layout.gutter + space[2],
+    gap: space[3],
   },
+  centered: { textAlign: "center" },
   mark: {
-    width: ms(60),
-    height: ms(60),
+    width: 60,
+    height: 60,
     borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.divider,
+    backgroundColor: colors.surfaceSunken,
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "center",
-  },
-  markGlyph: { ...font.headingBold, fontSize: ms(30), color: colors.neutral600 },
-  title: {
-    ...font.headingBold,
-    fontSize: ms(28),
-    lineHeight: ms(32),
-    color: colors.text,
-    marginTop: ms(20),
-    textAlign: "center",
-  },
-  body: {
-    ...font.body,
-    fontSize: ms(14),
-    lineHeight: ms(21),
-    color: colors.neutral700,
-    marginTop: ms(10),
-    textAlign: "center",
+    marginBottom: space[2],
   },
 });
