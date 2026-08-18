@@ -1,11 +1,11 @@
 import React from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Btn, Sheet, Toast, Toggle, TopBar } from "@/components/ui";
+import { Btn, Icon, SectionHeader, Sheet, Text, Toast, Toggle, TopBar } from "@/components/ui";
 import { SETTING_ROWS, SWITCHES } from "@/constants/lampose";
 import { useSheet } from "@/hooks/useSheet";
 import { useFlowStore } from "@/store/flowStore";
-import { colors, font, ms, space, typography as t } from "@/theme";
+import { colors, layout, radius, space } from "@/theme";
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -14,56 +14,62 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.root}>
-      <View style={{ paddingTop: insets.top }}>
-        <TopBar back="Profile" />
-      </View>
+      <TopBar back="Profile" title="Settings" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={styles.title}>Settings</Text>
-
-        <Text style={[t.kicker, { marginTop: ms(20) }]}>Notifications</Text>
-        <View style={{ marginTop: ms(8) }}>
-          {SWITCHES.map((s) => (
-            <View key={s.k} style={styles.toggleRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.rowLabel}>{s.t}</Text>
-                <Text style={styles.rowSub}>{s.sub}</Text>
+        <View style={{ gap: space[2] }}>
+          <SectionHeader title="Notifications" />
+          <View style={styles.group}>
+            {SWITCHES.map((s, i) => (
+              <View key={s.k} style={[styles.toggleRow, i > 0 && styles.divided]}>
+                <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                  <Text variant="bodyLg">{s.t}</Text>
+                  <Text variant="caption" color="tertiary">
+                    {s.sub}
+                  </Text>
+                </View>
+                <Toggle
+                  value={!!switches[s.k]}
+                  onChange={() => toggleSwitch(s.k)}
+                  accessibilityLabel={s.t}
+                />
               </View>
-              <Toggle
-                value={!!switches[s.k]}
-                onChange={() => toggleSwitch(s.k)}
-                accessibilityLabel={s.t}
-              />
-            </View>
-          ))}
+            ))}
+          </View>
         </View>
 
-        <Text style={[t.kicker, { marginTop: ms(24) }]}>Preferences</Text>
-        <View style={{ marginTop: ms(8) }}>
-          {SETTING_ROWS.map((row) => (
-            <Pressable
-              key={row.t}
-              onPress={() => say(row.toast)}
-              style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}
-            >
-              <Text style={styles.rowLabel}>{row.t}</Text>
-              <View style={styles.rowRight}>
-                {!!row.meta && <Text style={styles.rowMeta}>{row.meta}</Text>}
-                <Text style={styles.chevron}>›</Text>
-              </View>
-            </Pressable>
-          ))}
+        <View style={{ gap: space[2] }}>
+          <SectionHeader title="Preferences" />
+          <View style={styles.group}>
+            {SETTING_ROWS.map((row, i) => (
+              <Pressable
+                key={row.t}
+                onPress={() => say(row.toast)}
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  styles.row,
+                  i > 0 && styles.divided,
+                  pressed && { backgroundColor: colors.surfaceSunken },
+                ]}
+              >
+                <Text variant="bodyLg" style={{ flex: 1 }}>
+                  {row.t}
+                </Text>
+                {!!row.meta && (
+                  <Text variant="numMeta" color="tertiary" numberOfLines={1} style={{ flexShrink: 1 }}>
+                    {row.meta}
+                  </Text>
+                )}
+                <Icon name="chevronRight" size={15} color={colors.textTertiary} />
+              </Pressable>
+            ))}
+          </View>
         </View>
 
-        <Btn
-          label="Log out"
-          variant="danger"
-          onPress={() => setOverlay("logout")}
-          style={{ marginTop: ms(20) }}
-        />
+        <Btn label="Log out" variant="danger" glyph="logout" onPress={() => setOverlay("logout")} />
       </ScrollView>
 
-      <Toast message={toast} top={insets.top + ms(8)} />
+      <Toast message={toast} top={insets.top + space[2]} />
       <Sheet {...sheet} />
     </View>
   );
@@ -71,42 +77,27 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: space[4], paddingBottom: ms(26) },
-  title: {
-    ...font.headingBold,
-    fontSize: ms(28),
-    lineHeight: ms(31),
-    color: colors.text,
-    marginTop: ms(12),
+  content: { paddingHorizontal: layout.gutter, paddingBottom: space[6], gap: space[4] },
+  group: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    backgroundColor: colors.surface,
+    overflow: "hidden",
   },
   toggleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: ms(12),
-    paddingVertical: ms(14),
-    paddingHorizontal: 2,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
+    gap: space[3],
+    paddingVertical: space[3],
+    paddingHorizontal: space[3],
   },
   row: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    gap: ms(12),
-    paddingVertical: ms(14),
-    paddingHorizontal: 2,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
+    gap: space[2],
+    paddingVertical: space[3] + 2,
+    paddingHorizontal: space[3],
   },
-  rowLabel: { ...font.body, fontSize: ms(14.5), lineHeight: ms(19), color: colors.text },
-  rowSub: {
-    ...font.body,
-    fontSize: ms(12),
-    lineHeight: ms(17),
-    color: colors.neutral700,
-    marginTop: ms(2),
-  },
-  rowRight: { flexDirection: "row", alignItems: "center", gap: ms(9) },
-  rowMeta: { ...font.body, fontSize: ms(12), color: colors.neutral600 },
-  chevron: { color: colors.accent, ...font.body, fontSize: ms(15) },
+  divided: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderSubtle },
 });

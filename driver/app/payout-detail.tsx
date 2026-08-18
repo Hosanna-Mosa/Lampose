@@ -1,10 +1,10 @@
 import React from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Btn, Chip, Toast, TopBar } from "@/components/ui";
+import { Btn, Chip, DataRow, Text, Toast, TopBar } from "@/components/ui";
 import { PAYOUT_ROWS } from "@/constants/lampose";
 import { useFlowStore } from "@/store/flowStore";
-import { colors, font, ms, space, typography as t } from "@/theme";
+import { colors, layout, radius, space } from "@/theme";
 
 export default function PayoutDetailScreen() {
   const insets = useSafeAreaInsets();
@@ -12,71 +12,57 @@ export default function PayoutDetailScreen() {
 
   return (
     <View style={styles.root}>
-      <View style={{ paddingTop: insets.top }}>
-        <TopBar back="Payouts" />
-      </View>
+      <TopBar back="Payouts" title="Payout" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* The figure is the screen. Everything under it explains the figure. */}
         <View style={styles.hero}>
-          <Text style={[t.kicker, { textAlign: "center" }]}>Paid on 11 Aug 2026</Text>
-          <Text style={styles.amount}>₹6,480</Text>
-          <Chip label="Completed" tone={colors.ok} style={styles.heroChip} />
+          <Text variant="eyebrow" color="tertiary">
+            Paid on 11 Aug 2026
+          </Text>
+          <Text variant="codeHero" adjustsFontSizeToFit numberOfLines={1} style={{ marginTop: space[2] }}>
+            ₹6,480
+          </Text>
+          <Chip label="Completed" tone="success" glyph="check" style={{ marginTop: space[3] }} />
         </View>
 
-        <View style={{ marginTop: ms(18) }}>
-          {PAYOUT_ROWS.map((r) => (
-            <View key={r.l} style={styles.row}>
-              <Text style={styles.rowLabel}>{r.l}</Text>
-              <Text style={styles.rowValue}>{r.v}</Text>
-            </View>
+        <View style={styles.card}>
+          {PAYOUT_ROWS.map((r, i) => (
+            <DataRow key={r.l} label={r.l} value={r.v} first={i === 0} />
           ))}
         </View>
 
         <Btn
           label="Download statement"
           variant="ghost"
+          glyph="documents"
           onPress={() => say("Statement downloaded as PDF.")}
-          style={{ marginTop: ms(18) }}
         />
       </ScrollView>
 
-      <Toast message={toast} top={insets.top + ms(8)} />
+      <Toast message={toast} top={insets.top + space[2]} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: space[4], paddingBottom: ms(26) },
+  content: { paddingHorizontal: layout.gutter, paddingBottom: space[6], gap: space[4] },
   hero: {
     alignItems: "center",
-    paddingTop: ms(24),
-    paddingBottom: ms(20),
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    backgroundColor: colors.surface,
+    paddingVertical: space[6],
+    paddingHorizontal: space[4],
   },
-  amount: {
-    ...font.headingBold,
-    fontSize: ms(50),
-    lineHeight: ms(52),
-    marginTop: ms(10),
-    color: colors.text,
-    fontVariant: ["tabular-nums"],
-  },
-  heroChip: { marginTop: ms(12), alignSelf: "center" },
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: ms(10),
-    paddingVertical: ms(13),
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
-  },
-  rowLabel: { ...font.body, fontSize: ms(13.5), color: colors.neutral700, flex: 1 },
-  rowValue: {
-    ...font.body,
-    fontSize: ms(13.5),
-    color: colors.text,
-    fontVariant: ["tabular-nums"],
+  card: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    backgroundColor: colors.surface,
+    paddingHorizontal: space[4],
+    paddingVertical: space[1],
   },
 });

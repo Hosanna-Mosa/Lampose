@@ -1,8 +1,10 @@
 import React, { useEffect, useRef } from "react";
-import { Animated, Easing, StyleSheet, Text, View } from "react-native";
+import { Animated, Easing, StyleSheet, View } from "react-native";
 import Svg, { Line, Path } from "react-native-svg";
-import { colors, font, ms, radius, shadow, space } from "@/theme";
+import { colors, elevation, radius, space } from "@/theme";
 import { Icon } from "./Icon";
+import { Text } from "./Text";
+import { Chip } from "./primitives";
 
 const GRID = 28;
 
@@ -13,26 +15,10 @@ function GridBackdrop({ width, height }: { width: number; height: number }) {
   return (
     <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
       {Array.from({ length: rows }, (_, i) => (
-        <Line
-          key={`h${i}`}
-          x1={0}
-          y1={i * GRID}
-          x2={width}
-          y2={i * GRID}
-          stroke="#cfcaca"
-          strokeWidth={1}
-        />
+        <Line key={`h${i}`} x1={0} y1={i * GRID} x2={width} y2={i * GRID} stroke={colors.border} strokeWidth={1} />
       ))}
       {Array.from({ length: cols }, (_, i) => (
-        <Line
-          key={`v${i}`}
-          x1={i * GRID}
-          y1={0}
-          x2={i * GRID}
-          y2={height}
-          stroke="#cfcaca"
-          strokeWidth={1}
-        />
+        <Line key={`v${i}`} x1={i * GRID} y1={0} x2={i * GRID} y2={height} stroke={colors.border} strokeWidth={1} />
       ))}
     </Svg>
   );
@@ -41,7 +27,12 @@ function GridBackdrop({ width, height }: { width: number; height: number }) {
 /**
  * Navigation panel for the active order: grid backdrop, dashed route, pulsing
  * rider puck, target pin, distance/ETA card and map controls. A placeholder
- * for the real navigation SDK, styled exactly like the design.
+ * for the real navigation SDK.
+ *
+ * The route is brand green rather than ink — on every other surface in the
+ * product green is what marks the live thing, and a route in progress is
+ * exactly that. The readout is a floating white card, matching the way the
+ * food module lifts a summary off the content behind it.
  */
 export function MapPanel({
   height,
@@ -90,10 +81,10 @@ export function MapPanel({
         <Path
           d="M64 196 C110 176 96 120 148 106 C196 93 214 66 300 54"
           fill="none"
-          stroke={colors.ink}
-          strokeWidth={3}
-          strokeDasharray="9 7"
-          opacity={0.8}
+          stroke={colors.brand}
+          strokeWidth={4}
+          strokeDasharray="10 8"
+          strokeLinecap="round"
         />
       </Svg>
 
@@ -102,10 +93,8 @@ export function MapPanel({
         style={[
           styles.pulse,
           {
-            opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.55, 0] }),
-            transform: [
-              { scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 2.6] }) },
-            ],
+            opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] }),
+            transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 2.6] }) }],
           },
         ]}
       />
@@ -113,139 +102,119 @@ export function MapPanel({
 
       {/* Target pin */}
       <View style={styles.target}>
-        <View style={styles.targetPill}>
-          <Text style={styles.targetLabel}>{target}</Text>
-        </View>
+        <Chip label={target} tone="brand" />
         <View style={styles.targetDot} />
       </View>
 
       {/* Distance card */}
       <View style={styles.readout}>
-        <Text style={styles.readoutKicker}>{kicker}</Text>
-        <Text style={styles.readoutValue}>
-          {distance} <Text style={styles.readoutEta}>· {eta}</Text>
+        <Text variant="eyebrow" color="tertiary">
+          {kicker}
         </Text>
+        <View style={styles.readoutRow}>
+          <Text variant="priceHero">{distance}</Text>
+          <Text variant="numMeta" color="tertiary">
+            {eta}
+          </Text>
+        </View>
       </View>
 
       {/* Controls */}
       <View style={styles.controls}>
         <View style={styles.ctrl}>
-          <Icon name="plus" size={ms(17)} color={colors.ink} strokeWidth={1.6} />
+          <Icon name="plus" size={17} color={colors.textPrimary} />
         </View>
         <View style={styles.ctrl}>
-          <Icon name="navigate" size={ms(17)} color={colors.ink} strokeWidth={1.6} />
+          <Icon name="navigate" size={17} color={colors.textPrimary} />
         </View>
       </View>
 
-      <Text style={styles.caption}>Map placeholder · live navigation SDK</Text>
+      <View style={styles.caption}>
+        <Text variant="numMeta" color="tertiary">
+          Map placeholder · live navigation SDK
+        </Text>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: {
-    backgroundColor: "#d7d3d3",
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: colors.divider,
+    backgroundColor: colors.surfaceSunken,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     position: "relative",
     overflow: "hidden",
   },
   rider: {
     position: "absolute",
-    left: ms(52),
-    bottom: ms(34),
-    width: ms(20),
-    height: ms(20),
+    left: 52,
+    bottom: 34,
+    width: 20,
+    height: 20,
     borderRadius: radius.pill,
-    backgroundColor: colors.ink,
+    backgroundColor: colors.brand,
     borderWidth: 3,
-    borderColor: colors.bg,
-    ...shadow.sm,
+    borderColor: colors.surface,
+    ...elevation.card,
   },
   pulse: {
     position: "absolute",
-    left: ms(34),
-    bottom: ms(22),
-    width: ms(56),
-    height: ms(56),
+    left: 34,
+    bottom: 22,
+    width: 56,
+    height: 56,
     borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.ink,
+    borderWidth: 1.5,
+    borderColor: colors.brand,
   },
-  target: { position: "absolute", right: ms(74), top: ms(40), alignItems: "center", gap: ms(4) },
-  targetPill: {
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderColor: colors.ink,
-    borderRadius: 3,
-    paddingHorizontal: ms(7),
-    paddingVertical: ms(3),
-  },
-  targetLabel: {
-    ...font.bodySemi,
-    fontSize: ms(9.5),
-    letterSpacing: ms(9.5) * 0.1,
-    textTransform: "uppercase",
-    color: colors.text,
-  },
+  target: { position: "absolute", right: 66, top: 40, alignItems: "center", gap: space[1] },
   targetDot: {
-    width: ms(11),
-    height: ms(11),
+    width: 12,
+    height: 12,
     borderRadius: radius.pill,
-    backgroundColor: colors.accent,
-    borderWidth: 2,
-    borderColor: colors.ink,
+    backgroundColor: colors.brand,
+    borderWidth: 2.5,
+    borderColor: colors.surface,
+    ...elevation.raised,
   },
+
   readout: {
     position: "absolute",
-    left: ms(12),
-    top: ms(12),
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderColor: colors.divider,
-    borderRadius: radius.md,
-    paddingHorizontal: ms(11),
-    paddingVertical: ms(8),
+    left: space[3],
+    top: space[3],
+    gap: space[1],
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    paddingHorizontal: space[3],
+    paddingVertical: space[2] + 2,
+    ...elevation.card,
   },
-  readoutKicker: {
-    ...font.bodySemi,
-    fontSize: ms(9),
-    letterSpacing: ms(9) * 0.14,
-    textTransform: "uppercase",
-    color: colors.neutral600,
-  },
-  readoutValue: {
-    ...font.heading,
-    fontSize: ms(20),
-    lineHeight: ms(22),
-    marginTop: ms(5),
-    color: colors.text,
-    fontVariant: ["tabular-nums"],
-  },
-  readoutEta: { fontSize: ms(13), color: colors.neutral700 },
-  controls: {
-    position: "absolute",
-    right: ms(12),
-    bottom: ms(12),
-    gap: ms(6),
-  },
+  readoutRow: { flexDirection: "row", alignItems: "baseline", gap: space[2] },
+
+  controls: { position: "absolute", right: space[3], bottom: space[3], gap: space[2] },
   ctrl: {
-    width: ms(34),
-    height: ms(34),
-    borderWidth: 1,
-    borderColor: colors.divider,
-    borderRadius: radius.md,
-    backgroundColor: colors.bg,
+    width: 36,
+    height: 36,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.button,
+    backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
+    ...elevation.raised,
   },
+
   caption: {
     position: "absolute",
-    left: ms(12),
-    bottom: ms(12),
-    ...font.body,
-    fontSize: ms(10),
-    color: colors.neutral700,
+    left: space[3],
+    bottom: space[3],
+    backgroundColor: colors.surface,
+    borderRadius: radius.chip,
+    paddingHorizontal: space[2],
+    paddingVertical: 3,
   },
 });

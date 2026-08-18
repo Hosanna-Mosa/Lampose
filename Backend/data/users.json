@@ -1,1 +1,26 @@
-[]
+[
+  {
+    "userId": "user_admin_01",
+    "name": "Admin Manager",
+    "email": "admin@scriper.com",
+    "role": "ADMIN",
+    "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80",
+    "password": "$2b$10$2jEFBNIHT/rxya74D0eFkOpOhFy6Fp5Y/1skKTnXpNAZBbtKspWH6"
+  },
+  {
+    "userId": "user_emp_01",
+    "name": "John Doe",
+    "email": "john@scriper.com",
+    "role": "EMPLOYEE",
+    "avatar": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80",
+    "password": "$2b$10$tKNAgcVapyJxkGX06VWkkuawK6UXWBEFKs835O1TNxICyvbHg1jDC"
+  },
+  {
+    "userId": "user_emp_02",
+    "name": "Sarah Connor",
+    "email": "sarah@scriper.com",
+    "role": "EMPLOYEE",
+    "avatar": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&auto=format&fit=crop&q=80",
+    "password": "$2b$10$j0XMBsWcUYMUjEMgjWWgpeQuhSWHIHPFxcGgBumbIWUfFrs.fzHTy"
+  }
+]

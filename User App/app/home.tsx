@@ -70,7 +70,7 @@ const APPEARANCE_OPTIONS: readonly { id: ThemePreference; label: string }[] = [
  * demotion Alerts went through when Saved was promoted here.
  */
 const TABS: readonly TabItem[] = [
-  { id: 'explore', label: 'Explore', icon: 'search' },
+  { id: 'explore', label: 'Home', icon: 'home' },
   { id: 'saved', label: 'Saved', icon: 'bookmark' },
   { id: 'bookings', label: 'Bookings', icon: 'calendar' },
   { id: 'food', label: 'Food', icon: 'food', raised: true, tone: 'danger' },
@@ -79,7 +79,7 @@ const TABS: readonly TabItem[] = [
 /**
  * And what the bar becomes once Food is open.
  *
- * Stepping into the module takes the stay tabs with it — Explore, Saved and
+ * Stepping into the module takes the stay tabs with it — Home, Saved and
  * Bookings are the app you left, not three places to keep flicking between
  * while you read a mess menu. In their place the SAME bar, in the same
  * position, carries the module's own three screens, and the fourth slot keeps

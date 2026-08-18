@@ -1,11 +1,11 @@
 import React from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Btn, Sheet, Toast, TopBar } from "@/components/ui";
+import { Btn, DataRow, Icon, Sheet, Text, Toast, TopBar } from "@/components/ui";
 import { VEHICLE_ROWS } from "@/constants/lampose";
 import { useSheet } from "@/hooks/useSheet";
 import { useFlowStore } from "@/store/flowStore";
-import { colors, font, ms, radius, space, typography as t } from "@/theme";
+import { colors, layout, radius, space, tone as resolveTone } from "@/theme";
 
 export default function VehicleScreen() {
   const insets = useSafeAreaInsets();
@@ -14,37 +14,50 @@ export default function VehicleScreen() {
 
   return (
     <View style={styles.root}>
-      <View style={{ paddingTop: insets.top }}>
-        <TopBar back="Profile" />
-      </View>
+      <TopBar back="Profile" title="Vehicle" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={styles.title}>Vehicle</Text>
+        <Text variant="caption" color="tertiary">
+          The vehicle your deliveries are assigned against.
+        </Text>
 
+        {/* The plate, set in the numeric face — it is an identifier, not a name. */}
         <View style={styles.plate}>
-          <Text style={[t.kicker, { textAlign: "center" }]}>Registered two-wheeler</Text>
-          <Text style={styles.plateNumber}>AP 05 CJ 4471</Text>
-          <Text style={styles.plateMeta}>Honda Activa 6G · 2022 · white</Text>
+          <View style={styles.plateGlyph}>
+            <Icon name="vehicle" size={20} color={colors.brandInk} />
+          </View>
+          <Text variant="eyebrow" color="tertiary">
+            Registered two-wheeler
+          </Text>
+          <Text variant="priceHero" style={{ marginTop: space[2] }}>
+            AP 05 CJ 4471
+          </Text>
+          <Text variant="caption" color="tertiary" style={{ marginTop: space[1] }}>
+            Honda Activa 6G · 2022 · white
+          </Text>
         </View>
 
-        <View style={{ marginTop: ms(16) }}>
-          {VEHICLE_ROWS.map((r) => (
-            <View key={r.l} style={styles.row}>
-              <Text style={styles.rowLabel}>{r.l}</Text>
-              <Text style={[styles.rowValue, { color: r.tone }]}>{r.v}</Text>
-            </View>
+        <View style={styles.card}>
+          {VEHICLE_ROWS.map((r, i) => (
+            <DataRow
+              key={r.l}
+              label={r.l}
+              value={r.v}
+              first={i === 0}
+              valueTone={r.tone ? resolveTone(r.tone).ink : undefined}
+            />
           ))}
         </View>
 
         <Btn
           label="Request vehicle change"
           variant="ghost"
+          glyph="refresh"
           onPress={() => say("Vehicle change request sent for review.")}
-          style={{ marginTop: ms(18) }}
         />
       </ScrollView>
 
-      <Toast message={toast} top={insets.top + ms(8)} />
+      <Toast message={toast} top={insets.top + space[2]} />
       <Sheet {...sheet} />
     </View>
   );
@@ -52,48 +65,30 @@ export default function VehicleScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: space[4], paddingBottom: ms(26) },
-  title: {
-    ...font.headingBold,
-    fontSize: ms(28),
-    lineHeight: ms(31),
-    color: colors.text,
-    marginTop: ms(12),
-  },
+  content: { paddingHorizontal: layout.gutter, paddingBottom: space[6], gap: space[4] },
   plate: {
-    marginTop: ms(16),
-    borderWidth: 1,
-    borderColor: colors.divider,
-    borderRadius: radius.lg,
-    padding: ms(18),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    backgroundColor: colors.surface,
+    padding: space[5],
     alignItems: "center",
   },
-  plateNumber: {
-    ...font.headingBold,
-    fontSize: ms(30),
-    lineHeight: ms(33),
-    letterSpacing: 0.6,
-    color: colors.text,
-    marginTop: ms(10),
-    fontVariant: ["tabular-nums"],
-  },
-  plateMeta: {
-    ...font.body,
-    fontSize: ms(13),
-    lineHeight: ms(18),
-    color: colors.neutral700,
-    marginTop: ms(7),
-  },
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  plateGlyph: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brandTint,
     alignItems: "center",
-    gap: ms(10),
-    paddingVertical: ms(14),
-    paddingHorizontal: 2,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
+    justifyContent: "center",
+    marginBottom: space[3],
   },
-  rowLabel: { ...font.body, fontSize: ms(14), color: colors.neutral700 },
-  rowValue: { ...font.body, fontSize: ms(14), fontVariant: ["tabular-nums"] },
+  card: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    backgroundColor: colors.surface,
+    paddingHorizontal: space[4],
+    paddingVertical: space[1],
+  },
 });

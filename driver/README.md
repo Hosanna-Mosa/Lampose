@@ -42,9 +42,37 @@ hooks/                  useDriverLocation (GPS + compass + broadcast)
 
 ### Design system
 
-Every colour, size and shadow lives in [`theme/index.ts`](theme/index.ts). Screens
-import tokens rather than hardcoding values, so the palette can be re-skinned from
-one file. The brand colours are mirrored in `app.config.js` (splash, adaptive icon,
+The app renders in the same visual language as the customer app's Food module.
+The tokens in [`theme/index.ts`](theme/index.ts) are a direct port of
+`User App/constants/tokens.ts`: grey ground, white cards, one saturated green,
+near-black labels on the green, and hairline borders instead of shadows.
+
+Rules that are load-bearing rather than stylistic:
+
+- **Type comes from a scale, never from a size.** Screens render text through
+  [`components/ui/Text.tsx`](components/ui/Text.tsx) and name a `variant`
+  (`title1`, `body`, `priceLg`, `eyebrow`, …). There is no `fontSize` prop.
+  Archivo carries headings, Instrument Sans carries reading text, and Martian
+  Mono carries every figure — money, distance, ETA, order id, hand-off code —
+  so digits stay column-aligned and a counting-down ETA never reflows its row.
+- **Status names a tone, never a colour.** `success` / `warning` / `danger` /
+  `info` / `muted` / `brand` resolve through `tone()` to a `{base, ink, tint,
+  border, on}` set. A screen that picks a hex for a status chip is a bug.
+- **Status is never carried by colour alone.** Every chip has a glyph or a
+  word beside it; success shares the brand green and is only distinguishable
+  from a primary button by shape and content.
+- **Radius is chosen by what an element *is*** — `chip` / `button` / `card` /
+  `sheet` / `pill` — not by how big it is.
+- **Sizes are literal points.** `moderateScale`/`ms()` is gone; a 16pt gutter
+  is 16pt on every handset, which is what makes this app and the customer app
+  actually match. `react-native-size-matters` is now unused.
+
+The palette ships light-only. `theme/index.ts` also exports a complete dark
+palette (`palettes.dark`), unused — the rider app has no appearance setting,
+and following the OS preference would be a behaviour change rather than a
+reskin. Wiring it up means putting `colors` behind a provider.
+
+The brand colours are mirrored in `app.config.js` (splash, adaptive icon,
 notification tint) — keep the two in sync.
 
 ## Demo mode (no backend)

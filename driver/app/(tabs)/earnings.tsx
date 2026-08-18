@@ -1,13 +1,13 @@
 import { router } from "expo-router";
 import React from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatCard } from "@/app/(tabs)/index";
-import { Btn, Seg, Sheet, Toast } from "@/components/ui";
+import { Btn, Seg, Sheet, Text, Toast, TopBar } from "@/components/ui";
 import { PERIODS, PERIODS_LIST } from "@/constants/lampose";
 import { useSheet } from "@/hooks/useSheet";
 import { useFlowStore } from "@/store/flowStore";
-import { colors, font, ms, radius, space, typography as t } from "@/theme";
+import { colors, layout, radius, space, tone as resolveTone } from "@/theme";
 
 /** Earnings read as a ledger: totals as large figures, breakdown on hairlines. */
 export default function EarningsScreen() {
@@ -18,62 +18,70 @@ export default function EarningsScreen() {
 
   return (
     <View style={styles.root}>
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + ms(8) }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.head}>
-          <Text style={styles.title}>Earnings</Text>
-          <Pressable onPress={() => router.push("/payouts")} hitSlop={8}>
-            <Text style={styles.link}>Payouts ›</Text>
-          </Pressable>
-        </View>
+      <TopBar title="Earnings" action="Payouts" onAction={() => router.push("/payouts")} />
 
-        <Seg
-          options={PERIODS_LIST}
-          value={period}
-          onChange={setPeriod}
-          style={{ marginTop: ms(14) }}
-        />
+      {/* Pinned with the bar: every figure below is scoped by this control, so
+          losing it off the top means reading numbers with no idea what period
+          they cover. */}
+      <View style={styles.segWrap}>
+        <Seg options={PERIODS_LIST} value={period} onChange={setPeriod} />
+      </View>
 
-        <View style={styles.totalBlock}>
-          <Text style={t.kicker}>{data.label}</Text>
-          <Text style={styles.total}>{data.total}</Text>
-          <Text style={styles.delta}>{data.delta}</Text>
-        </View>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* ── Total ────────────────────────────────────────────────── */}
+        <View style={styles.card}>
+          <Text variant="eyebrow" color="tertiary">
+            {data.label}
+          </Text>
+          <Text variant="codeHero" adjustsFontSizeToFit numberOfLines={1} style={{ marginTop: space[2] }}>
+            {data.total}
+          </Text>
+          <Text variant="caption" color="success" style={{ marginTop: space[2] }}>
+            {data.delta}
+          </Text>
 
-        {/* ── Bars ─────────────────────────────────────────────────── */}
-        <View style={styles.chart}>
-          {data.bars.map(([label, height, highlighted], i) => (
-            <View key={`${label}-${i}`} style={styles.col}>
-              <View
-                style={{
-                  width: "100%",
-                  height: Math.round(height * ms(104)),
-                  borderTopLeftRadius: radius.sm,
-                  borderTopRightRadius: radius.sm,
-                  backgroundColor: highlighted ? colors.ink : colors.neutral300,
-                }}
-              />
-              <Text style={styles.colLabel}>{label}</Text>
-            </View>
-          ))}
+          {/* Bars live inside the total card — they are that figure, split up. */}
+          <View style={styles.chart}>
+            {data.bars.map(([label, height, highlighted], i) => (
+              <View key={`${label}-${i}`} style={styles.col}>
+                <View
+                  style={{
+                    width: "100%",
+                    height: Math.max(3, Math.round(height * 96)),
+                    borderRadius: radius.chip,
+                    backgroundColor: highlighted ? colors.brand : colors.surfaceSunken,
+                  }}
+                />
+                <Text variant="numMeta" color="tertiary">
+                  {label}
+                </Text>
+              </View>
+            ))}
+          </View>
         </View>
 
         {/* ── Breakdown ────────────────────────────────────────────── */}
         <View style={styles.card}>
-          <Text style={t.kicker}>Breakdown</Text>
-          <View style={{ marginTop: ms(11) }}>
+          <Text variant="eyebrow" color="tertiary">
+            Breakdown
+          </Text>
+          <View style={{ marginTop: space[3] }}>
             {data.rows.map((r) => (
               <View key={r.l} style={styles.ledgerRow}>
-                <Text style={[styles.ledgerLabel, r.tone ? { color: r.tone } : null]}>{r.l}</Text>
-                <Text style={[styles.ledgerValue, r.tone ? { color: r.tone } : null]}>{r.v}</Text>
+                <Text variant="body" color="secondary" style={{ flex: 1 }}>
+                  {r.l}
+                </Text>
+                <Text variant="priceMd" style={r.tone ? { color: resolveTone(r.tone).ink } : undefined}>
+                  {r.v}
+                </Text>
               </View>
             ))}
           </View>
           <View style={styles.totalRow}>
-            <Text style={styles.totalRowLabel}>Total</Text>
-            <Text style={styles.totalRowValue}>{data.total}</Text>
+            <Text variant="label" color="tertiary">
+              Total
+            </Text>
+            <Text variant="priceHero">{data.total}</Text>
           </View>
         </View>
 
@@ -83,29 +91,37 @@ export default function EarningsScreen() {
         </View>
 
         {/* ── Balances ─────────────────────────────────────────────── */}
-        <View style={[styles.card, { marginTop: ms(14), gap: ms(12) }]}>
+        <View style={[styles.card, { gap: space[3] }]}>
           <View style={styles.balanceRow}>
-            <Text style={styles.balanceLabel}>Available for payout</Text>
-            <Text style={styles.balanceMajor}>₹3,240</Text>
+            <Text variant="bodyLg" style={{ flex: 1 }}>
+              Available for payout
+            </Text>
+            <Text variant="priceLg" color="brand">
+              ₹3,240
+            </Text>
           </View>
           <View style={styles.balanceRow}>
-            <Text style={[styles.balanceLabel, { color: colors.neutral700 }]}>Pending earnings</Text>
-            <Text style={styles.balanceMinor}>₹928</Text>
+            <Text variant="body" color="secondary" style={{ flex: 1 }}>
+              Pending earnings
+            </Text>
+            <Text variant="priceMd" color="secondary">
+              ₹928
+            </Text>
           </View>
           <View style={styles.balanceRow}>
-            <Text style={[styles.balanceLabel, { color: colors.neutral700 }]}>Lifetime earnings</Text>
-            <Text style={styles.balanceMinor}>₹2,84,610</Text>
+            <Text variant="body" color="secondary" style={{ flex: 1 }}>
+              Lifetime earnings
+            </Text>
+            <Text variant="priceMd" color="secondary">
+              ₹2,84,610
+            </Text>
           </View>
         </View>
 
-        <Btn
-          label="Withdraw ₹3,240"
-          onPress={() => setOverlay("withdraw")}
-          style={{ marginTop: ms(16) }}
-        />
+        <Btn label="Withdraw ₹3,240" glyph="bank" onPress={() => setOverlay("withdraw")} />
       </ScrollView>
 
-      <Toast message={toast} top={insets.top + ms(8)} />
+      <Toast message={toast} top={insets.top + space[2]} />
       <Sheet {...sheet} />
     </View>
   );
@@ -113,104 +129,49 @@ export default function EarningsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: space[4], paddingBottom: ms(26) },
-  head: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
-  title: { ...font.headingBold, fontSize: ms(30), lineHeight: ms(33), color: colors.text },
-  link: { ...font.body, fontSize: ms(13), color: colors.accent700 },
+  segWrap: {
+    paddingHorizontal: layout.gutter,
+    paddingTop: space[3],
+    paddingBottom: space[3],
+    backgroundColor: colors.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  content: { paddingHorizontal: layout.gutter, paddingTop: space[4], paddingBottom: space[6], gap: space[4] },
 
-  totalBlock: {
-    marginTop: ms(18),
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
-    paddingBottom: ms(16),
-  },
-  total: {
-    ...font.headingBold,
-    fontSize: ms(56),
-    lineHeight: ms(58),
-    letterSpacing: -1.2,
-    marginTop: ms(8),
-    color: colors.text,
-    fontVariant: ["tabular-nums"],
-  },
-  delta: {
-    ...font.body,
-    fontSize: ms(12.5),
-    lineHeight: ms(18),
-    color: colors.ok,
-    marginTop: ms(8),
+  card: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    padding: space[4],
+    backgroundColor: colors.surface,
   },
 
   chart: {
-    marginTop: ms(18),
-    height: ms(132),
+    marginTop: space[5],
+    height: 120,
     flexDirection: "row",
     alignItems: "flex-end",
-    gap: ms(7),
+    gap: space[2],
   },
-  col: { flex: 1, alignItems: "center", gap: ms(7) },
-  colLabel: {
-    ...font.body,
-    fontSize: ms(10),
-    color: colors.neutral600,
-    fontVariant: ["tabular-nums"],
-  },
+  col: { flex: 1, alignItems: "center", gap: space[2], justifyContent: "flex-end" },
 
-  card: {
-    marginTop: ms(20),
-    borderWidth: 1,
-    borderColor: colors.divider,
-    borderRadius: radius.lg,
-    padding: ms(16),
-  },
   ledgerRow: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: ms(10),
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
-    gap: ms(10),
+    paddingVertical: space[3],
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderSubtle,
+    gap: space[3],
   },
-  ledgerLabel: { ...font.body, fontSize: ms(13.5), color: colors.text, flex: 1 },
-  ledgerValue: {
-    ...font.body,
-    fontSize: ms(13.5),
-    color: colors.text,
-    fontVariant: ["tabular-nums"],
-  },
-  totalRow: { flexDirection: "row", justifyContent: "space-between", paddingTop: ms(13) },
-  totalRowLabel: {
-    ...font.bodySemi,
-    fontSize: ms(10),
-    letterSpacing: ms(10) * 0.14,
-    textTransform: "uppercase",
-    color: colors.text,
-    paddingTop: ms(6),
-  },
-  totalRowValue: {
-    ...font.headingBold,
-    fontSize: ms(24),
-    lineHeight: ms(26),
-    color: colors.text,
-    fontVariant: ["tabular-nums"],
+  totalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingTop: space[4],
   },
 
-  statGrid: { flexDirection: "row", gap: ms(9), marginTop: ms(14) },
-
-  balanceRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", gap: ms(10) },
-  balanceLabel: { ...font.body, fontSize: ms(14), color: colors.text, flex: 1 },
-  balanceMajor: {
-    ...font.heading,
-    fontSize: ms(22),
-    lineHeight: ms(24),
-    color: colors.text,
-    fontVariant: ["tabular-nums"],
-  },
-  balanceMinor: {
-    ...font.heading,
-    fontSize: ms(16),
-    lineHeight: ms(18),
-    color: colors.neutral700,
-    fontVariant: ["tabular-nums"],
-  },
+  statGrid: { flexDirection: "row", gap: space[2] },
+  balanceRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: space[3] },
 });

@@ -6,11 +6,18 @@ const path = require('path');
 const googleServicesPath = path.join(__dirname, 'google-services.json');
 const googleServicesFile = fs.existsSync(googleServicesPath) ? './google-services.json' : undefined;
 
-/** Brand colours — keep in sync with `theme/index.ts`. */
+/**
+ * Brand colours — keep in sync with `theme/index.ts`.
+ *
+ * These are the customer app's Food palette: the grey ground behind the splash
+ * and the adaptive icon, and the brand green that tints notifications. The
+ * notification tint moved from near-black to green deliberately — a black tint
+ * on a black-and-white status bar icon is invisible.
+ */
 const BRAND = {
-  ink: '#201f1d',
-  accent: '#b68235',
-  background: '#f3f2f2',
+  ink: '#101214',
+  accent: '#22A355',
+  background: '#F1F2F4',
 };
 
 export default {
@@ -60,7 +67,7 @@ export default {
     },
     notification: {
       icon: './assets/images/notification-icon.png',
-      color: BRAND.ink,
+      color: BRAND.accent,
     },
     web: {
       favicon: './assets/images/icon.png',
@@ -84,7 +91,7 @@ export default {
         'expo-notifications',
         {
           icon: './assets/images/notification-icon.png',
-          color: BRAND.ink,
+          color: BRAND.accent,
         },
       ],
     ],

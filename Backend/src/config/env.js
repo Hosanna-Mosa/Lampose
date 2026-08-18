@@ -87,49 +87,6 @@ const jwtSecret = rawJwtSecret || (isProduction ? '' : DEV_JWT_SECRET);
 const adminSecretKey = String(process.env.ADMIN_SECRET_KEY || process.env.ADMIN_PASSWORD || '').trim()
   || (isProduction ? '' : 'admin_secret_123');
 
-/* ── CORS ─────────────────────────────────────────────────────────────────
-   The union of both backends' lists. Anything a deployment adds later goes in
-   ALLOWED_ORIGINS; CORS_ORIGIN and CORS_ALLOWED_ORIGINS are accepted as
-   aliases because the two original deployments each used a different name. */
-const DEFAULT_ORIGINS = [
-  // The three production frontends, then the API's own host.
-  'https://lampose.com',
-  'https://www.lampose.com',
-  'https://leads.lampose.com',
-  'https://onboard.lampose.com',
-  'https://api.lampose.com',
-  'https://api.leads.lampose.com',
-  'http://localhost:3000',
-  'http://localhost:4173',
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:5175',
-  'http://localhost:8004',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:4173',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:5174',
-  'http://127.0.0.1:5175',
-  /* Expo. 8081 is Metro's own port and the origin `expo start --web` serves
-     the User App and the driver app from; 19006 is the older web port.
-     A native build sends no Origin at all and never reaches this list. */
-  'http://localhost:8081',
-  'http://localhost:19006',
-  'http://127.0.0.1:8081',
-  'http://127.0.0.1:19006',
-];
-
-const envOrigins = [
-  ...list(process.env.ALLOWED_ORIGINS),
-  ...list(process.env.CORS_ORIGIN),
-  ...list(process.env.CORS_ALLOWED_ORIGINS),
-];
-const allowAllOrigins = bool(process.env.CORS_ALLOW_ALL, false) || envOrigins.includes('*');
-const allowedOrigins = Array.from(new Set([
-  ...DEFAULT_ORIGINS,
-  ...envOrigins.filter((o) => o !== '*'),
-]));
-
 const config = {
   nodeEnv: NODE_ENV,
   isProduction,
@@ -188,17 +145,6 @@ const config = {
     seedDefaultUsers: bool(process.env.SEED_DEFAULT_USERS, !isProduction),
   },
 
-  cors: {
-    allowAll: allowAllOrigins,
-    allowedOrigins,
-    /* Preview deployments get a new hostname on every push, so they are
-       matched by shape rather than listed one by one. */
-    patterns: [
-      /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i,
-      /^https:\/\/([a-z0-9-]+\.)*lampose\.com$/i,
-      /^https:\/\/([a-z0-9-]+\.)*(vercel\.app|netlify\.app|onrender\.com|railway\.app|fly\.dev)$/i,
-    ],
-  },
 
   scraper: {
     defaultDepth: Number(process.env.SCRAPER_DEFAULT_DEPTH) || 15,
@@ -258,9 +204,6 @@ if (isProduction && config.auth.seedDefaultUsers) {
   configWarnings.push('SEED_DEFAULT_USERS is on in production — the well-known demo accounts will be created.');
 }
 
-if (isProduction && config.cors.allowAll) {
-  configWarnings.push('CORS is set to allow every origin in production (CORS_ALLOW_ALL / CORS_ORIGIN=*).');
-}
 
 module.exports = config;
 module.exports.config = config;

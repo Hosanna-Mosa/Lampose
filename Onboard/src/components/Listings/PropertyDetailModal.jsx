@@ -3,8 +3,12 @@ import {
   X, MapPin, User, Phone, ShieldCheck, Trash2, CheckCircle2, Clock, Calendar,
   ChevronLeft, ChevronRight, Pencil, Lock, KeyRound, Loader2, Hourglass, ShieldX, Save
 } from 'lucide-react';
-import { fetchPropertyAccess, requestPermission, activeEmployeeEmail } from '../../services/permissions.js';
-import { updateProperty } from '../../services/api.js';
+import {
+  activeEmployeeEmail,
+  fetchPropertyAccess,
+  requestPermission,
+  updateProperty,
+} from '../../services/api.js';
 
 /** How a permission state reads to the employee holding the locked button. */
 const PERMISSION_NOTES = {

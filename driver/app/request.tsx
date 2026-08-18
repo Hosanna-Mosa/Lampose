@@ -1,25 +1,27 @@
 import { router } from "expo-router";
 import React, { useEffect, useRef } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { StatCard } from "@/app/(tabs)/index";
-import { Btn } from "@/components/ui";
+import { Bar, Btn, Chip, Icon, Notice, Text, TopBar } from "@/components/ui";
 import { useFlowStore, REQUEST_SECONDS } from "@/store/flowStore";
-import { colors, font, ms, radius, space, typography as t } from "@/theme";
+import { colors, layout, radius, space, tone as resolveTone } from "@/theme";
 
 /**
- * Thirty seconds, four numbers, one dominant action. The countdown and the
- * progress bar both flip to the error tone under 11 seconds.
+ * Thirty seconds, two numbers, one dominant action.
+ *
+ * The countdown and its bar both flip to the danger tone under 11 seconds —
+ * and the eyebrow changes wording at the same moment, so the urgency is not
+ * carried by the colour alone.
  */
 export default function RequestScreen() {
-  const insets = useSafeAreaInsets();
   const { phase, countdown, tickCountdown, acceptOrder, declineOrder, startRequest, say } =
     useFlowStore();
 
   const live = phase === "request";
   const expired = phase === "expired";
   const urgent = countdown < 11;
-  const tone = expired || urgent ? colors.err : colors.ok;
+  const toneName = expired || urgent ? "danger" : "success";
+  const t = resolveTone(toneName);
 
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -42,215 +44,188 @@ export default function RequestScreen() {
   };
 
   return (
-    <ScrollView
-      style={styles.root}
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + ms(6) }]}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* ── Countdown header ─────────────────────────────────────────── */}
-      <View style={styles.headRow}>
-        <Text style={[styles.reqKicker, { color: tone }]}>
-          {expired ? "Expired" : urgent ? "Request expiring" : "New delivery request"}
-        </Text>
-        <Text style={styles.reqId}>#LP48291</Text>
-      </View>
+    <View style={styles.root}>
+      {/*
+        The countdown IS the header here. Pinning it is not consistency for
+        its own sake: this screen is a thirty-second decision, and a rider who
+        has scrolled down to read the drop address must still be able to see
+        how long is left without scrolling back up.
+      */}
+      <TopBar
+        title={expired ? "Expired" : urgent ? "Request expiring" : "New delivery request"}
+        subtitle="#LP48291"
+        right={<Chip label={`${countdown}s`} tone={toneName} glyph={expired ? "close" : "clock"} />}
+      />
+      <Bar
+        pct={Math.round((countdown / REQUEST_SECONDS) * 100)}
+        tone={t.base}
+        height={4}
+        track={colors.surface}
+        style={styles.countdownBar}
+      />
 
-      <View style={styles.track}>
-        <View
-          style={{
-            height: "100%",
-            width: `${Math.round((countdown / REQUEST_SECONDS) * 100)}%`,
-            backgroundColor: tone,
-          }}
-        />
-      </View>
-
-      {/* ── The two numbers that matter ──────────────────────────────── */}
-      <View style={styles.figures}>
-        <View>
-          <Text style={t.kicker}>You earn</Text>
-          <Text style={styles.figure}>₹86</Text>
-        </View>
-        <View style={{ alignItems: "flex-end" }}>
-          <Text style={t.kicker}>Time left</Text>
-          <Text style={[styles.figure, { color: tone }]}>{countdown}s</Text>
-        </View>
-      </View>
-
-      {/* ── Route ────────────────────────────────────────────────────── */}
-      <View style={styles.routeCard}>
-        <View style={{ flexDirection: "row", gap: ms(12) }}>
-          <View style={styles.rail}>
-            <View style={styles.railRing} />
-            <View style={styles.railLine} />
-            <View style={styles.railDot} />
-          </View>
-          <View style={{ flex: 1, gap: ms(20) }}>
-            <View>
-              <Text style={t.kicker}>Pick up · 1.2 km away</Text>
-              <Text style={styles.stopName}>Paradise Biryani</Text>
-              <Text style={styles.stopAddr}>Danavaipeta Main Road, near Kotak Bank</Text>
-            </View>
-            <View>
-              <Text style={t.kicker}>Drop · 3.6 km further</Text>
-              <Text style={styles.stopName}>Morampudi Junction</Text>
-              <Text style={styles.stopAddr}>Rajahmundry · exact address after pickup</Text>
-            </View>
-          </View>
-        </View>
-      </View>
-
-      {/* ── Trip facts ───────────────────────────────────────────────── */}
-      <View style={styles.statGrid}>
-        <StatCard label="Distance" value="4.8 km" />
-        <StatCard label="Trip time" value="18 min" />
-        <StatCard label="Items" value="3" />
-      </View>
-
-      {/* ── Restaurant note ──────────────────────────────────────────── */}
-      <View style={styles.note}>
-        <Text style={t.kicker}>Note from restaurant</Text>
-        <Text style={styles.noteBody}>
-          Order is prepaid · ₹640 · carry the insulated bag, one item is gravy.
-        </Text>
-      </View>
-
-      {/* ── Decision ─────────────────────────────────────────────────── */}
-      {live && (
-        <>
-          <Btn label="Accept · ₹86" onPress={onAccept} style={styles.acceptBtn} />
-          <Btn label="Decline" variant="ghost" onPress={onDecline} style={{ marginTop: ms(9) }} />
-        </>
-      )}
-
-      {expired && (
-        <>
-          <View style={styles.expiredCard}>
-            <Text style={styles.expiredTitle}>Request expired</Text>
-            <Text style={styles.expiredBody}>
-              It went to another partner. Missing requests lowers your acceptance rate.
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* ── The two numbers that matter ──────────────────────────────── */}
+        <View style={styles.figures}>
+          <View style={styles.figureCell}>
+            <Text variant="eyebrow" color="tertiary">
+              You earn
+            </Text>
+            <Text variant="codeHero" adjustsFontSizeToFit numberOfLines={1} style={{ marginTop: space[1] }}>
+              ₹86
             </Text>
           </View>
-          <Btn
-            label="Back to searching"
-            onPress={() => {
-              startRequest();
-              router.replace("/");
-            }}
-            style={{ marginTop: ms(16) }}
-          />
-        </>
-      )}
-    </ScrollView>
+          <View style={[styles.figureCell, { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.border }]}>
+            <Text variant="eyebrow" color="tertiary">
+              Time left
+            </Text>
+            <Text
+              variant="codeHero"
+              adjustsFontSizeToFit
+              numberOfLines={1}
+              style={{ marginTop: space[1], color: t.ink }}
+            >
+              {countdown}s
+            </Text>
+          </View>
+        </View>
+
+        {/* ── Route ────────────────────────────────────────────────────── */}
+        <View style={styles.routeCard}>
+          <View style={{ flexDirection: "row", gap: space[3] }}>
+            <View style={styles.rail}>
+              <View style={styles.railRing} />
+              <View style={styles.railLine} />
+              <View style={styles.railDot} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0, gap: space[5] }}>
+              <View style={{ gap: 2 }}>
+                <Text variant="eyebrow" color="tertiary">
+                  Pick up · 1.2 km away
+                </Text>
+                <Text variant="display2" numberOfLines={2}>
+                  Paradise Biryani
+                </Text>
+                <Text variant="caption" color="tertiary">
+                  Danavaipeta Main Road, near Kotak Bank
+                </Text>
+              </View>
+              <View style={{ gap: 2 }}>
+                <Text variant="eyebrow" color="tertiary">
+                  Drop · 3.6 km further
+                </Text>
+                <Text variant="display2" numberOfLines={2}>
+                  Morampudi Junction
+                </Text>
+                <Text variant="caption" color="tertiary">
+                  Rajahmundry · exact address after pickup
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* ── Trip facts ───────────────────────────────────────────────── */}
+        <View style={styles.statGrid}>
+          <StatCard label="Distance" value="4.8 km" />
+          <StatCard label="Trip time" value="18 min" />
+          <StatCard label="Items" value="3" />
+        </View>
+
+        {/* ── Restaurant note ──────────────────────────────────────────── */}
+        <Notice
+          tone="warning"
+          glyph="info"
+          title="Note from restaurant"
+          body="Order is prepaid · ₹640 · carry the insulated bag, one item is gravy."
+        />
+
+        {/* ── Decision ─────────────────────────────────────────────────── */}
+        {live && (
+          <View style={{ gap: space[2] }}>
+            <Btn label="Accept · ₹86" large glyph="check" onPress={onAccept} />
+            <Btn label="Decline" variant="ghost" onPress={onDecline} />
+          </View>
+        )}
+
+        {expired && (
+          <View style={{ gap: space[3] }}>
+            <View style={styles.expiredCard}>
+              <View style={styles.expiredMark}>
+                <Icon name="close" size={22} color={colors.danger.on} strokeWidth={2} />
+              </View>
+              <Text variant="display2">Request expired</Text>
+              <Text variant="caption" color="secondary" style={{ textAlign: "center" }}>
+                It went to another partner. Missing requests lowers your acceptance rate.
+              </Text>
+            </View>
+            <Btn
+              label="Back to searching"
+              glyph="refresh"
+              onPress={() => {
+                startRequest();
+                router.replace("/");
+              }}
+            />
+          </View>
+        )}
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: space[4], paddingBottom: ms(26) },
+  content: { paddingHorizontal: layout.gutter, paddingTop: space[4], paddingBottom: space[6], gap: space[4] },
 
-  headRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: ms(10) },
-  reqKicker: {
-    ...font.bodySemi,
-    fontSize: ms(10),
-    letterSpacing: ms(10) * 0.14,
-    textTransform: "uppercase",
-  },
-  reqId: {
-    ...font.body,
-    fontSize: ms(11.5),
-    color: colors.neutral600,
-    fontVariant: ["tabular-nums"],
-  },
-  track: {
-    marginTop: ms(10),
-    height: ms(4),
-    borderRadius: radius.sm,
-    backgroundColor: colors.neutral300,
-    overflow: "hidden",
-  },
+  countdownBar: { borderRadius: 0 },
 
   figures: {
     flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    marginTop: ms(16),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    backgroundColor: colors.surface,
+    overflow: "hidden",
   },
-  figure: {
-    ...font.headingBold,
-    fontSize: ms(54),
-    lineHeight: ms(56),
-    letterSpacing: -1,
-    marginTop: ms(6),
-    color: colors.text,
-    fontVariant: ["tabular-nums"],
-  },
+  figureCell: { flex: 1, paddingVertical: space[4], paddingHorizontal: space[4], gap: space[1] },
 
   routeCard: {
-    marginTop: ms(18),
-    borderWidth: 1,
-    borderColor: colors.divider,
-    borderRadius: radius.lg,
-    padding: ms(16),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    backgroundColor: colors.surface,
+    padding: space[4],
   },
-  rail: { width: ms(11), paddingTop: ms(5), alignItems: "center" },
+  rail: { width: 12, paddingTop: 14, alignItems: "center" },
   railRing: {
-    width: ms(9),
-    height: ms(9),
+    width: 10,
+    height: 10,
     borderRadius: radius.pill,
-    borderWidth: 1.5,
-    borderColor: colors.ink,
+    borderWidth: 2.5,
+    borderColor: colors.brand,
   },
-  railLine: { flex: 1, width: 1, minHeight: ms(34), backgroundColor: colors.divider },
-  railDot: { width: ms(9), height: ms(9), borderRadius: radius.pill, backgroundColor: colors.ink },
-  stopName: {
-    ...font.heading,
-    fontSize: ms(19),
-    lineHeight: ms(22),
-    color: colors.text,
-    marginTop: ms(4),
-  },
-  stopAddr: {
-    ...font.body,
-    fontSize: ms(12.5),
-    lineHeight: ms(18),
-    color: colors.neutral700,
-  },
+  railLine: { flex: 1, width: 1.5, minHeight: 36, backgroundColor: colors.border, marginVertical: 3 },
+  railDot: { width: 10, height: 10, borderRadius: radius.pill, backgroundColor: colors.graphite },
 
-  statGrid: { flexDirection: "row", gap: ms(9), marginTop: ms(12) },
-
-  note: {
-    marginTop: ms(12),
-    borderLeftWidth: 2,
-    borderLeftColor: colors.accent,
-    paddingLeft: ms(12),
-    paddingVertical: 2,
-  },
-  noteBody: {
-    ...font.body,
-    fontSize: ms(13.5),
-    lineHeight: ms(20),
-    color: colors.text,
-    marginTop: ms(4),
-  },
-
-  acceptBtn: { marginTop: ms(16), paddingVertical: ms(24) },
+  statGrid: { flexDirection: "row", gap: space[2] },
 
   expiredCard: {
-    marginTop: ms(16),
-    borderWidth: 1,
-    borderColor: colors.err,
-    borderRadius: radius.lg,
-    padding: ms(16),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.danger.border,
+    backgroundColor: colors.danger.tint,
+    borderRadius: radius.card,
+    padding: space[5],
     alignItems: "center",
+    gap: space[2],
   },
-  expiredTitle: { ...font.heading, fontSize: ms(21), lineHeight: ms(25), color: colors.text },
-  expiredBody: {
-    ...font.body,
-    fontSize: ms(13),
-    lineHeight: ms(19),
-    color: colors.neutral700,
-    marginTop: ms(5),
-    textAlign: "center",
+  expiredMark: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.pill,
+    backgroundColor: colors.danger.base,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: space[1],
   },
 });
