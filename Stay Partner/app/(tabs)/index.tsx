@@ -13,7 +13,8 @@ import {
   isAvailable,
   setAvailable,
 } from '@/lib/shareTypes';
-import { pendingCount, soonestPendingHours, subscribeRequests } from '@/lib/requests';
+import { formatCountdown, secondsLeft, useStayRequests } from '@/services/hooks/useStayRequests';
+import { UnansweredRequestAlert } from '@/components/UnansweredRequestAlert';
 import { radius, shadow } from '@/constants/layout';
 import { type } from '@/constants/typography';
 import colors from '@/constants/colors';
@@ -54,14 +55,22 @@ export default function TodayTab() {
 
   const [, setRevision] = useState(0);
 
+  /*
+   * The pending requests, live.
+   *
+   * `subscribeRequests` used to push a re-render whenever the FIXTURE array
+   * changed, which is a subscription to something nobody else could see. The
+   * hook polls the real endpoint while anything is pending and stops when
+   * nothing is.
+   */
+  const { groups: requestGroups, clockOffset } = useStayRequests();
+
   useEffect(() => {
-    const unsubRequests = subscribeRequests(() => setRevision((r) => r + 1));
     const unsubComplaints = subscribeComplaints(() => setRevision((r) => r + 1));
     const unsubShareTypes = subscribeShareTypes(() => {
       setRevision((r) => r + 1);
     });
     return () => {
-      unsubRequests();
       unsubComplaints();
       unsubShareTypes();
     };
@@ -192,6 +201,21 @@ export default function TodayTab() {
         <ErrorBody onRetry={loadData} />
       ) : (
         <>
+          {/*
+            Above the greeting, deliberately.
+
+            Everything below this line is information about a business. This is
+            a person waiting on an answer with a deadline measured in minutes,
+            and it renders only while the owner has not opened the request —
+            the server's `seenAt` clears it, so it cannot be dismissed without
+            looking at what it is about. Nothing renders when there is nothing
+            unanswered.
+          */}
+          <UnansweredRequestAlert
+            requests={requestGroups.pending}
+            clockOffsetMs={clockOffset.current}
+          />
+
           <HeroCard greetingText={greeting(new Date().getHours())} owner={ownerName} available={available} />
 
           <View style={styles.halfRow}>
@@ -210,7 +234,12 @@ export default function TodayTab() {
           </View>
 
           <RequestsBanner
-            count={summaryData?.requests?.awaitingYou ?? 0}
+            /* The live list, falling back to the summary's count while it
+               loads — the summary is fetched first and the two agree. */
+            count={requestGroups.pending.length || (summaryData?.requests?.awaitingYou ?? 0)}
+            secondsToSoonest={requestGroups.pending.length
+              ? Math.min(...requestGroups.pending.map((r) => secondsLeft(r, clockOffset.current)))
+              : null}
             onPress={() => router.push('/requests')}
           />
 
@@ -393,24 +422,30 @@ function EarningsMiniCard({ today, week, onPress }: { today: string; week: strin
   );
 }
 
-/** Count and soonest-expiry are both live from `lib/requests.ts` — accepting or rejecting one updates this immediately. */
 /**
- * The count comes from the summary, not from `lib/requests`.
+ * How many students are waiting, and how long the nearest one has.
  *
- * `pendingCount()` read a fixture array, which is why this banner said
- * "3 pending requests · soonest expires in 1h" on an account whose real
- * figure was one. The server counts `pending_owner` visit requests against
- * this owner's properties, and that is the number a tap actually opens.
+ * Both figures are real now. The count used to come from a fixture array —
+ * which is why this banner said "3 pending requests" on an account whose true
+ * figure was one — and the urgency line was removed entirely because the
+ * backend did not project a deadline.
  *
- * The expiry line is gone with it. The fixture carried a per-request
- * `expiresAt` that the backend has no equivalent for — a visit request's
- * 24-hour window is enforced server-side and not currently projected — so
- * the urgent red countdown was pure invention. It comes back when the API
- * carries the deadline.
+ * It does now: an app-channel request carries `expiresAt`, and the countdown
+ * below is derived from it and corrected for this device's clock. That makes
+ * the red line the most useful thing on the dashboard, because it is the only
+ * one measured in minutes.
  */
-function RequestsBanner({ count, onPress }: { count: number; onPress: () => void }) {
+function RequestsBanner({
+  count,
+  secondsToSoonest,
+  onPress,
+}: {
+  count: number;
+  /** Null when nothing is pending — the line is hidden rather than zeroed. */
+  secondsToSoonest: number | null;
+  onPress: () => void;
+}) {
   const c = useColors();
-  const soonest: number | null = null;
 
   return (
     <Card variant="elevated" onPress={onPress} style={styles.banner}>
@@ -421,11 +456,14 @@ function RequestsBanner({ count, onPress }: { count: number; onPress: () => void
         <Text variant="cardTitle" style={styles.bannerTitle}>
           {count} pending {count === 1 ? 'request' : 'requests'}
         </Text>
-        {soonest !== null ? (
+        {secondsToSoonest !== null ? (
           <View style={styles.urgencyRow}>
             <View style={[styles.dot, { backgroundColor: c.error }]} />
             <Text variant="badge" style={{ color: c.error }}>
-              Soonest expires in {soonest}h
+              {/* Minutes and seconds, because that is the unit this deadline
+                  is actually measured in. An hours figure here would read as
+                  "no rush" for something with 90 seconds left. */}
+              Soonest answer due in {formatCountdown(secondsToSoonest)}
             </Text>
           </View>
         ) : (

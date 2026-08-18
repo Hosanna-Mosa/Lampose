@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "LAMPOSE Stay Partner",
-    "slug": "calculator",
+    "name": "Lampose Stay Partner",
+    "slug": "lampose-stay-partner",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "calculator",
+    "icon": "./assets/images/icon.jpeg",
+    "scheme": "lamposepartner",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -14,11 +14,18 @@
       "backgroundColor": "#14492F"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.lampose.staypartner"
     },
-    "android": {},
+    "android": {
+      "permissions": [
+        "POST_NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED"
+      ],
+      "package": "com.lampose.staypartner.com"
+    },
     "web": {
-      "favicon": "./assets/images/icon.png"
+      "favicon": "./assets/images/icon.jpeg"
     },
     "plugins": [
       [
@@ -28,11 +35,25 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.jpeg",
+          "color": "#14492F",
+          "defaultChannel": "stay-requests"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "fad3ed39-5253-4f81-9a9f-d5502b2a03de"
+      }
+    },
+    "owner": "hosanna4190"
   }
 }

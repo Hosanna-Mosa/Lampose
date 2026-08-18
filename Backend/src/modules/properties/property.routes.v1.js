@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const { sendVerificationMessage } = require('../../infrastructure/twilio/twilio');
 const { getIsInMemory, getMemoryStore } = require('../../infrastructure/database/db');
 const permissionStore = require('../permissions/permission.store');
+const { syncShareTypes } = require('../inventory/inventory.service');
 
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
@@ -638,6 +639,9 @@ router.put('/:id', async (req, res) => {
       return res.json({ success: true, message: 'Property updated successfully', data: pendingUpdate });
     }
     console.log(`   ✅ [MongoDB Updated] Property ID: ${id}`);
+    /* Bed counts may have changed with the edit. Availability moves by the
+       delta rather than being reset — see inventory.service.js. */
+    await syncShareTypes(property);
     if (gate.grant) await permissionStore.markUsed(gate.grant._id);
     res.json({ success: true, message: 'Property updated successfully', data: property });
   } catch (err) {

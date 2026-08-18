@@ -119,6 +119,35 @@ const partnerSchema = new mongoose.Schema(
        row to carry a flag. */
     requestsReadAt: { type: Date, default: null },
 
+    /*
+     * Where to reach this account's handsets.
+     *
+     * An array because one person signs in on a phone and a tablet, and both
+     * must buzz — a single field would silently mean "the most recent device
+     * wins", which is exactly the bug where somebody stops getting alerts
+     * after logging in somewhere else once.
+     *
+     * A token identifies a device INSTALLATION, not a person: it is reissued
+     * on reinstall and revoked when the app is removed. So it is written by a
+     * session-guarded route, and dropped the moment Expo reports
+     * DeviceNotRegistered rather than retried forever against a wiped phone.
+     */
+    devices: {
+      type: [
+        {
+          _id: false,
+          /* `ExponentPushToken[...]`, validated before it is stored. */
+          token: { type: String, required: true },
+          platform: { type: String, enum: ['ios', 'android', 'web', 'unknown'], default: 'unknown' },
+          /* Moved on every sign-in, so a stale device can be pruned by age
+             without having to ask Expo about it. */
+          lastSeenAt: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
+
+
     /* Not an enum with a `deleted` member: an owner's records have retention
        consequences that are handled where bookings live. This flag exists so
        support can stop an abusive number ordering SMS at our expense. */

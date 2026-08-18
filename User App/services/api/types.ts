@@ -27,6 +27,41 @@ export type BackendSharingOption = {
   label: string;
   /** Monthly, per person. `null` where the panel recorded no per-option price. */
   price: number | null;
+
+  /**
+   * `${propertyId}:${slug}` — the bed pool a request claims from.
+   *
+   * Stable across a property being re-saved, unlike the row's own id, which
+   * is why a request carries this rather than a database id.
+   */
+  shareTypeId?: string | null;
+
+  /** Beds in this room type, as recorded at onboarding. */
+  totalBeds?: number | null;
+
+  /**
+   * Beds free right now.
+   *
+   * `null` is NOT zero. Null means nobody has ever recorded a count for this
+   * option — true of every property onboarded before bed counts existed — and
+   * the honest rendering is "we do not know", not "full". Ten of the twelve
+   * live listings are in that state today.
+   */
+  availableBeds?: number | null;
+
+  /** Whether a request for this option would be accepted at all. */
+  requestable?: boolean;
+
+  /**
+   * Why not, when it is not.
+   *
+   * Three different situations, and a listing page needs three different
+   * sentences: nobody recorded a count, the owner switched this room type
+   * off, and every bed is taken. Reporting only `requestable: false` had the
+   * app say "live availability not confirmed" about a room with six free beds
+   * the owner had simply paused.
+   */
+  reason?: 'NO_INVENTORY_RECORDED' | 'OWNER_PAUSED' | 'NO_BEDS_FREE' | null;
 };
 
 export type BackendStayRates = {
@@ -76,6 +111,8 @@ export type BackendListing = {
   isVerified: boolean;
   verificationStatus: 'pending' | 'verified' | 'rejected' | null;
   sharingOptions: BackendSharingOption[];
+  /** True when ANY option on this listing can be requested right now. */
+  requestable?: boolean;
   stayRates: BackendStayRates;
   durationOptions: { shortDays: number[]; longMonths: number[] };
   /** The joining dates the server will accept, inclusive. `YYYY-MM-DD`. */
@@ -274,6 +311,100 @@ export type VisitRequestStatus =
  * document server-side and never travel to a client — that is what stops this
  * endpoint being a way to look up a stranger's number.
  */
+/** The five endings, plus the one live state. */
+export type StayRequestStatus =
+  | 'pending_owner'
+  | 'confirmed'
+  | 'declined'
+  | 'expired'
+  | 'cancelled';
+
+/**
+ * Why a request ended, where the status alone does not say.
+ *
+ * `INVENTORY_TAKEN` is the one that earns its keep: a decline nobody made,
+ * because the last bed went while this student was waiting. Showing it as a
+ * plain rejection would be untrue, and it is the difference between "look
+ * elsewhere" and "try again in a minute".
+ */
+export type StayDecisionReason =
+  | 'OWNER_DECLINED'
+  | 'INVENTORY_TAKEN'
+  | 'NO_ANSWER'
+  | 'STUDENT_WITHDREW';
+
+export type BackendStayRequest = {
+  id: string;
+  listingId: string;
+  propertyName: string;
+  status: StayRequestStatus;
+  channel: 'web' | 'app';
+
+  createdAt: string;
+  /** When the owner's window closes. Set by the server, never by this app. */
+  expiresAt: string | null;
+  decidedAt: string | null;
+  cancelledAt: string | null;
+  decisionReason: StayDecisionReason | null;
+
+  sharing: { label: string | null; price: number | null } | null;
+  shareTypeId: string | null;
+
+  /**
+   * The stages the waiting screen draws, each a real recorded event.
+   *
+   * `notifiedAt` is when the owner was reached — not when a handset lit up,
+   * which nobody can know. `seenAt` is when they opened this request in their
+   * app, which is the single most reassuring thing a waiting student can be
+   * told. Null means it has not happened yet, never "unknown".
+   */
+  notifiedAt: string | null;
+  seenAt: string | null;
+
+  /** Where the student goes next once an owner has said yes. */
+  bookingId: string | null;
+
+  /**
+   * The PIN the student and the owner compare at the door.
+   *
+   * Issued only when a request is confirmed, and held by both sides — it is
+   * not a secret and proves nothing to the server. Null means nobody has said
+   * yes yet.
+   */
+  entryPin: string | null;
+  entryPinIssuedAt: string | null;
+
+  /**
+   * Moving in, which takes two confirmations in a fixed order.
+   *
+   * The owner marks it first — they are the one who checks the PIN and opens
+   * a door — and the student confirms after. `awaitingStudent` is the
+   * difference between "show them your PIN" and "you can confirm now", which
+   * are two quite different sentences on the same screen.
+   *
+   * Absent until a booking exists.
+   */
+  moveIn?: {
+    ownerConfirmedAt: string | null;
+    studentConfirmedAt: string | null;
+    awaitingStudent: boolean;
+    complete: boolean;
+  };
+
+  /**
+   * The server's clock, sent with every read.
+   *
+   * A phone's own clock is not trustworthy — thirty seconds out is visible on
+   * a three-minute countdown, and a device set to next week would show an
+   * expired request that is still live. The app computes an offset from this
+   * once and then measures ELAPSED time locally, which phones are reliable
+   * at, rather than asking them what time it is.
+   */
+  serverNow: string;
+  /** Floored at zero. A negative countdown is not something to render. */
+  secondsRemaining: number | null;
+};
+
 export type BackendVisitRequest = {
   id: string;
   listingId: string;

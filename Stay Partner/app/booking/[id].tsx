@@ -53,9 +53,28 @@ export default function BookingDetailScreen() {
             guests: '1 guest',
             nights: Math.max(1, Math.round((checkOut.getTime() - checkIn.getTime()) / (1000 * 3600 * 24))),
             status: statusMap[b.status] || 'inHouse',
-            payment: 'paid',
-            gross: b.totalAmount || 8000,
-            checkInCode: '1234',
+            /*
+             * Derived, not asserted.
+             *
+             * This said `payment: 'paid'` and `gross: b.totalAmount || 8000`,
+             * so a booking with no money against it rendered as "Paid" with a
+             * ₹7,520 payout — an invented ₹8,000 minus the platform fee. On a
+             * payout screen that is the worst possible default: an owner
+             * reading a figure they are owed that nobody agreed to.
+             *
+             * Nothing is charged anywhere in this flow yet, so a
+             * request-sourced booking is honestly ₹0 and unpaid.
+             */
+            payment: (b.totalAmount || 0) > 0 && (b.paidAmount || 0) >= (b.totalAmount || 0)
+              ? 'paid'
+              : 'pending',
+            gross: b.totalAmount || 0,
+            /* The server's PIN. This was hardcoded `'1234'` — every booking
+               showed the same code, and none of them matched what the student
+               was holding. */
+            checkInCode: b.entryPin || undefined,
+            movedInByOwnerAt: b.movedInByOwnerAt ? new Date(b.movedInByOwnerAt) : undefined,
+            movedInByStudentAt: b.movedInByStudentAt ? new Date(b.movedInByStudentAt) : undefined,
             checkOutBy: '11:00 AM',
           });
         }
@@ -134,6 +153,48 @@ export default function BookingDetailScreen() {
         <DetailRow label="Guests" value={booking.guests} last />
       </Card>
 
+      {/*
+        The entry PIN, above the money.
+
+        This is the screen an owner opens standing in a doorway, so the one
+        thing they need to READ ALOUD comes before the one thing they need to
+        know later. Same rendering as the request screen and the student's:
+        the digits large, the full `LV-` form beneath, so three screens across
+        two apps show one code the same way.
+      */}
+      {booking.checkInCode ? (
+        <Card>
+          <Text variant="label" style={{ color: c.textCaption }}>ENTRY PIN</Text>
+          <Text tabular style={[styles.pin, { color: c.textPrimary }]}>
+            {booking.checkInCode.replace(/\D/g, '')}
+          </Text>
+          <Text tabular variant="label" style={{ color: c.textCaption }}>
+            {booking.checkInCode}
+          </Text>
+          <Text variant="body" style={{ color: c.textSecondary, marginTop: 6 }}>
+            {booking.guest} shows the same digits. Check they match before you mark them in.
+          </Text>
+        </Card>
+      ) : null}
+
+      {/*
+        Where moving in has got to.
+
+        Shown only between the owner's confirmation and the student's, which is
+        the one state that would otherwise look like nothing happened: the
+        owner taps "mark as moved in", the status stays `upcoming`, and without
+        this they would reasonably think it failed.
+      */}
+      {booking.movedInByOwnerAt && !booking.movedInByStudentAt ? (
+        <Card>
+          <Text variant="cardTitle">Waiting for {booking.guest} to confirm</Text>
+          <Text variant="body" style={{ color: c.textSecondary, marginTop: 4 }}>
+            You marked them in. The stay starts once they confirm from their own app — ask them to
+            open Bookings and tap "I have moved in".
+          </Text>
+        </Card>
+      ) : null}
+
       <Card>
         <DetailRow label="Total payout" value={formatINR(payoutOf(booking))} strong last />
       </Card>
@@ -196,6 +257,8 @@ function PrimaryAction({ booking }: { booking: Booking }) {
 }
 
 const styles = StyleSheet.create({
+  /* Large and tabular: read out loud, at a door, from arm's length. */
+  pin: { fontFamily: fonts.bold, fontSize: 30, lineHeight: 38, letterSpacing: 1.5, marginVertical: 4 },
   stack: { gap: 14 },
   backRow: { height: 44, justifyContent: 'center', marginLeft: -10, marginBottom: -6 },
   guestRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },

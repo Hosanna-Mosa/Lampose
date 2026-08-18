@@ -44,6 +44,11 @@ const INITIAL_FORM_STATE = {
     },
     sharingTypes: ['Single', '2 Sharing'],
     sharingPrices: {},
+    /* Rooms as counted on site; beds multiplied out from them. Both are sent
+       — the backend turns them into the claimable bed counts the request flow
+       decrements. */
+    sharingRooms: {},
+    sharingBeds: {},
     sharingAC: {},
     sharingAcPrices: {},
     curfewTime: '10:30 PM',
@@ -139,6 +144,8 @@ export default function App() {
         },
         sharingTypes: ['Single', '2 Sharing'],
         sharingPrices: {},
+        sharingRooms: {},
+        sharingBeds: {},
         sharingAC: {},
         sharingAcPrices: {},
         curfewTime: '10:30 PM',

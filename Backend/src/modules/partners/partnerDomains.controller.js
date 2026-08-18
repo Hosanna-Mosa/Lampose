@@ -14,6 +14,58 @@ const {
 
 const { phoneKey } = Partner;
 
+const {
+  releaseBed, shareTypeIdForBooking, OCCUPYING,
+} = require('../inventory/inventory.service');
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Freeing a bed.
+
+   Two of the three ways `availableBeds` goes back up live here — a booking
+   cancelled and a tenant checked out. (The third is the accept handler giving
+   back a bed it took for a request it then lost.) Without these the counter
+   only ever falls, and every property drifts to zero and stops being
+   requestable.
+
+   ## Both had to become guarded updates first
+
+   They were `findOneAndUpdate({ _id, partner }, { status })` with no status
+   filter, which was harmless while nothing depended on the transition. It is
+   not harmless now: a cancel tapped twice would match twice and hand back two
+   beds for one departure, inventing a bed the building does not have. The
+   filter on `status: { $in: OCCUPYING }` is what makes the release happen
+   exactly once — the second tap matches nothing.
+
+   `releaseBed` is capped at `totalBeds` as a second line of defence, so even
+   a bug here cannot push a counter above capacity.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Move a booking out of occupancy and give its bed back.
+ *
+ * Returns the booking when this call was the one that moved it, and `null`
+ * when somebody else already had. A null means DO NOT release — that is the
+ * whole idempotency guarantee.
+ */
+const freeBookingBed = async (bookingId, partnerKeyDigits, nextStatus) => {
+  const booking = await PartnerBooking.findOneAndUpdate(
+    { _id: bookingId, partnerPhoneDigits: partnerKeyDigits, status: { $in: OCCUPYING } },
+    { status: nextStatus },
+    { new: true },
+  ).lean();
+
+  if (!booking) return null;
+
+  /* Best effort, and deliberately after the status write. A booking that was
+     cancelled but whose counter did not move is a drift `npm run
+     reconcile:inventory` reports; a counter moved for a cancellation that did
+     not commit is a bed sold twice. */
+  const shareTypeId = shareTypeIdForBooking(booking);
+  if (shareTypeId) await releaseBed(shareTypeId);
+
+  return booking;
+};
+
 const dbDown = (res) => res.status(503).json({
   success: false,
   code: 'DB_DISCONNECTED',
@@ -68,17 +120,46 @@ const getBookingById = async (req, res, next) => {
   }
 };
 
+/**
+ * The owner's half of moving in.
+ *
+ * They have checked the PIN and let somebody through a door, so this is the
+ * first of the two confirmations. It does NOT put the booking in house on its
+ * own — the student confirms from their side, and only then is somebody
+ * actually moved in. See the note on the fields.
+ *
+ * Guarded and idempotent: stamping twice keeps the first time. The moment an
+ * owner says somebody arrived is a fact, and a second tap is not a second
+ * arrival.
+ */
 const checkInBooking = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
     const key = getDigits(req.partner);
     const { id } = req.params;
+
     const booking = await PartnerBooking.findOneAndUpdate(
-      { _id: id, partnerPhoneDigits: key },
-      { status: 'in_house' },
-      { new: true }
+      { _id: id, partnerPhoneDigits: key, movedInByOwnerAt: null },
+      { $set: { movedInByOwnerAt: new Date() } },
+      { new: true },
     ).lean();
-    if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
+
+    if (!booking) {
+      /* Already stamped, or not theirs. The first is not an error — an owner
+         tapping again should see the same answer, not a failure. */
+      const existing = await PartnerBooking.findOne({ _id: id, partnerPhoneDigits: key }).lean();
+      if (existing) return res.json({ success: true, data: { ...existing, id: String(existing._id) } });
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+
+    /* Only both sides together put somebody in house. The student has almost
+       certainly not confirmed yet — they are standing there — but the check
+       belongs here rather than being assumed. */
+    if (booking.movedInByStudentAt) {
+      await PartnerBooking.updateOne({ _id: booking._id }, { $set: { status: 'in_house' } });
+      booking.status = 'in_house';
+    }
+
     return res.json({ success: true, data: { ...booking, id: String(booking._id) } });
   } catch (error) {
     return next(error);
@@ -90,12 +171,15 @@ const checkOutBooking = async (req, res, next) => {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
     const key = getDigits(req.partner);
     const { id } = req.params;
-    const booking = await PartnerBooking.findOneAndUpdate(
-      { _id: id, partnerPhoneDigits: key },
-      { status: 'completed' },
-      { new: true }
-    ).lean();
-    if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
+    /* The bed comes back here. Guarded, so checking out twice frees one bed. */
+    const booking = await freeBookingBed(id, key, 'completed');
+    if (!booking) {
+      /* Either it is not theirs, or it has already left occupancy. The second
+         is not an error worth alarming an owner about — they tapped twice. */
+      const existing = await PartnerBooking.findOne({ _id: id, partnerPhoneDigits: key }).lean();
+      if (existing) return res.json({ success: true, data: { ...existing, id: String(existing._id) } });
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
     return res.json({ success: true, data: { ...booking, id: String(booking._id) } });
   } catch (error) {
     return next(error);
@@ -107,12 +191,12 @@ const cancelBooking = async (req, res, next) => {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
     const key = getDigits(req.partner);
     const { id } = req.params;
-    const booking = await PartnerBooking.findOneAndUpdate(
-      { _id: id, partnerPhoneDigits: key },
-      { status: 'cancelled' },
-      { new: true }
-    ).lean();
-    if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
+    const booking = await freeBookingBed(id, key, 'cancelled');
+    if (!booking) {
+      const existing = await PartnerBooking.findOne({ _id: id, partnerPhoneDigits: key }).lean();
+      if (existing) return res.json({ success: true, data: { ...existing, id: String(existing._id) } });
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
     return res.json({ success: true, data: { ...booking, id: String(booking._id) } });
   } catch (error) {
     return next(error);

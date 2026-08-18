@@ -5,10 +5,82 @@ const {
   formatListing, cityOf, localityOf, isDaily,
 } = require('./listing.formatter');
 const { escapeRegex } = require('../../shared/utils/text');
+const { rowsFor } = require('../inventory/inventory.service');
 
 // @route   GET /api/v2/listings
 // @desc    Every listing, newest first, with optional filtering
 // @access  Public
+/**
+ * Fold live bed counts onto already-formatted listings.
+ *
+ * `formatListing` is synchronous and pure — it takes one document and reads
+ * nothing else — which is what lets the build-time snapshot in
+ * scripts/export-listings.js produce the same shape as the live API. Beds are
+ * the one fact that cannot work that way: they live in a different collection
+ * and change several times a day. So they are folded on afterwards, in one
+ * query for the whole page rather than one per listing.
+ *
+ * A listing whose options have no rows keeps `availableBeds: null` and
+ * `requestable: false`. Null is not zero: it means nobody recorded a count,
+ * which is true of every property onboarded before the field existed, and the
+ * app says "call the owner" rather than "full".
+ */
+const withAvailability = async (listings) => {
+  if (!listings.length) return listings;
+
+  const rows = await rowsFor(listings.map((listing) => listing.id));
+  if (!rows.size) {
+    return listings.map((listing) => ({
+      ...listing,
+      sharingOptions: listing.sharingOptions.map((option) => ({
+        ...option, availableBeds: null, requestable: false, reason: 'NO_INVENTORY_RECORDED',
+      })),
+      requestable: false,
+    }));
+  }
+
+  return listings.map((listing) => {
+    const options = listing.sharingOptions.map((option) => {
+      const row = option.shareTypeId ? rows.get(option.shareTypeId) : null;
+      if (!row) {
+        return {
+          ...option, availableBeds: null, requestable: false, reason: 'NO_INVENTORY_RECORDED',
+        };
+      }
+
+      /*
+       * WHY it cannot be requested, not just that it cannot.
+       *
+       * Three different situations end up here and they need three different
+       * sentences on a listing page: nobody has recorded a count, the owner
+       * has switched this room type off, and every bed is taken. Reporting
+       * only `requestable: false` made the app say "live availability not
+       * confirmed" about a room with six free beds that the owner had simply
+       * paused — which is both wrong and unactionable.
+       */
+      const paused = row.isAvailable === false;
+      const full = row.availableBeds <= 0;
+
+      return {
+        ...option,
+        totalBeds: row.totalBeds,
+        availableBeds: row.availableBeds,
+        requestable: !paused && !full,
+        reason: paused ? 'OWNER_PAUSED' : full ? 'NO_BEDS_FREE' : null,
+      };
+    });
+
+    return {
+      ...listing,
+      sharingOptions: options,
+      /* One flag the card can read without walking the options. A listing
+         with nothing requestable still appears in the feed — it is a real
+         place and it may free up — but its Send Request button is off. */
+      requestable: options.some((option) => option.requestable),
+    };
+  });
+};
+
 const getListings = async (req, res, next) => {
   try {
     const {
@@ -91,7 +163,9 @@ const getListings = async (req, res, next) => {
       listings = listings.filter((item) => String(item.locality).toLowerCase() === wanted);
     }
 
-    return res.json({ success: true, count: listings.length, data: listings });
+    const withBeds = await withAvailability(listings);
+
+    return res.json({ success: true, count: withBeds.length, data: withBeds });
   } catch (error) {
     return next(error);
   }
@@ -119,7 +193,9 @@ const getListingById = async (req, res, next) => {
       });
     }
 
-    return res.json({ success: true, data: formatListing(property) });
+    const [listing] = await withAvailability([formatListing(property)]);
+
+    return res.json({ success: true, data: listing });
   } catch (error) {
     return next(error);
   }

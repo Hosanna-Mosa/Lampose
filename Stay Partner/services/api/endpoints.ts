@@ -47,6 +47,15 @@ export const endpoints = {
   /** GET for the profile behind a session; PATCH is what profile-setup writes. */
   partnerMe: `${V2}/partners/me`,
 
+  /**
+   * This handset, so the backend can reach it when the app is closed.
+   *
+   * Behind a session on purpose: the token says WHICH device, the session
+   * says whose. A public route taking both would let anybody register a
+   * stranger's handset against an account they do not own.
+   */
+  devices: `${V2}/partners/devices`,
+
   /* ---------------------------------------------------------------- *
    * What they own, and who has asked about it
    * ---------------------------------------------------------------- */
@@ -82,6 +91,19 @@ export const endpoints = {
   partnerRequests: `${V2}/partners/requests`,
   partnerRequest: (id: string) => `${V2}/partners/requests/${encodeURIComponent(id)}`,
   partnerRequestsRead: `${V2}/partners/requests/read`,
+
+  /**
+   * Answering. The two taps this whole app exists for.
+   *
+   * Guarded, atomic and idempotent on the server: a second tap changes
+   * nothing and comes back with the reason the first one lost — expired,
+   * withdrawn, or somebody else took the last bed. The app renders that
+   * reason rather than a generic failure.
+   */
+  partnerRequestAccept: (id: string) =>
+    `${V2}/partners/requests/${encodeURIComponent(id)}/accept`,
+  partnerRequestDecline: (id: string) =>
+    `${V2}/partners/requests/${encodeURIComponent(id)}/decline`,
 
   /* ---------------------------------------------------------------- *
    * Add Customer — a walk-in the owner logs by hand

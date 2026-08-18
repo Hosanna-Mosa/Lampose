@@ -307,7 +307,20 @@ function PriceSlot({
 const styles = StyleSheet.create({
   stack: { flexDirection: 'column', alignItems: 'stretch' },
   noShrink: { flexShrink: 0 },
-  shrinkable: { flexShrink: 1, minWidth: 0 },
+  /*
+   * `flex: 1`, not just `flexShrink`.
+   *
+   * Shrinking alone let the price keep only the width it needed, which put
+   * the button immediately beside it — floating in the middle of the bar on
+   * any listing with a short rate. Taking the remaining space pushes the
+   * button to the right edge, where a primary action belongs and where a
+   * thumb already is.
+   *
+   * `minWidth: 0` is what actually permits the shrink: without it a flex
+   * child refuses to go below its content width and the button is pushed off
+   * the end instead.
+   */
+  shrinkable: { flex: 1, flexShrink: 1, minWidth: 0 },
   host: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   /* Takes no space and paints nothing; `flex-start` keeps children at their
      intrinsic widths instead of stretching them to the widest sibling. */

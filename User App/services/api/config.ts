@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import { API_URL } from '@/constants/env';
 
 /**
  * Where the backend is, and which half of it we are talking to.
@@ -127,11 +128,10 @@ function devFallback(): string {
 }
 
 function resolveBaseUrl(): string {
-  /* Expo inlines any EXPO_PUBLIC_* variable at build time, so this is a
-     literal by the time it runs on a device — there is no runtime env to
-     read on a phone. */
-  const fromEnv = process.env.EXPO_PUBLIC_API_URL;
-  if (fromEnv) return normalizeBase(fromEnv);
+  /* Read in `constants/env.ts`, which is where every environment value in
+     this app is gathered — and which explains why they are all written out as
+     literals rather than looked up by name. */
+  if (API_URL) return normalizeBase(API_URL);
 
   const fromConfig = (Constants.expoConfig?.extra as { apiUrl?: string } | undefined)?.apiUrl;
   if (fromConfig) return normalizeBase(fromConfig);
@@ -150,7 +150,7 @@ export const API_BASE_URL = resolveBaseUrl();
  * are looking at saves the afternoon described at the top of this file.
  */
 export const API_BASE_URL_IS_GUESSED =
-  !process.env.EXPO_PUBLIC_API_URL &&
+  !API_URL &&
   !(Constants.expoConfig?.extra as { apiUrl?: string } | undefined)?.apiUrl;
 
 /* ------------------------------------------------------------------ *

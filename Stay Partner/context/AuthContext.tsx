@@ -14,6 +14,10 @@ import {
   setAuthToken,
   setSessionExpiredHandler,
 } from '@/services/api/client';
+import { Platform } from 'react-native';
+
+import { registerDevice, unregisterDevice } from '@/services/api/devices.api';
+import { clearPushState, getPushToken } from '@/services/push/push';
 import { API_BASE_URL_CONFIGURED } from '@/services/api/config';
 import {
   fetchMe,
@@ -142,8 +146,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (tick.current) clearInterval(tick.current);
   }, []);
 
+  /*
+   * This device's push token, held so sign-out hands back the same one that
+   * was registered. A ref rather than state: nothing renders from it, and a
+   * re-render mid-sign-out must not lose the value that says which handset to
+   * deregister.
+   */
+  const pushToken = useRef<string | null>(null);
+
+  /**
+   * Put this handset on the account's list.
+   *
+   * Matters more here than on the student's side: an owner has minutes to
+   * answer, and an owner with no registered device simply never learns a
+   * request arrived. Every one of them then expires.
+   *
+   * Cannot throw and is never awaited by sign-in — an owner who declined
+   * notifications still gets every screen in the app.
+   */
+  const attachDevice = useCallback(async () => {
+    const token = await getPushToken();
+    if (!token) return;
+    pushToken.current = token;
+    await registerDevice(token, Platform.OS === 'ios' ? 'ios' : 'android');
+  }, []);
+
   /** Drops the session everywhere it is held: memory, disk, client, cache. */
   const dropSession = useCallback(async () => {
+    /*
+     * The device comes off the account BEFORE the token is cleared — the
+     * endpoint is behind a session, so the other order is an unauthenticated
+     * call that silently does nothing and leaves this handset receiving the
+     * previous owner's requests.
+     */
+    if (pushToken.current) {
+      await unregisterDevice(pushToken.current).catch(() => {});
+      pushToken.current = null;
+    }
+    await clearPushState();
+
     setAuthToken(null);
     setPartner(null);
     setStatus('signedOut');
@@ -185,6 +226,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setPartner(fresh);
         setStatus('signedIn');
         await savePartner(fresh);
+
+        /* Re-registered on every launch, not only at sign-in. A push token is
+           reissued on reinstall and can be rotated by the OS, so an owner who
+           signed in months ago would otherwise stop being reachable with
+           nothing anywhere to say why — and every request they get would
+           quietly expire. */
+        attachDevice().catch(() => {});
       } catch (error) {
         if (cancelled) return;
 
@@ -300,6 +348,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setStatus('signedIn');
       await saveSession(session.token, session.partner);
 
+      /* Fired, not awaited: asking for notification permission opens an OS
+         dialog, and holding the sign-in transition behind it leaves somebody
+         watching a spinner underneath a system prompt. */
+      attachDevice().catch(() => {});
+
       setPendingPhone(null);
       setChallenge(null);
 
@@ -347,7 +400,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const updated = await updateMe(input);
     setPartner(updated);
     await savePartner(updated);
-  }, []);
+  }, [attachDevice]);
 
   const signOut = useCallback(async () => {
     await dropSession();

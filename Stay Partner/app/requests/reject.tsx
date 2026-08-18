@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { BottomSheet, Button, Chip, ChipRow, Input, Text } from '@/components/ui';
-import { formatRange } from '@/lib/format';
-import { declineRequest, getRequest } from '@/lib/requests';
+import { useAnswerRequest, useStayRequest } from '@/services/hooks/useStayRequests';
 
 const REASONS = [
   'Dates unavailable',
@@ -22,7 +21,9 @@ const REASONS = [
 export default function RejectSheet() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const request = getRequest(id);
+
+  const { request } = useStayRequest(id);
+  const answer = useAnswerRequest(id);
 
   const [reason, setReason] = useState<string | null>(null);
   const [note, setNote] = useState('');
@@ -31,14 +32,39 @@ export default function RejectSheet() {
 
   const confirm = () => {
     if (!id) return;
-    declineRequest(id);
-    // The request leaves Pending, so returning to the detail would strand you
-    // on a screen for something that's no longer live.
-    router.replace('/requests');
+
+    /*
+     * The chip, plus whatever they typed.
+     *
+     * Sent as the owner's own words and kept apart from the server's
+     * machine-readable reason, which on this path is always OWNER_DECLINED.
+     * The student is shown neither — a decline reads as "no availability"
+     * to them, because "price too low" is a negotiation this product does not
+     * have and "requirements not met" is a sentence nobody should receive
+     * about themselves.
+     */
+    const written = [reason, note.trim()].filter(Boolean).join(' — ');
+
+    answer.decline.mutate(written || null, {
+      onSuccess: () => {
+        /* The request leaves Pending, so returning to the detail would strand
+           you on a screen for something that is no longer live. */
+        router.replace('/requests');
+      },
+      onError: (error) => {
+        /* Somebody got there first: the student withdrew, the clock ran out,
+           or this owner accepted it on another device. The server names
+           which, and closing the sheet puts them back on a detail screen that
+           is already showing the real outcome. */
+        Alert.alert('Could not decline', (error as { displayMessage?: string }).displayMessage
+          ?? 'This request can no longer be changed.');
+        router.back();
+      },
+    });
   };
 
   const subtitle = request
-    ? `${request.guest} · ${formatRange(request.checkIn, request.checkOut)}`
+    ? `${request.customer?.name ?? 'A student'}${request.sharing?.label ? ` · ${request.sharing.label}` : ''}`
     : undefined;
 
   return (
@@ -58,10 +84,13 @@ export default function RejectSheet() {
           <>
             <Button label="Cancel" variant="secondary" onPress={close} style={styles.action} />
             <Button
-              label="Confirm reject"
+              label={answer.decline.isPending ? 'Declining…' : 'Confirm reject'}
               variant="destructive"
               onPress={confirm}
-              disabled={!reason}
+              /* A reason is required by this screen, not by the server — an
+                 owner who declines without saying why leaves nothing to look
+                 back at when a property's acceptance rate is questioned. */
+              disabled={!reason || answer.isBusy}
               style={styles.action}
             />
           </>

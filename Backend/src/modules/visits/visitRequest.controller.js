@@ -76,7 +76,9 @@ const DUPLICATE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
    Six digits behind the prefix, never trimmed, because it is read aloud at a
    gate and must always be the same length. */
-const generateEntryPin = () => `LV-${String(crypto.randomInt(0, 1000000)).padStart(6, '0')}`;
+/* Moved to otp.util.js so the app channel issues the same format. Two copies
+   of this would be two PIN formats an owner has to recognise. */
+const { generateEntryPin } = require('./otp.util');
 
 /** The choice the customer actually made, as one line: room, stay, price. */
 const describeSelection = (doc) => {

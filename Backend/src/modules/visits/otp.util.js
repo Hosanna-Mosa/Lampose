@@ -56,7 +56,22 @@ const verifyOtp = (otp, salt, expectedHash) => {
   return crypto.timingSafeEqual(actual, expected);
 };
 
+/**
+ * The entry PIN, issued when a request is confirmed.
+ *
+ * Not a credential. It proves nothing to the server and is stored in readable
+ * form on purpose — it is a token the student and the owner COMPARE at the
+ * door, so both sides hold the same value and the owner must be able to be
+ * shown it again if they lose the message. Hashing it would only make it
+ * impossible to do the one thing it exists for.
+ *
+ * `LV-` prefixed and six digits, matching what the website's flow has issued
+ * since it was written; an owner with both flows running sees one format.
+ */
+const generateEntryPin = () => `LV-${String(crypto.randomInt(0, 1000000)).padStart(6, '0')}`;
+
 module.exports = {
+  generateEntryPin,
   OTP_TTL_MS,
   OTP_MAX_ATTEMPTS,
   OTP_RESEND_COOLDOWN_MS,

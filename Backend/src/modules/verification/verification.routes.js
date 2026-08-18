@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const twilio = require('twilio');
 const VerificationRequest = require('./verificationRequest.model');
 const Property = require('../properties/property.model');
+const { syncShareTypes } = require('../inventory/inventory.service');
 const { getIsInMemory, getMemoryStore } = require('../../infrastructure/database/db');
 
 /* HTML-escape for the review page — every stored value passes through this. */
@@ -563,6 +564,10 @@ router.post('/webhook', async (req, res) => {
           };
           const prop = await Property.create(activePropertyPayload);
           console.log(`   ✅ Property "${prop.name}" (ID: ${prop._id}) successfully created in MongoDB.`);
+          /* The property becomes requestable here, not at submission — this is
+             the moment it first exists. Bed counts recorded during onboarding
+             become claimable rows now. */
+          await syncShareTypes(prop);
 
           try {
             const twilioClient = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
@@ -706,6 +711,7 @@ router.post('/webhook', async (req, res) => {
             };
             const prop = await Property.create(activePropertyPayload);
             console.log(`   ✅ Property "${prop.name}" (ID: ${prop._id}) successfully created in MongoDB.`);
+            await syncShareTypes(prop);
           }
 
           twiml.message(`Thanks for choosing Lampose! Your property "${propertyName}" is verified and listed successfully.`);

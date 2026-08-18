@@ -4,7 +4,9 @@ const path = require('path');
 // Firebase config is per-installation and is not committed. Drop your own
 // google-services.json next to this file to enable Android push notifications.
 const googleServicesPath = path.join(__dirname, 'google-services.json');
-const googleServicesFile = fs.existsSync(googleServicesPath) ? './google-services.json' : undefined;
+const googleServicesFile = fs.existsSync(googleServicesPath)
+  ? './google-services.json'
+  : undefined;
 
 /** Brand colours — keep in sync with `theme/index.ts`. */
 const BRAND = {
@@ -19,12 +21,12 @@ export default {
     slug: 'driver',
     version: '1.0.0',
     orientation: 'portrait',
-    icon: './assets/images/icon.png',
+    icon: './assets/images/icon.jpeg',
     scheme: 'driver',
     userInterfaceStyle: 'light',
     newArchEnabled: true,
     splash: {
-      image: './assets/images/splash-icon.png',
+      image: './assets/images/splash-icon.jpeg',
       resizeMode: 'contain',
       backgroundColor: BRAND.background,
     },
@@ -42,7 +44,7 @@ export default {
       package: 'com.driver.app',
       ...(googleServicesFile ? { googleServicesFile } : {}),
       adaptiveIcon: {
-        foregroundImage: './assets/images/adaptive-icon.png',
+        foregroundImage: './assets/images/adaptive-icon.jpeg',
         backgroundColor: BRAND.background,
       },
       config: {
@@ -59,11 +61,11 @@ export default {
       ],
     },
     notification: {
-      icon: './assets/images/notification-icon.png',
+      icon: './assets/images/notification-icon.jpeg',
       color: BRAND.ink,
     },
     web: {
-      favicon: './assets/images/icon.png',
+      favicon: './assets/images/icon.jpeg',
       bundler: 'metro',
     },
     plugins: [
@@ -83,7 +85,7 @@ export default {
       [
         'expo-notifications',
         {
-          icon: './assets/images/notification-icon.png',
+          icon: './assets/images/notification-icon.jpeg',
           color: BRAND.ink,
         },
       ],

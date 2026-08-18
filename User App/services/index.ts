@@ -52,14 +52,23 @@ export {
   type ListingsResult,
 } from './api/listings.api';
 
+/**
+ * The stay request: ask an owner for a bed, watch the clock, pull it back.
+ *
+ * Real, and the mock that stood in for it is gone. Three calls where the
+ * website's guest flow needed four — no code, because the phone was proved at
+ * sign-in, and no WhatsApp, because the owner has an app.
+ */
 export {
-  createVisitRequest,
-  pollVisitRequest,
-  resendVisitOtp,
-  verifyVisitRequest,
-  type CreateVisitRequestInput,
-  type VisitIntent,
-} from './api/visits.api';
+  createStayRequest,
+  fetchStayRequest,
+  fetchStayRequests,
+  withdrawStayRequest,
+  confirmMovedIn,
+  type CreateStayRequestInput,
+  type StayIntent,
+  type StayRequestsResult,
+} from './api/stayRequests.api';
 
 export { fetchHealth } from './api/health.api';
 
@@ -102,6 +111,9 @@ export type {
   BackendTicketMessage,
   BackendTicketStatus,
   BackendVisitRequest,
+  BackendStayRequest,
+  StayRequestStatus,
+  StayDecisionReason,
   VisitRequestStatus,
 } from './api/types';
 
@@ -124,7 +136,7 @@ export {
 
 export { queryKeys } from './hooks/keys';
 export { useListing, useListingMeta, useListings, type ListingMeta } from './hooks/useListings';
-export { useVisitRequest, type VisitPhase } from './hooks/useVisitRequest';
+export { useStayRequest, isTerminalPhase, type StayPhase } from './hooks/useStayRequest';
 export { useNotifications, type NotificationDay } from './hooks/useNotifications';
 export { useSaved } from './hooks/useSaved';
 export { useCreateSupportRequest, useTicket, useTickets } from './hooks/useTickets';

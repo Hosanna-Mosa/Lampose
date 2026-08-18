@@ -1,7 +1,7 @@
 {
   "name": "lampose-main-backend",
   "version": "2.0.0",
-  "description": "Unified Lampose backend — onboarding (v1) and the public site + leads panel (v2)",
+  "description": "Unified Lampose backend \u2014 onboarding (v1) and the public site + leads panel (v2)",
   "main": "server.js",
   "engines": {
     "node": ">=18.0.0"
@@ -13,11 +13,17 @@
     "inspect:collections": "node inspectCollections.js",
     "inspect:db": "node scripts/inspect-db.js",
     "inspect:properties": "node scripts/inspect-properties.js",
+    "reconcile:inventory": "node scripts/reconcile-inventory.js",
+    "clone:db": "node scripts/clone-db.js",
+    "seed:booking": "node scripts/seed-booking-dev.js",
     "export:listings": "node scripts/export-listings.js",
     "export:listings:clean": "node scripts/export-listings.js --clean",
     "migrate:json": "node scripts/migrate-json-store.js",
+    "migrate:channel": "node scripts/migrate-request-channel.js",
     "smoke": "node scripts/smoke-test.js",
     "verify": "node scripts/verify-frontends.js",
+    "test": "NODE_ENV=test node --test \"tests/**/*.test.js\"",
+    "test:watch": "NODE_ENV=test node --test --watch \"tests/**/*.test.js\"",
     "browsers": "playwright install --with-deps chromium"
   },
   "keywords": [
@@ -40,5 +46,8 @@
     "multer": "^2.2.0",
     "playwright": "^1.62.1",
     "twilio": "^6.1.0"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^11.2.0"
   }
 }

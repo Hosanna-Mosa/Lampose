@@ -493,6 +493,27 @@ const createBooking = async (req, res, next) => {
        against one verification. */
     await GuestVerification.deleteOne({ _id: proof._id });
 
+    /*
+     * The walk-in takes a bed too.
+     *
+     * Easy to forget, and the counter lies the first time an owner fills a
+     * bed themselves: the app would keep offering a room that is physically
+     * full, and a student would be accepted into it. A bed is a bed however
+     * the person arrived.
+     *
+     * Best effort and never fatal — the customer record is the thing the
+     * owner asked for and it has already been written. A counter that did not
+     * move is drift `npm run reconcile:inventory` reports; refusing the whole
+     * save over it would lose a record somebody is standing at a desk for.
+     */
+    try {
+      const { claimBed, shareTypeIdForBooking } = require('../inventory/inventory.service');
+      const shareTypeId = shareTypeIdForBooking(booking);
+      if (shareTypeId) await claimBed(shareTypeId);
+    } catch (error) {
+      console.error('[add-customer] booking saved but the bed count did not move:', error.message);
+    }
+
     return res.status(201).json({
       success: true,
       data: { ...booking.toObject(), id: String(booking._id) },

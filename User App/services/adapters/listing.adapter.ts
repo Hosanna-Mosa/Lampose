@@ -312,6 +312,21 @@ function toSharingOptions(doc: BackendListing): readonly SharingOption[] {
     /* One deposit on the document, so it is the deposit for whichever bed is
        chosen — the panel records no per-option figure. */
     deposit: positive(doc.deposit),
+
+    shareTypeId: option.shareTypeId ?? undefined,
+    /*
+     * `null` and `0` are carefully different and both survive the crossing.
+     * Null is "nobody recorded a count" and becomes `undefined`; zero is
+     * "every bed is taken" and stays zero. Collapsing them would have the app
+     * tell a student a property is full when the truth is that nobody has
+     * ever counted its beds.
+     */
+    availableBeds: typeof option.availableBeds === 'number' ? option.availableBeds : undefined,
+    /* Defaults to FALSE, not true. A backend that has not been deployed with
+       counts yet returns nothing here, and an app that assumed requestable
+       would offer a button whose only outcome is an error. */
+    requestable: option.requestable === true,
+    unavailableReason: option.reason ?? undefined,
   } satisfies SharingOption));
 }
 

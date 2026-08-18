@@ -27,6 +27,12 @@ const {
 } = require('./customer.controller');
 const { getNotifications, markNotificationsRead } = require('./notification.controller');
 const { getSaved, addSaved, removeSaved } = require('./saved.controller');
+const {
+  createRequest, getRequest, listRequests, withdrawRequest, confirmMovedIn,
+} = require('../visits/stayRequest.controller');
+const {
+  registerCustomerDevice, unregisterCustomerDevice,
+} = require('../notifications/device.controller');
 const { requireCustomer } = require('./customerAuth.middleware');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const { rateLimit } = require('../../shared/middleware/rateLimit');
@@ -82,5 +88,70 @@ router.post('/notifications/read', requireLamposeDb, requireCustomer, markNotifi
 router.get('/saved', requireLamposeDb, requireCustomer, getSaved);
 router.post('/saved', requireLamposeDb, requireCustomer, addSaved);
 router.delete('/saved/:listingId', requireLamposeDb, requireCustomer, removeSaved);
+
+/* ── Stay requests ───────────────────────────────────────────────────────
+   Asking an owner for a bed, and watching the three minutes they have to
+   answer. Everything here is scoped on the SESSION's customer id, never on a
+   phone number in the body — these routes end and read requests, and a phone
+   number is a string anybody can send.
+
+   ## Why creation is limited per ACCOUNT rather than per IP
+
+   The cost of a stay request is not ours: it is a push notification to a
+   property owner's handset. Somebody sending and withdrawing in a loop is
+   making a stranger's phone buzz, and the account is who does it — a per-IP
+   ceiling would be shared by every student on one college's wifi and dodged
+   by anybody on mobile data. So it is counted per customer, with an IP
+   ceiling underneath it as a backstop against a script holding many sessions.
+
+   Twelve an hour is generous for somebody genuinely shopping for a room (a
+   request resolves in three minutes) and useless as a way to harass an owner.
+
+   Reads are not limited. The countdown screen polls every few seconds by
+   design, and rate-limiting it would break the one screen this flow exists
+   for. */
+const customerKey = (req) => (req.customer ? req.customer.customerId : req.ip);
+
+const requestByCustomer = rateLimit({
+  name: 'stay-request-create-customer', windowMs: 60 * 60 * 1000, max: 12, keyOf: customerKey,
+});
+const requestByIp = rateLimit({
+  name: 'stay-request-create-ip', windowMs: 60 * 60 * 1000, max: 40,
+});
+
+/* Counted separately from creation. A student who sends one request and
+   changes their mind is ordinary; one who does it thirty times is teaching an
+   owner to ignore the app. */
+const withdrawByCustomer = rateLimit({
+  name: 'stay-request-withdraw-customer', windowMs: 60 * 60 * 1000, max: 12, keyOf: customerKey,
+});
+
+router.post(
+  '/stay-requests',
+  requireLamposeDb, requireCustomer, requestByIp, requestByCustomer, createRequest,
+);
+router.get('/stay-requests', requireLamposeDb, requireCustomer, listRequests);
+router.get('/stay-requests/:id', requireLamposeDb, requireCustomer, getRequest);
+router.post(
+  '/stay-requests/:id/withdraw',
+  requireLamposeDb, requireCustomer, withdrawByCustomer, withdrawRequest,
+);
+
+/* The student's half of moving in. Refused until the owner has marked them
+   in — see confirmMoveIn. Not rate limited: it is idempotent, it can only be
+   done once per booking, and a student standing in a doorway retrying must
+   not be turned away. */
+router.post(
+  '/stay-requests/:id/moved-in',
+  requireLamposeDb, requireCustomer, confirmMovedIn,
+);
+
+/* ── This device ─────────────────────────────────────────────────────────
+   Where to reach them when the app is closed, which is the case the whole
+   three-minute flow depends on. Registered on every launch because a token
+   can be reissued at any time, and removed on sign-out so a shared handset
+   stops showing the previous account's alerts. */
+router.post('/devices', requireLamposeDb, requireCustomer, registerCustomerDevice);
+router.delete('/devices', requireLamposeDb, requireCustomer, unregisterCustomerDevice);
 
 module.exports = router;

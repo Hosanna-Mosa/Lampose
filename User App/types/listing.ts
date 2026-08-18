@@ -328,6 +328,31 @@ export type SharingOption = {
    * cheaper-by comparison this control exists for to zero on every row.
    */
   pricePerPerson?: number;
+
+  /**
+   * The bed pool this option draws from, carried into the request.
+   *
+   * Absent on a listing whose property has no recorded counts — which is also
+   * the case where `requestable` is false, so a screen never has to reason
+   * about one without the other.
+   */
+  shareTypeId?: string;
+
+  /** Beds free right now. `undefined` means unknown, never zero. */
+  availableBeds?: number;
+
+  /**
+   * Can a request for this bed be sent?
+   *
+   * False covers three different situations — no count on record, the owner
+   * paused the room type, and every bed taken — and the screen says which,
+   * because "we do not have live availability" and "full" call for different
+   * next actions from a student.
+   */
+  requestable?: boolean;
+
+  /** Why it cannot be requested, when it cannot. */
+  unavailableReason?: 'NO_INVENTORY_RECORDED' | 'OWNER_PAUSED' | 'NO_BEDS_FREE';
   /**
    * What this sharing costs at each stay rate the listing quotes, per person
    * per unit — a single room by the night, four-sharing by the month.

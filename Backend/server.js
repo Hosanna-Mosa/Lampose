@@ -17,6 +17,8 @@ const { connectDB, closeConnections, getIsInMemory } = require('./src/infrastruc
 const dbStore = require('./src/modules/scraper/scraper.store');
 const { initStore, countUsers } = require('./src/modules/scraper/scraper.store');
 const { stopAllJobs } = require('./src/modules/scraper/playwrightScraper.service');
+const { startExpiryWorker, stopExpiryWorker, setExpiryHandler } = require('./src/modules/visits/expiry.worker');
+const { notifyExpired } = require('./src/modules/notifications/stayRequest.notifier');
 const { logSmsStatus } = require('./src/infrastructure/sms/sms');
 const { routeMap } = require('./routes');
 const app = require('./app');
@@ -108,6 +110,21 @@ const startServer = async () => {
   await connectDB();
   await initStore();
 
+  /*
+   * The only thing in this process that acts without being asked.
+   *
+   * Started after `connectDB` rather than beside it, because a tick against a
+   * disconnected database is a wasted query every five seconds — the worker
+   * checks the connection state itself too, so this is tidiness rather than
+   * correctness. Nothing else about boot depends on it, and a process whose
+   * worker failed to start still serves every route.
+   */
+  /* The worker records the transition; this is what tells the student. Set
+     here rather than imported inside the worker so that module stays free of
+     the notification layer and can be tested without it. */
+  setExpiryHandler(notifyExpired);
+  startExpiryWorker();
+
   const server = app.listen(config.port, config.host, () => {
     banner();
     if (config.isProduction) reportFirstAdmin();
@@ -145,6 +162,9 @@ const startServer = async () => {
     if (forceExit.unref) forceExit.unref();
 
     stopAllJobs();
+    /* Stopped before the listener closes: a tick that starts during shutdown
+       would write to a connection `closeConnections` is about to drop. */
+    stopExpiryWorker();
     server.close(async () => {
       await closeConnections();
       clearTimeout(forceExit);

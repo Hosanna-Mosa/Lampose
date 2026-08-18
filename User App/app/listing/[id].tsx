@@ -247,6 +247,47 @@ export default function ListingDetail() {
    * needs them, and a deep link into the confirmation without them would
    * otherwise render a request for nothing.
    */
+  /*
+   * Whether a request for the chosen bed would be accepted at all.
+   *
+   * The server refuses one for a room type with no recorded count, one the
+   * owner has paused, and one with every bed taken. Leaving the button live
+   * for those only moves the refusal to a screen the student cannot fix it
+   * from — they have already committed by then, and the error reads as the
+   * app being broken rather than the room being full.
+   *
+   * Ten of the twelve live listings have no counts recorded today, so this is
+   * the common case rather than the edge.
+   */
+  const chosenOption = listing.sharingOptions?.length
+    ? listing.sharingOptions.find((option) => option.id === sharing)
+      ?? (listing.sharingOptions.length === 1 ? listing.sharingOptions[0] : undefined)
+    : undefined;
+
+  /* A listing with no options at all keeps working — those are the ones with
+     nothing to choose between, and the server decides. Only a listing that
+     DOES offer options and reports none of them requestable is blocked. */
+  const bedUnavailable = Boolean(listing.sharingOptions?.length)
+    && Boolean(chosenOption)
+    && chosenOption?.requestable === false;
+
+  /* `undefined` beds means nobody counted them, which is not the same as
+     none — and the two want different sentences. */
+  const availabilityNote = !chosenOption ? undefined
+    : chosenOption.requestable ? (
+      typeof chosenOption.availableBeds === 'number' && chosenOption.availableBeds <= 3
+        ? `Only ${chosenOption.availableBeds} left`
+        : undefined
+    )
+      /* The server says which of the three it is. Guessing from the bed count
+         told students "availability not confirmed" about a room the owner had
+         paused with six beds free — wrong, and nothing they could act on. */
+      : chosenOption.unavailableReason === 'NO_BEDS_FREE'
+        ? 'Every bed in this room is taken'
+        : chosenOption.unavailableReason === 'OWNER_PAUSED'
+          ? 'The owner has paused this room type'
+          : 'Live availability not confirmed — call the owner';
+
   const requestBed = () =>
     router.push({
       pathname: '/confirm/[id]',
@@ -529,16 +570,20 @@ export default function ListingDetail() {
           // Anything less and the owner would receive a request nobody
           // finished making.
           disabled={
-            byStay
+            /* A room with no free bed is refused by the server, so the button
+               is off here rather than live-and-doomed. */
+            bedUnavailable
+            || (byStay
               ? !stayIntentComplete(intent, Boolean(listing.sharingOptions?.length)) || !consented
               : /* A listing that offers a choice of bed must have one picked.
                    The server validates the sharing label against the
                    property's own list and refuses a request without it, so
                    leaving the button live here only moved the refusal to a
                    screen where the student can no longer fix it. */
-                Boolean(listing.sharingOptions?.length) && !sharing
+                Boolean(listing.sharingOptions?.length) && !sharing)
           }
-          note={byStay ? '5 free requests per week' : 'Free to request · you pay only after the owner accepts'}
+          note={availabilityNote
+            ?? (byStay ? '5 free requests per week' : 'Free to request · you pay only after the owner accepts')}
           onMeasure={setCtaHeight}
         />
       ) : null}

@@ -23,6 +23,7 @@
    Property interface expects.
    ══════════════════════════════════════════════════════════════════════════ */
 const Property = require('./property.model');
+const { syncShareTypes } = require('../inventory/inventory.service');
 const { escapeRegex } = require('../../shared/utils/text');
 
 const number = (value, fallback = null) => {
@@ -158,6 +159,12 @@ const createProperty = async (req, res, next) => {
       isVerified: false,
       verificationStatus: 'pending',
     });
+
+    /* Bed counts become claimable rows. Awaited but never fatal — a property
+       whose inventory rows failed to write is one that cannot be requested
+       until the next save, which is a degraded listing rather than a lost
+       one. See inventory.service.js. */
+    await syncShareTypes(property);
 
     return res.status(201).json({
       success: true,

@@ -1,5 +1,5 @@
 {
-  "name": "@workspace/auth-mobile",
+  "name": "@lampose/user-app",
   "version": "0.0.0",
   "private": true,
   "main": "expo-router/entry",
@@ -63,5 +63,9 @@
     "typescript": "~5.9.2",
     "zod": "^3.24.1",
     "zod-validation-error": "^3.4.0"
+  },
+  "dependencies": {
+    "expo-device": "~8.0.10",
+    "expo-notifications": "~0.32.17"
   }
 }
