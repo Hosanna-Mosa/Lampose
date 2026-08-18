@@ -17,7 +17,11 @@ const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 
 const { withDatabase } = require('./helpers/db');
-const app = require('../app');
+/* `app.js` exports a factory, not an instance — see server.js, which builds
+   the real one with CORS middleware injected. These tests call it over
+   loopback, where no browser origin exists, so the CORS argument is omitted
+   and the app is assembled without it. */
+const createApp = require('../app');
 const config = require('../src/config/env');
 const Customer = require('../src/modules/customers/customer.model');
 const Partner = require('../src/modules/partners/partner.model');
@@ -42,7 +46,7 @@ let base;
 let outbox = [];
 
 before(async () => {
-  server = app.listen(0);
+  server = createApp().listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   base = `http://127.0.0.1:${server.address().port}`;
 

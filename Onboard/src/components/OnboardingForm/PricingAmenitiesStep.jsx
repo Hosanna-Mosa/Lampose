@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { IndianRupee, Clock, Calendar, Check, Sparkles, Upload, CloudUpload, AlertCircle, X, CheckCircle2, Plus, Star } from 'lucide-react';
+import FieldError, { errorBorder } from './FieldError.jsx';
 
 const PRESET_IMAGES = [
   { label: 'Cozy Room', url: 'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=800&q=80' },
@@ -30,6 +31,9 @@ const DEFAULT_FALLBACK_SPLASH = '/lampose-logo-splash.png';
 
 export default function PricingAmenitiesStep({ formData, onChange, errors = {} }) {
   const [customUrlInput, setCustomUrlInput] = useState('');
+  /* Local to this control: the URL box is not part of the property until Add
+     is pressed, so a bad link is answered here rather than at submit. */
+  const [urlError, setUrlError] = useState('');
 
   const selectedAmenities = Array.isArray(formData.amenities) ? formData.amenities : [];
   const currentStayType = formData.stayType === 'Short Stay' ? 'Short Stay' : 'Long Stay';
@@ -95,8 +99,20 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
   };
 
   const handleAddCustomUrl = () => {
-    if (!customUrlInput.trim()) return;
     const newUrl = customUrlInput.trim();
+    if (!newUrl) {
+      setUrlError('Paste a photo link first');
+      return;
+    }
+    if (!/^https?:\/\/\S+$/i.test(newUrl)) {
+      setUrlError('A photo link has to start with http:// or https://');
+      return;
+    }
+    if (localImages.some(img => img.url === newUrl || img.previewUrl === newUrl)) {
+      setUrlError('That photo is already in the list');
+      return;
+    }
+    setUrlError('');
     const newItem = {
       id: 'url_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
       url: newUrl,
@@ -225,8 +241,9 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label" style={{ color: '#181e1b' }}>Price per Day (₹) *</label>
+                  <label className="form-label" htmlFor="dailyPriceInput" style={{ color: '#181e1b' }}>Price per Day (₹) *</label>
                   <input
+                    id="dailyPriceInput"
                     type="number"
                     name="dailyPrice"
                     placeholder="e.g. 450.00"
@@ -236,7 +253,9 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
                       onChange({ target: { name: 'rent', value: e.target.value } });
                     }}
                     className="form-input"
+                    style={{ borderColor: errorBorder(errors.dailyPrice) }}
                   />
+                  <FieldError message={errors.dailyPrice} />
                 </div>
               </div>
             </div>
@@ -273,8 +292,9 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label" style={{ color: '#181e1b' }}>Price per Month (₹) *</label>
+                  <label className="form-label" htmlFor="monthlyPriceInput" style={{ color: '#181e1b' }}>Price per Month (₹) *</label>
                   <input
+                    id="monthlyPriceInput"
                     type="number"
                     name="monthlyPrice"
                     placeholder="e.g. 8500.00"
@@ -284,7 +304,14 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
                       onChange({ target: { name: 'rent', value: e.target.value } });
                     }}
                     className="form-input"
+                    style={{ borderColor: errorBorder(errors.monthlyPrice) }}
                   />
+                  <FieldError message={errors.monthlyPrice} />
+                  {formData.category === 'PG' && (
+                    <span style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', marginTop: '4px' }}>
+                      For a PG this fills itself from the cheapest sharing rent you enter above.
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -301,10 +328,11 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
           boxShadow: '0 2px 10px rgba(0,0,0,0.02)'
         }}>
           <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label" style={{ fontSize: '1rem', color: '#181e1b', fontWeight: 700, marginBottom: '8px' }}>
+            <label className="form-label" htmlFor="monthlyPriceInput" style={{ fontSize: '1rem', color: '#181e1b', fontWeight: 700, marginBottom: '8px' }}>
               Monthly Rent Amount (₹) *
             </label>
             <input
+              id="monthlyPriceInput"
               type="number"
               name="monthlyPrice"
               placeholder="e.g. 12000.00"
@@ -314,7 +342,9 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
                 onChange({ target: { name: 'rent', value: e.target.value } });
               }}
               className="form-input"
+              style={{ borderColor: errorBorder(errors.monthlyPrice) }}
             />
+            <FieldError message={errors.monthlyPrice} />
           </div>
         </div>
       )}
@@ -333,7 +363,9 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
             value={formData.deposit || ''}
             onChange={onChange}
             className="form-input"
+            style={{ borderColor: errorBorder(errors.deposit) }}
           />
+          <FieldError message={errors.deposit} />
         </div>
 
         {/* Address */}
@@ -349,13 +381,16 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
             value={formData.address || ''}
             onChange={onChange}
             className="form-input"
+            style={{ borderColor: errorBorder(errors.address) }}
           />
+          <FieldError message={errors.address} />
         </div>
 
         {/* ==================================================== */}
         {/* MULTI-PHOTO SELECTION & GALLERY (UPLOADS ON SUBMIT) */}
         {/* ==================================================== */}
-        <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+        <div id="propertyPhotos" className="form-group" style={{ gridColumn: '1 / -1' }}>
+          <FieldError message={errors.photos} />
           <label className="form-label" style={{ color: '#181e1b', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <CloudUpload size={18} color="#45855a" />
@@ -575,10 +610,10 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
                 type="url"
                 placeholder="Paste Image URL (https://...)"
                 value={customUrlInput}
-                onChange={(e) => setCustomUrlInput(e.target.value)}
+                onChange={(e) => { setCustomUrlInput(e.target.value); setUrlError(''); }}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddCustomUrl(); } }}
                 className="form-input"
-                style={{ flex: 1 }}
+                style={{ flex: 1, borderColor: errorBorder(urlError) }}
               />
               <button
                 type="button"
@@ -589,6 +624,7 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
                 Add URL
               </button>
             </div>
+            <FieldError message={urlError} />
           </div>
 
           {/* Quick Presets */}

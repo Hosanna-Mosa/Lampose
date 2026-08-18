@@ -62,7 +62,10 @@ router.get('/review/:token', async (req, res) => {
       Number(p.deposit) ? ['Deposit', `₹${Number(p.deposit).toLocaleString('en-IN')}`] : null,
       ['Mess / food', mess],
       ['Category', p.category || '—'],
-      ['Owner', `${p.ownerName || '—'} · ${p.ownerMobile || '—'}`],
+      ['Owner', `${p.ownerName || '—'} · ${p.ownerMobile || '—'} (WhatsApp)`],
+      /* Only when the agent recorded one — a row reading "—" would suggest a
+         second number was expected and missed, which is not the case. */
+      p.ownerAltMobile ? ['Alternate mobile', p.ownerAltMobile] : null,
       ['Onboarded by', p.employeeEmail || '—'],
     ].filter(Boolean);
 
@@ -77,22 +80,33 @@ router.get('/review/:token', async (req, res) => {
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex"><title>Verify: ${esc(p.name || 'Property')}</title>
 <style>
-  body{margin:0;background:#F1F2F4;color:#101214;font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
+  /* Every value here is owner-supplied: emails, addresses and property names
+     arrive as long unbroken strings and must wrap rather than push the card
+     wider than the phone. Hence break-word throughout and a fixed table
+     layout, without which the 38% label column is only a suggestion and the
+     value column grows to fit the longest word. */
+  *{box-sizing:border-box}
+  body{margin:0;background:#F1F2F4;color:#101214;font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif;overflow-wrap:break-word}
   .wrap{max-width:640px;margin:0 auto;padding:24px 16px 64px}
   .card{background:#fff;border:1px solid #E3E6EA;border-radius:16px;padding:20px;margin-top:16px}
-  h1{font-size:22px;margin:8px 0 2px;letter-spacing:-0.02em}
+  h1{font-size:22px;margin:8px 0 2px;letter-spacing:-0.02em;overflow-wrap:anywhere}
   .status{display:inline-block;font-size:12px;font-weight:700;padding:3px 12px;border-radius:999px;background:#fff;border:1.5px solid ${statusColor};color:${statusColor}}
-  .addr{color:#3D4247;margin:6px 0 0}
+  .addr{color:#3D4247;margin:6px 0 0;overflow-wrap:anywhere}
   .addr a{color:#17803D;font-weight:600}
-  table{width:100%;border-collapse:collapse;margin-top:4px}
-  td{padding:8px 0;border-top:1px solid #EEF0F3;vertical-align:top;font-size:14px}
+  table{width:100%;border-collapse:collapse;margin-top:4px;table-layout:fixed}
+  td{padding:8px 0;border-top:1px solid #EEF0F3;vertical-align:top;font-size:14px;overflow-wrap:anywhere;word-break:break-word}
   td:first-child{color:#5F6670;width:38%;padding-right:12px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:4px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:4px}
   .grid img{width:100%;height:140px;object-fit:cover;border-radius:10px;border:1px solid #E3E6EA;background:#E9EBEE}
   h2{font-size:15px;margin:0 0 8px}
   .amen{display:flex;flex-wrap:wrap;gap:6px}
-  .amen span{font-size:12px;background:#E9F5ED;color:#17803D;border:1px solid #B7D8C4;border-radius:999px;padding:2px 10px}
+  .amen span{font-size:12px;background:#E9F5ED;color:#17803D;border:1px solid #B7D8C4;border-radius:999px;padding:2px 10px;max-width:100%;overflow-wrap:anywhere}
   .foot{color:#5F6670;font-size:12.5px;margin-top:18px}
+  @media (max-width:420px){
+    .wrap{padding:20px 12px 56px}
+    .card{padding:16px;border-radius:14px}
+    td:first-child{width:42%;padding-right:10px}
+  }
 </style></head><body><div class="wrap">
   <span class="status">${esc(statusLabel)}</span>
   <h1>${esc(p.name || 'Property')}</h1>

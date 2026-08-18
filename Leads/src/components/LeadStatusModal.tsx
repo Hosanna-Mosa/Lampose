@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ScrapedLead, scraperApi } from '../api/scraperApi';
 import { User } from '../api/userApi';
+import { LEAD_STATUSES } from '../api/leadStatus';
 import { MapLocationButton } from './MapLocationButton';
 import { X, CheckCircle2, MessageSquare, Tag, Loader2, Building2, Phone, Globe, Clock } from 'lucide-react';
 
@@ -22,15 +23,7 @@ export const LeadStatusModal: React.FC<LeadStatusModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const statusOptions = [
-    { value: 'NEW', label: '🆕 New Lead', color: 'bg-slate-100 text-slate-600' },
-    { value: 'CONTACTED', label: '📞 Contacted / Called', color: 'bg-blue-100 text-blue-600' },
-    { value: 'INTERESTED', label: '🔥 Interested', color: 'bg-cyan-100 text-cyan-600' },
-    { value: 'QUALIFIED', label: '⭐ Qualified Opportunity', color: 'bg-amber-100 text-amber-600' },
-    { value: 'CALLBACK', label: '⏰ Call Back Requested', color: 'bg-purple-100 text-purple-600' },
-    { value: 'CLOSED_WON', label: '🎉 Closed Won / Client', color: 'bg-emerald-100 text-emerald-600' },
-    { value: 'CLOSED_LOST', label: '❌ Closed Lost', color: 'bg-rose-100 text-rose-600' },
-  ];
+  const statusOptions = LEAD_STATUSES;
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,10 +42,20 @@ export const LeadStatusModal: React.FC<LeadStatusModalProps> = ({
         onSuccess();
         onClose();
       } else {
-        setError(res.error || 'Failed to update lead status.');
+        setError(res.error || res.message || 'Failed to update lead status.');
       }
     } catch (err: any) {
-      setError(err.message || 'Error updating lead status.');
+      /* 403 is the server refusing a lead that is not this rep's. Saying so
+         plainly beats "Error updating lead status" — it is not a fault, it is
+         a boundary, and the rep needs to know which. */
+      const status = err?.response?.status;
+      setError(
+        status === 403
+          ? 'This lead is no longer assigned to you. Refresh your list.'
+          : status === 401
+            ? 'Your session has expired. Sign in again.'
+            : err?.response?.data?.error || err.message || 'Error updating lead status.'
+      );
     } finally {
       setLoading(false);
     }

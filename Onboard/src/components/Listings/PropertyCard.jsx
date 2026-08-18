@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Phone, ArrowRight, Clock, Calendar, Wifi, ShieldCheck, Utensils, Zap, Sparkles, Lock, ChevronLeft, ChevronRight } from 'lucide-react';
+import { MapPin, Phone, ArrowRight, Clock, Calendar, Wifi, ShieldCheck, Utensils, Zap, Sparkles, Lock, ChevronLeft, ChevronRight, UserCheck } from 'lucide-react';
 
 export default function PropertyCard({ property, onViewDetails }) {
   const {
@@ -16,8 +16,12 @@ export default function PropertyCard({ property, onViewDetails }) {
     images = [],
     amenities = [],
     verificationStatus,
-    isVerified
+    isVerified,
+    employeeEmail,
+    empEmail
   } = property;
+
+  const activeEmpEmail = employeeEmail || empEmail;
 
   const allImages = Array.isArray(images) && images.length > 0 ? images : (imageUrl ? [imageUrl] : []);
   const [currentImgIndex, setCurrentImgIndex] = useState(0);
@@ -315,10 +319,20 @@ export default function PropertyCard({ property, onViewDetails }) {
         </h3>
 
         {/* Location Tag */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b', fontSize: '0.85rem', marginBottom: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b', fontSize: '0.85rem', marginBottom: '8px' }}>
           <MapPin size={14} color="#45855a" style={{ flexShrink: 0 }} />
           <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{place}</span>
         </div>
+
+        {/* Employee Onboarder Tag */}
+        {activeEmpEmail && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', color: '#45855a', fontWeight: 600, marginBottom: '10px' }}>
+            <UserCheck size={13} color="#45855a" />
+            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              Added by: {activeEmpEmail}
+            </span>
+          </div>
+        )}
 
         {/* Featured Mini Amenities Chips */}
         {topAmenities.length > 0 && (

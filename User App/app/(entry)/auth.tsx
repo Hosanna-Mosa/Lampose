@@ -47,6 +47,7 @@ export default function AuthScreen() {
   const [mode, setMode] = useState<Mode>('Sign up');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [referralCode, setReferralCode] = useState('');
   const [digits, setDigits] = useState('');
   const [touched, setTouched] = useState(false);
 
@@ -65,7 +66,7 @@ export default function AuthScreen() {
 
     const result = await sendCode(
       `+91${digits}`,
-      signingUp ? { name: name.trim(), email: email.trim() } : undefined,
+      signingUp ? { name: name.trim(), email: email.trim(), referralCode: referralCode.trim() } : undefined,
     );
 
     /*
@@ -137,6 +138,7 @@ export default function AuthScreen() {
             if (nextMode === 'Sign in') {
               setName('');
               setEmail('');
+              setReferralCode('');
             }
           }}
           accessibilityLabel="Sign in or sign up"
@@ -163,6 +165,15 @@ export default function AuthScreen() {
               autoCapitalize="none"
               textContentType="emailAddress"
               helper="For receipts and the agreement PDF."
+            />
+            <TextField
+              label="Referral code"
+              optional
+              value={referralCode}
+              onChangeText={setReferralCode}
+              placeholder="e.g. LAMPOSE50"
+              autoCapitalize="characters"
+              helper="Have a referral code from a friend? Enter it here."
             />
           </>
         ) : null}

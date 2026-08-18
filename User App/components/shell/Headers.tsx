@@ -74,17 +74,17 @@ export function ExploreHeader({
           onPress={onPressLocality}
           accessibilityRole="button"
           accessibilityLabel={`Looking in ${locality}${city ? `, ${city}` : ''}. Change location.`}
-          style={[styles.flex, { gap: 1 }]}
+          style={[styles.flex, { gap: 1, marginRight: space[3] }]}
         >
           <Text variant="caption" color="tertiary">
             Looking in
           </Text>
           <View style={[styles.row, { gap: space[1] }]}>
-            <Text variant="title2" numberOfLines={1}>
+            <Text variant="title3" numberOfLines={1} style={{ flexShrink: 1 }}>
               {locality}
               {city ? `, ${city}` : ''}
             </Text>
-            <Icon name="chevronRight" size={20} color={colors.textSecondary} />
+            <Icon name="chevronRight" size={16} color={colors.textSecondary} />
           </View>
         </Pressable>
 

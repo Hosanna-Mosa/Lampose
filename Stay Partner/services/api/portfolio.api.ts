@@ -1,4 +1,4 @@
-import { api, unwrap, type ApiEnvelope } from './client';
+import { api, apiRequest, unwrap, type ApiEnvelope } from './client';
 import { endpoints } from './endpoints';
 import type {
   BackendListing,
@@ -9,10 +9,14 @@ import type {
 /**
  * What this partner owns, and who has asked about it.
  *
- * Both read data that already existed before this app did — the onboarding
- * flow wrote the properties, the User App's "Request a visit" wrote the
- * requests. Nothing here creates anything, which is exactly why these are the
- * first screens that can be real without a new domain being invented first.
+ * The two GETs below read data that already existed before this app did — the
+ * onboarding flow wrote the properties, the User App's "Request a visit" wrote
+ * the requests.
+ *
+ * `updateMyProperty` and `uploadPropertyImages` are the exception: they write.
+ * See `propertyEdit.controller.js` on the backend for the shape of that
+ * write — scoped to a property this partner's phone number owns, with no
+ * administrator review before it lands.
  *
  * Scoping happens on the SERVER, by the phone number the partner proved. It is
  * worth saying why that matters: filtering a public feed client-side by owner
@@ -141,4 +145,102 @@ export async function declineRequest(
     { signal },
   );
   return unwrap(envelope);
+}
+
+/* ------------------------------------------------------------------ *
+ * Editing a listing
+ * ------------------------------------------------------------------ */
+
+/** One of this partner's own properties, every onboarding field included. */
+export async function fetchMyProperty(id: string, signal?: AbortSignal): Promise<BackendListing> {
+  const envelope = await api.get<ApiEnvelope<BackendListing>>(
+    endpoints.partnerProperty(id),
+    { signal },
+  );
+  return unwrap(envelope);
+}
+
+
+/**
+ * What the edit screen may send. Every field is optional because a save only
+ * carries what actually changed — see `propertyEdit.controller.js`'s
+ * `applyEditableFields` for how each one is validated.
+ *
+ * `ownerMobile`, if sent, is accepted only when it equals the number this
+ * session itself proved; anything else comes back as a 400 the screen shows
+ * as-is, because the server's message already says why.
+ */
+export type UpdatePropertyInput = {
+  name?: string;
+  place?: string;
+  ownerName?: string;
+  ownerMobile?: string;
+  category?: string;
+  stayType?: string;
+  shortStayDuration?: string;
+  longStayDuration?: string;
+  dailyPrice?: number;
+  monthlyPrice?: number;
+  rent?: number;
+  deposit?: number;
+  address?: string;
+  description?: string;
+  images?: string[];
+  amenities?: string[];
+  categoryDetails?: Record<string, unknown>;
+};
+
+export async function updateMyProperty(
+  id: string,
+  input: UpdatePropertyInput,
+  signal?: AbortSignal,
+): Promise<BackendListing> {
+  const envelope = await api.patch<ApiEnvelope<BackendListing>>(
+    endpoints.partnerProperty(id),
+    input,
+    { signal },
+  );
+  return unwrap(envelope);
+}
+
+/** What Cloudinary gave back for one property photograph. */
+export type PropertyImage = { url: string; publicId: string };
+
+/**
+ * Uploads property photographs.
+ *
+ * `multipart/form-data`, not base64 JSON — see `uploadKycImages` in
+ * `addCustomer.api.ts` for why. `apiRequest` is used directly for the same
+ * reason: the client would otherwise set `Content-Type: application/json` and
+ * strip the boundary `fetch` needs to write itself.
+ */
+export async function uploadPropertyImages(
+  images: { uri: string; name?: string; mimeType?: string }[],
+  signal?: AbortSignal,
+): Promise<PropertyImage[]> {
+  const form = new FormData();
+
+  images.forEach((image, index) => {
+    form.append('images', {
+      uri: image.uri,
+      name: image.name ?? `property-${index + 1}.jpg`,
+      type: image.mimeType ?? 'image/jpeg',
+      // React Native's FormData takes this shape; the DOM typings do not.
+    } as unknown as Blob);
+  });
+
+  const envelope = await apiRequest<ApiEnvelope<PropertyImage[]>>(
+    endpoints.partnerPropertyImageUpload,
+    {
+      method: 'POST',
+      body: form,
+      signal,
+      /* Several photographs over a phone connection. The default 15s deadline
+         fails a multi-image upload on anything short of good wifi. */
+      timeoutMs: 90_000,
+    },
+  );
+
+  const data = unwrap(envelope);
+  return Array.isArray(data) ? data : [];
 }

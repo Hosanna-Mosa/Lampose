@@ -3,6 +3,8 @@ import { scraperApi, ScrapedLead, ScrapeJob } from '../api/scraperApi';
 import { User } from '../api/userApi';
 import { AssignLeadsModal } from '../components/AssignLeadsModal';
 import { LeadDetailModal } from '../components/LeadDetailModal';
+import { leadStatusMeta, timeAgo } from '../api/leadStatus';
+import { Pagination } from '../components/Pagination';
 import { MapLocationButton } from '../components/MapLocationButton';
 import { Search, Download, Star, Eye, RefreshCw, Building2, UserCheck, CheckSquare, Square, Filter } from 'lucide-react';
 
@@ -22,6 +24,9 @@ export const ScrapedLeadsDashboard: React.FC<ScrapedLeadsDashboardProps> = ({ cu
   const [phoneFilter, setPhoneFilter] = useState('ALL');
   const [websiteFilter, setWebsiteFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+  const [pageInfo, setPageInfo] = useState({ total: 0, pages: 1 });
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedLead, setSelectedLead] = useState<ScrapedLead | null>(null);
@@ -49,10 +54,13 @@ export const ScrapedLeadsDashboard: React.FC<ScrapedLeadsDashboardProps> = ({ cu
         source: sourceFilter !== 'ALL' ? sourceFilter : undefined,
         hasPhone: phoneFilter === 'YES' ? 'true' : undefined,
         hasWebsite: websiteFilter === 'YES' ? 'true' : undefined,
-        leadStatus: statusFilter !== 'ALL' ? statusFilter : undefined
+        leadStatus: statusFilter !== 'ALL' ? statusFilter : undefined,
+        page,
+        limit
       });
       if (res.success) {
         setLeads(res.data || []);
+        setPageInfo({ total: res.total ?? res.count ?? 0, pages: res.pages ?? 1 });
       }
     } catch (err) {
       console.error('Error fetching leads:', err);
@@ -73,7 +81,14 @@ export const ScrapedLeadsDashboard: React.FC<ScrapedLeadsDashboardProps> = ({ cu
 
   useEffect(() => {
     fetchLeads();
-  }, [search, selectedJobId, sourceFilter, phoneFilter, websiteFilter, statusFilter]);
+  }, [search, selectedJobId, sourceFilter, phoneFilter, websiteFilter, statusFilter, page, limit]);
+
+  /* Any change to what is being asked for sends the reader back to page 1.
+     Staying on page 7 of a filter that now has two pages shows an empty table
+     and no reason for it. */
+  useEffect(() => {
+    setPage(1);
+  }, [search, selectedJobId, sourceFilter, phoneFilter, websiteFilter, statusFilter, limit]);
 
   const toggleSelectLead = (id: string) => {
     if (selectedLeadIds.includes(id)) {
@@ -322,9 +337,17 @@ export const ScrapedLeadsDashboard: React.FC<ScrapedLeadsDashboardProps> = ({ cu
                     </td>
 
                     <td className="py-3.5 px-4">
-                      <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-3xs font-bold">
-                        {l.leadStatus || 'NEW'}
+                      {/* The rep's own colour, not a generic grey one — this cell
+                          is the admin's view of what the employee did. */}
+                      <span className={`px-2 py-0.5 rounded-md border text-3xs font-bold whitespace-nowrap ${leadStatusMeta(l.leadStatus).chip}`}>
+                        {leadStatusMeta(l.leadStatus).short}
                       </span>
+                      {l.lastActivityAt && (
+                        <div className="mt-1 text-3xs text-slate-400 whitespace-nowrap">
+                          {l.lastActivityBy?.name ? `by ${l.lastActivityBy.name} · ` : ''}
+                          {timeAgo(l.lastActivityAt)}
+                        </div>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-4">
@@ -367,6 +390,17 @@ export const ScrapedLeadsDashboard: React.FC<ScrapedLeadsDashboardProps> = ({ cu
             </tbody>
           </table>
         </div>
+
+        <Pagination
+          page={page}
+          pages={pageInfo.pages}
+          total={pageInfo.total}
+          count={leads.length}
+          limit={limit}
+          onPageChange={setPage}
+          onLimitChange={setLimit}
+          noun="leads"
+        />
       </div>
 
       {/* Assign Modal */}

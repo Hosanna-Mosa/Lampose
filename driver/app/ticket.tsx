@@ -5,15 +5,14 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Chip, Icon, Toast, TopBar } from "@/components/ui";
+import { Chip, Icon, Text, Toast, TopBar } from "@/components/ui";
 import { CHAT } from "@/constants/lampose";
 import { useFlowStore } from "@/store/flowStore";
-import { colors, font, ms, radius, space } from "@/theme";
+import { colors, layout, radius, resolveFontFamily, space, type as typeScale } from "@/theme";
 
 type Message = { me: boolean; t: string; at: string };
 
@@ -34,62 +33,57 @@ export default function TicketScreen() {
     say("Message sent to support.");
   };
 
+  const canSend = !!draft.trim();
+
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <View style={{ paddingTop: insets.top }}>
-        <TopBar back="Support" center="TCK-3391" />
-      </View>
+    <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <TopBar back="Support" title="TCK-3391" />
 
       <View style={styles.subject}>
-        <Text style={styles.subjectTitle}>Payment missing for #LP48102</Text>
-        <Chip label="Open" tone={colors.warn} style={{ marginTop: ms(8) }} />
+        <Text variant="display2">Payment missing for #LP48102</Text>
+        <Chip label="Open" tone="warning" glyph="clock" style={{ marginTop: space[2] }} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.thread}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView contentContainerStyle={styles.thread} showsVerticalScrollIndicator={false}>
         {messages.map((m, i) => (
-          <View
-            key={`${m.at}-${i}`}
-            style={[styles.row, { alignItems: m.me ? "flex-end" : "flex-start" }]}
-          >
+          <View key={`${m.at}-${i}`} style={[styles.row, { alignItems: m.me ? "flex-end" : "flex-start" }]}>
             <View style={[styles.bubble, m.me ? styles.bubbleMe : styles.bubbleThem]}>
-              <Text style={[styles.bubbleText, m.me && { color: colors.bg }]}>{m.t}</Text>
+              <Text variant="bodyLg" color={m.me ? "onGraphite" : "primary"}>
+                {m.t}
+              </Text>
             </View>
-            <Text style={styles.at}>{m.at}</Text>
+            <Text variant="numMeta" color="tertiary">
+              {m.at}
+            </Text>
           </View>
         ))}
       </ScrollView>
 
-      <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, ms(12)) }]}>
+      <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, space[3]) }]}>
         <TextInput
           style={styles.input}
           value={draft}
           onChangeText={setDraft}
           placeholder="Write a reply…"
-          placeholderTextColor={colors.neutral500}
+          placeholderTextColor={colors.textTertiary}
           multiline
         />
         <Pressable
           onPress={send}
-          disabled={!draft.trim()}
+          disabled={!canSend}
           accessibilityRole="button"
           accessibilityLabel="Send reply"
+          accessibilityState={{ disabled: !canSend }}
           style={({ pressed }) => [
             styles.send,
-            !draft.trim() && { opacity: 0.4 },
-            pressed && { opacity: 0.7 },
+            { backgroundColor: canSend ? (pressed ? colors.brandPressed : colors.brand) : colors.surfaceSunken },
           ]}
         >
-          <Icon name="arrowRight" size={ms(18)} color={colors.bg} strokeWidth={1.8} />
+          <Icon name="arrowRight" size={18} color={canSend ? colors.onBrand : colors.textTertiary} />
         </Pressable>
       </View>
 
-      <Toast message={toast} top={insets.top + ms(8)} />
+      <Toast message={toast} top={insets.top + space[2]} />
     </KeyboardAvoidingView>
   );
 }
@@ -97,70 +91,52 @@ export default function TicketScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   subject: {
-    paddingHorizontal: space[4],
-    paddingBottom: ms(14),
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
+    paddingHorizontal: layout.gutter,
+    paddingBottom: space[3],
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
-  subjectTitle: {
-    ...font.heading,
-    fontSize: ms(22),
-    lineHeight: ms(26),
-    color: colors.text,
-  },
-  thread: { padding: space[4], gap: ms(14) },
-  row: { gap: ms(4) },
-  bubble: {
-    maxWidth: "82%",
-    paddingHorizontal: ms(14),
-    paddingVertical: ms(12),
-    borderRadius: radius.lg,
-  },
-  bubbleMe: { backgroundColor: colors.ink },
+  thread: { padding: layout.gutter, gap: space[3] },
+  row: { gap: space[1] },
+  bubble: { maxWidth: "82%", paddingHorizontal: space[3], paddingVertical: space[3], borderRadius: radius.card },
+  bubbleMe: { backgroundColor: colors.graphite },
   bubbleThem: {
-    backgroundColor: colors.neutral100,
-    borderWidth: 1,
-    borderColor: colors.divider,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
   },
-  bubbleText: {
-    ...font.body,
-    fontSize: ms(13.5),
-    lineHeight: ms(20),
-    color: colors.text,
-  },
-  at: {
-    ...font.body,
-    fontSize: ms(10.5),
-    color: colors.neutral500,
-    fontVariant: ["tabular-nums"],
-  },
+
   composer: {
     flexDirection: "row",
     alignItems: "flex-end",
-    gap: ms(9),
-    paddingHorizontal: space[4],
-    paddingTop: ms(12),
-    borderTopWidth: 1,
-    borderTopColor: colors.divider,
+    gap: space[2],
+    paddingHorizontal: layout.gutter,
+    paddingTop: space[3],
+    backgroundColor: colors.surface,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
   },
   input: {
     flex: 1,
-    minHeight: ms(42),
-    maxHeight: ms(110),
-    borderWidth: 1,
-    borderColor: colors.divider,
-    borderRadius: radius.md,
-    paddingHorizontal: ms(12),
-    paddingVertical: ms(10),
-    ...font.body,
-    fontSize: ms(14),
-    color: colors.text,
+    minHeight: 44,
+    maxHeight: 112,
+    borderWidth: 1.5,
+    borderColor: colors.borderInput,
+    borderRadius: radius.button,
+    paddingHorizontal: space[3],
+    paddingVertical: space[2] + 2,
+    backgroundColor: colors.surface,
+    // The composer is a raw TextInput, so it cannot go through `Text` — the
+    // one place in the app that names a family and a size by hand.
+    fontFamily: resolveFontFamily("body", 400),
+    fontSize: typeScale.bodyLg.size,
+    lineHeight: typeScale.bodyLg.lineHeight,
+    color: colors.textPrimary,
   },
   send: {
-    width: ms(42),
-    height: ms(42),
-    borderRadius: radius.md,
-    backgroundColor: colors.ink,
+    width: 44,
+    height: 44,
+    borderRadius: radius.button,
     alignItems: "center",
     justifyContent: "center",
   },

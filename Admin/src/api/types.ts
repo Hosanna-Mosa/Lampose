@@ -75,7 +75,10 @@ export interface PropertyEntity {
   address: string;
   category: PropertyCategory | string;
   ownerName: string;
+  /** The number the WhatsApp verification chain runs on. */
   ownerMobile: string;
+  /** Optional second number the onboarding agent recorded; '' when none. */
+  ownerAltMobile: string;
   employeeEmail: string;
   stayType: string;
   shortStayDuration: string;

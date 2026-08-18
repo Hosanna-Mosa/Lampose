@@ -42,7 +42,7 @@ The backend listens on **5001** (`PORT` overrides). Watch the fallbacks — two 
 | --- | --- | --- |
 | Frontend | `VITE_API_BASE_URL` | `http://localhost:5000/api` (**wrong port**) |
 | Admin | `VITE_API_BASE_URL` | `http://localhost:5001/api` |
-| Onboard | `VITE_API_URL` (note: different name, points at `…/api/properties`) | `http://localhost:5000/api/properties` (**wrong port**) |
+| Onboard | `VITE_API_BASE_URL` (the API root, ending `/api`) | `http://localhost:5001/api`, with a loud console warning |
 
 ## Backend architecture (the parts that span files)
 
@@ -54,6 +54,7 @@ The backend listens on **5001** (`PORT` overrides). Watch the fallbacks — two 
 - **Visit-request safety orderings** (do not reorder): owner is contacted only after the customer's SMS OTP verifies; the owner's phone number is read from the `properties` document, never the request body; every price is re-derived server-side by `stayIntent.util.js`.
 - **Nothing exits the process.** Every missing dependency (Mongo, SMS, Twilio, JWT_SECRET, Playwright) degrades to a named 503 on just the affected routes; Mongo-down additionally puts v1 on an in-memory fallback store. Keep this property when adding features: no credential fallbacks in source, degrade loudly per-route.
 - `requestLogger` is the first middleware (before CORS) so blocked origins and 404s are visible; passwords/tokens are redacted, base64 images collapsed.
+- **CORS lives only in `server.js`.** `ALLOWED_ORIGINS` is a hand-edited array at the top of that file; `app.js` is a factory that takes the built middleware as an argument, because CORS has to be installed before the routes it registers. There is no CORS env var and no `config/cors.js`.
 
 ## Backend sharp edges
 

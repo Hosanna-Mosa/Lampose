@@ -11,6 +11,8 @@
      leads.lampose.com    → /api/v2/{auth,users,scraper,properties}
      onboard.lampose.com  → /api/v1/{properties,permissions,…}  + /api/v2/auth
    ══════════════════════════════════════════════════════════════════════════ */
+const cors = require('cors');
+
 const config = require('./src/config/env');
 const { configErrors, configWarnings } = require('./src/config/env');
 const { connectDB, closeConnections, getIsInMemory } = require('./src/infrastructure/database/db');
@@ -21,8 +23,147 @@ const { startExpiryWorker, stopExpiryWorker, setExpiryHandler } = require('./src
 const { notifyExpired } = require('./src/modules/notifications/stayRequest.notifier');
 const { logSmsStatus } = require('./src/infrastructure/sms/sms');
 const { routeMap } = require('./routes');
-const app = require('./app');
-const { allowedOrigins } = app;
+const createApp = require('./app');
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ██  CORS — EDIT THIS BLOCK. NOTHING ELSE DECIDES WHO MAY CALL THIS API.  ██
+   ══════════════════════════════════════════════════════════════════════════
+
+   Add a frontend's origin to ALLOWED_ORIGINS below and restart. That is the
+   whole procedure. There is no ALLOWED_ORIGINS env var any more, no list in
+   config/env.js, and no allowlist in nginx — one place, on purpose, because
+   a CORS failure at 2am is not the moment to discover the answer lives in a
+   third file.
+
+   An ORIGIN is scheme + host + port and NOTHING else:
+
+     OK   https://onboard.lampose.com
+     NO   https://onboard.lampose.com/         <- trailing slash
+     NO   https://onboard.lampose.com/api      <- path
+     NO   onboard.lampose.com                  <- no scheme
+
+   Trailing slashes and casing are normalised for you; a path is not. A
+   browser never sends a path in the Origin header, so an entry carrying one
+   can never match anything.
+
+   Do NOT also set Access-Control-Allow-Origin in nginx. This app sets it,
+   and two of the same header is a hard failure in every browser — which
+   presents exactly like a missing allowlist entry.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const ALLOWED_ORIGINS = [
+  // -- Production frontends ----------------------------------------------
+  'https://lampose.com',
+  'https://www.lampose.com',
+  'https://onboard.lampose.com',
+  'https://leads.lampose.com',
+
+  // The API's own hosts, for tools and same-host pages.
+  'https://api.lampose.com',
+  'https://api.leads.lampose.com',
+
+  // -- Local development --------------------------------------------------
+  'http://localhost:3000',
+  'http://localhost:4173',
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+  'http://localhost:8004',
+  'http://localhost:8020',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:4173',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  'http://127.0.0.1:5175',
+
+  /* Expo web. 8081 is Metro's own port and the origin `expo start --web`
+     serves the User App and the driver app from; 19006 is the older web
+     port. A native build sends no Origin header at all and never reaches
+     this list — see the `!origin` case below. */
+  'http://localhost:8081',
+  'http://localhost:19006',
+  'http://127.0.0.1:8081',
+  'http://127.0.0.1:19006',
+];
+
+/* Hosts that change on every deploy cannot be listed one by one, so they are
+   matched by shape. Keep this short: every pattern is a hole in the
+   allowlist, and the first one already covers any *.lampose.com subdomain
+   you were about to add above. */
+const ALLOWED_ORIGIN_PATTERNS = [
+  /^https:\/\/([a-z0-9-]+\.)*lampose\.com$/i,
+  /^https:\/\/([a-z0-9-]+\.)*(vercel\.app|netlify\.app|onrender\.com|railway\.app|fly\.dev)$/i,
+];
+
+/* Outside production an unlisted origin is almost always a teammate on a
+   different Vite port, not an attacker. In production it is refused. */
+const ALLOW_UNLISTED_IN_DEV = true;
+
+/* -- Below here is policy, not configuration. Change with care. ----------- */
+
+/** Compare on the origin alone: no trailing slash, no case. */
+const normalizeOrigin = (origin) => String(origin || '').trim().replace(/\/+$/, '').toLowerCase();
+
+const NORMALIZED_ORIGINS = ALLOWED_ORIGINS.map(normalizeOrigin);
+
+const isOriginAllowed = (origin) => {
+  /* No Origin header at all: curl, Postman, the Twilio webhooks, uptime
+     probes, React Native. None of these are browser cross-origin requests,
+     so CORS has no opinion on them. Refusing here would break the WhatsApp
+     verification chain rather than secure it. */
+  if (!origin) return true;
+
+  const clean = normalizeOrigin(origin);
+  if (NORMALIZED_ORIGINS.includes(clean)) return true;
+  if (ALLOWED_ORIGIN_PATTERNS.some((pattern) => pattern.test(clean))) return true;
+
+  return ALLOW_UNLISTED_IN_DEV && !config.isProduction;
+};
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (isOriginAllowed(origin)) return callback(null, true);
+
+    /* Answer without the CORS headers rather than throwing. Throwing turns a
+       browser policy decision into a 500 from the error handler: a confusing
+       log line, and a response the browser blocks either way. */
+    console.warn(`🚫 [CORS] Blocked origin "${origin}" — add it to ALLOWED_ORIGINS in server.js`);
+    return callback(null, false);
+  },
+  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  /* A browser preflight rejects any header the server did not allow, so a
+     header the frontends send has to be named here or the call never
+     happens. */
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'Accept',
+    'Origin',
+    'Cache-Control',
+    'X-Requested-With',
+    'X-Correlation-ID',
+    'x-employee-email', // Identifies the field agent on gated v1 writes
+    'x-user-email',
+    /* Every Lampose client names itself. These are the only thing that
+       identifies a React Native app in the log, since it sends no Origin. */
+    'X-Client',
+    'X-Client-Version',
+    'X-Request-Id',
+  ],
+  /* Without Content-Disposition the leads panel cannot read the filename the
+     server chose for a CSV fetched with XHR rather than opened in a tab. */
+  exposedHeaders: ['Content-Disposition', 'Content-Length'],
+  /* `credentials: true` and `Access-Control-Allow-Origin: *` are mutually
+     exclusive in every browser. Because `origin` above is a function, the
+     cors package echoes the actual request origin instead of `*`, so the
+     Authorization header keeps working. */
+  credentials: true,
+  maxAge: 86400, // Cache the preflight for a day
+  /* Safari and some corporate proxies choke on 204 for a preflight. */
+  optionsSuccessStatus: 200,
+};
+
+const app = createApp({ corsMiddleware: cors(corsOptions) });
 
 const banner = () => {
   const map = routeMap();
@@ -62,9 +203,11 @@ const banner = () => {
     console.log(`   ${path.padEnd(26)} → ${servedBy}`);
   });
 
-  console.log('\n🌍 CORS allowed origins');
-  allowedOrigins.forEach((origin) => console.log(`   - ${origin}`));
-  console.log('   + any *.lampose.com, localhost, and preview host (see config/env.js patterns)');
+  console.log('\n🌍 CORS allowed origins  (edit ALLOWED_ORIGINS at the top of server.js)');
+  ALLOWED_ORIGINS.forEach((origin) => console.log(`   - ${origin}`));
+  ALLOWED_ORIGIN_PATTERNS.forEach((pattern) => console.log(`   ~ ${pattern}`));
+  console.log('   · no Origin header (curl, Twilio, uptime probes, native apps) always passes');
+  console.log(`   · an unlisted origin is ${ALLOW_UNLISTED_IN_DEV && !config.isProduction ? 'ALLOWED (non-production)' : 'REFUSED'}`);
 
   console.log(`\n${line}\n`);
 };

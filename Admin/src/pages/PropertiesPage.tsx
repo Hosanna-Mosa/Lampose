@@ -712,7 +712,10 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                 <section>
                   <h3 className="text-micro uppercase text-ink-3 mb-1">Owner</h3>
                   <DataRow label="Name" value={selected.ownerName || '—'} />
-                  <DataRow label="Mobile" value={selected.ownerMobile || '—'} mono />
+                  <DataRow label="WhatsApp" value={selected.ownerMobile || '—'} mono />
+                  {selected.ownerAltMobile && (
+                    <DataRow label="Mobile" value={selected.ownerAltMobile} mono />
+                  )}
                 </section>
 
                 <section>

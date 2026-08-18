@@ -306,7 +306,7 @@ const getSummary = async (req, res, next) => {
 
     const counted = (status) => requests.filter((request) => request.status === status).length;
 
-    const { PartnerBooking, PartnerPayout, PartnerComplaint, PartnerShareType } = require('./partnerDomains.model');
+    const { PartnerBooking, PartnerPayout, PartnerComplaint } = require('./partnerDomains.model');
 
     const bookings = key ? await PartnerBooking.find({ partnerPhoneDigits: key }).lean() : [];
     const inHouse = bookings.filter((b) => b.status === 'in_house').length;
@@ -350,8 +350,12 @@ const getSummary = async (req, res, next) => {
       .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
     const complaints = key ? await PartnerComplaint.find({ partnerPhoneDigits: key, status: { $in: ['open', 'in_progress'] } }).lean() : [];
-    const shareTypes = key ? await PartnerShareType.find({ partnerPhoneDigits: key }).lean() : [];
-    const isAvailable = shareTypes.length > 0 ? shareTypes.some((st) => st.isAvailable) : true;
+    /* Not derived from `PartnerShareType` — nothing in this codebase ever
+       creates one of those documents (only `find`/`updateMany` exist), so
+       deriving "accepting bookings" from it was always reading an empty
+       collection. It's a real flag on the partner record now; see the note
+       on `acceptingBookings` in `partner.model.js` for why. */
+    const isAvailable = Boolean(partner.acceptingBookings);
 
     return res.json({
       success: true,

@@ -14,11 +14,12 @@ const partnerBookingSchema = new mongoose.Schema(
     checkInDate: { type: String, required: true },
     /*
      * Empty means open-ended, and that is a real answer rather than missing
-     * data. A long stay has no agreed end date until somebody gives notice —
-     * the Add Customer form asks for one because a walk-in owner usually has
-     * a date in mind, but a request accepted from the User App often does
-     * not, and inventing one would put a departure in the owner's list that
-     * neither party agreed to.
+     * data. A PG stay is ordinarily open-ended at move-in: the Add Customer
+     * form asks for a date because a walk-in owner usually has one in mind,
+     * and a request accepted from the User App often does not.
+     *
+     * '' is "not set yet", never a placeholder date. The real end of a stay
+     * is `checkOutBooking` — an owner action — not this field.
      */
     checkOutDate: { type: String, default: '' },
     status: {
@@ -86,29 +87,30 @@ const partnerBookingSchema = new mongoose.Schema(
     movedInByStudentAt: { type: Date, default: null },
 
     /**
-     * Identity documents, collected only on the manual path.
+     * Identity, collected only on the manual path.
      *
-     * `aadharNumber` is stored as the twelve digits with no formatting, so a
-     * search does not depend on how somebody spaced it.
-     *
-     * `aadharImages` holds Cloudinary results rather than the image bytes —
-     * `publicId` alongside `url` because a delete needs the id, and a URL
-     * cannot be turned back into one reliably.
+     * `documents` is a physical checklist, not a digital archive — a name the
+     * owner typed (Aadhar card, PAN, Voter ID, whatever the guest actually
+     * produced) and whether they have genuinely seen it. This replaced an
+     * Aadhar number plus a Cloudinary photograph: nothing here uploads an
+     * image, so there is no scan of anyone's ID sitting on a CDN to protect
+     * or to delete.
      *
      * `verifiedAt` is set ONLY by the server, and only after a code sent to
      * `verifiedPhone` came back correct. The client cannot assert it: an owner
      * marking their own walk-in as "verified" is exactly the claim this field
-     * exists to make trustworthy.
+     * exists to make trustworthy. This is unrelated to `documents` — proving a
+     * phone number and confirming physical ID are two different checks, and
+     * this schema keeps them that way.
      */
     kyc: {
       address: { type: String, default: '' },
-      aadharNumber: { type: String, default: '' },
-      aadharImages: {
+      documents: {
         type: [
           {
             _id: false,
-            url: { type: String, required: true },
-            publicId: { type: String, default: '' },
+            name: { type: String, required: true },
+            collected: { type: Boolean, default: false },
           },
         ],
         default: [],
@@ -244,6 +246,14 @@ const partnerReferralSchema = new mongoose.Schema(
         date: { type: String, required: true },
         status: { type: String, default: 'Joined' },
         rewardPoints: { type: Number, default: 100 },
+        /* 'owner' — another owner joined through this partner's refer-a-
+           partner code. 'customer' — a guest joined the User App through one
+           of this partner's invite codes. See customerReferral.controller.js
+           for the second kind; nothing in this codebase writes the first yet. */
+        type: { type: String, enum: ['owner', 'customer'], default: 'owner' },
+        /* Only ever set on a 'customer' entry — which property the guest was
+           invited through, so the row can read "via Sunrise PG". */
+        propertyName: { type: String, default: '' },
       },
     ],
   },

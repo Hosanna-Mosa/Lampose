@@ -156,7 +156,23 @@ export default function RequestDetailScreen() {
   }
 
   const outcome = outcomeCopy(request);
-  const pending = request.status === 'pending_owner';
+
+  /*
+   * Two channels reach this screen, and only one of them is answered here.
+   *
+   * `app` is a signed-in student asking a signed-in owner: minutes on a
+   * clock, Accept and Decline below. `web` is a guest on lampose.com, whose
+   * owner is messaged on WhatsApp and replies AVAILABLE there — that flow
+   * still runs, and answering it with these buttons would leave the guest
+   * waiting on a WhatsApp reply that never comes.
+   *
+   * So a web request is shown, and says where to answer it.
+   */
+  // Tested as "not app" rather than "is web" on purpose: `channel` was added
+  // with the stay-request flow, so every row written before it is a website
+  // request carrying no channel at all. Those must not get Accept buttons.
+  const isWeb = request.channel !== 'app';
+  const pending = request.status === 'pending_owner' && !isWeb;
 
   const onAccept = () => {
     answer.accept.mutate(undefined, {
@@ -230,6 +246,17 @@ export default function RequestDetailScreen() {
               : 'Checking…'}
           </Text>
         </View>
+      ) : null}
+
+      {isWeb && request.status === 'pending_owner' ? (
+        <Card>
+          <Text variant="cardTitle">Answer this on WhatsApp</Text>
+          <Text variant="body" style={{ color: c.textSecondary, marginTop: 4 }}>
+            This request came from the Lampose website, so it is not answered here. Reply
+            AVAILABLE or NOT AVAILABLE to the WhatsApp message we sent you, and the guest is
+            told either way.
+          </Text>
+        </Card>
       ) : null}
 
       {outcome ? (

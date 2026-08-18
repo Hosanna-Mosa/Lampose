@@ -33,6 +33,7 @@ const {
 const {
   registerCustomerDevice, unregisterCustomerDevice,
 } = require('../notifications/device.controller');
+const { getMyCoupon } = require('./foodCoupon.controller');
 const { requireCustomer } = require('./customerAuth.middleware');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const { rateLimit } = require('../../shared/middleware/rateLimit');
@@ -153,5 +154,10 @@ router.post(
    stops showing the previous account's alerts. */
 router.post('/devices', requireLamposeDb, requireCustomer, registerCustomerDevice);
 router.delete('/devices', requireLamposeDb, requireCustomer, unregisterCustomerDevice);
+
+/* Set by `verify`, if a valid owner-invite code came in with it — see
+   partners/customerReferral.controller.js. Null data, not a 404: not having
+   one is the ordinary case for most customers. */
+router.get('/food-coupon', requireLamposeDb, requireCustomer, getMyCoupon);
 
 module.exports = router;

@@ -1,11 +1,11 @@
 import { router } from "expo-router";
 import React, { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Btn, Chip, Rule, StepBars } from "@/components/ui";
+import { Btn, Chip, Rule, StepBars, Text, TopBar } from "@/components/ui";
 import { DRIVER, ONB, ONB_TOTAL_STEPS, type OnbStep } from "@/constants/lampose";
 import { useDriverStore } from "@/store/driverStore";
-import { colors, font, ms, radius, typography as t } from "@/theme";
+import { colors, layout, radius, space, tone as resolveTone } from "@/theme";
 
 /** Partially-entered code, exactly as the design shows it. */
 const OTP_ENTERED = "4926";
@@ -43,60 +43,92 @@ export default function OnboardingScreen() {
   };
 
   const centered = spec.centered ? ({ textAlign: "center" } as const) : undefined;
+  const badgeTone = spec.badgeTone ? resolveTone(spec.badgeTone) : null;
 
   return (
     <View style={styles.root}>
+      {/*
+        The step counter and its rail are pinned. Sign-up is the one flow where
+        a partner is filling in long fields with a keyboard up — "how much of
+        this is left" has to stay answerable without dismissing the keyboard
+        and scrolling back.
+
+        Welcome is the exception: it carries no step, and a bar over the
+        wordmark would turn a brand moment into a form.
+      */}
+      {!!spec.step && (
+        <>
+          <TopBar
+            title={`Step ${spec.step} of ${ONB_TOTAL_STEPS}`}
+            action="Save & exit"
+            onAction={() => setStep("welcome")}
+          />
+          <View style={styles.progressRail}>
+            <StepBars total={ONB_TOTAL_STEPS} current={spec.step - 1} height={4} />
+          </View>
+        </>
+      )}
+
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + ms(6) }]}
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: spec.step ? space[5] : insets.top + space[6] },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Progress ─────────────────────────────────────────────── */}
-        {!!spec.step && (
-          <View>
-            <View style={styles.progressHead}>
-              <Text style={t.kicker}>
-                Step {spec.step} of {ONB_TOTAL_STEPS}
-              </Text>
-              <Pressable onPress={() => setStep("welcome")} hitSlop={8}>
-                <Text style={styles.saveExit}>Save &amp; exit</Text>
-              </Pressable>
-            </View>
-            <StepBars
-              total={ONB_TOTAL_STEPS}
-              current={spec.step - 1}
-              height={ms(4)}
-              style={{ marginTop: ms(10) }}
-            />
-          </View>
-        )}
-
-        <View style={{ marginTop: ms(26), flex: 1 }}>
+        <View style={{ flex: 1 }}>
           {/* ── Wordmark ───────────────────────────────────────────── */}
           {spec.logo && (
             <View style={styles.logoBlock}>
-              <Text style={styles.wordmark}>Lampose</Text>
-              <Text style={styles.wordmarkSub}>Driver partner</Text>
+              <View style={styles.logoMark}>
+                <Text variant="display1" style={{ color: colors.onBrand }}>
+                  L
+                </Text>
+              </View>
+              <Text variant="display1" style={{ marginTop: space[4] }}>
+                Lampose
+              </Text>
+              <Text variant="eyebrow" color="brand" style={{ marginTop: space[1] }}>
+                Driver partner
+              </Text>
               <Rule style={styles.wordmarkRule} />
             </View>
           )}
 
-          <Text style={[styles.title, centered]}>{spec.title}</Text>
-          <Text style={[styles.body, centered]}>{spec.body}</Text>
+          <Text variant="display1" style={centered}>
+            {spec.title}
+          </Text>
+          <Text variant="bodyLg" color="secondary" style={[{ marginTop: space[2] }, centered]}>
+            {spec.body}
+          </Text>
 
           {/* ── Prefilled fields ───────────────────────────────────── */}
           {!!spec.fields && (
-            <View style={{ marginTop: ms(22), gap: ms(14) }}>
-              {spec.fields.map((f) => (
-                <View key={f.l}>
-                  <Text style={styles.fieldLabel}>{f.l}</Text>
-                  <View style={styles.field}>
-                    <Text style={[styles.fieldValue, f.tone ? { color: f.tone } : null]}>
-                      {f.v}
+            <View style={{ marginTop: space[5], gap: space[3] }}>
+              {spec.fields.map((f) => {
+                const t = f.tone ? resolveTone(f.tone) : null;
+                return (
+                  <View key={f.l} style={{ gap: space[1] }}>
+                    <Text variant="eyebrow" color="tertiary">
+                      {f.l}
                     </Text>
-                    {!!f.hint && <Text style={styles.fieldHint}>{f.hint}</Text>}
+                    <View style={styles.field}>
+                      <Text
+                        variant="bodyLg"
+                        style={[{ flex: 1 }, t ? { color: t.ink } : null]}
+                        numberOfLines={1}
+                      >
+                        {f.v}
+                      </Text>
+                      {!!f.hint && (
+                        <Text variant="bodyStrong" color="brand">
+                          {f.hint}
+                        </Text>
+                      )}
+                    </View>
                   </View>
-                </View>
-              ))}
+                );
+              })}
             </View>
           )}
 
@@ -111,53 +143,69 @@ export default function OnboardingScreen() {
                       key={i}
                       style={[
                         styles.otpBox,
-                        { borderColor: filled ? colors.ink : colors.divider },
+                        filled
+                          ? { borderColor: colors.brand, backgroundColor: colors.brandTint }
+                          : { borderColor: colors.borderInput, backgroundColor: colors.surface },
                       ]}
                     >
-                      <Text style={styles.otpDigit}>{filled ? OTP_ENTERED[i] : ""}</Text>
+                      <Text variant="priceHero">{filled ? OTP_ENTERED[i] : ""}</Text>
                     </View>
                   );
                 })}
               </View>
-              <Text style={styles.resend}>Resend code in 0:24</Text>
+              <Text variant="numMeta" color="tertiary" style={{ marginTop: space[3] }}>
+                Resend code in 0:24
+              </Text>
             </>
           )}
 
           {/* ── Document checklist ─────────────────────────────────── */}
           {!!spec.list && (
-            <View style={{ marginTop: ms(22), gap: ms(10) }}>
-              {spec.list.map((item) => (
-                <View
-                  key={item.t}
-                  style={[
-                    styles.listCard,
-                    { borderColor: item.tone === colors.err ? colors.err : colors.divider },
-                  ]}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.listTitle}>{item.t}</Text>
-                    <Text style={styles.listSub}>{item.sub}</Text>
+            <View style={{ marginTop: space[5], gap: space[2] }}>
+              {spec.list.map((item) => {
+                const t = resolveTone(item.tone);
+                const failing = item.tone === "danger";
+                return (
+                  <View
+                    key={item.t}
+                    style={[
+                      styles.listCard,
+                      failing && { borderColor: t.border, backgroundColor: t.tint },
+                    ]}
+                  >
+                    <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                      <Text variant="title2" numberOfLines={1}>
+                        {item.t}
+                      </Text>
+                      <Text variant="caption" color="tertiary" numberOfLines={2}>
+                        {item.sub}
+                      </Text>
+                    </View>
+                    <Chip label={item.status} tone={item.tone} />
                   </View>
-                  <Chip label={item.status} tone={item.tone} />
-                </View>
-              ))}
+                );
+              })}
             </View>
           )}
 
           {/* ── Status badge ───────────────────────────────────────── */}
           {!!spec.badge && (
-            <View style={{ marginTop: ms(26), alignItems: "center" }}>
+            <View style={{ marginTop: space[6], alignItems: "center" }}>
               <View
                 style={[
                   styles.badge,
                   {
-                    width: ms(spec.badgeSize ?? 64),
-                    height: ms(spec.badgeSize ?? 64),
-                    borderColor: spec.badgeTone ?? colors.divider,
+                    width: spec.badgeSize ?? 64,
+                    height: spec.badgeSize ?? 64,
+                    backgroundColor: badgeTone ? badgeTone.tint : colors.surfaceSunken,
+                    borderColor: badgeTone ? badgeTone.border : colors.border,
                   },
                 ]}
               >
-                <Text style={[styles.badgeGlyph, { color: spec.badgeTone ?? colors.text }]}>
+                <Text
+                  variant="display1"
+                  style={{ color: badgeTone ? badgeTone.ink : colors.textPrimary }}
+                >
                   {spec.badge}
                 </Text>
               </View>
@@ -166,12 +214,14 @@ export default function OnboardingScreen() {
         </View>
 
         {/* ── Actions ──────────────────────────────────────────────── */}
-        <View style={{ marginTop: ms(26) }}>
+        <View style={{ marginTop: space[6], gap: space[2] }}>
           <Btn label={spec.cta} onPress={advance} />
-          {!!spec.alt && (
-            <Btn label={spec.alt} variant="ghost" onPress={onAlt} style={{ marginTop: ms(9) }} />
+          {!!spec.alt && <Btn label={spec.alt} variant="ghost" onPress={onAlt} />}
+          {!!spec.fine && (
+            <Text variant="numMeta" color="tertiary" style={styles.fine}>
+              {spec.fine}
+            </Text>
           )}
-          {!!spec.fine && <Text style={styles.fine}>{spec.fine}</Text>}
         </View>
       </ScrollView>
     </View>
@@ -180,123 +230,68 @@ export default function OnboardingScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { flexGrow: 1, paddingHorizontal: ms(22), paddingBottom: ms(26) },
+  content: { flexGrow: 1, paddingHorizontal: layout.gutter + space[1], paddingBottom: space[6] },
 
-  progressHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
-  saveExit: { ...font.body, fontSize: ms(12.5), color: colors.neutral600 },
-
-  logoBlock: { alignItems: "center", paddingTop: ms(40), paddingBottom: ms(10) },
-  wordmark: {
-    ...font.headingBold,
-    fontSize: ms(46),
-    lineHeight: ms(50),
-    letterSpacing: -0.7,
-    color: colors.text,
-  },
-  wordmarkSub: {
-    ...font.bodySemi,
-    fontSize: ms(10),
-    letterSpacing: ms(10) * 0.3,
-    textTransform: "uppercase",
-    color: colors.accent,
-    marginTop: ms(12),
-  },
-  wordmarkRule: { marginTop: ms(26), marginHorizontal: ms(40), alignSelf: "stretch" },
-
-  title: {
-    ...font.headingBold,
-    fontSize: ms(30),
-    lineHeight: ms(34),
-    letterSpacing: -0.3,
-    color: colors.text,
-  },
-  body: {
-    ...font.body,
-    fontSize: ms(14),
-    lineHeight: ms(22),
-    color: colors.neutral700,
-    marginTop: ms(10),
+  progressRail: {
+    paddingHorizontal: layout.gutter,
+    paddingBottom: space[3],
+    backgroundColor: colors.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
 
-  fieldLabel: {
-    ...font.bodySemi,
-    fontSize: ms(9.5),
-    letterSpacing: ms(9.5) * 0.14,
-    textTransform: "uppercase",
-    color: colors.neutral600,
+  logoBlock: { alignItems: "center", paddingTop: space[8], paddingBottom: space[2] },
+  logoMark: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.card,
+    backgroundColor: colors.brand,
+    alignItems: "center",
+    justifyContent: "center",
   },
+  wordmarkRule: { marginTop: space[6], marginHorizontal: space[8], alignSelf: "stretch" },
+
   field: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: ms(10),
-    marginTop: ms(7),
-    borderWidth: 1,
-    borderColor: colors.divider,
-    borderRadius: radius.md,
-    paddingHorizontal: ms(13),
-    paddingVertical: ms(14),
-    backgroundColor: colors.neutral100,
+    gap: space[3],
+    borderWidth: 1.5,
+    borderColor: colors.borderInput,
+    borderRadius: radius.button,
+    paddingHorizontal: space[3],
+    paddingVertical: space[3] + 2,
+    backgroundColor: colors.surface,
   },
-  fieldValue: { ...font.body, fontSize: ms(15), color: colors.text, flex: 1 },
-  fieldHint: { ...font.body, fontSize: ms(12), color: colors.accent },
 
-  otpRow: { flexDirection: "row", gap: ms(10), marginTop: ms(24) },
+  otpRow: { flexDirection: "row", gap: space[2], marginTop: space[6] },
   otpBox: {
     flex: 1,
-    height: ms(56),
+    height: 56,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderRadius: radius.md,
-    backgroundColor: colors.neutral100,
-  },
-  otpDigit: {
-    ...font.headingBold,
-    fontSize: ms(24),
-    color: colors.text,
-    fontVariant: ["tabular-nums"],
-  },
-  resend: {
-    ...font.body,
-    fontSize: ms(12.5),
-    color: colors.neutral600,
-    marginTop: ms(14),
-    fontVariant: ["tabular-nums"],
+    borderWidth: 1.5,
+    borderRadius: radius.button,
   },
 
   listCard: {
-    borderWidth: 1,
-    borderRadius: radius.lg,
-    padding: ms(14),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    borderRadius: radius.card,
+    padding: space[3],
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: ms(10),
-  },
-  listTitle: { ...font.heading, fontSize: ms(16), lineHeight: ms(19), color: colors.text },
-  listSub: {
-    ...font.body,
-    fontSize: ms(11.5),
-    lineHeight: ms(16),
-    color: colors.neutral700,
-    marginTop: ms(4),
+    gap: space[3],
   },
 
   badge: {
     borderRadius: radius.pill,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },
-  badgeGlyph: { ...font.headingBold, fontSize: ms(30), lineHeight: ms(34) },
 
-  fine: {
-    textAlign: "center",
-    ...font.body,
-    fontSize: ms(11.5),
-    lineHeight: ms(17),
-    color: colors.neutral500,
-    marginTop: ms(14),
-  },
+  fine: { textAlign: "center", marginTop: space[2] },
 });

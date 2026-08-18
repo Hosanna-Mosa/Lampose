@@ -137,6 +137,14 @@ export const endpoints = {
     `${V2}/customers/saved/${encodeURIComponent(listingId)}`,
 
   /**
+   * The food-order discount a valid owner-invite code unlocks at sign-up.
+   * Null data when there isn't one — not having a coupon is the ordinary
+   * case, not an error. See `Backend/src/modules/customers/
+   * foodCoupon.controller.js`.
+   */
+  customerFoodCoupon: `${V2}/customers/food-coupon`,
+
+  /**
    * Support tickets and safety reports.
    *
    * Its own group rather than a branch of `/customers`, matching the backend:

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Mail, Lock, Eye, EyeOff, LogIn, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { loginUser } from '../../services/auth';
+import { loginUser } from '../../services/api.js';
 
 export default function AuthScreen({ onAuthSuccess }) {
   const [showPassword, setShowPassword] = useState(false);

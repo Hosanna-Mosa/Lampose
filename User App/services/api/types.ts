@@ -186,10 +186,35 @@ export type BackendOtpChallenge = {
   maxAttempts: number;
 };
 
+/**
+ * What `verify` says about a referral code sent alongside the OTP, if one
+ * was. Absent entirely when no code was submitted — see
+ * `customer.controller.js#verifyAuth`.
+ */
+export type BackendReferralOutcome = {
+  status: 'applied' | 'invalid' | 'expired' | 'used' | 'phone_mismatch' | 'already_referred';
+  /** Only set when `status` is `'applied'`. */
+  propertyName?: string;
+  discountRupees?: number;
+};
+
 export type BackendSession = {
   token: string;
   customer: BackendCustomer;
+  referral?: BackendReferralOutcome;
 };
+
+/**
+ * The food-order discount a referral code unlocked, as
+ * `foodCoupon.controller.js#getMyCoupon` projects it. `null` when this
+ * customer has none — the ordinary case for most.
+ */
+export type BackendFoodCoupon = {
+  id: string;
+  amountRupees: number;
+  propertyName: string;
+  status: 'active' | 'used';
+} | null;
 
 /**
  * One alert, derived from a visit request rather than stored.

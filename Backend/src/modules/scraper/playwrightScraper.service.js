@@ -301,20 +301,39 @@ async function runBrowserScrape(jobId, options) {
 
     if (jobState.stopped) return await finishStopped(jobId, jobState);
 
-    const saved = await dbStore.saveLeads(leads);
+    /*
+     * Businesses already in the database are dropped before the write.
+     *
+     * Re-running a query returns the same places Google returned last time, and
+     * without this the table filled with triplicates: storage wasted, and worse,
+     * a rep calling a lead a colleague had already closed. Matching happens on
+     * the phone number, or on name + city when there is no phone — see
+     * `leadDedupeKey` in the store.
+     */
+    const { fresh, duplicates } = await dbStore.filterNewLeads(leads);
+    const saved = await dbStore.saveLeads(fresh);
+
+    /* The job reports both numbers. "Extracted 4 records" after a run that
+       found 40 businesses looks like a broken scrape unless it also says the
+       other 36 were already held. */
+    const summary = duplicates > 0
+      ? `Scrape finished. ${saved.length} new lead(s) saved, ${duplicates} already in the database.`
+      : `Scrape finished successfully. Extracted ${saved.length} records.`;
 
     jobState.progress = 100;
     jobState.scrapedCount = saved.length;
-    jobState.statusMessage = `Successfully extracted ${saved.length} leads!`;
+    jobState.statusMessage = duplicates > 0
+      ? `${saved.length} new leads, ${duplicates} duplicates skipped`
+      : `Successfully extracted ${saved.length} leads!`;
 
     await dbStore.updateJob(jobId, {
       status: 'completed',
       progress: 100,
-      statusMessage: `Scrape finished successfully. Extracted ${saved.length} records.`,
+      statusMessage: summary,
       resultCount: saved.length,
     });
 
-    console.log(`[scraper] job ${jobId} completed — ${saved.length} leads saved`);
+    console.log(`[scraper] job ${jobId} completed — ${saved.length} saved, ${duplicates} duplicate(s) skipped`);
     return forget(jobId);
   } finally {
     /* A throw anywhere above must not leave a headless Chromium running: a

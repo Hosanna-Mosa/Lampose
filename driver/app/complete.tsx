@@ -1,12 +1,12 @@
 import { router } from "expo-router";
 import React, { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatCard } from "@/app/(tabs)/index";
-import { Btn, Icon, Toast } from "@/components/ui";
+import { Btn, Icon, Text, Toast, TopBar } from "@/components/ui";
 import { CURRENT_ORDER } from "@/constants/lampose";
 import { useFlowStore } from "@/store/flowStore";
-import { colors, font, ms, radius, space, typography as t } from "@/theme";
+import { colors, layout, radius, space } from "@/theme";
 
 /** Completion states the money first, then closes the loop. */
 export default function CompleteScreen() {
@@ -21,24 +21,31 @@ export default function CompleteScreen() {
 
   return (
     <View style={styles.root}>
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + ms(30) }]}
-        showsVerticalScrollIndicator={false}
-      >
+      <TopBar title="Delivery complete" subtitle={CURRENT_ORDER.id} />
+
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.tick}>
-          <Icon name="check" size={ms(30)} color={colors.ok} strokeWidth={1.6} />
+          <Icon name="check" size={28} color={colors.onBrand} strokeWidth={2.5} />
         </View>
 
-        <Text style={styles.title}>Delivery completed</Text>
-        <Text style={styles.sub}>
+        <Text variant="display1" style={styles.centered}>
+          Delivery completed
+        </Text>
+        <Text variant="caption" color="tertiary" style={styles.centered}>
           Order {CURRENT_ORDER.id} · {CURRENT_ORDER.customer}
         </Text>
 
         {/* ── The money ─────────────────────────────────────────────── */}
         <View style={styles.earnBlock}>
-          <Text style={[t.kicker, { textAlign: "center" }]}>You earned</Text>
-          <Text style={styles.earnFigure}>₹86</Text>
-          <Text style={styles.earnBreak}>₹64 delivery + ₹12 distance + ₹10 tip</Text>
+          <Text variant="eyebrow" style={{ color: colors.brandInk }}>
+            You earned
+          </Text>
+          <Text variant="codeHero" adjustsFontSizeToFit numberOfLines={1} style={{ marginTop: space[2] }}>
+            ₹86
+          </Text>
+          <Text variant="numMeta" color="secondary" style={{ marginTop: space[2] }}>
+            ₹64 delivery + ₹12 distance + ₹10 tip
+          </Text>
         </View>
 
         <View style={styles.statGrid}>
@@ -49,117 +56,88 @@ export default function CompleteScreen() {
 
         {/* ── Rating ────────────────────────────────────────────────── */}
         <View style={styles.rateCard}>
-          <Text style={styles.rateTitle}>How was {CURRENT_ORDER.restaurant}?</Text>
+          <Text variant="title1" style={{ textAlign: "center" }}>
+            How was {CURRENT_ORDER.restaurant}?
+          </Text>
           <View style={styles.stars}>
             {[1, 2, 3, 4, 5].map((star) => (
               <Pressable
                 key={star}
                 accessibilityRole="button"
                 accessibilityLabel={`Rate ${star} of 5`}
-                hitSlop={6}
+                accessibilityState={{ selected: star <= rating }}
+                hitSlop={8}
                 onPress={() => {
                   setRating(star);
                   say("Thanks — your rating helps other partners.");
                 }}
               >
-                <Text
-                  style={[
-                    styles.star,
-                    { color: star <= rating ? colors.accent : colors.neutral300 },
-                  ]}
-                >
-                  ★
-                </Text>
+                <Icon
+                  name="star"
+                  size={30}
+                  color={star <= rating ? colors.warning.base : colors.border}
+                  fill={star <= rating ? colors.warning.base : "none"}
+                />
               </Pressable>
             ))}
           </View>
         </View>
 
-        <Btn label="Back to home" onPress={backHome} style={{ marginTop: ms(16) }} />
+        <Btn label="Back to home" glyph="home" onPress={backHome} />
         <Btn
           label="View order details"
           variant="ghost"
           onPress={() => router.push("/order-detail")}
-          style={{ marginTop: ms(9) }}
         />
       </ScrollView>
 
-      <Toast message={toast} top={insets.top + ms(8)} />
+      <Toast message={toast} top={insets.top + space[2]} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: space[4], paddingBottom: ms(26), alignItems: "stretch" },
+  content: {
+    paddingHorizontal: layout.gutter,
+    paddingTop: space[6],
+    paddingBottom: space[6],
+    alignItems: "stretch",
+    gap: space[3],
+  },
+  centered: { textAlign: "center" },
 
   tick: {
-    width: ms(66),
-    height: ms(66),
+    width: 64,
+    height: 64,
     borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.ok,
+    backgroundColor: colors.brand,
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "center",
-  },
-  title: {
-    ...font.headingBold,
-    fontSize: ms(32),
-    lineHeight: ms(35),
-    color: colors.text,
-    marginTop: ms(18),
-    textAlign: "center",
-  },
-  sub: {
-    ...font.body,
-    fontSize: ms(13.5),
-    lineHeight: ms(20),
-    color: colors.neutral700,
-    marginTop: ms(6),
-    textAlign: "center",
+    marginBottom: space[2],
   },
 
   earnBlock: {
-    marginTop: ms(22),
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: colors.divider,
-    paddingVertical: ms(20),
+    marginTop: space[3],
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.brandOnDark,
+    backgroundColor: colors.brandTint,
+    borderRadius: radius.card,
+    paddingVertical: space[5],
+    paddingHorizontal: space[4],
     alignItems: "center",
   },
-  earnFigure: {
-    ...font.headingBold,
-    fontSize: ms(58),
-    lineHeight: ms(60),
-    letterSpacing: -1.2,
-    marginTop: ms(8),
-    color: colors.text,
-    fontVariant: ["tabular-nums"],
-  },
-  earnBreak: {
-    ...font.body,
-    fontSize: ms(12.5),
-    color: colors.neutral700,
-    marginTop: ms(8),
-  },
 
-  statGrid: { flexDirection: "row", gap: ms(9), marginTop: ms(16) },
+  statGrid: { flexDirection: "row", gap: space[2] },
 
   rateCard: {
-    marginTop: ms(16),
-    borderWidth: 1,
-    borderColor: colors.divider,
-    borderRadius: radius.lg,
-    padding: ms(16),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    backgroundColor: colors.surface,
+    padding: space[4],
+    marginBottom: space[2],
   },
-  rateTitle: {
-    ...font.heading,
-    fontSize: ms(16),
-    lineHeight: ms(21),
-    color: colors.text,
-    textAlign: "center",
-  },
-  stars: { flexDirection: "row", gap: ms(10), justifyContent: "center", marginTop: ms(12) },
-  star: { ...font.body, fontSize: ms(27), lineHeight: ms(31) },
+  stars: { flexDirection: "row", gap: space[3], justifyContent: "center", marginTop: space[3] },
 });

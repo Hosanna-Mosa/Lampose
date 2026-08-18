@@ -8,16 +8,20 @@ export {
   Dot,
   IconBtn,
   Kicker,
+  Notice,
   Rule,
+  SectionHeader,
   Seg,
   StepBars,
   Toggle,
   Well,
 } from "./primitives";
 export type { BtnVariant } from "./primitives";
-export { Icon, BellIcon, SignalIcon, BatteryIcon, RouteSketch, ICON_PATHS } from "./Icon";
+export { Text } from "./Text";
+export type { TextColor, TextProps } from "./Text";
+export { Icon, RouteSketch, ICON_PATHS } from "./Icon";
 export type { IconName } from "./Icon";
 export { Sheet, Toast } from "./Sheet";
 export type { SheetSpec } from "./Sheet";
-export { TopBar, ScreenTitle } from "./TopBar";
+export { TopBar, HEADER_HEIGHT } from "./TopBar";
 export { MapPanel } from "./MapPanel";

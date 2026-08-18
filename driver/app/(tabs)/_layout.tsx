@@ -1,10 +1,10 @@
 import { Tabs } from "expo-router";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Icon, type IconName } from "@/components/ui";
-import { colors, font, ms, space } from "@/theme";
+import { Icon, Text, type IconName } from "@/components/ui";
+import { colors, layout, radius, space, touch } from "@/theme";
 
 const TABS: { name: string; label: string; icon: IconName }[] = [
   { name: "index", label: "Home", icon: "home" },
@@ -14,17 +14,23 @@ const TABS: { name: string; label: string; icon: IconName }[] = [
 ];
 
 /**
- * Four evenly-weighted destinations on a hairline. No pill, no fill — the
- * active tab is signalled by ink versus grey alone.
+ * Four evenly-weighted destinations on a white bar.
+ *
+ * The selected tab takes a brand-tinted pill behind its glyph and green ink on
+ * both glyph and label. The old bar signalled selection with ink-versus-grey
+ * alone, which is a 1.6:1 difference at 21px and reads as "nothing is
+ * selected" in daylight — the tint is what makes it legible on a scooter.
  */
 function TabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, ms(12)) }]}>
+    <View
+      style={[styles.bar, { paddingBottom: Math.max(insets.bottom, space[3]) + layout.bottomInsetExtra }]}
+    >
       {TABS.map((tab, index) => {
         const focused = state.index === index;
-        const tone = focused ? colors.ink : colors.neutral500;
+        const ink = focused ? colors.brandInk : colors.textTertiary;
 
         return (
           <Pressable
@@ -42,8 +48,12 @@ function TabBar({ state, navigation }: BottomTabBarProps) {
             }}
             style={styles.item}
           >
-            <Icon name={tab.icon} size={ms(21)} color={tone} strokeWidth={1.5} />
-            <Text style={[styles.label, { color: tone }]}>{tab.label}</Text>
+            <View style={[styles.glyph, focused && { backgroundColor: colors.brandTint }]}>
+              <Icon name={tab.icon} size={20} color={ink} />
+            </View>
+            <Text variant="numMeta" style={{ color: ink }}>
+              {tab.label}
+            </Text>
           </Pressable>
         );
       })}
@@ -70,22 +80,24 @@ export default function TabsLayout() {
 const styles = StyleSheet.create({
   bar: {
     flexDirection: "row",
-    borderTopWidth: 1,
-    borderTopColor: colors.divider,
-    backgroundColor: colors.bg,
-    paddingTop: ms(8),
-    paddingHorizontal: ms(6),
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingTop: space[2],
+    paddingHorizontal: space[2],
   },
   item: {
     flex: 1,
     alignItems: "center",
-    gap: ms(5),
-    paddingVertical: ms(7),
+    gap: 3,
+    minHeight: touch.min,
+    paddingVertical: space[1],
   },
-  label: {
-    ...font.bodyBold,
-    fontSize: ms(10),
-    letterSpacing: ms(10) * 0.1,
-    textTransform: "uppercase",
+  glyph: {
+    width: 48,
+    height: 28,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

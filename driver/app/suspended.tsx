@@ -1,54 +1,48 @@
 import { router } from "expo-router";
 import React from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Btn, Sheet } from "@/components/ui";
+import { ScrollView, StyleSheet, View } from "react-native";
+import { Btn, Icon, Sheet, Text, TopBar } from "@/components/ui";
 import { useSheet } from "@/hooks/useSheet";
 import { useFlowStore } from "@/store/flowStore";
-import { colors, font, ms, radius, typography as t } from "@/theme";
+import { colors, layout, radius, space } from "@/theme";
 
 /** Blocking state — no bottom navigation, only one way out. */
 export default function SuspendedScreen() {
-  const insets = useSafeAreaInsets();
   const setOverlay = useFlowStore((s) => s.setOverlay);
   const sheet = useSheet();
 
   return (
     <View style={styles.root}>
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + ms(60) }]}
-        showsVerticalScrollIndicator={false}
-      >
+      <TopBar title="Account status" />
+
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.mark}>
-          <Text style={styles.markGlyph}>!</Text>
+          <Icon name="alert" size={28} color={colors.danger.on} strokeWidth={2} />
         </View>
 
-        <Text style={styles.title}>Account temporarily suspended</Text>
-        <Text style={styles.body}>
+        <Text variant="display1" style={styles.centered}>
+          Account temporarily suspended
+        </Text>
+        <Text variant="bodyLg" color="secondary" style={styles.centered}>
           Three customer complaints were raised on 12 Aug. Your account is under review and you
           cannot go online until it closes.
         </Text>
 
         <View style={styles.card}>
-          <Text style={t.kicker}>Review reference</Text>
-          <Text style={styles.ref}>SUS-20826</Text>
-          <Text style={styles.refBody}>
+          <Text variant="eyebrow" color="tertiary">
+            Review reference
+          </Text>
+          <Text variant="priceLg" style={{ marginTop: space[2] }}>
+            SUS-20826
+          </Text>
+          <Text variant="caption" color="secondary" style={{ marginTop: space[2] }}>
             Expected decision within 48 hours. Pending earnings of ₹1,180 are safe and will be paid
             out.
           </Text>
         </View>
 
-        <Btn
-          label="Talk to support"
-          onPress={() => router.push("/support")}
-          style={{ marginTop: ms(16) }}
-        />
-        <Btn
-          label="Log out"
-          variant="ghost"
-          onPress={() => setOverlay("logout")}
-          style={{ marginTop: ms(9) }}
-        />
+        <Btn label="Talk to support" glyph="support" onPress={() => router.push("/support")} />
+        <Btn label="Log out" variant="ghost" glyph="logout" onPress={() => setOverlay("logout")} />
       </ScrollView>
 
       <Sheet {...sheet} />
@@ -58,54 +52,25 @@ export default function SuspendedScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: ms(24), paddingBottom: ms(60) },
+  content: { paddingHorizontal: layout.gutter + space[2], paddingTop: space[8], paddingBottom: space[8], gap: space[3] },
+  centered: { textAlign: "center" },
   mark: {
-    width: ms(60),
-    height: ms(60),
+    width: 60,
+    height: 60,
     borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.err,
+    backgroundColor: colors.danger.base,
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "center",
-  },
-  markGlyph: { ...font.headingBold, fontSize: ms(30), lineHeight: ms(34), color: colors.err },
-  title: {
-    ...font.headingBold,
-    fontSize: ms(30),
-    lineHeight: ms(34),
-    color: colors.text,
-    marginTop: ms(20),
-    textAlign: "center",
-  },
-  body: {
-    ...font.body,
-    fontSize: ms(14),
-    lineHeight: ms(22),
-    color: colors.neutral700,
-    marginTop: ms(10),
-    textAlign: "center",
+    marginBottom: space[2],
   },
   card: {
-    marginTop: ms(20),
-    borderWidth: 1,
-    borderColor: colors.divider,
-    borderRadius: radius.lg,
-    padding: ms(16),
-  },
-  ref: {
-    ...font.heading,
-    fontSize: ms(17),
-    lineHeight: ms(20),
-    color: colors.text,
-    marginTop: ms(5),
-    fontVariant: ["tabular-nums"],
-  },
-  refBody: {
-    ...font.body,
-    fontSize: ms(12.5),
-    lineHeight: ms(19),
-    color: colors.neutral700,
-    marginTop: ms(6),
+    marginTop: space[2],
+    marginBottom: space[2],
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    backgroundColor: colors.surface,
+    padding: space[4],
   },
 });

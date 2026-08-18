@@ -4,15 +4,20 @@ const path = require('path');
 // Firebase config is per-installation and is not committed. Drop your own
 // google-services.json next to this file to enable Android push notifications.
 const googleServicesPath = path.join(__dirname, 'google-services.json');
-const googleServicesFile = fs.existsSync(googleServicesPath)
-  ? './google-services.json'
-  : undefined;
+const googleServicesFile = fs.existsSync(googleServicesPath) ? './google-services.json' : undefined;
 
-/** Brand colours — keep in sync with `theme/index.ts`. */
+/**
+ * Brand colours — keep in sync with `theme/index.ts`.
+ *
+ * These are the customer app's Food palette: the grey ground behind the splash
+ * and the adaptive icon, and the brand green that tints notifications. The
+ * notification tint moved from near-black to green deliberately — a black tint
+ * on a black-and-white status bar icon is invisible.
+ */
 const BRAND = {
-  ink: '#201f1d',
-  accent: '#b68235',
-  background: '#f3f2f2',
+  ink: '#101214',
+  accent: '#22A355',
+  background: '#F1F2F4',
 };
 
 export default {
@@ -21,12 +26,12 @@ export default {
     slug: 'driver',
     version: '1.0.0',
     orientation: 'portrait',
-    icon: './assets/images/icon.jpeg',
+    icon: './assets/images/icon.png',
     scheme: 'driver',
     userInterfaceStyle: 'light',
     newArchEnabled: true,
     splash: {
-      image: './assets/images/splash-icon.jpeg',
+      image: './assets/images/splash-icon.png',
       resizeMode: 'contain',
       backgroundColor: BRAND.background,
     },
@@ -44,7 +49,7 @@ export default {
       package: 'com.driver.app',
       ...(googleServicesFile ? { googleServicesFile } : {}),
       adaptiveIcon: {
-        foregroundImage: './assets/images/adaptive-icon.jpeg',
+        foregroundImage: './assets/images/adaptive-icon.png',
         backgroundColor: BRAND.background,
       },
       config: {
@@ -61,11 +66,11 @@ export default {
       ],
     },
     notification: {
-      icon: './assets/images/notification-icon.jpeg',
-      color: BRAND.ink,
+      icon: './assets/images/notification-icon.png',
+      color: BRAND.accent,
     },
     web: {
-      favicon: './assets/images/icon.jpeg',
+      favicon: './assets/images/icon.png',
       bundler: 'metro',
     },
     plugins: [
@@ -85,8 +90,8 @@ export default {
       [
         'expo-notifications',
         {
-          icon: './assets/images/notification-icon.jpeg',
-          color: BRAND.ink,
+          icon: './assets/images/notification-icon.png',
+          color: BRAND.accent,
         },
       ],
     ],

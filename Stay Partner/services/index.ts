@@ -52,11 +52,16 @@ export {
 
 export {
   fetchMyProperties,
+  fetchMyProperty,
   fetchMyRequest,
   fetchMyRequests,
   fetchSummary,
   markRequestsRead,
+  updateMyProperty,
+  uploadPropertyImages,
   type PartnerRequestsResult,
+  type PropertyImage,
+  type UpdatePropertyInput,
 } from './api/portfolio.api';
 
 export { fetchHealth } from './api/health.api';

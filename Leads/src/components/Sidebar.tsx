@@ -21,9 +21,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, curre
     { id: 'users', label: 'Manage Employees', icon: UserCheck },
   ] as const;
 
+  /* Accommodation Properties is deliberately absent.
+     Onboarding a property is a different job done in a different app
+     (onboard.lampose.com), and putting its browser in the rep's sidebar gave
+     them a tab that only ever said "No Properties Found" — this panel's
+     employees convert leads, they do not manage listings. Admins keep it,
+     because they are the ones checking what came out the far end. */
   const employeeMenuItems = [
     { id: 'workstation', label: 'My Assigned Leads', icon: CheckCircle2 },
-    { id: 'properties', label: 'Accommodation Properties', icon: Building2 },
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   ] as const;
 

@@ -46,6 +46,9 @@ export const queryKeys = {
      the rows on the screen are the same fetch and cannot disagree. */
   notifications: ['notifications'] as const,
 
+  /** The food-order discount a referral code may have unlocked. */
+  myCoupon: ['myCoupon'] as const,
+
   /* One key behind the Saved tab and every bookmark on every card, so a
      listing saved from the feed is already saved when the tab is opened. */
   saved: ['saved'] as const,

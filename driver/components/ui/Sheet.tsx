@@ -1,14 +1,14 @@
 import React from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors, font, ms, radius, shadow, space, typography as t } from "@/theme";
-import { Btn, Rule } from "./primitives";
-
-export type SheetAction = { label: string; onPress: () => void };
+import { colors, elevation, layout, radius, space, tone as resolveTone, type ToneName } from "@/theme";
+import { Icon } from "./Icon";
+import { Btn } from "./primitives";
+import { Text } from "./Text";
 
 export type SheetSpec = {
   kicker: string;
-  tone: string;
+  tone: ToneName;
   title: string;
   body: string;
   primary: string;
@@ -18,9 +18,13 @@ export type SheetSpec = {
 };
 
 /**
- * The bottom sheet every blocking decision uses — GPS off, permission,
- * poor network, cancel, log out, withdraw. Scrim, grabber, toned kicker,
- * heavy title, ink primary, ghost dismiss.
+ * The bottom sheet every blocking decision uses — GPS off, permission, poor
+ * network, cancel, log out, withdraw.
+ *
+ * The sheet is a white surface meeting the screen edge, so it takes
+ * `radius.sheet` and nothing else does. The kicker is a tinted chip rather
+ * than bare coloured text: "Location off" in red type alone leans on colour to
+ * carry the severity, and a glyph beside a word does not.
  */
 export function Sheet({
   spec,
@@ -36,6 +40,9 @@ export function Sheet({
   const insets = useSafeAreaInsets();
   if (!spec) return null;
 
+  const t = resolveTone(spec.tone);
+  const glyph = spec.tone === "danger" || spec.tone === "warning" ? "alert" : "info";
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
       <Pressable style={styles.scrim} onPress={onDismiss}>
@@ -45,31 +52,44 @@ export function Sheet({
         >
           <View style={styles.grabber} />
 
-          <Text style={[t.kicker, { color: spec.tone, letterSpacing: ms(10) * 0.16 }]}>
-            {spec.kicker}
+          <View style={[styles.kicker, { backgroundColor: t.tint, borderColor: t.border }]}>
+            <Icon name={glyph} size={13} color={t.ink} />
+            <Text variant="label" style={{ color: t.ink }}>
+              {spec.kicker}
+            </Text>
+          </View>
+
+          <Text variant="display1" style={{ marginTop: space[3] }}>
+            {spec.title}
           </Text>
-          <Text style={styles.title}>{spec.title}</Text>
-          <Text style={styles.body}>{spec.body}</Text>
+          <Text variant="bodyLg" color="secondary" style={{ marginTop: space[2] }}>
+            {spec.body}
+          </Text>
 
           {!!spec.list?.length && (
             <View style={styles.list}>
-              <Rule />
-              <ScrollView style={{ maxHeight: ms(240) }}>
-                {spec.list.map((row) => (
+              <ScrollView style={{ maxHeight: 260 }}>
+                {spec.list.map((row, i) => (
                   <Pressable
                     key={row.label}
                     onPress={row.onPress}
-                    style={({ pressed }) => [styles.listRow, pressed && { opacity: 0.6 }]}
+                    style={({ pressed }) => [
+                      styles.listRow,
+                      i > 0 && styles.listRowDivided,
+                      pressed && { backgroundColor: colors.surfaceSunken },
+                    ]}
                   >
-                    <Text style={styles.listLabel}>{row.label}</Text>
-                    <Text style={styles.listChevron}>›</Text>
+                    <Text variant="bodyLg" style={{ flex: 1 }}>
+                      {row.label}
+                    </Text>
+                    <Icon name="chevronRight" size={16} color={colors.textTertiary} />
                   </Pressable>
                 ))}
               </ScrollView>
             </View>
           )}
 
-          <Btn label={spec.primary} onPress={onPrimary} style={{ marginTop: space[4] }} />
+          <Btn label={spec.primary} onPress={onPrimary} style={{ marginTop: space[5] }} />
           <Btn
             label={spec.secondary}
             variant="ghost"
@@ -82,84 +102,75 @@ export function Sheet({
   );
 }
 
-/** Ink pill that drops in under the status bar to confirm an action. */
+/**
+ * The confirmation toast that drops in under the status bar.
+ *
+ * Near-black rather than the page ground, because it sits over content and has
+ * to be legible against whatever happens to be behind it.
+ */
 export function Toast({ message, top }: { message: string | null; top: number }) {
   if (!message) return null;
   return (
     <View pointerEvents="none" style={[styles.toast, { top }]}>
-      <Text style={styles.toastText}>{message}</Text>
+      <Icon name="check" size={16} color={colors.brandOnDark} />
+      <Text variant="bodyStrong" color="onGraphite" style={{ flex: 1 }}>
+        {message}
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scrim: {
-    flex: 1,
-    backgroundColor: "rgba(32, 31, 29, 0.46)",
-    justifyContent: "flex-end",
-  },
+  scrim: { flex: 1, backgroundColor: colors.scrim, justifyContent: "flex-end" },
   panel: {
-    backgroundColor: colors.bg,
-    borderTopLeftRadius: ms(20),
-    borderTopRightRadius: ms(20),
-    paddingHorizontal: space[4],
-    paddingTop: space[5],
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.sheet,
+    borderTopRightRadius: radius.sheet,
+    paddingHorizontal: layout.gutter,
+    paddingTop: space[3],
+    ...elevation.sheet,
   },
   grabber: {
-    width: ms(38),
-    height: ms(4),
-    borderRadius: radius.sm,
-    backgroundColor: colors.neutral400,
+    width: 40,
+    height: 4,
+    borderRadius: radius.pill,
+    backgroundColor: colors.border,
     alignSelf: "center",
     marginBottom: space[4],
   },
-  title: {
-    ...font.headingBold,
-    fontSize: ms(25),
-    lineHeight: ms(29),
-    color: colors.text,
-    marginTop: space[2],
+  kicker: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space[1],
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space[2],
+    paddingVertical: 4,
   },
-  body: {
-    ...font.body,
-    fontSize: ms(14),
-    lineHeight: ms(22),
-    color: colors.neutral700,
-    marginTop: space[2],
-  },
-  list: { marginTop: space[3] },
+
+  list: { marginTop: space[4], borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   listRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: ms(14),
-    paddingHorizontal: 2,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
+    gap: space[3],
+    paddingVertical: space[3],
+    paddingHorizontal: space[1],
   },
-  listLabel: {
-    ...font.body,
-    fontSize: ms(14.5),
-    lineHeight: ms(19),
-    color: colors.text,
-    flex: 1,
-  },
-  listChevron: { color: colors.accent, fontSize: ms(18), ...font.body },
+  listRowDivided: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderSubtle },
+
   toast: {
     position: "absolute",
-    left: space[4],
-    right: space[4],
+    left: layout.gutter,
+    right: layout.gutter,
     zIndex: 9,
-    backgroundColor: colors.ink,
-    borderRadius: radius.md,
-    paddingHorizontal: ms(14),
-    paddingVertical: ms(12),
-    ...shadow.md,
-  },
-  toastText: {
-    ...font.body,
-    fontSize: ms(13),
-    lineHeight: ms(18),
-    color: colors.bg,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space[2],
+    backgroundColor: colors.graphite,
+    borderRadius: radius.button,
+    paddingHorizontal: space[3],
+    paddingVertical: space[3],
+    ...elevation.float,
   },
 });
