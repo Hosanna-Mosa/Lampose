@@ -450,12 +450,17 @@ const getReferralInfo = async (req, res, next) => {
     const key = getDigits(req.partner);
     let ref = await PartnerReferral.findOne({ partnerPhoneDigits: key }).lean();
     if (!ref) {
+      /* Zero, not a stand-in — same rule `getEarningsSummary` follows above.
+         This used to seed 500 points, ₹500 and 5 invites on a partner's very
+         first visit to this screen, which is fabricated history for an owner
+         who has referred nobody. A partner who has actually earned points
+         gets here through the `findOne` above and never touches this branch. */
       ref = await PartnerReferral.create({
         partnerPhoneDigits: key,
         code: `PAR-${key.slice(-4)}`,
-        points: 500,
-        earningsRupees: 500,
-        invitedCount: 5,
+        points: 0,
+        earningsRupees: 0,
+        invitedCount: 0,
         history: [],
       });
       ref = ref.toObject();

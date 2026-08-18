@@ -2,8 +2,16 @@
  * LAMPOSE Stay Partner — color tokens.
  *
  * Converted from the oklch values in `designs/LAMPOSE Stay Partner - Design System.dc.html`.
- * The design set is light-only, so `dark` intentionally mirrors `light`; when a dark
- * palette is designed, fill it in here and useColors() picks it up with no other changes.
+ * `dark` is a real palette (added 18 Aug) — the design set only ever specified light, so
+ * every dark value below is derived from `light`'s own hues rather than a source file:
+ * same semantic families (warm neutral, brand green, amber, red, violet), lightness ramp
+ * inverted for a dark background, kept saturated enough to still read as the same brand
+ * rather than a desaturated grey version of it. `useColors()` picks whichever key matches
+ * the device's `useColorScheme()` with no other code changes.
+ *
+ * Every pairing below was checked against WCAG AA the same way `light`'s deviations were —
+ * a standalone contrast script (relative luminance, not a library), 4.5:1 for body text,
+ * 3:1 accepted only for bold/medium UI text (buttons, links) or already-tertiary roles.
  *
  * Two foregrounds deviate from the source design because the originals fail WCAG AA
  * against their own tints (see `successOnTint` / `warningOnTint` below).
@@ -80,9 +88,75 @@ const palette = {
   scrim: 'rgba(29, 26, 22, 0.45)', // sheet backdrop — oklch(22% .01 75 / .45)
 };
 
+const darkPalette = {
+  // ── Neutrals (hue 75, warm — same family as light, ramp inverted) ────────
+  surface: '#211D17', // cards, sheets, headers — one step above bg
+  bg: '#17140F', // app background
+  surfaceSunken: '#2A251E', // disabled fields, segmented track
+  borderSubtle: '#332D24',
+  borderCard: '#3D362B',
+  border: '#473F33',
+
+  textDisabled: '#6B655A',
+  textTertiary: '#8B8477', // 4.95:1 on bg
+  textCaption: '#A39B8C', // 6.67:1 on bg
+  textSecondary: '#BEB6A6', // 9.12:1 on bg
+  textBody: '#DCD4C4', // 12.47:1 on bg
+  textPrimary: '#F5F1E8', // 16.29:1 on bg
+
+  // ── Accent (same sampled brand green, brightened for a dark ground) ──────
+  /* One token still does double duty — primary button fill (white text on
+     top) and ghost-button/link text (on bg) — same as light. No single value
+     clears 4.5:1 both ways on a dark ground the way the light value does on
+     white, so this is chosen for the fill role at full AA (4.63:1 white text)
+     and lands at 3.97:1 for the text-on-bg role — short of body-text AA but
+     comfortably past the 3:1 large/bold-text bar every actual use here
+     (buttons, link labels) qualifies for. */
+  accent: '#1F8552',
+  accentHover: '#186B41', // pressed — darker, 6.53:1 for white text on it
+  accentTint: '#132B20',
+  accentTintAlt: '#16241C',
+  accentInk: '#5FD498', // text on accentTint — 8.15:1
+  accentInkDeep: '#8FE6BB', // large figures on accentTint — 10.19:1
+  accentMuted: '#7FBE9E', // secondary text on accentTint — 7.00:1
+  brandYellow: '#FFDE59', // unchanged — a bright yellow reads fine on dark too
+
+  // ── Success / paid / confirmed ──────────────────────────────────────────
+  success: '#4CBA76', // 7.51:1 on bg
+  successTint: '#123322',
+  successOnTint: '#6FE0A0', // 8.44:1 on successTint
+  successInk: '#8FEEB8', // 13.20:1 on bg
+  successInkDeep: '#B0F5D0', // 14.71:1 on bg
+
+  // ── Warning / pending / in review ────────────────────────────────────────
+  warning: '#E0A030', // 8.08:1 on bg
+  warningTint: '#3A2A0A',
+  warningOnTint: '#F0B94D', // 7.75:1 on warningTint
+  warningFill: '#8F5D00', // solid-badge fill; white text is 5.62:1 on it
+  warningInk: '#F3C876', // 11.66:1 on bg
+  warningInkDeep: '#F8DBA0', // 13.67:1 on bg
+
+  // ── Error / failed / cancelled ───────────────────────────────────────────
+  error: '#E15A5C', // 5.09:1 on bg
+  errorTint: '#3A1416',
+  errorHover: '#C94547',
+  errorInk: '#F0A5A6', // 9.30:1 on bg
+  errorInkDeep: '#F5BBBC', // 11.12:1 on bg
+
+  // ── Info / completed / refunded ──────────────────────────────────────────
+  info: '#9691D4', // 6.38:1 on bg
+  infoTint: '#242058',
+
+  // ── Fixed values ────────────────────────────────────────────────────────
+  white: '#FFFFFF',
+  scrim: 'rgba(0, 0, 0, 0.55)', // sheet backdrop — darker than light's, since a
+  // warm dark overlay reads as a lighter smudge rather than a dim, on top of an
+  // already-dark screen
+};
+
 const colors = {
   light: palette,
-  dark: palette,
+  dark: darkPalette,
   radius: 16,
 };
 

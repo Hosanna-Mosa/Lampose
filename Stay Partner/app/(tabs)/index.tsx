@@ -231,6 +231,8 @@ export default function TodayTab() {
             onPress={() => router.push('/requests')}
           />
 
+          <AddCustomerBanner onPress={() => router.push('/requests/add-customer')} />
+
           <ReferEarnBanner onPress={() => router.push('/referrals')} />
           <ComplaintsBanner
             open={summaryData?.openComplaints ?? 0}
@@ -524,6 +526,32 @@ function RequestsBanner({ count, onPress }: { count: number; onPress: () => void
 }
 
 /** Same banner shape as pending requests — same width, same height, just a different card. */
+/**
+ * Where "Add customer" lives now — replaces separate "+" entry points that
+ * used to sit on the Customers screen and the Requests screen header. One
+ * clear place, matching every other action on this dashboard, rather than
+ * the same button scattered across three screens.
+ */
+function AddCustomerBanner({ onPress }: { onPress: () => void }) {
+  const c = useColors();
+  return (
+    <Card variant="elevated" onPress={onPress} style={styles.banner}>
+      <View style={[styles.bannerIcon, { backgroundColor: c.successTint }]}>
+        <Icon name="plus" size={18} color={c.success} />
+      </View>
+      <View style={styles.bannerBody}>
+        <Text variant="cardTitle" style={styles.bannerTitle}>
+          Add a customer
+        </Text>
+        <Text variant="badge" color="textSecondary">
+          Log a walk-in and invite them to Lampose
+        </Text>
+      </View>
+      <Icon name="chevron-right" size={14} color={c.textTertiary} strokeWidth={2} />
+    </Card>
+  );
+}
+
 function ReferEarnBanner({ onPress }: { onPress: () => void }) {
   const c = useColors();
   return (

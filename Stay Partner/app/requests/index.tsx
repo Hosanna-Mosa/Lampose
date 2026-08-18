@@ -105,11 +105,6 @@ export default function RequestsInbox() {
           */}
           <View style={styles.headerRow}>
             <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-            <IconButton
-              name="plus"
-              label="Add customer"
-              onPress={() => router.push('/requests/add-customer')}
-            />
           </View>
 
           <Text variant="screenTitle">Requests</Text>

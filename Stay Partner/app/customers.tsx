@@ -1,10 +1,9 @@
 import { useCallback, useState } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
   Screen,
   Text,
-  Button,
   IconButton,
   Badge,
   Card,
@@ -17,12 +16,7 @@ import { ApiError } from '@/services/api/client';
 import { fetchManualCustomers, type ManualCustomer } from '@/services/api/addCustomer.api';
 import { formatPhone } from '@/components/ui/PhoneField';
 import { formatDateLong } from '@/lib/format';
-/* `formatAadhar` lives with the request KYC types, not the date/money
-   formatters — the same helper the Add Customer form spaces the field with, so
-   the number reads identically where it is entered and where it is shown. */
-import { formatAadhar } from '@/lib/requests';
 import { fonts } from '@/constants/typography';
-import { radius } from '@/constants/layout';
 import { useColors } from '@/hooks/useColors';
 
 /**
@@ -82,9 +76,6 @@ export default function CustomersScreen() {
           <Text variant="screenTitle">Customers</Text>
         </>
       }
-      footer={
-        <Button label="+ Add customer" onPress={() => router.push('/requests/add-customer')} />
-      }
     >
       {error ? (
         <ErrorState title="We could not load this" body={error} onRetry={load} />
@@ -136,7 +127,6 @@ function CustomerCard({
   onDelete: () => void;
 }) {
   const c = useColors();
-  const [showDoc, setShowDoc] = useState(false);
 
   const readableDate = (iso: string) => {
     const d = new Date(iso);
@@ -145,7 +135,8 @@ function CustomerCard({
 
   /* The number is stored E.164; the app has always shown the ten digits. */
   const phone = customer.guestPhone.replace(/\D/g, '').slice(-10);
-  const doc = customer.kyc?.aadharImages?.[0];
+  const documents = Array.isArray(customer.kyc?.documents) ? customer.kyc.documents : [];
+  const collectedCount = documents.filter((d) => d.collected).length;
 
   return (
     <Card style={styles.card}>
@@ -195,43 +186,32 @@ function CustomerCard({
         </Text>
       ) : null}
 
-      {customer.kyc?.aadharNumber ? (
-        <Text variant="mono" color="textSecondary">
-          {formatAadhar(customer.kyc.aadharNumber)}
-        </Text>
-      ) : null}
-
-      {/*
-        The document is behind a tap rather than shown inline.
-        A list of Aadhar cards on an unlocked phone in a hostel lobby is a
-        different thing from a list of names, and the owner almost never needs
-        to see it — they need to know it is on file.
-      */}
-      {doc ? (
-        <Pressable
-          onPress={() => setShowDoc((s) => !s)}
-          accessibilityRole="button"
-          accessibilityLabel={showDoc ? 'Hide the Aadhar photograph' : 'Show the Aadhar photograph'}
-          style={styles.docToggle}
-        >
-          <Icon name={showDoc ? 'check-circle' : 'image'} size={15} color={c.accentInk} />
-          <Text variant="link" style={{ color: c.accentInk }}>
-            {showDoc ? 'Hide Aadhar photo' : 'Aadhar on file — tap to view'}
+      {/* A physical checklist, not a photograph — see
+          components/DocumentsChecklist.tsx. Each row is what the owner typed
+          and whether they have ticked it as actually seen. */}
+      {documents.length > 0 ? (
+        <View style={styles.docList}>
+          {documents.map((doc, i) => (
+            <View key={`${doc.name}-${i}`} style={styles.docRow}>
+              <Icon
+                name={doc.collected ? 'check-circle' : 'alert-circle'}
+                size={14}
+                color={doc.collected ? c.success : c.textTertiary}
+              />
+              <Text variant="badge" color={doc.collected ? 'textSecondary' : 'textTertiary'}>
+                {doc.name}
+              </Text>
+            </View>
+          ))}
+          <Text variant="caption" color="textTertiary" style={styles.docSummary}>
+            {collectedCount} of {documents.length} confirmed
           </Text>
-        </Pressable>
+        </View>
       ) : (
         <Text variant="badge" color="textTertiary">
-          No document on file
+          No documents noted
         </Text>
       )}
-
-      {showDoc && doc ? (
-        <Image
-          source={{ uri: doc.url }}
-          style={[styles.doc, { borderColor: c.borderCard }]}
-          resizeMode="contain"
-        />
-      ) : null}
 
       {/*
         Edit and Delete, separated by a rule and by distance.
@@ -281,8 +261,9 @@ const styles = StyleSheet.create({
   stayRow: { flexDirection: 'row', gap: 20, borderTopWidth: 1, paddingTop: 10 },
   stayCol: { gap: 2 },
   address: { lineHeight: 17 },
-  docToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 32 },
-  doc: { width: '100%', height: 200, borderRadius: radius.card, borderWidth: 1 },
+  docList: { gap: 4 },
+  docRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  docSummary: { marginTop: 2 },
   actions: {
     flexDirection: 'row',
     justifyContent: 'space-between',

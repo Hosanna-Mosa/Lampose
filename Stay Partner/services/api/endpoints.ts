@@ -78,6 +78,18 @@ export const endpoints = {
    */
   partnerProperty: (id: string) => `${V2}/partners/properties/${encodeURIComponent(id)}`,
 
+  /**
+   * Refer a CUSTOMER, not another owner — a second, separate growth loop from
+   * `partnerReferrals` below, sharing only the points wallet.
+   *
+   * One path, GET to list what this partner has minted and POST to mint one
+   * more. Every code is bound to one guest's already-proven phone number and
+   * expires in a week — see `Backend/src/modules/partners/
+   * customerReferral.controller.js` for why, and what this replaced (a single
+   * static code printed per property, open to anyone who saw it).
+   */
+  partnerInvites: `${V2}/partners/invites`,
+
   /** Property photographs to Cloudinary. Returns the secure URLs to save onto `images`. */
   partnerPropertyImageUpload: `${V2}/partners/uploads/property-images`,
 

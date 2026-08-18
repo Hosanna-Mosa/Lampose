@@ -89,21 +89,40 @@ export async function uploadKycImages(
   return Array.isArray(data) ? data : [];
 }
 
+/**
+ * A physical document the owner has noted and, once ticked, confirmed they
+ * have actually seen — see `components/DocumentsChecklist.tsx`. Replaces an
+ * Aadhar number plus a Cloudinary photograph: nothing here is an upload.
+ */
+export type DocumentEntry = { name: string; collected: boolean };
+
 export type CreateBookingInput = {
   guestName: string;
   guestPhone: string;
+  /** The property's own category (Hostel / PG / Bachelor Room / …) for most
+      properties — for a PG with sharing types configured at onboarding, the
+      specific sharing type the owner picked (e.g. "2 Sharing") instead, since
+      that is the more useful fact once one exists. See
+      requests/add-customer.tsx. */
   shareType: string;
   /** `YYYY-MM-DD`. A date-only string, so no timezone can move it. */
   checkInDate: string;
-  checkOutDate: string;
-  guestsLabel: string;
+  /** Absent means open-ended — the ordinary case for a PG/hostel stay at
+      move-in. The real end of a stay is `checkOutBookingApi`, an owner
+      action, not a date declared up front. */
+  checkOutDate?: string;
+  guestsLabel?: string;
   address: string;
-  aadharNumber: string;
-  aadharImages: KycImage[];
+  documents: DocumentEntry[];
   propertyId?: string;
   propertyName?: string;
   roomNumber?: string;
   notes?: string;
+  /** Pre-filled from the property's configured sharing-type rent when one is
+      picked, but always owner-editable — a walk-in rate can differ from the
+      listed one. Zero (unset) is a real, ordinary state: a walk-in logged
+      before money changes hands, not a placeholder. */
+  totalAmount?: number;
 };
 
 /**
@@ -111,7 +130,7 @@ export type CreateBookingInput = {
  *
  * Refused with `GUEST_NOT_VERIFIED` unless the server holds its own proof that
  * a code it generated came back correct for this owner and this number, and
- * with `KYC_IMAGE_REQUIRED` unless at least one Cloudinary URL is attached.
+ * with `DOCUMENT_REQUIRED` unless at least one document is ticked collected.
  */
 export async function createBooking(
   input: CreateBookingInput,
@@ -139,8 +158,7 @@ export type ManualCustomer = {
   createdAt: string;
   kyc: {
     address: string;
-    aadharNumber: string;
-    aadharImages: KycImage[];
+    documents: DocumentEntry[];
     verifiedAt: string | null;
     verifiedPhone: string;
   };
@@ -173,12 +191,12 @@ export async function fetchCustomer(id: string, signal?: AbortSignal): Promise<M
 /**
  * The fields a record may be corrected in.
  *
- * Note what is absent: `guestPhone`, the verification, and the Aadhar
- * photograph. The phone is the number a code was sent to and answered —
- * editing it would leave the record claiming a verification it does not have,
- * so a different number means a new record rather than an edit. The other two
- * are evidence, and a PATCH that could write them would undo the whole reason
- * the create endpoint refuses a client-set `verified` flag.
+ * Note what is absent: `guestPhone` and the verification. The phone is the
+ * number a code was sent to and answered — editing it would leave the record
+ * claiming a verification it does not have, so a different number means a
+ * new record rather than an edit. `documents` IS editable, unlike the old
+ * Aadhar photograph it replaced — it is a checklist an owner keeps current,
+ * not evidence like `verifiedAt` is, so correcting it later is expected.
  */
 export type UpdateCustomerInput = {
   guestName?: string;
@@ -187,7 +205,7 @@ export type UpdateCustomerInput = {
   guestsLabel?: string;
   notes?: string;
   address?: string;
-  aadharNumber?: string;
+  documents?: DocumentEntry[];
   /** `YYYY-MM-DD`. Re-checked against the same bounds the create uses. */
   checkInDate?: string;
   checkOutDate?: string;
@@ -207,11 +225,10 @@ export async function updateCustomer(
 }
 
 /**
- * Removes the record, and the Aadhar photograph with it.
- *
- * The Cloudinary asset is deleted server-side off the stored `publicId` —
- * dropping the row and leaving somebody's identity document on a public CDN
- * would be the worst of both outcomes.
+ * Removes the record. A record from before documents moved to a physical
+ * checklist may still carry an Aadhar photograph — the server deletes that
+ * Cloudinary asset too, off the stored `publicId`, so nothing is left behind
+ * on a public CDN. New records have no such asset to clean up.
  */
 export async function deleteCustomer(id: string, signal?: AbortSignal): Promise<void> {
   await api.delete(endpoints.partnerBooking(id), { signal });

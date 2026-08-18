@@ -145,6 +145,25 @@ export async function withdrawReferralApi() {
   return unwrap(res);
 }
 
+// ── Customer invites (refer a customer, not another owner) ──────────────────
+export type CreateInviteInput = {
+  propertyId?: string;
+  guestPhone?: string;
+  guestName?: string;
+  /** Reuse an existing customer's already-proven phone instead of a fresh OTP. */
+  bookingId?: string;
+};
+
+export async function createInviteApi(data: CreateInviteInput) {
+  const res = await api.post<ApiEnvelope<any>>(endpoints.partnerInvites, data);
+  return unwrap(res);
+}
+
+export async function fetchInvitesApi(signal?: AbortSignal) {
+  const res = await api.get<ApiEnvelope<any[]>>(endpoints.partnerInvites, { signal });
+  return unwrap(res) || [];
+}
+
 // ── Share Types ─────────────────────────────────────────────────────────────
 export async function fetchShareTypesApi(signal?: AbortSignal) {
   const res = await api.get<ApiEnvelope<any[]>>(endpoints.partnerShareTypes, { signal });

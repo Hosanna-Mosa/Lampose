@@ -1,7 +1,7 @@
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, InlineAlert, OtpInput, Text, type OtpState } from '@/components/ui';
@@ -101,6 +101,14 @@ export default function VerifyScreen() {
 
     if (result.ok) {
       setHandedOff(true);
+
+      /* One-shot, not a persistent banner: whether the referral code applied
+         or not, it is worth telling somebody once, right where they typed
+         it, and never again on every future launch. */
+      if (result.referralMessage) {
+        Alert.alert('Referral code', result.referralMessage);
+      }
+
       /*
        * Back to the router, not straight to home.
        *

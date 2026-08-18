@@ -27,6 +27,7 @@ const {
 } = require('./customer.controller');
 const { getNotifications, markNotificationsRead } = require('./notification.controller');
 const { getSaved, addSaved, removeSaved } = require('./saved.controller');
+const { getMyCoupon } = require('./foodCoupon.controller');
 const { requireCustomer } = require('./customerAuth.middleware');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const { rateLimit } = require('../../shared/middleware/rateLimit');
@@ -82,5 +83,10 @@ router.post('/notifications/read', requireLamposeDb, requireCustomer, markNotifi
 router.get('/saved', requireLamposeDb, requireCustomer, getSaved);
 router.post('/saved', requireLamposeDb, requireCustomer, addSaved);
 router.delete('/saved/:listingId', requireLamposeDb, requireCustomer, removeSaved);
+
+/* Set by `verify`, if a valid owner-invite code came in with it — see
+   partners/customerReferral.controller.js. Null data, not a 404: not having
+   one is the ordinary case for most customers. */
+router.get('/food-coupon', requireLamposeDb, requireCustomer, getMyCoupon);
 
 module.exports = router;

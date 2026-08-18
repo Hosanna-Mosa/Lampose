@@ -141,6 +141,15 @@ async function sendOtpSms(phone, otp) {
     }
 
     const campId = pickField(raw, 'campid') || (raw.match(CAMP_ID) || [])[0] || null;
+    /* TEMPORARY diagnostic — a 200 with no FAILURE_HINT match only means the
+       gateway accepted the send, not that it reached a handset. Logging the
+       raw reply here (normally only logged on a failure) is what lets a
+       "sent successfully but nothing arrived" report be told apart from a
+       real bug: a DLT-route rejection after acceptance, a queued-not-
+       delivered status, or a malformed mobile field would all still show up
+       here even though `FAILURE_HINT` didn't match. Remove once the current
+       non-delivery report is resolved. */
+    console.log(`[sms] Gateway accepted "${mobile}" → campId=${campId || 'none'} raw="${raw.slice(0, 300)}"`);
     return { success: true, campId, raw: raw.slice(0, 200) };
   } catch (error) {
     const timedOut = error.name === 'TimeoutError' || error.name === 'AbortError';

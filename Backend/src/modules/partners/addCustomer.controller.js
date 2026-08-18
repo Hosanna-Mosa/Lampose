@@ -42,7 +42,6 @@ const {
 const { phoneKey } = Partner;
 
 const OTP_LENGTH = 6;
-const AADHAR_DIGITS = 12;
 const MAX_KYC_IMAGES = 1;
 
 /** How long a proven number stays usable while the rest of the form is filled. */
@@ -370,21 +369,30 @@ const createBooking = async (req, res, next) => {
       return badInput(res, 'Enter a valid 10-digit mobile number.', 'BAD_PHONE');
     }
 
+    /*
+     * Check-out is optional — a PG/hostel stay is ordinarily open-ended at
+     * move-in, and pinning a date here never actually drove anything: the
+     * real end of a stay is `checkOutBooking` (an owner action), not a date
+     * arriving. `asDateString(undefined)` is `null`, which is a normal value
+     * here, not a bad one.
+     */
     const checkInDate = asDateString(body.checkInDate);
-    const checkOutDate = asDateString(body.checkOutDate);
-    if (!checkInDate || !checkOutDate) {
-      return badInput(res, 'Enter valid check-in and check-out dates.', 'BAD_DATE');
+    if (!checkInDate) {
+      return badInput(res, 'Enter a valid check-in date.', 'BAD_DATE');
+    }
+    const checkOutDate = body.checkOutDate === undefined ? null : asDateString(body.checkOutDate);
+    if (body.checkOutDate !== undefined && !checkOutDate) {
+      return badInput(res, 'That is not a valid check-out date.', 'BAD_DATE');
     }
 
     /* String comparison is safe on `YYYY-MM-DD` and avoids a timezone ever
        deciding which of two dates is earlier. */
-    if (checkOutDate <= checkInDate) {
+    if (checkOutDate && checkOutDate <= checkInDate) {
       return badInput(res, 'Check-out must be after check-in.', 'BAD_DATE');
     }
 
     const today = startOfToday();
     const inAt = asDate(checkInDate);
-    const outAt = asDate(checkOutDate);
 
     const backdatedDays = Math.round((today - inAt) / DAY_MS);
     if (backdatedDays > MAX_BACKDATE_DAYS) {
@@ -404,21 +412,41 @@ const createBooking = async (req, res, next) => {
       );
     }
 
-    const stayDays = Math.round((outAt - inAt) / DAY_MS);
-    if (stayDays > MAX_STAY_DAYS) {
-      return badInput(
-        res,
-        'That stay is longer than a year. Check the check-out date.',
-        'BAD_DATE',
-      );
+    if (checkOutDate) {
+      const outAt = asDate(checkOutDate);
+      const stayDays = Math.round((outAt - inAt) / DAY_MS);
+      if (stayDays > MAX_STAY_DAYS) {
+        return badInput(
+          res,
+          'That stay is longer than a year. Check the check-out date.',
+          'BAD_DATE',
+        );
+      }
     }
 
+    /* Sent as the property's own category (Hostel / PG / Bachelor Room / …)
+       rather than a room-style pick — see requests/add-customer.tsx. Still a
+       free-text field here, same as before; nothing server-side depends on
+       it being one of the enum values `Property.category` uses. */
     const shareType = String(body.shareType || '').trim();
-    if (!shareType) return badInput(res, 'Choose a room type.');
+    if (!shareType) return badInput(res, "Could not tell which property this is for — reload and try again.");
 
-    const aadharNumber = String(body.aadharNumber || '').replace(/\D/g, '');
-    if (aadharNumber.length !== AADHAR_DIGITS) {
-      return badInput(res, `An Aadhar number is ${AADHAR_DIGITS} digits.`);
+    /*
+     * A physical checklist, not a digital archive. `name` is whatever the
+     * owner typed (Aadhar card, PAN, Voter ID, …); `collected` is their own
+     * confirmation that they have actually seen it, never assumed true just
+     * because a row exists. At least one ticked is the floor — same shape as
+     * the Aadhar-photo requirement it replaced, just without an upload.
+     */
+    const documents = (Array.isArray(body.documents) ? body.documents : [])
+      .map((d) => ({
+        name: String((d && d.name) || '').trim(),
+        collected: Boolean(d && d.collected),
+      }))
+      .filter((d) => d.name);
+
+    if (!documents.some((d) => d.collected)) {
+      return badInput(res, 'Check at least one document as collected before saving.', 'DOCUMENT_REQUIRED');
     }
 
     const address = String(body.address || '').trim();
@@ -445,18 +473,6 @@ const createBooking = async (req, res, next) => {
       });
     }
 
-    /* Same for the images: whatever the client claims, these are the
-       Cloudinary results it was handed by `uploads/kyc`. A URL that is not
-       ours is dropped rather than stored. */
-    const aadharImages = (Array.isArray(body.aadharImages) ? body.aadharImages : [])
-      .filter((img) => img && typeof img.url === 'string' && /^https:\/\/res\.cloudinary\.com\//.test(img.url))
-      .slice(0, MAX_KYC_IMAGES)
-      .map((img) => ({ url: img.url, publicId: String(img.publicId || '') }));
-
-    if (!aadharImages.length) {
-      return badInput(res, 'Attach at least one photograph of the Aadhar card.', 'KYC_IMAGE_REQUIRED');
-    }
-
     const total = Number(body.totalAmount);
     const paid = Number(body.paidAmount);
 
@@ -470,7 +486,9 @@ const createBooking = async (req, res, next) => {
       roomNumber: String(body.roomNumber || '').trim() || shareType,
       shareType,
       checkInDate,
-      checkOutDate,
+      /* '', not a placeholder date — an open-ended stay has no check-out yet,
+         and inventing one would claim a date nobody has agreed to. */
+      checkOutDate: checkOutDate || '',
       status: 'upcoming',
       /* Zero, not a stand-in. A walk-in logged before any money changes hands
          is the ordinary case, and inventing an amount here would put a figure
@@ -482,8 +500,7 @@ const createBooking = async (req, res, next) => {
       source: 'manual',
       kyc: {
         address,
-        aadharNumber,
-        aadharImages,
+        documents,
         verifiedAt: proof.verifiedAt,
         verifiedPhone: guestPhone,
       },
@@ -516,8 +533,8 @@ const createBooking = async (req, res, next) => {
  *                not have. A different number is a different verification, so
  *                it means a new record.
  *
- *   kyc.verifiedAt / aadharImages
- *                are evidence. The whole point of the create endpoint refusing
+ *   kyc.verifiedAt
+ *                is evidence. The whole point of the create endpoint refusing
  *                a client-set `verified` flag is undone if a PATCH can write
  *                one afterwards.
  *
@@ -525,8 +542,9 @@ const createBooking = async (req, res, next) => {
  *                same reason `kind` is on a support ticket.
  *
  * Everything below is a typo somebody can reasonably need to fix: a misheard
- * name, the wrong room, a date entered a day out, a mistyped Aadhar digit
- * — the photograph is the evidence there, not the digits.
+ * name, the wrong room, a date entered a day out, a document ticked by
+ * mistake or one added after the fact — `kyc.documents` is a checklist an
+ * owner keeps current, not evidence like `verifiedAt` is.
  */
 const EDITABLE_TEXT = ['guestName', 'shareType', 'roomNumber', 'guestsLabel', 'notes'];
 
@@ -555,7 +573,7 @@ const updateBooking = async (req, res, next) => {
       if (body[field] !== undefined) booking[field] = String(body[field]).trim();
     }
     if (!booking.guestName) return badInput(res, "Enter the guest's name.");
-    if (!booking.shareType) return badInput(res, 'Choose a room type.');
+    if (!booking.shareType) return badInput(res, "Could not tell which property this is for — reload and try again.");
 
     if (body.address !== undefined) {
       const address = String(body.address).trim();
@@ -563,29 +581,44 @@ const updateBooking = async (req, res, next) => {
       booking.kyc.address = address;
     }
 
-    if (body.aadharNumber !== undefined) {
-      const aadhar = String(body.aadharNumber).replace(/\D/g, '');
-      if (aadhar.length !== AADHAR_DIGITS) {
-        return badInput(res, `An Aadhar number is ${AADHAR_DIGITS} digits.`);
+    /* Replaces the whole checklist rather than patching individual rows —
+       simplest thing that could work, and the owner is looking at the full
+       list in the app when they edit it, not one row in isolation. */
+    if (body.documents !== undefined) {
+      const documents = (Array.isArray(body.documents) ? body.documents : [])
+        .map((d) => ({
+          name: String((d && d.name) || '').trim(),
+          collected: Boolean(d && d.collected),
+        }))
+        .filter((d) => d.name);
+
+      if (!documents.some((d) => d.collected)) {
+        return badInput(res, 'Check at least one document as collected.', 'DOCUMENT_REQUIRED');
       }
-      booking.kyc.aadharNumber = aadhar;
+      booking.kyc.documents = documents;
+      booking.markModified('kyc.documents');
     }
 
     /* Dates go through the same bounds the create does — a correction is as
-       able to carry a transposed year as the original entry was. */
+       able to carry a transposed year as the original entry was. Check-out
+       stays optional here too: clearing it (an empty string) is how an owner
+       turns a dated stay back into an open-ended one. */
     if (body.checkInDate !== undefined || body.checkOutDate !== undefined) {
       const checkInDate = asDateString(body.checkInDate ?? booking.checkInDate);
-      const checkOutDate = asDateString(body.checkOutDate ?? booking.checkOutDate);
-      if (!checkInDate || !checkOutDate) {
-        return badInput(res, 'Enter valid check-in and check-out dates.', 'BAD_DATE');
+      if (!checkInDate) {
+        return badInput(res, 'Enter a valid check-in date.', 'BAD_DATE');
       }
-      if (checkOutDate <= checkInDate) {
+      const rawCheckOut = body.checkOutDate ?? booking.checkOutDate;
+      const checkOutDate = rawCheckOut ? asDateString(rawCheckOut) : null;
+      if (rawCheckOut && !checkOutDate) {
+        return badInput(res, 'That is not a valid check-out date.', 'BAD_DATE');
+      }
+      if (checkOutDate && checkOutDate <= checkInDate) {
         return badInput(res, 'Check-out must be after check-in.', 'BAD_DATE');
       }
 
       const today = startOfToday();
       const inAt = asDate(checkInDate);
-      const outAt = asDate(checkOutDate);
 
       if (Math.round((today - inAt) / DAY_MS) > MAX_BACKDATE_DAYS) {
         return badInput(res, 'That check-in is more than a year ago. Check the year.', 'BAD_DATE');
@@ -593,12 +626,12 @@ const updateBooking = async (req, res, next) => {
       if (Math.round((inAt - today) / DAY_MS) > MAX_FUTURE_DAYS) {
         return badInput(res, 'That check-in is more than two years away. Check the year.', 'BAD_DATE');
       }
-      if (Math.round((outAt - inAt) / DAY_MS) > MAX_STAY_DAYS) {
+      if (checkOutDate && Math.round((asDate(checkOutDate) - inAt) / DAY_MS) > MAX_STAY_DAYS) {
         return badInput(res, 'That stay is longer than a year. Check the check-out date.', 'BAD_DATE');
       }
 
       booking.checkInDate = checkInDate;
-      booking.checkOutDate = checkOutDate;
+      booking.checkOutDate = checkOutDate || '';
     }
 
     await booking.save();

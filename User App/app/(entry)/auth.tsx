@@ -66,7 +66,7 @@ export default function AuthScreen() {
 
     const result = await sendCode(
       `+91${digits}`,
-      signingUp ? { name: name.trim(), email: email.trim() } : undefined,
+      signingUp ? { name: name.trim(), email: email.trim(), referralCode: referralCode.trim() } : undefined,
     );
 
     /*
