@@ -8,3 +8,4 @@
 export { SplashSequence, SLOW_CHECK_AT, type SplashSequenceProps } from './SplashSequence';
 export { BlockingScreen, type BlockingScreenProps } from './BlockingScreen';
 export { LocalityRow, CurrentLocationRow } from './SearchRows';
+export { AuthFlipCard, type AuthFlipCardProps } from './AuthFlipCard';

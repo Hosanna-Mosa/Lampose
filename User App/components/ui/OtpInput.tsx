@@ -233,7 +233,13 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignSelf: 'center' },
   box: { alignItems: 'center', justifyContent: 'center' },
   /* Full size and fully opaque, so it is focusable and takes the tap. The
-     text and the caret are what are invisible, not the control. */
-  overlayInput: { color: 'transparent', backgroundColor: 'transparent', textAlign: 'center' },
+     text and the caret are what are invisible, not the control.
+     `fontSize: 1` is not decorative — some Android keyboards (MIUI's and
+     Gboard among them) draw their own composing-text underline for digits
+     being typed, in their own colour, ignoring `color: 'transparent'`
+     entirely. That decoration scales with the glyph, so shrinking the glyph
+     to 1px is what actually keeps it from showing, not the transparent
+     colour alone. */
+  overlayInput: { color: 'transparent', backgroundColor: 'transparent', textAlign: 'center', fontSize: 1 },
   message: { flexDirection: 'row', alignItems: 'center', alignSelf: 'center' },
 });

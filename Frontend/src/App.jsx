@@ -18,10 +18,11 @@ import Download from './pages/Download';
 import Contact from './pages/Contact';
 import Privacy from './pages/Privacy';
 import Terms from './pages/Terms';
+import ChildSafety from './pages/ChildSafety';
 
 /* Routes whose first section sits on a light ground need the solid navbar
    immediately — the transparent bar is only legible over the forest hero. */
-const LIGHT_TOP = ['/', '/explore', '/services', '/how', '/cities', '/partners', '/food', '/food-partner', '/download', '/contact', '/privacy', '/terms'];
+const LIGHT_TOP = ['/', '/explore', '/services', '/how', '/cities', '/partners', '/food', '/food-partner', '/download', '/contact', '/privacy', '/terms', '/child-safety'];
 
 /* Nested routes count too: /explore/:id opens on the same light ground as
    /explore, and an exact-match check left the bar transparent over it. */
@@ -82,6 +83,7 @@ function Shell() {
           <Route path="/contact" element={<Contact />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
+          <Route path="/child-safety" element={<ChildSafety />} />
           {Object.entries(LEGACY).map(([from, to]) => (
             <Route key={from} path={from} element={<Navigate to={to} replace />} />
           ))}
