@@ -1,5 +1,6 @@
 import { api, apiRequest } from './client';
 import { endpoints } from './endpoints';
+import { logInfo } from '@/lib/log';
 
 /**
  * Telling the backend where to reach this handset.
@@ -36,7 +37,7 @@ export async function registerDevice(
     await api.post(endpoints.devices, { token, platform });
     return true;
   } catch (error) {
-    console.log('[push] could not register this device:', (error as Error).message);
+    logInfo('[push] could not register this device:', (error as Error).message);
     return false;
   }
 }
@@ -58,7 +59,7 @@ export async function unregisterDevice(token: string): Promise<boolean> {
     await apiRequest(endpoints.devices, { method: 'DELETE', body: { token } });
     return true;
   } catch (error) {
-    console.log('[push] could not remove this device:', (error as Error).message);
+    logInfo('[push] could not remove this device:', (error as Error).message);
     return false;
   }
 }

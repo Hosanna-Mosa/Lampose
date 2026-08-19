@@ -82,5 +82,16 @@ module.exports = ({ config }) => ({
      * variable but WITH it in the config still knows where to call.
      */
     apiUrl: process.env.EXPO_PUBLIC_API_URL,
+
+    /*
+     * Which build this is.
+     *
+     * Carried here as well as inlined because this file runs in Node during
+     * the build and can read the whole environment, including a value set by
+     * an EAS profile rather than a `.env` file. `constants/env.ts` treats an
+     * absent value as production, so a build that sets it in neither place
+     * is the safe one, not the exposed one.
+     */
+    appEnv: process.env.EXPO_PUBLIC_APP_ENV,
   },
 });

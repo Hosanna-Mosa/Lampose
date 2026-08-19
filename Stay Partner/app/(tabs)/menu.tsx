@@ -47,6 +47,7 @@ const NOTIF_ROWS: { key: NotifKey; label: string }[] = [
 import { useAuth } from '@/context/AuthContext';
 import { fetchSummary } from '@/services/api/portfolio.api';
 import { useEffect } from 'react';
+import { logWarn } from '@/lib/log';
 
 export default function MenuTab() {
   const c = useColors();
@@ -59,7 +60,7 @@ export default function MenuTab() {
       .then((sum) => {
         if (sum?.propertyName) setPropertyName(sum.propertyName);
       })
-      .catch((err) => console.warn('Failed to load summary in profile:', err));
+      .catch((err) => logWarn('Failed to load summary in profile:', err));
   }, []);
 
   const [notifs, setNotifs] = useState<Record<NotifKey, boolean>>({

@@ -7,6 +7,7 @@ import { fetchShareTypesApi, toggleShareTypesAvailabilityApi } from '@/services/
 import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
+import { logWarn } from '@/lib/log';
 
 export default function ShareTypesScreen() {
   const c = useColors();
@@ -32,7 +33,7 @@ export default function ShareTypesScreen() {
         setDraft(Object.fromEntries(mapped.map((t) => [t.id, t.available])));
       }
     } catch (err) {
-      console.warn('Failed to fetch share types:', err);
+      logWarn('Failed to fetch share types:', err);
     }
   };
 
@@ -54,7 +55,7 @@ export default function ShareTypesScreen() {
         setAvailable(true);
       }
     } catch (err) {
-      console.warn('Failed to save share types availability:', err);
+      logWarn('Failed to save share types availability:', err);
     }
     router.back();
   };

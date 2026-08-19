@@ -6,7 +6,7 @@ import ConnectionError from '../components/ConnectionError';
 import VisitRequestDialog from '../components/VisitRequestDialog';
 import StayIntentPicker from '../components/StayIntentPicker';
 import VisitStatus from '../components/VisitStatus';
-import { iconForCategory } from '../data/categories';
+import { iconForCategory, labelForCategory } from '../data/categories';
 import listingsApi from '../api/listingsApi';
 import { useReveals } from '../hooks/useSite';
 import useVisitRequest from '../hooks/useVisitRequest';
@@ -37,10 +37,14 @@ const formatValue = v => {
    repeated as rows in the table below it. Keyed by category because that is
    how the panel writes them — see backend/src/utils/sharing.js. */
 const OCCUPANCY_KEY = {
-  PG: 'sharingTypes',
-  Hostel: 'roomTypes',
-  Dormitory: 'bedType',
-  'Bachelor Room': 'roomType',
+  /* Two for PG_HOSTEL: the merge joined a category that wrote `sharingTypes`
+     to one that wrote `roomTypes`, and both are live in the collection. */
+  PG_HOSTEL: ['sharingTypes', 'roomTypes'],
+  HOTEL: ['bedTypes', 'bedType'],
+  /* Plural since layouts became multi-select; the singular is what older
+     rows carry. */
+  BACHELOR: ['roomTypes', 'roomType'],
+  COLIVE: ['roomTypes', 'roomType'],
 };
 
 const Chevron = ({ back }) => (
@@ -71,11 +75,21 @@ export default function Listing() {
     durationUnit: null,
     joiningDate: null,
     flexibleJoin: null,
+    /* Hotels ask for two dates and a headcount instead of a track and a
+       duration — see StayIntentPicker. */
+    checkIn: null,
+    checkOut: null,
+    /* Which of the three structures a hotel bed is bought on. Defaults to the
+       first the owner priced, decided in the picker. */
+    rateStructure: null,
+    /* Nights, months or hours — whichever the chosen structure is bought in.
+       Read off the dates for a nightly stay, asked for otherwise. */
+    rateQuantity: null,
     consented: false,
   });
 
   /* Survives a reload and a return visit — see hooks/useVisitRequest.js. */
-  const { request: visit, setRequest: setVisit } = useVisitRequest(id);
+  const { request: visit, setRequest: setVisit, refresh: refreshVisit } = useVisitRequest(id);
 
   useReveals([loading]);
 
@@ -250,6 +264,9 @@ export default function Listing() {
      stores what it derives. This is a preview so the visitor sees the
      number before pressing, not a second source of truth. */
   const simple = item.simpleSharingPath === true;
+  /* A hotel is asked for dates and a rate structure, not a stay length. */
+  const nightly = item.category === 'HOTEL';
+  const tokenRequired = item.visitToken?.required === true;
   const rates = item.stayRates || {};
 
   const prorate = (monthly, iso) => {
@@ -302,8 +319,32 @@ export default function Listing() {
   /* The first unanswered thing, named — a disabled button with no reason is
      just a dead end. Order matches the order they appear in the rail. */
   const missing = (() => {
-    if (sharingOptions.length > 0 && !intent.sharing) return 'Pick a room type to continue.';
-    if (simple) return null;
+    if (sharingOptions.length > 0 && !intent.sharing) {
+      return nightly ? 'Pick a bed type to continue.' : 'Pick a room type to continue.';
+    }
+
+    /* Hotels: how they are charged, then when and how much of it. Which of
+       the two the second question is depends on the first — nights come off a
+       pair of dates, hours and months are asked for. */
+    if (nightly) {
+      if (!intent.checkIn) return 'Pick a check-in date.';
+      const byNight = !intent.rateStructure || intent.rateStructure === 'nightly';
+      if (byNight && !intent.checkOut) return 'Pick a check-out date.';
+      if (!byNight && !intent.rateQuantity) {
+        return intent.rateStructure === 'monthly' ? 'How many months?' : 'How many hours?';
+      }
+      if (!intent.consented) return 'Accept the Privacy Policy and Terms to continue.';
+      return null;
+    }
+
+    /* A whole flat: the layout, and the tick. The move-in date is asked after
+       the owner confirms and the token is paid — see VisitTokenPanel. */
+    if (simple) {
+      if (!tokenRequired && !intent.joiningDate) return 'Pick a move-in date.';
+      if (!intent.consented) return 'Accept the Privacy Policy and Terms to continue.';
+      return null;
+    }
+
     if (!intent.stayType) return 'Choose a short or long stay.';
     if (!intent.duration) return `Choose how many ${intent.stayType === 'short' ? 'nights' : 'months'}.`;
     if (!intent.joiningDate) return 'Pick a joining date.';
@@ -340,12 +381,24 @@ export default function Listing() {
        `description` is already the About section. */
     ...Object.entries(item.details || {})
       .filter(([k]) => ![
-        'sharingPrices', OCCUPANCY_KEY[item.category], 'description',
+        'sharingPrices', ...(OCCUPANCY_KEY[item.category] || []), 'description',
         /* Bookkeeping for the onboarding panel's "Custom" occupancy button:
            which options an agent typed in by hand. The options themselves are
            already the chooser in the rail — this would repeat them as a row
            saying nothing a visitor can use. */
         'customSharingTypes',
+        /* Same reason: which amenities an agent typed by hand is bookkeeping.
+           The amenities themselves are already a row. */
+        'customFurnishingItems',
+        'customRoomTypes',
+        'customBedTypes',
+        /* Per-layout detail. The occupancy chooser in the rail already shows
+           each layout, and `furnishing` / `furnishingItems` carry the summary
+           — these two would repeat both as unreadable objects. */
+        'furnishingByLayout',
+        'furnishingItemsByLayout',
+        'allowedTenantsByLayout',
+        'kitchenByLayout',
       ].includes(k))
       .map(([k, v]) => [labelise(k), formatValue(v)]),
   ].filter(([, v]) => v !== null && v !== undefined && v !== '');
@@ -354,7 +407,7 @@ export default function Listing() {
 
   const chips = (
     <span className="lst-mosaic__chips">
-      <span className="exp-chip exp-chip--light">{item.category}</span>
+      <span className="exp-chip exp-chip--light">{labelForCategory(item.category)}</span>
       {item.stayType && <span className="exp-chip exp-chip--dark">{item.stayType}</span>}
     </span>
   );
@@ -424,7 +477,7 @@ export default function Listing() {
             <div className="lst-scores">
               <span className="lst-kind">
                 <Icon name={iconFor(item.category)} className="exp-ico" />
-                {item.category}
+                {labelForCategory(item.category)}
               </span>
               {/* Only where the panel recorded it — hostels carry a type,
                   PGs have no gender field and get no badge rather than a
@@ -536,7 +589,14 @@ export default function Listing() {
           <aside className="lst-rail reveal">
             <div className="lst-block lst-rail__card">
               {visit ? (
-                <VisitStatus request={visit} onAskAgain={() => setAskOpen(true)} />
+                <VisitStatus
+                  request={visit}
+                  onAskAgain={() => setAskOpen(true)}
+                  /* The token panel changes the request server-side — paying,
+                     then dating it — so the card has to re-read rather than
+                     keep showing the state it was mounted with. */
+                  onRefresh={refreshVisit}
+                />
               ) : (
                 <>
                   {/* The bar restates what was chosen and what it costs, so
@@ -566,8 +626,14 @@ export default function Listing() {
                   <StayIntentPicker listing={item} value={intent} onChange={setIntent} />
 
                   {/* Consent, with the real pages behind it — both routes
-                      exist on this site, so neither link is a placeholder. */}
-                  {!item.simpleSharingPath && (
+                      exist on this site, so neither link is a placeholder.
+
+                      Asked of every category. It used to be skipped on the
+                      simple path, which meant a bachelor or co-live request
+                      was sent with no record that the person agreed to
+                      anything — the same request, the same data sharing, and
+                      no consent behind it. */}
+                  {true && (
                     <label className="lst-consent">
                       <input
                         type="checkbox"

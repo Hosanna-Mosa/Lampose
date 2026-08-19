@@ -15,7 +15,7 @@ export const LISTINGS = [
   {
     "id": "6a801265204ec0ce24636ec5",
     "name": "Apex Luxury Studio & Co-Living Stay",
-    "category": "PG",
+    "category": "PG_HOSTEL",
     "categorySlug": "pg",
     "place": "HSR Layout Sector 1, Bangalore",
     "city": "Bangalore",
@@ -59,7 +59,7 @@ export const LISTINGS = [
   {
     "id": "66b1a1a1a1a1a1a1a1a1a004",
     "name": "Urban Nest 1BHK Bachelor Studio",
-    "category": "Bachelor Room",
+    "category": "BACHELOR",
     "categorySlug": "bachelor-room",
     "place": "BTM Layout 2nd Stage, Bangalore",
     "city": "Bangalore",
@@ -99,7 +99,7 @@ export const LISTINGS = [
   {
     "id": "66b1a1a1a1a1a1a1a1a1a003",
     "name": "Backpackers Pod & Dormitory",
-    "category": "Dormitory",
+    "category": "HOTEL",
     "categorySlug": "dormitory",
     "place": "Indiranagar 100ft Road, Bangalore",
     "city": "Bangalore",
@@ -141,7 +141,7 @@ export const LISTINGS = [
   {
     "id": "66b1a1a1a1a1a1a1a1a1a002",
     "name": "Apex Luxury Girls Hostel & Residency",
-    "category": "Hostel",
+    "category": "PG_HOSTEL",
     "categorySlug": "hostel",
     "place": "HSR Layout Sector 2, Bangalore",
     "city": "Bangalore",
@@ -188,7 +188,7 @@ export const LISTINGS = [
   {
     "id": "66b1a1a1a1a1a1a1a1a1a001",
     "name": "Starlight Premium PG for Men",
-    "category": "PG",
+    "category": "PG_HOSTEL",
     "categorySlug": "pg",
     "place": "Koramangala 5th Block, Bangalore",
     "city": "Bangalore",
@@ -245,10 +245,10 @@ export const PRICE_MAX = 14500;
    the grid glyph. The slug is what the stylesheet keys its accent off. */
 export const CATEGORIES_LIST = [
   { id: 'all', label: 'All listings', icon: 'grid' },
-  { id: "Hostel", slug: "hostel", label: "Hostel", icon: "users" },
-  { id: "PG", slug: "pg", label: "PG", icon: "stay" },
-  { id: "Bachelor Room", slug: "bachelor-room", label: "Bachelor Room", icon: "stay" },
-  { id: "Dormitory", slug: "dormitory", label: "Dormitory", icon: "grid" },
+  { id: "PG_HOSTEL", slug: "pg-hostel", label: "PG / Hostel", icon: "users" },
+  { id: "BACHELOR", slug: "bachelor", label: "Bachelor", icon: "stay" },
+  { id: "COLIVE", slug: "house-co-live", label: "House / Co-live", icon: "stay" },
+  { id: "HOTEL", slug: "hotels", label: "Hotels", icon: "grid" },
 ];
 
 export const SORT_OPTIONS = [

@@ -22,6 +22,39 @@ const JOIN_MIN_DAYS = 2;
 const JOIN_MAX_MONTHS = 2;
 
 const SHORT_MAX_DAYS = 7;
+
+/* A hotel is asked for dates, not a duration, so its ceiling is a number of
+   nights rather than a rung on the short/long ladder. Thirty is a month —
+   past that somebody is renting, not staying, and should be looking at a PG. */
+const HOTEL_MAX_NIGHTS = 30;
+
+/* The three ways a hotel bed is sold. Order is the order the page offers
+   them, and the first one an owner priced becomes the default. */
+const RATE_STRUCTURES = ['nightly', 'monthly', 'flexible'];
+const RATE_LABEL = { nightly: 'by the night', monthly: 'by the month', flexible: 'by the hour' };
+const RATE_UNIT = { nightly: 'day', monthly: 'month', flexible: 'day' };
+
+/*
+ * How much of it, and what a sane amount is.
+ *
+ * Each structure is bought in its own unit, and only the nightly one can be
+ * read off a pair of dates. A guest paying by the hour picks hours and leaves
+ * the same day; a guest paying by the month picks months and the check-out
+ * follows from the check-in. Asking all three for a check-out produced an
+ * hourly booking that had to last at least one night.
+ */
+const RATE_QUANTITY = {
+  nightly: { unit: 'nights', min: 1, max: HOTEL_MAX_NIGHTS, fromDates: true },
+  monthly: { unit: 'months', min: 1, max: 12, fromDates: false },
+  flexible: { unit: 'hours', min: 1, max: 24, fromDates: false },
+};
+
+/** check-in + n months, as a date-only string. */
+const addMonths = (iso, n) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + n);
+  return d.toISOString().slice(0, 10);
+};
 const LONG_LADDER = [1, 3, 6, 12];
 
 const num = (value) => {
@@ -186,7 +219,7 @@ const proratedFirstMonth = ({ monthlyAmount, joiningDate }) => {
  *
  * @returns {{ ok: true, intent: object } | { ok: false, code: string, message: string }}
  */
-const validateIntent = ({ doc, intent, sharingOption, simplePath }) => {
+const validateIntent = ({ doc, intent, sharingOption, simplePath, datesPath }) => {
   const given = intent || {};
   const rates = stayRatesFor(doc);
 
@@ -200,7 +233,7 @@ const validateIntent = ({ doc, intent, sharingOption, simplePath }) => {
     && typeof intent === 'object'
     && Object.values(intent).some((v) => v !== null && v !== undefined && v !== '');
 
-  /* Bachelor Room and friends price by the bed, not by stay length. The panel
+  /* BACHELOR and COLIVE price by the bed, not by stay length. The panel
      records no daily rate and no month ladder for them, so the page asks for
      sharing alone and there is no stay type to check. */
   if (simplePath || !suppliedIntent) {
@@ -213,6 +246,128 @@ const validateIntent = ({ doc, intent, sharingOption, simplePath }) => {
         durationUnit: null,
         joiningDate: isISODate(given.joiningDate) ? given.joiningDate : null,
         flexibleJoin: given.flexibleJoin === true,
+        proratedFirstMonth: null,
+      },
+    };
+  }
+
+  /*
+   * A hotel is booked by dates, and everything downstream still speaks
+   * durations.
+   *
+   * So the two dates are validated here and then RESOLVED into the same
+   * intent shape a short stay produces — `stayType: 'short'`, a duration in
+   * nights, and the check-in as the joining date. The owner's WhatsApp
+   * message, the pricing and the stored request all keep working without
+   * learning a second vocabulary, and the one thing they gain is `checkOut`.
+   *
+   * Doing it the other way round — a parallel hotel branch through pricing
+   * and messaging — is how the offer and the check drift apart, which is the
+   * failure this whole file exists to prevent.
+   */
+  if (datesPath) {
+    const { checkIn } = given;
+
+    if (!isISODate(checkIn)) {
+      return { ok: false, code: 'BAD_CHECK_IN', message: 'Please choose a check-in date.' };
+    }
+
+    const window = joinWindow();
+    if (checkIn < window.min || checkIn > window.max) {
+      return {
+        ok: false,
+        code: 'CHECK_IN_OUT_OF_RANGE',
+        window,
+        message: `Check-in must be between ${window.min} and ${window.max}.`,
+      };
+    }
+
+    /*
+     * Which structure, offered only where this owner priced one.
+     *
+     * A hostel sells the same bed by the night, by the month and by the hour,
+     * often at rates that are not multiples of each other — so it is a choice
+     * the guest makes, not something to infer from how long they stay.
+     */
+    const priced = (sharingOption && sharingOption.rates) || {};
+    const available = RATE_STRUCTURES.filter((id) => num(priced[id]));
+
+    if (!available.length) {
+      return { ok: false, code: 'NO_RATE', message: 'This property has no price for that bed.' };
+    }
+
+    const structure = String(given.rateStructure || '').toLowerCase() || available[0];
+    if (!RATE_STRUCTURES.includes(structure)) {
+      return { ok: false, code: 'BAD_RATE_STRUCTURE', message: 'Choose how you want to be charged.' };
+    }
+    if (!available.includes(structure)) {
+      return {
+        ok: false,
+        code: 'RATE_STRUCTURE_UNAVAILABLE',
+        options: available,
+        message: `That bed is not sold ${RATE_LABEL[structure]}.`,
+      };
+    }
+
+    const spec = RATE_QUANTITY[structure];
+    let quantity;
+    let checkOut;
+
+    if (spec.fromDates) {
+      /* Nights are the one quantity a pair of dates already answers, so it is
+         read rather than asked twice. */
+      if (!isISODate(given.checkOut)) {
+        return { ok: false, code: 'BAD_CHECK_OUT', message: 'Please choose a check-out date.' };
+      }
+      checkOut = given.checkOut;
+      quantity = Math.round(
+        (Date.parse(`${checkOut}T00:00:00Z`) - Date.parse(`${checkIn}T00:00:00Z`)) / DAY_MS,
+      );
+      if (quantity < 1) {
+        return {
+          ok: false,
+          code: 'BAD_STAY_LENGTH',
+          message: 'Check-out has to be at least the day after check-in.',
+        };
+      }
+    } else {
+      quantity = Number(given.rateQuantity);
+      /* Hours and months are the guest's answer, and the check-out follows
+         from it — a booking cannot end on a date nobody derived. */
+      checkOut = structure === 'monthly' ? addMonths(checkIn, quantity) : checkIn;
+    }
+
+    if (!Number.isInteger(quantity) || quantity < spec.min || quantity > spec.max) {
+      return {
+        ok: false,
+        code: 'BAD_RATE_QUANTITY',
+        unit: spec.unit,
+        message: `How many ${spec.unit}? Enter a number from ${spec.min} to ${spec.max}.`,
+      };
+    }
+
+    const amount = num(priced[structure]);
+
+    return {
+      ok: true,
+      intent: {
+        stayType: 'short',
+        /* `duration` stays in nights for the readers that predate this. An
+           hourly booking is same-day, which is zero nights. */
+        duration: structure === 'nightly' ? quantity : null,
+        durationUnit: structure === 'nightly' ? 'days' : null,
+        joiningDate: checkIn,
+        checkIn,
+        checkOut,
+        rateStructure: structure,
+        rateQuantity: quantity,
+        rateQuantityUnit: spec.unit,
+        flexibleJoin: given.flexibleJoin === true,
+        rateAmount: amount,
+        rateUnit: RATE_UNIT[structure],
+        /* Every structure now knows how much of it was bought, so all three
+           can be totalled honestly. */
+        totalAmount: amount * quantity,
         proratedFirstMonth: null,
       },
     };
@@ -300,6 +455,25 @@ const validateIntent = ({ doc, intent, sharingOption, simplePath }) => {
 /** "3 months from 1 Sep 2026, flexible by a day or two" — omits what is absent. */
 const describeIntent = (intent) => {
   if (!intent) return '';
+
+  /* A hotel stay reads as the two dates, because that is what was asked for
+     and what the owner needs to check against a calendar. "3 days from 14 Sep"
+     makes them work out the 17th themselves. */
+  if (intent.checkIn && intent.checkOut) {
+    const day = (iso) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-IN', {
+      day: 'numeric', month: 'short', timeZone: 'UTC',
+    });
+    const qty = intent.rateQuantity || intent.duration || 1;
+    const unit = (intent.rateQuantityUnit || 'nights').replace(/s$/, '');
+    const amount = `${qty} ${unit}${qty === 1 ? '' : 's'}`;
+
+    /* Nights read as a range because that is how a calendar is checked; hours
+       read as a single day, because that is what they are. */
+    if (intent.rateStructure === 'flexible') return `${amount} on ${day(intent.checkIn)}`;
+    if (intent.rateStructure === 'monthly') return `${amount} from ${day(intent.checkIn)}`;
+    return `${amount}, ${day(intent.checkIn)} to ${day(intent.checkOut)}`;
+  }
+
   const parts = [];
 
   if (intent.duration && intent.durationUnit) {
@@ -324,6 +498,10 @@ module.exports = {
   JOIN_MIN_DAYS,
   JOIN_MAX_MONTHS,
   SHORT_MAX_DAYS,
+  HOTEL_MAX_NIGHTS,
+  RATE_STRUCTURES,
+  RATE_LABEL,
+  RATE_QUANTITY,
   todayISO,
   isISODate,
   joinWindow,

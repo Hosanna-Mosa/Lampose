@@ -58,17 +58,17 @@ const suspicions = (doc) => {
 /* Anything the panel adds later falls back to the room glyph rather than
    breaking the tab row. */
 const CATEGORY_ICONS = {
-  PG: 'stay',
-  Hostel: 'users',
-  Dormitory: 'grid',
-  'Bachelor Room': 'stay',
+  PG_HOSTEL: 'users',
+  BACHELOR: 'stay',
+  COLIVE: 'stay',
+  HOTEL: 'grid',
 };
 
 /* Tab order, chosen rather than alphabetical: the filter row should lead with
    what people search for most, not with whatever starts with a B. A category
    the panel adds later is not in this list, so it sorts to the end by name
    instead of silently jumping to the front. */
-const CATEGORY_ORDER = ['Hostel', 'PG', 'Bachelor Room', 'Dormitory'];
+const CATEGORY_ORDER = ['PG_HOSTEL', 'BACHELOR', 'COLIVE', 'HOTEL'];
 
 const byCategoryOrder = (a, b) => {
   const ia = CATEGORY_ORDER.indexOf(a);

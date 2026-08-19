@@ -43,7 +43,7 @@ import { actions } from '@/constants/actions';
  * can be exercised on a device before screens are built on it.
  */
 
-const CHIPS = ['PG', 'Hostel', 'Bachelor', 'Dormitory', 'Under ₹10k', 'Veg mess'];
+const CHIPS = ['PG / Hostel', 'Bachelor', 'Co-live', 'Hotels', 'Under ₹10k', 'Veg mess'];
 const GENDERS = ['Boys only', 'Girls only', 'Co-ed'];
 const SORTS = ['Rent', 'Distance', 'Deposit'] as const;
 

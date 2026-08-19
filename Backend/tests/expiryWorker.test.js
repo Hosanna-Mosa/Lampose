@@ -39,7 +39,7 @@ const setup = async (beds = 6) => {
     place: 'Vizag',
     ownerName: 'Ramesh',
     ownerMobile: OWNER_PHONE,
-    category: 'PG',
+    category: 'PG_HOSTEL',
     rent: 5999,
     categoryDetails: {
       sharingTypes: ['2 Sharing'],

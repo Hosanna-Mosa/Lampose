@@ -15,6 +15,7 @@ import { confirmMovedIn, useStayRequest } from '@/services';
 import { formatRupees } from '@/utils/money';
 import type { BookingStatus } from '@/constants/tokens';
 import { useDepositMark } from '@/components/ui/DepositMark';
+import { usePreviewControls } from '@/hooks/useAppEnv';
 
 /**
  * One template, thirteen statuses.
@@ -31,6 +32,7 @@ import { useDepositMark } from '@/components/ui/DepositMark';
  * SWAPS — exactly two slots: the status block, and the action bar.
  */
 export default function BookingDetail() {
+  const previewControls = usePreviewControls();
   const { colors, space, layout, mode, radius } = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -274,7 +276,7 @@ export default function BookingDetail() {
           onSupport={() => {}}
         />
 
-        {__DEV__ ? (
+        {previewControls ? (
           <View style={{ gap: space[2], paddingTop: space[4] }}>
             <Text variant="numMeta" color="tertiary">
               status — preview only · the template is the same for all thirteen

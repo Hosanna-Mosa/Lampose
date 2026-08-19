@@ -68,6 +68,10 @@ export const endpoints = {
    * the server. This app renders `expiresAt`; it never computes one.
    */
   stayRequests: `${V2}/customers/stay-requests`,
+  /* The visit-request routes, shared with the website. The token steps live
+     there rather than under /customers because a request made from either
+     surface is paid for the same way. */
+  visitRequests: `${V2}/visit-requests`,
   stayRequest: (id: string) => `${V2}/customers/stay-requests/${encodeURIComponent(id)}`,
   stayRequestWithdraw: (id: string) =>
     `${V2}/customers/stay-requests/${encodeURIComponent(id)}/withdraw`,

@@ -45,7 +45,7 @@ import { useColors } from '@/hooks/useColors';
  * There used to be a "Room type" picker here backed by two invented options
  * ("Deluxe Double", "Family Suite") — not real inventory, since no sharing
  * or pricing model exists yet (see `lib/inventory.ts`). It is replaced by the
- * property's own category (Hostel / PG / Bachelor Room / …), read-only: that
+ * property's own category (PG_HOSTEL / BACHELOR / …), read-only: that
  * is a fact about the property, set once at onboarding, not something that
  * changes guest to guest.
  *
@@ -146,7 +146,7 @@ export default function AddCustomerScreen() {
      validated beyond "is it there" for the same reason it isn't there either. */
   const propertyDetails = (selectedProperty?.details ?? {}) as Record<string, any>;
   const sharingTypes: string[] =
-    category === 'PG' && Array.isArray(propertyDetails.sharingTypes) ? propertyDetails.sharingTypes : [];
+    category === 'PG_HOSTEL' && Array.isArray(propertyDetails.sharingTypes) ? propertyDetails.sharingTypes : [];
   const sharingPrices: Record<string, number> =
     propertyDetails.sharingPrices && typeof propertyDetails.sharingPrices === 'object'
       ? propertyDetails.sharingPrices

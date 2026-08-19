@@ -14,6 +14,7 @@ import { feedListings, findListing } from '@/data/listings';
 import { formatRupees } from '@/utils/money';
 import { OWNER_WINDOW_MINUTES, PAYMENT_WINDOW_MINUTES, type RequestOutcome } from '@/types/request';
 import { actions } from '@/constants/actions';
+import { usePreviewControls } from '@/hooks/useAppEnv';
 
 /**
  * Waiting, and the three ways it ends.
@@ -33,6 +34,7 @@ import { actions } from '@/constants/actions';
 const REFERENCE = 'LAM-4192';
 
 export default function RequestWaiting() {
+  const previewControls = usePreviewControls();
   const { colors, space, layout, mode, radius } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -269,7 +271,7 @@ export default function RequestWaiting() {
 
         {/* Dev only: the owner is not real, so the three outcomes are
             otherwise unreachable. */}
-        {__DEV__ ? (
+        {previewControls ? (
           <View style={{ gap: space[2], paddingTop: space[4] }}>
             <Text variant="numMeta" color="tertiary">
               outcome — preview only

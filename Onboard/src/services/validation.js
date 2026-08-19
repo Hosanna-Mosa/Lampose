@@ -96,6 +96,10 @@ export const sharingPriceKey = (type) => `sharingPrice:${type}`;
 /** The error key for one sharing option's AC rent. */
 export const sharingAcPriceKey = (type) => `sharingAcPrice:${type}`;
 
+/** Per-layout furnishing level and unit count, for the whole-property lets. */
+export const furnishingKey = (layout) => `furnishing:${layout}`;
+export const roomCountKey = (layout) => `roomCount:${layout}`;
+
 /* ------------------------------------------------------------------ *
  * Where each message is printed
  * ------------------------------------------------------------------ */
@@ -120,6 +124,10 @@ export const FIELD_ANCHORS = {
   address: 'addressInput',
   photos: 'propertyPhotos',
   'categoryDetails.sharingTypes': 'sharingOptions',
+  'categoryDetails.roomTypes': 'roomTypes',
+  'categoryDetails.bedTypes': 'bedTypes',
+  'documents.pan': 'hotelDocuments',
+  'documents.premises': 'hotelDocuments',
   'categoryDetails.mealsProvided': 'mealsProvided',
   'categoryDetails.wardenContact': 'wardenContact',
   'categoryDetails.totalBeds': 'totalBeds',
@@ -156,6 +164,11 @@ export const anchorFor = (key) => {
   if (FIELD_ANCHORS[key]) return FIELD_ANCHORS[key];
   if (key.startsWith('sharingPrice:')) return `sharingPrice-${key.slice('sharingPrice:'.length)}`;
   if (key.startsWith('sharingAcPrice:')) return `sharingAcPrice-${key.slice('sharingAcPrice:'.length)}`;
+  if (key.startsWith('furnishing:')) return `sharingPrice-${key.slice('furnishing:'.length)}`;
+  if (key.startsWith('roomCount:')) return `sharingRooms-${key.slice('roomCount:'.length)}`;
+  /* The optional hotel rate grids: `monthlyPrices:Single` → `monthlyPrices-Single`. */
+  const rateGrid = key.match(/^((?:monthly|flexible)(?:Ac)?Prices):(.+)$/);
+  if (rateGrid) return `${rateGrid[1]}-${rateGrid[2]}`;
   return null;
 };
 
@@ -235,16 +248,36 @@ export function validateOnboarding(formData = {}) {
 
   /* — money — */
 
-  const isBachelor = category === 'Bachelor Room';
+  /* Whole-property lets: priced by the bed, with no stay-length ladder. */
+  const isBachelor = category === 'BACHELOR' || category === 'COLIVE';
   const isShortStay = formData.stayType === 'Short Stay' && !isBachelor;
 
   /* A PG's monthly rent is not typed anywhere: it is derived from the cheapest
      selected sharing option. So the message for a missing one belongs on the
      sharing block, and asking for a monthly price here as well would be asking
      twice for the same number. */
-  const pgDerivesRent = category === 'PG' && !isShortStay;
+  /* The headline rate is not typed for any category that prices its options
+     individually: it is derived from the cheapest one — sharing for a PG,
+     layout for a bachelor or co-live, bed type for a hotel. Asking again in
+     step 4 would be asking twice for the same number, and the two could
+     disagree.
 
-  if (isShortStay) {
+     A hotel derives on the SHORT-stay path, because its rates are nightly;
+     the others derive on the long-stay path, because theirs are monthly. */
+  const isHotel = category === 'HOTEL';
+  const pgDerivesRent = ((category === 'PG_HOSTEL' || isBachelor) && !isShortStay)
+    || (isHotel && !isShortStay);
+  const hotelDerivesDaily = isHotel && isShortStay;
+
+  if (isShortStay && hotelDerivesDaily) {
+    /* Derived from the bed rates above. The per-bed messages are where a
+       missing number is reported, so nothing is added here — but a hotel with
+       no priced bed at all still needs saying. */
+    const daily = amount(formData.dailyPrice);
+    if (isNaN(daily) || daily <= 0) {
+      errs.dailyPrice = 'Price at least one bed type above — that is what sets the nightly rate';
+    }
+  } else if (isShortStay) {
     const daily = amount(formData.dailyPrice);
     if (isNaN(daily)) errs.dailyPrice = 'Price per day is required for a short stay';
     else if (daily <= 0) errs.dailyPrice = 'Price per day must be more than 0';
@@ -262,7 +295,17 @@ export function validateOnboarding(formData = {}) {
   const depositRaw = formData.deposit;
   if (depositRaw !== '' && depositRaw !== null && depositRaw !== undefined) {
     const deposit = amount(depositRaw);
-    const monthlyForCheck = amount(formData.monthlyPrice) || amount(formData.rent);
+    /*
+     * A year of rent, and for a hotel that is not what `rent` holds.
+     *
+     * A nightly category quotes ₹450, so twelve times it is ₹5,400 and any
+     * normal hostel deposit was rejected as absurd. The monthly equivalent is
+     * what the ceiling was always reaching for; for a nightly rate that is the
+     * price times thirty.
+     */
+    const nightly = amount(formData.dailyPrice);
+    const monthlyForCheck = amount(formData.monthlyPrice)
+      || (isHotel && !isNaN(nightly) && nightly > 0 ? nightly * 30 : amount(formData.rent));
     if (isNaN(deposit)) errs.deposit = 'Enter the deposit as a number, or leave it blank';
     else if (deposit < 0) errs.deposit = 'A deposit cannot be negative';
     else if (!isNaN(monthlyForCheck) && monthlyForCheck > 0 && deposit > monthlyForCheck * MAX_DEPOSIT_MONTHS) {
@@ -289,7 +332,7 @@ export function validateOnboarding(formData = {}) {
 
   /* — what makes this category a category — */
 
-  Object.assign(errs, validateCategory(category, details, { isShortStay }));
+  Object.assign(errs, validateCategory(category, details, { isShortStay, documents: formData.documents }));
 
   return errs;
 }
@@ -301,10 +344,10 @@ export function validateOnboarding(formData = {}) {
  * is, and reading four sets of rules interleaved in one function is how a rule
  * ends up applied to the wrong category.
  */
-function validateCategory(category, details, { isShortStay }) {
+function validateCategory(category, details, { isShortStay, documents }) {
   const errs = {};
 
-  if (category === 'PG') {
+  if (category === 'PG_HOSTEL') {
     const sharingTypes = Array.isArray(details.sharingTypes) ? details.sharingTypes : [];
 
     if (sharingTypes.length === 0) {
@@ -340,7 +383,11 @@ function validateCategory(category, details, { isShortStay }) {
     }
   }
 
-  if (category === 'Hostel') {
+  /* The hostel half of the merged category. Both blocks run for PG_HOSTEL:
+     the fields step renders the union, and the form seeds a hostelType for
+     every row, so a plain PG satisfies this without the agent thinking
+     about it. */
+  if (category === 'PG_HOSTEL') {
     if (!text(details.hostelType)) {
       errs['categoryDetails.hostelType'] = 'Choose whether this is a boys, girls or co-ed hostel';
     }
@@ -352,27 +399,134 @@ function validateCategory(category, details, { isShortStay }) {
     }
   }
 
-  if (category === 'Dormitory') {
-    const beds = amount(details.totalBeds);
-    if (isNaN(beds) || beds <= 0) {
-      errs['categoryDetails.totalBeds'] = 'Enter how many beds the dormitory has';
-    } else if (!Number.isInteger(beds)) {
-      errs['categoryDetails.totalBeds'] = 'Beds have to be a whole number';
-    } else if (beds > MAX_BEDS) {
-      errs['categoryDetails.totalBeds'] = `${MAX_BEDS} beds is the most this form accepts — check the number`;
+  if (category === 'HOTEL') {
+    /* Bed types are multi-select, each with its own nightly rate — and its own
+       AC rate where AC is offered, because a hostel commonly runs AC and
+       non-AC dorms in the same building at different prices. */
+    const bedTypes = Array.isArray(details.bedTypes) ? details.bedTypes : [];
+
+    if (bedTypes.length === 0) {
+      errs['categoryDetails.bedTypes'] = 'Pick at least one bed type — this is how beds are priced and searched';
+    } else {
+      bedTypes.forEach((bed) => {
+        const price = amount((details.sharingPrices || {})[bed]);
+        if (isNaN(price) || price <= 0) {
+          errs[sharingPriceKey(bed)] = `Enter the rate for ${bed}`;
+        } else if (price > MAX_MONTHLY_PRICE) {
+          errs[sharingPriceKey(bed)] = 'Check for an extra zero';
+        }
+
+        if ((details.sharingAC || {})[bed]) {
+          const acPrice = amount((details.sharingAcPrices || {})[bed]);
+          if (isNaN(acPrice) || acPrice <= 0) {
+            errs[sharingAcPriceKey(bed)] = `AC is ticked for ${bed} — enter its nightly rate, or untick AC`;
+          } else if (!isNaN(price) && price > 0 && acPrice < price) {
+            errs[sharingAcPriceKey(bed)] = `AC costs less than the same bed without it (${rupees(price)}) — check both amounts`;
+          }
+        }
+
+        /* The monthly and flexible rates are optional — plenty of hostels sell
+           beds only by the night. A negative or absurd one is not. */
+        ['monthlyPrices', 'monthlyAcPrices', 'flexiblePrices', 'flexibleAcPrices'].forEach((map) => {
+          const raw = (details[map] || {})[bed];
+          if (raw === '' || raw === undefined || raw === null) return;
+          const value = amount(raw);
+          if (isNaN(value) || value <= 0 || value > MAX_MONTHLY_PRICE) {
+            errs[`${map}:${bed}`] = `Check the ${bed} rate — it has to be a number above zero`;
+          }
+        });
+      });
     }
 
-    const washrooms = amount(details.washroomsCount);
-    if (isNaN(washrooms) || washrooms <= 0) {
-      errs['categoryDetails.washroomsCount'] = 'Enter how many washrooms there are';
-    } else if (!Number.isInteger(washrooms)) {
-      errs['categoryDetails.washroomsCount'] = 'Washrooms have to be a whole number';
+    /* Beds are counted per type now — a building renting four kinds of bed
+       cannot say how many of each with one number, and the per-type count is
+       what the request flow decrements. The property total is derived. */
+    let stated = 0;
+    bedTypes.forEach((bed) => {
+      const count = amount((details.sharingBeds || {})[bed]);
+      if (isNaN(count) || count <= 0) {
+        errs[roomCountKey(bed)] = `Enter how many ${bed} beds there are`;
+      } else if (!Number.isInteger(count)) {
+        errs[roomCountKey(bed)] = 'Beds have to be a whole number';
+      } else {
+        stated += count;
+      }
+    });
+
+    /*
+     * The two documents a hotel has to produce.
+     *
+     * Required rather than encouraged: a hotel is a business taking money from
+     * strangers for a bed, and these are the only two things that say who is
+     * being paid and that they hold the premises. A PG is somebody's house and
+     * the WhatsApp chain already ties the owner to the number.
+     */
+    /* Two places, because the same form is checked at two moments. While an
+       agent is filling it in, the files sit unuploaded in
+       `categoryDetails.localDocuments`. By the time anything re-validates a
+       saved property they are uploaded URLs in the TOP-LEVEL `documents` —
+       top-level because the public listing API returns `categoryDetails`
+       verbatim and a PAN filed there would be published. */
+    const localDocs = details.localDocuments || {};
+    const uploaded = Array.isArray(documents) ? documents : [];
+    const has = (kind) => Boolean(localDocs[kind]?.file)
+      || uploaded.some((d) => d && d.kind === kind && d.url);
+
+    if (!has('pan')) {
+      errs['documents.pan'] = 'Attach the owner or business PAN';
+    }
+    if (!has('premises')) {
+      errs['documents.premises'] = 'Attach one document establishing the premises';
+    } else if (localDocs.premises?.file && !text(localDocs.premises.docType)) {
+      /* Only asked once a file is there — the dropdown labels the attachment,
+         and asking which document it is before one exists reads as a second
+         required field rather than a label for the first. */
+      errs['documents.premises'] = 'Choose which document this is';
+    }
+
+    if (stated > MAX_BEDS) {
+      errs[roomCountKey(bedTypes[0])] = `${MAX_BEDS} beds is the most this form accepts — check the numbers`;
     }
   }
 
-  if (category === 'Bachelor Room') {
-    if (!text(details.roomType)) errs['categoryDetails.roomType'] = 'Choose the room type';
-    if (!text(details.furnishing)) errs['categoryDetails.furnishing'] = 'Choose the furnishing';
+  if (category === 'BACHELOR' || category === 'COLIVE') {
+    /* Layouts are multi-select and each carries its own rent, the same shape
+       the PG sharing options use — because a building let to bachelors
+       commonly has two layouts at two different rents, and the single-select
+       this replaced silently lost the second one. */
+    const roomTypes = Array.isArray(details.roomTypes)
+      ? details.roomTypes
+      : (text(details.roomType) ? [details.roomType] : []);
+
+    if (roomTypes.length === 0) {
+      errs['categoryDetails.roomTypes'] = 'Pick at least one layout — this is how the property is priced and searched';
+    } else {
+      roomTypes.forEach((layout) => {
+        const price = amount((details.sharingPrices || {})[layout]);
+        if (isNaN(price) || price <= 0) {
+          errs[sharingPriceKey(layout)] = `Enter the monthly rent for ${layout}`;
+        } else if (price > MAX_MONTHLY_PRICE) {
+          errs[sharingPriceKey(layout)] = 'Check for an extra zero';
+        }
+      });
+    }
+
+    /* Furnishing is per layout now, so the check is per layout too. The flat
+       `furnishing` is a derived summary and validating it would report a
+       problem against a control that no longer exists. */
+    roomTypes.forEach((layout) => {
+      const level = (details.furnishingByLayout || {})[layout];
+      if (!text(level)) {
+        errs[furnishingKey(layout)] = `Choose the furnishing for ${layout}`;
+      }
+
+      /* Counts are optional — an agent outside a building does not always know
+         — but a nonsense one is not. */
+      const count = amount((details.sharingRooms || {})[layout]);
+      if (!isNaN(count) && (count < 0 || !Number.isInteger(count))) {
+        errs[roomCountKey(layout)] = `How many ${layout}s has to be a whole number`;
+      }
+    });
   }
 
   return errs;

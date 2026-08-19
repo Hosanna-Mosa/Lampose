@@ -19,6 +19,7 @@ import { fonts, type } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 
 import { fetchReviewsApi } from '@/services/api/domain.api';
+import { logWarn } from '@/lib/log';
 
 const STARS = [5, 4, 3, 2, 1] as const;
 
@@ -52,7 +53,7 @@ export default function ReviewsListScreen() {
       setReviews(mapped);
       setAvgRating(res.averageRating || 4.8);
     } catch (err) {
-      console.warn('Failed to load reviews:', err);
+      logWarn('Failed to load reviews:', err);
     }
   };
 

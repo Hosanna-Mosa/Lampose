@@ -35,7 +35,7 @@ import Constants from 'expo-constants';
  * `EXPO_PUBLIC_*` names Expo inlines. A build configured through the config
  * rather than through an inlined variable still knows where to call.
  */
-const fromConfig = (Constants.expoConfig?.extra ?? {}) as { apiUrl?: string };
+const fromConfig = (Constants.expoConfig?.extra ?? {}) as { apiUrl?: string; appEnv?: string };
 
 const read = (raw: string | undefined): string | undefined => {
   const value = (raw ?? '').trim();
@@ -57,11 +57,49 @@ const read = (raw: string | undefined): string | undefined => {
  */
 export const API_URL = read(process.env.EXPO_PUBLIC_API_URL) ?? read(fromConfig.apiUrl);
 
+/**
+ * Which build this is, and therefore what the app is allowed to show and say.
+ *
+ * The owner's app has no preview controls — an owner's states are all
+ * reachable, because a real student produces them. What it does have is a
+ * console that narrates every request, and screens that log the body of any
+ * failure. Both are wanted while building and neither belongs in a release:
+ * the logs carry an owner's own bookings and payout details.
+ *
+ * The fallbacks are chosen so the dangerous answer is never the accidental
+ * one — unset in a release build reads as production, unset under Metro as
+ * development, and a misspelling as neither. See the student app's copy of
+ * this file for the longer argument; the two are kept in step deliberately.
+ */
+export type AppEnv = 'development' | 'preview' | 'production';
+
+const rawAppEnv = read(process.env.EXPO_PUBLIC_APP_ENV) ?? read(fromConfig.appEnv);
+
+export const APP_ENV: AppEnv =
+  rawAppEnv === 'development' || rawAppEnv === 'preview' || rawAppEnv === 'production'
+    ? rawAppEnv
+    : __DEV__
+      ? 'development'
+      : 'production';
+
+/** The one thing the rest of the app should branch on. */
+export const IS_PRODUCTION_BUILD = APP_ENV === 'production';
+
+/** Whether the app narrates itself to the console. Never in production. */
+export const DEBUG_LOGS = !IS_PRODUCTION_BUILD;
+
+/** Whether controls that reach otherwise-unreachable states may render. */
+export const PREVIEW_CONTROLS = !IS_PRODUCTION_BUILD;
+
 /* ------------------------------------------------------------------ *
  * What is set, for a dev banner or a bug report
  * ------------------------------------------------------------------ */
 
-export const ENV_SUMMARY = `api=${API_URL ?? '(unset)'}`;
+export const ENV_SUMMARY = [
+  `env=${APP_ENV}`,
+  `api=${API_URL ?? '(unset)'}`,
+  `logs=${DEBUG_LOGS ? 'on' : 'off'}`,
+].join('  ');
 
 /** Names of the variables this app understands. For `.env.example` and docs. */
-export const ENV_KEYS = ['EXPO_PUBLIC_API_URL'] as const;
+export const ENV_KEYS = ['EXPO_PUBLIC_API_URL', 'EXPO_PUBLIC_APP_ENV'] as const;

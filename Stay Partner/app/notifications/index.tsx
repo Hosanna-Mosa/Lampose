@@ -11,6 +11,7 @@ import {
 import { fetchNotificationsApi, markNotificationReadApi } from '@/services/api/domain.api';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
+import { logWarn } from '@/lib/log';
 
 export default function NotificationsScreen() {
   const c = useColors();
@@ -33,7 +34,7 @@ export default function NotificationsScreen() {
       setNotifications(mapped);
       setUnreadCount(res.unreadCount || mapped.filter((item) => !item.read).length);
     } catch (err) {
-      console.warn('Failed to load notifications:', err);
+      logWarn('Failed to load notifications:', err);
     }
   };
 
@@ -47,7 +48,7 @@ export default function NotificationsScreen() {
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
       setUnreadCount(0);
     } catch (err) {
-      console.warn('Failed to mark all read:', err);
+      logWarn('Failed to mark all read:', err);
     }
   };
 
@@ -57,7 +58,7 @@ export default function NotificationsScreen() {
       setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
       setUnreadCount((prev) => Math.max(0, prev - 1));
     } catch (err) {
-      console.warn('Failed to mark read:', err);
+      logWarn('Failed to mark read:', err);
     }
   };
 

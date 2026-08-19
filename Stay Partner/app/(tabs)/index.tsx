@@ -33,6 +33,7 @@ const EARNINGS = { today: '₹9,600', week: '₹58,400' };
 import { fetchSummary } from '@/services/api/portfolio.api';
 import { fetchNotificationsApi, toggleShareTypesAvailabilityApi } from '@/services/api/domain.api';
 import { useAuth } from '@/context/AuthContext';
+import { logWarn } from '@/lib/log';
 
 type DashboardState = 'loading' | 'ready' | 'empty' | 'error';
 
@@ -103,7 +104,7 @@ export default function TodayTab() {
        * loaded. `ErrorBody` already exists and offers a retry; this is what
        * routes to it.
        */
-      console.warn('Error fetching dashboard summary:', err);
+      logWarn('Error fetching dashboard summary:', err);
       setState('error');
     }
   }, [forced]);
@@ -159,7 +160,7 @@ export default function TodayTab() {
       await toggleShareTypesAvailabilityApi(false);
       setAvailable(false);
     } catch (err) {
-      console.warn('Failed to update availability:', err);
+      logWarn('Failed to update availability:', err);
     }
   };
 

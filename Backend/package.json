@@ -24,7 +24,8 @@
     "verify": "node scripts/verify-frontends.js",
     "test": "NODE_ENV=test node --test \"tests/**/*.test.js\"",
     "test:watch": "NODE_ENV=test node --test --watch \"tests/**/*.test.js\"",
-    "browsers": "playwright install --with-deps chromium"
+    "browsers": "playwright install --with-deps chromium",
+    "migrate:categories": "node scripts/migrate-categories.js"
   },
   "keywords": [
     "express",

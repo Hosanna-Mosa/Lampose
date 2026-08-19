@@ -3,10 +3,10 @@ import { Search, Home, Building2, BedDouble, Users, SlidersHorizontal, UserCheck
 
 const CATEGORIES = [
   { id: 'All', label: 'All Categories', icon: Home },
-  { id: 'PG', label: 'PGs', icon: Building2 },
-  { id: 'Hostel', label: 'Hostels', icon: Building2 },
-  { id: 'Bachelor Room', label: 'Bachelor Rooms', icon: Users },
-  { id: 'Dormitory', label: 'Dormitories', icon: BedDouble }
+  { id: 'PG_HOSTEL', label: 'PG / Hostel', icon: Building2 },
+  { id: 'BACHELOR', label: 'Bachelor', icon: Users },
+  { id: 'COLIVE', label: 'House / Co-live', icon: Home },
+  { id: 'HOTEL', label: 'Hotels', icon: BedDouble }
 ];
 
 export default function FilterBar({

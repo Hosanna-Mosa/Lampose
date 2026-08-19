@@ -86,6 +86,50 @@ export const visitRequestsApi = {
       throw wrap(err);
     }
   },
+
+  /* ── The visit token ────────────────────────────────────────────────────
+     Bachelor and co-live only. The owner confirms, the student pays, and only
+     then are they asked for a joining date and given the address.
+
+     Nothing here is trusted by the server on the client's word: the order is
+     created server-side and the callback is verified against an HMAC only the
+     server can compute. A browser saying "it worked" proves nothing. */
+
+  /** Start a checkout. Returns the order plus the publishable key id. */
+  async startTokenPayment(id) {
+    try {
+      const res = await apiClient.post(`/visit-requests/${id}/payment/order`);
+      return { ok: true, data: res?.data ?? res };
+    } catch (error) {
+      return { ok: false, code: error?.code, message: error?.message };
+    }
+  },
+
+  /** Hand Razorpay's three values back for checking. */
+  async confirmTokenPayment(id, { razorpayPaymentId, razorpaySignature }) {
+    try {
+      const res = await apiClient.post(`/visit-requests/${id}/payment/verify`, {
+        razorpayPaymentId,
+        razorpaySignature,
+      });
+      return { ok: true, data: res?.data ?? res };
+    } catch (error) {
+      return { ok: false, code: error?.code, message: error?.message };
+    }
+  },
+
+  /** The date, once the token is paid. The address comes back with it. */
+  async setJoiningDate(id, { joiningDate, flexibleJoin }) {
+    try {
+      const res = await apiClient.post(`/visit-requests/${id}/joining-date`, {
+        joiningDate,
+        flexibleJoin: flexibleJoin === true,
+      });
+      return { ok: true, data: res?.data ?? res };
+    } catch (error) {
+      return { ok: false, code: error?.code, message: error?.message };
+    }
+  },
 };
 
 export default visitRequestsApi;

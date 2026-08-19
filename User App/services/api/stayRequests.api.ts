@@ -41,6 +41,21 @@ export type StayIntent = {
   joiningDate?: string;
   /** "A day or two either way" — it is what lets an owner say yes. */
   flexibleJoin?: boolean;
+
+  /* ── Hotels ─────────────────────────────────────────────────────────
+     A hotel bed is bought between two dates on one of three structures,
+     not on a track and a duration. The server resolves these into the
+     shape above, so nothing past it has to know — see
+     Backend/src/modules/listings/stayIntent.util.js. */
+
+  /** `YYYY-MM-DD`. Also becomes `joiningDate` server-side. */
+  checkIn?: string;
+  /** Sent for a nightly stay; derived from the count for the other two. */
+  checkOut?: string;
+  /** Which of the three ways this bed is sold. */
+  rateStructure?: 'nightly' | 'monthly' | 'flexible';
+  /** How much of it — nights, months or hours, per the structure. */
+  rateQuantity?: number;
 };
 
 export type CreateStayRequestInput = {
@@ -145,6 +160,70 @@ export async function confirmMovedIn(
   const envelope = await apiRequest<ApiEnvelope<{ bookingId: string; movedIn: boolean }>>(
     endpoints.stayRequestMovedIn(id),
     { method: 'POST', signal },
+  );
+  return unwrap(envelope);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   The visit token — bachelor and co-live only.
+
+   The owner confirms, the student pays a small token, and only then are they
+   asked for a joining date and given the street address. Everything priced or
+   proved is decided server-side: this file starts a checkout and hands back
+   what Razorpay returned, and the server recomputes the HMAC before believing
+   any of it.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+export type VisitTokenOrder = {
+  orderId: string;
+  amountPaise: number;
+  currency: string;
+  /** Publishable. It identifies the account; it authorises nothing. */
+  keyId: string;
+  propertyName?: string;
+  customerName?: string;
+  customerPhone?: string;
+  /** Set when the token was already paid — reopening is not an error. */
+  alreadyPaid?: boolean;
+};
+
+/** Create the order a checkout is opened against. */
+export async function startVisitTokenPayment(
+  id: string,
+  signal?: AbortSignal,
+): Promise<VisitTokenOrder> {
+  const envelope = await api.post<ApiEnvelope<VisitTokenOrder>>(
+    `${endpoints.visitRequests}/${encodeURIComponent(id)}/payment/order`,
+    {},
+    { signal },
+  );
+  return unwrap(envelope);
+}
+
+/** Hand Razorpay's payment id and signature back to be verified. */
+export async function confirmVisitTokenPayment(
+  id: string,
+  input: { razorpayPaymentId: string; razorpaySignature: string },
+  signal?: AbortSignal,
+): Promise<BackendStayRequest> {
+  const envelope = await api.post<ApiEnvelope<BackendStayRequest>>(
+    `${endpoints.visitRequests}/${encodeURIComponent(id)}/payment/verify`,
+    input,
+    { signal },
+  );
+  return unwrap(envelope);
+}
+
+/** The date, once the token is paid. The address comes back with it. */
+export async function setVisitJoiningDate(
+  id: string,
+  input: { joiningDate: string; flexibleJoin?: boolean },
+  signal?: AbortSignal,
+): Promise<BackendStayRequest & { address?: string; ownerMobile?: string }> {
+  const envelope = await api.post<ApiEnvelope<BackendStayRequest & { address?: string }>>(
+    `${endpoints.visitRequests}/${encodeURIComponent(id)}/joining-date`,
+    { joiningDate: input.joiningDate, flexibleJoin: input.flexibleJoin === true },
+    { signal },
   );
   return unwrap(envelope);
 }

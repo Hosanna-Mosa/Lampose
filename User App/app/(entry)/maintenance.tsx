@@ -4,6 +4,7 @@ import React from 'react';
 
 import { BlockingScreen } from '@/components/auth';
 import { useTheme } from '@/context/ThemeContext';
+import { usePreviewControls } from '@/hooks/useAppEnv';
 
 /**
  * Screen 02b — Maintenance.
@@ -19,6 +20,7 @@ import { useTheme } from '@/context/ThemeContext';
  * extension has to be real. The current copy promises a pause.
  */
 export default function MaintenanceScreen() {
+  const previewControls = usePreviewControls();
   const { mode } = useTheme();
   const router = useRouter();
 
@@ -32,8 +34,8 @@ export default function MaintenanceScreen() {
         actionLabel="Check again"
         onAction={() => {}}
         cooldownOnAction
-        secondaryLabel={__DEV__ ? 'Leave (preview only)' : 'Message support on WhatsApp'}
-        onSecondary={__DEV__ ? () => router.replace('/preview') : () => {}}
+        secondaryLabel={previewControls ? 'Leave (preview only)' : 'Message support on WhatsApp'}
+        onSecondary={previewControls ? () => router.replace('/preview') : () => {}}
       />
     </>
   );

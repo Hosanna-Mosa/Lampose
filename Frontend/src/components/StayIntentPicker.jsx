@@ -24,9 +24,9 @@ const TRACKS = [
    calendar: it gets the platform's own picker, keyboard handling and locale
    for free, and `min`/`max` disable everything outside the window without a
    line of date logic here. The server checks the same window regardless. */
-const DateField = ({ value, window: win, onChange }) => (
+const DateField = ({ value, window: win, onChange, label = 'Joining date', hint = true }) => (
   <label className="si-field">
-    <span className="exp-lbl">Joining date</span>
+    <span className="exp-lbl">{label}</span>
     <input
       type="date"
       className="si-date"
@@ -35,7 +35,7 @@ const DateField = ({ value, window: win, onChange }) => (
       max={win?.max}
       onChange={e => onChange(e.target.value || null)}
     />
-    {win && (
+    {win && hint && (
       <small className="si-hint">
         Anytime from {new Date(`${win.min}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
         {' '}to {new Date(`${win.max}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
@@ -44,11 +44,92 @@ const DateField = ({ value, window: win, onChange }) => (
   </label>
 );
 
+/*
+ * What the picker asks depends on what is being asked for.
+ *
+ * A PG is a stay of some length starting on a date, so it asks for a track, a
+ * duration and a joining date. A whole flat is let by the month and priced by
+ * the bed, so it asks for the layout and when they would move in. A hotel is
+ * booked between two dates for some number of people, and asking it "how many
+ * days" and "joining date" separately made a guest do the arithmetic the
+ * calendar should have done.
+ *
+ * The three read differently on purpose. The words for a bed in a shared room
+ * and a whole 2 BHK should not be the same words.
+ */
+const COPY = {
+  PG_HOSTEL: {
+    options: 'Which room are you after?', option: 'Room type',
+    priceUnit: '/mo', dateLabel: 'When would you join?',
+  },
+  BACHELOR: {
+    options: 'Which layout do you want?', option: 'Layout',
+    priceUnit: '/mo', dateLabel: 'When would you move in?',
+  },
+  COLIVE: {
+    options: 'Which room do you want?', option: 'Room',
+    priceUnit: '/mo', dateLabel: 'When would you move in?',
+  },
+  HOTEL: {
+    options: 'Which bed do you want?', option: 'Bed type',
+    priceUnit: '/night', dateLabel: 'When are you staying?',
+  },
+};
+
 export default function StayIntentPicker({ listing, value, onChange }) {
   const rates = listing.stayRates || {};
   const durations = listing.durationOptions || {};
   const sharingOptions = listing.sharingOptions || [];
   const simple = listing.simpleSharingPath === true;
+  /* A hotel is asked for two dates instead of a track and a duration. */
+  const nightly = listing.category === 'HOTEL';
+  /* Whether a confirmed visit here is paid for — and therefore whether the
+     joining date is asked now or after the token. */
+  const tokenRequired = listing.visitToken?.required === true;
+  const copy = COPY[listing.category] || COPY.PG_HOSTEL;
+
+  /* The night after check-in is the earliest sensible check-out, and moving
+     check-in past an already-chosen check-out has to clear it rather than
+     leave an impossible pair on screen. */
+  /* Only the structures this owner priced for the chosen bed. */
+  const RATE_META = [
+    { id: 'nightly', label: 'Per night', unit: '/night' },
+    { id: 'monthly', label: 'Per month', unit: '/mo' },
+    { id: 'flexible', label: 'Hourly', unit: '/hr' },
+  ];
+  const rateChoices = nightly
+    ? RATE_META
+      .map(r => ({ ...r, price: value.sharing?.rates?.[r.id] }))
+      .filter(r => Number(r.price) > 0)
+    : [];
+  const activeRate = rateChoices.find(r => r.id === (value.rateStructure || rateChoices[0]?.id))
+    || rateChoices[0]
+    || null;
+
+  /* Each structure is bought in its own unit. Nights come off the dates; the
+     other two are asked for. Kept in step with RATE_QUANTITY in
+     Backend/src/modules/listings/stayIntent.util.js. */
+  const QTY = {
+    nightly: { unit: 'nights', min: 1, max: 30 },
+    monthly: { unit: 'months', min: 1, max: 12 },
+    flexible: { unit: 'hours', min: 1, max: 24 },
+  };
+  const structure = activeRate?.id || 'nightly';
+  const byNight = structure === 'nightly';
+  const qtySpec = QTY[structure];
+
+  const nights = value.checkIn && value.checkOut
+    ? Math.round((Date.parse(`${value.checkOut}T00:00:00Z`) - Date.parse(`${value.checkIn}T00:00:00Z`)) / 86400000)
+    : 0;
+  const quantity = byNight ? nights : Number(value.rateQuantity) || 0;
+  const total = activeRate && quantity > 0 ? activeRate.price * quantity : 0;
+
+  const dayAfter = (iso) => {
+    if (!iso) return null;
+    const d = new Date(`${iso}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 1);
+    return d.toISOString().slice(0, 10);
+  };
 
   const set = patch => onChange({ ...value, ...patch });
 
@@ -71,9 +152,9 @@ export default function StayIntentPicker({ listing, value, onChange }) {
       {sharingOptions.length > 0 && (
         <div className="si-group">
           <span className="exp-lbl">
-            {sharingOptions.length === 1 ? 'Room type' : 'Which room are you after?'}
+            {sharingOptions.length === 1 ? copy.option : copy.options}
           </span>
-          <div className="si-opts" role="radiogroup" aria-label="Room type">
+          <div className="si-opts" role="radiogroup" aria-label={copy.option}>
             {sharingOptions.map(opt => {
               const on = value.sharing?.label === opt.label;
               return (
@@ -87,7 +168,7 @@ export default function StayIntentPicker({ listing, value, onChange }) {
                 >
                   <span className="lst-share__label">{opt.label}</span>
                   {opt.price
-                    ? <span className="lst-share__price">{rupees(opt.price)}<em>/mo</em></span>
+                    ? <span className="lst-share__price">{rupees(opt.price)}<em>{copy.priceUnit}</em></span>
                     : <span className="lst-share__price lst-share__price--none">Ask owner</span>}
                 </button>
               );
@@ -96,8 +177,166 @@ export default function StayIntentPicker({ listing, value, onChange }) {
         </div>
       )}
 
-      {/* Everything below is the stay-length path. Bachelor Room stops here. */}
-      {!simple && (
+      {/*
+        * ── Whole-property lets: the layout, and nothing else yet ──────
+        *
+        * No joining date here. On a category that takes a visit token the
+        * date is asked AFTER the owner confirms and the token is paid — at
+        * which point it is a commitment rather than a guess about a viewing
+        * nobody has agreed to. Asking twice, once on each side of the
+        * payment, would be asking the same question and then ignoring the
+        * first answer.
+        */}
+      {simple && tokenRequired && (
+        <div className="si-group">
+          <p className="si-note">
+            Ask first, choose a date after. The owner confirms, you pay a{' '}
+            {rupees(listing.visitToken.amountPaise / 100)} token, and then you pick a move-in date
+            and get the full address.
+          </p>
+        </div>
+      )}
+
+      {/* A whole-property let that takes no token still needs a date here —
+          there is no later step to ask it in. */}
+      {simple && !tokenRequired && (
+        <div className="si-group">
+          <span className="exp-lbl">{copy.dateLabel}</span>
+          <DateField
+            value={value.joiningDate}
+            window={listing.joinWindow}
+            onChange={joiningDate => set({ joiningDate })}
+          />
+        </div>
+      )}
+
+      {/* ── Hotels: how they are charged, then the two dates ─────────── */}
+      {nightly && (
+        <>
+          {/*
+            * Which structure, offered only where this owner priced one.
+            *
+            * A hostel sells the same bed by the night, by the month and by
+            * the hour, at rates that are not multiples of each other — so it
+            * is a choice the guest makes, not something to infer from how
+            * long they are staying. A single-structure bed shows nothing:
+            * there is no decision to present.
+            */}
+          {rateChoices.length > 1 && (
+            <div className="si-group">
+              <span className="exp-lbl">How do you want to be charged?</span>
+              <div className="si-opts" role="radiogroup" aria-label="Pricing structure">
+                {rateChoices.map(r => {
+                  const on = (value.rateStructure || rateChoices[0].id) === r.id;
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      className={`lst-share${on ? ' is-on' : ''}`}
+                      onClick={() => onChange({
+                        ...value,
+                        rateStructure: r.id,
+                        /* "3" means nights on one and hours on another. */
+                        rateQuantity: null,
+                        checkOut: r.id === 'nightly' ? value.checkOut : null,
+                      })}
+                    >
+                      <span className="lst-share__label">{r.label}</span>
+                      <span className="lst-share__price">{rupees(r.price)}<em>{r.unit}</em></span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/*
+            * What the dates section asks depends on the structure.
+            *
+            * Nights are the only quantity a pair of dates already answers, so
+            * that one asks for check-out and reads the nights off it. Hours
+            * and months are the guest's own number, and the check-out follows
+            * — asking all three for a check-out forced an hourly booking to
+            * last at least one night.
+            */}
+          <div className="si-group">
+            <span className="exp-lbl">{copy.dateLabel}</span>
+
+            {byNight ? (
+              <>
+                <div className="si-datepair">
+                  <DateField
+                    label="Check-in"
+                    hint={false}
+                    value={value.checkIn}
+                    window={listing.joinWindow}
+                    onChange={checkIn => onChange({
+                      ...value,
+                      checkIn,
+                      /* A check-out that is no longer after check-in is not a
+                         date the guest still means. */
+                      checkOut: value.checkOut && checkIn && value.checkOut <= checkIn ? null : value.checkOut,
+                    })}
+                  />
+                  <DateField
+                    label="Check-out"
+                    hint={false}
+                    value={value.checkOut}
+                    window={{
+                      min: dayAfter(value.checkIn) || listing.joinWindow?.min,
+                      max: listing.joinWindow?.max,
+                    }}
+                    onChange={checkOut => set({ checkOut })}
+                  />
+                </div>
+                {listing.joinWindow && (
+                  <small className="si-hint">
+                    Anytime from {new Date(`${listing.joinWindow.min}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    {' '}to {new Date(`${listing.joinWindow.max}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                  </small>
+                )}
+              </>
+            ) : (
+              <div className="si-datepair">
+                <DateField
+                  label="Check-in"
+                  value={value.checkIn}
+                  window={listing.joinWindow}
+                  onChange={checkIn => set({ checkIn })}
+                />
+                <label className="si-field">
+                  <span className="exp-lbl">How many {qtySpec.unit}?</span>
+                  <input
+                    className="si-date"
+                    type="number"
+                    min={qtySpec.min}
+                    max={qtySpec.max}
+                    inputMode="numeric"
+                    placeholder={String(qtySpec.min)}
+                    value={value.rateQuantity ?? ''}
+                    onChange={e => set({ rateQuantity: Number(e.target.value) || null })}
+                  />
+                  <small className="si-hint">{qtySpec.min}–{qtySpec.max} {qtySpec.unit}</small>
+                </label>
+              </div>
+            )}
+
+            {total > 0 && (
+              <p className="si-note">
+                {quantity} {quantity === 1 ? qtySpec.unit.replace(/s$/, '') : qtySpec.unit}
+                {' · '}{rupees(activeRate.price)}{activeRate.unit}
+                {' · '}<strong>{rupees(total)}</strong> in total
+              </p>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Everything below is the stay-length path. A whole-property let and a
+          hotel both stop above it — one has no ladder, the other has dates. */}
+      {!simple && !nightly && (
         <>
           {tracks.length > 0 && (
             <div className="si-group">

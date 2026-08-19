@@ -14,6 +14,7 @@ import { easing, signature } from '@/constants/motion';
 import { bookingStatus, phaseColors, type BookingStatus } from '@/constants/tokens';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { useCountdown, formatRemaining } from '@/hooks/useCountdown';
+import { previewControls } from '@/services/runtimeEnv';
 
 /**
  * One shape for all thirteen booking statuses.
@@ -69,7 +70,7 @@ export function BookingStatusChip({
 
   const descriptor = bookingStatus[status];
 
-  if (__DEV__ && descriptor.phase === 'waiting' && !deadline && !timerSuppressed) {
+  if (previewControls() && descriptor.phase === 'waiting' && !deadline && !timerSuppressed) {
     console.error(
       `BookingStatusChip: ${status} is a waiting state and needs either a deadline or ` +
         'timerSuppressed. A waiting state with no visible deadline is the bug this assert exists to catch.',

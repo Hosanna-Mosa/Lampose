@@ -166,9 +166,24 @@ const notifyOwnerOfNewRequest = async (request) => {
 /** The owner said yes. */
 const notifyStudentAccepted = async (request) => {
   say(`[notify] accepted → student ${request.customerId} (${request.propertyName})`);
+
+  /*
+   * Two different things have happened, and the notification has to say which.
+   *
+   * Without a token the owner's tap ends the flow — "you're confirmed". With
+   * one, the owner has agreed and the student still owes ₹20 before the
+   * address and the reference exist. Telling them "confirmed" there would end
+   * the flow in their head while the thing that completes it went undone, and
+   * the confirmation would lapse in a day.
+   */
+  const tokenDue = request.payment?.required && request.payment.status !== 'paid';
+  const amount = (request.payment?.amountPaise || 0) / 100;
+
   return pushTo(Customer(), { customerId: request.customerId }, {
-    title: 'Your request was accepted',
-    body: `${request.propertyName} confirmed your stay. You can continue with your booking.`,
+    title: tokenDue ? 'The owner said yes — one step left' : 'Your request was accepted',
+    body: tokenDue
+      ? `${request.propertyName} is free to visit. Pay ₹${amount} to get the address and your visit reference.`
+      : `${request.propertyName} confirmed your stay. You can continue with your booking.`,
     data: payloadFor(request, 'request.accepted'),
   });
 };
@@ -242,7 +257,36 @@ const notifyExpired = async (requests) => {
   }
 };
 
+/**
+ * The token cleared: the address and the reference now exist.
+ *
+ * Both sides, both in-app. This is the app channel's answer to the WhatsApp
+ * pair the web flow sends — an app request is answered in the app, and putting
+ * a WhatsApp message in front of somebody who never asked for one is how a
+ * test account with one number for the owner and the student received the same
+ * news twice.
+ */
+const notifyTokenPaid = async (request) => {
+  say(`[notify] token paid → ${request.customerId} + owner (${request.propertyName})`);
+
+  const student = pushTo(Customer(), { customerId: request.customerId }, {
+    title: 'Visit confirmed',
+    body: `${request.propertyName} — your address and visit reference are ready.`,
+    data: payloadFor(request, 'request.accepted'),
+  });
+
+  const owner = pushTo(Partner(), { phoneDigits: ownerKeyOf(request) }, {
+    title: 'Visit confirmed',
+    body: `${request.customer?.name || 'The visitor'} paid for their visit to ${request.propertyName}.`
+      + ` Reference ${request.entryPin}.`,
+    data: payloadFor(request, 'request.accepted'),
+  });
+
+  return Promise.all([student, owner]);
+};
+
 module.exports = {
+  notifyTokenPaid,
   notifyOwnerOfNewRequest,
   notifyStudentAccepted,
   notifyStudentDeclined,

@@ -1,10 +1,11 @@
-import { Link } from 'expo-router';
+import { Link, Redirect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Text } from '@/components/ui';
+import { usePreviewControls } from '@/hooks/useAppEnv';
 import { useTheme, type ThemePreference } from '@/context/ThemeContext';
 import {
   bookingStatus,
@@ -120,8 +121,23 @@ function Swatch({ name, value, ink }: { name: string; value: string; ink?: strin
 }
 
 export default function DesignSystemPreview() {
+  const previewControls = usePreviewControls();
   const { colors, space: sp, radius, mode, preference, setPreference, reduceMotion, layout } = useTheme();
   const insets = useSafeAreaInsets();
+
+  /*
+   * Gone in a production build.
+   *
+   * Deleting the file would be the other way, but this is a route in a
+   * file-based router: `app/preview.tsx` IS the URL, so as long as the file
+   * exists the screen is one `lampose://preview` away on any handset,
+   * whatever links to it. Nothing in the product does — but a route does not
+   * need a link to be reachable, only an address, and it has one.
+   *
+   * Redirect rather than render nothing, so a stale link lands somewhere real
+   * instead of on a blank screen that looks like a crash.
+   */
+  if (!previewControls) return <Redirect href="/home" />;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>

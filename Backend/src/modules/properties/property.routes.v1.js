@@ -1,4 +1,5 @@
 const express = require('express');
+const { CATEGORIES, normaliseCategory } = require('../../shared/constants/categories');
 const router = express.Router();
 const mongoose = require('mongoose');
 const Property = require('./property.model');
@@ -7,6 +8,11 @@ const crypto = require('crypto');
 const { sendVerificationMessage } = require('../../infrastructure/twilio/twilio');
 const { getIsInMemory, getMemoryStore } = require('../../infrastructure/database/db');
 const permissionStore = require('../permissions/permission.store');
+const { optionalAuth } = require('../../shared/middleware/authMiddleware');
+
+/* Matches the partner edit surface, so a listing cannot hold more photos
+   than either app is built to show. */
+const MAX_PROPERTY_IMAGES = 10;
 const { syncShareTypes } = require('../inventory/inventory.service');
 
 const multer = require('multer');
@@ -69,6 +75,9 @@ const EDITABLE_PROPERTY_FIELDS = [
   'name', 'place', 'ownerName', 'ownerMobile', 'ownerAltMobile', 'category', 'employeeEmail',
   'stayType', 'shortStayDuration', 'dailyPrice', 'longStayDuration', 'monthlyPrice',
   'rent', 'deposit', 'address', 'description', 'imageUrl', 'images', 'amenities', 'categoryDetails',
+  /* Ownership and premises paperwork. Never projected publicly — see the
+     schema note on `documents`. */
+  'documents',
 ];
 
 const findPendingVerification = async (id) => {
@@ -474,7 +483,8 @@ router.post('/', async (req, res) => {
       images,
       employeeEmail,
       amenities,
-      categoryDetails
+      categoryDetails,
+      documents
     } = req.body;
 
     const assignedEmpEmail = employeeEmail || req.headers['x-user-email'] || 'N/A';
@@ -501,13 +511,39 @@ router.post('/', async (req, res) => {
       });
     }
 
-    const validCategories = ['PG', 'Hostel', 'Dormitory', 'Bachelor Room'];
-    if (!validCategories.includes(category)) {
+    /* Accepts a legacy label as well as a code: the onboarding app and this
+       server deploy separately, so for one window a panel that has not been
+       reloaded still posts "PG". Normalising here rather than rejecting means
+       that window costs nobody a submission. */
+    const normalisedCategory = normaliseCategory(category);
+    if (!normalisedCategory) {
       console.warn(`   ⚠️ [Validation Failed] Invalid category: "${category}".`);
       return res.status(400).json({
         success: false,
-        error: `Invalid category. Must be one of: ${validCategories.join(', ')}`
+        error: `Invalid category. Must be one of: ${CATEGORIES.join(', ')}`
       });
+    }
+
+    /*
+     * A hotel does not get onboarded without its paperwork.
+     *
+     * Enforced here as well as in the form because the form is a browser tab:
+     * a stale build, a retried request or anything posting straight at the API
+     * would otherwise file a business taking money from strangers with no
+     * record of who is paid or what they hold. The two are the whole point of
+     * asking.
+     */
+    if (normalisedCategory === 'HOTEL') {
+      const supplied = Array.isArray(documents) ? documents : [];
+      const missing = ['pan', 'premises']
+        .filter((kind) => !supplied.some((d) => d && d.kind === kind && String(d.url || '').trim()));
+
+      if (missing.length) {
+        const label = { pan: 'the owner or business PAN', premises: 'a document establishing the premises' };
+        const message = `A hotel needs ${missing.map((k) => label[k]).join(' and ')}.`;
+        console.warn(`   ⚠️ [Validation Failed] Hotel missing document(s): ${missing.join(', ')}.`);
+        return res.status(400).json({ success: false, code: 'DOCUMENTS_REQUIRED', message, error: message });
+      }
     }
 
     const determinedRent = rent !== undefined ? Number(rent) : (monthlyPrice || dailyPrice || 0);
@@ -527,7 +563,8 @@ router.post('/', async (req, res) => {
       /* Optional. Stored as '' rather than left undefined so every row has
          the same shape whether or not the agent had a second number. */
       ownerAltMobile: String(ownerAltMobile || '').trim(),
-      category,
+      /* The code, not whatever spelling the panel posted. */
+      category: normalisedCategory,
       employeeEmail: assignedEmpEmail !== 'N/A' ? assignedEmpEmail : '',
       stayType: stayType || 'Long Stay',
       shortStayDuration: shortStayDuration || '1-7 Days',
@@ -541,6 +578,8 @@ router.post('/', async (req, res) => {
       images: determinedImages,
       amenities: Array.isArray(amenities) ? amenities : [],
       categoryDetails: categoryDetails || {},
+      /* Ownership and premises paperwork. Never publicly projected. */
+      documents: Array.isArray(documents) ? documents : [],
       isVerified: false,
       verificationStatus: 'pending'
     };
@@ -636,6 +675,121 @@ router.post('/', async (req, res) => {
 
 // @route   PUT /api/properties/:id
 // @desc    Update an existing property
+/* ══════════════════════════════════════════════════════════════════════════
+   Photos on a listing the signed-in employee onboarded.
+
+   ## Why this is its own route rather than a relaxed PUT
+
+   Editing a listing needs an administrator's grant, and should: a price, an
+   owner's number or a category is what the public site and the request flow
+   run on, and an agent changing one after the fact is a decision somebody
+   should have approved.
+
+   Photos are not that. An agent who onboarded a place standing in its doorway
+   is the one person who knows the lobby shot is upside down, and making them
+   file a permission request to fix it means it stays upside down. So the
+   narrow thing is allowed and the broad thing is not — this route writes
+   `images` and `imageUrl` and touches nothing else, which is why relaxing the
+   existing PUT would have been the wrong shape.
+
+   ## Who is allowed
+
+   The employee whose email is on the listing, or anybody holding an active
+   edit grant for it.
+
+   Identity comes from the VERIFIED v2 token, not from `x-employee-email`.
+   That header is set by the client and is fine for the permission gate, whose
+   answer is "which grant applies"; it is not fine as the whole authorisation,
+   because the onboarding email is visible in the listing data and anybody
+   could claim it. `optionalAuth` decodes the bearer token the Onboard app
+   already sends and looks the user up, so this is a real identity.
+   ══════════════════════════════════════════════════════════════════════════ */
+router.put('/:id/images', optionalAuth, async (req, res) => {
+  const { id } = req.params;
+  const timestamp = new Date().toLocaleTimeString();
+
+  try {
+    const images = Array.isArray(req.body?.images) ? req.body.images : null;
+    if (!images) {
+      const message = 'Send an `images` array — the full list, in the order it should appear.';
+      return res.status(400).json({ success: false, code: 'VALIDATION_ERROR', message, error: message });
+    }
+
+    /* Every entry has to be a URL. The upload endpoint returns Cloudinary
+       links and the presets are site-relative paths; anything else is a
+       caller inventing a value. */
+    const clean = images
+      .map((url) => String(url || '').trim())
+      .filter(Boolean);
+
+    const bad = clean.find((url) => !/^https?:\/\//i.test(url) && !url.startsWith('/'));
+    if (bad) {
+      const message = `"${bad.slice(0, 60)}" is not a URL. Upload the file first, then send the link it returns.`;
+      return res.status(400).json({ success: false, code: 'VALIDATION_ERROR', message, error: message });
+    }
+
+    if (clean.length > MAX_PROPERTY_IMAGES) {
+      const message = `A listing can hold ${MAX_PROPERTY_IMAGES} photos. Remove some before adding more.`;
+      return res.status(400).json({ success: false, code: 'TOO_MANY_IMAGES', message, error: message });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(404).json({ success: false, error: 'Property not found' });
+    }
+
+    const property = await Property.findById(id);
+    if (!property) {
+      return res.status(404).json({ success: false, error: 'Property not found' });
+    }
+
+    /* The signed-in employee, from the verified token. Falls back to the
+       header only when no token was sent, which is the admin console — it has
+       no employee identity and is not gated here. */
+    const signedInEmail = permissionStore.normalizeEmail(req.user?.email || '');
+    const headerEmail = permissionStore.normalizeEmail(req.headers['x-employee-email']);
+    const owner = permissionStore.normalizeEmail(property.employeeEmail || '');
+
+    const onboardedIt = Boolean(signedInEmail) && signedInEmail === owner;
+    const grant = (!onboardedIt && (signedInEmail || headerEmail))
+      ? await permissionStore.findActiveGrant(String(id), signedInEmail || headerEmail, 'edit')
+      : null;
+
+    /* No identity at all is the admin console's unheadered call, which the
+       rest of this file already treats as trusted. */
+    const anonymousAdmin = !signedInEmail && !headerEmail;
+
+    if (!onboardedIt && !grant && !anonymousAdmin) {
+      const message = 'Only the employee who onboarded this listing can change its photos. '
+        + 'Ask an administrator for edit permission if you need to change anything else.';
+      console.warn(`   🚫 [Photos Denied] "${signedInEmail || headerEmail}" does not own ${id} (onboarded by "${owner}")`);
+      return res.status(403).json({
+        success: false, code: 'NOT_YOUR_LISTING', message, error: message, requiresPermission: true, action: 'edit',
+      });
+    }
+
+    const before = property.images.length;
+    property.images = clean;
+    /* The cover is the first photo. Kept in step because older readers use
+       `imageUrl` and would otherwise show a photo that was deleted. */
+    property.imageUrl = clean[0] || '';
+    await property.save();
+
+    if (grant) await permissionStore.markUsed(grant._id);
+
+    console.log(`\n🖼️  [${timestamp}] [API PUT /properties/${id}/images] ${before} → ${clean.length} photo(s)`
+      + ` by "${signedInEmail || headerEmail || 'admin console'}"${onboardedIt ? ' (onboarding employee)' : ''}`);
+
+    return res.json({
+      success: true,
+      message: `Photos updated — this listing now shows ${clean.length}.`,
+      data: { images: property.images, imageUrl: property.imageUrl },
+    });
+  } catch (error) {
+    console.error(`   ❌ [Photos Failed] ${error.message}`);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 router.put('/:id', async (req, res) => {
   const timestamp = new Date().toLocaleTimeString();
   const { id } = req.params;

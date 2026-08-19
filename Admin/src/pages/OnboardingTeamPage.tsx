@@ -20,6 +20,7 @@ import { useFetch } from '../lib/useFetch';
 import { verificationMeta } from '../lib/domain';
 import { formatDate, formatDateTime, percent } from '../lib/format';
 import type { OnboarderEntity } from '../api/types';
+import { propertyCategoryLabel } from '../lib/domain';
 
 interface OnboardingTeamPageProps {
   search: string;
@@ -210,7 +211,7 @@ export const OnboardingTeamPage: React.FC<OnboardingTeamPageProps> = ({ search }
                               {v.property?.name || 'Untitled property'}
                             </p>
                             <p className="text-label text-ink-3 truncate">
-                              {v.property ? `${v.property.category} · ${v.property.place}` : v.ownerMobileE164}
+                              {v.property ? `${propertyCategoryLabel(v.property.category)} · ${v.property.place}` : v.ownerMobileE164}
                             </p>
                             <p className="text-label text-ink-3 mt-1">{formatDateTime(v.createdAt)}</p>
                           </div>

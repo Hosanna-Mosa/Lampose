@@ -20,7 +20,18 @@
  * ------------------------------------------------------------------ */
 
 /** The four values the `properties` collection's category enum allows. */
-export type BackendCategory = 'PG' | 'Hostel' | 'Dormitory' | 'Bachelor Room';
+/**
+ * What `properties.category` holds.
+ *
+ * The same four the app uses — the backend adopted them (see
+ * Backend/src/shared/constants/categories.js) and migrated its rows, so the
+ * adapter's translation is now the identity. The pre-migration spellings are
+ * kept in the union because a cached response or a deployment mid-rollout can
+ * still produce one, and `toStayCategory` maps them.
+ */
+export type BackendCategory =
+  | 'PG_HOSTEL' | 'BACHELOR' | 'HOTEL' | 'COLIVE'
+  | 'PG' | 'Hostel' | 'Dormitory' | 'Bachelor Room';
 
 export type BackendSharingOption = {
   /** "Single", "2 Sharing", "Double Sharing" — the panel's own wording. */
@@ -35,6 +46,26 @@ export type BackendSharingOption = {
    * is why a request carries this rather than a database id.
    */
   shareTypeId?: string | null;
+
+  /**
+   * The three ways a hotel bed is sold, where the owner priced more than one.
+   *
+   * A hostel sells the same bed by the night, by the month and by the hour at
+   * rates that are not multiples of each other, so the guest picks. Every
+   * value is `null` on the categories that sell one way — the field is only
+   * populated for HOTEL.
+   */
+  rates?: {
+    nightly: number | null;
+    monthly: number | null;
+    flexible: number | null;
+  } | null;
+  /** The same three with AC, where it is offered. */
+  acRates?: {
+    nightly: number | null;
+    monthly: number | null;
+    flexible: number | null;
+  } | null;
 
   /** Beds in this room type, as recorded at onboarding. */
   totalBeds?: number | null;
@@ -117,6 +148,15 @@ export type BackendListing = {
   durationOptions: { shortDays: number[]; longMonths: number[] };
   /** The joining dates the server will accept, inclusive. `YYYY-MM-DD`. */
   joinWindow: { min: string; max: string };
+  /**
+   * Whether a confirmed visit here is paid for.
+   *
+   * Exposed rather than inferred from `simpleSharingPath`: the two cover the
+   * same categories today, and a screen that guessed one from the other would
+   * start asking for money — or stop — the moment they diverge.
+   */
+  visitToken?: { required: boolean; amountPaise: number | null };
+
   /** True for categories priced by the bed: no stay type, no duration. */
   simpleSharingPath: boolean;
   meals: { included: boolean; foodType: string | null } | null;
@@ -127,7 +167,7 @@ export type BackendListing = {
 
 /**
  * How many places of each kind, keyed by the collection's own category names
- * — "PG", "Hostel", "Dormitory", "Bachelor Room". Not the app's four tabs;
+ * — "PG_HOSTEL", "BACHELOR", "HOTEL", "COLIVE". The same four as the tabs;
  * `BACKEND_CATEGORIES` is what maps between them.
  */
 export type CategoryCounts = Record<string, number>;
@@ -359,6 +399,23 @@ export type StayDecisionReason =
   | 'STUDENT_WITHDREW';
 
 export type BackendStayRequest = {
+  /**
+   * The visit token, on the categories that charge one.
+   *
+   * `required` is the category's answer; `status` is where this request got
+   * to. A client can tell "no token needed" from "not paid yet" without
+   * knowing the category rules.
+   */
+  payment?: {
+    required: boolean;
+    status: 'not_required' | 'pending' | 'paid' | 'failed' | 'expired';
+    amountPaise: number | null;
+    /** ISO. The owner is holding a layout until this passes. */
+    dueBy: string | null;
+    paidAt: string | null;
+  };
+  /** ISO, once the token is paid. Null before — the address is not given. */
+  addressReleasedAt?: string | null;
   id: string;
   listingId: string;
   propertyName: string;

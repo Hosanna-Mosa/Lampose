@@ -126,8 +126,25 @@ export const adminStatusMeta = (status: string) =>
 export const ADMIN_ROLES: AdminRole[] = ['Super Admin', 'Admin', 'Editor', 'Viewer'];
 export const ADMIN_STATUSES: AdminStatus[] = ['Active', 'Inactive', 'Pending'];
 
-/** Categories accepted by the Property schema's enum. */
-export const PROPERTY_CATEGORIES = ['PG', 'Hostel', 'Dormitory', 'Bachelor Room'];
+/**
+ * Categories accepted by the Property schema's enum.
+ *
+ * Codes, not labels — see Backend/src/shared/constants/categories.js, which
+ * is where the list is actually defined. `PROPERTY_CATEGORY_LABEL` below is
+ * what a person reads; this is what goes over the wire and into the column.
+ */
+export const PROPERTY_CATEGORIES = ['PG_HOSTEL', 'BACHELOR', 'HOTEL', 'COLIVE'];
+
+/** Code → what the console shows. Unknown codes render as themselves. */
+export const PROPERTY_CATEGORY_LABEL: Record<string, string> = {
+  PG_HOSTEL: 'PG / Hostel',
+  BACHELOR: 'Bachelor',
+  HOTEL: 'Hotels',
+  COLIVE: 'House / Co-live',
+};
+
+export const propertyCategoryLabel = (code: string): string =>
+  PROPERTY_CATEGORY_LABEL[code] ?? code;
 export const STAY_TYPES = ['Short Stay', 'Long Stay', 'Both Short & Long Stay'];
 
 /** Categorical slots in the fixed validated order — assigned, never cycled. */

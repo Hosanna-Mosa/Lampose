@@ -43,20 +43,31 @@ import type { BackendListing } from '@/services/api/types';
  * ------------------------------------------------------------------ */
 
 /**
- * Four database categories onto the app's four, which are not the same four.
+ * The database categories and the app's are now the same four.
  *
- * PG and Hostel are one bucket here — the app merged them deliberately, since
- * a student searching for a bed does not distinguish them and the pricing
- * model is identical. Dormitory maps to HOTEL, which is the app's name for
- * nightly-rate shared accommodation.
+ * They were not always. The collection stored display strings — 'PG',
+ * 'Hostel', 'Dormitory', 'Bachelor Room' — and this file translated them
+ * onto the four the app had chosen, merging PG with Hostel and standing
+ * Dormitory in for HOTEL. COLIVE had no counterpart at all: nothing in the
+ * database could land in that bucket, so the Co-live tab was permanently
+ * empty by construction.
  *
- * COLIVE has no counterpart. The `properties` schema's enum has four values
- * and co-living is not one of them, so nothing in the database can ever land
- * in that bucket and the Co-live tab will show an empty feed until the enum
- * gains the value. That is the honest rendering of the data: the alternative
- * is filing PGs under co-living to make a tab look populated.
+ * The backend adopted these four as its own (see
+ * Backend/src/shared/constants/categories.js) and its rows were migrated, so
+ * the translation is now the identity — and Co-live is a category a property
+ * can actually be.
+ *
+ * The old spellings stay in the table because data outlives a migration: a
+ * cached response, a row written by a deployment mid-rollout, a fixture. They
+ * cost one object literal and remove a class of blank screen.
  */
 const CATEGORY: Record<string, StayCategory> = {
+  PG_HOSTEL: 'PG_HOSTEL',
+  BACHELOR: 'BACHELOR',
+  HOTEL: 'HOTEL',
+  COLIVE: 'COLIVE',
+
+  /* Pre-migration spellings. */
   PG: 'PG_HOSTEL',
   Hostel: 'PG_HOSTEL',
   Dormitory: 'HOTEL',
@@ -68,18 +79,18 @@ export function toStayCategory(category: string): StayCategory {
 }
 
 /**
- * The database categories that make up one app category.
+ * What to send as `?category=` for a given tab.
  *
- * The inverse of the map above, and the reason it exists: the feed filters
- * server-side with `?category=`, which matches the column. Asking for
- * "PG_HOSTEL" would match nothing, and asking for "PG" alone would silently
- * drop every hostel from a tab whose label says it includes them.
+ * One value each now that the column holds codes. It stays a list because the
+ * endpoint accepts a comma-separated set and a tab could yet cover more than
+ * one category — and because the legacy spellings are still worth asking for
+ * while any un-migrated deployment is serving.
  */
 export const BACKEND_CATEGORIES: Record<StayCategory, readonly string[]> = {
-  PG_HOSTEL: ['PG', 'Hostel'],
-  BACHELOR: ['Bachelor Room'],
-  HOTEL: ['Dormitory'],
-  COLIVE: [],
+  PG_HOSTEL: ['PG_HOSTEL'],
+  BACHELOR: ['BACHELOR'],
+  HOTEL: ['HOTEL'],
+  COLIVE: ['COLIVE'],
 };
 
 /* ------------------------------------------------------------------ *
@@ -242,8 +253,8 @@ function toStayRates(doc: BackendListing): readonly StayRate[] {
       id: 'DAILY',
       /* A dormitory is sold by the night and a PG by the day. Same rate,
          and the word a student would use for each is different. */
-      label: doc.category === 'Dormitory' ? 'By the night' : 'By the day',
-      unit: doc.category === 'Dormitory' ? 'night' : 'day',
+      label: toStayCategory(doc.category) === 'HOTEL' ? 'By the night' : 'By the day',
+      unit: toStayCategory(doc.category) === 'HOTEL' ? 'night' : 'day',
       pricePerUnit: daily,
       daysPerUnit: 1,
       unitOptions: days,
@@ -312,6 +323,17 @@ function toSharingOptions(doc: BackendListing): readonly SharingOption[] {
     /* One deposit on the document, so it is the deposit for whichever bed is
        chosen — the panel records no per-option figure. */
     deposit: positive(doc.deposit),
+
+    /* Only the structures this owner actually priced. A "per month" button
+       on a bed with no monthly rate is a dead choice, and picking it would
+       send a request the pricing has no answer for. */
+    rates: option.rates
+      ? {
+        ...(positive(option.rates.nightly) ? { nightly: option.rates.nightly as number } : null),
+        ...(positive(option.rates.monthly) ? { monthly: option.rates.monthly as number } : null),
+        ...(positive(option.rates.flexible) ? { flexible: option.rates.flexible as number } : null),
+      }
+      : undefined,
 
     shareTypeId: option.shareTypeId ?? undefined,
     /*
@@ -430,7 +452,12 @@ export function toListing(doc: BackendListing): Listing {
     /* A dormitory is quoted per night; the server says so in `pricePeriod`,
        derived from the rate type the panel recorded. */
     perNight: doc.pricePeriod === '/day' || undefined,
-    perBed: doc.category === 'Hostel' || doc.category === 'Dormitory' || undefined,
+    /* Priced per bed rather than per room — renders the "/bed" suffix.
+       This used to be Hostel-or-Dormitory, and PGs showed no suffix at all.
+       The merge widened it, and correctly: a PG's "2 Sharing — ₹5,999" is
+       ₹5,999 per person per month, which is exactly what /bed means. The old
+       behaviour quoted a per-bed price without saying so. */
+    perBed: category === 'PG_HOSTEL' || category === 'HOTEL' || undefined,
     monthlyEquivalent: doc.pricePeriod === '/day' ? positive(doc.monthlyPrice) : undefined,
 
     deposit: positive(doc.deposit),
@@ -463,6 +490,13 @@ export function toListing(doc: BackendListing): Listing {
      * expects an intent produces a 400 the student cannot act on.
      */
     stayRates: !doc.simpleSharingPath && stayRates.length ? stayRates : undefined,
+
+    /* Whether a confirmed visit here is paid for. Carried across so the
+       request screens can say what happens after the owner says yes, rather
+       than inferring it from the pricing path. */
+    visitToken: doc.visitToken?.required
+      ? { required: true, amountPaise: doc.visitToken.amountPaise ?? undefined }
+      : { required: false },
 
     /* `houseRules` stays absent. The panel records a curfew time and nothing
        else, and a rules block containing one row implies the other five were

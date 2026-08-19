@@ -105,6 +105,20 @@ const visitRequestSchema = new mongoose.Schema(
       durationUnit: { type: String, enum: ['days', 'months', null], default: null },
       // YYYY-MM-DD. A date-only string, so no timezone can move it.
       joiningDate: { type: String, default: null },
+
+      /* Hotels only. `joiningDate` carries the check-in as well, because
+         everything downstream reads that one — these are here so the owner's
+         message and the booking can say "3 nights, the 14th to the 17th"
+         rather than making somebody count. */
+      checkIn: { type: String, default: null },
+      checkOut: { type: String, default: null },
+      /* Which of the three structures the guest is buying — a hostel sells
+         the same bed by the night, the month and the hour. */
+      rateStructure: { type: String, enum: ['nightly', 'monthly', 'flexible', null], default: null },
+      /* How much of it — nights, months or hours, per the structure. Read off
+         the dates for a nightly stay and asked for the other two. */
+      rateQuantity: { type: Number, default: null },
+      rateQuantityUnit: { type: String, enum: ['nights', 'months', 'hours', null], default: null },
       flexibleJoin: { type: Boolean, default: false },
 
       // Snapshots, so the request still reads correctly if the owner reprices.
@@ -118,6 +132,49 @@ const visitRequestSchema = new mongoose.Schema(
         full: { type: Boolean, default: null },
       },
     },
+
+    /* ── The visit token ──────────────────────────────────────────────
+       Bachelor and co-live only. The owner accepts first; the student then
+       pays a small token, and only after that are they asked for a joining
+       date and given the street address.
+
+       A subdocument rather than a status, because the request IS confirmed —
+       the owner said yes. What is outstanding is the money, and conflating
+       the two would make an unpaid request look unanswered to the owner who
+       already answered it. */
+    payment: {
+      /* Decided at creation from the category, and frozen: changing the
+         category of a live listing must not retroactively make a paid
+         request unpaid, or an unpaid one free. */
+      required: { type: Boolean, default: false },
+      status: {
+        type: String,
+        enum: ['not_required', 'pending', 'paid', 'failed', 'expired'],
+        default: 'not_required',
+      },
+      /* Paise. The only unit Razorpay accepts, and a snapshot — a later
+         change to the platform token must not reprice a request already
+         made. */
+      amountPaise: { type: Number, default: null },
+      /* Razorpay's ids. `orderId` is ours to create, `paymentId` is theirs. */
+      orderId: { type: String, default: null },
+      paymentId: { type: String, default: null },
+      /* Set only after the HMAC over `orderId|paymentId` verified against our
+         own secret. Its presence IS the proof — never a client's word. */
+      verifiedAt: { type: Date, default: null },
+      /* When the owner accepted plus the window. Past it, a request stops
+         holding the layout. */
+      dueBy: { type: Date, default: null },
+      failureReason: { type: String, default: '' },
+      /* The shareable Razorpay link sent to the customer on WhatsApp, and its
+         id — the webhook reports the link, not the order. */
+      linkId: { type: String, default: null },
+      linkUrl: { type: String, default: null },
+    },
+
+    /* Released once the token is paid — before that a student has the area
+       and not the door. */
+    addressReleasedAt: { type: Date, default: null },
 
     /* Evidence that the Privacy Policy and Terms were accepted, and when. */
     consentedTerms: { type: Boolean, default: false },
@@ -295,6 +352,31 @@ visitRequestSchema.methods.toPublic = function toPublic() {
     listingId: this.listingId,
     propertyName: this.propertyName,
     status: this.status,
+
+    /*
+     * What the person waiting is being asked for next.
+     *
+     * `required` is the category's answer and `status` is where this request
+     * has got to, so a client can tell "no token needed" apart from "not paid
+     * yet" without knowing the category rules. The amount travels so the
+     * button can name the figure rather than assume it.
+     */
+    payment: this.payment?.required
+      ? {
+        required: true,
+        status: this.payment.status,
+        amountPaise: this.payment.amountPaise || null,
+        /* The shareable Razorpay link, so the app can open it rather than
+           carrying a native SDK. Null until the owner accepts. */
+        linkUrl: this.payment.linkUrl || null,
+        dueBy: this.payment.dueBy ? this.payment.dueBy.toISOString() : null,
+        paidAt: this.payment.verifiedAt ? this.payment.verifiedAt.toISOString() : null,
+      }
+      : { required: false, status: 'not_required', amountPaise: null, dueBy: null, paidAt: null },
+
+    /* Released by the payment, not by asking. Null until then, so a client
+       cannot render a door number it was never given. */
+    addressReleasedAt: this.addressReleasedAt ? this.addressReleasedAt.toISOString() : null,
     customerName: (this.customer && this.customer.name) || '',
     preferredDate: this.preferredDate || null,
     preferredTime: this.preferredTime || null,

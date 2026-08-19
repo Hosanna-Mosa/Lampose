@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -12,6 +12,9 @@ import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useTheme } from '@/context/ThemeContext';
 import { confirmationRewards } from '@/data/rewards';
 import { useListing, useStayRequest } from '@/services';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
+import { API_URL } from '@/constants/env';
 
 /**
  * The request, and the owner deciding — in three minutes.
@@ -67,13 +70,21 @@ export default function OwnerConfirmation() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const { id, stayType, units, sharingId, joinDate, flexibleJoin, consented } =
+  const {
+    id, stayType, units, sharingId, joinDate, flexibleJoin, consented,
+    checkIn, checkOut, rateStructure, rateQuantity,
+  } =
     useLocalSearchParams<{
       id: string;
       stayType?: string;
       units?: string;
       sharingId?: string;
       joinDate?: string;
+      /* Hotels: two dates and a structure instead of a track and a length. */
+      checkIn?: string;
+      checkOut?: string;
+      rateStructure?: string;
+      rateQuantity?: string;
       flexibleJoin?: string;
       consented?: string;
     }>();
@@ -91,6 +102,24 @@ export default function OwnerConfirmation() {
 
   /** The stay, in the shape the server validates it in. */
   const intent = useMemo(() => {
+    /*
+     * A hotel arrives with dates rather than a track and a length.
+     *
+     * Sent as its own fields, which the server resolves into the same intent a
+     * short stay produces — so everything past `createStayRequest` reads one
+     * shape. Checked first because a hotel carries no `stayType` and would
+     * otherwise fall through as "no intent at all".
+     */
+    if (checkIn) {
+      return {
+        checkIn,
+        checkOut: checkOut || undefined,
+        rateStructure: (rateStructure as 'nightly' | 'monthly' | 'flexible') || undefined,
+        rateQuantity: rateQuantity ? Number(rateQuantity) : undefined,
+        flexibleJoin: flexibleJoin === '1',
+      };
+    }
+
     if (!stayType && !units && !joinDate) return null;
     return {
       /* The app's rate ids and the server's stay types are different
@@ -104,7 +133,7 @@ export default function OwnerConfirmation() {
       joiningDate: joinDate || undefined,
       flexibleJoin: flexibleJoin === '1',
     };
-  }, [stayType, units, joinDate, flexibleJoin]);
+  }, [stayType, units, joinDate, flexibleJoin, checkIn, checkOut, rateStructure, rateQuantity]);
 
   /*
    * One request, ever, unless the student asks for another.
@@ -183,6 +212,81 @@ export default function OwnerConfirmation() {
     if (stay.phase === 'expired') settlePill('cancelled');
     if (stay.phase === 'cancelled') clearPill();
   }, [stay.phase, settlePill, clearPill]);
+
+  /*
+   * ── The visit token, on the one tap that continues ──────────────────────
+   *
+   * Bachelor and co-live charge for a confirmed visit. Rather than a separate
+   * panel to find, the payment sits on the button that was already the next
+   * thing to press: pay, then the booking screen opens. A PG has no token and
+   * goes straight through, so this whole branch is invisible there.
+   *
+   * ## Why a browser rather than a native SDK
+   *
+   * Razorpay's React Native SDK needs a prebuild and a config plugin on both
+   * platforms for one screen. `expo-web-browser` opens a real browser session
+   * against a checkout the server renders, and the server verifies the result
+   * where the secret already lives. The app never touches a payment id or a
+   * signature — it opens a URL and waits to be returned to.
+   */
+  const [paying, setPaying] = useState(false);
+
+  const payThenContinue = useCallback(async () => {
+    if (!stay.request?.id) return;
+    setPaying(true);
+    try {
+      const back = Linking.createURL(`/confirm/${String(id)}`);
+      const url = `${API_URL}/api/v2/visit-requests/${encodeURIComponent(stay.request.id)}`
+        + `/payment/checkout?redirect=${encodeURIComponent(back)}`;
+
+      await WebBrowser.openAuthSessionAsync(url, back);
+
+      /*
+       * Closing the browser is not an answer.
+       *
+       * Backing out without paying and paying successfully look identical from
+       * here — Razorpay's webhook may land a second or two after the browser
+       * closes. So the SERVER is asked, a few times, before deciding. Telling
+       * somebody who just paid that they have not is the worse mistake of the
+       * two.
+       */
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await stay.refresh();
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, 900));
+      }
+    } finally {
+      setPaying(false);
+    }
+  }, [stay.request?.id, stay.refresh, id]);
+
+  /*
+   * The server decides this, never the browser.
+   *
+   * Navigation is done through the router directly rather than by calling
+   * `goToBooking`, which is declared further down: this hook has to sit above
+   * the screen's early returns, and reaching forward to a `const` that has not
+   * been evaluated yet would be a temporal-dead-zone crash on the first paid
+   * render.
+   */
+  useEffect(() => {
+    if (paying) return;
+    if (stay.request?.payment?.status !== 'paid') return;
+    if (stay.phase !== 'confirmed') return;
+    router.replace({
+      pathname: '/booked/[id]',
+      params: {
+        id: String(id),
+        ...(stayType ? { stayType } : null),
+        ...(units ? { units } : null),
+        ...(sharingId ? { sharingId } : null),
+        ...(joinDate ? { joinDate } : null),
+        ...(flexibleJoin ? { flexibleJoin } : null),
+      },
+    } as never);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paying, stay.request?.payment?.status, stay.phase]);
 
   /* Read back before anything is drawn, so a student returning to a wait
      never sees the form flash first. */
@@ -336,12 +440,20 @@ export default function OwnerConfirmation() {
     },
   ];
 
+  const tokenDue = Boolean(
+    stay.request?.payment?.required && stay.request.payment.status !== 'paid',
+  );
+  const tokenAmount = (stay.request?.payment?.amountPaise ?? 0) / 100;
+
+  /* Said before the sheet opens, not by it. A student who picked a layout and
+     waited for an owner should not meet the price for the first time as a
+     payment request. */
   const banner = accepted
     ? {
       tint: colors.success.tint,
       ink: colors.success.ink,
       title: `${owner} confirmed`,
-      body: 'Your room is held. Nothing has been charged.',
+      body: 'Your room is held. Nothing has been charged.' + (tokenDue ? ` A ₹${tokenAmount} token unlocks the address and your visit reference.` : '') + '',
     }
     : bedTaken
       ? {
@@ -391,6 +503,8 @@ export default function OwnerConfirmation() {
         ...(flexibleJoin ? { flexibleJoin } : null),
       },
     } as never);
+
+
 
   const askAgain = () => {
     stay.reset();
@@ -547,7 +661,17 @@ export default function OwnerConfirmation() {
 
         {accepted ? (
           <View style={{ gap: space[3] }}>
-            <Button label="Continue to booking" onPress={goToBooking} fullWidth />
+            {/* One button, two jobs. The label names the money before the
+                sheet opens — a tap that expects a screen and gets a payment
+                request is a tap nobody meant to make. */}
+            <Button
+              label={tokenDue
+                ? (paying ? 'Checking your payment...' : `Pay ₹${tokenAmount} and continue`)
+                : 'Continue to booking'}
+              onPress={tokenDue ? payThenContinue : goToBooking}
+              disabled={paying}
+              fullWidth
+            />
             <Text variant="numMeta" color="tertiary" style={styles.centred}>
               Nothing is charged at any point
             </Text>

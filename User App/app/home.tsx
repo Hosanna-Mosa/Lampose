@@ -18,7 +18,8 @@ import {
 } from '@/components/discovery';
 import { BookingRow, BookingSegments, ProfileGroup, ProfileRow } from '@/components/lifecycle';
 import { FoodComingSoon, FoodModule } from '@/components/food';
-import { FOOD_MODE } from '@/constants/food';
+import { useAppEnv, useFoodMode, usePreviewControls } from '@/hooks/useAppEnv';
+import { BUILT_AS, CAN_OVERRIDE_ENV, setAppEnv, type AppEnv } from '@/services/runtimeEnv';
 import { emptyStates } from '@/constants/copy';
 import { useAppState } from '@/context/AppStateContext';
 import { useAuth } from '@/context/AuthContext';
@@ -61,6 +62,38 @@ const APPEARANCE_OPTIONS: readonly { id: ThemePreference; label: string }[] = [
   { id: 'light', label: 'Light' },
   { id: 'dark', label: 'Dark' },
   { id: 'system', label: 'Use my phone setting' },
+];
+
+/**
+ * The developer mode picker.
+ *
+ * Only ever rendered in a build that `CAN_OVERRIDE_ENV` — a production build
+ * has no override to set, so the row is absent rather than disabled. Each
+ * label says what the mode DOES rather than naming it, because the whole
+ * reason to reach for this is to see one of these two behaviours.
+ */
+const APP_ENV_LABEL: Record<AppEnv, string> = {
+  development: 'Development',
+  preview: 'Preview',
+  production: 'Production · what students see',
+};
+
+const APP_ENV_OPTIONS: readonly { id: AppEnv; label: string; note: string }[] = [
+  {
+    id: 'development',
+    label: 'Development',
+    note: 'Preview controls on every screen, console logging, and the Food module if this build has one.',
+  },
+  {
+    id: 'preview',
+    label: 'Preview',
+    note: 'The same as development. Kept separate so an internal build can be told apart in a bug report.',
+  },
+  {
+    id: 'production',
+    label: 'Production',
+    note: 'Exactly what a student sees. Controls hidden, console silent, Food shows "coming soon".',
+  },
 ];
 
 /**
@@ -137,6 +170,9 @@ export default function Home() {
   const [query, setQuery] = useState<SearchQuery>(EMPTY_QUERY);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
+  const [envOpen, setEnvOpen] = useState(false);
+  const appEnv = useAppEnv();
+  const FOOD_MODE = useFoodMode();
   const [segment, setSegment] = useState<BookingSegment>('active');
 
   useEffect(() => {
@@ -774,6 +810,25 @@ export default function Home() {
             />
           </ProfileGroup>
 
+          {/*
+            * Developer, and only in a build that may be switched.
+            *
+            * Gated on CAN_OVERRIDE_ENV — the BUILD's answer — not on the mode
+            * in force. Gating it on the current mode would make the group
+            * vanish the instant somebody selected Production, leaving no way
+            * back short of reinstalling the app.
+            */}
+          {CAN_OVERRIDE_ENV ? (
+            <ProfileGroup title="Developer">
+              <ProfileRow
+                label="Run as"
+                value={APP_ENV_LABEL[appEnv]}
+                onPress={() => setEnvOpen(true)}
+                last
+              />
+            </ProfileGroup>
+          ) : null}
+
           <View style={{ gap: space[2] }}>
             <ProfileGroup>
               <ProfileRow
@@ -921,6 +976,32 @@ export default function Home() {
           ))}
           <Text variant="caption" color="tertiary">
             Text size follows your phone in every mode — the app does not override it.
+          </Text>
+        </View>
+      </BottomSheet>
+
+      <BottomSheet
+        visible={envOpen}
+        onClose={() => setEnvOpen(false)}
+        title="Run as"
+      >
+        <View style={{ gap: space[2] }}>
+          {APP_ENV_OPTIONS.map((option) => (
+            <View key={option.id} style={{ gap: 2 }}>
+              <Radio
+                label={option.label}
+                selected={appEnv === option.id}
+                onSelect={() => setAppEnv(option.id)}
+              />
+              <Text variant="caption" color="tertiary">
+                {option.note}
+              </Text>
+            </View>
+          ))}
+          <Text variant="caption" color="tertiary">
+            This build was made as {BUILT_AS}. The setting is remembered across restarts, and
+            only exists here — a production build cannot be switched out of production, so it
+            has no such setting at all.
           </Text>
         </View>
       </BottomSheet>

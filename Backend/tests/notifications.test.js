@@ -64,7 +64,7 @@ const setup = async ({ beds = 6, ownerDevices = true, studentDevices = true } = 
   });
   const property = await Property.create({
     name: 'Sai Krishna Boys PG', place: 'Vizag', ownerName: 'Ramesh',
-    ownerMobile: OWNER_PHONE, category: 'PG', rent: 5999,
+    ownerMobile: OWNER_PHONE, category: 'PG_HOSTEL', rent: 5999,
     categoryDetails: {
       sharingTypes: ['2 Sharing'],
       sharingPrices: { '2 Sharing': 5999 },

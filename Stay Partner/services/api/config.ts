@@ -1,5 +1,5 @@
 import Constants from 'expo-constants';
-import { API_URL } from '@/constants/env';
+import { API_URL, DEBUG_LOGS } from '@/constants/env';
 
 /**
  * Where the backend is, and how this app is allowed to find out.
@@ -162,7 +162,7 @@ export function describeApiTarget(): string {
  * screen instead would mean the banner appears or not depending on which
  * screen mounted first.
  */
-if (__DEV__) {
+if (DEBUG_LOGS) {
   const lines = [
     '',
     '📡 ─── Lampose Stay Partner → backend ─────────────────────',

@@ -1,6 +1,7 @@
 /* Read-only view of the `properties` collection, shaped for lampose.com's
    public Explore page. Writes go through the property controllers instead. */
 const Property = require('../properties/property.model');
+const { DEFAULT_CATEGORY, normaliseCategory } = require('../../shared/constants/categories');
 const {
   formatListing, cityOf, localityOf, isDaily,
 } = require('./listing.formatter');
@@ -111,8 +112,10 @@ const getListings = async (req, res, next) => {
         .map((value) => new RegExp(`^${escapeRegex(value)}$`, 'i'));
 
       if (wanted.length === 1) {
-        /* Unanchored, as it always was. `?category=Bachelor` matching
-           "Bachelor Room" is behaviour the website relies on. */
+        /* Unanchored, as it always was — it used to be what let
+           `?category=Bachelor` match the stored "Bachelor Room". The stored
+           values are codes now, so the two agree exactly, but a bookmarked
+           link with the old spelling still resolves through the same match. */
         filter.category = new RegExp(escapeRegex(String(category).trim()), 'i');
       } else if (wanted.length > 1) {
         filter.category = { $in: wanted };
@@ -276,7 +279,7 @@ const getListingMeta = async (req, res, next) => {
       const rent = isDaily(row) ? 0 : Number(row.rent) || 0;
       if (rent > 0) rents.push(rent);
 
-      const categoryName = row.category || 'PG';
+      const categoryName = normaliseCategory(row.category) || DEFAULT_CATEGORY;
 
       const cityEntry = byCity.get(city)
         || { name: city, count: 0, rents: [], categories: {} };

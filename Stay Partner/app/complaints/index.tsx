@@ -8,6 +8,7 @@ import { fetchComplaintsApi, updateComplaintStatusApi } from '@/services/api/dom
 import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
+import { logWarn } from '@/lib/log';
 
 export default function ComplaintsScreen() {
   const router = useRouter();
@@ -28,7 +29,7 @@ export default function ComplaintsScreen() {
       }));
       setComplaints(mapped);
     } catch (err) {
-      console.warn('Failed to load complaints:', err);
+      logWarn('Failed to load complaints:', err);
     } finally {
       setLoading(false);
     }
@@ -93,7 +94,7 @@ function ComplaintCard({ complaint, onResolved }: { complaint: Complaint; onReso
       await updateComplaintStatusApi(complaint.id, 'resolved');
       onResolved();
     } catch (err) {
-      console.warn('Could not resolve complaint:', err);
+      logWarn('Could not resolve complaint:', err);
     } finally {
       setResolving(false);
     }

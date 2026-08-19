@@ -439,6 +439,19 @@ const acceptRequest = async (req, res, next) => {
 
     const { request, booking, autoDeclined } = await acceptAndBook(id, req.partner);
 
+    /*
+     * A visit that has to be paid for needs something to pay at.
+     *
+     * Created before the push so the notification does not arrive before the
+     * link it is telling them to use exists. Awaited for the same reason —
+     * it is one call, and a student tapping the notification immediately
+     * should find the button live.
+     */
+    if (request.payment?.required && request.payment.status !== 'paid') {
+      const { ensurePaymentLink } = require('../visits/visitPayment.controller');
+      await ensurePaymentLink(request);
+    }
+
     fireAndForget(notifyStudentAccepted(request));
 
     /* Everybody who was waiting on the bed this tap just took. Each gets the

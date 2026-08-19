@@ -10,6 +10,7 @@ import { RefundChaseNote } from '@/components/lifecycle';
 import { refundInProgress } from '@/data/bookings';
 import { useTheme } from '@/context/ThemeContext';
 import type { RefundStageId, RefundState } from '@/types/booking';
+import { usePreviewControls } from '@/hooks/useAppEnv';
 
 /**
  * Screen 58 — tracking the deposit.
@@ -24,6 +25,7 @@ import type { RefundStageId, RefundState } from '@/types/booking';
  * screen, keeps the money visible, and offers the two real fixes.
  */
 export default function DepositRefund() {
+  const previewControls = usePreviewControls();
   const { colors, space, layout, mode } = useTheme();
   const router = useRouter();
 
@@ -59,7 +61,7 @@ export default function DepositRefund() {
           <Button label="Get help with this refund" variant="secondary" fullWidth />
         )}
 
-        {__DEV__ ? (
+        {previewControls ? (
           <View style={{ gap: space[2], paddingTop: space[4] }}>
             <Text variant="numMeta" color="tertiary">
               stage — preview only · the server owns this

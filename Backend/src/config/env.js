@@ -145,6 +145,39 @@ const config = {
     timeoutMs: Number(process.env.PUSH_TIMEOUT_MS) || 6000,
   },
 
+  /* ── The visit token ──────────────────────────────────────────────────
+     A bachelor or co-live visit is confirmed by the owner and then paid for:
+     a small token that turns a browse into an intent, and buys the joining-date
+     step and the address behind it.
+
+     Absent keys are not fatal. Nothing here exits the process — the payment
+     routes answer a named 503 and every other flow carries on, which is the
+     same rule Mongo, SMS and Twilio follow. */
+  razorpay: {
+    keyId: String(process.env.RAZORPAY_KEY_ID || '').trim(),
+    /* Never leaves the server: it signs orders and verifies callbacks. */
+    keySecret: String(process.env.RAZORPAY_KEY_SECRET || '').trim(),
+    /* Optional. Set it and the webhook route verifies its own signature. */
+    webhookSecret: String(process.env.RAZORPAY_WEBHOOK_SECRET || '').trim(),
+
+    /* In PAISE, because that is the only unit Razorpay accepts and converting
+       at the boundary is where rounding bugs get in. 2000 = ₹20. */
+    tokenAmountPaise: (() => {
+      const raw = Number(process.env.VISIT_TOKEN_AMOUNT_PAISE);
+      if (!Number.isFinite(raw) || raw < 100) return 2000;
+      return Math.round(raw);
+    })(),
+
+    /* How long an accepted request waits to be paid for.
+       The owner has agreed and is holding a layout; without a deadline an
+       unpaid request holds it for ever. */
+    payWindowHours: (() => {
+      const raw = Number(process.env.VISIT_TOKEN_WINDOW_HOURS);
+      if (!Number.isFinite(raw) || raw < 1 || raw > 168) return 24;
+      return Math.round(raw);
+    })(),
+  },
+
   /* ── The stay-request flow ────────────────────────────────────────────
      A student asks, an owner has a few minutes to answer on their phone.
 

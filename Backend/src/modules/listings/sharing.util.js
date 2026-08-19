@@ -10,10 +10,17 @@
    The panel writes the choice under a different key per category, and as
    either a list or a comma-separated string:
 
-     PG             categoryDetails.sharingTypes   ["Single","2 Sharing",…]
-     Hostel         categoryDetails.roomTypes      ["Double Sharing",…]
-     Dormitory      categoryDetails.bedType        "Bunk Bed Pod"
-     Bachelor Room  categoryDetails.roomType       "1 BHK Independent"
+     PG_HOSTEL   categoryDetails.sharingTypes   ["Single","2 Sharing",…]
+                 or categoryDetails.roomTypes    ["Double Sharing",…]
+     HOTEL       categoryDetails.bedTypes        ["Single","4 Sharing"]
+                 (older rows carry one `bedType` format string instead)
+     BACHELOR    categoryDetails.roomTypes       ["1 RK","2 BHK"]
+     COLIVE      categoryDetails.roomTypes       ["2 BHK","3 BHK"]
+                 (older rows carry one `roomType` string instead)
+
+   PG_HOSTEL has two keys because the category is a merge: rows onboarded as
+   a PG wrote `sharingTypes` and rows onboarded as a hostel wrote `roomTypes`,
+   and both spellings are live in the collection. First non-empty wins.
 
    Newer rows also carry categoryDetails.sharingPrices — a map of label to
    monthly rent, e.g. {"Single":8000,"2 Sharing":5999}.
@@ -24,6 +31,12 @@
    they disagreed, a customer could request an option the page never offered.
    ══════════════════════════════════════════════════════════════════════════ */
 
+/** A positive number, or null. */
+const num = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
 const asList = (value) => {
   if (Array.isArray(value)) return value.map((x) => String(x).trim()).filter(Boolean);
   if (typeof value === 'string' && value.trim()) {
@@ -32,12 +45,7 @@ const asList = (value) => {
   return [];
 };
 
-const OCCUPANCY_KEY = {
-  PG: 'sharingTypes',
-  Hostel: 'roomTypes',
-  Dormitory: 'bedType',
-  'Bachelor Room': 'roomType',
-};
+const { OCCUPANCY_KEYS, normaliseCategory } = require('../../shared/constants/categories');
 
 /**
  * How many people the label says share one room.
@@ -107,8 +115,16 @@ const sharingOptionsFor = (doc) => {
   const rooms = asMap(details.sharingRooms);
   const beds = asMap(details.sharingBeds);
 
-  const key = OCCUPANCY_KEY[doc && doc.category];
-  const labels = asList(key ? details[key] : (details.sharingTypes || details.roomTypes));
+  /* Normalised rather than looked up directly: this reads documents, and a
+     document may predate the migration to category codes. */
+  const keys = OCCUPANCY_KEYS[normaliseCategory(doc && doc.category)] || [];
+  const fromCategory = keys.map((key) => details[key]).find((v) => asList(v).length);
+  const labels = asList(
+    fromCategory !== undefined
+      ? fromCategory
+      : (details.sharingTypes || details.roomTypes || details.roomType
+        || details.bedTypes || details.bedType),
+  );
 
   /* A priced option the list forgot is still a real option — the two fields
      are filled in separately in the panel and do drift apart. */
@@ -132,9 +148,30 @@ const sharingOptionsFor = (doc) => {
       : null;
     const totalBeds = Number.isFinite(stated) && stated > 0 ? stated : derived;
 
+    /*
+     * The three ways a hotel bed is sold, when it is sold more than one way.
+     *
+     * Offered so the page can show only the structures this owner actually
+     * priced — a "per month" button on a bed with no monthly rate is a dead
+     * choice, and letting it be picked would send a request the pricing has no
+     * answer for. Null for every other category, which sells one way.
+     */
+    const rates = {
+      nightly: num(prices[label]),
+      monthly: num((details.monthlyPrices || {})[label]),
+      flexible: num((details.flexiblePrices || {})[label]),
+    };
+    const acRates = {
+      nightly: num((details.sharingAcPrices || {})[label]),
+      monthly: num((details.monthlyAcPrices || {})[label]),
+      flexible: num((details.flexibleAcPrices || {})[label]),
+    };
+
     return {
       label,
       price: Number.isFinite(price) && price > 0 ? price : null,
+      rates,
+      acRates,
       rooms: Number.isFinite(roomCount) && roomCount > 0 ? roomCount : null,
       occupancy,
       totalBeds: Number.isFinite(totalBeds) && totalBeds > 0 ? totalBeds : null,
@@ -151,5 +188,5 @@ const findSharingOption = (doc, label) => {
 };
 
 module.exports = {
-  OCCUPANCY_KEY, occupancyOf, shareTypeIdFor, sharingOptionsFor, findSharingOption,
+  OCCUPANCY_KEYS, occupancyOf, shareTypeIdFor, sharingOptionsFor, findSharingOption,
 };

@@ -7,7 +7,7 @@ const SLIDES = [
     tag: "GROW YOUR ACCOMMODATION BUSINESS",
     title: "Onboard Your Property ",
     titleHighlight: "In 2 Minutes.",
-    subtitle: "Join thousands of PG, Hostel, Dormitory & Bachelor Flat owners — ",
+    subtitle: "Join thousands of PG, hostel, hotel, bachelor and co-live owners — ",
     subtitleHighlight: "fill details & go live instantly.",
     image: "https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=800&q=80",
     imageBadge: "Instant Listing",

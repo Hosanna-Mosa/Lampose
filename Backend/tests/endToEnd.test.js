@@ -141,7 +141,7 @@ async function cast(beds = 1) {
 
   const property = await Property.create({
     name: 'Sai Krishna Boys PG', place: 'Madhurawada, Visakhapatnam',
-    ownerName: 'Ramesh', ownerMobile: OWNER_PHONE, category: 'PG', rent: 8000,
+    ownerName: 'Ramesh', ownerMobile: OWNER_PHONE, category: 'PG_HOSTEL', rent: 8000,
     categoryDetails: {
       sharingTypes: ['Single'],
       sharingPrices: { Single: 8000 },
@@ -443,7 +443,7 @@ describe('end to end · the refusals a real catalogue produces', () => {
     /* Seven of the twelve live properties are in this state. */
     const orphan = await Property.create({
       name: 'Unonboarded PG', place: 'Vizag', ownerName: 'Someone',
-      ownerMobile: '+919555555555', category: 'PG', rent: 5000,
+      ownerMobile: '+919555555555', category: 'PG_HOSTEL', rent: 5000,
       categoryDetails: {
         sharingTypes: ['Single'], sharingPrices: { Single: 5000 }, sharingBeds: { Single: 4 },
       },
@@ -465,7 +465,7 @@ describe('end to end · the refusals a real catalogue produces', () => {
 
     const uncounted = await Property.create({
       name: 'Uncounted PG', place: 'Vizag', ownerName: 'Ramesh',
-      ownerMobile: OWNER_PHONE, category: 'PG', rent: 5000,
+      ownerMobile: OWNER_PHONE, category: 'PG_HOSTEL', rent: 5000,
       categoryDetails: { sharingTypes: ['Single'], sharingPrices: { Single: 5000 } },
     });
     await syncShareTypes(uncounted);

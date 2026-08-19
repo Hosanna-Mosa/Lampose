@@ -24,6 +24,7 @@
    ══════════════════════════════════════════════════════════════════════════ */
 const Property = require('./property.model');
 const { syncShareTypes } = require('../inventory/inventory.service');
+const { CATEGORIES, normaliseCategory } = require('../../shared/constants/categories');
 const { escapeRegex } = require('../../shared/utils/text');
 
 const number = (value, fallback = null) => {
@@ -123,13 +124,23 @@ const createProperty = async (req, res, next) => {
       return res.status(400).json({ success: false, code: 'VALIDATION_ERROR', message, error: message });
     }
 
+    /* The leads panel posts whatever it has — a code from the current build,
+       a label from an older one. The enum only accepts codes, so an unmapped
+       value is refused here with a message naming the four rather than left
+       to surface as a Mongoose validation error. */
+    const category = normaliseCategory(body.category);
+    if (!category) {
+      const message = `Invalid category. Must be one of: ${CATEGORIES.join(', ')}`;
+      return res.status(400).json({ success: false, code: 'VALIDATION_ERROR', message, error: message });
+    }
+
     const images = stringList(body.images);
     const imageUrl = String(body.imageUrl || '').trim();
 
     const property = await Property.create({
       name: String(body.name).trim(),
       place: String(body.place).trim(),
-      category: String(body.category).trim(),
+      category,
       stayType: body.stayType || 'Long Stay',
       longStayDuration: body.longStayDuration || null,
       shortStayDuration: body.shortStayDuration || null,

@@ -76,10 +76,15 @@ const expect = (condition, message) => { if (!condition) throw new Error(message
 
 /* The point of the whole script: a field the calling component reads must be
    present, or the screen breaks even though the request "succeeded". */
-const expectFields = (object, fields, label) => {
+const expectFields = (object, fields, label, forbidden = []) => {
   const missing = fields.filter((f) => (object || {})[f] === undefined);
   expect(missing.length === 0, `${label} is missing: ${missing.join(', ')}`);
-  return `${fields.length} fields present`;
+
+  /* What must NOT be there is as much a contract as what must. */
+  const leaked = forbidden.filter((f) => (object || {})[f] !== undefined);
+  expect(leaked.length === 0, `${label} publishes what it must not: ${leaked.join(', ')}`);
+
+  return `${fields.length} fields present${forbidden.length ? `, ${forbidden.length} withheld` : ''}`;
 };
 
 const stamp = Date.now();
@@ -123,8 +128,19 @@ const run = async () => {
     'id', 'name', 'place', 'city', 'locality', 'category', 'categorySlug',
     'stayType', 'longStayDuration', 'shortStayDuration', 'rent', 'pricePeriod',
     'monthlyPrice', 'dailyPrice', 'deposit', 'ownerName', 'ownerMobile',
-    'address', 'amenities', 'images', 'details', 'listedAt',
+    'amenities', 'images', 'details', 'listedAt',
   ];
+
+  /*
+   * And the one key that must NOT be there.
+   *
+   * `address` used to be projected to everybody. No client rendered it — the
+   * Listing page carries a comment explaining why a public page must not print
+   * an owner's door number — so it was a leak with no reader, which is the
+   * kind that survives longest. It is released with the visit token now, to
+   * the one person who paid for it.
+   */
+  const LISTING_FORBIDDEN_FIELDS = ['address'];
 
   let sampleListingId = null;
 
@@ -134,7 +150,7 @@ const run = async () => {
     expect(Array.isArray(body.data), 'response.data is not an array (Explore.jsx would throw)');
     if (body.data.length === 0) return '0 listings — shape not verifiable';
     sampleListingId = body.data[0].id;
-    return `${body.count} listings, ${expectFields(body.data[0], LISTING_FIELDS, 'listing')}`;
+    return `${body.count} listings, ${expectFields(body.data[0], LISTING_FIELDS, 'listing', LISTING_FORBIDDEN_FIELDS)}`;
   });
 
   await check('the unversioned /api/listings alias still answers', async () => {
@@ -155,7 +171,7 @@ const run = async () => {
     const { status, body } = await call('GET', `/api/v2/listings/${sampleListingId}`);
     expect(status === 200, `expected 200, got ${status}`);
     expect(body.data && body.data.id === sampleListingId, 'response.data.id does not match the requested id');
-    return expectFields(body.data, LISTING_FIELDS, 'listing');
+    return expectFields(body.data, LISTING_FIELDS, 'listing', LISTING_FORBIDDEN_FIELDS);
   });
 
   await check('listingsApi.getListingById(missing)  →  must 404 so it returns null', async () => {
@@ -309,7 +325,7 @@ const run = async () => {
         place: 'MVP Colony, Visakhapatnam',
         ownerName: 'Verify Owner',
         ownerMobile: '9876543210',
-        category: 'PG',
+        category: 'PG_HOSTEL',
         stayType: 'Long Stay',
         dailyPrice: 0,
         monthlyPrice: 8000,
@@ -354,7 +370,7 @@ const run = async () => {
         place: 'MVP Colony, Visakhapatnam',
         ownerName: 'Verify Owner',
         ownerMobile: '9876543210',
-        category: 'PG',
+        category: 'PG_HOSTEL',
         rent: 8000,
       },
     });
@@ -424,7 +440,7 @@ const run = async () => {
       address: 'MVP Colony',
       rating: '4.2',
       reviewsCount: 10,
-      category: 'PG',
+      category: 'PG_HOSTEL',
       city: 'Visakhapatnam',
       landmark: 'MVP',
       mapsUrl: 'https://maps.google.com/?q=1,1',
@@ -807,7 +823,7 @@ const run = async () => {
         employeeEmail: empEmail,
         action: 'edit',
         reason: 'verify script',
-        property: { name: 'Verify', place: 'Visakhapatnam', category: 'PG' },
+        property: { name: 'Verify', place: 'Visakhapatnam', category: 'PG_HOSTEL' },
       },
     });
     expect([200, 201].includes(status), `expected 201, got ${status}: ${body.error || body.message}`);
@@ -1427,7 +1443,7 @@ const run = async () => {
       place: 'Madhurawada, Visakhapatnam',
       ownerName: 'Verify Owner',
       ownerMobile: ownerPhone,
-      category: 'PG',
+      category: 'PG_HOSTEL',
       rent: 5999,
       categoryDetails: {
         sharingTypes: ['2 Sharing'],
@@ -1626,7 +1642,7 @@ const run = async () => {
       place: 'Madhurawada, Visakhapatnam',
       ownerName: 'Round Trip Owner',
       ownerMobile: ownerPhone,
-      category: 'PG',
+      category: 'PG_HOSTEL',
       rent: 8000,
       categoryDetails: {
         sharingTypes: ['Single'],
@@ -1883,7 +1899,7 @@ const run = async () => {
       place: 'Vizag',
       ownerName: 'Absent Owner',
       ownerMobile: ownerPhone,
-      category: 'PG',
+      category: 'PG_HOSTEL',
       rent: 5999,
       categoryDetails: {
         sharingTypes: ['2 Sharing'],
@@ -2093,7 +2109,7 @@ const run = async () => {
 
     const property = await Property.create({
       name: `Notify PG ${stamp}`, place: 'Vizag', ownerName: 'Notified Owner',
-      ownerMobile: ownerPhone, category: 'PG', rent: 5999,
+      ownerMobile: ownerPhone, category: 'PG_HOSTEL', rent: 5999,
       categoryDetails: {
         sharingTypes: ['2 Sharing'],
         sharingPrices: { '2 Sharing': 5999 },
@@ -2452,7 +2468,7 @@ const run = async () => {
 
     const property = await Property.create({
       name: `M8 PG ${stamp}`, place: 'Vizag', ownerName: 'M8 Owner',
-      ownerMobile: ownerPhone, category: 'PG', rent: 5999,
+      ownerMobile: ownerPhone, category: 'PG_HOSTEL', rent: 5999,
       categoryDetails: {
         sharingTypes: ['2 Sharing'],
         sharingPrices: { '2 Sharing': 5999 },
@@ -2613,7 +2629,7 @@ const run = async () => {
 
     const property = await Property.create({
       name: `M9 PG ${stamp}`, place: 'Vizag', ownerName: 'M9 Owner',
-      ownerMobile: ownerPhone, category: 'PG', rent: 5999,
+      ownerMobile: ownerPhone, category: 'PG_HOSTEL', rent: 5999,
       categoryDetails: {
         sharingTypes: ['2 Sharing'],
         sharingPrices: { '2 Sharing': 5999 },
@@ -2735,7 +2751,7 @@ const run = async () => {
 
     const property = await Property.create({
       name: `Seen PG ${stamp}`, place: 'Vizag', ownerName: 'Seen Owner',
-      ownerMobile: ownerPhone, category: 'PG', rent: 5999,
+      ownerMobile: ownerPhone, category: 'PG_HOSTEL', rent: 5999,
       categoryDetails: {
         sharingTypes: ['2 Sharing'], sharingPrices: { '2 Sharing': 5999 }, sharingBeds: { '2 Sharing': 2 },
       },
@@ -2825,7 +2841,7 @@ const run = async () => {
 
     const property = await Property.create({
       name: `Pin PG ${stamp}`, place: 'Vizag', ownerName: 'Pin Owner',
-      ownerMobile: ownerPhone, category: 'PG', rent: 5999,
+      ownerMobile: ownerPhone, category: 'PG_HOSTEL', rent: 5999,
       categoryDetails: {
         sharingTypes: ['2 Sharing'], sharingPrices: { '2 Sharing': 5999 }, sharingBeds: { '2 Sharing': 2 },
       },
@@ -2948,6 +2964,14 @@ const run = async () => {
     if (!confirmed.length) return 'no confirmed requests in this database to compare';
 
     for (const request of confirmed) {
+      /*
+       * A confirmed visit that still owes a token has no PIN yet, and should
+       * not: the PIN is what the two of them match at the door, so minting it
+       * before the money would hand over a confirmed visit for free. It is
+       * issued when the payment verifies — see visitPayment.controller.
+       */
+      if (request.payment?.required && request.payment.status !== 'paid') continue;
+
       const student = request.toPublic().entryPin;
       const owner = request.toOwner().entryPin;
 
@@ -3021,7 +3045,7 @@ const run = async () => {
     /* ONE bed, so the student's own acceptance fills the room. */
     const property = await Property.create({
       name: `Dup PG ${stamp}`, place: 'Vizag', ownerName: 'Dup Owner',
-      ownerMobile: ownerPhone, category: 'PG', rent: 8000,
+      ownerMobile: ownerPhone, category: 'PG_HOSTEL', rent: 8000,
       categoryDetails: {
         sharingTypes: ['Single'], sharingPrices: { Single: 8000 }, sharingBeds: { Single: 1 },
       },
@@ -3078,7 +3102,7 @@ const run = async () => {
 
     const property = await Property.create({
       name: `MoveIn PG ${stamp}`, place: 'Vizag', ownerName: 'MoveIn Owner',
-      ownerMobile: ownerPhone, category: 'PG', rent: 5999,
+      ownerMobile: ownerPhone, category: 'PG_HOSTEL', rent: 5999,
       categoryDetails: {
         sharingTypes: ['2 Sharing'], sharingPrices: { '2 Sharing': 5999 }, sharingBeds: { '2 Sharing': 2 },
       },
@@ -3181,6 +3205,44 @@ const run = async () => {
     return '404 — the same answer as "does not exist"';
   });
 
+  await check('a property\'s verification documents never reach the public site', async () => {
+    /*
+     * A hotel uploads its PAN and a premises document. Those are stored on the
+     * property, and the public listing API must not serve them.
+     *
+     * The trap this guards is specific and easy to fall into: the listing
+     * projection returns `categoryDetails` VERBATIM as `details`. Anything
+     * filed in there is published. `documents` is deliberately a top-level
+     * field for that reason, and this check fails if it ever moves or if the
+     * projection starts spreading the whole document.
+     */
+    const { formatListing } = require('../src/modules/listings/listing.formatter');
+
+    const secret = `SECRET-PAN-${stamp}`;
+    const withDocs = {
+      _id: '000000000000000000000011',
+      name: 'Verify Hotel', place: 'Visakhapatnam', category: 'HOTEL',
+      rent: 450, dailyPrice: 450, monthlyPrice: 0,
+      categoryDetails: { bedTypes: ['Single'], sharingPrices: { Single: 450 } },
+      documents: [
+        { kind: 'pan', url: `https://res.cloudinary.com/x/${secret}.jpg`, name: 'pan.jpg' },
+        { kind: 'premises', docType: 'GST Registration Certificate', url: `https://res.cloudinary.com/x/${secret}-2.jpg` },
+      ],
+    };
+
+    const payload = JSON.stringify(formatListing(withDocs));
+    expect(!payload.includes(secret), 'a document URL reached the public listing payload');
+    expect(!payload.includes('documents'), 'the public listing payload carries a `documents` key');
+
+    /* And through the real endpoint, not only the formatter. */
+    const { status, body } = await call('GET', '/api/v2/listings');
+    expect(status === 200, `listings returned ${status}`);
+    expect(!JSON.stringify(body).includes('"documents"'),
+      'GET /api/v2/listings exposes a documents field');
+
+    return 'documents stay top-level and out of every public projection';
+  });
+
   await check('each app reads its environment in one place, and documents it', async () => {
     const fs = require('fs');
     const path = require('path');
@@ -3249,6 +3311,119 @@ const run = async () => {
     }
 
     return 'both apps: constants/env.ts + .env.example + app.config.js, optional files guarded';
+  });
+
+  await check('a production build hides everything built for checking states', async () => {
+    const fs = require('fs');
+    const path = require('path');
+    const root = path.join(__dirname, '..', '..');
+
+    /*
+     * Several screens carry preview controls — rows of buttons that jump a
+     * booking between its thirteen statuses, or force a stay request to
+     * accepted, rejected or expired. They exist because the other side of
+     * those flows is a real owner on a real handset, so the states are
+     * otherwise unreachable while building. None of them may reach a student.
+     *
+     * This checks the mechanism rather than each screen, because the mechanism
+     * is what a new screen will either use or forget.
+     */
+    for (const app of ['User App', 'Stay Partner']) {
+      const dir = path.join(root, app);
+      const env = fs.readFileSync(path.join(dir, 'constants/env.ts'), 'utf8');
+
+      expect(/export const APP_ENV/.test(env), `${app} does not resolve an APP_ENV`);
+      expect(/export const IS_PRODUCTION_BUILD/.test(env),
+        `${app} has no IS_PRODUCTION_BUILD for the rest of the app to branch on`);
+
+      /* The fallback is the whole safety property: a build made with no
+         configuration at all must read as production, not as development. */
+      expect(/:\s*__DEV__\s*\n?\s*\?\s*'development'\s*\n?\s*:\s*'production'/.test(env),
+        `${app} does not fall back to production for an unset or misspelt APP_ENV`);
+
+      /* Each EAS profile states its own, so a stale local .env cannot decide
+         what a release build shows. */
+      const eas = JSON.parse(fs.readFileSync(path.join(dir, 'eas.json'), 'utf8'));
+      expect(eas.build.production.env
+        && eas.build.production.env.EXPO_PUBLIC_APP_ENV === 'production',
+        `${app} eas.json production profile does not pin EXPO_PUBLIC_APP_ENV`);
+
+      /*
+       * And no screen may still gate on `__DEV__`.
+       *
+       * It is false in every standalone build, including the internal APKs
+       * shared for push testing — so gating on it means either losing the
+       * controls where they are wanted or shipping them where they are not.
+       * `constants/env.ts` is where the two are told apart, and the only file
+       * allowed to mention it.
+       */
+      const stray = [];
+      const walk = (d) => {
+        for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+          if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+          const full = path.join(d, entry.name);
+          if (entry.isDirectory()) { walk(full); continue; }
+          if (!/\.tsx?$/.test(entry.name)) continue;
+          if (full.endsWith(path.join('constants', 'env.ts'))) continue;
+          if (/scratchpad/.test(full)) continue;
+          const body = fs.readFileSync(full, 'utf8');
+          if (/(?<!`)\b__DEV__\b/.test(body)) stray.push(path.relative(dir, full));
+        }
+      };
+      walk(dir);
+      expect(stray.length === 0,
+        `${app} still gates on __DEV__ instead of PREVIEW_CONTROLS/DEBUG_LOGS: ${stray.join(', ')}`);
+    }
+
+    /*
+     * The design-system preview is a route, and a route needs no link to be
+     * reachable — only an address, which `app/preview.tsx` has. Deleting the
+     * file would be the other way; gating it is this one.
+     */
+    const preview = fs.readFileSync(path.join(root, 'User App', 'app/preview.tsx'), 'utf8');
+    expect(/usePreviewControls\(\)/.test(preview) && /<Redirect/.test(preview),
+      'User App/app/preview.tsx is reachable at lampose://preview in a production build');
+
+    /*
+     * The runtime toggle, and the one thing that must be true about it.
+     *
+     * The student app can be switched between development and production
+     * while running, so one internal build can answer both "does this work"
+     * and "what does a student see". That is a way to turn the gates back ON
+     * from inside the app, which is only safe in one direction: a build made
+     * as production must have no override at all.
+     *
+     * `CAN_OVERRIDE_ENV` is derived from `IS_PRODUCTION_BUILD`, so in a
+     * production bundle the check folds to a constant and the override branch
+     * is dead code. These assertions are what stop that being quietly undone.
+     */
+    const runtime = fs.readFileSync(
+      path.join(root, 'User App', 'services/runtimeEnv.ts'), 'utf8');
+
+    expect(/export const CAN_OVERRIDE_ENV = !IS_PRODUCTION_BUILD;/.test(runtime),
+      'CAN_OVERRIDE_ENV is no longer tied to the build — a production build could be switched');
+
+    /* Reading: the override applies only when the build allows one. */
+    expect(/CAN_OVERRIDE_ENV && override\) \? override : BUILD_APP_ENV/.test(runtime),
+      'getAppEnv can return an override in a production build');
+
+    /* Writing: refused before anything is stored. */
+    expect(/setAppEnv = \(next: AppEnv\): void => \{\s*\n\s*if \(!CAN_OVERRIDE_ENV\) return;/.test(runtime),
+      'setAppEnv does not refuse outright in a production build');
+
+    /* And the stored value is not even read there, so nothing that can write
+       one key into AsyncStorage can change what a student's app shows. */
+    expect(/if \(CAN_OVERRIDE_ENV\) \{\s*\n\s*AsyncStorage\.getItem/.test(runtime),
+      'a production build still reads the stored override at launch');
+
+    /* The toggle is gated on what the BUILD allows, not on the mode in force
+       — otherwise selecting Production removes the only way back. */
+    const home = fs.readFileSync(path.join(root, 'User App', 'app/home.tsx'), 'utf8');
+    expect(/\{CAN_OVERRIDE_ENV \? \(/.test(home),
+      'the Developer group is not gated on CAN_OVERRIDE_ENV');
+
+    return 'both apps: APP_ENV defaults to production, EAS pins it, no screen gates on __DEV__, '
+      + 'and the runtime toggle cannot escalate a production build';
   });
 
   section('CORS preflight from each production origin');

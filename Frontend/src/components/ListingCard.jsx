@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import Icon from './Icon';
+import { labelForCategory } from '../data/categories';
 
 export const rupees = n => `₹${Number(n).toLocaleString('en-IN')}`;
 
@@ -26,24 +27,29 @@ const factsFor = item => {
   };
 
   switch (item.category) {
-    case 'PG':
-      push('Sharing', d.sharingTypes);
+    /* PG and hostel are one category, and a row may have been onboarded as
+       either — so the facts are pushed in preference order and `push` skips
+       whatever is absent. A former PG shows sharing and meals; a former
+       hostel shows its room types and warden, from the same branch. */
+    case 'PG_HOSTEL':
+      push('Sharing', d.sharingTypes || d.roomTypes);
       push('Food', d.foodIncluded ? (d.foodType || 'Included') : null);
+      push('Type', d.hostelType);
+      push('Mess', d.canteenFacility ? 'Canteen' : null);
       push('Curfew', d.curfewTime);
       break;
-    case 'Hostel':
-      push('Type', d.hostelType);
-      push('Rooms', d.roomTypes);
-      push('Mess', d.canteenFacility ? 'Canteen' : null);
-      break;
-    case 'Dormitory':
+    case 'HOTEL':
+      push('Sleeps', d.bedTypes);
       push('Beds', d.totalBeds ? `${d.totalBeds} beds` : null);
       push('Bed', d.bedType);
       push('Check-in', d.checkInTime);
+      push('Check-out', d.checkOutTime);
       break;
-    case 'Bachelor Room':
-      push('Room', d.roomType);
+    case 'BACHELOR':
+    case 'COLIVE':
+      push('Room', d.roomTypes || d.roomType);
       push('Furnishing', d.furnishing);
+      push('Includes', d.furnishingItems);
       push('Tenants', d.allowedTenants);
       break;
     default:
@@ -92,7 +98,7 @@ export default function ListingCard({ item, index = 0, view = 'grid' }) {
         )}
 
         <div className="xp-card__top">
-          <span className="exp-chip exp-chip--light">{item.category}</span>
+          <span className="exp-chip exp-chip--light">{labelForCategory(item.category)}</span>
           {item.stayType && <span className="exp-chip exp-chip--dark">{item.stayType}</span>}
         </div>
 

@@ -312,6 +312,9 @@ export type MessChoice =
  * Sharing
  * ------------------------------------------------------------------ */
 
+/** What the listing detail needs to know about the visit token. */
+export type VisitToken = { required: boolean; amountPaise?: number };
+
 export type SharingOption = {
   id: string;
   label: string;
@@ -328,6 +331,15 @@ export type SharingOption = {
    * cheaper-by comparison this control exists for to zero on every row.
    */
   pricePerPerson?: number;
+
+  /**
+   * The three ways a hotel bed is sold, where the owner priced more than one.
+   *
+   * Only ever populated for HOTEL — every other category sells one way, and a
+   * picker with a single choice is not a choice. Undefined elsewhere rather
+   * than a table of nulls, so `Object.keys` on it is meaningful.
+   */
+  rates?: { nightly?: number; monthly?: number; flexible?: number };
 
   /**
    * The bed pool this option draws from, carried into the request.
@@ -516,6 +528,9 @@ export type Listing = {
    * selector — bed choice moves to the request, where it is being committed to.
    */
   stayRates?: readonly StayRate[];
+
+  /** Whether a confirmed visit here is paid for before it completes. */
+  visitToken?: VisitToken;
   mess?: MessChoice;
 };
 

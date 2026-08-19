@@ -8,6 +8,7 @@ import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 
 import { fetchPaymentMethodsApi } from '@/services/api/domain.api';
+import { logWarn } from '@/lib/log';
 
 export default function PayoutMethodsScreen() {
   const router = useRouter();
@@ -43,7 +44,7 @@ export default function PayoutMethodsScreen() {
       });
       setMethods(mapped);
     } catch (err) {
-      console.warn('Failed to load payment methods:', err);
+      logWarn('Failed to load payment methods:', err);
     }
   };
 

@@ -17,6 +17,7 @@ import { ApiError } from '@/services/api/client';
 import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
+import { logWarn } from '@/lib/log';
 
 type Tab = 'upcoming' | 'history';
 type Outcome = 'all' | 'completed' | 'cancelled';
@@ -114,7 +115,7 @@ export default function BookingsTab() {
     } catch (err) {
       /* A failed load is not "no bookings". Leaving the empty state up would
          tell an owner they have none when we simply could not ask. */
-      console.warn('Failed to fetch bookings:', err);
+      logWarn('Failed to fetch bookings:', err);
       setError(err instanceof ApiError ? err.displayMessage : 'We could not load your bookings.');
     } finally {
       setLoading(false);

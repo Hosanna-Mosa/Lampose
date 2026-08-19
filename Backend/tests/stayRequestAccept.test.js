@@ -39,7 +39,7 @@ const makeProperty = async (beds = 6) => {
     place: 'Madhurawada, Visakhapatnam',
     ownerName: 'Ramesh',
     ownerMobile: OWNER_PHONE,
-    category: 'PG',
+    category: 'PG_HOSTEL',
     rent: 5999,
     categoryDetails: {
       sharingTypes: ['2 Sharing'],
@@ -179,7 +179,7 @@ describe('the students left waiting on a bed that has gone', () => {
       place: 'Vizag',
       ownerName: 'Ramesh',
       ownerMobile: OWNER_PHONE,
-      category: 'PG',
+      category: 'PG_HOSTEL',
       rent: 5999,
       categoryDetails: {
         sharingTypes: ['Single', '2 Sharing'],

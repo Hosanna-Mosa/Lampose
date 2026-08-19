@@ -18,6 +18,7 @@ import { type Booking, payoutOf } from '@/lib/bookings';
 import { fetchBookingById } from '@/services/api/domain.api';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
+import { logWarn } from '@/lib/log';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -79,7 +80,7 @@ export default function BookingDetailScreen() {
           });
         }
       })
-      .catch((err) => console.warn('Error fetching booking detail:', err))
+      .catch((err) => logWarn('Error fetching booking detail:', err))
       .finally(() => setLoading(false));
   }, [id]);
 

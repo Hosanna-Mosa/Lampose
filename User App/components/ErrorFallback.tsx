@@ -6,6 +6,7 @@ import { reloadAppAsync } from 'expo';
 
 import { Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
+import { usePreviewControls } from '@/hooks/useAppEnv';
 
 export type ErrorFallbackProps = {
   error: Error;
@@ -13,6 +14,7 @@ export type ErrorFallbackProps = {
 };
 
 export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
+  const previewControls = usePreviewControls();
   const { colors, space, radius, touch, layout } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -42,7 +44,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg, padding: space[6] }]}>
-      {__DEV__ ? (
+      {previewControls ? (
         <Pressable
           onPress={() => setIsModalVisible(true)}
           accessibilityLabel="View error details"
@@ -97,7 +99,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
         </Pressable>
       </View>
 
-      {__DEV__ ? (
+      {previewControls ? (
         <Modal
           visible={isModalVisible}
           animationType="slide"

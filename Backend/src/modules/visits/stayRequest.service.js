@@ -62,12 +62,11 @@ const { claimBed, releaseBed } = require('../inventory/inventory.service');
 
 const { phoneKey } = Partner;
 
-/* Kept in step with SIMPLE_PATH_CATEGORIES in listing.formatter.js and in
-   visitRequest.controller.js — the categories whose page asks for sharing
-   alone, with no stay type and no duration. Three copies is two too many, and
-   the reason they have not been merged is that the formatter must stay
-   synchronous and dependency-free for the build-time snapshot. */
-const SIMPLE_PATH_CATEGORIES = ['Bachelor Room'];
+/* One definition, in shared/constants/categories.js — these used to be
+   three hand-synchronised copies. */
+const {
+  NIGHTLY_CATEGORIES, SIMPLE_PATH_CATEGORIES, TOKEN_CATEGORIES, normaliseCategory,
+} = require('../../shared/constants/categories');
 
 /* ------------------------------------------------------------------ *
  * Failures
@@ -324,12 +323,22 @@ const createStayRequest = async ({ customer, listingId, sharing, intent, consent
      from the property's own numbers, so a posted rate is discarded rather than
      trusted. Same call, same arguments as the web controller makes — the two
      flows must not be able to accept different stays for the same listing. */
-  const simplePath = SIMPLE_PATH_CATEGORIES.includes(property.category);
+  const simplePath = SIMPLE_PATH_CATEGORIES.includes(normaliseCategory(property.category));
+  /* A hotel is asked for a check-in and a check-out rather than a duration.
+     `validateIntent` resolves the two dates into the same intent shape a short
+     stay produces, so nothing past this line has to know. */
+  const datesPath = NIGHTLY_CATEGORIES.includes(normaliseCategory(property.category));
   const checked = validateIntent({
     doc: property,
     intent: intent || null,
-    sharingOption: { label: option.label, price: option.price },
+    /* The WHOLE option, not a two-field copy of it.
+       `validateIntent` reads `rates` to price a hotel bed by the structure the
+       guest picked, and the copy this used to build dropped that field — so
+       every hotel request from the app came back NO_RATE for a bed the page
+       had just shown a price for. */
+    sharingOption: option,
     simplePath,
+    datesPath,
   });
   if (!checked.ok) {
     throw new StayRequestError(checked.code || 'INVALID_INTENT', checked.message, 422);
@@ -372,6 +381,18 @@ const createStayRequest = async ({ customer, listingId, sharing, intent, consent
     shareTypeId: option.shareTypeId,
     sharing: { label: option.label, price: option.price },
     intent: checked.intent || null,
+    /*
+     * The visit token, on the categories that charge one.
+     *
+     * Set here as well as on the web path because a bachelor visit costs the
+     * same whichever surface asked for it — the only difference is that this
+     * one's owner answers in Stay Partner rather than on WhatsApp. Frozen at
+     * creation: editing the listing's category later must not make a paid
+     * request unpaid.
+     */
+    payment: TOKEN_CATEGORIES.includes(normaliseCategory(property.category))
+      ? { required: true, status: 'pending', amountPaise: config.razorpay.tokenAmountPaise }
+      : { required: false, status: 'not_required' },
 
     consentedTerms: true,
     consentedTermsAt: createdAt,
@@ -423,7 +444,7 @@ const accept = async (requestId, partner) => {
   /* The bed is only claimed for a request that names a pool. A row without a
      `shareTypeId` predates counted inventory or came from the web channel;
      accepting it changes no counter, which is honest — there is no counter. */
-  const pending = await VisitRequest.findOne(filter).select('shareTypeId').lean();
+  const pending = await VisitRequest.findOne(filter).select('shareTypeId payment').lean();
   const shareTypeId = pending ? pending.shareTypeId : null;
 
   let held = null;
@@ -448,6 +469,17 @@ const accept = async (requestId, partner) => {
   const { generateEntryPin } = require('./otp.util');
   const issuedAt = new Date();
 
+  /*
+   * A visit that has to be paid for is not settled by the owner's tap.
+   *
+   * The reference is what the two of them match at the door, so issuing it
+   * here would hand over a confirmed visit before the token cleared — and
+   * would tell the owner to expect somebody carrying a number that made the
+   * payment pointless. On those categories it is minted when the money lands
+   * (visitPayment.controller), and the clock to pay starts now.
+   */
+  const tokenDue = Boolean(pending?.payment?.required && pending.payment.status !== 'paid');
+
   const request = await VisitRequest.findOneAndUpdate(
     filter,
     {
@@ -458,8 +490,9 @@ const accept = async (requestId, partner) => {
         decisionReason: null,
         /* Shared, not secret: the student and the owner compare it at the
            door. See the note on the field. */
-        entryPin: generateEntryPin(),
-        entryPinIssuedAt: issuedAt,
+        ...(tokenDue
+          ? { 'payment.status': 'pending', 'payment.dueBy': new Date(issuedAt.getTime() + config.razorpay.payWindowHours * 3600 * 1000) }
+          : { entryPin: generateEntryPin(), entryPinIssuedAt: issuedAt }),
       },
     },
     { new: true },

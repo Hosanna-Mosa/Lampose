@@ -25,7 +25,7 @@ const makeProperty = (overrides = {}) => Property.create({
   place: 'Madhurawada, Visakhapatnam',
   ownerName: 'Ramesh',
   ownerMobile: '+91 98765 43210',
-  category: 'PG',
+  category: 'PG_HOSTEL',
   rent: 5999,
   categoryDetails: {
     sharingTypes: ['Single', '2 Sharing'],

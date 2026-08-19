@@ -2,6 +2,7 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { logInfo } from '@/lib/log';
 
 /**
  * Getting this device on the list of handsets the backend can reach.
@@ -140,7 +141,7 @@ async function ensureChannel(): Promise<void> {
 export async function getPushToken(): Promise<string | null> {
   const available = pushAvailable();
   if (!available.ok) {
-    console.log(`[push] not available — ${available.message}`);
+    logInfo(`[push] not available — ${available.message}`);
     return null;
   }
 
@@ -160,14 +161,14 @@ export async function getPushToken(): Promise<string | null> {
     }
 
     if (status !== 'granted') {
-      console.log('[push] permission not granted — the app works, the phone just will not buzz');
+      logInfo('[push] permission not granted — the app works, the phone just will not buzz');
       return null;
     }
 
     const { data } = await Notifications.getExpoPushTokenAsync({ projectId });
     return data || null;
   } catch (error) {
-    console.log('[push] could not get a token:', (error as Error).message);
+    logInfo('[push] could not get a token:', (error as Error).message);
     return null;
   }
 }

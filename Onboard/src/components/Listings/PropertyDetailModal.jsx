@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
+import { labelForCategory } from '../../data/categories';
 import {
   X, MapPin, User, Phone, ShieldCheck, Trash2, CheckCircle2, Clock, Calendar,
-  ChevronLeft, ChevronRight, Pencil, Lock, KeyRound, Loader2, Hourglass, ShieldX, Save
+  ChevronLeft, ChevronRight, Pencil, Lock, KeyRound, Loader2, Hourglass, ShieldX, Save,
+  ImagePlus, CloudUpload
 } from 'lucide-react';
 import {
   activeEmployeeEmail,
   fetchPropertyAccess,
   requestPermission,
   updateProperty,
+  updatePropertyImages,
+  uploadPropertyImages,
 } from '../../services/api.js';
 
 /** How a permission state reads to the employee holding the locked button. */
@@ -57,6 +61,65 @@ export default function PropertyDetailModal({ property, onClose, onDelete, onUpd
   // decision on record for this employee and this listing.
   const [access, setAccess] = useState(null);
   const [accessLoading, setAccessLoading] = useState(true);
+
+  /*
+   * Photos are the one thing the onboarding employee may change without an
+   * administrator's grant.
+   *
+   * They are the person who stood in the building; making them file a
+   * permission request to replace an upside-down lobby shot means it stays
+   * upside down. Everything else about a listing — price, owner, category —
+   * still goes through the grant, because those are what the public site and
+   * the request flow run on.
+   *
+   * `photos` is the working copy: edits are local until Save, so a mis-click
+   * on a delete is undone by closing the panel.
+   */
+  const [photoOpen, setPhotoOpen] = useState(false);
+  const [photos, setPhotos] = useState([]);
+  const [photoBusy, setPhotoBusy] = useState('');
+  const [photoError, setPhotoError] = useState('');
+
+  const ownsListing = Boolean(employeeEmail)
+    && String(employeeEmail).trim().toLowerCase() === String(activeEmployeeEmail() || '').trim().toLowerCase();
+  const canManagePhotos = ownsListing || Boolean(access?.edit?.allowed);
+
+  const openPhotos = () => {
+    setPhotos(Array.isArray(images) ? [...images] : (imageUrl ? [imageUrl] : []));
+    setPhotoError('');
+    setPhotoOpen(true);
+  };
+
+  const addPhotoFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    if (photos.length + files.length > 10) {
+      setPhotoError(`A listing holds 10 photos. You have ${photos.length}.`);
+      return;
+    }
+    setPhotoError('');
+    try {
+      const urls = await uploadPropertyImages(files.map((file) => ({ file })), setPhotoBusy);
+      setPhotos((prev) => [...prev, ...urls]);
+    } catch (err) {
+      setPhotoError(err?.message || 'That upload did not go through. Try again.');
+    } finally {
+      setPhotoBusy('');
+    }
+  };
+
+  const savePhotos = async () => {
+    setPhotoBusy('Saving...');
+    setPhotoError('');
+    const res = await updatePropertyImages(_id, photos);
+    setPhotoBusy('');
+    if (res?.success) {
+      setPhotoOpen(false);
+      if (onUpdated) onUpdated();
+    } else {
+      setPhotoError(res?.error || res?.message || 'Could not save the photos.');
+    }
+  };
   const [askAction, setAskAction] = useState(null); // 'edit' | 'delete' while the ask panel is open
   const [askReason, setAskReason] = useState('');
   const [asking, setAsking] = useState(false);
@@ -153,9 +216,8 @@ export default function PropertyDetailModal({ property, onClose, onDelete, onUpd
       : (categoryDetails.acAvailable ? 'Yes (AC Rooms)' : 'Non-AC Only');
 
   const badgeClass =
-    category === 'PG' ? 'badge-pg' :
-    category === 'Hostel' ? 'badge-hostel' :
-    category === 'Dormitory' ? 'badge-dormitory' : 'badge-bachelor';
+    category === 'PG_HOSTEL' ? 'badge-pg' :
+    category === 'HOTEL' ? 'badge-dormitory' : 'badge-bachelor';
 
   // Auto-scroll through photos every 4 seconds (pauses on hover)
   useEffect(() => {
@@ -421,9 +483,9 @@ export default function PropertyDetailModal({ property, onClose, onDelete, onUpd
           <div style={{ position: 'absolute', bottom: allImages.length > 1 ? '32px' : '16px', left: '20px', right: '20px', zIndex: 5 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
               <span className={`badge ${badgeClass}`} style={{ background: '#ffffff', color: '#181e1b', border: 'none', fontWeight: 700 }}>
-                {category}
+                {labelForCategory(category)}
               </span>
-              {category !== 'Bachelor Room' && stayType && (
+              {category !== 'BACHELOR' && category !== 'COLIVE' && stayType && (
                 <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', background: '#181e1b', color: '#ffffff' }}>
                   {stayType}
                 </span>
@@ -510,12 +572,12 @@ export default function PropertyDetailModal({ property, onClose, onDelete, onUpd
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#45855a', fontSize: '0.78rem', fontWeight: 600 }}>
                   <Calendar size={14} color="#45855a" />
-                  <span>{category === 'Bachelor Room' ? 'Monthly Rent' : 'Long Stay (1+ Month)'}</span>
+                  <span>{(category === 'BACHELOR' || category === 'COLIVE') ? 'Monthly Rent' : 'Long Stay (1+ Month)'}</span>
                 </div>
                 <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#45855a', marginTop: '2px' }}>
                   ₹{monthlyPrice} <span style={{ fontSize: '0.8rem', color: '#64748b' }}>/ month</span>
                 </div>
-                {category !== 'Bachelor Room' && longStayDuration && (
+                {category !== 'BACHELOR' && category !== 'COLIVE' && longStayDuration && (
                   <span style={{ fontSize: '0.72rem', color: '#64748b' }}>Option: {longStayDuration}</span>
                 )}
               </div>
@@ -592,7 +654,7 @@ export default function PropertyDetailModal({ property, onClose, onDelete, onUpd
           <div style={{ marginBottom: '20px' }}>
             <h4 style={{ fontSize: '1.05rem', color: '#181e1b', fontWeight: 700, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <ShieldCheck size={18} color="#45855a" />
-              <span>{category} Category Parameters</span>
+              <span>{labelForCategory(category)} Category Parameters</span>
             </h4>
 
             <div style={{
@@ -601,7 +663,7 @@ export default function PropertyDetailModal({ property, onClose, onDelete, onUpd
               gap: '10px'
             }}>
               {/* PG Specs */}
-              {category === 'PG' && (
+              {category === 'PG_HOSTEL' && (
                 <>
                   <SpecItem label="Food Status" value={categoryDetails.foodIncluded ? `Provided (${categoryDetails.foodType || 'Veg/Non-Veg'})` : 'No Food'} />
 
@@ -653,7 +715,7 @@ export default function PropertyDetailModal({ property, onClose, onDelete, onUpd
               )}
 
               {/* Hostel Specs */}
-              {category === 'Hostel' && (
+              {category === 'PG_HOSTEL' && (
                 <>
                   <SpecItem label="Hostel Category" value={categoryDetails.hostelType || 'Boys Hostel'} />
                   <SpecItem label="Mess / Canteen" value={categoryDetails.canteenFacility ? 'In-house Mess Available' : 'No Mess'} />
@@ -663,8 +725,8 @@ export default function PropertyDetailModal({ property, onClose, onDelete, onUpd
                 </>
               )}
 
-              {/* Dormitory Specs */}
-              {category === 'Dormitory' && (
+              {/* Hotel / dormitory specs */}
+              {category === 'HOTEL' && (
                 <>
                   <SpecItem label="Total Beds" value={`${categoryDetails.totalBeds || 12} Beds`} />
                   <SpecItem label="Pricing Rate" value={categoryDetails.rateType || 'Daily Rate'} />
@@ -674,10 +736,21 @@ export default function PropertyDetailModal({ property, onClose, onDelete, onUpd
                 </>
               )}
 
-              {/* Bachelor Room Specs */}
-              {category === 'Bachelor Room' && (
+              {/* Bachelor / co-live specs — one block, same facts. */}
+              {(category === 'BACHELOR' || category === 'COLIVE') && (
                 <>
-                  <SpecItem label="Room Layout" value={categoryDetails.roomType || '1 BHK'} />
+                  <SpecItem
+                    label="Room Layouts"
+                    value={Array.isArray(categoryDetails.roomTypes) && categoryDetails.roomTypes.length
+                      ? categoryDetails.roomTypes.join(' · ')
+                      : (categoryDetails.roomType || '—')}
+                  />
+                  {Array.isArray(categoryDetails.furnishingItems) && categoryDetails.furnishingItems.length ? (
+                    <SpecItem
+                      label="Key Amenities Included"
+                      value={categoryDetails.furnishingItems.join(' · ')}
+                    />
+                  ) : null}
                   <SpecItem label="Furnishing" value={categoryDetails.furnishing || 'Semi-Furnished'} />
                   <SpecItem label="Allowed Tenants" value={categoryDetails.allowedTenants || 'Bachelors'} />
                   <SpecItem label="Kitchen Facility" value={categoryDetails.kitchenAvailable ? 'Kitchen & Gas Allowed' : 'No Kitchen'} />
@@ -715,6 +788,130 @@ export default function PropertyDetailModal({ property, onClose, onDelete, onUpd
                   </span>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/*
+            * Photos — the one action that is not locked.
+            *
+            * Shown to the employee who onboarded this listing, and to anybody
+            * holding an edit grant. Deliberately ABOVE the restricted block so
+            * the thing an agent can actually do is not buried under the things
+            * they cannot.
+            */}
+          {canManagePhotos && (
+            <div style={{ paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                <ImagePlus size={14} color="#45855a" />
+                <span style={{ fontSize: '0.78rem', color: '#45855a', fontWeight: 700 }}>
+                  Photos — {ownsListing ? 'yours to change, no permission needed' : 'covered by your edit permission'}
+                </span>
+              </div>
+
+              {!photoOpen ? (
+                <button
+                  type="button"
+                  onClick={openPhotos}
+                  className="btn-secondary"
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}
+                >
+                  <ImagePlus size={15} />
+                  <span>Manage photos ({allImages.length})</span>
+                </button>
+              ) : (
+                <div style={{ background: '#f8faf8', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '14px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+                    {photos.map((url, i) => (
+                      <div key={`${url}-${i}`} style={{ position: 'relative' }}>
+                        <img
+                          src={url}
+                          alt=""
+                          style={{
+                            width: '96px', height: '72px', objectFit: 'cover',
+                            borderRadius: '8px', border: i === 0 ? '2px solid #45855a' : '1px solid #e2e8f0',
+                            display: 'block',
+                          }}
+                        />
+                        {i === 0 && (
+                          <span style={{
+                            position: 'absolute', bottom: '4px', left: '4px',
+                            fontSize: '0.62rem', fontWeight: 700, color: '#ffffff',
+                            background: 'rgba(69, 133, 90, 0.9)', padding: '1px 6px', borderRadius: '6px',
+                          }}>
+                            COVER
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          title="Remove this photo"
+                          aria-label={`Remove photo ${i + 1}`}
+                          onClick={() => setPhotos((prev) => prev.filter((_, n) => n !== i))}
+                          style={{
+                            position: 'absolute', top: '-6px', right: '-6px',
+                            width: '22px', height: '22px', borderRadius: '50%', border: '1px solid #e2e8f0',
+                            background: '#ffffff', color: '#b91c1c', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+                            boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
+                          }}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+
+                    {photos.length < 10 && (
+                      <label style={{
+                        width: '96px', height: '72px', borderRadius: '8px',
+                        border: '1px dashed #94a3b8', color: '#64748b', cursor: 'pointer',
+                        display: 'flex', flexDirection: 'column', alignItems: 'center',
+                        justifyContent: 'center', gap: '4px', fontSize: '0.68rem', fontWeight: 600,
+                      }}>
+                        <CloudUpload size={16} />
+                        <span>Add</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          style={{ display: 'none' }}
+                          onChange={(e) => { addPhotoFiles(e.target.files); e.target.value = ''; }}
+                        />
+                      </label>
+                    )}
+                  </div>
+
+                  <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0 0 12px' }}>
+                    The first photo is the cover. {photos.length} of 10 used.
+                  </p>
+
+                  {photoError && (
+                    <p style={{ fontSize: '0.78rem', color: '#b91c1c', margin: '0 0 10px', fontWeight: 600 }}>
+                      {photoError}
+                    </p>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={savePhotos}
+                      disabled={Boolean(photoBusy)}
+                      className="btn-primary"
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', opacity: photoBusy ? 0.6 : 1 }}
+                    >
+                      {photoBusy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                      <span>{photoBusy || 'Save photos'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPhotoOpen(false)}
+                      disabled={Boolean(photoBusy)}
+                      className="btn-secondary"
+                      style={{ fontSize: '0.85rem' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

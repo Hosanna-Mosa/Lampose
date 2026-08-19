@@ -47,7 +47,7 @@ const makeProperty = async (beds = 6) => {
     place: 'Madhurawada, Visakhapatnam',
     ownerName: 'Ramesh',
     ownerMobile: OWNER_PHONE,
-    category: 'PG',
+    category: 'PG_HOSTEL',
     rent: 5999,
     categoryDetails: {
       sharingTypes: ['2 Sharing'],

@@ -19,6 +19,21 @@ const TICK = { duration: 160, easing: easing.enter };
  * price they did not agree to.
  */
 export function defaultSharingSelection(options: readonly SharingOption[]): string | null {
+  /*
+   * One option is not a choice, so it is simply the answer.
+   *
+   * The control below already renders a single option as a read-only fact
+   * rather than a selector — there is nothing to tap. Leaving it unselected
+   * meant the CTA stayed disabled forever on every listing that offers one
+   * room type, with no visible reason: the student had ticked consent, the
+   * bed was on screen, and the button was grey.
+   *
+   * This is not the pre-selection the rule below guards against. That one is
+   * about picking a price on somebody's behalf when alternatives exist; here
+   * there is no alternative to pick instead.
+   */
+  if (options.length === 1) return options[0].id;
+
   /* An unknown bed count does not disqualify the median choice — only a
      known zero does. Reading `undefined > 0` as false would have meant no
      listing from the live API ever pre-selects anything, because none of

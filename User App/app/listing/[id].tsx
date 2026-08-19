@@ -19,6 +19,8 @@ import {
   MealPlanCard,
   PhotoGallery,
   ListingCard,
+  HotelStaySelector,
+  type HotelIntent,
   SharingTypeSelector,
   StayIntentSelector,
   stayTotals,
@@ -112,6 +114,20 @@ export default function ListingDetail() {
     joinDate: null,
     flexibleJoin: false,
   }));
+  /*
+   * A hotel asks for a bed, a rate structure and either two dates or a count
+   * — not a track and a duration. Its own state, because none of those fields
+   * mean anything on the other categories and folding them into `StayIntent`
+   * would put four permanently-null fields on every PG.
+   */
+  const [hotelIntent, setHotelIntent] = useState<HotelIntent>({
+    sharingId: null,
+    rateStructure: null,
+    checkIn: null,
+    checkOut: null,
+    rateQuantity: null,
+  });
+
   /** The bar's second gate. Never remembered across listings. */
   const [consented, setConsented] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
@@ -199,8 +215,29 @@ export default function ListingDetail() {
   const selected = listing.sharingOptions?.find((option) => option.id === sharing);
 
   /** Present means the listing prices by stay length rather than by bed. */
-  const byStay = listing.stayRates?.length ? listing.stayRates : null;
+  const isHotel = listing.category === 'HOTEL';
+  /* A hotel has stay rates too, but it is not asked about them — it takes the
+     dates path instead. */
+  const byStay = !isHotel && listing.stayRates?.length ? listing.stayRates : null;
   const totals = byStay ? stayTotals(byStay, intent, listing.sharingOptions) : null;
+
+  /*
+   * A hotel request is finished when the bed, the check-in and the amount are
+   * all answered — and which field carries the amount depends on the
+   * structure. Nights come off a check-out; hours and months are typed.
+   */
+  const hotelComplete = (() => {
+    if (!isHotel) return false;
+    if (!hotelIntent.sharingId || !hotelIntent.checkIn) return false;
+    const bed = listing.sharingOptions?.find((o) => o.id === hotelIntent.sharingId);
+    const structure = hotelIntent.rateStructure
+      ?? (bed?.rates?.nightly ? 'nightly' : bed?.rates?.monthly ? 'monthly' : 'flexible');
+    if (structure === 'nightly') {
+      const { checkIn, checkOut } = hotelIntent;
+      return Boolean(checkOut) && checkOut! > checkIn!;
+    }
+    return Boolean(hotelIntent.rateQuantity && hotelIntent.rateQuantity > 0);
+  })();
 
   /*
    * The headline number follows whatever the student is actually choosing.
@@ -299,7 +336,7 @@ export default function ListingDetail() {
          * Whichever selector this listing showed.
          *
          * Stay-priced listings carry the bed choice inside the intent;
-         * bed-priced ones (Bachelor Room) keep it in `sharing`, from the
+         * bed-priced ones (BACHELOR, COLIVE) keep it in `sharing`, from the
          * sharing selector. Only the first was being sent, so a request for a
          * bachelor unit arrived at the server with no sharing at all and was
          * refused with BAD_SHARING — for a choice the page had plainly
@@ -308,6 +345,20 @@ export default function ListingDetail() {
         ...(intent.sharingId ?? sharing ? { sharingId: (intent.sharingId ?? sharing) as string } : null),
         ...(intent.joinDate ? { joinDate: intent.joinDate } : null),
         flexibleJoin: intent.flexibleJoin ? '1' : '0',
+        /*
+         * Hotels travel on their own four params.
+         *
+         * They are separate from `stayType`/`units` rather than squeezed into
+         * them because they mean different things: `units` is a length, and a
+         * hotel's count is nights, months or hours depending on which
+         * structure was picked. The server resolves all four into the same
+         * intent a short stay produces.
+         */
+        ...(isHotel && hotelIntent.sharingId ? { sharingId: hotelIntent.sharingId } : null),
+        ...(isHotel && hotelIntent.checkIn ? { checkIn: hotelIntent.checkIn } : null),
+        ...(isHotel && hotelIntent.checkOut ? { checkOut: hotelIntent.checkOut } : null),
+        ...(isHotel && hotelIntent.rateStructure ? { rateStructure: hotelIntent.rateStructure } : null),
+        ...(isHotel && hotelIntent.rateQuantity ? { rateQuantity: String(hotelIntent.rateQuantity) } : null),
         /*
          * The consent tick travels with the request.
          *
@@ -320,7 +371,10 @@ export default function ListingDetail() {
          *
          * Sharing-only listings have no consent gate here and none there.
          */
-        consented: byStay && consented ? '1' : '0',
+        /* Sent for every category now. The server requires it on all of
+           them, so a bachelor request that omitted it was refused with a 400
+           the student could do nothing about. */
+        consented: consented ? '1' : '0',
       },
     } as never);
 
@@ -466,7 +520,13 @@ export default function ListingDetail() {
               rather than browsed — and where the owner needs it. Bachelor and
               dormitory keep the sharing selector, because a whole unit and a
               dormitory bed are chosen, not scheduled. */}
-          {byStay ? (
+          {isHotel && listing.sharingOptions?.length ? (
+            <HotelStaySelector
+              options={listing.sharingOptions}
+              value={hotelIntent}
+              onChange={setHotelIntent}
+            />
+          ) : byStay ? (
             <StayIntentSelector
               rates={byStay}
               sharingOptions={listing.sharingOptions}
@@ -525,8 +585,14 @@ export default function ListingDetail() {
             screen when the thumb reaches the button below it.
 
             The button stays gated on it — see `disabled` on the bar.
+
+            Shown for EVERY category. It used to be gated on `byStay`, which
+            meant a bachelor, co-live or hotel request went to an owner with no
+            record that the person agreed to anything — the same name and
+            number, the same stranger, and nothing behind it. The gate was
+            about the pricing path and had spread to the consent by proximity.
           */}
-          {byStay ? (
+          {true ? (
             <View
               style={{
                 backgroundColor: colors.surface,
@@ -573,17 +639,25 @@ export default function ListingDetail() {
             /* A room with no free bed is refused by the server, so the button
                is off here rather than live-and-doomed. */
             bedUnavailable
-            || (byStay
+            || (isHotel
+              /* A hotel needs the bed, a check-in, and then either a check-out
+                 or a count — whichever its chosen structure is bought in. */
+              ? !hotelComplete || !consented
+              : byStay
               ? !stayIntentComplete(intent, Boolean(listing.sharingOptions?.length)) || !consented
               : /* A listing that offers a choice of bed must have one picked.
                    The server validates the sharing label against the
                    property's own list and refuses a request without it, so
                    leaving the button live here only moved the refusal to a
-                   screen where the student can no longer fix it. */
-                Boolean(listing.sharingOptions?.length) && !sharing)
+                   screen where the student can no longer fix it.
+
+                   And the tick, which this branch used to skip — the server
+                   requires consent on every category now, so a live button
+                   here only moved a 400 to the next screen. */
+                (Boolean(listing.sharingOptions?.length) && !sharing) || !consented)
           }
           note={availabilityNote
-            ?? (byStay ? '5 free requests per week' : 'Free to request · you pay only after the owner accepts')}
+            ?? (byStay || isHotel ? '5 free requests per week' : 'Free to request · you pay only after the owner accepts')}
           onMeasure={setCtaHeight}
         />
       ) : null}

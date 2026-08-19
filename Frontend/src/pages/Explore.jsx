@@ -3,7 +3,7 @@ import Icon from '../components/Icon';
 import { SecHead } from '../components/Chrome';
 import ListingCard, { rupees } from '../components/ListingCard';
 import ConnectionError from '../components/ConnectionError';
-import { byCategoryOrder, iconForCategory } from '../data/categories';
+import { byCategoryOrder, iconForCategory, labelForCategory } from '../data/categories';
 import listingsApi from '../api/listingsApi';
 import { useReveals } from '../hooks/useSite';
 
@@ -255,7 +255,8 @@ export default function Explore() {
                   <OptionRow
                     key={cat}
                     icon={iconForCategory(cat)}
-                    label={cat}
+                    /* The API returns a code; this is where it becomes words. */
+                    label={labelForCategory(cat)}
                     count={countWith({ category: cat })}
                     active={filters.category === cat}
                     onClick={() => set('category', cat)}

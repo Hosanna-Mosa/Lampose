@@ -1,4 +1,5 @@
 import Icon from './Icon';
+import VisitTokenPanel from './VisitTokenPanel';
 
 /* ══════════════════════════════════════════════════════════════════════════
    What the visitor sees once the owner has been asked.
@@ -48,7 +49,7 @@ const when = value => {
   });
 };
 
-export default function VisitStatus({ request, onAskAgain }) {
+export default function VisitStatus({ request, onAskAgain, onRefresh }) {
   const state = STATES[request.status];
   if (!state) return null;
 
@@ -85,6 +86,11 @@ export default function VisitStatus({ request, onAskAgain }) {
             Ask again <span aria-hidden="true">→</span>
           </button>
         )}
+
+        {/* Bachelor and co-live: the owner has confirmed, and what happens
+            next is a token, then a date, then the address. Renders nothing on
+            every other category and on every other status. */}
+        <VisitTokenPanel request={request} onUpdated={onRefresh} />
       </div>
     </div>
   );

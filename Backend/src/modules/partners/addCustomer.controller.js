@@ -424,7 +424,7 @@ const createBooking = async (req, res, next) => {
       }
     }
 
-    /* Sent as the property's own category (Hostel / PG / Bachelor Room / …)
+    /* Sent as the property's own category (PG_HOSTEL / BACHELOR / …)
        rather than a room-style pick — see requests/add-customer.tsx. Still a
        free-text field here, same as before; nothing server-side depends on
        it being one of the enum values `Property.category` uses. */

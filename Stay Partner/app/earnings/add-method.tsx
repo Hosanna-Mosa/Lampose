@@ -11,6 +11,7 @@ import { addMethod, bankNameForIFSC } from '@/lib/payouts';
  * static prop dressed up as a derivation.
  */
 import { addPaymentMethodApi } from '@/services/api/domain.api';
+import { logWarn } from '@/lib/log';
 
 export default function AddMethodScreen() {
   const router = useRouter();
@@ -44,7 +45,7 @@ export default function AddMethodScreen() {
       });
       addMethod({ holderName: holderName.trim(), accountNumber, ifsc });
     } catch (err) {
-      console.warn('Failed to save payment method:', err);
+      logWarn('Failed to save payment method:', err);
     } finally {
       setSaving(false);
       router.replace('/earnings/methods');
