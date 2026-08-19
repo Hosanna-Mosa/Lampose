@@ -46,6 +46,16 @@ export const easing = {
 export const signature = {
   screenPush: { duration: 280, easing: easing.enter, reducedDuration: 160 },
   sheetEntry: { duration: 300, easing: easing.enter, scrimOpacity: 0.4 },
+  /**
+   * The sign-in/sign-up card turning to its other face.
+   *
+   * Same shape as `screenPush` — this is a navigation between two states, not
+   * a confirmation, so it takes the enter curve rather than the settle
+   * overshoot. Under reduced motion the rotation itself is dropped (a 3D turn
+   * is movement, not legibility) and `reducedDuration` instead paces a plain
+   * opacity crossfade between the two faces.
+   */
+  authFlip: { duration: 300, easing: easing.enter, reducedDuration: 160 },
   /** Stagger is capped at the on-screen row count, never the data length. */
   skeletonReveal: { duration: 200, easing: easing.enter, stagger: 40 },
   cardPress: { duration: 120, release: 160, scale: 0.975, reducedOpacity: 0.9 },
