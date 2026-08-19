@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import Animated, { interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
-import { Heart, MessageCircle, Repeat2 } from 'lucide-react-native';
 
 import { signature } from '@/constants/motion';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
@@ -21,12 +20,18 @@ export type AuthFlipCardProps = {
  * The sign-in / sign-up card as one physical object with two faces, rather
  * than a form whose fields swap out under a segmented control.
  *
- * ## The radius is deliberately off the shared scale
+ * ## The coin shape is `radius.pill`, not a bigger number
  *
- * `radius` stops at `sheet` (24) and `pill` (999) — nothing in between,
- * because nothing before this needed it. This card asks for the mockup's
- * soft "blob" quality, which 24 does not read as on a ~340pt card. `CARD_RADIUS`
- * is a one-off for this shell, not a value another screen should reach for.
+ * A corner radius past half of a box's shorter side clamps to that half —
+ * the same clamp that already turns `SearchField` and `Chip` into full
+ * capsules. Handed the same `radius.pill` (999) here, a face wider than it
+ * is tall becomes a true stadium with semicircular left/right caps; one
+ * taller than it is wide (the sign-up face, four fields deep) becomes a
+ * capsule with round top/bottom caps instead. Neither is a literal circle —
+ * this content is not square — but it is the actual "rounded to a disc"
+ * mechanism, not a rounded-rectangle radius picked to look closer to one. A
+ * true circle sized for the sign-up face's content would run past 600pt
+ * across, wider than the phone it is meant to fit on.
  *
  * ## Why both faces carry the full card, not just their content
  *
@@ -80,7 +85,7 @@ export function AuthFlipCard({ flipped, front, back, frontLabel, backLabel }: Au
   }, [reduceMotion]);
 
   const faceBase = {
-    borderRadius: CARD_RADIUS,
+    borderRadius: radius.pill,
     backgroundColor: colors.surface,
     padding: space[6],
   };
@@ -100,24 +105,6 @@ export function AuthFlipCard({ flipped, front, back, frontLabel, backLabel }: Au
           </Defs>
           <Circle cx={GLOW_SIZE / 2} cy={GLOW_SIZE / 2} r={GLOW_SIZE / 2} fill="url(#authGlow)" />
         </Svg>
-      </View>
-
-      {/* Floating side icons from the reference mockup. Decoration only — they
-          name nothing, so `Icon`'s vocabulary is not the right home for them
-          and assistive tech is told to skip the whole row. */}
-      <View style={styles.sideIcons} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-        {[Heart, MessageCircle, Repeat2].map((Glyph, index) => (
-          <View
-            key={index}
-            style={[
-              styles.sideIconBubble,
-              elevation.raised,
-              { borderRadius: radius.pill, backgroundColor: colors.surface, marginTop: index === 0 ? 0 : space[5] },
-            ]}
-          >
-            <Glyph size={18} color={colors.textTertiary} strokeWidth={1.75} />
-          </View>
-        ))}
       </View>
 
       <View style={[styles.stack, { height: stackHeight }]}>
@@ -147,8 +134,6 @@ export function AuthFlipCard({ flipped, front, back, frontLabel, backLabel }: Au
   );
 }
 
-/** Off the shared radius scale — see the note above the component. */
-const CARD_RADIUS = 40;
 const GLOW_SIZE = 420;
 
 const styles = StyleSheet.create({
@@ -158,19 +143,6 @@ const styles = StyleSheet.create({
     top: -60,
     alignSelf: 'center',
     opacity: 0.6,
-  },
-  sideIcons: {
-    position: 'absolute',
-    right: -8,
-    top: '18%',
-    alignItems: 'center',
-    zIndex: 1,
-  },
-  sideIconBubble: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   stack: { width: '100%', maxWidth: 360 },
   face: {
