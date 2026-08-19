@@ -20,18 +20,9 @@ export type AuthFlipCardProps = {
  * The sign-in / sign-up card as one physical object with two faces, rather
  * than a form whose fields swap out under a segmented control.
  *
- * ## The coin shape is `radius.pill`, not a bigger number
- *
- * A corner radius past half of a box's shorter side clamps to that half —
- * the same clamp that already turns `SearchField` and `Chip` into full
- * capsules. Handed the same `radius.pill` (999) here, a face wider than it
- * is tall becomes a true stadium with semicircular left/right caps; one
- * taller than it is wide (the sign-up face, four fields deep) becomes a
- * capsule with round top/bottom caps instead. Neither is a literal circle —
- * this content is not square — but it is the actual "rounded to a disc"
- * mechanism, not a rounded-rectangle radius picked to look closer to one. A
- * true circle sized for the sign-up face's content would run past 600pt
- * across, wider than the phone it is meant to fit on.
+ * Radius is `radius.sheet` — the same corner the app already uses for a
+ * surface presented above the page (bottom sheets, modals). A tried-and-tested
+ * card shape rather than a bespoke one, since this is a card, not a disc.
  *
  * ## Why both faces carry the full card, not just their content
  *
@@ -85,7 +76,7 @@ export function AuthFlipCard({ flipped, front, back, frontLabel, backLabel }: Au
   }, [reduceMotion]);
 
   const faceBase = {
-    borderRadius: radius.pill,
+    borderRadius: radius.sheet,
     backgroundColor: colors.surface,
     padding: space[6],
   };
