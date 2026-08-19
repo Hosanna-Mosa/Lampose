@@ -6,6 +6,7 @@ import {
   CLIENT_NAME,
   CLIENT_VERSION,
 } from './config';
+import { debugLogs } from '@/services/runtimeEnv';
 
 /**
  * The one place in this app that calls `fetch`.
@@ -263,7 +264,7 @@ export async function apiRequest<T = unknown>(
     const onCallerAbort = () => controller.abort();
     signal?.addEventListener('abort', onCallerAbort);
 
-    if (__DEV__) {
+    if (debugLogs()) {
       console.log(`📡 → #${requestId} ${method} ${url}${body !== undefined ? ` ${preview(body)}` : ''}`);
     }
 
@@ -282,7 +283,7 @@ export async function apiRequest<T = unknown>(
         const shape = (payload ?? {}) as { message?: string; error?: string; code?: string };
         const message = shape.message || shape.error || `Request failed (${response.status})`;
 
-        if (__DEV__) {
+        if (debugLogs()) {
           console.log(`📡 ← #${requestId} ${response.status} ${method} ${url} (${ms}ms) ${message}`);
         }
 
@@ -302,7 +303,7 @@ export async function apiRequest<T = unknown>(
         });
       }
 
-      if (__DEV__) {
+      if (debugLogs()) {
         console.log(`📡 ← #${requestId} ${response.status} ${method} ${url} (${ms}ms)`);
       }
 
@@ -327,7 +328,7 @@ export async function apiRequest<T = unknown>(
 
       if (attempt < retries) {
         attempt += 1;
-        if (__DEV__) {
+        if (debugLogs()) {
           console.log(`📡 ↻ #${requestId} ${method} ${url} — ${message} (retry ${attempt}/${retries})`);
         }
         /* Backs off linearly. A phone coming out of a tunnel recovers in a
@@ -337,7 +338,7 @@ export async function apiRequest<T = unknown>(
         continue;
       }
 
-      if (__DEV__) {
+      if (debugLogs()) {
         console.log(`📡 ✕ #${requestId} ${method} ${url} — ${message}`);
       }
 

@@ -99,7 +99,7 @@ export type DocumentEntry = { name: string; collected: boolean };
 export type CreateBookingInput = {
   guestName: string;
   guestPhone: string;
-  /** The property's own category (Hostel / PG / Bachelor Room / …) for most
+  /** The property's own category (PG_HOSTEL / BACHELOR / …) for most
       properties — for a PG with sharing types configured at onboarding, the
       specific sharing type the owner picked (e.g. "2 Sharing") instead, since
       that is the more useful fact once one exists. See

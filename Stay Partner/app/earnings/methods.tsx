@@ -8,6 +8,7 @@ import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 
 import { fetchPaymentMethodsApi } from '@/services/api/domain.api';
+import { logWarn } from '@/lib/log';
 
 export default function PayoutMethodsScreen() {
   const router = useRouter();
@@ -16,17 +17,34 @@ export default function PayoutMethodsScreen() {
   const loadMethods = async () => {
     try {
       const items = await fetchPaymentMethodsApi();
-      const mapped: PayoutMethod[] = (items || []).map((m: any) => ({
-        id: m.id || m._id,
-        bankName: m.type === 'upi' ? 'UPI' : 'Bank Account',
-        accountHolder: m.accountName || 'Account Holder',
-        accountNumber: m.accountNumber || m.upiId || 'XXXX4321',
-        ifscCode: m.ifsc || 'HDFC0001234',
-        isDefault: Boolean(m.isPrimary),
-      }));
+      /*
+       * The three field names here had drifted from `PayoutMethod` —
+       * accountHolder/accountNumber/ifscCode against holderName/last4/ifsc —
+       * so the screen rendered `method.last4` as undefined and read
+       * "ending undefined" to a screen reader.
+       *
+       * The fallbacks went too. They invented a bank account number
+       * ('XXXX4321') and an IFSC ('HDFC0001234') for any row missing them,
+       * which is the worst possible default on a payouts screen: an owner
+       * checking where their money goes would have been shown a plausible
+       * account that is not theirs. Missing stays visibly missing.
+       */
+      const mapped: PayoutMethod[] = (items || []).map((m: any) => {
+        const account = String(m.accountNumber || m.upiId || '');
+        return {
+          id: String(m.id || m._id || ''),
+          bankName: m.type === 'upi' ? 'UPI' : (m.bankName || 'Bank account'),
+          holderName: m.accountName || '',
+          /* Only ever the tail. The full number is typed and never kept — see
+             the note on the type. */
+          last4: account.slice(-4),
+          ifsc: m.ifsc || '',
+          isDefault: Boolean(m.isPrimary),
+        };
+      });
       setMethods(mapped);
     } catch (err) {
-      console.warn('Failed to load payment methods:', err);
+      logWarn('Failed to load payment methods:', err);
     }
   };
 

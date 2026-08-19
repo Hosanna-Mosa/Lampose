@@ -44,7 +44,15 @@ import { useColors } from '@/hooks/useColors';
  * here validates itself rather than trusting the form to have gotten it right.
  */
 
-const CATEGORIES = ['PG', 'Hostel', 'Dormitory', 'Bachelor Room'] as const;
+/* Codes, matching the schema enum — Backend/src/shared/constants/categories.js.
+   CATEGORY_LABEL is what the picker shows. */
+const CATEGORIES = ['PG_HOSTEL', 'BACHELOR', 'HOTEL', 'COLIVE'] as const;
+const CATEGORY_LABEL: Record<(typeof CATEGORIES)[number], string> = {
+  PG_HOSTEL: 'PG / Hostel',
+  BACHELOR: 'Bachelor',
+  HOTEL: 'Hotels',
+  COLIVE: 'House / Co-live',
+};
 const STAY_TYPES = ['Short Stay', 'Long Stay'] as const;
 const SHORT_STAY_DURATIONS = [
   '1 Day', '2 Days', '3 Days', '4 Days', '5 Days', '6 Days', '7 Days', '1-7 Days',
@@ -86,7 +94,7 @@ function toFormState(property: BackendListing): FormState {
     ownerMobile: property.ownerMobile ?? '',
     category: (CATEGORIES as readonly string[]).includes(property.category ?? '')
       ? (property.category as (typeof CATEGORIES)[number])
-      : 'PG',
+      : 'PG_HOSTEL',
     stayType: property.stayType === 'Short Stay' ? 'Short Stay' : 'Long Stay',
     shortStayDuration: property.shortStayDuration ?? '1-7 Days',
     longStayDuration: property.longStayDuration ?? '1 Month+',
@@ -223,6 +231,7 @@ export default function PropertyEditScreen() {
             <Select
               label="Category"
               options={CATEGORIES}
+              format={(c) => CATEGORY_LABEL[c]}
               value={form.category}
               onChange={(category) => setForm((f) => f && { ...f, category })}
             />

@@ -115,6 +115,9 @@ function PhotoCarousel({
   showGender,
   genderMatches,
   swipeable,
+  onPress,
+  onPressIn,
+  onPressOut,
 }: {
   listing: Listing;
   width: number;
@@ -123,6 +126,11 @@ function PhotoCarousel({
   showGender: boolean;
   genderMatches: boolean;
   swipeable: boolean;
+  /* Given to each PAGE rather than wrapped around the carousel — see the note
+     on `page` below. Without this the photos do not swipe. */
+  onPress?: () => void;
+  onPressIn?: () => void;
+  onPressOut?: () => void;
 }) {
   const { colors, space, radius } = useTheme();
   const [index, setIndex] = useState(0);
@@ -156,13 +164,44 @@ function PhotoCarousel({
   const page = (pageIndex: number) => {
     const [from, to] = PLACEHOLDERS[pageIndex % PLACEHOLDERS.length];
     const uri = photos[pageIndex];
-    return (
-      <View key={pageIndex} style={{ width, height, backgroundColor: from }}>
+
+    const photo = (
+      <>
         {uri ? (
           <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
         ) : (
           <View style={[StyleSheet.absoluteFill, { backgroundColor: to, opacity: 0.55 }]} />
         )}
+      </>
+    );
+
+    /*
+     * The tap target lives INSIDE the carousel, not around it.
+     *
+     * The whole card used to be one `Pressable`, which meant the photos never
+     * swiped: on Android the Pressable claims the touch on the first move and
+     * the horizontal ScrollView beneath it never gets the chance to take it
+     * back. The dots were there, the pages were there, and the gesture went
+     * nowhere.
+     *
+     * A Pressable inside a ScrollView is the arrangement that works — the
+     * scroll wins a drag, the press wins a tap — so opening the listing by
+     * tapping the photo still does exactly what it did.
+     */
+    return (
+      <View key={pageIndex} style={{ width, height, backgroundColor: from }}>
+        {onPress ? (
+          <Pressable
+            onPress={onPress}
+            onPressIn={onPressIn}
+            onPressOut={onPressOut}
+            style={StyleSheet.absoluteFill}
+            accessibilityRole="button"
+            accessibilityLabel={`Photo ${pageIndex + 1} of ${pages}. Opens the listing.`}
+          >
+            {photo}
+          </Pressable>
+        ) : photo}
       </View>
     );
   };
@@ -351,24 +390,40 @@ export function ListingCard({
         showGender
         genderMatches={genderMatches}
         swipeable
+        onPress={onPress}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
       />
-      <Body listing={listing} onToggleSave={onToggleSave} />
+      <Pressable
+        onPress={onPress}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        disabled={!onPress}
+        accessibilityRole={onPress ? 'button' : undefined}
+        accessibilityLabel={onPress ? `${listing.name}, ${listing.locality}` : undefined}
+      >
+        <Body listing={listing} onToggleSave={onToggleSave} />
+      </Pressable>
     </View>
   );
 
-  if (!onPress) return <View style={[surface, { width }, style]}>{content}</View>;
-
+  /*
+   * No Pressable around the card any more.
+   *
+   * It wrapped everything including the photo carousel, and on Android that
+   * meant the carousel never scrolled: the Pressable took the touch on the
+   * first move and the ScrollView inside it never got it back. The dots
+   * animated, the pages existed, and dragging did nothing.
+   *
+   * The two halves now carry their own press targets — one inside each
+   * carousel page, one around the body — which is the arrangement where a
+   * drag scrolls and a tap opens. Tapping anywhere on the card still opens
+   * the listing, exactly as before.
+   */
   return (
-    <Pressable
-      onPress={onPress}
-      onPressIn={onPressIn}
-      onPressOut={onPressOut}
-      accessibilityRole="button"
-      accessibilityLabel={`${listing.name}, ${listing.locality}`}
-      style={{ width }}
-    >
+    <View style={{ width }}>
       <Animated.View style={[surface, animatedStyle, style]}>{content}</Animated.View>
-    </Pressable>
+    </View>
   );
 }
 

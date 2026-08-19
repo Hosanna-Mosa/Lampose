@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,7 +13,7 @@ import { errorStates } from '@/constants/copy';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { addressVisible, confirmedBookingFor } from '@/data/bookings';
-import { useListing } from '@/services';
+import { useListing, useStayRequest } from '@/services';
 
 /**
  * Screen two of two: it is yours.
@@ -75,15 +75,35 @@ export default function Booked() {
   const { clear } = usePendingRequest();
 
   /*
-   * The listing comes from the database; the booking below does not.
+   * Reaching this screen is what "finish" meant.
    *
-   * There is no bookings endpoint — nothing server-side records that a
-   * student took a bed — so `confirmedBookingFor` still mints the booking on
-   * the device. Everything it is built from (the name, the owner, the rent,
-   * the sharing label) is now real, which is what stops this screen showing
-   * "not found" for the Mongo id the confirmation flow hands it.
+   * The pill says "confirmed — tap to finish" and keeps saying it until
+   * something clears it. Landing here IS the finish, so it goes — otherwise a
+   * student who has seen their booking is followed around the app by a
+   * prompt to go and see it.
    */
+  useEffect(() => { clear(); }, [clear]);
+
   const { listing, isPending, notFound } = useListing(id);
+
+  /*
+   * The accepted request — and specifically its ENTRY PIN.
+   *
+   * This screen used to mint everything on the device, including the code,
+   * because the comment here said "there is no bookings endpoint, nothing
+   * server-side records that a student took a bed". That stopped being true
+   * when accepting a request started writing a booking and issuing a PIN.
+   *
+   * The consequence was the bug this fixes: the owner's app showed the real
+   * `LV-548005` and this screen showed an invented `419273`. Two people
+   * standing at a door with different codes, each certain theirs was right.
+   *
+   * The presentational scaffolding below is still local — the address, the
+   * "valid on" wording, the move-in label — because those have no server
+   * equivalent yet. The CODE is not scaffolding.
+   */
+  const stay = useStayRequest(id);
+  const entryPin = stay.request?.entryPin ?? null;
 
   /*
    * The booking the confirmed request became.
@@ -173,7 +193,10 @@ export default function Booked() {
             charged, and nothing is owed before you move in.
           </Text>
           <Text variant="priceSm" color="tertiary">
-            {booking.reference}
+            {/* The server's PIN doubles as the booking reference — one string
+                both people and support can quote. The local `booking.reference`
+                was minted from the listing id and means nothing to anybody. */}
+            {entryPin ?? booking.reference}
           </Text>
         </Animated.View>
 
@@ -227,12 +250,23 @@ export default function Booked() {
           </View>
         ) : null}
 
-        {/* 3 — the code, and the thanks. */}
-        {booking.verificationCode ? (
+        {/*
+          3 — the code, and the thanks.
+
+          Shown only when the SERVER has issued one. A locally minted code
+          here would be a number a student reads out at a door to an owner
+          holding a different one — worse than no code at all, because both
+          people believe it.
+
+          The tiles carry the six digits; the full `LV-` form sits underneath
+          as the reference, and the owner's screen shows the same two things
+          in the same order. Nine tiles do not fit a phone.
+        */}
+        {entryPin ? (
           <View style={{ gap: space[4] }}>
             <VerificationCodeDisplay
-              code={booking.verificationCode}
-              bookingReference={booking.reference}
+              code={entryPin.replace(/\D/g, '')}
+              bookingReference={entryPin}
               ownerName={listing.ownerName}
               validLabel={booking.codeValidLabel ?? 'Valid on your move-in day'}
               variant="embedded"

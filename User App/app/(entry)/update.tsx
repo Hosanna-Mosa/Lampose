@@ -4,6 +4,7 @@ import React from 'react';
 
 import { BlockingScreen } from '@/components/auth';
 import { useTheme } from '@/context/ThemeContext';
+import { usePreviewControls } from '@/hooks/useAppEnv';
 
 /**
  * Screen 02a — Force update.
@@ -16,6 +17,7 @@ import { useTheme } from '@/context/ThemeContext';
  * No "later", no ✕, no back handler.
  */
 export default function ForceUpdateScreen() {
+  const previewControls = usePreviewControls();
   const { mode } = useTheme();
   const router = useRouter();
 
@@ -31,8 +33,8 @@ export default function ForceUpdateScreen() {
         // Dev only. In a real build this screen renders above the navigator
         // with no way past it — a blocking screen with an escape hatch is not
         // a blocking screen. The exit exists so the preview is navigable.
-        secondaryLabel={__DEV__ ? 'Leave (preview only)' : undefined}
-        onSecondary={__DEV__ ? () => router.replace('/preview') : undefined}
+        secondaryLabel={previewControls ? 'Leave (preview only)' : undefined}
+        onSecondary={previewControls ? () => router.replace('/preview') : undefined}
       />
     </>
   );

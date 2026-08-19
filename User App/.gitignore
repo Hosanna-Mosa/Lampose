@@ -39,3 +39,10 @@ yarn-error.*
 .vercel
 
 .env
+
+
+# Firebase, per environment. Download it from the console rather than
+# sharing one — a committed file is the wrong project on somebody else's
+# machine, and it is regenerated whenever an app is re-registered.
+google-services.json
+GoogleService-Info.plist

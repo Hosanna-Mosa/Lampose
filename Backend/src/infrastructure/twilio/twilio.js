@@ -457,6 +457,10 @@ async function sendVisitOutcomeMessage({
  */
 async function sendVisitConfirmationToCustomer({
   customerPhone, customerName, propertyName, address, sharingLabel, joiningDate, pin,
+  /* False when `address` is not an address — the pre-payment message puts
+     a "pay here" line in that slot, and a map link built from it points
+     Google at the sentence rather than at a place. */
+  directions = true,
 }) {
   if (!client) {
     console.error('❌ Twilio client not initialized.');
@@ -471,7 +475,7 @@ async function sendVisitConfirmationToCustomer({
   /* Short host deliberately: the whole thing rides inside ONE template
      variable next to the address, and the rendered body still has to clear
      WhatsApp's 1024-character limit. */
-  const mapsUrl = addressLine
+  const mapsUrl = addressLine && directions
     ? `https://maps.google.com/?q=${encodeURIComponent(addressLine)}`
     : '';
 
@@ -553,7 +557,39 @@ async function sendVisitConfirmationToCustomer({
   }
 }
 
+/**
+ * A plain-text WhatsApp message, with no template.
+ *
+ * ## When this is allowed to work
+ *
+ * WhatsApp only carries free-form business messages inside a 24-hour session,
+ * opened by the other person writing first. That is exactly the situation this
+ * is used in: the owner has just tapped AVAILABLE, which opens the window, and
+ * the visit token expires inside 24 hours — so the reference always lands
+ * while the session is live.
+ *
+ * Outside a session Meta rejects it and this returns a failure rather than
+ * throwing. That is the honest outcome: the message did not go, the caller
+ * carries on, and the request is unaffected — the reference is on the website
+ * and in the app either way.
+ */
+async function sendOwnerText({ ownerMobile, body }) {
+  if (!client) return { success: false, error: 'Twilio client not initialized' };
+
+  const to = formatWhatsAppNumber(ownerMobile);
+  if (!to) return { success: false, error: 'That phone number is not valid.' };
+
+  try {
+    const message = await client.messages.create({ from: whatsappFrom, to, body: String(body) });
+    return { success: true, sid: message.sid };
+  } catch (error) {
+    console.error(`❌ Owner message failed: ${error.message}`);
+    return { success: false, error: error.message };
+  }
+}
+
 module.exports = {
+  sendOwnerText,
   sendVerificationMessage,
   sendConfirmationMessage,
   sendVisitConfirmationToCustomer,

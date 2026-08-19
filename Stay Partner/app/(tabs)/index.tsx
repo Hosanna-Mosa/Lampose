@@ -13,6 +13,8 @@ import {
   isAvailable,
   setAvailable,
 } from '@/lib/shareTypes';
+import { formatCountdown, secondsLeft, useStayRequests } from '@/services/hooks/useStayRequests';
+import { UnansweredRequestAlert } from '@/components/UnansweredRequestAlert';
 import { radius, shadow } from '@/constants/layout';
 import { type } from '@/constants/typography';
 import colors from '@/constants/colors';
@@ -31,6 +33,7 @@ const EARNINGS = { today: '₹9,600', week: '₹58,400' };
 import { fetchSummary } from '@/services/api/portfolio.api';
 import { fetchNotificationsApi, toggleShareTypesAvailabilityApi } from '@/services/api/domain.api';
 import { useAuth } from '@/context/AuthContext';
+import { logWarn } from '@/lib/log';
 
 type DashboardState = 'loading' | 'ready' | 'empty' | 'error';
 
@@ -52,6 +55,16 @@ export default function TodayTab() {
   const [available, setAvailableLocal] = useState(true);
 
   const [, setRevision] = useState(0);
+
+  /*
+   * The pending requests, live.
+   *
+   * `subscribeRequests` used to push a re-render whenever the FIXTURE array
+   * changed, which is a subscription to something nobody else could see. The
+   * hook polls the real endpoint while anything is pending and stops when
+   * nothing is.
+   */
+  const { groups: requestGroups, clockOffset } = useStayRequests();
 
   useEffect(() => {
     const unsubComplaints = subscribeComplaints(() => setRevision((r) => r + 1));
@@ -91,7 +104,7 @@ export default function TodayTab() {
        * loaded. `ErrorBody` already exists and offers a retry; this is what
        * routes to it.
        */
-      console.warn('Error fetching dashboard summary:', err);
+      logWarn('Error fetching dashboard summary:', err);
       setState('error');
     }
   }, [forced]);
@@ -147,7 +160,7 @@ export default function TodayTab() {
       await toggleShareTypesAvailabilityApi(false);
       setAvailable(false);
     } catch (err) {
-      console.warn('Failed to update availability:', err);
+      logWarn('Failed to update availability:', err);
     }
   };
 
@@ -209,6 +222,21 @@ export default function TodayTab() {
         <ErrorBody onRetry={loadData} />
       ) : (
         <>
+          {/*
+            Above the greeting, deliberately.
+
+            Everything below this line is information about a business. This is
+            a person waiting on an answer with a deadline measured in minutes,
+            and it renders only while the owner has not opened the request —
+            the server's `seenAt` clears it, so it cannot be dismissed without
+            looking at what it is about. Nothing renders when there is nothing
+            unanswered.
+          */}
+          <UnansweredRequestAlert
+            requests={requestGroups.pending}
+            clockOffsetMs={clockOffset.current}
+          />
+
           <HeroCard greetingText={greeting(new Date().getHours())} owner={ownerName} available={available} />
 
           <View style={styles.halfRow}>
@@ -227,7 +255,12 @@ export default function TodayTab() {
           </View>
 
           <RequestsBanner
-            count={summaryData?.requests?.awaitingYou ?? 0}
+            /* The live list, falling back to the summary's count while it
+               loads — the summary is fetched first and the two agree. */
+            count={requestGroups.pending.length || (summaryData?.requests?.awaitingYou ?? 0)}
+            secondsToSoonest={requestGroups.pending.length
+              ? Math.min(...requestGroups.pending.map((r) => secondsLeft(r, clockOffset.current)))
+              : null}
             onPress={() => router.push('/requests')}
           />
 
@@ -486,17 +519,29 @@ function EarningsMiniCard({ today, week, onPress }: { today: string; week: strin
 }
 
 /**
- * The count comes from the summary — the server counts `pending_owner` visit
- * requests against this owner's properties, and that is the number a tap
- * actually opens (`app/requests/index.tsx`, which reads the same real data).
+ * How many students are waiting, and how long the nearest one has.
  *
- * There's no expiry line: a visit request's 24-hour window is enforced
- * server-side but not currently projected to the client, so a countdown here
- * would have to be invented rather than read.
+ * Both figures are real now. The count used to come from a fixture array —
+ * which is why this banner said "3 pending requests" on an account whose true
+ * figure was one — and the urgency line was removed entirely because the
+ * backend did not project a deadline.
+ *
+ * It does now: an app-channel request carries `expiresAt`, and the countdown
+ * below is derived from it and corrected for this device's clock. That makes
+ * the red line the most useful thing on the dashboard, because it is the only
+ * one measured in minutes.
  */
-function RequestsBanner({ count, onPress }: { count: number; onPress: () => void }) {
+function RequestsBanner({
+  count,
+  secondsToSoonest,
+  onPress,
+}: {
+  count: number;
+  /** Null when nothing is pending — the line is hidden rather than zeroed. */
+  secondsToSoonest: number | null;
+  onPress: () => void;
+}) {
   const c = useColors();
-  const soonest: number | null = null;
 
   return (
     <Card variant="elevated" onPress={onPress} style={styles.banner}>
@@ -507,11 +552,14 @@ function RequestsBanner({ count, onPress }: { count: number; onPress: () => void
         <Text variant="cardTitle" style={styles.bannerTitle}>
           {count} pending {count === 1 ? 'request' : 'requests'}
         </Text>
-        {soonest !== null ? (
+        {secondsToSoonest !== null ? (
           <View style={styles.urgencyRow}>
             <View style={[styles.dot, { backgroundColor: c.error }]} />
             <Text variant="badge" style={{ color: c.error }}>
-              Soonest expires in {soonest}h
+              {/* Minutes and seconds, because that is the unit this deadline
+                  is actually measured in. An hours figure here would read as
+                  "no rush" for something with 90 seconds left. */}
+              Soonest answer due in {formatCountdown(secondsToSoonest)}
             </Text>
           </View>
         ) : (

@@ -62,7 +62,7 @@ export interface UserEntity {
   lastLogin: string;
 }
 
-export type PropertyCategory = 'PG' | 'Hostel' | 'Dormitory' | 'Bachelor Room';
+export type PropertyCategory = 'PG_HOSTEL' | 'BACHELOR' | 'HOTEL' | 'COLIVE';
 
 /**
  * Accommodation listing — `properties` collection. Field names mirror the
@@ -94,14 +94,43 @@ export interface PropertyEntity {
   description: string;
   /** Schema-less by design (`Mixed` in property.model.js) — shape depends on
    *  `category`. Known keys, per Backend/src/modules/listings/sharing.util.js:
-   *    PG             sharingTypes: string[], sharingPrices: {label: price}
-   *    Hostel         roomTypes: string[], sharingPrices: {label: price}
-   *    Dormitory      bedType: string
-   *    Bachelor Room  roomType: string
+   *    PG_HOSTEL      sharingTypes: string[] (or roomTypes[] on a row
+   *                   onboarded as a hostel), sharingPrices: {label: price}
+   *    HOTEL          bedTypes: string[], sharingPrices: {label: price},
+   *                   checkInTime + checkOutTime; `bedType` is the physical
+   *                   bed format, not an occupancy
+   *    BACHELOR       roomTypes: string[], and per layout: sharingPrices,
+   *    COLIVE         sharingRooms/sharingBeds (unit count),
+   *                   furnishingByLayout, furnishingItemsByLayout,
+   *                   allowedTenantsByLayout, kitchenByLayout.
+   *                   Flat `furnishing` / `allowedTenants` ('Mixed' when the
+   *                   layouts differ), `furnishingItems` (the union) and
+   *                   `kitchenAvailable` (true if ANY layout has one) are
+   *                   derived summaries.
+   *                   (older rows carry one `roomType` string instead)
    *  Common to any category: foodIncluded, foodType, curfewTime, hostelType
    *  (gender), rateType ('Daily Rate' | 'Monthly Rate'). Anything else is
    *  whatever the onboarding form happened to send. */
   categoryDetails: Record<string, unknown>;
+  /**
+   * Ownership and premises paperwork. Hotels supply two; nothing else is
+   * asked for any.
+   *
+   * Top-level rather than inside `categoryDetails` on purpose — the public
+   * listing API returns that whole object verbatim, and a PAN filed there
+   * would be served to anybody browsing the site. Nothing public projects
+   * this. The URLs are unguessable Cloudinary links, which is not the same as
+   * private: treat them as sensitive.
+   */
+  documents?: {
+    /** 'pan' | 'premises' */
+    kind: string;
+    /** For a premises document, which of the accepted kinds it is. */
+    docType?: string;
+    url: string;
+    name?: string;
+    uploadedAt?: string;
+  }[];
   /** False for a listing still awaiting owner/verifier WhatsApp confirmation —
    *  those rows aren't a document in `properties` yet, only a snapshot on
    *  their VerificationRequest (see property.routes.v1.js's GET /, which

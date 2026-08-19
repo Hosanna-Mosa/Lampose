@@ -26,6 +26,7 @@
    ══════════════════════════════════════════════════════════════════════════ */
 const mongoose = require('mongoose');
 
+const config = require('../../config/env');
 const VisitRequest = require('../visits/visitRequest.model');
 
 const dbDown = (res) => res.status(503).json({
@@ -49,12 +50,21 @@ const alertsFor = (doc) => {
   const place = doc.propertyName || 'a property';
   const sharing = doc.sharing && doc.sharing.label ? ` (${doc.sharing.label})` : '';
 
+  /* The two channels quote different deadlines because they HAVE different
+     deadlines — a guest's owner answers on WhatsApp within a day, an app
+     owner has minutes. One sentence for both would be wrong for one of
+     them. */
+  const isApp = doc.channel === 'app';
+  const window = isApp
+    ? `${config.booking.expiryMinutes} minutes`
+    : '24 hours';
+
   if (doc.phoneVerifiedAt) {
     alerts.push({
       id: `${doc._id}:sent`,
       kind: 'visit',
       title: `Request sent to ${owner}`,
-      body: `We asked about ${place}${sharing}. They have 24 hours to reply.`,
+      body: `We asked about ${place}${sharing}. They have ${window} to reply.`,
       at: doc.phoneVerifiedAt,
       listingId: doc.listingId,
       requestId: String(doc._id),
@@ -76,15 +86,38 @@ const alertsFor = (doc) => {
   }
 
   if (doc.status === 'declined' && doc.decidedAt) {
+    /* A decline the owner made, and one the last bed forced, are different
+       facts. Telling a student "the owner said no" when somebody else was
+       simply faster is both untrue and the difference between "look
+       elsewhere" and "try again in a minute". */
+    const taken = doc.decisionReason === 'INVENTORY_TAKEN';
+
     alerts.push({
       id: `${doc._id}:declined`,
       kind: 'owner',
       /* Not "you were rejected". Availability is a fact about a building on a
          given day, and a student who reads a full house as a personal
          rejection is a student who stops sending requests. */
-      title: `Nothing free at ${place}`,
-      body: `${owner} says ${sharing ? `${doc.sharing.label} is` : 'it is'} not available at the moment. Nothing was charged.`,
+      title: taken ? `That room went at ${place}` : `Nothing free at ${place}`,
+      body: taken
+        ? `The last ${doc.sharing && doc.sharing.label ? doc.sharing.label.toLowerCase() : 'bed'} went while you were waiting. Nothing was charged.`
+        : `${owner} says ${sharing ? `${doc.sharing.label} is` : 'it is'} not available at the moment. Nothing was charged.`,
       at: doc.decidedAt,
+      listingId: doc.listingId,
+      requestId: String(doc._id),
+    });
+  }
+
+  /* The student walked away. Worth a row so the inbox does not simply lose a
+     request they remember sending — and so "did I cancel that?" has an
+     answer that is not a guess. */
+  if (doc.status === 'cancelled' && doc.cancelledAt) {
+    alerts.push({
+      id: `${doc._id}:cancelled`,
+      kind: 'visit',
+      title: `You cancelled your request`,
+      body: `${place}${sharing} — nothing was charged, and you can ask again.`,
+      at: doc.cancelledAt,
       listingId: doc.listingId,
       requestId: String(doc._id),
     });
@@ -95,7 +128,7 @@ const alertsFor = (doc) => {
       id: `${doc._id}:expired`,
       kind: 'visit',
       title: `No answer about ${place}`,
-      body: `${owner} did not reply in time, so the request closed itself. Nothing was charged.`,
+      body: `${owner} did not reply within ${window}, so the request closed itself. Nothing was charged — you can ask again.`,
       at: doc.decidedAt || doc.expiresAt,
       listingId: doc.listingId,
       requestId: String(doc._id),

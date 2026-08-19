@@ -40,7 +40,7 @@ import {
 } from '../components/ui';
 import { propertyService } from '../api/services/propertyService';
 import { useFetch } from '../lib/useFetch';
-import { PROPERTY_CATEGORIES, STAY_TYPES } from '../lib/domain';
+import { PROPERTY_CATEGORIES, propertyCategoryLabel, STAY_TYPES } from '../lib/domain';
 import { formatDate, formatDateTime, rupees } from '../lib/format';
 import type { PropertyEntity } from '../api/types';
 
@@ -52,7 +52,7 @@ const EMPTY_FORM = {
   name: '',
   place: '',
   address: '',
-  category: 'PG',
+  category: 'PG_HOSTEL',
   ownerName: '',
   ownerMobile: '',
   rent: '',
@@ -123,7 +123,41 @@ const describeCategoryDetails = (details: Record<string, unknown>): DetailRow[] 
   if (typeof details.bedType === 'string' && details.bedType) {
     rows.push({ key: 'bedType', label: 'Bed type', value: details.bedType });
   }
-  if (typeof details.roomType === 'string' && details.roomType) {
+  if (Array.isArray(details.bedTypes) && details.bedTypes.length) {
+    rows.push({ key: 'bedTypes', label: 'Bed types', value: details.bedTypes.join(' · ') });
+  }
+  if (Array.isArray(details.furnishingItems) && details.furnishingItems.length) {
+    rows.push({
+      key: 'furnishingItems',
+      label: 'Key amenities included',
+      value: details.furnishingItems.join(' · '),
+    });
+  }
+  if (Array.isArray(details.roomTypes) && details.roomTypes.length) {
+    /* Each layout with its own furnishing, because they differ — a house lets
+       a semi-furnished 1 BHK and a fully-furnished 2 BHK. */
+    const byLayout = (details.furnishingByLayout ?? {}) as Record<string, string>;
+    const counts = (details.sharingRooms ?? {}) as Record<string, number>;
+    const tenants = (details.allowedTenantsByLayout ?? {}) as Record<string, string>;
+    const kitchens = (details.kitchenByLayout ?? {}) as Record<string, boolean>;
+    rows.push({
+      key: 'roomTypes',
+      label: 'Layouts',
+      value: (details.roomTypes as string[])
+        .map((l) => {
+          const bits = [l];
+          if (counts[l]) bits.push(`×${counts[l]}`);
+          const notes = [
+            byLayout[l],
+            tenants[l]?.replace(/^Bachelors /, ''),
+            kitchens[l] === false ? 'no kitchen' : null,
+          ].filter(Boolean);
+          if (notes.length) bits.push(`(${notes.join(', ')})`);
+          return bits.join(' ');
+        })
+        .join(' · '),
+    });
+  } else if (typeof details.roomType === 'string' && details.roomType) {
     rows.push({ key: 'roomType', label: 'Room type', value: details.roomType });
   }
 
@@ -416,7 +450,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
             <option value="All">All categories</option>
             {PROPERTY_CATEGORIES.map((c) => (
               <option key={c} value={c}>
-                {c}
+                {propertyCategoryLabel(c)}
               </option>
             ))}
           </Select>
@@ -535,7 +569,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                 <Thumb property={p} className="h-36 w-full" />
                 <span className="absolute top-2.5 left-2.5">
                   <Badge tone="neutral" className="bg-surface/90 backdrop-blur-sm">
-                    {p.category}
+                    {propertyCategoryLabel(p.category)}
                   </Badge>
                 </span>
                 {p.images.length > 1 && (
@@ -616,7 +650,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                   </Td>
                   <Td>
                     <div className="flex flex-col items-start gap-1">
-                      <Badge tone="neutral">{p.category}</Badge>
+                      <Badge tone="neutral">{propertyCategoryLabel(p.category)}</Badge>
                       {!p.isVerified && (
                         <Badge tone="warn" icon={Hourglass}>
                           Awaiting verification
@@ -667,7 +701,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
               <div className="min-w-0">
                 <h2 className="text-section text-ink truncate">{selected.name}</h2>
                 <p className="text-label text-ink-3 flex items-center gap-1.5">
-                  {selected.category}
+                  {propertyCategoryLabel(selected.category)}
                   {!selected.isVerified && (
                     <Badge tone="warn" icon={Hourglass}>
                       Awaiting verification
@@ -701,6 +735,32 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
               )}
 
               <div className="px-4 pb-4 space-y-5">
+                {selected.documents && selected.documents.length > 0 && (
+                  <section>
+                    <h3 className="text-micro uppercase text-ink-3 mb-1">Verification documents</h3>
+                    {/* Sensitive. These links are public-read on Cloudinary —
+                        unguessable, not private — so they open in a new tab
+                        rather than rendering inline in a console that is often
+                        on screen next to somebody else. */}
+                    {selected.documents.map((doc, i) => (
+                      <DataRow
+                        key={`${doc.url}-${i}`}
+                        label={doc.kind === 'pan' ? 'Owner / business PAN' : (doc.docType || 'Proof of premises')}
+                        value={
+                          <a
+                            href={doc.url}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="text-accent underline underline-offset-2"
+                          >
+                            {doc.name || 'Open document'}
+                          </a>
+                        }
+                      />
+                    ))}
+                  </section>
+                )}
+
                 <section>
                   <h3 className="text-micro uppercase text-ink-3 mb-1">Pricing</h3>
                   <DataRow label="Monthly rent" value={rupees(selected.rent)} mono />
@@ -758,7 +818,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                   return detailRows.length > 0 ? (
                     <section>
                       <h3 className="text-micro uppercase text-ink-3 mb-1">
-                        {selected.category} details
+                        {propertyCategoryLabel(selected.category)} details
                       </h3>
                       {detailRows.map((row) => (
                         <DataRow key={row.key} label={row.label} value={row.value} />
@@ -822,7 +882,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
               <Select value={form.category} onChange={setField('category')}>
                 {PROPERTY_CATEGORIES.map((c) => (
                   <option key={c} value={c}>
-                    {c}
+                    {propertyCategoryLabel(c)}
                   </option>
                 ))}
               </Select>
@@ -922,7 +982,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                 <Select value={editForm.category} onChange={setEditField('category')}>
                   {PROPERTY_CATEGORIES.map((c) => (
                     <option key={c} value={c}>
-                      {c}
+                      {propertyCategoryLabel(c)}
                     </option>
                   ))}
                 </Select>

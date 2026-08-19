@@ -10992,3 +10992,109 @@ footer {
 
 
 
+
+
+/* ── Hotel date pair, headcount and the running note ──────────────────────
+   A hotel is booked between two dates, so the two fields sit side by side and
+   collapse to a stack on a narrow phone. The caption above each is what makes
+   an unlabelled pair of date inputs readable — "check-in" and "check-out" are
+   not guessable from position alone. `.si-date` styles the inputs themselves
+   and is reused here unchanged. */
+.si-datepair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+@media (max-width: 480px) {
+  .si-datepair { grid-template-columns: 1fr; }
+}
+.si-datecell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.32rem;
+}
+.si-datecell__cap {
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3, #6b7280);
+}
+
+/* Narrow because it holds a number under twenty — a full-width box invites a
+   phone number. */
+.si-num {
+  width: 6.5rem;
+  padding: 0.78rem 1rem;
+  background: var(--bg);
+  border: 1.5px solid transparent;
+  border-radius: 12px;
+  font-family: var(--font-body);
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--ink);
+  transition: background 0.25s, border-color 0.25s, box-shadow 0.25s;
+}
+.si-num:hover { border-color: var(--green-p); }
+.si-num:focus {
+  outline: none;
+  background: var(--surface);
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px var(--green-t);
+}
+
+/* The arithmetic, done for them. */
+.si-note {
+  margin: 0.5rem 0 0;
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--ink-3, #6b7280);
+}
+
+
+/* ── The visit token panel ────────────────────────────────────────────────
+   Sits inside the status card once a bachelor or co-live owner confirms, and
+   carries the three steps that follow: pay, pick a date, read the address. */
+.vt {
+  margin-top: 0.9rem;
+  padding: 1rem 1.1rem;
+  background: var(--bg);
+  border: 1px solid var(--green-p, #c2e2cc);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.vt--done { border-color: var(--green, #45855a); }
+.vt--lapsed { border-color: var(--line, #e2e8f0); }
+.vt__title {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.vt__lead { margin: 0; font-size: 0.88rem; color: var(--ink-2, #46564d); line-height: 1.5; }
+.vt__meta { margin: 0; font-size: 0.78rem; font-weight: 600; color: var(--ink-3, #6b7280); }
+.vt__err { margin: 0; font-size: 0.82rem; font-weight: 600; color: #b91c1c; }
+.vt__addr {
+  margin: 0.2rem 0 0;
+  padding: 0.7rem 0.9rem;
+  background: var(--surface);
+  border-radius: 10px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.vt__field { display: flex; flex-direction: column; gap: 0.32rem; }
+.vt__check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.84rem;
+  color: var(--ink-2, #46564d);
+  cursor: pointer;
+}
+.vt .btn { align-self: flex-start; }

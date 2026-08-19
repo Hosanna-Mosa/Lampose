@@ -58,18 +58,35 @@ export const endpoints = {
   listing: (id: string) => `${V2}/listings/${encodeURIComponent(id)}`,
 
   /**
-   * "Request a visit" — the one write this app makes.
+   * The stay request: ask an owner for a bed, watch the clock, pull it back.
    *
-   * Four steps, and the order is a safety property rather than a convenience:
-   * the owner's phone is only rung after a code sent to the customer's own
-   * number comes back correct. Without that ordering the button is a way to
-   * make a stranger's WhatsApp ring under an invented name.
+   * Three calls where the website's guest flow needed four. The code step is
+   * gone because the phone was proved at sign-in, and the WhatsApp step is
+   * gone because the owner has an app — see `stayRequests.api.ts`.
    *
-   *   create  form in, SMS code out. Nothing reaches the owner yet.
-   *   verify  code checked, THEN the owner is asked on WhatsApp.
-   *   resend  a new code. Rate limited, with a cooldown the server sets.
-   *   status  what the waiting screen polls until the owner answers.
+   * The deadline is minutes, not a day, and it is set and owned entirely by
+   * the server. This app renders `expiresAt`; it never computes one.
    */
+  stayRequests: `${V2}/customers/stay-requests`,
+  /* The visit-request routes, shared with the website. The token steps live
+     there rather than under /customers because a request made from either
+     surface is paid for the same way. */
+  visitRequests: `${V2}/visit-requests`,
+  stayRequest: (id: string) => `${V2}/customers/stay-requests/${encodeURIComponent(id)}`,
+  stayRequestWithdraw: (id: string) =>
+    `${V2}/customers/stay-requests/${encodeURIComponent(id)}/withdraw`,
+  /* The student's half of moving in — the owner confirms first. */
+  stayRequestMovedIn: (id: string) =>
+    `${V2}/customers/stay-requests/${encodeURIComponent(id)}/moved-in`,
+
+  /*
+   * The website's visit request used to be here, and is deliberately gone.
+   *
+   * Four paths under `${V2}/visit-requests` — create, verify, resend, status.
+   * They still serve lampose.com and are untouched; this app simply has no
+   * business on them. Its own flow is the three paths above.
+   */
+
   /**
    * The student's own account — phone plus a one-time code, no password.
    *
@@ -91,6 +108,15 @@ export const endpoints = {
   customerAuthResend: `${V2}/customers/auth/resend`,
   /** GET for the profile behind a session; PATCH to change name or email. */
   customerMe: `${V2}/customers/me`,
+
+  /**
+   * This handset, so the backend can reach it when the app is closed.
+   *
+   * Behind a session on purpose: the token says WHICH device, the session
+   * says whose. A public route taking both would let anybody register a
+   * stranger's handset against an account they do not own.
+   */
+  devices: `${V2}/customers/devices`,
 
   /**
    * The alerts inbox, derived from this customer's visit requests.
@@ -143,11 +169,6 @@ export const endpoints = {
   supportTicketRead: (reference: string) =>
     `${V2}/support/tickets/${encodeURIComponent(reference)}/read`,
   supportReports: `${V2}/support/reports`,
-
-  visitRequests: `${V2}/visit-requests`,
-  visitRequest: (id: string) => `${V2}/visit-requests/${encodeURIComponent(id)}`,
-  visitRequestVerify: (id: string) => `${V2}/visit-requests/${encodeURIComponent(id)}/verify`,
-  visitRequestResend: (id: string) => `${V2}/visit-requests/${encodeURIComponent(id)}/resend`,
 } as const;
 
 export default endpoints;

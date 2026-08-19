@@ -69,7 +69,8 @@ const { phoneKey } = Partner;
 
 const MAX_PROPERTY_IMAGES = 10;
 
-const VALID_CATEGORIES = ['PG', 'Hostel', 'Dormitory', 'Bachelor Room'];
+const { CATEGORIES, normaliseCategory } = require('../../shared/constants/categories');
+
 const VALID_STAY_TYPES = ['Short Stay', 'Long Stay', 'Both Short & Long Stay'];
 
 const dbDown = (res) => res.status(503).json({
@@ -183,10 +184,10 @@ const applyEditableFields = (property, body, partner) => {
 
   if (body.category !== undefined) {
     const category = String(body.category).trim();
-    if (!VALID_CATEGORIES.includes(category)) {
-      return `Category must be one of: ${VALID_CATEGORIES.join(', ')}`;
+    if (!normaliseCategory(category)) {
+      return `Category must be one of: ${CATEGORIES.join(', ')}`;
     }
-    property.category = category;
+    property.category = normaliseCategory(category);
   }
 
   if (body.stayType !== undefined) {

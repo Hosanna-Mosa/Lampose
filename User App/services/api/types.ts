@@ -20,13 +20,79 @@
  * ------------------------------------------------------------------ */
 
 /** The four values the `properties` collection's category enum allows. */
-export type BackendCategory = 'PG' | 'Hostel' | 'Dormitory' | 'Bachelor Room';
+/**
+ * What `properties.category` holds.
+ *
+ * The same four the app uses — the backend adopted them (see
+ * Backend/src/shared/constants/categories.js) and migrated its rows, so the
+ * adapter's translation is now the identity. The pre-migration spellings are
+ * kept in the union because a cached response or a deployment mid-rollout can
+ * still produce one, and `toStayCategory` maps them.
+ */
+export type BackendCategory =
+  | 'PG_HOSTEL' | 'BACHELOR' | 'HOTEL' | 'COLIVE'
+  | 'PG' | 'Hostel' | 'Dormitory' | 'Bachelor Room';
 
 export type BackendSharingOption = {
   /** "Single", "2 Sharing", "Double Sharing" — the panel's own wording. */
   label: string;
   /** Monthly, per person. `null` where the panel recorded no per-option price. */
   price: number | null;
+
+  /**
+   * `${propertyId}:${slug}` — the bed pool a request claims from.
+   *
+   * Stable across a property being re-saved, unlike the row's own id, which
+   * is why a request carries this rather than a database id.
+   */
+  shareTypeId?: string | null;
+
+  /**
+   * The three ways a hotel bed is sold, where the owner priced more than one.
+   *
+   * A hostel sells the same bed by the night, by the month and by the hour at
+   * rates that are not multiples of each other, so the guest picks. Every
+   * value is `null` on the categories that sell one way — the field is only
+   * populated for HOTEL.
+   */
+  rates?: {
+    nightly: number | null;
+    monthly: number | null;
+    flexible: number | null;
+  } | null;
+  /** The same three with AC, where it is offered. */
+  acRates?: {
+    nightly: number | null;
+    monthly: number | null;
+    flexible: number | null;
+  } | null;
+
+  /** Beds in this room type, as recorded at onboarding. */
+  totalBeds?: number | null;
+
+  /**
+   * Beds free right now.
+   *
+   * `null` is NOT zero. Null means nobody has ever recorded a count for this
+   * option — true of every property onboarded before bed counts existed — and
+   * the honest rendering is "we do not know", not "full". Ten of the twelve
+   * live listings are in that state today.
+   */
+  availableBeds?: number | null;
+
+  /** Whether a request for this option would be accepted at all. */
+  requestable?: boolean;
+
+  /**
+   * Why not, when it is not.
+   *
+   * Three different situations, and a listing page needs three different
+   * sentences: nobody recorded a count, the owner switched this room type
+   * off, and every bed is taken. Reporting only `requestable: false` had the
+   * app say "live availability not confirmed" about a room with six free beds
+   * the owner had simply paused.
+   */
+  reason?: 'NO_INVENTORY_RECORDED' | 'OWNER_PAUSED' | 'NO_BEDS_FREE' | null;
 };
 
 export type BackendStayRates = {
@@ -76,10 +142,21 @@ export type BackendListing = {
   isVerified: boolean;
   verificationStatus: 'pending' | 'verified' | 'rejected' | null;
   sharingOptions: BackendSharingOption[];
+  /** True when ANY option on this listing can be requested right now. */
+  requestable?: boolean;
   stayRates: BackendStayRates;
   durationOptions: { shortDays: number[]; longMonths: number[] };
   /** The joining dates the server will accept, inclusive. `YYYY-MM-DD`. */
   joinWindow: { min: string; max: string };
+  /**
+   * Whether a confirmed visit here is paid for.
+   *
+   * Exposed rather than inferred from `simpleSharingPath`: the two cover the
+   * same categories today, and a screen that guessed one from the other would
+   * start asking for money — or stop — the moment they diverge.
+   */
+  visitToken?: { required: boolean; amountPaise: number | null };
+
   /** True for categories priced by the bed: no stay type, no duration. */
   simpleSharingPath: boolean;
   meals: { included: boolean; foodType: string | null } | null;
@@ -90,7 +167,7 @@ export type BackendListing = {
 
 /**
  * How many places of each kind, keyed by the collection's own category names
- * — "PG", "Hostel", "Dormitory", "Bachelor Room". Not the app's four tabs;
+ * — "PG_HOSTEL", "BACHELOR", "HOTEL", "COLIVE". The same four as the tabs;
  * `BACKEND_CATEGORIES` is what maps between them.
  */
 export type CategoryCounts = Record<string, number>;
@@ -299,6 +376,117 @@ export type VisitRequestStatus =
  * document server-side and never travel to a client — that is what stops this
  * endpoint being a way to look up a stranger's number.
  */
+/** The five endings, plus the one live state. */
+export type StayRequestStatus =
+  | 'pending_owner'
+  | 'confirmed'
+  | 'declined'
+  | 'expired'
+  | 'cancelled';
+
+/**
+ * Why a request ended, where the status alone does not say.
+ *
+ * `INVENTORY_TAKEN` is the one that earns its keep: a decline nobody made,
+ * because the last bed went while this student was waiting. Showing it as a
+ * plain rejection would be untrue, and it is the difference between "look
+ * elsewhere" and "try again in a minute".
+ */
+export type StayDecisionReason =
+  | 'OWNER_DECLINED'
+  | 'INVENTORY_TAKEN'
+  | 'NO_ANSWER'
+  | 'STUDENT_WITHDREW';
+
+export type BackendStayRequest = {
+  /**
+   * The visit token, on the categories that charge one.
+   *
+   * `required` is the category's answer; `status` is where this request got
+   * to. A client can tell "no token needed" from "not paid yet" without
+   * knowing the category rules.
+   */
+  payment?: {
+    required: boolean;
+    status: 'not_required' | 'pending' | 'paid' | 'failed' | 'expired';
+    amountPaise: number | null;
+    /** ISO. The owner is holding a layout until this passes. */
+    dueBy: string | null;
+    paidAt: string | null;
+  };
+  /** ISO, once the token is paid. Null before — the address is not given. */
+  addressReleasedAt?: string | null;
+  id: string;
+  listingId: string;
+  propertyName: string;
+  status: StayRequestStatus;
+  channel: 'web' | 'app';
+
+  createdAt: string;
+  /** When the owner's window closes. Set by the server, never by this app. */
+  expiresAt: string | null;
+  decidedAt: string | null;
+  cancelledAt: string | null;
+  decisionReason: StayDecisionReason | null;
+
+  sharing: { label: string | null; price: number | null } | null;
+  shareTypeId: string | null;
+
+  /**
+   * The stages the waiting screen draws, each a real recorded event.
+   *
+   * `notifiedAt` is when the owner was reached — not when a handset lit up,
+   * which nobody can know. `seenAt` is when they opened this request in their
+   * app, which is the single most reassuring thing a waiting student can be
+   * told. Null means it has not happened yet, never "unknown".
+   */
+  notifiedAt: string | null;
+  seenAt: string | null;
+
+  /** Where the student goes next once an owner has said yes. */
+  bookingId: string | null;
+
+  /**
+   * The PIN the student and the owner compare at the door.
+   *
+   * Issued only when a request is confirmed, and held by both sides — it is
+   * not a secret and proves nothing to the server. Null means nobody has said
+   * yes yet.
+   */
+  entryPin: string | null;
+  entryPinIssuedAt: string | null;
+
+  /**
+   * Moving in, which takes two confirmations in a fixed order.
+   *
+   * The owner marks it first — they are the one who checks the PIN and opens
+   * a door — and the student confirms after. `awaitingStudent` is the
+   * difference between "show them your PIN" and "you can confirm now", which
+   * are two quite different sentences on the same screen.
+   *
+   * Absent until a booking exists.
+   */
+  moveIn?: {
+    ownerConfirmedAt: string | null;
+    studentConfirmedAt: string | null;
+    awaitingStudent: boolean;
+    complete: boolean;
+  };
+
+  /**
+   * The server's clock, sent with every read.
+   *
+   * A phone's own clock is not trustworthy — thirty seconds out is visible on
+   * a three-minute countdown, and a device set to next week would show an
+   * expired request that is still live. The app computes an offset from this
+   * once and then measures ELAPSED time locally, which phones are reliable
+   * at, rather than asking them what time it is.
+   */
+  serverNow: string;
+  /** Floored at zero. A negative countdown is not something to render. */
+  secondsRemaining: number | null;
+};
+
 export type BackendVisitRequest = {
   id: string;
   listingId: string;

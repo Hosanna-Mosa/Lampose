@@ -1,161 +1,210 @@
-import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   Screen,
   Text,
   IconButton,
   Segmented,
-  Card,
-  Badge,
   EmptyState,
-  ErrorState,
-  Skeleton,
+  RequestCard,
+  type BookingRequest,
+  type BookingStatus,
 } from '@/components/ui';
-import { useMyRequests, useMarkRequestsRead } from '@/services/hooks/usePortfolio';
-import type { BackendPartnerRequest, BackendRequestStatus } from '@/services';
-import { fonts } from '@/constants/typography';
+import { markRequestsRead } from '@/services/api/portfolio.api';
+import type { BackendPartnerRequest } from '@/services/api/types';
+import { formatCountdown, secondsLeft, useStayRequests } from '@/services/hooks/useStayRequests';
+import { useColors } from '@/hooks/useColors';
+import { formatINR } from '@/lib/format';
 
 /**
- * Requests — visit requests customers have sent to this owner's properties.
+ * Every request that has reached this owner.
  *
- * Replaces a screen that was entirely fixture data: five invented guests with
- * invented Aadhar numbers, an "Accept booking" button, and a price breakdown,
- * none of which the backend has ever supported. What the backend actually has
- * is `VisitRequest` — someone proved their own phone number through the User
- * App and asked to see a property; the owner's only real response happens
- * over WhatsApp (`AVAILABLE` / `NOT AVAILABLE`), not a button in this app.
- * `useMyRequests` already read the real thing — the dashboard's pending count
- * has used it for a while — this screen just hadn't been wired to it.
+ * ## Real, and the fixtures are gone
+ *
+ * This screen used to read a module-level array seeded at import time, which
+ * meant every owner saw the same five invented students and accepting one
+ * changed nothing anybody else could see. It now reads
+ * `GET /api/v2/partners/requests`, scoped server-side to the phone number
+ * this partner proved.
+ *
+ * ## Pending is a different KIND of row, not a filter of the same one
+ *
+ * A pending request has a deadline measured in minutes and two buttons.
+ * Everything else is history with neither. They are separated rather than
+ * sorted, because an owner who has to scroll past last week's declines to
+ * find the one row racing a clock has already lost most of the three minutes.
+ *
+ * The list polls while anything is pending and stops when nothing is — an
+ * owner reading history is not waiting on anything.
  */
 
-type Category = 'pending' | 'confirmed' | 'closed';
-const CATEGORIES: readonly Category[] = ['pending', 'confirmed', 'closed'];
-const CATEGORY_LABELS: Record<Category, string> = {
-  pending: 'Pending',
-  confirmed: 'Confirmed',
-  closed: 'Closed',
-};
-const EMPTY_COPY: Record<Category, { title: string; body: string }> = {
+type Tab = 'pending' | 'answered';
+
+const TABS: readonly Tab[] = ['pending', 'answered'];
+
+const EMPTY_COPY: Record<Tab, { title: string; body: string }> = {
   pending: {
     title: 'No requests right now',
-    body: 'A visit request lands here the moment a customer verifies their number and asks to see this property.',
+    body: 'New stay requests arrive here, and your phone will buzz when they do.',
   },
-  confirmed: {
-    title: 'Nothing confirmed yet',
-    body: 'Requests you replied AVAILABLE to on WhatsApp show up here.',
-  },
-  closed: {
-    title: 'Nothing here',
-    body: 'Declined and expired requests show up in this list.',
+  answered: {
+    title: 'Nothing answered yet',
+    body: 'Requests you accept or decline, and any that ran out of time, are kept here.',
   },
 };
 
-function categoryOf(status: BackendRequestStatus): Category {
-  if (status === 'confirmed') return 'confirmed';
-  if (status === 'declined' || status === 'expired') return 'closed';
-  return 'pending';
+/** The server's status, in the badge set this app already draws. */
+const BADGE_FOR: Record<string, BookingStatus> = {
+  pending_owner: 'pending',
+  confirmed: 'confirmed',
+  declined: 'declined',
+  expired: 'expired',
+  cancelled: 'cancelled',
+};
+
+/** "5 Sep" from a `YYYY-MM-DD` calendar day. */
+function shortDate(iso?: string | null): string {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${d} ${names[m - 1]}`;
 }
 
-function statusTone(status: BackendRequestStatus): 'warning' | 'success' | 'error' | 'neutral' {
-  if (status === 'confirmed') return 'success';
-  if (status === 'declined') return 'error';
-  if (status === 'expired') return 'neutral';
-  return 'warning';
-}
-
-function statusLabel(status: BackendRequestStatus): string {
-  if (status === 'pending_owner') return 'Awaiting your reply';
-  if (status === 'confirmed') return 'Confirmed';
-  if (status === 'declined') return 'Declined';
-  return 'Expired';
-}
-
-/** Everything the server actually recorded about what they're after, in one line. */
-function intentSummary(request: BackendPartnerRequest): string {
+/**
+ * What the card shows for the stay.
+ *
+ * A student asking for a long stay names a joining date and a length, not a
+ * departure — so this reads "from 5 Sep · 6 months" rather than inventing a
+ * check-out the student never gave.
+ */
+function stayLine(request: BackendPartnerRequest): string {
   const intent = request.intent;
-  if (!intent) return 'Details not recorded';
+  const from = shortDate(intent?.joiningDate);
+  const length = intent?.duration && intent?.durationUnit
+    ? `${intent.duration} ${intent.durationUnit === 'days' ? 'night' : 'month'}${intent.duration === 1 ? '' : 's'}`
+    : '';
 
-  const parts: string[] = [];
-  if (intent.stayType) parts.push(intent.stayType === 'short' ? 'Short stay' : 'Long stay');
-  if (intent.duration && intent.durationUnit) parts.push(`${intent.duration} ${intent.durationUnit}`);
-  if (intent.rateAmount && intent.rateUnit) {
-    parts.push(`₹${intent.rateAmount.toLocaleString('en-IN')}/${intent.rateUnit}`);
-  }
-  return parts.length ? parts.join(' · ') : 'Details not recorded';
+  if (from && length) return `From ${from} · ${length}`;
+  if (from) return `From ${from}`;
+  if (length) return length;
+  return 'Dates to confirm';
+}
+
+function toCard(request: BackendPartnerRequest, offsetMs: number): BookingRequest {
+  return {
+    id: request.id,
+    guest: request.customer?.name || 'A student',
+    dates: stayLine(request),
+    roomType: request.sharing?.label || request.propertyName,
+    amount: request.intent?.totalAmount
+      ? formatINR(request.intent.totalAmount)
+      : request.sharing?.price
+        ? `${formatINR(request.sharing.price)}/mo`
+        : '—',
+    status: BADGE_FOR[request.status] ?? 'pending',
+    /*
+     * Epoch ms, from the SERVER's deadline corrected for this device's clock.
+     * The card colours its own border from urgency, so a phone running fast
+     * would otherwise paint a request red a minute early.
+     */
+    expiresAt: Date.now() + secondsLeft(request, offsetMs) * 1000,
+  };
 }
 
 export default function RequestsInbox() {
   const router = useRouter();
-  const [category, setCategory] = useState<Category>('pending');
-  const { requests, unread, isLoading, error, refetch } = useMyRequests();
-  useMarkRequestsRead(unread, !isLoading);
+  const c = useColors();
+  const [tab, setTab] = useState<Tab>('pending');
 
-  const list = requests.filter((r) => categoryOf(r.status) === category);
+  const { groups, unread, isPending, error, clockOffset } = useStayRequests();
+
+  /*
+   * The badge clears when the list is actually looked at.
+   *
+   * Its own call rather than a side effect of the GET, so a background
+   * refetch or a retry cannot clear a count nobody read. Fired once per
+   * mount — not on every poll, which would clear the badge for a request that
+   * arrived while the owner was on another screen.
+   */
+  useEffect(() => {
+    if (unread > 0) markRequestsRead().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mount, deliberately
+  }, []);
+
+  const labels = useMemo<Record<Tab, string>>(() => ({
+    /* The count is on the tab because it is the reason to press it. */
+    pending: groups.pending.length ? `Pending · ${groups.pending.length}` : 'Pending',
+    answered: 'History',
+  }), [groups.pending.length]);
+
+  /* Soonest-expiring first — the one thing here actually racing a clock. */
+  const list = tab === 'pending'
+    ? [...groups.pending].sort((a, b) => secondsLeft(a, clockOffset.current) - secondsLeft(b, clockOffset.current))
+    : groups.answered;
 
   return (
     <Screen
       contentStyle={styles.stack}
-      stickyHeader={
+      stickyHeader={(
         <>
-          {/*
-            The design draws no back affordance here — it assumes you arrive from a
-            tab. This screen is pushed from the dashboard, so it gets the same inline
-            chevron every other pushed screen in the set uses.
-          */}
+          {/* The design draws no back affordance here — it assumes you arrive
+              from a tab. This screen is pushed from the dashboard, so it gets
+              the same inline chevron every other pushed screen uses. */}
           <View style={styles.headerRow}>
             <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+            <IconButton
+              name="plus"
+              label="Add customer"
+              onPress={() => router.push('/requests/add-customer')}
+            />
           </View>
 
           <Text variant="screenTitle">Requests</Text>
         </>
-      }
+      )}
     >
-      <Segmented options={CATEGORIES} value={category} onChange={setCategory} labels={CATEGORY_LABELS} />
+      <Segmented options={TABS} value={tab} onChange={setTab} labels={labels} />
 
-      {error ? (
-        <ErrorState title="We could not load this" body={error.displayMessage} onRetry={refetch} style={styles.empty} />
-      ) : isLoading ? (
-        <View style={styles.stack}>
-          <Skeleton width="100%" height={92} radius={16} />
-          <Skeleton width="100%" height={92} radius={16} />
+      {/* A pending request is counting down, so the wait is worth naming. */}
+      {tab === 'pending' && groups.pending.length > 0 ? (
+        <Text variant="label" style={{ color: c.textCaption }}>
+          {groups.pending.length === 1 ? 'One student is' : `${groups.pending.length} students are`} waiting
+          on you — {formatCountdown(secondsLeft(list[0], clockOffset.current))} left on the soonest
+        </Text>
+      ) : null}
+
+      {isPending && !list.length ? (
+        <View style={styles.loading}>
+          <ActivityIndicator color={c.accent} />
         </View>
+      ) : error ? (
+        <EmptyState
+          icon="info"
+          title="Could not load your requests"
+          /* The server's own words. "You are offline" and "your session
+             expired" need different actions from an owner. */
+          body={error.displayMessage}
+          style={styles.empty}
+        />
       ) : list.length > 0 ? (
-        list.map((r) => (
-          <RequestRow
-            key={r.id}
-            request={r}
-            onPress={() => router.push({ pathname: '/requests/[id]', params: { id: r.id } })}
+        list.map((request) => (
+          <RequestCard
+            key={request.id}
+            request={toCard(request, clockOffset.current)}
+            onPress={() => router.push({ pathname: '/requests/[id]', params: { id: request.id } })}
           />
         ))
       ) : (
         <EmptyState
           icon="bookings"
-          title={EMPTY_COPY[category].title}
-          body={EMPTY_COPY[category].body}
+          title={EMPTY_COPY[tab].title}
+          body={EMPTY_COPY[tab].body}
           style={styles.empty}
         />
       )}
     </Screen>
-  );
-}
-
-function RequestRow({ request, onPress }: { request: BackendPartnerRequest; onPress: () => void }) {
-  return (
-    <Card variant="elevated" onPress={onPress} style={styles.row}>
-      <View style={styles.rowTop}>
-        <Text variant="bodyMedium" style={styles.guest} numberOfLines={1}>
-          {request.customer.name || 'Unnamed guest'}
-        </Text>
-        <Badge label={statusLabel(request.status)} tone={statusTone(request.status)} />
-      </View>
-      <Text variant="caption" color="textSecondary" numberOfLines={1}>
-        {request.propertyName || 'Property not recorded'}
-      </Text>
-      <Text variant="caption" color="textSecondary" numberOfLines={1}>
-        {intentSummary(request)}
-      </Text>
-    </Card>
   );
 }
 
@@ -170,8 +219,6 @@ const styles = StyleSheet.create({
     marginRight: -10,
     marginBottom: -4,
   },
+  loading: { minHeight: 240, alignItems: 'center', justifyContent: 'center' },
   empty: { minHeight: 320 },
-  row: { gap: 5 },
-  rowTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
-  guest: { flex: 1, fontFamily: fonts.bold, fontSize: 15, lineHeight: 20 },
 });

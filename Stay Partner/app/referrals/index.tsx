@@ -8,6 +8,7 @@ import { fetchReferralsApi, fetchInvitesApi } from '@/services/api/domain.api';
 import { radius } from '@/constants/layout';
 import { fonts, type } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
+import { logWarn } from '@/lib/log';
 
 /**
  * One row of `PartnerReferral.history` — an owner who joined through the
@@ -41,12 +42,12 @@ export default function ReferAndEarnScreen() {
       const data = await fetchReferralsApi();
       setRefInfo(data);
     } catch (err) {
-      console.warn('Failed to fetch referrals:', err);
+      logWarn('Failed to fetch referrals:', err);
     }
     try {
       setInvites(await fetchInvitesApi());
     } catch (err) {
-      console.warn('Failed to fetch invites:', err);
+      logWarn('Failed to fetch invites:', err);
     }
   };
 

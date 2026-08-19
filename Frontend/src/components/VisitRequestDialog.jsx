@@ -106,6 +106,12 @@ export default function VisitRequestDialog({ listing, sharing, intent, onClose, 
           durationUnit: intent.durationUnit,
           joiningDate: intent.joiningDate,
           flexibleJoin: intent.flexibleJoin,
+          /* Hotels. The backend turns the two dates into the nights and the
+             joining date the rest of the flow reads. */
+          checkIn: intent.checkIn,
+          checkOut: intent.checkOut,
+          rateStructure: intent.rateStructure,
+          rateQuantity: intent.rateQuantity,
         } : null,
         consentedTerms: intent?.consented === true,
         consentWhatsApp: form.consent,

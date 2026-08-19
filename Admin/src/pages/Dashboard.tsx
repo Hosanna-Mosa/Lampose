@@ -32,6 +32,7 @@ import { useFetch } from '../lib/useFetch';
 import { compactNumber, deltaPercent, formatDate, percent, rupees } from '../lib/format';
 import { categoryHue, verificationMeta } from '../lib/domain';
 import { useAuth } from '../context/AuthContext';
+import { propertyCategoryLabel } from '../lib/domain';
 
 interface DashboardProps {
   setActiveTab: (tab: string) => void;
@@ -335,7 +336,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                   <Tr key={p.id}>
                     <Td className="text-ink font-medium max-w-56 truncate">{p.name}</Td>
                     <Td>
-                      <Badge tone="neutral">{p.category}</Badge>
+                      <Badge tone="neutral">{propertyCategoryLabel(p.category)}</Badge>
                     </Td>
                     <Td className="max-w-48 truncate">{p.place || '—'}</Td>
                     <Td className="text-right text-ink tabular">{rupees(p.rent)}</Td>

@@ -9,6 +9,7 @@ import {
   CLIENT_NAME,
   CLIENT_VERSION,
 } from './config';
+import { DEBUG_LOGS } from '@/constants/env';
 
 /**
  * The one place in this app that calls `fetch`.
@@ -242,7 +243,7 @@ export async function apiRequest<T = unknown>(
    * rather than a missing variable, and that has cost people whole days.
    */
   if (!API_BASE_URL_CONFIGURED) {
-    if (__DEV__) console.warn(`📡 ✕ #${requestId} ${method} ${path} — ${API_CONFIG_HINT}`);
+    if (DEBUG_LOGS) console.warn(`📡 ✕ #${requestId} ${method} ${path} — ${API_CONFIG_HINT}`);
     throw new ApiError(API_CONFIG_HINT, {
       status: 0,
       code: 'API_NOT_CONFIGURED',
@@ -294,7 +295,7 @@ export async function apiRequest<T = unknown>(
     const onCallerAbort = () => controller.abort();
     signal?.addEventListener('abort', onCallerAbort);
 
-    if (__DEV__) {
+    if (DEBUG_LOGS) {
       console.log(`📡 → #${requestId} ${method} ${url}${body !== undefined ? ` ${preview(body)}` : ''}`);
     }
 
@@ -313,7 +314,7 @@ export async function apiRequest<T = unknown>(
         const shape = (payload ?? {}) as { message?: string; error?: string; code?: string };
         const message = shape.message || shape.error || `Request failed (${response.status})`;
 
-        if (__DEV__) {
+        if (DEBUG_LOGS) {
           console.log(`📡 ← #${requestId} ${response.status} ${method} ${url} (${ms}ms) ${message}`);
         }
 
@@ -333,7 +334,7 @@ export async function apiRequest<T = unknown>(
         });
       }
 
-      if (__DEV__) {
+      if (DEBUG_LOGS) {
         /* The response body, trimmed and redacted, on the same line as the
            status. Without it a 200 tells you the call worked and nothing about
            whether it returned the three properties you expected or an empty
@@ -366,7 +367,7 @@ export async function apiRequest<T = unknown>(
 
       if (attempt < retries) {
         attempt += 1;
-        if (__DEV__) {
+        if (DEBUG_LOGS) {
           console.log(`📡 ↻ #${requestId} ${method} ${url} — ${message} (retry ${attempt}/${retries})`);
         }
         /* Backs off linearly. A phone coming out of a tunnel recovers in a
@@ -376,7 +377,7 @@ export async function apiRequest<T = unknown>(
         continue;
       }
 
-      if (__DEV__) {
+      if (DEBUG_LOGS) {
         console.log(`📡 ✕ #${requestId} ${method} ${url} — ${message}`);
         /*
          * The one diagnosis worth spelling out at the moment it happens.

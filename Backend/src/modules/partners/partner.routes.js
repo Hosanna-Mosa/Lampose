@@ -60,9 +60,13 @@ const {
 } = require('./partner.controller');
 const {
   getMyProperties, getMyRequests, getMyRequest, markRequestsRead, getSummary,
+  acceptRequest, declineRequest,
 } = require('./portfolio.controller');
 const { createInvite, getInvites } = require('./customerReferral.controller');
 const { requirePartner } = require('./partnerAuth.middleware');
+const {
+  registerPartnerDevice, unregisterPartnerDevice,
+} = require('../notifications/device.controller');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const { rateLimit } = require('../../shared/middleware/rateLimit');
 
@@ -128,9 +132,20 @@ router.post('/auth/start', requireLamposeDb, startByIp, startByPhone, startAuth)
 router.post('/auth/resend', requireLamposeDb, resendByIp, resendByPhone, resendAuth);
 router.post('/auth/verify', requireLamposeDb, verifyByIp, verifyByPhone, verifyAuth);
 
+/* Counted per signed-in owner, and declared here because the limiters below
+   close over it. `phoneKey` above reads the number out of the BODY, which is
+   the guest's on the Add Customer routes — using that would let one owner
+   exhaust another's allowance by typing their number. */
+const partnerKey = (req) => (req.partner ? req.partner.partnerId : req.ip);
+
 /* The profile. `PATCH /me` is what the profile-setup screen writes. */
 router.get('/me', requireLamposeDb, requirePartner, getMe);
 router.patch('/me', requireLamposeDb, requirePartner, updateMe);
+
+/* This device. An owner with no registered handset cannot be told a request
+   arrived, and a three-minute deadline then expires every time. */
+router.post('/devices', requireLamposeDb, requirePartner, registerPartnerDevice);
+router.delete('/devices', requireLamposeDb, requirePartner, unregisterPartnerDevice);
 
 /* Dashboard summary */
 router.get('/summary', requireLamposeDb, requirePartner, getSummary);
@@ -156,6 +171,21 @@ router.get('/requests', requireLamposeDb, requirePartner, getMyRequests);
 router.post('/requests/read', requireLamposeDb, requirePartner, markRequestsRead);
 router.get('/requests/:id', requireLamposeDb, requirePartner, getMyRequest);
 
+/* Answering a stay request. Both are guarded, atomic and idempotent in the
+   service — a second tap changes nothing and is told which of the four
+   possible endings got there first.
+
+   Rate limited per OWNER rather than per IP: the cost is a push to a student
+   and, on the last bed, an auto-decline sweep across everybody else waiting
+   on it. Generous, because an owner working through a morning's requests is
+   the ordinary case and must never be throttled mid-list. */
+const answerLimit = rateLimit({
+  name: 'partner-answer-request', windowMs: 60 * 60 * 1000, max: 120, keyOf: partnerKey,
+});
+
+router.post('/requests/:id/accept', requireLamposeDb, requirePartner, answerLimit, acceptRequest);
+router.post('/requests/:id/decline', requireLamposeDb, requirePartner, answerLimit, declineRequest);
+
 /* ── Add Customer ────────────────────────────────────────────────────────
    A code to the guest, their documents to Cloudinary, then the record. The
    create refuses anything the server has not itself proved — see the note at
@@ -165,10 +195,6 @@ router.get('/requests/:id', requireLamposeDb, requirePartner, getMyRequest);
    number must not be able to ring a stranger's handset repeatedly, and the
    victim of an SMS flood is the person holding it. The controller enforces a
    second cooldown against the stored `lastSentAt`, which survives a restart. */
-/* Counted per signed-in owner. `phoneKey` above reads the number out of the
-   BODY, which is the guest's on these routes — using it would let one owner
-   exhaust another's allowance by typing their number. */
-const partnerKey = (req) => (req.partner ? req.partner.partnerId : req.ip);
 
 const guestOtpLimit = rateLimit({
   name: 'partner-guest-otp', windowMs: 60 * 60 * 1000, max: 20, keyOf: partnerKey,

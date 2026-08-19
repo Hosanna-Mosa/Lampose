@@ -1,186 +1,390 @@
-import { StyleSheet, View } from 'react-native';
+import { useEffect } from 'react';
+import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+
 import {
   Screen,
   Text,
   Button,
-  IconButton,
   Card,
+  Divider,
   DetailRow,
-  Badge,
-  ErrorState,
-  Skeleton,
+  EmptyState,
+  IconButton,
+  BookingStatusBadge,
+  CountdownChip,
+  type BookingStatus,
 } from '@/components/ui';
-import { useMyRequest } from '@/services/hooks/usePortfolio';
-import { formatDateLong } from '@/lib/format';
-import type { BackendRequestStatus } from '@/services';
+import { fonts } from '@/constants/typography';
+import { useColors } from '@/hooks/useColors';
+import { formatDateTime, formatINR } from '@/lib/format';
+import type { BackendPartnerRequest } from '@/services/api/types';
+import {
+  formatCountdown,
+  useAnswerRequest,
+  useStayRequest,
+} from '@/services/hooks/useStayRequests';
 
 /**
- * One visit request, mostly read-only.
+ * One stay request, and the three minutes to answer it.
  *
- * Replaces a screen that ran entirely on invented data: a countdown to an
- * `expiresAt` the server has never sent, an "Accept booking" button with a
- * fabricated price breakdown, and a KYC form that saved to nowhere. None of
- * that has a real counterpart — a visit request isn't a booking, and the
- * owner's only real reply to one happens over WhatsApp
- * (`AVAILABLE` / `NOT AVAILABLE`), not a button here. This shows exactly what
- * `GET /partners/requests/:id` actually recorded, and nothing it didn't.
+ * ## What this replaced
  *
- * The one action that IS real: once a request is `confirmed`, this guest's
- * name and phone are already known and already proven (the customer's own
- * OTP, at request time) — "Log this guest" carries both straight into Add
- * Customer, pre-filled, so the owner is not retyping what the app already
- * has. It does not create a booking by itself; the owner still finishes the
- * rest of that form (room, dates, KYC) same as any walk-in.
+ * A screen driven by `lib/requests.ts` — a module-level array seeded at
+ * import time, where Accept flipped a field nobody else could see and the
+ * countdown ran against a number invented at app launch. It now reads
+ * `GET /api/v2/partners/requests/:id` and answers through the real accept and
+ * decline endpoints.
+ *
+ * ## The KYC block is gone, and that is the correct behaviour
+ *
+ * The old screen collected an address, an Aadhar number and a document scan
+ * after accepting. That belongs to the WALK-IN path, not this one: a student
+ * arriving through a request has already proved their own phone number in the
+ * User App, and the backend records KYC only for `source: 'manual'` bookings
+ * for exactly that reason. Asking for papers here would be collecting
+ * identity documents the business has not decided it needs, which is the kind
+ * of thing that is much easier not to start.
+ *
+ * ## Zero on the clock is a question, not an answer
+ *
+ * The countdown runs against the server's `expiresAt`, corrected for this
+ * device's clock. Reaching zero does not mark anything expired — it triggers
+ * one more fetch, because the server may be about to report that this very
+ * owner accepted at 2:59.8. Every state below is one the server reported.
  */
 
-function statusTone(status: BackendRequestStatus): 'warning' | 'success' | 'error' | 'neutral' {
-  if (status === 'confirmed') return 'success';
-  if (status === 'declined') return 'error';
-  if (status === 'expired') return 'neutral';
-  return 'warning';
-}
-
-function statusLabel(status: BackendRequestStatus): string {
-  if (status === 'pending_owner') return 'Awaiting your reply';
-  if (status === 'confirmed') return 'Confirmed';
-  if (status === 'declined') return 'Declined';
-  return 'Expired';
-}
-
-const dash = (value: unknown): string => {
-  const text = value === null || value === undefined ? '' : String(value).trim();
-  return text.length ? text : 'Not recorded';
+const BADGE_FOR: Record<string, BookingStatus> = {
+  pending_owner: 'pending',
+  confirmed: 'confirmed',
+  declined: 'declined',
+  expired: 'expired',
+  cancelled: 'cancelled',
 };
+
+/** "5 Sep 2026" from a `YYYY-MM-DD` calendar day. */
+function prettyDate(iso?: string | null): string {
+  if (!iso) return '—';
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${d} ${names[m - 1]} ${y}`;
+}
+
+function stayLength(request: BackendPartnerRequest): string {
+  const intent = request.intent;
+  if (!intent?.duration || !intent?.durationUnit) return 'Not specified';
+  const unit = intent.durationUnit === 'days' ? 'night' : 'month';
+  return `${intent.duration} ${unit}${intent.duration === 1 ? '' : 's'}`;
+}
+
+/** What each ending means to the owner looking at it. */
+function outcomeCopy(request: BackendPartnerRequest): { title: string; body: string } | null {
+  switch (request.status) {
+    case 'confirmed':
+      return {
+        title: 'You accepted this request',
+        body: 'The student has been told and a customer record is open. The bed is off your availability.',
+      };
+    case 'cancelled':
+      return {
+        title: 'The student cancelled',
+        body: 'They withdrew before you answered. Nothing was charged and the bed was never taken.',
+      };
+    case 'expired':
+      return {
+        title: 'This request ran out of time',
+        body: 'Nobody answered within the window, so it closed itself. The student can send a new one.',
+      };
+    case 'declined':
+      /* A decline this owner never made. Accepting somebody else for the last
+         bed turned everybody still waiting on that room away in the same
+         action — and a history screen that called that "you declined" would
+         read as though they had rejected people they never looked at. */
+      return request.decisionReason === 'INVENTORY_TAKEN'
+        ? {
+          title: 'Closed — the last bed went',
+          body: 'You accepted another student for this room type, so this request was closed automatically.',
+        }
+        : {
+          title: 'You declined this request',
+          body: 'The student has been told. Nothing was charged.',
+        };
+    default:
+      return null;
+  }
+}
 
 export default function RequestDetailScreen() {
   const router = useRouter();
+  const c = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { request, isLoading, error, refetch } = useMyRequest(id);
 
-  const backRow = (
-    <View style={styles.backRow}>
-      <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-    </View>
-  );
+  const { request, secondsRemaining, countdown, actionable, isPending, error } = useStayRequest(id);
+  const answer = useAnswerRequest(id);
 
-  if (error) {
+  /* The server's refusal, shown as the server worded it. "This request has
+     expired" and "The student cancelled this request" are different things
+     for an owner to know, and a generic failure would flatten both. */
+  useEffect(() => {
+    if (!answer.error) return;
+    Alert.alert('Could not answer', answer.error.displayMessage);
+  }, [answer.error]);
+
+  if (isPending && !request) {
     return (
-      <Screen scroll={false} padX={22} background="bg" stickyHeader={backRow}>
-        <ErrorState title="We could not load this" body={error.displayMessage} onRetry={refetch} />
-      </Screen>
-    );
-  }
-
-  if (isLoading || !request) {
-    return (
-      <Screen padX={22} background="bg" stickyHeader={backRow}>
-        <View style={styles.stack}>
-          <Skeleton width="100%" height={90} radius={16} />
-          <Skeleton width="100%" height={140} radius={16} />
-          <Skeleton width="100%" height={140} radius={16} />
+      <Screen scroll={false} padX={22} background="bg">
+        <View style={styles.loading}>
+          <ActivityIndicator color={c.accent} />
         </View>
       </Screen>
     );
   }
 
-  const intent = request.intent;
-  const confirmed = request.status === 'confirmed';
+  if (!request) {
+    return (
+      <Screen scroll={false} padX={22} background="bg">
+        <EmptyState
+          icon="search"
+          title="Request not found"
+          body={error?.displayMessage ?? 'It may have been withdrawn by the student.'}
+          actionLabel="Back to requests"
+          onAction={() => router.back()}
+        />
+      </Screen>
+    );
+  }
+
+  const outcome = outcomeCopy(request);
+
+  /*
+   * Two channels reach this screen, and only one of them is answered here.
+   *
+   * `app` is a signed-in student asking a signed-in owner: minutes on a
+   * clock, Accept and Decline below. `web` is a guest on lampose.com, whose
+   * owner is messaged on WhatsApp and replies AVAILABLE there — that flow
+   * still runs, and answering it with these buttons would leave the guest
+   * waiting on a WhatsApp reply that never comes.
+   *
+   * So a web request is shown, and says where to answer it.
+   */
+  // Tested as "not app" rather than "is web" on purpose: `channel` was added
+  // with the stay-request flow, so every row written before it is a website
+  // request carrying no channel at all. Those must not get Accept buttons.
+  const isWeb = request.channel !== 'app';
+  const pending = request.status === 'pending_owner' && !isWeb;
+
+  const onAccept = () => {
+    answer.accept.mutate(undefined, {
+      onSuccess: (result) => {
+        /* Accepting the last bed turns other students away. Saying so is the
+           difference between an owner learning it here and learning it from
+           a phone call. */
+        if (result.autoDeclined > 0) {
+          Alert.alert(
+            'Accepted',
+            `That was the last bed in this room, so ${result.autoDeclined} other `
+            + `request${result.autoDeclined === 1 ? '' : 's'} closed automatically.`,
+          );
+        }
+      },
+    });
+  };
 
   return (
     <Screen
       padX={22}
+      background="bg"
       contentStyle={styles.stack}
-      stickyHeader={backRow}
-      footer={
-        confirmed ? (
+      stickyHeader={(
+        <View style={styles.headerRow}>
+          <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+          <BookingStatusBadge status={BADGE_FOR[request.status] ?? 'pending'} />
+        </View>
+      )}
+      footer={pending ? (
+        <View style={styles.footer}>
           <Button
-            label="Log this guest"
-            onPress={() =>
-              router.push({
-                pathname: '/requests/add-customer',
-                params: { guestName: request.customer.name, guestPhone: request.customer.phone },
-              })
-            }
+            label="Decline"
+            variant="secondary"
+            /* Not disabled while accepting — an owner who changes their mind
+               mid-tap should not be locked out. Both are guarded server-side
+               and exactly one can win. */
+            disabled={!actionable || answer.isBusy}
+            onPress={() => router.push({ pathname: '/requests/reject', params: { id: request.id } })}
+            style={styles.action}
           />
-        ) : undefined
-      }
+          <Button
+            label={answer.accept.isPending ? 'Accepting…' : 'Accept'}
+            /* `actionable` is the server's flag. A request that expired while
+               this screen was open loses its buttons on the next poll rather
+               than failing on tap. */
+            disabled={!actionable || answer.isBusy}
+            onPress={onAccept}
+            style={styles.action}
+          />
+        </View>
+      ) : undefined}
     >
-      <View style={styles.headRow}>
-        <Text variant="h3" style={styles.guestName} numberOfLines={2}>
-          {dash(request.customer.name)}
-        </Text>
-        <Badge label={statusLabel(request.status)} tone={statusTone(request.status)} />
-      </View>
+      <Text variant="screenTitle">{request.customer?.name || 'A student'}</Text>
+
+      {/* The clock, and only while one is running. */}
+      {pending ? (
+        <View style={styles.clockRow}>
+          <CountdownChip
+            /* Epoch ms from the server's deadline, corrected for this device.
+               The chip colours itself from urgency, so a fast phone would
+               otherwise turn it red a minute early. */
+            expiresAt={Date.now() + secondsRemaining * 1000}
+            size="md"
+          />
+          <Text variant="label" style={{ color: c.textCaption }}>
+            {secondsRemaining > 0
+              ? `${countdown} to answer`
+              /* Running out is not a verdict. The next poll brings the
+                 server's, which may be an acceptance this owner just made. */
+              : 'Checking…'}
+          </Text>
+        </View>
+      ) : null}
+
+      {isWeb && request.status === 'pending_owner' ? (
+        <Card>
+          <Text variant="cardTitle">Answer this on WhatsApp</Text>
+          <Text variant="body" style={{ color: c.textSecondary, marginTop: 4 }}>
+            This request came from the Lampose website, so it is not answered here. Reply
+            AVAILABLE or NOT AVAILABLE to the WhatsApp message we sent you, and the guest is
+            told either way.
+          </Text>
+        </Card>
+      ) : null}
+
+      {outcome ? (
+        <Card>
+          <Text variant="cardTitle">{outcome.title}</Text>
+          <Text variant="body" style={{ color: c.textSecondary, marginTop: 4 }}>
+            {outcome.body}
+          </Text>
+        </Card>
+      ) : null}
+
+      {/*
+        The entry PIN, given its own card and set large.
+
+        It is the one thing on this screen an owner will need to READ ALOUD,
+        at a door, probably on a phone held at arm's length. Burying it in a
+        detail row beside "Room type" would make the single operational fact
+        here look like metadata.
+
+        The student holds the same value — it is compared, not verified — so
+        it is deliberately not masked or hidden behind a tap.
+      */}
+      {request.entryPin ? (
+        <Card>
+          <Text variant="label" style={{ color: c.textCaption }}>ENTRY PIN</Text>
+
+          {/*
+            The DIGITS large, the full code beneath — the same two things in
+            the same order as the student's screen.
+
+            They stand at a door comparing two phones, so the thing they
+            compare has to look the same on both. The student's screen renders
+            six digit tiles (nine will not fit a phone) with the `LV-` form
+            underneath as the reference, so this mirrors it exactly rather
+            than showing one combined string only one of them can see.
+          */}
+          <Text tabular style={[styles.pin, { color: c.textPrimary }]}>
+            {request.entryPin.replace(/\D/g, '')}
+          </Text>
+          <Text tabular variant="label" style={{ color: c.textCaption }}>
+            {request.entryPin}
+          </Text>
+
+          <Text variant="body" style={{ color: c.textSecondary, marginTop: 6 }}>
+            {(request.customer?.name || 'The student')} sees the same digits. Check they match when
+            they arrive.
+          </Text>
+        </Card>
+      ) : null}
 
       <Card>
-        <Text variant="overline" color="textTertiary" style={styles.sectionLabel}>
-          Contact
-        </Text>
-        <DetailRow label="Phone" value={dash(request.customer.phone)} />
-        <DetailRow label="Email" value={dash(request.customer.email)} last />
-      </Card>
-
-      <Card>
-        <Text variant="overline" color="textTertiary" style={styles.sectionLabel}>
-          Property &amp; timing
-        </Text>
-        <DetailRow label="Property" value={dash(request.propertyName)} />
-        <DetailRow label="Preferred date" value={dash(request.preferredDate)} />
-        <DetailRow label="Preferred time" value={dash(request.preferredTime)} last />
-      </Card>
-
-      <Card>
-        <Text variant="overline" color="textTertiary" style={styles.sectionLabel}>
-          What they&apos;re looking for
-        </Text>
-        {intent ? (
+        <DetailRow label="Property" value={request.propertyName} />
+        <Divider />
+        <DetailRow label="Room type" value={request.sharing?.label ?? '—'} />
+        <Divider />
+        <DetailRow label="Moving in" value={prettyDate(request.intent?.joiningDate)} />
+        <Divider />
+        <DetailRow label="Length of stay" value={stayLength(request)} />
+        {request.intent?.flexibleJoin ? (
           <>
-            <DetailRow
-              label="Stay type"
-              value={intent.stayType === 'short' ? 'Short stay' : intent.stayType === 'long' ? 'Long stay' : 'Not recorded'}
-            />
-            <DetailRow
-              label="Duration"
-              value={intent.duration && intent.durationUnit ? `${intent.duration} ${intent.durationUnit}` : 'Not recorded'}
-            />
-            <DetailRow
-              label="Joining"
-              value={
-                intent.joiningDate
-                  ? formatDateLong(new Date(intent.joiningDate))
-                  : intent.flexibleJoin
-                    ? 'Flexible'
-                    : 'Not recorded'
-              }
-            />
-            <DetailRow
-              label="Rate"
-              value={intent.rateAmount && intent.rateUnit ? `₹${intent.rateAmount.toLocaleString('en-IN')} / ${intent.rateUnit}` : 'Not recorded'}
-              last
-            />
+            <Divider />
+            {/* Worth its own row: it is often the thing that lets an owner say
+                yes to a date they could not otherwise take. */}
+            <DetailRow label="Flexible" value="A day or two either way" />
           </>
-        ) : (
-          <DetailRow label="Details" value="Not recorded" last />
-        )}
+        ) : null}
+        <Divider />
+        <DetailRow
+          label="Rent"
+          value={request.sharing?.price ? `${formatINR(request.sharing.price)}/mo` : '—'}
+          last
+        />
       </Card>
 
-      <Text variant="caption" color="textTertiary" style={styles.note}>
-        {request.status === 'pending_owner'
-          ? "Lampose has messaged you on WhatsApp about this request — reply AVAILABLE or NOT AVAILABLE there to respond."
-          : confirmed
-            ? 'Answered over WhatsApp. Once this guest actually moves in, log them below.'
-            : 'This request was answered over WhatsApp.'}
-      </Text>
+      <Card>
+        {/*
+          The student's number, shown to the owner and nowhere else.
+
+          It is the one piece of somebody else's personal data on this screen,
+          and it is here because an owner who has accepted needs to be able to
+          call the person arriving at their door.
+        */}
+        <DetailRow label="Phone" value={request.customer?.phone || '—'} />
+        <Divider />
+        <DetailRow label="Email" value={request.customer?.email || '—'} />
+        <Divider />
+        <DetailRow label="Requested" value={formatDateTime(new Date(request.createdAt))} last />
+      </Card>
+
+      {request.status === 'confirmed' ? (
+        <Button
+          label="See the booking"
+          variant="secondary"
+          /*
+           * The BOOKING, not `/customers`.
+           *
+           * That screen asks the server for `?source=manual` — walk-ins the
+           * owner typed in themselves — so a booking created by accepting a
+           * request can never appear there. Sending an owner to a list that
+           * is structurally incapable of showing the thing they just made
+           * reads as the acceptance having done nothing.
+           *
+           * The Bookings tab renders it (an `upcoming` booking maps to
+           * `confirmed` there), and the detail screen opens it directly when
+           * the acceptance gave us an id.
+           */
+          onPress={() => (request.bookingId
+            ? router.push({ pathname: '/booking/[id]', params: { id: request.bookingId } })
+            : router.push('/bookings'))}
+        />
+      ) : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   stack: { gap: 14 },
-  backRow: { height: 44, justifyContent: 'center', marginLeft: -10, marginBottom: -4 },
-  headRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
-  guestName: { flex: 1 },
-  sectionLabel: { marginBottom: 4 },
-  note: { lineHeight: 18, marginTop: 4 },
+  /* Large and tabular: read out loud, at a door, from arm's length. */
+  pin: { fontFamily: fonts.bold, fontSize: 30, lineHeight: 38, letterSpacing: 1.5, marginVertical: 4 },
+  headerRow: {
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginLeft: -10,
+  },
+  clockRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  footer: { flexDirection: 'row', gap: 10 },
+  action: { flex: 1 },
 });

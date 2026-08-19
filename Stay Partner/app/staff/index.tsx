@@ -8,6 +8,7 @@ import { fetchStaffApi } from '@/services/api/domain.api';
 import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
+import { logWarn } from '@/lib/log';
 
 export default function StaffListScreen() {
   const router = useRouter();
@@ -25,7 +26,7 @@ export default function StaffListScreen() {
       }));
       setStaff(mapped);
     } catch (err) {
-      console.warn('Failed to load staff:', err);
+      logWarn('Failed to load staff:', err);
     }
   };
 

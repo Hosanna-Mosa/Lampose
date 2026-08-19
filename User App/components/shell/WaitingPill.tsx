@@ -174,10 +174,28 @@ export function WaitingPill() {
 
   const open = () => {
     if (over) return;
-    router.push({
-      pathname: '/confirm/[id]',
-      params: { id: request.listingId, ...request.params },
-    } as never);
+
+    /*
+     * An ACCEPTED request goes to the booking, not back to the request screen.
+     *
+     * The confirmation screen exists to send a request and watch it. Sending a
+     * student back there after their request was accepted put them on a screen
+     * whose whole job was to create one — and it did: it fired a second
+     * request for a bed the first one had already taken, which the server
+     * correctly refused with "every bed in this room type is taken". The
+     * student's own acceptance was the thing standing in their way.
+     *
+     * "Tap to finish" means finish the booking, and this is where that is.
+     */
+    router.push(accepted
+      ? {
+        pathname: '/booked/[id]',
+        params: { id: request.listingId, ...request.params },
+      } as never
+      : {
+        pathname: '/confirm/[id]',
+        params: { id: request.listingId, ...request.params },
+      } as never);
   };
 
   return (

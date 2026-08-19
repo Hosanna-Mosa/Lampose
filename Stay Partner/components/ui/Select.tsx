@@ -23,6 +23,7 @@ export function Select<T extends string>({
   onChange,
   placeholder = 'Select an option',
   disabled,
+  format,
 }: {
   label?: string;
   optional?: boolean;
@@ -31,7 +32,17 @@ export function Select<T extends string>({
   onChange: (next: T) => void;
   placeholder?: string;
   disabled?: boolean;
+  /**
+   * How to word an option, when the stored value is not what to show.
+   *
+   * Added for the category picker, whose values are codes — `PG_HOSTEL` is
+   * what goes in the column and "PG / Hostel" is what an owner reads. Optional,
+   * so every other Select, whose values are already words, is unchanged.
+   */
+  format?: (option: T) => string;
 }) {
+
+  const show = (option: T) => (format ? format(option) : option);
   const c = useColors();
   const [open, setOpen] = useState(false);
 
@@ -48,7 +59,7 @@ export function Select<T extends string>({
         disabled={disabled}
         accessibilityRole="button"
         accessibilityState={{ expanded: open, disabled }}
-        accessibilityLabel={`${label ?? 'Select'}. ${value ?? placeholder}`}
+        accessibilityLabel={`${label ?? 'Select'}. ${value ? show(value) : placeholder}`}
         style={({ pressed }) => [
           styles.field,
           {
@@ -64,7 +75,7 @@ export function Select<T extends string>({
           style={styles.value}
           numberOfLines={1}
         >
-          {value ?? placeholder}
+          {value ? show(value) : placeholder}
         </Text>
         <View style={open ? styles.chevronOpen : undefined}>
           <Svg width={9} height={6} viewBox="0 0 8 6">
@@ -100,7 +111,7 @@ export function Select<T extends string>({
                 ]}
               >
                 <Text variant="bodySm" color={selected ? 'accent' : 'textPrimary'}>
-                  {o}
+                  {show(o)}
                 </Text>
                 {selected ? <Icon name="check" size={14} color={c.accent} strokeWidth={2.5} /> : null}
               </Pressable>

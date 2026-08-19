@@ -106,5 +106,19 @@ export default function useVisitRequest(listingId) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isWaiting, request?.id]);
 
-  return { request, setRequest, clear, isWaiting };
+  /*
+   * Re-read once, now.
+   *
+   * The polling loop above only runs while a request is WAITING, which is the
+   * right rule for an unanswered one — but the token steps all happen after
+   * the owner answered, so nothing was watching when paying or dating changed
+   * the request server-side. This is what those steps call.
+   */
+  const refresh = useCallback(async () => {
+    if (!request?.id) return;
+    const res = await visitRequestsApi.status(request.id);
+    if (res?.ok && res.data) setRequest(res.data);
+  }, [request?.id, setRequest]);
+
+  return { request, setRequest, clear, isWaiting, refresh };
 }

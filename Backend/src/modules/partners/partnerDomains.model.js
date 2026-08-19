@@ -12,9 +12,15 @@ const partnerBookingSchema = new mongoose.Schema(
     roomNumber: { type: String, required: true },
     shareType: { type: String, default: 'Single' },
     checkInDate: { type: String, required: true },
-    /* Not required — a PG/hostel stay is ordinarily open-ended at move-in.
-       '' means "not set yet", not a placeholder date; the real end of a
-       stay is `checkOutBooking` (an owner action), not this field. */
+    /*
+     * Empty means open-ended, and that is a real answer rather than missing
+     * data. A PG stay is ordinarily open-ended at move-in: the Add Customer
+     * form asks for a date because a walk-in owner usually has one in mind,
+     * and a request accepted from the User App often does not.
+     *
+     * '' is "not set yet", never a placeholder date. The real end of a stay
+     * is `checkOutBooking` — an owner action — not this field.
+     */
     checkOutDate: { type: String, default: '' },
     status: {
       type: String,
@@ -42,6 +48,43 @@ const partnerBookingSchema = new mongoose.Schema(
      * guest or the owner entered these details.
      */
     source: { type: String, enum: ['request', 'manual'], default: 'request', index: true },
+
+    /*
+     * The entry PIN, copied here from the request that created this booking.
+     *
+     * Denormalised on purpose. This row IS what an owner opens at check-in —
+     * they are standing in a doorway, not navigating back through a request
+     * they answered three weeks ago — and making that screen join back to
+     * `visitrequests` to find the code would be a lookup at exactly the
+     * moment somebody is waiting.
+     *
+     * It never changes after it is written, so the usual objection to copying
+     * a value does not apply: there is nothing for the two to drift about.
+     * Null on a manual walk-in, which has no request and no code.
+     */
+    entryPin: { type: String, default: null },
+
+    /*
+     * Moving in takes two confirmations, in this order.
+     *
+     * They are standing in the same room comparing a PIN, and each marks it
+     * from their own phone: the OWNER first, because they are the one who
+     * checked the code and let somebody through a door, then the STUDENT,
+     * confirming they are actually in it.
+     *
+     * Two timestamps rather than a third status value. `status` stays the
+     * booking's lifecycle — `upcoming` until both are in, `in_house` after —
+     * and these record who said so and when, which is the part a dispute
+     * turns on. A single "moved in" flag could not tell you whether the
+     * student ever agreed.
+     *
+     * The student's is refused while the owner's is null. Not because the
+     * order matters to the database, but because it matters at the door: the
+     * owner is the one with the code to check, and a student who could mark
+     * themselves in before anybody let them in has marked nothing.
+     */
+    movedInByOwnerAt: { type: Date, default: null },
+    movedInByStudentAt: { type: Date, default: null },
 
     /**
      * Identity, collected only on the manual path.
@@ -145,6 +188,18 @@ const partnerNotificationSchema = new mongoose.Schema(
     message: { type: String, required: true },
     category: { type: String, default: 'general' },
     read: { type: Boolean, default: false },
+
+    /*
+     * What this notification is ABOUT, so tapping it can go there.
+     *
+     * Without it a row is a dead end: the owner reads "Sunand asked about
+     * Apex Luxury Girls — you have 3 minutes to answer", taps it, and lands
+     * nowhere. On a three-minute deadline that is not a missing nicety, it is
+     * the notification failing at the one job it has.
+     *
+     * Null on rows that genuinely point at nothing.
+     */
+    requestId: { type: String, default: null },
   },
   { timestamps: true }
 );
@@ -205,16 +260,30 @@ const partnerReferralSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// ── 8. Share Types / Inventory ──────────────────────────────────────────────
+/* ── 8. Share Types / Inventory ──────────────────────────────────────────────
+   One row per property per sharing option, and the only place a bed count
+   lives. `availableBeds` is claimed and released by atomic conditional updates
+   in `modules/inventory/inventory.service.js` — nothing else may touch it, and
+   nothing else may read it as authoritative. */
 const partnerShareTypeSchema = new mongoose.Schema(
   {
     partnerPhoneDigits: { type: String, required: true, index: true },
-    propertyId: { type: String, required: true },
-    shareTypeId: { type: String, required: true },
+    propertyId: { type: String, required: true, index: true },
+    /* `${propertyId}:${slugged-label}` — stable across re-syncs, so a request
+       can carry it and still find its row after the property is edited. The
+       row's own `_id` is not stable in that way and must not be used as a
+       handle. Unique because a duplicate would split one room type's beds
+       across two counters and neither would ever read as full. */
+    shareTypeId: { type: String, required: true, unique: true, index: true },
     name: { type: String, required: true },
     monthlyPrice: { type: Number, required: true },
-    totalBeds: { type: Number, required: true },
-    availableBeds: { type: Number, required: true },
+    /* Capacity, mirrored from the property's own `categoryDetails`. */
+    totalBeds: { type: Number, required: true, min: 0 },
+    /* Availability. Never set directly outside the inventory service. */
+    availableBeds: { type: Number, required: true, min: 0 },
+    /* The owner's master switch for this room type. Checked when a request is
+       CREATED, deliberately not when one is accepted — pausing a room type
+       stops new askers, it does not strand a request mid-decision. */
     isAvailable: { type: Boolean, default: true },
   },
   { timestamps: true }

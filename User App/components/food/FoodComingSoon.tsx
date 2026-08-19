@@ -50,7 +50,20 @@ export function FoodComingSoon({ onExplore }: { onExplore: () => void }) {
         </Text>
       </View>
 
-      <Button label="Back to Explore" variant="secondary" onPress={onExplore} />
+      {/*
+        Centred, and matched to the measure the copy above runs to.
+
+        See `styles.action` for why `alignSelf` has to be set explicitly: a
+        Button sets its own, and a child's `alignSelf` beats the parent's
+        `alignItems`.
+      */}
+      <Button
+        label="Back to Explore"
+        variant="secondary"
+        onPress={onExplore}
+        fullWidth
+        style={styles.action}
+      />
     </ScrollView>
   );
 }
@@ -60,4 +73,19 @@ const styles = StyleSheet.create({
   disc: { width: 72, height: 72, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   center: { textAlign: 'center' },
   measure: { maxWidth: 300 },
+  /*
+   * `alignSelf` centres it; `maxWidth` alone did not.
+   *
+   * Two goes at this now, so worth writing down. A hugging Button sets
+   * `alignSelf: 'flex-start'` on itself and `fullWidth` sets
+   * `alignSelf: 'stretch'` — and a child's own `alignSelf` beats the
+   * parent's `alignItems: 'center'` either way. Capping the width then made
+   * it a 300pt box still pinned to the leading edge, under a centred glyph, a
+   * centred title and two centred paragraphs.
+   *
+   * The style prop is applied after the Button's own, so this wins. `width`
+   * is what gives it something to centre: a stretched box with no width
+   * resolves to the container and there is no slack left to distribute.
+   */
+  action: { alignSelf: 'center', width: '100%', maxWidth: 300 },
 });

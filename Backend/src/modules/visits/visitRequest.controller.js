@@ -33,10 +33,14 @@ const Property = require('../properties/property.model');
 const VisitRequest = require('./visitRequest.model');
 const { sharingOptionsFor, findSharingOption } = require('../listings/sharing.util');
 const { validateIntent, describeIntent } = require('../listings/stayIntent.util');
+const config = require('../../config/env');
+const { needsToken, ensurePaymentLink } = require('./visitPayment.controller');
 
-/* Kept in step with SIMPLE_PATH_CATEGORIES in utils/listingFormatter.js —
-   the categories whose page asks for sharing alone. */
-const SIMPLE_PATH_CATEGORIES = ['Bachelor Room'];
+/* One definition, in shared/constants/categories.js — these used to be
+   three hand-synchronised copies. */
+const {
+  NIGHTLY_CATEGORIES, SIMPLE_PATH_CATEGORIES, normaliseCategory,
+} = require('../../shared/constants/categories');
 const { sendOtpSms, smsConfigProblem } = require('../../infrastructure/sms/sms');
 const {
   toE164, isIndianMobile, maskPhone,
@@ -76,7 +80,9 @@ const DUPLICATE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
    Six digits behind the prefix, never trimmed, because it is read aloud at a
    gate and must always be the same length. */
-const generateEntryPin = () => `LV-${String(crypto.randomInt(0, 1000000)).padStart(6, '0')}`;
+/* Moved to otp.util.js so the app channel issues the same format. Two copies
+   of this would be two PIN formats an owner has to recognise. */
+const { generateEntryPin } = require('./otp.util');
 
 /** The choice the customer actually made, as one line: room, stay, price. */
 const describeSelection = (doc) => {
@@ -261,12 +267,22 @@ const createVisitRequest = async (req, res, next) => {
        from the property, never believed — validateIntent returns the intent
        rebuilt from the property's own numbers, so a posted rate is discarded
        rather than trusted. */
-    const simplePath = SIMPLE_PATH_CATEGORIES.includes(property.category);
+    const simplePath = SIMPLE_PATH_CATEGORIES.includes(normaliseCategory(property.category));
+  /* A hotel is asked for a check-in and a check-out rather than a duration.
+     `validateIntent` resolves the two dates into the same intent shape a short
+     stay produces, so nothing past this line has to know. */
+  const datesPath = NIGHTLY_CATEGORIES.includes(normaliseCategory(property.category));
+  /* A token category asks for the layout and nothing else at this stage. The
+     joining date comes after the owner confirms and the token is paid, when it
+     is a commitment rather than a guess about a viewing nobody has agreed to
+     yet. */
+  const tokenPath = needsToken(property);
     const checked = validateIntent({
       doc: property,
       intent: postedIntent,
       sharingOption: chosen,
       simplePath,
+      datesPath,
     });
     if (!checked.ok) {
       return res.status(400).json({
@@ -284,7 +300,20 @@ const createVisitRequest = async (req, res, next) => {
        path. The simple path has no such gate, and neither did clients written
        before this existed: demanding it of them would reject requests that
        were valid yesterday, for a box their build never rendered. */
-    if (!simplePath && !checked.legacy && consentedTerms !== true) {
+    /*
+     * Consent is asked of every category.
+     *
+     * The simple path used to be exempt, which meant a bachelor or co-live
+     * request was recorded with no evidence the person agreed to anything —
+     * the same contact details going to the same owner, and nothing behind
+     * it. The exemption was about the stay INTENT being simpler, and it got
+     * applied to the consent by proximity.
+     *
+     * `legacy` still is exempt: a client sending no intent at all predates
+     * the checkbox, and rejecting those would break requests from an older
+     * app bundle that were valid when it shipped.
+     */
+    if (!checked.legacy && consentedTerms !== true) {
       return res.status(400).json({
         success: false,
         code: 'CONSENT_REQUIRED',
@@ -341,6 +370,16 @@ const createVisitRequest = async (req, res, next) => {
       preferredTime: preferredTime ? String(preferredTime).trim().slice(0, 60) : null,
       sharing: chosen ? { label: chosen.label, price: chosen.price } : { label: null, price: null },
       intent,
+      /*
+       * A bachelor or co-live visit is paid for once the owner confirms.
+       *
+       * Decided here, from the category, and never re-read: a listing whose
+       * category is edited later must not retroactively make a paid request
+       * unpaid, or turn a free one into a debt.
+       */
+      payment: needsToken(property)
+        ? { required: true, status: 'pending', amountPaise: config.razorpay.tokenAmountPaise }
+        : { required: false, status: 'not_required' },
       consentWhatsApp: Boolean(consentWhatsApp),
       consentAt: consentWhatsApp ? new Date() : null,
       consentedTerms: consentedTerms === true,
@@ -636,8 +675,21 @@ const handleAvailabilityReply = async ({ from, body, buttonPayload }) => {
       else if (CONFIRM_RE.test(text)) confirmed = true;
       else return null;
 
-      doc = await VisitRequest.findOne({ ownerMobile: sender, status: 'pending_owner' })
-        .sort({ createdAt: -1 });
+      /*
+       * Web requests only.
+       *
+       * An app request is answered in Stay Partner — its owner is never sent
+       * a WhatsApp template for it, so a reply here cannot be about one. But
+       * an owner with both kinds pending would have had this untargeted
+       * lookup confirm whichever was newest, which could be the app one: a
+       * visit accepted by a message the owner was never shown, and on the
+       * app path that would also skip the bed claim that acceptance performs.
+       */
+      doc = await VisitRequest.findOne({
+        ownerMobile: sender,
+        status: 'pending_owner',
+        channel: { $ne: 'app' },
+      }).sort({ createdAt: -1 });
     }
 
     /* Nothing of ours is open. Deliberately returns null rather than a
@@ -675,6 +727,18 @@ const handleAvailabilityReply = async ({ from, body, buttonPayload }) => {
     }
 
     doc.status = confirmed ? 'confirmed' : 'declined';
+
+    /*
+     * The token clock starts when the owner says yes.
+     *
+     * From here they are holding a layout for somebody, so the request has a
+     * deadline to be paid for — without one an unpaid confirmation holds it
+     * for ever. A decline needs no clock: there is nothing left to pay for.
+     */
+    if (confirmed && doc.payment?.required && doc.payment.status !== 'paid') {
+      doc.payment.status = 'pending';
+      doc.payment.dueBy = new Date(Date.now() + config.razorpay.payWindowHours * 60 * 60 * 1000);
+    }
     doc.decidedAt = new Date();
     doc.ownerReplyRaw = payload || text;
 
@@ -683,7 +747,17 @@ const handleAvailabilityReply = async ({ from, body, buttonPayload }) => {
        number, or the two sides end up holding different PINs and neither is
        wrong. (The already-decided branch above normally catches a repeat, so
        this guard is for the race where two taps arrive together.) */
-    if (confirmed && !doc.entryPin) {
+    /*
+     * The visit reference waits for the money.
+     *
+     * It is what the two of them match at the door, so issuing it the moment
+     * an owner taps AVAILABLE hands over a confirmed visit before anybody has
+     * paid for one — the reference IS the confirmation as far as both sides
+     * are concerned. On a category that charges, it is minted when the token
+     * clears (see visitPayment.controller) and sent to both at once.
+     */
+    const tokenPending = doc.payment?.required && doc.payment.status !== 'paid';
+    if (confirmed && !doc.entryPin && !tokenPending) {
       doc.entryPin = generateEntryPin();
       doc.entryPinIssuedAt = new Date();
     }
@@ -697,10 +771,44 @@ const handleAvailabilityReply = async ({ from, body, buttonPayload }) => {
        holding the webhook open on another Twilio call risks a timeout and a
        retry of the whole tap. */
     if (confirmed) {
+      /*
+       * The address is withheld while a token is outstanding.
+       *
+       * On a category that charges for a visit, the street address is what the
+       * token buys — so a confirmation message that carried it handed over the
+       * thing being paid for a minute before the payment. The owner's own
+       * message still shows it; theirs is the door they own.
+       *
+       * The AREA still goes, because a confirmation with no location at all
+       * reads as though nobody knows where the property is. What is held back
+       * is the door number and the map link that leads to it.
+       */
+      const tokenOutstanding = doc.payment?.required && doc.payment.status !== 'paid';
+
       let pinAddress = '';
       try {
         const listing = await Property.findById(doc.listingId).select('address place').lean();
-        if (listing) {
+
+        if (tokenOutstanding) {
+          /*
+           * No address at all — a link to pay for it instead.
+           *
+           * The approved template's address variable takes any string, so the
+           * instruction goes in that slot rather than needing a second
+           * template through Meta review. A payment LINK rather than a button
+           * on the site, because the person reading this is in WhatsApp: a
+           * URL they can tap is one step, and finding their way back to a tab
+           * they closed is several.
+           */
+          const link = await ensurePaymentLink(doc);
+          const site = String(process.env.PUBLIC_SITE_URL || 'https://lampose.com').replace(/\/$/, '');
+          const listingUrl = `${site}/explore/${doc.listingId}`;
+
+          pinAddress = link
+            ? `Pay ₹${(doc.payment.amountPaise || 0) / 100} to unlock the full address: ${link}`
+            + ` — or open the listing: ${listingUrl}`
+            : `Open the listing to pay and unlock the full address: ${listingUrl}`;
+        } else if (listing) {
           pinAddress = listing.address && listing.place
             && String(listing.address).toLowerCase().includes(String(listing.place).toLowerCase())
             ? listing.address
@@ -718,9 +826,14 @@ const handleAvailabilityReply = async ({ from, body, buttonPayload }) => {
           customerName: doc.customer.name,
           propertyName: doc.propertyName,
           address: pinAddress,
+          /* No map link on the pre-payment message: that slot holds a "pay
+             here" line, and a link built from it points Google at the
+             sentence. */
+          directions: !tokenOutstanding,
           sharingLabel: doc.sharing && doc.sharing.label,
           joiningDate: describeJoiningDate(doc),
-          pin: doc.entryPin,
+          /* Nothing to show at a door that has not been paid for. */
+          pin: doc.entryPin || 'Sent once your token is paid',
         }).then((result) => {
           if (!result.success) {
             console.error('[availability] Visit confirmation to customer failed:', result.error);
@@ -764,10 +877,23 @@ const handleAvailabilityReply = async ({ from, body, buttonPayload }) => {
        owner has just tapped a button and is looking at the chat right now,
        and the separate template can be delayed or fail — this reply cannot,
        because it is the response to their own inbound message. */
+    /*
+     * Two different truths, and the owner is owed the right one.
+     *
+     * Without a token the visit is settled the moment they tap, so they get
+     * the reference now. With one outstanding, it is not settled: the visitor
+     * still has to pay, and telling the owner to expect somebody with a
+     * reference number nobody has issued would have them turn up to a door
+     * expecting a match that cannot happen.
+     */
     return confirmed
-      ? `Thank you. We have told ${doc.customer.name} that ${what} is available.\n\n`
-        + `Visit reference: ${doc.entryPin}\n\n`
-        + `${doc.customer.name} has the same reference number. Please ask them for it when they arrive and check that it matches.`
+      ? (doc.payment?.required && doc.payment.status !== 'paid'
+        ? `Thank you. We have told ${doc.customer.name} that ${what} is available.\n\n`
+          + 'They are confirming their visit now. We will send you the visit reference number '
+          + 'as soon as they do — please wait for it before expecting them.'
+        : `Thank you. We have told ${doc.customer.name} that ${what} is available.\n\n`
+          + `Visit reference: ${doc.entryPin}\n\n`
+          + `${doc.customer.name} has the same reference number. Please ask them for it when they arrive and check that it matches.`)
       : `Thank you. We have let ${doc.customer.name} know that ${what} is not `
         + 'available at the moment.';
   } catch (error) {

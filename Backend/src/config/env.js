@@ -127,6 +127,95 @@ const config = {
     retryMs: Number(process.env.DB_RETRY_MS) || 5000,
   },
 
+  /* ── Push notifications ───────────────────────────────────────────────
+     Both apps are Expo, so one endpoint reaches Android and iOS with one
+     token format. No key is needed for development; production uploads FCM
+     credentials to the Expo project rather than holding them here.
+
+     `enabled` exists so a deployment can turn push off without a code change
+     — useful while the apps are being built, and the only honest switch when
+     the Expo project is not set up yet. Off means every send is a named
+     no-op, never an error. */
+  push: {
+    enabled: bool(process.env.PUSH_ENABLED, true),
+    /* Only needed when the Expo project has push security enabled. */
+    accessToken: String(process.env.EXPO_ACCESS_TOKEN || '').trim() || null,
+    /* Short: a state transition has already committed and must not wait on a
+       gateway to report it. */
+    timeoutMs: Number(process.env.PUSH_TIMEOUT_MS) || 6000,
+  },
+
+  /* ── The visit token ──────────────────────────────────────────────────
+     A bachelor or co-live visit is confirmed by the owner and then paid for:
+     a small token that turns a browse into an intent, and buys the joining-date
+     step and the address behind it.
+
+     Absent keys are not fatal. Nothing here exits the process — the payment
+     routes answer a named 503 and every other flow carries on, which is the
+     same rule Mongo, SMS and Twilio follow. */
+  razorpay: {
+    keyId: String(process.env.RAZORPAY_KEY_ID || '').trim(),
+    /* Never leaves the server: it signs orders and verifies callbacks. */
+    keySecret: String(process.env.RAZORPAY_KEY_SECRET || '').trim(),
+    /* Optional. Set it and the webhook route verifies its own signature. */
+    webhookSecret: String(process.env.RAZORPAY_WEBHOOK_SECRET || '').trim(),
+
+    /* In PAISE, because that is the only unit Razorpay accepts and converting
+       at the boundary is where rounding bugs get in. 2000 = ₹20. */
+    tokenAmountPaise: (() => {
+      const raw = Number(process.env.VISIT_TOKEN_AMOUNT_PAISE);
+      if (!Number.isFinite(raw) || raw < 100) return 2000;
+      return Math.round(raw);
+    })(),
+
+    /* How long an accepted request waits to be paid for.
+       The owner has agreed and is holding a layout; without a deadline an
+       unpaid request holds it for ever. */
+    payWindowHours: (() => {
+      const raw = Number(process.env.VISIT_TOKEN_WINDOW_HOURS);
+      if (!Number.isFinite(raw) || raw < 1 || raw > 168) return 24;
+      return Math.round(raw);
+    })(),
+  },
+
+  /* ── The stay-request flow ────────────────────────────────────────────
+     A student asks, an owner has a few minutes to answer on their phone.
+
+     `expiryMinutes` is the whole product decision in one number, and it is
+     configuration rather than a constant precisely because three minutes is a
+     starting guess: it has to cover push delivery, the owner noticing,
+     unlocking, reading and deciding. The number to watch in the first week is
+     the ratio of expired to answered, and changing it must not be a deploy of
+     new code.
+
+     Read ONCE, here, so the two apps and the expiry worker cannot disagree
+     about how long a request lives. */
+  booking: {
+    expiryMinutes: (() => {
+      const value = Number(process.env.REQUEST_EXPIRY_MINUTES);
+      /* Bounded rather than trusted. A zero would expire every request the
+         instant it was made, and a typo of 300 would hold a bed for five
+         hours on a flow whose entire promise is that it is quick. */
+      if (!Number.isFinite(value) || value <= 0) return 3;
+      return Math.min(value, 60);
+    })(),
+
+    /* How many times a student may pull one request back.
+       One, and the state machine enforces it for free: a withdrawal is
+       terminal, so a second attempt fails the `pending_owner` filter. The
+       setting exists for the day a request becomes re-openable — until then
+       it is a ceiling nothing can reach. */
+    maxWithdrawalsPerRequest: (() => {
+      const value = Number(process.env.MAX_WITHDRAWALS_PER_REQUEST);
+      return Number.isFinite(value) && value >= 0 ? value : 1;
+    })(),
+
+    /* How often the expiry worker looks. One tick of lateness against a
+       three-minute deadline is acceptable; the guard on every read and every
+       action is what makes it correct rather than merely prompt. */
+    expiryTickMs: Number(process.env.REQUEST_EXPIRY_TICK_MS) || 5000,
+  },
+
   storage: { mode: storageMode },
 
   auth: {

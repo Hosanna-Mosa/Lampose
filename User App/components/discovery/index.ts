@@ -105,3 +105,5 @@ export {
   type StayIntent,
   type StayTrack,
 } from './StayIntentSelector';
+
+export { HotelStaySelector, type HotelIntent, type HotelRateStructure } from './HotelStaySelector';

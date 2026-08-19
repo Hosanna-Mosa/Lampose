@@ -15,6 +15,7 @@ import { getBooking } from '@/lib/bookings';
 import { checkInBookingApi } from '@/services/api/domain.api';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
+import { logWarn } from '@/lib/log';
 
 const CODE_LENGTH = 4;
 const MAX_ATTEMPTS = 3;
@@ -83,7 +84,7 @@ export default function CheckInScreen() {
       setWrong(true);
       if (left <= 0) setToast('Too many attempts. Code entry is locked for 15 minutes.');
     } catch (err) {
-      console.warn('Checkin error:', err);
+      logWarn('Checkin error:', err);
     } finally {
       setVerifying(false);
     }

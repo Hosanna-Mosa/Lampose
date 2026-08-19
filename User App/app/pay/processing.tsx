@@ -18,6 +18,7 @@ import {
   type PaymentPhase,
   type ProcessingStep,
 } from '@/types/payment';
+import { usePreviewControls } from '@/hooks/useAppEnv';
 
 /**
  * Leaving, returning, waiting, and the three ways it fails.
@@ -35,6 +36,7 @@ import {
  * payment mid-flight is how someone ends up paying twice.
  */
 export default function PaymentProcessing() {
+  const previewControls = usePreviewControls();
   const { colors, space, layout, mode, radius } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -185,7 +187,7 @@ export default function PaymentProcessing() {
               </View>
             ) : null}
 
-            {__DEV__ ? (
+            {previewControls ? (
               <View style={{ gap: space[2], paddingTop: space[4] }}>
                 <Text variant="numMeta" color="tertiary">
                   outcome — preview only

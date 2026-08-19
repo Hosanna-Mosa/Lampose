@@ -1,34 +1,45 @@
 import React from 'react';
-import { Building2, BedDouble, Users, CheckCircle2 } from 'lucide-react';
+import { Building2, BedDouble, Users, Home, CheckCircle2 } from 'lucide-react';
 
+/*
+ * The four categories, by code.
+ *
+ * `id` is what gets stored — see Backend/src/shared/constants/categories.js,
+ * which is where the list is defined and which will reject anything else.
+ * The title and subtitle are this screen's own words for them.
+ *
+ * PG and hostel are one category now. An agent standing in a building does
+ * not need to decide which word applies before the form will let them
+ * continue, and the fields that follow are the union of what the two asked.
+ */
 const CATEGORY_OPTIONS = [
   {
-    id: 'PG',
-    title: 'Paying Guest (PG)',
-    subtitle: 'Food included, sharing rooms, student/worker stays',
+    id: 'PG_HOSTEL',
+    title: 'PG / Hostel',
+    subtitle: 'Sharing rooms, meals, warden or canteen — student and worker stays',
     badge: 'Popular',
     icon: Building2
   },
   {
-    id: 'Hostel',
-    title: 'Student/Work Hostel',
-    subtitle: 'Boys/Girls hostel with canteen, warden & security',
-    badge: 'Secure',
-    icon: Building2
-  },
-  {
-    id: 'Bachelor Room',
+    id: 'BACHELOR',
     title: 'Bachelor Room / Flat',
     subtitle: '1BHK/2BHK flat or room for male/female bachelors',
     badge: 'Private',
     icon: Users
   },
   {
-    id: 'Dormitory',
-    title: 'Dormitory / Pods',
-    subtitle: 'Bunk beds, daily rates, personal lockers & shared bath',
-    badge: 'Budget',
+    id: 'HOTEL',
+    title: 'Hotel / Dormitory',
+    subtitle: 'Bunk beds or rooms, nightly rates, lockers & shared bath',
+    badge: 'By the night',
     icon: BedDouble
+  },
+  {
+    id: 'COLIVE',
+    title: 'House / Co-live',
+    subtitle: 'A whole house or a room in one, shared with other tenants',
+    badge: 'Shared',
+    icon: Home
   }
 ];
 

@@ -11,9 +11,11 @@ import { ActionBar, StatusBlock } from '@/components/lifecycle';
 import { errorStates } from '@/constants/copy';
 import { useTheme } from '@/context/ThemeContext';
 import { addressVisible, findBooking, timelineSteps, type BookingSummary } from '@/data/bookings';
+import { confirmMovedIn, useStayRequest } from '@/services';
 import { formatRupees } from '@/utils/money';
 import type { BookingStatus } from '@/constants/tokens';
 import { useDepositMark } from '@/components/ui/DepositMark';
+import { usePreviewControls } from '@/hooks/useAppEnv';
 
 /**
  * One template, thirteen statuses.
@@ -30,11 +32,57 @@ import { useDepositMark } from '@/components/ui/DepositMark';
  * SWAPS — exactly two slots: the status block, and the action bar.
  */
 export default function BookingDetail() {
+  const previewControls = usePreviewControls();
   const { colors, space, layout, mode, radius } = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const stored = useMemo(() => (id ? findBooking(id) : undefined), [id]);
+
+  /*
+   * The real entry PIN, for a booking that came from an accepted request.
+   *
+   * Everything else on this screen is still local — the terms, the address,
+   * the timeline labels — because none of it has a server equivalent yet. The
+   * CODE does, and it is the one thing here that must not be invented: a
+   * student reads it out at a door to an owner holding the server's value.
+   *
+   * The local booking id encodes the listing (`bkg-<listingId>`), which is
+   * what lets this screen find the request behind it without a lookup
+   * endpoint that does not exist yet.
+   */
+  const listingId = id?.startsWith('bkg-') ? id.slice(4) : null;
+  const stay = useStayRequest(listingId);
+  const entryPin = stay.request?.entryPin ?? null;
+
+  /*
+   * Moving in, which takes both of them.
+   *
+   * The owner marks it first — they check the PIN and open the door — and this
+   * button unlocks only once they have. Before that it says what to do instead
+   * of being greyed out for no stated reason: a disabled control with no
+   * explanation is one people tap repeatedly.
+   */
+  const moveIn = stay.request?.moveIn;
+  const [confirming, setConfirming] = useState(false);
+  const [moveInError, setMoveInError] = useState<string | null>(null);
+
+  const onConfirmMovedIn = async () => {
+    if (!stay.request) return;
+    setConfirming(true);
+    setMoveInError(null);
+    try {
+      await confirmMovedIn(stay.request.id);
+      /* Refetched rather than assumed — the booking is the server's, and this
+         screen has just changed it. */
+      await stay.refresh();
+    } catch (error) {
+      setMoveInError((error as { displayMessage?: string }).displayMessage
+        ?? 'We could not confirm that. Try again in a moment.');
+    } finally {
+      setConfirming(false);
+    }
+  };
   /** Dev-only status override, so all thirteen are reachable without a server. */
   const [override, setOverride] = useState<BookingStatus | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
@@ -63,7 +111,10 @@ export default function BookingDetail() {
         {/* SLOT 1 — swaps by status. */}
         <StatusBlock booking={booking} />
 
-        {codeOpen && booking.verificationCode ? (
+        {/* Shown only when the SERVER has issued one — see the note above.
+            A locally minted code here is a number a student reads out to an
+            owner holding a different one, and both believe it. */}
+        {codeOpen && entryPin ? (
           <View
             style={{
               backgroundColor: colors.surface,
@@ -73,9 +124,11 @@ export default function BookingDetail() {
               padding: space[4],
             }}
           >
+            {/* Six digit tiles with the full `LV-` form beneath — the same
+                two things, in the same order, as both owner screens. */}
             <VerificationCodeDisplay
-              code={booking.verificationCode}
-              bookingReference={booking.reference}
+              code={entryPin.replace(/\D/g, '')}
+              bookingReference={entryPin}
               ownerName={booking.ownerName}
               validLabel={booking.codeValidLabel ?? 'Valid on your move-in day'}
             />
@@ -134,6 +187,71 @@ export default function BookingDetail() {
           ) : null}
         </View>
 
+        {/*
+          Moving in — the second half of it.
+
+          Shown once there is a booking and until both sides have confirmed.
+          Before the owner marks it, this is a SENTENCE rather than a greyed
+          button: "waiting for the owner" tells somebody standing in a room
+          what to do next, and a disabled control with no explanation is one
+          people tap over and over.
+        */}
+        {moveIn && !moveIn.complete ? (
+          <View
+            style={{
+              backgroundColor: colors.surface,
+              borderColor: moveIn.awaitingStudent ? colors.success.border : colors.border,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderRadius: radius.card,
+              padding: space[4],
+              gap: space[3],
+            }}
+          >
+            <View style={{ gap: space[1] }}>
+              <Text variant="bodyStrong">
+                {moveIn.awaitingStudent ? 'Confirm you have moved in' : 'Moving in'}
+              </Text>
+              <Text variant="caption" color="secondary">
+                {moveIn.awaitingStudent
+                  ? `${booking.ownerName} has marked you in. Confirm from your side and the stay begins.`
+                  : `Show your entry PIN to ${booking.ownerName} when you arrive. Once they mark you in, you confirm here.`}
+              </Text>
+            </View>
+
+            {moveInError ? (
+              <Text variant="caption" style={{ color: colors.danger.ink }}>
+                {moveInError}
+              </Text>
+            ) : null}
+
+            <Button
+              label={confirming ? 'Confirming…' : 'I have moved in'}
+              onPress={onConfirmMovedIn}
+              /* Locked until the owner goes first — the server refuses it
+                 anyway, and a button that can only fail is worse than one
+                 that plainly waits. */
+              disabled={!moveIn.awaitingStudent || confirming}
+              fullWidth
+            />
+          </View>
+        ) : moveIn?.complete ? (
+          <View
+            style={{
+              backgroundColor: colors.success.tint,
+              borderRadius: radius.card,
+              padding: space[4],
+              gap: space[1],
+            }}
+          >
+            <Text variant="bodyStrong" style={{ color: colors.success.ink }}>
+              You have moved in
+            </Text>
+            <Text variant="caption" style={{ color: colors.success.ink }}>
+              Both you and {booking.ownerName} confirmed it. Enjoy the room.
+            </Text>
+          </View>
+        ) : null}
+
         {/* SLOT 2 — swaps by status. */}
         <ActionBar
           booking={booking}
@@ -158,7 +276,7 @@ export default function BookingDetail() {
           onSupport={() => {}}
         />
 
-        {__DEV__ ? (
+        {previewControls ? (
           <View style={{ gap: space[2], paddingTop: space[4] }}>
             <Text variant="numMeta" color="tertiary">
               status — preview only · the template is the same for all thirteen

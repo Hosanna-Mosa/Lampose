@@ -16,7 +16,10 @@ const {
    by the bed rather than by stay length — the panel records no daily rate and
    no month ladder for it — so that page asks for sharing alone. Named here so
    the browser does not have to re-derive the rule. */
-const SIMPLE_PATH_CATEGORIES = ['Bachelor Room'];
+const {
+  DEFAULT_CATEGORY, SIMPLE_PATH_CATEGORIES, TOKEN_CATEGORIES, normaliseCategory,
+} = require('../../shared/constants/categories');
+const config = require('../../config/env');
 
 /* Cities we can name with confidence. `place` is free text from the panel and
    often has no comma, so a known name anywhere in the string beats splitting
@@ -78,7 +81,7 @@ const formatListing = (input) => {
     place: doc.place,
     city,
     locality: localityOf(place, city),
-    category: doc.category || 'PG',
+    category: normaliseCategory(doc.category) || DEFAULT_CATEGORY,
     categorySlug: slugify(doc.category),
     stayType: doc.stayType || 'Long Stay',
     longStayDuration: doc.longStayDuration || null,
@@ -90,7 +93,20 @@ const formatListing = (input) => {
     deposit: doc.deposit || null,
     ownerName: doc.ownerName || 'Property Owner',
     ownerMobile: doc.ownerMobile || '',
-    address: doc.address || '',
+    /*
+     * NOT the street address.
+     *
+     * This projection is what `/api/v2/listings` serves to anybody, and it was
+     * publishing the door number of every property on the platform. No client
+     * ever rendered it — the Listing page has a comment explaining why it must
+     * not — so it was a leak with no reader, which is the kind that survives
+     * longest.
+     *
+     * `place` above is the area, which is what a map and a locality line need.
+     * The full address is released with the visit token, by
+     * visitPayment.controller.js, to the one person who paid for it.
+     */
+    addressAvailableAfterVisit: true,
     /* The Listing page renders an "About this property" section from this.
        It was absent from the projection, so that section had nothing to show
        however well the panel filled it in. */
@@ -124,7 +140,20 @@ const formatListing = (input) => {
     },
     joinWindow: joinWindow(),
     /* Bachelor Room asks for sharing only — no stay type, no duration. */
-    simpleSharingPath: SIMPLE_PATH_CATEGORIES.includes(doc.category),
+    simpleSharingPath: SIMPLE_PATH_CATEGORIES.includes(normaliseCategory(doc.category)),
+
+    /*
+     * Whether a confirmed visit here is paid for.
+     *
+     * Exposed rather than inferred from `simpleSharingPath`. The two happen to
+     * cover the same categories today, and a page that guessed one from the
+     * other would start asking for money — or stop — the moment they diverge.
+     * The amount travels so a button can name the figure instead of hardcoding
+     * a number that lives in the server's config.
+     */
+    visitToken: TOKEN_CATEGORIES.includes(normaliseCategory(doc.category))
+      ? { required: true, amountPaise: config.razorpay.tokenAmountPaise }
+      : { required: false, amountPaise: null },
 
     /* Meal facts, only where the panel recorded them. `foodIncluded` false is
        a real answer and is kept; absent stays absent, and the page shows no

@@ -53,17 +53,22 @@ export default function ActiveStayScreen() {
   const { currentDay, totalDays, ratio } = stayProgress(booking);
   const departsToday = isSameDay(booking.checkOut, new Date());
 
+  /* The footer button and the shortcut are the same act, so they are the same
+     function. The shortcut previously called an `openCheckout` that was never
+     declared — a ReferenceError the first time anybody pressed it, which
+     typechecking had been reporting and nothing was reading. */
+  const openCheckout = () =>
+    router.push({ pathname: '/booking/checkout', params: { id: booking.id } });
+
   return (
     <Screen
       padX={22}
-            contentStyle={styles.fill}
+            contentStyle={styles.container}
             footer={
               departsToday ? (
                 <Button
                   label="Confirm checkout"
-                  onPress={() =>
-                    router.push({ pathname: '/booking/checkout', params: { id: booking.id } })
-                  }
+                  onPress={openCheckout}
                 />
               ) : (
                 <Button
@@ -117,7 +122,7 @@ export default function ActiveStayScreen() {
           label="Message guest"
           onPress={() => router.push({ pathname: '/support', params: { topic: 'guest' } })}
         />
-        <Shortcut icon="checkout" label="Checkout" onPress={openCheckout} />
+        <Shortcut icon="suitcase" label="Checkout" onPress={openCheckout} />
       </View>
     </Screen>
   );

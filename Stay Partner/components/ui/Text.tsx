@@ -21,7 +21,19 @@ export function Text({
   ...rest
 }: Props) {
   const c = useColors();
-  const resolved = (c as Record<string, string>)[color as string] ?? (color as string);
+  /*
+   * `useColors()` returns the palette PLUS `radius`, which is a number — so
+   * the object genuinely is not a `Record<string, string>` and the old cast
+   * was a lie tsc was right to reject.
+   *
+   * Reading it as `unknown` and checking the result also closes the bug that
+   * cast was hiding: `<Text color="radius">` resolved to the number 16 and
+   * handed React Native a numeric colour. Anything that is not a string token
+   * now falls through to being treated as a raw colour, which is what the
+   * prop's `(string & {})` half already promised.
+   */
+  const token = (c as Record<string, unknown>)[color as string];
+  const resolved = typeof token === 'string' ? token : (color as string);
 
   const base: TextStyle = {
     ...typeScale[variant],

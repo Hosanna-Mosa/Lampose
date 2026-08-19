@@ -8,6 +8,14 @@ export type NotificationType = 'request' | 'payout' | 'checkin' | 'review' | 'pa
 
 export type AppNotification = {
   id: string;
+  /**
+   * The stay request this is about, where there is one.
+   *
+   * Without it a notification is a dead end — an owner reads "you have 3
+   * minutes to answer", taps, and lands nowhere. On this deadline that is the
+   * notification failing at its only job.
+   */
+  requestId?: string | null;
   type: NotificationType;
   title: string;
   body: string;

@@ -1,4 +1,5 @@
 import Constants from 'expo-constants';
+import { API_URL, DEBUG_LOGS } from '@/constants/env';
 
 /**
  * Where the backend is, and how this app is allowed to find out.
@@ -94,7 +95,10 @@ function normalizeBase(value: string): string {
   return value.trim().replace(/\/+$/, '').replace(/\/api$/i, '');
 }
 
-const RAW_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
+/* Read in `constants/env.ts`, which is where every environment value in this
+   app is gathered — and which explains why they are written out as literals
+   rather than looked up by name. */
+const RAW_BASE_URL = API_URL ?? '';
 
 /** The backend origin: no trailing slash, no `/api` suffix, or `''` if unset. */
 export const API_BASE_URL = RAW_BASE_URL ? normalizeBase(RAW_BASE_URL) : '';
@@ -158,7 +162,7 @@ export function describeApiTarget(): string {
  * screen instead would mean the banner appears or not depending on which
  * screen mounted first.
  */
-if (__DEV__) {
+if (DEBUG_LOGS) {
   const lines = [
     '',
     '📡 ─── Lampose Stay Partner → backend ─────────────────────',

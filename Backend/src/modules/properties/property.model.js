@@ -27,6 +27,7 @@
                           utils/listingFormatter
    ══════════════════════════════════════════════════════════════════════════ */
 const mongoose = require('mongoose');
+const { CATEGORIES } = require('../../shared/constants/categories');
 
 const propertySchema = new mongoose.Schema(
   {
@@ -62,10 +63,13 @@ const propertySchema = new mongoose.Schema(
       default: '',
       trim: true
     },
+    /* Stored as a code, not a label — see shared/constants/categories.js.
+       The enum is that module's array so the schema cannot drift from the
+       validators that guard the two write paths. */
     category: {
       type: String,
       required: [true, 'Category is required'],
-      enum: ['PG', 'Hostel', 'Dormitory', 'Bachelor Room']
+      enum: CATEGORIES
     },
     // Employee / Agent email who onboarded this property
     employeeEmail: {
@@ -129,6 +133,38 @@ const propertySchema = new mongoose.Schema(
     categoryDetails: {
       type: mongoose.Schema.Types.Mixed,
       default: {}
+    },
+    /*
+     * Ownership and premises paperwork. Hotels must supply two; nothing else
+     * is asked for any.
+     *
+     * TOP-LEVEL, and deliberately not inside `categoryDetails` — the public
+     * listing projection returns that whole object verbatim
+     * (`listing.formatter.js`: `details: doc.categoryDetails`), so a PAN
+     * document filed there would be served to anybody browsing lampose.com.
+     * Nothing in the formatter projects this field, so it reaches only the
+     * authenticated surfaces: the leads panel and the admin console.
+     *
+     * The URLs themselves are Cloudinary's default public-read. They are
+     * unguessable, which is not the same as private — see the note in
+     * Onboard/src/services/api.js. Treat this array as sensitive.
+     */
+    documents: {
+      type: [{
+        /* What role it plays: 'pan' | 'premises'. */
+        kind: { type: String, trim: true },
+        /* For a premises document, which of the accepted kinds it is. */
+        docType: { type: String, default: '', trim: true },
+        url: { type: String, trim: true },
+        /* The original filename, so a reviewer can tell a photo of a bill from
+           a scan of a licence without opening both. */
+        name: { type: String, default: '', trim: true },
+        uploadedAt: { type: Date, default: Date.now },
+      }],
+      default: [],
+      /* Not select:false — the leads panel and admin console both read the raw
+         document and would lose it silently. The protection is that no public
+         projection includes it. */
     },
     isVerified: {
       type: Boolean,

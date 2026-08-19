@@ -37,6 +37,11 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
 
   const selectedAmenities = Array.isArray(formData.amenities) ? formData.amenities : [];
   const currentStayType = formData.stayType === 'Short Stay' ? 'Short Stay' : 'Long Stay';
+  const derivedRent = formData.monthlyPrice || formData.rent || '';
+  const isHotel = formData.category === 'HOTEL';
+  /* Written by App.jsx whenever a layout price changes — see the rent
+     derivation in handleCategoryDetailChange. */
+
   
   // Local images array representing photos chosen by user
   const localImages = Array.isArray(formData.localImages) ? formData.localImages : [];
@@ -58,8 +63,11 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
     onChange({ target: { name: 'stayType', value: type } });
   };
 
-  const isBachelor = formData.category === 'Bachelor Room';
-  const isShortStay = currentStayType === 'Short Stay' && !isBachelor;
+  const isBachelor = formData.category === 'BACHELOR' || formData.category === 'COLIVE';
+  /* A hotel is nightly by definition, so it takes the short-stay path
+     whatever `stayType` happens to hold — a stale Long Stay carried over from
+     a previous category would otherwise hide check-in and check-out. */
+  const isShortStay = (currentStayType === 'Short Stay' || isHotel) && !isBachelor;
   const isLongStay = (currentStayType === 'Long Stay' || isBachelor) && !isShortStay;
 
   // Local File Selection (Does not upload to cloud until form submit)
@@ -139,10 +147,18 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
     <div className="animate-fade-in" style={{ marginBottom: '28px' }}>
       <h3 style={{ fontSize: '1.2rem', color: '#181e1b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
         <IndianRupee size={20} color="#45855a" />
-        <span>{isBachelor ? '3. Pricing & Amenities' : '3. Stay Duration, Pricing & Amenities'}</span>
+        {/* Each says what the step actually contains: a bachelor let has no
+            stay duration and no amenity picker (both live in the previous
+            step), and a hotel records check-in and check-out rather than a
+            duration. */}
+        <span>
+          {isBachelor
+            ? '3. Pricing & Photos'
+            : (isHotel ? '3. Pricing & Photos' : '3. Stay Duration, Pricing & Amenities')}
+        </span>
       </h3>
 
-      {/* STAY TYPE SELECTION (For PG, Hostel, Dormitory) */}
+      {/* STAY TYPE SELECTION (everything except the whole-property lets) */}
       {!isBachelor ? (
         <div style={{
           padding: '20px',
@@ -152,12 +168,24 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
           marginBottom: '20px',
           boxShadow: '0 2px 10px rgba(0,0,0,0.02)'
         }}>
-          <label className="form-label" style={{ fontSize: '0.95rem', color: '#181e1b', fontWeight: 700, marginBottom: '14px' }}>
-            Are you looking for / Offering Stay Type *
-          </label>
+          {/*
+            * A hotel is not asked which kind of stay it offers.
+            *
+            * It is nightly by definition — the category exists for places sold
+            * by the night, `handleCategorySelect` sets Short Stay when it is
+            * chosen, and the bed cards price by the night. Offering the choice
+            * only let an agent put a hotel on the long-stay path, where the
+            * form would then ask for a monthly rent the bed grid had already
+            * answered.
+            */}
+          {isHotel ? null : (
+            <label className="form-label" style={{ fontSize: '0.95rem', color: '#181e1b', fontWeight: 700, marginBottom: '14px' }}>
+              Are you looking for / Offering Stay Type *
+            </label>
+          )}
 
           {/* 2 Main Stay Type Buttons (Short Stay vs Long Stay) */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '18px' }}>
+          <div style={{ display: isHotel ? 'none' : 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '18px' }}>
             <button
               type="button"
               className="btn"
@@ -217,31 +245,74 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
             }}>
               <h4 style={{ fontSize: '0.92rem', color: '#181e1b', fontWeight: 700, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <Clock size={16} color="#45855a" />
-                <span>Short Stay Configuration (1 - 7 Days)</span>
+                <span>{isHotel ? 'Nightly Rate' : 'Short Stay Configuration (1 - 7 Days)'}</span>
               </h4>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label" style={{ color: '#181e1b' }}>Duration Option</label>
-                  <select
-                    name="shortStayDuration"
-                    className="form-select"
-                    value={formData.shortStayDuration || '1-7 Days'}
-                    onChange={onChange}
-                  >
-                    <option value="1 Day">1 Day</option>
-                    <option value="2 Days">2 Days</option>
-                    <option value="3 Days">3 Days</option>
-                    <option value="4 Days">4 Days</option>
-                    <option value="5 Days">5 Days</option>
-                    <option value="6 Days">6 Days</option>
-                    <option value="7 Days">7 Days (1 Week)</option>
-                    <option value="1-7 Days">Flexible (1-7 Days)</option>
-                  </select>
-                </div>
+                {/*
+                  * A hotel is asked for no duration and no times.
+                  *
+                  * Check-in and check-out are the GUEST's — the dates they
+                  * pick when booking — not a fact the owner records once about
+                  * the building. Collecting them here produced a policy time
+                  * that looked like an availability window and was neither.
+                  *
+                  * So a hotel's pricing card is just the rate, which the bed
+                  * grid in the previous step has already worked out.
+                  */}
+                {isHotel ? null : (
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ color: '#181e1b' }}>Duration Option</label>
+                    <select
+                      name="shortStayDuration"
+                      className="form-select"
+                      value={formData.shortStayDuration || '1-7 Days'}
+                      onChange={onChange}
+                    >
+                      <option value="1 Day">1 Day</option>
+                      <option value="2 Days">2 Days</option>
+                      <option value="3 Days">3 Days</option>
+                      <option value="4 Days">4 Days</option>
+                      <option value="5 Days">5 Days</option>
+                      <option value="6 Days">6 Days</option>
+                      <option value="7 Days">7 Days (1 Week)</option>
+                      <option value="1-7 Days">Flexible (1-7 Days)</option>
+                    </select>
+                  </div>
+                )}
 
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label" htmlFor="dailyPriceInput" style={{ color: '#181e1b' }}>Price per Day (₹) *</label>
+                <div className="form-group" style={{ marginBottom: 0 }} id={isHotel ? 'dailyPriceInput' : undefined}>
+                  <label className="form-label" htmlFor={isHotel ? undefined : 'dailyPriceInput'} style={{ color: '#181e1b' }}>
+                    Price per Day (₹){isHotel ? '' : ' *'}
+                  </label>
+                  {isHotel ? (
+                    /* Read, not typed: every bed type carries its own nightly
+                       rate in the previous step, and the cheapest is what the
+                       listing leads with. A free input here could disagree
+                       with all of them. */
+                    formData.dailyPrice || formData.rent ? (
+                      <div style={{
+                        display: 'flex', alignItems: 'baseline', gap: '10px', flexWrap: 'wrap',
+                        padding: '10px 14px', borderRadius: '10px',
+                        background: '#eaf3ed', border: '1px solid #c2e2cc'
+                      }}>
+                        <span style={{ fontSize: '1.2rem', fontWeight: 700, color: '#2e5e3e' }}>
+                          ₹{Number(formData.dailyPrice || formData.rent).toLocaleString('en-IN')}
+                        </span>
+                        <span style={{ fontSize: '0.75rem', color: '#45855a', fontWeight: 600 }}>
+                          cheapest bed you priced
+                        </span>
+                      </div>
+                    ) : (
+                      <div style={{
+                        padding: '10px 14px', borderRadius: '10px',
+                        background: '#f8faf8', border: '1px dashed #c8d4cb',
+                        fontSize: '0.82rem', color: '#64748b'
+                      }}>
+                        Fills itself once you price a bed type above.
+                      </div>
+                    )
+                  ) : (
                   <input
                     id="dailyPriceInput"
                     type="number"
@@ -255,6 +326,7 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
                     className="form-input"
                     style={{ borderColor: errorBorder(errors.dailyPrice) }}
                   />
+                  )}
                   <FieldError message={errors.dailyPrice} />
                 </div>
               </div>
@@ -307,7 +379,7 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
                     style={{ borderColor: errorBorder(errors.monthlyPrice) }}
                   />
                   <FieldError message={errors.monthlyPrice} />
-                  {formData.category === 'PG' && (
+                  {formData.category === 'PG_HOSTEL' && (
                     <span style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', marginTop: '4px' }}>
                       For a PG this fills itself from the cheapest sharing rent you enter above.
                     </span>
@@ -318,7 +390,16 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
           )}
         </div>
       ) : (
-        /* Direct Monthly Pricing Card for Bachelor Rooms */
+        /*
+         * Bachelor and co-live: the headline rent is READ, not typed.
+         *
+         * Each layout carries its own rent in the previous step, and the
+         * cheapest of them is the price the listing leads with. This used to
+         * be a free input, which meant an agent could type ₹12,000 here while
+         * the only layout was priced at ₹18,000 — and the site would advertise
+         * the wrong one. Showing the derived figure removes the disagreement
+         * rather than validating it away.
+         */
         <div style={{
           padding: '20px',
           borderRadius: '16px',
@@ -327,23 +408,32 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
           marginBottom: '20px',
           boxShadow: '0 2px 10px rgba(0,0,0,0.02)'
         }}>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label" htmlFor="monthlyPriceInput" style={{ fontSize: '1rem', color: '#181e1b', fontWeight: 700, marginBottom: '8px' }}>
-              Monthly Rent Amount (₹) *
+          <div className="form-group" style={{ marginBottom: 0 }} id="monthlyPriceInput">
+            <label className="form-label" style={{ fontSize: '1rem', color: '#181e1b', fontWeight: 700, marginBottom: '8px' }}>
+              Monthly Rent Amount (₹)
             </label>
-            <input
-              id="monthlyPriceInput"
-              type="number"
-              name="monthlyPrice"
-              placeholder="e.g. 12000.00"
-              value={formData.monthlyPrice || formData.rent || ''}
-              onChange={(e) => {
-                onChange(e);
-                onChange({ target: { name: 'rent', value: e.target.value } });
-              }}
-              className="form-input"
-              style={{ borderColor: errorBorder(errors.monthlyPrice) }}
-            />
+            {derivedRent ? (
+              <div style={{
+                display: 'flex', alignItems: 'baseline', gap: '10px', flexWrap: 'wrap',
+                padding: '12px 16px', borderRadius: '10px',
+                background: '#eaf3ed', border: '1px solid #c2e2cc'
+              }}>
+                <span style={{ fontSize: '1.35rem', fontWeight: 700, color: '#2e5e3e' }}>
+                  ₹{Number(derivedRent).toLocaleString('en-IN')}
+                </span>
+                <span style={{ fontSize: '0.78rem', color: '#45855a', fontWeight: 600 }}>
+                  the cheapest layout you priced
+                </span>
+              </div>
+            ) : (
+              <div style={{
+                padding: '12px 16px', borderRadius: '10px',
+                background: '#f8faf8', border: '1px dashed #c8d4cb',
+                fontSize: '0.85rem', color: '#64748b'
+              }}>
+                Fills itself once you price a layout in the step above.
+              </div>
+            )}
             <FieldError message={errors.monthlyPrice} />
           </div>
         </div>
@@ -646,51 +736,69 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
         </div>
       </div>
 
-      {/* Amenities Grid */}
-      <div className="form-group">
-        <label className="form-label" style={{ color: '#181e1b', fontWeight: 700, marginBottom: '12px' }}>
-          Key Amenities Included
-        </label>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '8px' }}>
-          {ALL_AMENITIES.map((amenity) => {
-            const isChecked = selectedAmenities.includes(amenity);
-            return (
-              <div
-                key={amenity}
-                onClick={() => toggleAmenity(amenity)}
-                style={{
-                  padding: '10px 14px',
-                  borderRadius: '12px',
-                  background: isChecked ? '#eaf3ed' : '#ffffff',
-                  border: isChecked ? '1px solid #45855a' : '1px solid #e2e8f0',
-                  color: isChecked ? '#181e1b' : '#475569',
-                  fontWeight: isChecked ? 600 : 400,
-                  cursor: 'pointer',
-                  fontSize: '0.84rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  transition: 'all 0.2s ease'
-                }}
-              >
-                <div style={{
-                  width: '18px',
-                  height: '18px',
-                  borderRadius: '4px',
-                  background: isChecked ? '#45855a' : '#f1f5f2',
-                  border: isChecked ? 'none' : '1px solid #cbd5e1',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}>
-                  {isChecked && <Check size={12} color="#ffffff" />}
+      {/*
+        * The general amenity list — PG / Hostel only.
+        *
+        * Bachelor and co-live ask this question already, under Furnishing
+        * Status in the previous step and under the same heading. Two lists
+        * called "Key Amenities Included" on one form is a question asked
+        * twice, and the two could disagree — an agent could tick AC there and
+        * leave it unticked here, and nothing would say which the listing
+        * meant. So for those two the furnishing list IS the amenity list:
+        * App.jsx mirrors `furnishingItems` into `amenities`.
+        *
+        * A hotel has no amenity list at all. What it sells is a bed at a rate,
+        * and AC is already recorded against each bed type. `amenities` is
+        * cleared when the category is chosen rather than left at the four this
+        * form seeds — a hotel claiming "Food" and "RO Water" that nobody
+        * entered is worse than a hotel claiming nothing.
+        */}
+      {isBachelor || isHotel ? null : (
+        <div className="form-group">
+          <label className="form-label" style={{ color: '#181e1b', fontWeight: 700, marginBottom: '12px' }}>
+            Key Amenities Included
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '8px' }}>
+            {ALL_AMENITIES.map((amenity) => {
+              const isChecked = selectedAmenities.includes(amenity);
+              return (
+                <div
+                  key={amenity}
+                  onClick={() => toggleAmenity(amenity)}
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: '12px',
+                    background: isChecked ? '#eaf3ed' : '#ffffff',
+                    border: isChecked ? '1px solid #45855a' : '1px solid #e2e8f0',
+                    color: isChecked ? '#181e1b' : '#475569',
+                    fontWeight: isChecked ? 600 : 400,
+                    cursor: 'pointer',
+                    fontSize: '0.84rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <div style={{
+                    width: '18px',
+                    height: '18px',
+                    borderRadius: '4px',
+                    background: isChecked ? '#45855a' : '#f1f5f2',
+                    border: isChecked ? 'none' : '1px solid #cbd5e1',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
+                    {isChecked && <Check size={12} color="#ffffff" />}
+                  </div>
+                  <span>{amenity}</span>
                 </div>
-                <span>{amenity}</span>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

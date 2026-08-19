@@ -1,14 +1,158 @@
 import React, { useState } from 'react';
-import { Utensils, ShieldCheck, Bed, Key, Check, Snowflake, Plus, X } from 'lucide-react';
+import { Utensils, ShieldCheck, Bed, Key, Check, Snowflake, Plus, X, CloudUpload } from 'lucide-react';
 import FieldError, { errorBorder } from './FieldError.jsx';
-import { sharingPriceKey, sharingAcPriceKey } from '../../services/validation.js';
+import {
+  sharingPriceKey, sharingAcPriceKey, furnishingKey, roomCountKey,
+} from '../../services/validation.js';
 
 const MEAL_OPTIONS = ['Breakfast', 'Lunch', 'Dinner'];
+
+/**
+ * How many people the label says share one room.
+ *
+ * Mirrors `occupancyOf` in the backend's sharing.util.js, and must keep
+ * mirroring it: the agent enters ROOMS here and the beds are multiplied out,
+ * so the two sides disagreeing would put a different capacity in the database
+ * than the one on this screen.
+ *
+ * Null where the label does not say — "Dorm Sharing", "1 BHK Independent".
+ * Then the form asks for beds directly instead of multiplying.
+ */
+const occupancyOf = (label) => {
+  const text = String(label || '').toLowerCase();
+  if (/\bsingle\b/.test(text)) return 1;
+  if (/\bdouble\b/.test(text)) return 2;
+  if (/\btriple\b/.test(text)) return 3;
+  if (/\bquad(ruple)?\b/.test(text)) return 4;
+  const digits = text.match(/(\d+)\s*(sharing|share|bed|seater)/);
+  if (digits) {
+    const n = Number(digits[1]);
+    return Number.isFinite(n) && n > 0 && n <= 50 ? n : null;
+  }
+  return null;
+};
 
 /* The occupancies most properties are laid out in. Anything else is added
    through "Custom" and recorded in `customSharingTypes` — see SharingOptions
    at the bottom of this file. */
 const BASE_SHARING_TYPES = ['Single', '2 Sharing', '3 Sharing', '4 Sharing'];
+
+/*
+ * How many share one hotel or dormitory room.
+ *
+ * A separate list from BASE_SHARING_TYPES because a hotel says "Double" where
+ * a PG says "2 Sharing" — the same number, and not the same word to anybody
+ * booking one. The labels still parse through `occupancyOf` server-side, so
+ * "Double" is read as two beds without anything having to be taught the
+ * vocabulary.
+ *
+ * Distinct from `bedType`, which is the physical format of the bed — a bunk,
+ * a metal frame, a capsule pod. That question is still asked separately.
+ */
+const BED_TYPES = ['Single', 'Double', '3 Sharing', '4 Sharing'];
+
+/*
+ * What counts as credible evidence that this hotel is this hotel.
+ *
+ * Any one of them will do — the point is that SOMETHING official ties the
+ * business to the premises, and which document an owner happens to hold
+ * varies by state, by age of the building and by whether they own or lease.
+ * Demanding a specific one would turn a legitimate hotel away.
+ */
+const PREMISES_DOC_TYPES = [
+  'Trade / Shop & Establishment Licence',
+  'GST Registration Certificate',
+  'Property Tax Receipt',
+  'Electricity Bill (in the business name)',
+  'Registered Lease or Rent Agreement',
+  'Fire Safety NOC',
+  'Municipal / Panchayat Permission',
+];
+
+/*
+ * The three ways a bed is sold, priced per bed type.
+ *
+ * A hostel does not price a building, it prices a bed — and the same bed goes
+ * nightly to a traveller, monthly to a student and hourly to somebody between
+ * trains. The form used to make an agent pick ONE structure for the whole
+ * property, so the other two were unsellable through the site even when the
+ * hostel offered them.
+ *
+ * `nightly` maps to `sharingPrices` and `sharingAcPrices` rather than to keys
+ * of its own, because those are what the occupancy reader, the listing
+ * chooser and the bed inventory already consume — and nightly is the rate a
+ * hotel leads with. The other two are additions, and optional.
+ */
+const RATE_STRUCTURES = [
+  { id: 'nightly', label: 'Per night', base: 'sharingPrices', ac: 'sharingAcPrices', required: true, hint: 'e.g. 450' },
+  { id: 'monthly', label: 'Per month', base: 'monthlyPrices', ac: 'monthlyAcPrices', required: false, hint: 'e.g. 9000' },
+  { id: 'flexible', label: 'Flexible / hourly', base: 'flexiblePrices', ac: 'flexibleAcPrices', required: false, hint: 'e.g. 150' },
+];
+
+/*
+ * Room / flat layouts for the whole-property categories.
+ *
+ * A property is rarely one layout. A building let to bachelors commonly has
+ * 1 RKs on one floor and 2 BHKs on another at a different rent, and the form
+ * used to make an agent pick one and lose the rest — so this is a multi-select
+ * with a rent against each, the same shape the sharing options use.
+ */
+const ROOM_LAYOUTS = [
+  { id: 'Single Private Room', label: 'Single Private Room' },
+  { id: '1 RK', label: '1 RK (Room Kitchen)' },
+  { id: '1 BHK', label: '1 BHK Apartment' },
+  { id: '2 BHK', label: '2 BHK Apartment' },
+  { id: '3 BHK', label: '3 BHK Apartment' },
+];
+
+/*
+ * Who may take the property, per category.
+ *
+ * A bachelor let is by definition single-gender — that is what the category
+ * means — so it offers only the two. A co-live house is shared, and a mixed
+ * house is a normal thing to run, so it keeps all three.
+ */
+/*
+ * What "furnished" actually means, per level.
+ *
+ * "Semi-Furnished" is the vaguest word on the form — to one owner it is a bed
+ * and a wardrobe, to another it is everything but the sofa. A student cannot
+ * tell those apart from the word, and turns up to find no geyser. So the level
+ * is a heading and the list underneath is the promise.
+ *
+ * Two lists rather than one, because the two levels are asked differently: a
+ * fully-furnished let is a whole household to tick off, and a semi-furnished
+ * one is the shorter list of what the owner is ADDING to bare walls. Neither
+ * is a subset of the other — semi carries fittings a full let takes for
+ * granted (light fixtures, kitchen cabinets, an exhaust fan).
+ *
+ * Unfurnished has no list. That is the point of it.
+ */
+const FURNISHING_ITEMS = {
+  'Fully Furnished': [
+    'Bed', 'Mattress', 'Sofa', 'Wardrobe', 'Table', 'Chairs', 'TV',
+    'Refrigerator', 'Washing Machine', 'AC', 'Fan', 'Geyser', 'Water Purifier',
+    'Kitchen Setup', 'Gas Stove', 'Dining Table', 'Curtains', 'Wi-Fi',
+    'Balcony Furniture',
+  ],
+  'Semi-Furnished': [
+    'Wardrobe', 'Bed', 'Fan', 'Light Fixtures', 'Geyser', 'AC',
+    'Kitchen Cabinets', 'Modular Kitchen', 'Exhaust Fan', 'Curtains',
+    'Dining/Counter Area', 'Water Purifier',
+  ],
+};
+
+const TENANT_OPTIONS = {
+  BACHELOR: [
+    { id: 'Bachelors Male Only', label: 'Bachelors Male Only' },
+    { id: 'Bachelors Female Only', label: 'Bachelors Female Only' },
+  ],
+  COLIVE: [
+    { id: 'Bachelors Male / Female', label: 'Male / Female (mixed)' },
+    { id: 'Bachelors Male Only', label: 'Male Only' },
+    { id: 'Bachelors Female Only', label: 'Female Only' },
+  ],
+};
 
 /** People per room → the label the rest of the platform keys prices by.
  *  1 resolves onto "Single" rather than minting "1 Sharing": the public site,
@@ -25,8 +169,29 @@ const MEAL_TIMING_PLACEHOLDERS = {
 // Keyed maps that hang off a checkbox list: deselecting an option must take its
 // entries with it, or a stale price would keep counting toward the headline rent.
 const DEPENDENT_MAPS = {
-  sharingTypes: ['sharingPrices', 'sharingAC', 'sharingAcPrices'],
+  sharingTypes: ['sharingPrices', 'sharingAC', 'sharingAcPrices', 'sharingRooms', 'sharingBeds'],
   mealsProvided: ['mealTimings']
+};
+
+/*
+ * Codes to words, and codes to the badge colour they already had.
+ *
+ * PG_HOSTEL keeps the PG badge because that is the great majority of what it
+ * covers, and a hostel onboarded under it is still, visually, the same kind
+ * of thing. See Backend/src/shared/constants/categories.js for the codes.
+ */
+const CATEGORY_LABEL = {
+  PG_HOSTEL: 'PG / Hostel',
+  BACHELOR: 'Bachelor',
+  HOTEL: 'Hotels',
+  COLIVE: 'House / Co-live',
+};
+
+const CATEGORY_BADGE = {
+  PG_HOSTEL: 'badge-pg',
+  BACHELOR: 'badge-bachelor',
+  HOTEL: 'badge-dormitory',
+  COLIVE: 'badge-bachelor',
 };
 
 export default function CategoryFieldsStep({ category, details = {}, onChangeDetails, errors = {} }) {
@@ -70,18 +235,23 @@ export default function CategoryFieldsStep({ category, details = {}, onChangeDet
       border: '1px solid #e2e8f0'
     }}>
       <h3 style={{ fontSize: '1.2rem', color: '#181e1b', marginBottom: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <span className={`badge ${
-          category === 'PG' ? 'badge-pg' :
-          category === 'Hostel' ? 'badge-hostel' :
-          category === 'Dormitory' ? 'badge-dormitory' : 'badge-bachelor'
-        }`}>
-          {category}
+        <span className={`badge ${CATEGORY_BADGE[category] || 'badge-bachelor'}`}>
+          {CATEGORY_LABEL[category] || category}
         </span>
-        <span>Category Specific Details ({category})</span>
+        <span>Category Specific Details ({CATEGORY_LABEL[category] || category})</span>
       </h3>
 
-      {/* ==================== PG FORM ==================== */}
-      {category === 'PG' && (
+      {/*
+        * ============ PG / HOSTEL ============
+        *
+        * Two blocks, one category. PG and hostel merged, and the merged
+        * form asks the union of what the two asked — so a former hostel
+        * keeps its warden contact and a former PG keeps its meal timings,
+        * and an agent fills in whichever apply to the building they are
+        * standing in. Only this first block carries the sharing picker;
+        * the second never had one.
+        */}
+      {category === 'PG_HOSTEL' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '18px' }}>
           {/* Food Included */}
           <div className="form-group">
@@ -207,7 +377,7 @@ export default function CategoryFieldsStep({ category, details = {}, onChangeDet
       )}
 
       {/* ==================== HOSTEL FORM ==================== */}
-      {category === 'Hostel' && (
+      {category === 'PG_HOSTEL' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '18px' }}>
           {/* Hostel Type */}
           <div className="form-group">
@@ -265,123 +435,58 @@ export default function CategoryFieldsStep({ category, details = {}, onChangeDet
       )}
 
       {/* ==================== DORMITORY FORM ==================== */}
-      {category === 'Dormitory' && (
+      {category === 'HOTEL' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '18px' }}>
+          <BedTypes details={details} onChangeDetails={onChangeDetails} errors={errors} />
+          <HotelDocuments details={details} onChangeDetails={onChangeDetails} errors={errors} />
+
           {/* Total Beds */}
-          <div className="form-group">
-            <label className="form-label">Total Beds Available</label>
-            <input
-              type="number"
-              placeholder="e.g. 24"
-              value={details.totalBeds || ''}
-              id="totalBeds"
-              onChange={(e) => onChangeDetails('totalBeds', Number(e.target.value))}
-              className="form-input"
-            />
-          </div>
-
-          {/* Rate Type */}
-          <div className="form-group">
-            <label className="form-label">Pricing Structure</label>
-            <select
-              className="form-select"
-              value={details.rateType || 'Daily Rate'}
-              onChange={(e) => onChangeDetails('rateType', e.target.value)}
-            >
-              <option value="Daily Rate">Daily Rate (Per Bed/Night)</option>
-              <option value="Monthly Rate">Monthly Subscription</option>
-              <option value="Flexible (Hourly/Daily)">Flexible (Hourly/Daily)</option>
-            </select>
-          </div>
-
-          {/* Bed Type */}
-          <div className="form-group">
-            <label className="form-label">Bed Format</label>
-            <select
-              className="form-select"
-              value={details.bedType || 'Bunk Bed Pod'}
-              onChange={(e) => onChangeDetails('bedType', e.target.value)}
-            >
-              <option value="Bunk Bed Pod">Bunk Bed Pod</option>
-              <option value="Single Metal Bed">Single Metal Bed</option>
-              <option value="Capsule Luxury Pod">Capsule Luxury Pod</option>
-            </select>
-          </div>
-
-          {/* Washrooms Count */}
-          <div className="form-group">
-            <label className="form-label">Shared Washrooms Count</label>
-            <input
-              type="number"
-              placeholder="e.g. 6"
-              value={details.washroomsCount || ''}
-              id="washroomsCount"
-              onChange={(e) => onChangeDetails('washroomsCount', Number(e.target.value))}
-              className="form-input"
-            />
-          </div>
+          {/*
+            * Everything that used to sit here is now per bed type, inside the
+            * cards above.
+            *
+            * Total Beds Available was one number for a building that rents
+            * four different kinds of bed, so it could not say how many of each
+            * — and the bed count is what the request flow decrements. Pricing
+            * Structure made an agent choose ONE of nightly, monthly and
+            * flexible for the whole property, which made the other two
+            * unsellable through the site even when the hostel offered them.
+            *
+            * Bed Format and Shared Washrooms Count are gone outright: a
+            * bunk-or-pod answer for the whole building and a single washroom
+            * tally are not things a guest chooses on, and neither was shown
+            * anywhere. Both are still read from older rows.
+            *
+            * `totalBeds` and `rateType` are still written, derived in App.jsx,
+            * so the listing formatter and the admin console keep working.
+            */}
         </div>
       )}
 
       {/* ==================== BACHELOR ROOM FORM ==================== */}
-      {category === 'Bachelor Room' && (
+      {/* Co-live is let as a whole property like a bachelor flat, and
+          records the same facts — so it shares this block rather than
+          duplicating it. */}
+      {(category === 'BACHELOR' || category === 'COLIVE') && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '18px' }}>
-          {/* Room Type */}
-          <div className="form-group">
-            <label className="form-label">Room / Flat Layout *</label>
-            <select
-              className="form-select"
-              value={details.roomType || '1 BHK'}
-              onChange={(e) => onChangeDetails('roomType', e.target.value)}
-            >
-              <option value="Single Private Room">Single Private Room</option>
-              <option value="1 RK">1 RK (Room Kitchen)</option>
-              <option value="1 BHK">1 BHK Apartment</option>
-              <option value="2 BHK">2 BHK Apartment</option>
-              <option value="3 BHK">3 BHK Apartment</option>
-            </select>
-          </div>
+          <RoomLayouts
+            category={category}
+            details={details}
+            onChangeDetails={onChangeDetails}
+            errors={errors}
+          />
 
           {/* Furnishing Status */}
-          <div className="form-group">
-            <label className="form-label">Furnishing Status</label>
-            <select
-              className="form-select"
-              value={details.furnishing || 'Semi-Furnished'}
-              onChange={(e) => onChangeDetails('furnishing', e.target.value)}
-            >
-              <option value="Fully Furnished">Fully Furnished</option>
-              <option value="Semi-Furnished">Semi-Furnished</option>
-              <option value="Unfurnished">Unfurnished</option>
-            </select>
-          </div>
+          {/* Furnishing is asked per LAYOUT now, inside each card above — a
+              house commonly lets a semi-furnished 1 BHK and a fully-furnished
+              2 BHK, and one status for the whole property could only ever
+              describe one of them. */}
 
-          {/* Allowed Tenants */}
-          <div className="form-group">
-            <label className="form-label">Allowed Tenants</label>
-            <select
-              className="form-select"
-              value={details.allowedTenants || 'Bachelors Male / Female'}
-              onChange={(e) => onChangeDetails('allowedTenants', e.target.value)}
-            >
-              <option value="Bachelors Male / Female">Bachelors Male / Female</option>
-              <option value="Bachelors Male Only">Bachelors Male Only</option>
-              <option value="Bachelors Female Only">Bachelors Female Only</option>
-            </select>
-          </div>
-
-          {/* Kitchen Available */}
-          <div className="form-group">
-            <label className="form-label">Kitchen / Cooking Provision?</label>
-            <select
-              className="form-select"
-              value={details.kitchenAvailable !== undefined ? (details.kitchenAvailable ? 'Yes' : 'No') : 'Yes'}
-              onChange={(e) => onChangeDetails('kitchenAvailable', e.target.value === 'Yes')}
-            >
-              <option value="Yes">Yes (Kitchen & Cooking Allowed)</option>
-              <option value="No">No Kitchen Setup</option>
-            </select>
-          </div>
+          {/* Allowed Tenants and Kitchen are asked per LAYOUT now, inside
+              each card above. A building commonly lets its 1 RKs to men and
+              its 2 BHKs to women, and puts a kitchen in some units and not
+              others — one answer for the whole property could only ever
+              describe part of it. */}
         </div>
       )}
     </div>
@@ -403,6 +508,922 @@ export default function CategoryFieldsStep({ category, details = {}, onChangeDet
  * unticked — deriving the list from the ticked options alone would make an
  * option vanish the moment an agent unticked it to compare against another.
  */
+/**
+ * Room / flat layouts, multi-select, each with its own monthly rent.
+ *
+ * ## Why this replaced a dropdown
+ *
+ * The form used to ask for ONE layout. A bachelor building with 1 RKs on one
+ * floor and 2 BHKs on another had to be filed as whichever the agent picked,
+ * and the other layout — and its different rent — was simply lost. Every such
+ * property was under-described from the moment it was onboarded.
+ *
+ * ## Where the numbers go
+ *
+ * The selection is `roomTypes`, and the rents go into `sharingPrices` — the
+ * same map the PG sharing options write. That is deliberate rather than
+ * convenient: `sharingPrices` is what the backend's occupancy reader, the
+ * listing page's chooser and the bed-inventory service already consume, so a
+ * layout priced here becomes a bookable option everywhere without any of
+ * those learning a new key.
+ *
+ * The old singular `roomType` is still written alongside, set to the first
+ * selected layout, so listings and screens that have not been updated keep
+ * showing something true rather than a blank.
+ */
+/**
+ * Key amenities included, driven by the furnishing level.
+ *
+ * Shown only for a fully- or semi-furnished let: an unfurnished one has
+ * nothing to list, and rendering an empty checklist for it would invite an
+ * agent to tick something that is not there.
+ *
+ * ## Custom items
+ *
+ * The two lists cover the common cases and will never cover all of them — a
+ * study desk, a piano, a second geyser. An agent can add anything, and only
+ * the added ones can be removed: deleting a preset would make two agents'
+ * forms disagree about what the standard list even is.
+ *
+ * ## Changing level
+ *
+ * Switching between fully and semi prunes anything the new list does not
+ * contain, because those ticks were answers to a different question. Custom
+ * items survive the switch — they were typed for this property, not for the
+ * level.
+ */
+/**
+ * Bed types a hotel or dormitory offers, each with its own nightly price.
+ *
+ * ## Why this exists
+ *
+ * The form used to ask for one bed FORMAT — a bunk, a pod — and one flat
+ * rate, which is not how anybody sells a room. A hostel with four-bed dorms
+ * at ₹450 and a private double at ₹1,400 had to be filed as one of them, and
+ * the other was invisible to anybody searching.
+ *
+ * ## Where the numbers go
+ *
+ * Selection is `bedTypes`; prices land in `sharingPrices`, AC in `sharingAC`
+ * and `sharingAcPrices` — the same maps the PG sharing options and the
+ * bachelor layouts write. That is what makes a priced bed a bookable option
+ * everywhere without the occupancy reader, the listing chooser or the bed
+ * inventory learning anything new.
+ *
+ * AC is priced per bed type rather than per property because it genuinely is:
+ * a hostel commonly runs AC dorms and non-AC dorms in the same building at
+ * different rates.
+ */
+/**
+ * A row of preset chips plus anything the agent types.
+ *
+ * ## Why the presets are not enough on their own
+ *
+ * The lists here are the common cases and will never be all of them. A
+ * building has a penthouse, a hostel sells a six-bed dorm, a house is let as a
+ * 4 BHK. Every one of those had to be filed as the nearest preset, and the
+ * listing then described a property that did not exist.
+ *
+ * ## Only what was added can be removed
+ *
+ * Deleting a preset would make two agents' forms disagree about what the
+ * standard list even is. A custom option is this property's, so it carries an
+ * X; the presets do not.
+ *
+ * Shared by the layout picker and the bed-type picker because the two behave
+ * identically — they differ only in what they are called and what a new entry
+ * should be seeded with, both of which are passed in.
+ */
+/**
+ * The two documents a hotel has to produce.
+ *
+ * ## Why a hotel and nothing else
+ *
+ * A PG or a bachelor flat is somebody's house, and the WhatsApp chain already
+ * confirms the owner answers on the number the property is filed under. A
+ * hotel is a business taking money from strangers for a bed, so the platform
+ * asks it to prove two things: who is being paid, and that they hold the
+ * premises they are selling.
+ *
+ * ## Where these go, and why not into categoryDetails
+ *
+ * They are sent as a top-level `documents` array. `categoryDetails` is
+ * returned verbatim by the public listing API, so a PAN filed there would be
+ * served to anybody browsing the site. Nothing in the public projection
+ * touches `documents`.
+ *
+ * The files stay on this device until submit — same as the photos — so an
+ * abandoned form uploads nothing.
+ */
+function HotelDocuments({ details, onChangeDetails, errors }) {
+  const docs = details.localDocuments || {};
+
+  const setDoc = (kind, patch) => {
+    onChangeDetails('localDocuments', {
+      ...docs,
+      [kind]: patch === null ? undefined : { ...(docs[kind] || {}), ...patch },
+    });
+  };
+
+  const Slot = ({ kind, title, blurb, errorKey, children }) => {
+    const current = docs[kind];
+    return (
+      <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px' }}>
+        <span style={{ fontSize: '0.88rem', color: '#181e1b', fontWeight: 700 }}>{title} *</span>
+        <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '4px 0 10px', lineHeight: 1.4 }}>{blurb}</p>
+
+        {children}
+
+        {current?.file ? (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px',
+            padding: '8px 12px', background: '#eaf3ed', border: '1px solid #c2e2cc', borderRadius: '8px',
+          }}>
+            <Check size={14} color="#45855a" />
+            <span style={{ fontSize: '0.8rem', color: '#2f6b45', fontWeight: 600, flex: 1, wordBreak: 'break-all' }}>
+              {current.file.name}
+            </span>
+            <button
+              type="button"
+              onClick={() => setDoc(kind, null)}
+              title="Remove"
+              aria-label={`Remove ${title}`}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: '20px', height: '20px', borderRadius: '50%', border: 'none',
+                background: 'rgba(100, 116, 139, 0.15)', color: '#475569', cursor: 'pointer', padding: 0,
+              }}
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ) : (
+          <label
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+              marginTop: '10px', padding: '12px', borderRadius: '8px',
+              border: '1px dashed #94a3b8', color: '#64748b', cursor: 'pointer',
+              fontSize: '0.82rem', fontWeight: 600,
+            }}
+          >
+            <CloudUpload size={15} />
+            <span>Choose a photo or PDF</span>
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const file = e.target.files && e.target.files[0];
+                if (file) setDoc(kind, { file });
+                /* Cleared so picking the same file twice still fires. */
+                e.target.value = '';
+              }}
+            />
+          </label>
+        )}
+
+        <FieldError message={errors[errorKey]} />
+      </div>
+    );
+  };
+
+  return (
+    <div className="form-group" style={{ gridColumn: '1 / -1' }} id="hotelDocuments">
+      <label className="form-label">Verification Documents *</label>
+      <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 12px', lineHeight: 1.5 }}>
+        A hotel takes money from strangers for a bed, so we ask it to show who is being paid and
+        that they hold the premises. Both are required, and neither is shown on the public
+        listing.
+      </p>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+        <Slot
+          kind="pan"
+          title="Owner / Business PAN"
+          blurb="The PAN of the person or company that will be paid."
+          errorKey="documents.pan"
+        />
+
+        <Slot
+          kind="premises"
+          title="Proof of Premises"
+          blurb="Any one credible document establishing that this business holds this building."
+          errorKey="documents.premises"
+        >
+          <select
+            className="form-select"
+            value={docs.premises?.docType || ''}
+            onChange={(e) => setDoc('premises', { docType: e.target.value })}
+            style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+          >
+            <option value="">Which document is it?</option>
+            {PREMISES_DOC_TYPES.map((type) => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
+        </Slot>
+      </div>
+    </div>
+  );
+}
+
+
+function ChipPicker({
+  presets, custom, selected, label, error, addPrompt, addHint,
+  onToggle, onAddCustom, onRemoveCustom, id,
+}) {
+  const [customOpen, setCustomOpen] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  const presetIds = presets.map((o) => o.id);
+  const options = [...presets, ...custom.filter((c) => !presetIds.includes(c)).map((c) => ({ id: c, label: c }))];
+
+  const commit = () => {
+    const text = draft.trim();
+    if (!text) return;
+    /* Case-insensitive, so "1 bhk" does not join a list that already says
+       "1 BHK" and leave the property offering both. */
+    const clash = options.find((o) => o.id.toLowerCase() === text.toLowerCase());
+    if (clash) {
+      if (!selected.includes(clash.id)) onToggle(clash.id);
+    } else {
+      onAddCustom(text);
+    }
+    setDraft('');
+    setCustomOpen(false);
+  };
+
+  return (
+    <div className="form-group" style={{ gridColumn: '1 / -1' }} id={id}>
+      <label className="form-label">{label}</label>
+      <FieldError message={error} />
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
+        {options.map((option) => {
+          const isSelected = selected.includes(option.id);
+          const isCustom = !presetIds.includes(option.id);
+          return (
+            <div
+              key={option.id}
+              onClick={() => onToggle(option.id)}
+              style={{
+                padding: isCustom ? '8px 8px 8px 16px' : '8px 16px',
+                borderRadius: '20px',
+                background: isSelected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                border: isSelected ? '1px solid #10b981' : '1px solid var(--border-glass)',
+                color: isSelected ? '#34d399' : 'var(--text-sub)',
+                cursor: 'pointer', fontSize: '0.875rem',
+                display: 'flex', alignItems: 'center', gap: '6px',
+              }}
+            >
+              {isSelected && <Check size={14} />}
+              <span>{option.label}</span>
+              {isCustom && (
+                <button
+                  type="button"
+                  title={`Remove ${option.label}`}
+                  aria-label={`Remove ${option.label}`}
+                  onClick={(e) => { e.stopPropagation(); onRemoveCustom(option.id); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: '18px', height: '18px', borderRadius: '50%', border: 'none',
+                    background: 'rgba(100, 116, 139, 0.15)', color: 'inherit', cursor: 'pointer', padding: 0,
+                  }}
+                >
+                  <X size={11} />
+                </button>
+              )}
+            </div>
+          );
+        })}
+
+        <button
+          type="button"
+          onClick={() => { setCustomOpen((o) => !o); setDraft(''); }}
+          style={{
+            padding: '8px 16px', borderRadius: '20px',
+            background: customOpen ? '#eaf3ed' : 'transparent',
+            border: `1px dashed ${customOpen ? '#45855a' : '#94a3b8'}`,
+            color: customOpen ? '#2f6b45' : '#64748b',
+            cursor: 'pointer', fontSize: '0.875rem', fontWeight: 600,
+            display: 'flex', alignItems: 'center', gap: '6px',
+          }}
+        >
+          <Plus size={14} />
+          <span>Custom</span>
+        </button>
+      </div>
+
+      {customOpen && (
+        <div style={{
+          marginTop: '12px', padding: '14px 16px', background: '#ffffff',
+          borderRadius: '12px', border: '1px solid #c2e2cc', maxWidth: '420px',
+        }}>
+          <span style={{ display: 'block', fontSize: '0.78rem', color: '#64748b', fontWeight: 600, marginBottom: '8px' }}>
+            {addPrompt}
+          </span>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="text"
+              className="form-input"
+              autoFocus
+              value={draft}
+              maxLength={40}
+              placeholder={addHint}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); commit(); }
+                if (e.key === 'Escape') { setCustomOpen(false); setDraft(''); }
+              }}
+              style={{ flex: 1 }}
+            />
+            <button
+              type="button"
+              onClick={commit}
+              disabled={!draft.trim()}
+              className="btn-primary"
+              style={{ padding: '8px 18px', fontSize: '0.85rem', opacity: draft.trim() ? 1 : 0.5 }}
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function BedTypes({ details, onChangeDetails, errors }) {
+  const selected = Array.isArray(details.bedTypes)
+    ? details.bedTypes
+    /* A row created before this control carries one bed FORMAT string in
+       `bedType`. That is a different question, so nothing is pre-selected
+       from it — the agent picks the occupancies afresh. */
+    : [];
+
+  const prices = details.sharingPrices || {};
+
+  const setMap = (mapField, key, value) => {
+    const next = { ...(details[mapField] || {}) };
+    if (value === '' || value === null || value === false) delete next[key];
+    else next[key] = value;
+    onChangeDetails(mapField, next);
+  };
+
+  const toggle = (bed) => {
+    const has = selected.includes(bed);
+    if (has) {
+      /* A price for a bed nobody offers would resurface on the site, so it
+         goes with the bed — and before the selection changes, because the
+         headline-rate recompute hangs off `bedTypes` and should read the
+         prices that are already gone. */
+      ['sharingPrices', 'sharingAC', 'sharingAcPrices'].forEach((mapField) => {
+        const map = details[mapField];
+        if (map && map[bed] !== undefined) {
+          const trimmed = { ...map };
+          delete trimmed[bed];
+          onChangeDetails(mapField, trimmed);
+        }
+      });
+    }
+    onChangeDetails('bedTypes', has ? selected.filter((b) => b !== bed) : [...selected, bed]);
+  };
+
+  const custom = Array.isArray(details.customBedTypes) ? details.customBedTypes : [];
+  const bedOptions = [
+    ...BED_TYPES.map((b) => ({ id: b, label: b })),
+    ...custom.filter((c) => !BED_TYPES.includes(c)).map((c) => ({ id: c, label: c })),
+  ];
+
+  const removeCustom = (bed) => {
+    if (selected.includes(bed)) toggle(bed);
+    onChangeDetails('customBedTypes', custom.filter((b) => b !== bed));
+  };
+
+  return (
+    <div>
+      <ChipPicker
+        id="bedTypes"
+        label="Bed Types Available *"
+        error={errors['categoryDetails.bedTypes']}
+        presets={BED_TYPES.map((b) => ({ id: b, label: b }))}
+        custom={custom}
+        selected={selected}
+        addPrompt="What else does this place sell a bed in?"
+        addHint="e.g. 6 Sharing, Family Room"
+        onToggle={toggle}
+        onAddCustom={(text) => {
+          onChangeDetails('customBedTypes', [...custom, text]);
+          onChangeDetails('bedTypes', [...selected, text]);
+        }}
+        onRemoveCustom={removeCustom}
+      />
+
+      {selected.length > 0 && (
+        <div>
+          {bedOptions.filter((b) => selected.includes(b.id)).map(({ id: bed }) => {
+            const hasAC = !!(details.sharingAC && details.sharingAC[bed]);
+            return (
+              <div
+                key={bed}
+                style={{
+                  background: '#f8faf8', border: '1px solid #e2e8f0',
+                  borderRadius: '10px', padding: '14px', marginBottom: '12px',
+                }}
+              >
+                <span style={{ fontSize: '0.88rem', color: '#181e1b', fontWeight: 700 }}>{bed}</span>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginTop: '10px' }}>
+                  <div>
+                    <span style={{ fontSize: '0.75rem', color: '#45855a', fontWeight: 600 }}>Total Beds Available *</span>
+                    <input
+                      type="number"
+                      className="form-input"
+                      id={`sharingRooms-${bed}`}
+                      min="0"
+                      placeholder="e.g. 12"
+                      value={(details.sharingBeds || {})[bed] ?? ''}
+                      onChange={(e) => setMap('sharingBeds', bed, Number(e.target.value) || '')}
+                      style={{ marginTop: '4px', padding: '8px 12px', fontSize: '0.85rem', borderColor: errorBorder(errors[roomCountKey(bed)]) }}
+                    />
+                    <FieldError message={errors[roomCountKey(bed)]} />
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', cursor: 'pointer', paddingBottom: '8px' }}>
+                    <input
+                      type="checkbox"
+                      checked={hasAC}
+                      onChange={(e) => {
+                        const isChecked = e.target.checked;
+                        setMap('sharingAC', bed, isChecked);
+                        /* An AC rate for a bed with no AC would resurface as a
+                           price on the site, so all three go with the tick. */
+                        if (!isChecked) {
+                          RATE_STRUCTURES.forEach((rate) => setMap(rate.ac, bed, ''));
+                        }
+                      }}
+                      style={{ width: '15px', height: '15px', accentColor: '#45855a' }}
+                    />
+                    <span style={{ fontSize: '0.78rem', color: hasAC ? '#45855a' : '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Snowflake size={12} />
+                      <span>AC available for {bed}</span>
+                    </span>
+                  </label>
+                </div>
+
+                {/* The rate grid: three structures, and an AC column only when
+                    AC is on offer. A hostel sells the same bed nightly to a
+                    traveller and monthly to a student. */}
+                <div style={{ marginTop: '12px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px' }}>
+                  <span style={{ display: 'block', fontSize: '0.75rem', color: '#45855a', fontWeight: 600, marginBottom: '10px' }}>
+                    Rates for {bed} — fill in the ones this hostel actually offers
+                  </span>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: hasAC ? '1fr 1fr 1fr' : '1fr 1fr', gap: '10px', alignItems: 'end' }}>
+                    <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Structure</span>
+                    <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Non-AC (₹)</span>
+                    {hasAC && (
+                      <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>AC (₹)</span>
+                    )}
+
+                    {RATE_STRUCTURES.map((rate) => (
+                      <React.Fragment key={rate.id}>
+                        <span style={{ fontSize: '0.82rem', color: '#181e1b', fontWeight: 600, paddingBottom: '10px' }}>
+                          {rate.label}{rate.required ? ' *' : ''}
+                        </span>
+                        <div>
+                          <input
+                            type="number"
+                            className="form-input"
+                            id={rate.required ? `sharingPrice-${bed}` : `${rate.base}-${bed}`}
+                            min="0"
+                            placeholder={rate.hint}
+                            value={(details[rate.base] || {})[bed] ?? ''}
+                            onChange={(e) => setMap(rate.base, bed, Number(e.target.value) || '')}
+                            style={{ padding: '8px 12px', fontSize: '0.85rem', borderColor: rate.required ? errorBorder(errors[sharingPriceKey(bed)]) : undefined }}
+                          />
+                          {rate.required && <FieldError message={errors[sharingPriceKey(bed)]} />}
+                        </div>
+                        {hasAC && (
+                          <div>
+                            <input
+                              type="number"
+                              className="form-input"
+                              id={rate.required ? `sharingAcPrice-${bed}` : `${rate.ac}-${bed}`}
+                              min="0"
+                              placeholder={rate.hint}
+                              value={(details[rate.ac] || {})[bed] ?? ''}
+                              onChange={(e) => setMap(rate.ac, bed, Number(e.target.value) || '')}
+                              style={{ padding: '8px 12px', fontSize: '0.85rem', borderColor: rate.required ? errorBorder(errors[sharingAcPriceKey(bed)]) : '#c2e2cc' }}
+                            />
+                            {rate.required && <FieldError message={errors[sharingAcPriceKey(bed)]} />}
+                          </div>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/**
+ * The amenity checklist for one furnishing level.
+ *
+ * Takes its value and its setter rather than reading `details`, because it is
+ * rendered once per LAYOUT now — a house may let a semi-furnished 1 BHK and a
+ * fully-furnished 2 BHK, and each carries its own list.
+ */
+function FurnishingItems({ level, selected, custom, onChangeSelected, onChangeCustom, label }) {
+  const [customOpen, setCustomOpen] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  const base = FURNISHING_ITEMS[level];
+  if (!base) return null;
+
+  const options = [...base, ...custom.filter((c) => !base.includes(c))];
+
+  const toggle = (item) => {
+    onChangeSelected(
+      selected.includes(item) ? selected.filter((i) => i !== item) : [...selected, item],
+    );
+  };
+
+  const addCustom = () => {
+    const text = draft.trim();
+    if (!text) return;
+    /* Case-insensitive, so "wifi" does not join a list that already says
+       "Wi-Fi" and leave the listing claiming both. */
+    const clash = options.find((o) => o.toLowerCase() === text.toLowerCase());
+    if (clash) {
+      if (!selected.includes(clash)) toggle(clash);
+    } else {
+      onChangeCustom([...custom, text]);
+      onChangeSelected([...selected, text]);
+    }
+    setDraft('');
+    setCustomOpen(false);
+  };
+
+  const removeCustom = (item) => {
+    onChangeCustom(custom.filter((i) => i !== item));
+    onChangeSelected(selected.filter((i) => i !== item));
+  };
+
+  return (
+    <div style={{ marginTop: '12px' }}>
+      <span style={{ display: 'block', fontSize: '0.75rem', color: '#45855a', fontWeight: 600, marginBottom: '8px' }}>
+        {label || 'Key Amenities Included'}
+      </span>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+        {options.map((item) => {
+          const isSelected = selected.includes(item);
+          const isCustom = !base.includes(item);
+          return (
+            <div
+              key={item}
+              onClick={() => toggle(item)}
+              style={{
+                padding: isCustom ? '6px 6px 6px 12px' : '6px 12px',
+                borderRadius: '18px',
+                background: isSelected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                border: isSelected ? '1px solid #10b981' : '1px solid var(--border-glass)',
+                color: isSelected ? '#34d399' : 'var(--text-sub)',
+                cursor: 'pointer', fontSize: '0.8rem',
+                display: 'flex', alignItems: 'center', gap: '5px',
+              }}
+            >
+              {isSelected && <Check size={12} />}
+              <span>{item}</span>
+              {isCustom && (
+                <button
+                  type="button"
+                  title={`Remove ${item}`}
+                  aria-label={`Remove ${item}`}
+                  onClick={(e) => { e.stopPropagation(); removeCustom(item); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: '16px', height: '16px', borderRadius: '50%', border: 'none',
+                    background: 'rgba(100, 116, 139, 0.15)', color: 'inherit', cursor: 'pointer', padding: 0,
+                  }}
+                >
+                  <X size={10} />
+                </button>
+              )}
+            </div>
+          );
+        })}
+
+        <button
+          type="button"
+          onClick={() => { setCustomOpen((o) => !o); setDraft(''); }}
+          style={{
+            padding: '6px 12px', borderRadius: '18px',
+            background: customOpen ? '#eaf3ed' : 'transparent',
+            border: `1px dashed ${customOpen ? '#45855a' : '#94a3b8'}`,
+            color: customOpen ? '#2f6b45' : '#64748b',
+            cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600,
+            display: 'flex', alignItems: 'center', gap: '5px',
+          }}
+        >
+          <Plus size={12} />
+          <span>Custom</span>
+        </button>
+      </div>
+
+      {customOpen && (
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '10px', maxWidth: '380px' }}>
+          <input
+            type="text"
+            className="form-input"
+            autoFocus
+            value={draft}
+            maxLength={40}
+            placeholder="e.g. Study Desk"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); addCustom(); }
+              if (e.key === 'Escape') { setCustomOpen(false); setDraft(''); }
+            }}
+            style={{ flex: 1, padding: '8px 12px', fontSize: '0.85rem' }}
+          />
+          <button
+            type="button"
+            onClick={addCustom}
+            disabled={!draft.trim()}
+            className="btn-primary"
+            style={{ padding: '8px 16px', fontSize: '0.82rem', opacity: draft.trim() ? 1 : 0.5 }}
+          >
+            Add
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Room / flat layouts, multi-select, each priced and described on its own.
+ *
+ * ## Why every question here is per-layout
+ *
+ * A house is not one thing. The same building lets a semi-furnished 1 BHK at
+ * ₹12,000 and a fully-furnished 2 BHK at ₹22,000, and there are three of the
+ * first and one of the second. The form used to ask for ONE layout and ONE
+ * furnishing status for the whole property, which meant every listing was
+ * describing whichever flat the agent happened to think of — and the rest were
+ * invisible to anybody searching.
+ *
+ * So each selected layout carries its own rent, its own count, its own
+ * furnishing level and its own amenity list.
+ *
+ * ## Where the numbers go
+ *
+ * Selection is `roomTypes`; rents go to `sharingPrices`, counts to
+ * `sharingRooms` and `sharingBeds` — the same maps the PG sharing options and
+ * the hotel bed types write, which is what makes a priced layout bookable
+ * inventory without anything downstream learning a new key. A whole-flat let
+ * is one lettable unit, so beds equal the count rather than being multiplied
+ * out by an occupancy.
+ *
+ * Furnishing is `furnishingByLayout` and `furnishingItemsByLayout`. The
+ * top-level `furnishing` and `furnishingItems` are still written, derived in
+ * App.jsx, so every screen that reads them keeps working.
+ */
+function RoomLayouts({ category, details, onChangeDetails, errors }) {
+  const tenantOptions = TENANT_OPTIONS[category] || TENANT_OPTIONS.COLIVE;
+  const selected = Array.isArray(details.roomTypes)
+    ? details.roomTypes
+    /* A row created before this control carries one layout as a string. */
+    : (details.roomType ? [details.roomType] : []);
+
+  const prices = details.sharingPrices || {};
+  const counts = details.sharingRooms || {};
+  const byLayout = details.furnishingByLayout || {};
+  const tenantsByLayout = details.allowedTenantsByLayout || {};
+  const kitchenByLayout = details.kitchenByLayout || {};
+  const itemsByLayout = details.furnishingItemsByLayout || {};
+  const custom = Array.isArray(details.customFurnishingItems) ? details.customFurnishingItems : [];
+
+  const setMap = (mapField, key, value) => {
+    const next = { ...(details[mapField] || {}) };
+    if (value === '' || value === null || value === undefined) delete next[key];
+    else next[key] = value;
+    onChangeDetails(mapField, next);
+  };
+
+  const toggle = (layout) => {
+    const has = selected.includes(layout);
+    const next = has ? selected.filter((l) => l !== layout) : [...selected, layout];
+
+    if (has) {
+      /* Everything recorded against a layout nobody offers would resurface on
+         the site, so it all goes with the layout — and before the selection
+         changes, because the headline-rent recompute hangs off `roomTypes`. */
+      ['sharingPrices', 'sharingRooms', 'sharingBeds', 'furnishingByLayout',
+        'furnishingItemsByLayout', 'allowedTenantsByLayout', 'kitchenByLayout']
+        .forEach((mapField) => {
+          const map = details[mapField];
+          if (map && map[layout] !== undefined) {
+            const trimmed = { ...map };
+            delete trimmed[layout];
+            onChangeDetails(mapField, trimmed);
+          }
+        });
+    } else {
+      /* A new layout opens on the same level as the last one an agent chose,
+         which is right far more often than a fixed default: a building is
+         usually furnished to one standard throughout. */
+      const last = selected.length ? selected[selected.length - 1] : null;
+      setMap('furnishingByLayout', layout, (last && byLayout[last]) || 'Semi-Furnished');
+      setMap('allowedTenantsByLayout', layout, (last && tenantsByLayout[last]) || tenantOptions[0].id);
+      setMap('kitchenByLayout', layout, last && kitchenByLayout[last] !== undefined
+        ? kitchenByLayout[last]
+        : true);
+    }
+
+    onChangeDetails('roomTypes', next);
+    onChangeDetails('roomType', next[0] || '');
+  };
+
+  const customLayouts = Array.isArray(details.customRoomTypes) ? details.customRoomTypes : [];
+  const presetIds = ROOM_LAYOUTS.map((l) => l.id);
+  const layoutOptions = [
+    ...ROOM_LAYOUTS,
+    ...customLayouts.filter((c) => !presetIds.includes(c)).map((c) => ({ id: c, label: c })),
+  ];
+
+  const removeCustomLayout = (layout) => {
+    if (selected.includes(layout)) toggle(layout);
+    onChangeDetails('customRoomTypes', customLayouts.filter((l) => l !== layout));
+  };
+
+  return (
+    <div>
+      <ChipPicker
+        id="roomTypes"
+        label="Room / Flat Layouts Available *"
+        error={errors['categoryDetails.roomTypes']}
+        presets={ROOM_LAYOUTS}
+        custom={customLayouts}
+        selected={selected}
+        addPrompt="What other layout does this building let?"
+        addHint="e.g. 4 BHK Villa, Penthouse"
+        onToggle={toggle}
+        onAddCustom={(text) => {
+          onChangeDetails('customRoomTypes', [...customLayouts, text]);
+          /* Selected straight away, and seeded like any other new layout —
+             `toggle` does that, so it is called rather than duplicated. */
+          toggle(text);
+        }}
+        onRemoveCustom={removeCustomLayout}
+      />
+
+      {layoutOptions.filter((l) => selected.includes(l.id)).map((layout) => {
+        const level = byLayout[layout.id] || 'Semi-Furnished';
+        return (
+          <div
+            key={layout.id}
+            style={{
+              background: '#f8faf8', border: '1px solid #e2e8f0',
+              borderRadius: '10px', padding: '14px', marginBottom: '12px',
+            }}
+          >
+            <span style={{ fontSize: '0.88rem', color: '#181e1b', fontWeight: 700 }}>{layout.label}</span>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginTop: '10px' }}>
+              <div>
+                <span style={{ fontSize: '0.75rem', color: '#45855a', fontWeight: 600 }}>Monthly Rent (₹) *</span>
+                <input
+                  type="number"
+                  className="form-input"
+                  id={`sharingPrice-${layout.id}`}
+                  min="0"
+                  placeholder="e.g. 12000"
+                  value={prices[layout.id] ?? ''}
+                  onChange={(e) => setMap('sharingPrices', layout.id, Number(e.target.value) || '')}
+                  style={{ marginTop: '4px', padding: '8px 12px', fontSize: '0.85rem', borderColor: errorBorder(errors[sharingPriceKey(layout.id)]) }}
+                />
+                <FieldError message={errors[sharingPriceKey(layout.id)]} />
+              </div>
+
+              <div>
+                <span style={{ fontSize: '0.75rem', color: '#45855a', fontWeight: 600 }}>How many of these?</span>
+                <input
+                  type="number"
+                  className="form-input"
+                  id={`sharingRooms-${layout.id}`}
+                  min="0"
+                  placeholder="e.g. 3"
+                  value={counts[layout.id] ?? ''}
+                  onChange={(e) => {
+                    const count = Number(e.target.value) || '';
+                    setMap('sharingRooms', layout.id, count);
+                    /* One flat is one lettable unit, so beds equal the count.
+                       Written rather than derived on read, because that is the
+                       number the request flow decrements. */
+                    setMap('sharingBeds', layout.id, count);
+                  }}
+                  style={{ marginTop: '4px', padding: '8px 12px', fontSize: '0.85rem' }}
+                />
+                <span style={{ fontSize: '0.72rem', color: counts[layout.id] ? '#45855a' : '#94a3b8', fontWeight: 600 }}>
+                  {counts[layout.id]
+                    ? `${counts[layout.id]} available to let`
+                    : 'How many of this layout the building has'}
+                </span>
+                <FieldError message={errors[roomCountKey(layout.id)]} />
+              </div>
+
+              <div>
+                <span style={{ fontSize: '0.75rem', color: '#45855a', fontWeight: 600 }}>Furnishing Status</span>
+                <select
+                  className="form-select"
+                  value={level}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setMap('furnishingByLayout', layout.id, next);
+
+                    /* The ticked amenities answered the previous level's list,
+                       so anything the new one does not offer is dropped.
+                       Custom items were typed for this property rather than
+                       for a level, so they stay. Unfurnished clears the lot. */
+                    const base = FURNISHING_ITEMS[next] || [];
+                    const ticked = itemsByLayout[layout.id] || [];
+                    setMap(
+                      'furnishingItemsByLayout',
+                      layout.id,
+                      base.length ? ticked.filter((i) => base.includes(i) || custom.includes(i)) : [],
+                    );
+                  }}
+                  style={{ marginTop: '4px', padding: '8px 12px', fontSize: '0.85rem' }}
+                >
+                  <option value="Fully Furnished">Fully Furnished</option>
+                  <option value="Semi-Furnished">Semi-Furnished</option>
+                  <option value="Unfurnished">Unfurnished</option>
+                </select>
+                <FieldError message={errors[furnishingKey(layout.id)]} />
+              </div>
+
+              <div>
+                <span style={{ fontSize: '0.75rem', color: '#45855a', fontWeight: 600 }}>Allowed Tenants</span>
+                <select
+                  className="form-select"
+                  value={tenantsByLayout[layout.id] || tenantOptions[0].id}
+                  onChange={(e) => setMap('allowedTenantsByLayout', layout.id, e.target.value)}
+                  style={{ marginTop: '4px', padding: '8px 12px', fontSize: '0.85rem' }}
+                >
+                  {tenantOptions.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))}
+                  {/* A value saved before this list was narrowed stays
+                      selectable, so editing an old listing cannot silently
+                      change who it is let to. */}
+                  {tenantsByLayout[layout.id]
+                    && !tenantOptions.some((o) => o.id === tenantsByLayout[layout.id]) ? (
+                      <option value={tenantsByLayout[layout.id]}>{tenantsByLayout[layout.id]}</option>
+                    ) : null}
+                </select>
+              </div>
+
+              <div>
+                <span style={{ fontSize: '0.75rem', color: '#45855a', fontWeight: 600 }}>Kitchen / Cooking Provision?</span>
+                <select
+                  className="form-select"
+                  value={kitchenByLayout[layout.id] === false ? 'No' : 'Yes'}
+                  onChange={(e) => setMap('kitchenByLayout', layout.id, e.target.value === 'Yes')}
+                  style={{ marginTop: '4px', padding: '8px 12px', fontSize: '0.85rem' }}
+                >
+                  <option value="Yes">Yes (Kitchen &amp; Cooking Allowed)</option>
+                  <option value="No">No Kitchen Setup</option>
+                </select>
+              </div>
+            </div>
+
+            <FurnishingItems
+              level={level}
+              selected={itemsByLayout[layout.id] || []}
+              custom={custom}
+              label={`Key Amenities Included — what the ${level.toLowerCase()} ${layout.label} gets them`}
+              onChangeSelected={(next) => setMap('furnishingItemsByLayout', layout.id, next)}
+              onChangeCustom={(next) => onChangeDetails('customFurnishingItems', next)}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
+
 function SharingOptions({ details, onChangeDetails, onToggleType, setMapValue, errors = {} }) {
   const [customOpen, setCustomOpen] = useState(false);
   const [customCount, setCustomCount] = useState('');
@@ -447,7 +1468,7 @@ function SharingOptions({ details, onChangeDetails, onToggleType, setMapValue, e
    *  a standard one does — a stale price would keep counting toward the
    *  headline rent App.jsx derives from this map. */
   const removeCustom = (label) => {
-    ['sharingPrices', 'sharingAC', 'sharingAcPrices'].forEach((mapField) => {
+    ['sharingPrices', 'sharingAC', 'sharingAcPrices', 'sharingRooms', 'sharingBeds'].forEach((mapField) => {
       const map = details[mapField];
       if (map && map[label] !== undefined) {
         const trimmed = { ...map };
@@ -610,6 +1631,16 @@ function SharingOptions({ details, onChangeDetails, onToggleType, setMapValue, e
               const currentPrice = details.sharingPrices ? details.sharingPrices[type] : '';
               const hasAC = !!(details.sharingAC && details.sharingAC[type]);
               const acPrice = details.sharingAcPrices ? details.sharingAcPrices[type] : '';
+
+              /* How many of this room type exist, and therefore how many beds.
+                 This is the number the app claims against when an owner accepts
+                 a request — without it the option cannot be requested at all,
+                 which is why it is marked required rather than left for later. */
+              const occupancy = occupancyOf(type);
+              const rooms = details.sharingRooms ? details.sharingRooms[type] : '';
+              const beds = details.sharingBeds ? details.sharingBeds[type] : '';
+              const derivedBeds = occupancy && Number(rooms) > 0 ? Number(rooms) * occupancy : null;
+
               return (
                 <div
                   key={type}
@@ -635,6 +1666,62 @@ function SharingOptions({ details, onChangeDetails, onToggleType, setMapValue, e
                     style={{ padding: '8px 12px', fontSize: '0.85rem', borderColor: errorBorder(errors[sharingPriceKey(type)]) }}
                   />
                   <FieldError message={errors[sharingPriceKey(type)]} />
+
+                  {/* ── How many rooms, and therefore how many beds ──────
+                      The agent counts rooms because that is what they are
+                      standing in front of; the app needs beds, so the two are
+                      multiplied out and both are stored. A label that does not
+                      say how many share a room ("Dorm Sharing", and anything
+                      added through Custom that does not parse) is asked for
+                      beds directly. */}
+                  {occupancy ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '2px' }}>
+                      <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>
+                        How many {type} rooms? *
+                      </span>
+                      <input
+                        id={`sharingRooms-${type}`}
+                        type="number"
+                        min="0"
+                        placeholder="e.g. 3"
+                        value={rooms || ''}
+                        onChange={(e) => {
+                          const count = Number(e.target.value) || '';
+                          setMapValue('sharingRooms', type, count);
+                          /* Beds are written too, not just derived on read —
+                             the backend accepts either, and an explicit number
+                             survives somebody later renaming the label. */
+                          setMapValue('sharingBeds', type, count ? count * occupancy : '');
+                        }}
+                        className="form-input"
+                        style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+                      />
+                      <span style={{ fontSize: '0.72rem', color: derivedBeds ? '#45855a' : '#94a3b8', fontWeight: 600 }}>
+                        {derivedBeds
+                          ? `${rooms} × ${occupancy} = ${derivedBeds} beds available`
+                          : `${occupancy} ${occupancy === 1 ? 'person' : 'people'} per room`}
+                      </span>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '2px' }}>
+                      <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>
+                        Total {type} beds *
+                      </span>
+                      <input
+                        id={`sharingBeds-${type}`}
+                        type="number"
+                        min="0"
+                        placeholder="e.g. 12"
+                        value={beds || ''}
+                        onChange={(e) => setMapValue('sharingBeds', type, Number(e.target.value) || '')}
+                        className="form-input"
+                        style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+                      />
+                      <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600 }}>
+                        We cannot tell how many share a {type} room, so enter the beds directly.
+                      </span>
+                    </div>
+                  )}
 
                   {/* AC is priced per sharing option, not per property */}
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '2px' }}>

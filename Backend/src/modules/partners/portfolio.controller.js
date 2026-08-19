@@ -37,6 +37,20 @@ const Partner = require('./partner.model');
 const Property = require('../properties/property.model');
 const VisitRequest = require('../visits/visitRequest.model');
 const { formatListing } = require('../listings/listing.formatter');
+const {
+  StayRequestError, acceptAndBook, decline, settleIfExpired,
+} = require('../visits/stayRequest.service');
+const {
+  notifyStudentAccepted, notifyStudentDeclined,
+} = require('../notifications/stayRequest.notifier');
+
+/* Fired, not awaited — the transition has committed and the owner is waiting
+   for their answer. See the note in visits/stayRequest.controller.js. */
+const fireAndForget = (promise) => {
+  Promise.resolve(promise).catch((error) => {
+    console.error('[partner-requests] notification failed:', error.message);
+  });
+};
 
 const { phoneKey } = Partner;
 
@@ -127,8 +141,15 @@ const toOwnerJSON = (request) => ({
   updatedAt: request.updatedAt,
 });
 
-/** Requests that have reached the owner. `otp_pending` never has. */
-const VISIBLE_TO_OWNER = ['pending_owner', 'confirmed', 'declined', 'expired'];
+/**
+ * Requests that have reached the owner. `otp_pending` never has.
+ *
+ * `cancelled` is here even though nobody acted on it from this side: a
+ * student who withdrew is a row that VANISHED from the owner's screen if it
+ * were left out, which reads as a bug. It shows as cancelled and
+ * non-actionable instead, which is the truth.
+ */
+const VISIBLE_TO_OWNER = ['pending_owner', 'confirmed', 'declined', 'expired', 'cancelled'];
 
 // @route   GET /api/v2/partners/requests
 // @desc    Visit requests customers have sent to this partner's properties
@@ -152,10 +173,24 @@ const getMyRequests = async (req, res, next) => {
       status: { $in: VISIBLE_TO_OWNER },
     })
       .sort({ createdAt: -1 })
-      .limit(LIST_LIMIT)
-      .lean();
+      .limit(LIST_LIMIT);
 
-    const data = requests.map(toOwnerJSON);
+    /*
+     * Settled on the way past, so the list never offers Accept on a request
+     * whose three minutes ran out while the app was in a pocket. The
+     * NOTIFICATION for that expiry belongs to the worker — opening a screen
+     * is not an event, and pushing from here would fire an expiry notice at
+     * whatever moment somebody happened to look.
+     *
+     * Not lean(), because `toOwner()` is a document method: it carries the
+     * countdown and the `actionable` flag, and duplicating that projection
+     * here is how the two would drift.
+     */
+    const settled = await Promise.all(requests.map((request) => settleIfExpired(request)));
+
+    const data = settled.map((request) => (
+      request.channel === 'app' ? request.toOwner() : toOwnerJSON(request)
+    ));
 
     /* Unread is a watermark on the partner, matching how the customer app
        counts alerts: these are derived rows with nowhere to hang a per-item
@@ -187,7 +222,7 @@ const getMyRequest = async (req, res, next) => {
       });
     }
 
-    const request = await VisitRequest.findById(id).lean();
+    const request = await VisitRequest.findById(id);
 
     /*
      * Ownership is re-checked here rather than trusted from the list.
@@ -207,7 +242,28 @@ const getMyRequest = async (req, res, next) => {
       });
     }
 
-    return res.json({ success: true, data: toOwnerJSON(request) });
+    const current = await settleIfExpired(request);
+
+    /*
+     * The owner has this request open. Stamped once, and only while it is
+     * still live — "seen" after it expired is not a fact worth recording, and
+     * would put a stage on the student's screen about a wait that had ended.
+     *
+     * `seenAt: null` in the filter makes it idempotent: the first view wins
+     * and a poll every four seconds afterwards writes nothing.
+     */
+    if (current.channel === 'app' && current.status === 'pending_owner' && !current.seenAt) {
+      await VisitRequest.updateOne(
+        { _id: current._id, seenAt: null },
+        { $set: { seenAt: new Date() } },
+      ).catch(() => {});
+      current.seenAt = new Date();
+    }
+
+    return res.json({
+      success: true,
+      data: current.channel === 'app' ? current.toOwner() : toOwnerJSON(current),
+    });
   } catch (error) {
     return next(error);
   }
@@ -341,7 +397,113 @@ const getSummary = async (req, res, next) => {
   }
 };
 
+/* ══════════════════════════════════════════════════════════════════════════
+   Answering — the two taps this whole flow exists for.
+
+   Thin, like every other controller here: the state transition, the bed, the
+   customer row and the auto-decline sweep all live in
+   `visits/stayRequest.service.js`, because the same transitions are called by
+   the student's routes and by the expiry worker. A rule enforced here would
+   apply to one caller and silently not the others.
+
+   Both are idempotent by construction. A second tap does not match the
+   guarded filter, so it changes nothing and creates nothing — and it is told
+   WHY rather than being given a generic failure, because "this expired" and
+   "the student cancelled" are different sentences and the owner acts on them
+   differently.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** A service refusal becomes a response; anything else is a bug. */
+const failRequest = (res, error, next) => {
+  if (error instanceof StayRequestError) {
+    return res.status(error.status).json({
+      success: false, code: error.code, message: error.message,
+    });
+  }
+  return next(error);
+};
+
+// @route   POST /api/v2/partners/requests/:id/accept
+// @desc    Take the bed, confirm the student, open a customer record
+// @access  Partner session
+const acceptRequest = async (req, res, next) => {
+  try {
+    if (mongoose.connection.readyState !== 1) return dbDown(res);
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(404).json({
+        success: false, code: 'NOT_FOUND', message: 'We could not find that request.',
+      });
+    }
+
+    const { request, booking, autoDeclined } = await acceptAndBook(id, req.partner);
+
+    /*
+     * A visit that has to be paid for needs something to pay at.
+     *
+     * Created before the push so the notification does not arrive before the
+     * link it is telling them to use exists. Awaited for the same reason —
+     * it is one call, and a student tapping the notification immediately
+     * should find the button live.
+     */
+    if (request.payment?.required && request.payment.status !== 'paid') {
+      const { ensurePaymentLink } = require('../visits/visitPayment.controller');
+      await ensurePaymentLink(request);
+    }
+
+    fireAndForget(notifyStudentAccepted(request));
+
+    /* Everybody who was waiting on the bed this tap just took. Each gets the
+       INVENTORY_TAKEN wording rather than a rejection — see the notifier. */
+    for (const lost of autoDeclined) fireAndForget(notifyStudentDeclined(lost));
+
+    return res.json({
+      success: true,
+      data: request.toOwner(),
+      /* The owner is told what else their tap did. Accepting the last bed
+         turns other people's requests away, and doing that silently is how an
+         owner discovers it from an angry phone call instead. */
+      booking: booking ? { id: String(booking._id), status: booking.status } : null,
+      autoDeclined: autoDeclined.length,
+    });
+  } catch (error) {
+    return failRequest(res, error, next);
+  }
+};
+
+// @route   POST /api/v2/partners/requests/:id/decline
+// @desc    Turn a request down. Frees nothing, because nothing was taken.
+// @access  Partner session
+const declineRequest = async (req, res, next) => {
+  try {
+    if (mongoose.connection.readyState !== 1) return dbDown(res);
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(404).json({
+        success: false, code: 'NOT_FOUND', message: 'We could not find that request.',
+      });
+    }
+
+    /* The reason chips on the existing reject sheet. Free text, capped in the
+       service, and kept apart from `decisionReason` — that one is a machine's
+       word and this one is the owner's. */
+    const note = (req.body && req.body.reason) || (req.body && req.body.note) || null;
+
+    const request = await decline(id, req.partner, { reason: 'OWNER_DECLINED', note });
+
+    fireAndForget(notifyStudentDeclined(request));
+
+    return res.json({ success: true, data: request.toOwner() });
+  } catch (error) {
+    return failRequest(res, error, next);
+  }
+};
+
 module.exports = {
+  acceptRequest,
+  declineRequest,
   getMyProperties,
   getMyRequests,
   getMyRequest,

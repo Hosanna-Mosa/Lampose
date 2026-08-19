@@ -19,6 +19,7 @@ import { JetBrainsMono_500Medium } from '@expo-google-fonts/jetbrains-mono';
 import { Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { usePushRouting } from '@/services/push/usePushRouting';
 
 // Hold the native splash until the fonts resolve, so the branded splash below
 // never renders in a fallback face.
@@ -104,6 +105,11 @@ function RootLayoutNav() {
        stale history entry pointing at it goes to the dashboard. */
     if (inAuthFlow) router.replace('/');
   }, [status, profileComplete, inAuthFlow, onProfileSetup, navigationState?.key, router]);
+
+  /* Mounted before the splash short-circuit, because a hook cannot live
+     behind a conditional return — and because the cold-start tap has already
+     happened by the time this renders at all. */
+  usePushRouting();
 
   /* Held on the splash until the session is known, so the effect above has a
      real answer to act on by the time anything is painted. */

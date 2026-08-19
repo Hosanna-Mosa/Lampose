@@ -333,6 +333,70 @@ export const uploadPropertyImages = async (items = [], onStage = () => {}) => {
   return urls;
 };
 
+/**
+ * Replace a listing's photos.
+ *
+ * Send the WHOLE list in the order it should appear — the endpoint writes
+ * exactly what it is given, so a deletion is "the list without that one" and
+ * a reorder is the same list rearranged. That is deliberate: a PATCH-style
+ * add/remove API would make the cover photo depend on the order requests
+ * happened to arrive in.
+ *
+ * Allowed for the employee who onboarded the listing without any permission
+ * request, because a photo is not a price. Anything else about a listing still
+ * needs an administrator's grant.
+ */
+export const updatePropertyImages = (id, images) =>
+  api.put(`/properties/${id}/images`, { images }).then(ok).catch(fail);
+
+/* ── Document upload ───────────────────────────────────────────────────── */
+
+/**
+ * Push the ownership and premises paperwork through the same upload route the
+ * photos use, and return `{ kind, docType, url, name }` for each.
+ *
+ * ## A warning about where these end up
+ *
+ * The backend uploads with Cloudinary's default access, which is public-read.
+ * The URLs are unguessable, and that is NOT the same as private: anyone who
+ * comes by one — a forwarded link, a browser history, a leaked database dump —
+ * can fetch a PAN card. The listing projection is careful never to include
+ * `documents`, so they are not served to the public site, but the objects
+ * themselves are not access-controlled.
+ *
+ * Making them properly private means uploading with `access_mode:
+ * 'authenticated'` and serving signed URLs, which is a backend change. Until
+ * then, treat these as sensitive and do not paste the URLs anywhere.
+ *
+ * @param {{kind: string, docType?: string, file: File}[]} items
+ * @param {(stage: string) => void} [onStage]
+ */
+export const uploadPropertyDocuments = async (items = [], onStage = () => {}) => {
+  const list = items.filter((item) => item && item.file);
+  if (list.length === 0) return [];
+
+  const out = [];
+  for (let i = 0; i < list.length; i += 1) {
+    const item = list[i];
+    onStage(`Uploading document ${i + 1} of ${list.length}...`);
+
+    const form = new FormData();
+    form.append('image', item.file);
+
+    // eslint-disable-next-line no-await-in-loop
+    const data = await api.post('/properties/upload-image', form).then(ok).catch(fail);
+    if (data?.success && data.url) {
+      out.push({
+        kind: item.kind,
+        docType: item.docType || '',
+        url: data.url,
+        name: item.file.name || '',
+      });
+    }
+  }
+  return out;
+};
+
 /* ── Permissions ───────────────────────────────────────────────────────── */
 
 export const ACTION_LABELS = {

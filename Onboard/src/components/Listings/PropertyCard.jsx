@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MapPin, Phone, ArrowRight, Clock, Calendar, Wifi, ShieldCheck, Utensils, Zap, Sparkles, Lock, ChevronLeft, ChevronRight, UserCheck } from 'lucide-react';
+import { labelForCategory } from '../../data/categories';
 
 export default function PropertyCard({ property, onViewDetails }) {
   const {
@@ -29,7 +30,7 @@ export default function PropertyCard({ property, onViewDetails }) {
 
   const displayedImage = allImages[currentImgIndex] || allImages[0] || '/lampose-logo-splash.png';
   const displayPrice = rent || monthlyPrice || dailyPrice || 0;
-  const isDaily = stayType === 'Short Stay' || (category === 'Dormitory' && !monthlyPrice);
+  const isDaily = stayType === 'Short Stay' || (category === 'HOTEL' && !monthlyPrice);
 
   // Take top 3 amenities to feature on card
   const topAmenities = amenities.slice(0, 3);
@@ -214,7 +215,7 @@ export default function PropertyCard({ property, onViewDetails }) {
             gap: '4px'
           }}>
             <Sparkles size={11} color="#45855a" />
-            {category}
+            {labelForCategory(category)}
           </span>
         </div>
 
@@ -239,7 +240,7 @@ export default function PropertyCard({ property, onViewDetails }) {
             </span>
           </div>
         ) : (
-          stayType && category !== 'Bachelor Room' && (
+          stayType && category !== 'BACHELOR' && category !== 'COLIVE' && (
             <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 2 }}>
               <span style={{
                 fontSize: '0.72rem',

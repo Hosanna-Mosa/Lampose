@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import { reloadAppAsync } from 'expo';
+import { PREVIEW_CONTROLS } from '@/constants/env';
 
 export type ErrorFallbackProps = {
   error: Error;
@@ -49,7 +50,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg }]}>
-      {__DEV__ ? (
+      {PREVIEW_CONTROLS ? (
         <Pressable
           onPress={() => setIsModalVisible(true)}
           accessibilityLabel="View error details"
@@ -95,7 +96,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
         </Pressable>
       </View>
 
-      {__DEV__ ? (
+      {PREVIEW_CONTROLS ? (
         <Modal
           visible={isModalVisible}
           animationType="slide"

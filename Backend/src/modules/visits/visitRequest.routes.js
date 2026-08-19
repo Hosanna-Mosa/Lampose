@@ -19,6 +19,9 @@ const {
   resendVisitOtp,
   getVisitRequest,
 } = require('./visitRequest.controller');
+const {
+  createPaymentOrder, verifyPayment, setJoiningDate, renderCheckout, paymentCallback,
+} = require('./visitPayment.controller');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const { rateLimit } = require('../../shared/middleware/rateLimit');
 
@@ -40,5 +43,20 @@ router.post('/', requireLamposeDb, startLimit, createVisitRequest);
 router.post('/:id/verify', requireLamposeDb, verifyLimit, verifyVisitRequest);
 router.post('/:id/resend', requireLamposeDb, resendLimit, resendVisitOtp);
 router.get('/:id', requireLamposeDb, statusLimit, getVisitRequest);
+
+/* ── The visit token ──────────────────────────────────────────────────────
+   Bachelor and co-live only, and only after the owner has confirmed. The
+   request id is the capability, exactly as it is for GET above — these routes
+   add no new exposure, and the address they eventually release is behind a
+   verified payment rather than behind knowing an id. */
+router.post('/:id/payment/order', requireLamposeDb, statusLimit, createPaymentOrder);
+router.post('/:id/payment/verify', requireLamposeDb, statusLimit, verifyPayment);
+router.post('/:id/joining-date', requireLamposeDb, statusLimit, setJoiningDate);
+
+/* The mobile app opens this in a browser tab rather than carrying a native
+   Razorpay SDK. It renders the same checkout, verifies here where the secret
+   already lives, and bounces back through the app's deep link. */
+router.get('/:id/payment/checkout', requireLamposeDb, renderCheckout);
+router.post('/:id/payment/callback', requireLamposeDb, paymentCallback);
 
 module.exports = router;

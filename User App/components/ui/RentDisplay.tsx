@@ -183,7 +183,7 @@ export function RentDisplay({
         </View>
       )}
 
-      {/* Dormitory only: the monthly equivalent and the minimum stay. It sits
+      {/* Hotels only: the monthly equivalent and the minimum stay. It sits
           under the nightly rate rather than beside it, because a student
           comparing a dorm against a PG is comparing months. */}
       {secondaryLine ? (

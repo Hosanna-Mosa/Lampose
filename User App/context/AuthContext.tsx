@@ -11,6 +11,10 @@ import {
   updateMe,
   verifyAuth,
 } from '@/services';
+import { Platform } from 'react-native';
+
+import { registerDevice, unregisterDevice } from '@/services/api/devices.api';
+import { clearPushState, getPushToken } from '@/services/push/push';
 import type { AppConfig, AuthStatus, AuthUser, SendFailure } from '@/types/auth';
 import type { BackendReferralOutcome } from '@/services/api/types';
 
@@ -165,8 +169,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   /* ── Persistence ───────────────────────────────────────────────────── */
 
+  /*
+   * This device's push token, held so sign-out can hand back the same one it
+   * registered.
+   *
+   * A ref rather than state: nothing renders from it, and a re-render in the
+   * middle of signing out must not be able to lose the value that says which
+   * handset to deregister.
+   */
+  const pushToken = useRef<string | null>(null);
+
+  /**
+   * Put this handset on the account's list.
+   *
+   * Runs on every sign-in and every session restore, not once ever — a push
+   * token identifies an app INSTALLATION and is reissued on reinstall or
+   * rotated by the OS. The backend upserts by token, so repeating it is free.
+   *
+   * Deliberately not awaited by its caller and unable to throw: a student who
+   * declined notifications, or is running in Expo Go where push does not
+   * exist, must still be signed in. The app works without it; the phone just
+   * does not buzz.
+   */
+  const attachDevice = useCallback(async () => {
+    const token = await getPushToken();
+    if (!token) return;
+    pushToken.current = token;
+    await registerDevice(token, Platform.OS === 'ios' ? 'ios' : 'android');
+  }, []);
+
   const persist = useCallback(async (session: StoredSession | null) => {
     if (!session) {
+      /*
+       * The device comes off the account BEFORE the token is cleared.
+       *
+       * The endpoint is behind a session, so doing it after `setAuthToken(null)`
+       * would be an unauthenticated call that silently does nothing — and the
+       * handset would keep receiving this account's alerts. On a shared phone
+       * that is the next person reading somebody else's booking notifications
+       * off the lock screen.
+       */
+      if (pushToken.current) {
+        await unregisterDevice(pushToken.current).catch(() => {});
+        pushToken.current = null;
+      }
+      await clearPushState();
+
       setUser(null);
       setToken(null);
       /* Cleared in the client FIRST. A request that fires between these two
@@ -179,7 +227,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(session.token);
     setAuthToken(session.token);
     await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  }, []);
+
+    /* Fired, not awaited. Asking for notification permission opens an OS
+       dialog, and blocking the sign-in transition behind it would leave
+       somebody looking at a spinner under a system prompt. */
+    attachDevice().catch(() => {});
+  }, [attachDevice]);
 
   /* ── Restore, then revalidate ──────────────────────────────────────────
      The stored copy paints the first frame; the server decides whether the

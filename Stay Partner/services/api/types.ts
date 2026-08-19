@@ -116,7 +116,28 @@ export type BackendListing = {
  * `otp_pending` exists in the database and is never sent here — see the note on
  * `partnerRequests` in `endpoints.ts`.
  */
-export type BackendRequestStatus = 'pending_owner' | 'confirmed' | 'declined' | 'expired';
+export type BackendRequestStatus =
+  | 'pending_owner'
+  | 'confirmed'
+  | 'declined'
+  | 'expired'
+  /** The student pulled it back before anybody answered. App channel only. */
+  | 'cancelled';
+
+/**
+ * Why a request ended, where the status alone does not say.
+ *
+ * `INVENTORY_TAKEN` is a decline this owner never made: they accepted
+ * somebody else for the last bed in that room type, and everybody still
+ * waiting on it was turned away in the same action. Worth showing as its own
+ * thing so a history screen does not read as though they rejected five people
+ * they never looked at.
+ */
+export type BackendDecisionReason =
+  | 'OWNER_DECLINED'
+  | 'INVENTORY_TAKEN'
+  | 'NO_ANSWER'
+  | 'STUDENT_WITHDREW';
 
 export type BackendPartnerRequest = {
   id: string;
@@ -143,7 +164,78 @@ export type BackendPartnerRequest = {
     totalAmount: number | null;
   } | null;
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string;
+
+  /* ── The app channel ─────────────────────────────────────────────────
+     Absent on a request from lampose.com, where the owner answers on
+     WhatsApp and has twenty-four hours. */
+
+  channel?: 'web' | 'app';
+
+  /** Which occupancy was asked for, and what it was priced at. */
+  sharing?: { label: string | null; price: number | null } | null;
+  shareTypeId?: string | null;
+
+  /**
+   * When the student's request was put in front of this owner, and when they
+   * first opened it.
+   *
+   * `seenAt` is what makes the unanswered alert dismissable by looking rather
+   * than by tapping something away — it is stamped by the server the first
+   * time this owner opens the request, and nothing else clears it.
+   */
+  notifiedAt?: string | null;
+  seenAt?: string | null;
+
+  /** When this owner's window closes. Set and owned by the server. */
+  expiresAt?: string | null;
+  decidedAt?: string | null;
+  cancelledAt?: string | null;
+  decisionReason?: BackendDecisionReason | null;
+
+  /** The customer record an acceptance opened. */
+  bookingId?: string | null;
+
+  /**
+   * The PIN this owner and the student compare at the door.
+   *
+   * Issued when the request is confirmed and held by both sides — it is not a
+   * secret and proves nothing to the server, which is exactly why the owner
+   * has to be able to see it again. An owner who cannot be shown it cannot
+   * check anybody in.
+   */
+  entryPin?: string | null;
+  entryPinIssuedAt?: string | null;
+
+  /**
+   * Moving in, which takes both sides.
+   *
+   * The owner marks it first — they check the PIN and open the door — and the
+   * student confirms after. Until both have, nobody is in house.
+   */
+  movedInByOwnerAt?: string | null;
+  movedInByStudentAt?: string | null;
+
+  /**
+   * The server's clock, sent with every read.
+   *
+   * The countdown is `expiresAt - now`, and a phone's `now` cannot be
+   * trusted for that — thirty seconds out is plainly visible on a
+   * three-minute window. The app derives an offset from this once and then
+   * measures elapsed time locally.
+   */
+  serverNow?: string;
+  /** Floored at zero, and zero for anything that has already ended. */
+  secondsRemaining?: number | null;
+
+  /**
+   * Whether Accept and Decline may still be pressed.
+   *
+   * One flag rather than four comparisons repeated across two screens. A
+   * button left live on a request that has expired or been withdrawn is the
+   * exact bug this exists to prevent.
+   */
+  actionable?: boolean;
 };
 
 /**

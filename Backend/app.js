@@ -84,7 +84,25 @@ const createApp = ({ corsMiddleware } = {}) => {
     });
   }
 
-  app.use(express.json({ limit: config.bodyLimit }));
+  /*
+   * The raw body is kept for the routes that verify a signature over it.
+   *
+   * Razorpay's webhook HMAC covers the bytes exactly as they arrived, so
+   * re-serialising the parsed object reorders keys, changes the bytes and the
+   * signature never matches. `verify` runs before parsing and is the only
+   * place those bytes still exist.
+   *
+   * Stored on the request rather than globally — nothing else needs it, and a
+   * buffer per request is worth paying only where it is checked.
+   */
+  app.use(express.json({
+    limit: config.bodyLimit,
+    verify: (req, _res, buf) => {
+      if (req.originalUrl && req.originalUrl.includes('/payments/razorpay/webhook')) {
+        req.rawBody = Buffer.from(buf);
+      }
+    },
+  }));
   app.use(express.urlencoded({ extended: true, limit: config.bodyLimit }));
 
   app.get(['/', '/api'], (req, res) => {

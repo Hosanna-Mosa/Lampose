@@ -70,7 +70,7 @@ export type CategoryTabsProps = {
  *
  * There is no travelling indicator, for the same reason the tab bar has none:
  * the four categories are peers, not points on a line, and a sliding pill
- * asserts an adjacency and a direction that moving from PG to Dormitory does
+ * asserts an adjacency and a direction that moving from PG to Hotels does
  * not have.
  *
  * The monogram tile stays visible in both states. It is the category's

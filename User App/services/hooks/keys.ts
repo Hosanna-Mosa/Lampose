@@ -38,6 +38,9 @@ export const queryKeys = {
   listingMeta: ['listings', 'meta'] as const,
 
   visitRequest: (id: string) => ['visit-requests', id] as const,
+  /* The stay request the countdown screen watches. Keyed by id rather than by
+     listing, because the push payload carries an id and nothing else. */
+  stayRequest: (id: string) => ['stay-requests', id] as const,
 
   /* One key for the list and the unread badge, so the number on the bell and
      the rows on the screen are the same fetch and cannot disagree. */

@@ -140,11 +140,14 @@ const MEAL_TIMINGS = {
   Dinner: '8:00 PM - 10:00 PM',
 };
 
-function buildProperty({ area, city, category, index }) {
+/* `variant` is a fixture SHAPE, not a stored category — 'PG' and 'Hostel'
+   are both written as PG_HOSTEL below, with the different categoryDetails
+   the two forms produce. See MIX. */
+function buildProperty({ area, city, variant, index }) {
   const r = rng(
     /* Seeded from the row's identity, so this exact property regenerates
        identically no matter what order the areas are processed in. */
-    [...`${area}|${category}|${index}`].reduce((h, ch) => Math.imul(h ^ ch.charCodeAt(0), 16777619), 2166136261),
+    [...`${area}|${variant}|${index}`].reduce((h, ch) => Math.imul(h ^ ch.charCodeAt(0), 16777619), 2166136261),
   );
 
   const band = bandFor(area);
@@ -173,7 +176,7 @@ function buildProperty({ area, city, category, index }) {
   };
   common.verificationStatus = common.isVerified ? 'verified' : 'pending';
 
-  if (category === 'PG') {
+  if (variant === 'PG') {
     const single = money(band * (1.35 + r() * 0.3));
     const double = money(band * (1 + r() * 0.15));
     const triple = money(band * (0.78 + r() * 0.1));
@@ -182,7 +185,7 @@ function buildProperty({ area, city, category, index }) {
     return {
       ...common,
       name: `${pick(r, PG_PREFIX)} ${pick(r, ['PG', 'PG for Men', 'PG for Women', 'Residency', 'Co-Living'])}`,
-      category: 'PG',
+      category: 'PG_HOSTEL',
       stayType: r() > 0.6 ? 'Both Short & Long Stay' : 'Long Stay',
       longStayDuration: pick(r, ['1 Month+', '3 months min', '6 months min']),
       shortStayDuration: '1-7 Days',
@@ -211,7 +214,7 @@ function buildProperty({ area, city, category, index }) {
     };
   }
 
-  if (category === 'Hostel') {
+  if (variant === 'Hostel') {
     const double = money(band * (0.9 + r() * 0.15));
     const triple = money(band * (0.72 + r() * 0.1));
     const four = money(band * (0.6 + r() * 0.08));
@@ -222,7 +225,7 @@ function buildProperty({ area, city, category, index }) {
     return {
       ...common,
       name: `${pick(r, HOSTEL_PREFIX)} ${hostelType} Hostel`,
-      category: 'Hostel',
+      category: 'PG_HOSTEL',
       stayType: 'Long Stay',
       longStayDuration: pick(r, ['1 Month+', '3 months min']),
       shortStayDuration: '1-7 Days',
@@ -245,12 +248,12 @@ function buildProperty({ area, city, category, index }) {
     };
   }
 
-  if (category === 'Dormitory') {
+  if (variant === 'Dormitory') {
     const nightly = money(band / 24);
     return {
       ...common,
       name: `${pick(r, DORM_PREFIX)} ${pick(r, ['Dormitory', 'Pod Stay', 'Bunk House'])}`,
-      category: 'Dormitory',
+      category: 'HOTEL',
       stayType: 'Short Stay',
       longStayDuration: '1 Month+',
       shortStayDuration: '1-7 Days',
@@ -275,7 +278,7 @@ function buildProperty({ area, city, category, index }) {
   return {
     ...common,
     name: `${pick(r, BACHELOR_PREFIX)} ${pick(r, ['1BHK', '2BHK', 'Studio', '1RK'])}`,
-    category: 'Bachelor Room',
+    category: 'BACHELOR',
     stayType: 'Long Stay',
     longStayDuration: pick(r, ['6 months min', '11 months min']),
     shortStayDuration: '1-7 Days',
@@ -340,8 +343,16 @@ function buildProperty({ area, city, category, index }) {
     process.exit(1);
   }
 
-  /* A mix per area, weighted towards PGs because that is what the market is
-     and what the app's first tab shows. */
+  /*
+   * A mix per area, weighted towards PGs because that is what the market is
+   * and what the app's first tab shows.
+   *
+   * These are fixture SHAPES, not stored categories. PG and Hostel are one
+   * category now (PG_HOSTEL) but they are still two different shapes — a PG
+   * row carries meal timings and a hostel row carries a warden contact, and
+   * the collection has both. Seeding only one shape would hide every bug that
+   * lives in the difference.
+   */
   const MIX = ['PG', 'PG', 'PG', 'PG', 'Hostel', 'Hostel', 'Bachelor Room', 'Dormitory'];
 
   const docs = [];
@@ -351,7 +362,7 @@ function buildProperty({ area, city, category, index }) {
     const count = between(r, PER_AREA_MIN, PER_AREA_MAX);
     for (let i = 0; i < count; i += 1) {
       docs.push(buildProperty({
-        area, city, category: MIX[i % MIX.length], index: areaIndex * 100 + i,
+        area, city, variant: MIX[i % MIX.length], index: areaIndex * 100 + i,
       }));
     }
     areaIndex += 1;

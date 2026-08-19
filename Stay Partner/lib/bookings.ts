@@ -29,10 +29,26 @@ export type Booking = {
   payment: PaymentStatus;
   /** What the guest pays, before commission. */
   gross: number;
-  /** Four digits the guest presents at arrival. */
+  /**
+   * The entry PIN the guest presents at arrival — `LV-548005`.
+   *
+   * Issued by the server when the owner accepted the request, and held by
+   * both sides. Not four digits and not generated here: it is COMPARED with
+   * what the student shows, so a locally invented one is worse than none.
+   */
   checkInCode?: string;
   /** Set once the stay is under way. */
   checkedInAt?: Date;
+
+  /**
+   * The two halves of moving in.
+   *
+   * This owner goes first; the student confirms from their own app. A booking
+   * with only the first is not an arrival — it is an owner who opened a door
+   * and is waiting to be told somebody walked through it.
+   */
+  movedInByOwnerAt?: Date;
+  movedInByStudentAt?: Date;
   checkOutBy?: string;
 };
 

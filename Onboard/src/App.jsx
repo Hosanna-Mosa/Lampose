@@ -14,6 +14,7 @@ import {
   deleteProperty,
   fetchProperties,
   onboardProperty,
+  uploadPropertyDocuments,
   uploadPropertyImages,
 } from './services/api.js';
 import { getCurrentUser, logout, getSavedEmployeeEmail } from './services/auth.js';
@@ -27,7 +28,7 @@ const INITIAL_FORM_STATE = {
   ownerMobile: '',
   // Optional second number. Blank is a valid answer and is stored as blank.
   ownerAltMobile: '',
-  category: 'PG',
+  category: 'PG_HOSTEL',
   employeeEmail: '',
   stayType: 'Long Stay',
   shortStayDuration: '1-7 Days',
@@ -56,6 +57,11 @@ const INITIAL_FORM_STATE = {
        that file, not data. */
     customSharingTypes: [],
     sharingPrices: {},
+    /* Rooms as counted on site; beds multiplied out from them. Both are sent
+       — the backend turns them into the claimable bed counts the request flow
+       decrements. */
+    sharingRooms: {},
+    sharingBeds: {},
     sharingAC: {},
     sharingAcPrices: {},
     curfewTime: '10:30 PM',
@@ -144,7 +150,11 @@ export default function App() {
   // Handle Category Selection & Set Defaults
   const handleCategorySelect = (cat) => {
     let defaultCategoryDetails = {};
-    if (cat === 'PG') {
+    if (cat === 'PG_HOSTEL') {
+      /* The union of what PG and hostel each used to seed. An agent clears
+         what does not apply — a hostel with no mess unticks the canteen —
+         which is faster than an empty form, and every key here is one the
+         merged fields step renders. */
       defaultCategoryDetails = {
         foodIncluded: true,
         foodType: 'Both (Veg & Non-Veg)',
@@ -157,34 +167,91 @@ export default function App() {
         sharingTypes: ['Single', '2 Sharing'],
         customSharingTypes: [],
         sharingPrices: {},
+        sharingRooms: {},
+        sharingBeds: {},
         sharingAC: {},
         sharingAcPrices: {},
         curfewTime: '10:30 PM',
-        housekeeping: true
-      };
-    } else if (cat === 'Hostel') {
-      defaultCategoryDetails = {
+        housekeeping: true,
         hostelType: 'Boys Hostel',
-        roomTypes: ['Double Sharing', 'Triple Sharing'],
         canteenFacility: true,
         wardenContact: formData.ownerMobile || '',
         securityCCTV: true,
         studyRoom: true
       };
-    } else if (cat === 'Dormitory') {
+    } else if (cat === 'HOTEL') {
       defaultCategoryDetails = {
-        totalBeds: 18,
+        /* Occupancies offered, each priced in `sharingPrices` — the same map
+           the PG sharing options and the bachelor layouts use, so a priced bed
+           becomes a bookable option everywhere. Distinct from `bedType`, which
+           is the physical format of the bed. */
+        bedTypes: ['Single'],
+        /* Bed types an agent typed in. The presets cover the common
+           cases and never all of them — a six-bed dorm, a family room. */
+        customBedTypes: [],
+        /* Beds and rates are per bed type. `sharingBeds` is the claimable
+           count the request flow decrements; the three rate structures are
+           priced separately because a hostel sells the same bed nightly to a
+           traveller and monthly to a student. */
+        sharingBeds: {},
+        sharingPrices: {},
+        sharingAC: {},
+        sharingAcPrices: {},
+        monthlyPrices: {},
+        monthlyAcPrices: {},
+        flexiblePrices: {},
+        flexibleAcPrices: {},
+        /* Derived from the above in handleCategoryDetailChange, and kept only
+           so the listing formatter and the admin console keep working. */
+        totalBeds: 0,
         rateType: 'Daily Rate',
-        bedType: 'Bunk Bed Pod',
-        lockersAvailable: true,
-        washroomsCount: 4,
-        checkInTime: '12:00 PM'
+        lockersAvailable: true
+        /* No checkInTime or checkOutTime: those are the guest's dates, chosen
+           when booking, not a fact the owner records once about the building.
+           Seeding them would put a value on every hotel that no agent could
+           change — the same trap as `lockersAvailable` above. */
       };
-    } else if (cat === 'Bachelor Room') {
+    } else if (cat === 'BACHELOR' || cat === 'COLIVE') {
+      /* Co-live is let as a whole property like a bachelor flat and records
+         the same facts, so it seeds from the same defaults. */
       defaultCategoryDetails = {
-        roomType: '1 BHK',
+        /* Layouts are multi-select now, and each carries its own rent in
+           `sharingPrices` — the same map the PG sharing options use, so a
+           layout priced here becomes a bookable option everywhere. Seeded
+           with one selected so the rent box is visible immediately. */
+        roomTypes: [cat === 'COLIVE' ? '2 BHK' : '1 BHK'],
+        roomType: cat === 'COLIVE' ? '2 BHK' : '1 BHK',
+        /* Layouts an agent typed in — a 4 BHK villa, a penthouse. */
+        customRoomTypes: [],
+        sharingPrices: {},
+        /* Counts, so a building with three 1 BHKs is not filed as having one.
+           `sharingBeds` is kept in step — a whole flat is one lettable unit,
+           so beds equal the count. */
+        sharingRooms: {},
+        sharingBeds: {},
+        /* Furnishing is per layout: the same house lets a semi-furnished 1 BHK
+           and a fully-furnished 2 BHK. The flat `furnishing` and
+           `furnishingItems` below are derived from these and kept only so the
+           screens that read them keep working. */
+        furnishingByLayout: { [cat === 'COLIVE' ? '2 BHK' : '1 BHK']: 'Semi-Furnished' },
+        furnishingItemsByLayout: {},
+        /* Who may take it, and whether it has a kitchen, are per layout too:
+           a building commonly lets its 1 RKs to men and its 2 BHKs to women.
+           The flat fields below are derived summaries. */
+        allowedTenantsByLayout: {
+          [cat === 'COLIVE' ? '2 BHK' : '1 BHK']:
+            cat === 'COLIVE' ? 'Bachelors Male / Female' : 'Bachelors Male Only',
+        },
+        kitchenByLayout: { [cat === 'COLIVE' ? '2 BHK' : '1 BHK']: true },
         furnishing: 'Semi-Furnished',
-        allowedTenants: 'Bachelors Male / Female',
+        /* Seeded empty rather than pre-ticked: "Semi-Furnished" means
+           something different to every owner, and a pre-ticked list would be
+           the form answering for them. */
+        furnishingItems: [],
+        customFurnishingItems: [],
+        /* A bachelor let is single-gender by definition, so the mixed option
+           is not offered for it and cannot be the default. */
+        allowedTenants: cat === 'COLIVE' ? 'Bachelors Male / Female' : 'Bachelors Male Only',
         kitchenAvailable: true,
         waterSupply: '24 Hours'
       };
@@ -193,7 +260,21 @@ export default function App() {
     setFormData(prev => ({
       ...prev,
       category: cat,
-      stayType: cat === 'Bachelor Room' ? '' : (prev.stayType || 'Long Stay'),
+      /* Bachelor and co-live take their amenities from the furnishing list, so
+         they start empty rather than at the four this form seeds for everyone
+         else — an untouched default would claim food and a water purifier on a
+         flat that has neither. */
+      /* Bachelor and co-live take their amenities from the furnishing list;
+         a hotel has no amenity list at all. Either way they start empty rather
+         than at the four this form seeds for everyone else — an untouched
+         default would claim food and a water purifier on a property that has
+         neither, and no agent could correct it. */
+      amenities: ['BACHELOR', 'COLIVE', 'HOTEL'].includes(cat) ? [] : prev.amenities,
+      stayType: (cat === 'BACHELOR' || cat === 'COLIVE')
+        ? ''
+        /* A hotel quotes by the night, so it opens on the short-stay path
+           rather than inheriting whatever the previous category was on. */
+        : (cat === 'HOTEL' ? 'Short Stay' : (prev.stayType || 'Long Stay')),
       categoryDetails: defaultCategoryDetails
     }));
   };
@@ -226,20 +307,109 @@ export default function App() {
       };
 
       const extraFields = {};
-      if (['sharingPrices', 'sharingAcPrices', 'sharingTypes'].includes(field)) {
-        // The headline rent is the cheapest way into the property, across both
-        // the non-AC and AC rate of every sharing option still selected.
-        const selectedTypes = Array.isArray(updatedDetails.sharingTypes) ? updatedDetails.sharingTypes : [];
+
+      /*
+       * Furnishing is recorded per LAYOUT, and rolled up here.
+       *
+       * A house lets a semi-furnished 1 BHK and a fully-furnished 2 BHK, so
+       * `furnishingByLayout` and `furnishingItemsByLayout` are the truth. But
+       * the listing card, the admin console and the owner's app all read the
+       * flat `furnishing` and `furnishingItems`, and rewriting every one of
+       * them to walk a map would be a lot of churn for a summary. So the
+       * summary is derived and written alongside.
+       *
+       * `furnishing` reads "Mixed" when the layouts genuinely disagree, which
+       * is the honest answer — better than picking one flat's status and
+       * presenting it as the building's.
+       *
+       * `furnishingItems` is the union, and for these two categories it is
+       * also the amenity list: the general picker is hidden for them, so
+       * without this `amenities` would sit at whatever it was seeded with and
+       * no agent could change it.
+       */
+      /*
+       * A hotel's beds and rate structures are per bed type, and rolled up
+       * here for the readers that expect the flat fields.
+       *
+       * `totalBeds` is the sum, because the building really does have that
+       * many. `rateType` is what `listing.formatter.isDaily()` reads to decide
+       * whether the listing quotes by the night, so it names whichever
+       * structure is actually priced — nightly first, since that is the one
+       * the form requires and the one a hotel leads with.
+       */
+      if (prev.category === 'HOTEL'
+        && ['bedTypes', 'sharingBeds', 'sharingPrices', 'monthlyPrices', 'flexiblePrices'].includes(field)) {
+        const beds = Array.isArray(updatedDetails.bedTypes) ? updatedDetails.bedTypes : [];
+        const bedMap = updatedDetails.sharingBeds || {};
+
+        const total = beds.reduce((sum, b) => sum + (Number(bedMap[b]) || 0), 0);
+
+        const priced = (map) => beds.some(b => Number((updatedDetails[map] || {})[b]) > 0);
+        updatedDetails.totalBeds = total;
+        updatedDetails.rateType = priced('sharingPrices')
+          ? 'Daily Rate'
+          : (priced('monthlyPrices') ? 'Monthly Rate' : 'Flexible (Hourly/Daily)');
+      }
+
+      if (['furnishingByLayout', 'furnishingItemsByLayout', 'allowedTenantsByLayout',
+        'kitchenByLayout', 'roomTypes'].includes(field)
+        && (prev.category === 'BACHELOR' || prev.category === 'COLIVE')) {
+        const layouts = Array.isArray(updatedDetails.roomTypes) ? updatedDetails.roomTypes : [];
+        const byLayout = updatedDetails.furnishingByLayout || {};
+        const itemsByLayout = updatedDetails.furnishingItemsByLayout || {};
+        const tenantsByLayout = updatedDetails.allowedTenantsByLayout || {};
+        const kitchenByLayout = updatedDetails.kitchenByLayout || {};
+
+        const levels = [...new Set(layouts.map(l => byLayout[l]).filter(Boolean))];
+        extraFields.furnishing = levels.length === 1 ? levels[0] : (levels.length ? 'Mixed' : '');
+
+        const union = [...new Set(layouts.flatMap(l => itemsByLayout[l] || []))];
+        extraFields.furnishingItems = union;
+        extraFields.amenities = union;
+
+        const tenants = [...new Set(layouts.map(l => tenantsByLayout[l]).filter(Boolean))];
+        extraFields.allowedTenants = tenants.length === 1 ? tenants[0] : (tenants.length ? 'Mixed' : '');
+
+        /* `some` rather than `every`, because this summary answers "does this
+           building have kitchen-equipped units". A property with three
+           kitchens and one without would otherwise be listed as having none,
+           which is the more misleading of the two — and the per-layout truth
+           is right there for anybody choosing a flat. */
+        extraFields.kitchenAvailable = layouts.some(l => kitchenByLayout[l] !== false);
+      }
+
+      if (['sharingPrices', 'sharingAcPrices', 'sharingTypes', 'roomTypes', 'bedTypes'].includes(field)) {
+        // The headline rate is the cheapest way into the property, across both
+        // the non-AC and AC price of every option still selected.
+        //
+        // Three lists, because three shapes of property. A PG offers
+        // occupancies (`sharingTypes`); a bachelor flat or co-live house
+        // offers layouts (`roomTypes`); a hotel or dormitory offers bed types
+        // (`bedTypes`). All three price into `sharingPrices`, so only the list
+        // of what is currently selected differs.
+        const selectedTypes = [
+          updatedDetails.sharingTypes,
+          updatedDetails.roomTypes,
+          updatedDetails.bedTypes,
+        ].find(list => Array.isArray(list) && list.length) || [];
+
         const prices = [updatedDetails.sharingPrices, updatedDetails.sharingAcPrices]
           .flatMap(priceMap => selectedTypes.map(type => Number((priceMap || {})[type])))
           .filter(p => !isNaN(p) && p > 0);
 
+        /* A hotel quotes by the night, so its cheapest rate is a DAILY price.
+           Writing it to `monthlyPrice` would put ₹450 where the site expects a
+           month's rent and advertise a hotel as the cheapest home in the
+           city. */
+        const nightly = prev.category === 'HOTEL' && prev.stayType === 'Short Stay';
+        const priceField = nightly ? 'dailyPrice' : 'monthlyPrice';
+
         if (prices.length > 0) {
           const minPrice = Math.min(...prices);
-          extraFields.monthlyPrice = minPrice;
+          extraFields[priceField] = minPrice;
           extraFields.rent = minPrice;
         } else {
-          extraFields.monthlyPrice = '';
+          extraFields[priceField] = '';
           extraFields.rent = '';
         }
       }
@@ -308,6 +478,21 @@ export default function App() {
       // If no photos were chosen, apply default brand splash fallback
       const resolvedImages = finalUrls.length > 0 ? finalUrls : ['/lampose-logo-splash.png'];
 
+      /*
+       * Hotel paperwork, uploaded the same way and sent TOP-LEVEL.
+       *
+       * Not inside `categoryDetails`: the public listing API returns that
+       * object verbatim, so a PAN filed there would be served to anybody
+       * browsing the site. Nothing in the public projection touches
+       * `documents`.
+       */
+      const localDocs = (formData.categoryDetails || {}).localDocuments || {};
+      const pendingDocs = Object.entries(localDocs)
+        .filter(([, doc]) => doc && doc.file)
+        .map(([kind, doc]) => ({ kind, docType: doc.docType || '', file: doc.file }));
+
+      const uploadedDocs = await uploadPropertyDocuments(pendingDocs, setSubmitStage);
+
       setSubmitStage('Saving accommodation to MongoDB database...');
 
       const assignedEmail = formData.employeeEmail || user?.email || getSavedEmployeeEmail() || '';
@@ -316,23 +501,39 @@ export default function App() {
         ...formData,
         employeeEmail: assignedEmail,
         images: resolvedImages,
-        imageUrl: resolvedImages[0] || '/lampose-logo-splash.png'
+        imageUrl: resolvedImages[0] || '/lampose-logo-splash.png',
+        documents: uploadedDocs,
       };
       delete payload.localImages;
 
-      console.log('🚀 [Onboarding Started] Sending payload to backend:', payload);
-      console.log(`   👨‍💼 Employee Email: "${assignedEmail}"`);
-      console.log(`   📸 Images Array (${resolvedImages.length}):`, resolvedImages);
+      /* The File objects never leave this device — only the URLs the upload
+         returned do. Sending them would put a base64 PAN in the request body
+         and in every log that touches it. */
+      if (payload.categoryDetails) {
+        payload.categoryDetails = { ...payload.categoryDetails };
+        delete payload.categoryDetails.localDocuments;
+      }
+
+      /* Development only. This prints the WHOLE submission — the owner's name
+         and mobile number, the agent's email, and every photograph as base64
+         — into a browser console on a field agent's laptop, where it stays in
+         the session and goes wherever that machine goes. Invaluable while
+         building the form, and not something to leave running in the field. */
+      if (import.meta.env.DEV) {
+        console.log('🚀 [Onboarding Started] Sending payload to backend:', payload);
+        console.log(`   👨‍💼 Employee Email: "${assignedEmail}"`);
+        console.log(`   📸 Images Array (${resolvedImages.length}):`, resolvedImages);
+      }
 
       /* From this line on, a failure is AMBIGUOUS: the request is in flight
          and the server may complete it whatever the browser goes on to see. */
       saveAttempted = true;
       const response = await onboardProperty(payload);
 
-      console.log('📥 [Onboarding Response]:', response);
+      if (import.meta.env.DEV) console.log('📥 [Onboarding Response]:', response);
 
       if (response && response.success) {
-        console.log('✅ [Onboarding Success] Saved property:', response.data);
+        if (import.meta.env.DEV) console.log('✅ [Onboarding Success] Saved property:', response.data);
         // Redirect directly to Listings page and reload
         setActiveTab('listings');
         const activeEmpEmail = user?.email || getSavedEmployeeEmail() || '';

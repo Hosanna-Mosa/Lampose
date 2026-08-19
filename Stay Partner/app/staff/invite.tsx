@@ -27,6 +27,7 @@ const PERMISSION_ROWS: { key: keyof StaffPermissions; label: string }[] = [
  * from a dozen screens back, `Switch` from Settings two checkpoints ago.
  */
 import { inviteStaffApi } from '@/services/api/domain.api';
+import { logWarn } from '@/lib/log';
 
 export default function InviteStaffScreen() {
   const router = useRouter();
@@ -62,7 +63,7 @@ export default function InviteStaffScreen() {
       });
       addStaffMember({ name: name.trim(), role, permissions });
     } catch (err) {
-      console.warn('Failed to send staff invite:', err);
+      logWarn('Failed to send staff invite:', err);
     } finally {
       setSaving(false);
       router.replace('/staff');

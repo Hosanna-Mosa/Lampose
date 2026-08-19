@@ -33,6 +33,7 @@ import { useFonts } from 'expo-font';
 import { StyleSheet, View } from 'react-native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import { usePushRouting } from '@/services/push/usePushRouting';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -86,6 +87,12 @@ const fonts = {
  */
 function RootLayoutNav() {
   const { colors } = useTheme();
+
+  /* Mounted here rather than per-screen: a notification can arrive on any
+     screen, and the cold-start case has no screen at all yet. Inside the
+     QueryClientProvider, because tapping one refreshes the request it is
+     about. */
+  usePushRouting();
 
   return (
     <Stack
