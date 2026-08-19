@@ -41,6 +41,7 @@ export const FOOTER_COLS = [
       { label: 'Blog', href: '#top' },
       { label: 'Privacy Policy', to: '/privacy' },
       { label: 'Terms and Conditions', to: '/terms' },
+      { label: 'Child Safety', to: '/child-safety' },
     ],
   },
   {
