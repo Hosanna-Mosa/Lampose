@@ -9735,6 +9735,41 @@ footer {
   cursor: none;
 }
 
+/* The returning visitor's panel — who we already know they are. Styled as a
+   quiet statement rather than a form: there is nothing here to fill in, and
+   anything that looks like a field invites someone to try to edit it. */
+.vr-known {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--line, rgba(0, 0, 0, 0.1));
+  border-radius: 14px;
+  background: var(--paper-2, rgba(0, 0, 0, 0.02));
+}
+.vr-known__label {
+  font-family: var(--font-body);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-light);
+}
+.vr-known__name {
+  font-family: var(--font-display, var(--font-body));
+  font-size: 1.05rem;
+  line-height: 1.3;
+  color: var(--ink);
+}
+.vr-known__phone {
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  color: var(--ink-light);
+  /* The masked digits line up under the name rather than drifting with the
+     proportional face. */
+  font-variant-numeric: tabular-nums;
+}
+
 .vr-err {
   display: flex;
   flex-wrap: wrap;

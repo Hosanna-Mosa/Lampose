@@ -3,6 +3,34 @@ import { Link } from 'react-router-dom';
 import Icon from './Icon';
 import { labelForCategory } from '../data/categories';
 
+
+/**
+ * What is actually free, as a badge.
+ *
+ * This replaced the stay-type chip, which said "Long Stay" on nearly every
+ * listing — the backend defaults that field, so it was near-constant, and a
+ * badge that reads the same on every card carries no information.
+ *
+ * Beds are the live figure: `availableBeds` is decremented when an owner
+ * accepts a request and given back if it is cancelled, so a listing showing
+ * "2 beds free" has two. Zero is shown as "Full" rather than hidden, because
+ * a listing that cannot be requested should say so before the visitor picks a
+ * room and finds the button dead.
+ *
+ * Silent where nobody counted. An older property carries no bed figures at
+ * all, and "0 beds free" would be a lie about a place that simply has not
+ * been measured.
+ */
+export const availability = (item) => {
+  const options = Array.isArray(item.sharingOptions) ? item.sharingOptions : [];
+  const counted = options.filter(o => typeof o.availableBeds === 'number');
+  if (!counted.length) return null;
+
+  const free = counted.reduce((sum, o) => sum + o.availableBeds, 0);
+  if (free <= 0) return { label: 'Full', full: true };
+  return { label: `${free} bed${free === 1 ? '' : 's'} free`, full: false };
+};
+
 export const rupees = n => `₹${Number(n).toLocaleString('en-IN')}`;
 
 /* ══ Listing card ═════════════════════════════════════════════════════════
@@ -99,7 +127,12 @@ export default function ListingCard({ item, index = 0, view = 'grid' }) {
 
         <div className="xp-card__top">
           <span className="exp-chip exp-chip--light">{labelForCategory(item.category)}</span>
-          {item.stayType && <span className="exp-chip exp-chip--dark">{item.stayType}</span>}
+          {(() => {
+            const free = availability(item);
+            return free
+              ? <span className={`exp-chip ${free.full ? 'exp-chip--muted' : 'exp-chip--dark'}`}>{free.label}</span>
+              : null;
+          })()}
         </div>
 
         {images.length > 1 && (

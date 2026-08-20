@@ -1,4 +1,5 @@
 import { apiClient } from './apiClient';
+import { saveSession } from '../auth/session';
 
 /* ══════════════════════════════════════════════════════════════════════════
    Visit requests.
@@ -44,7 +45,14 @@ const wrap = err => {
 };
 
 export const visitRequestsApi = {
-  /** Start a request. Sends a code to the visitor; the owner is not told yet. */
+  /**
+   * Start a request.
+   *
+   * Sends a code to the visitor; the owner is not told yet. When the browser
+   * holds a session for the same number, the server skips the code and
+   * answers `otpRequired: false` — carried through on the returned object so
+   * the dialog knows whether to ask for one.
+   */
   async start({
     listingId, name, phone, email, sharing, intent, consentedTerms, consentWhatsApp,
   }) {
@@ -52,16 +60,24 @@ export const visitRequestsApi = {
       const res = await apiClient.post('/visit-requests', {
         listingId, name, phone, email, sharing, intent, consentedTerms, consentWhatsApp,
       });
-      return res.data;
+      return { ...res.data, otpRequired: res.otpRequired !== false };
     } catch (err) {
       throw wrap(err);
     }
   },
 
-  /** Check the code. On success the owner has been messaged. */
+  /**
+   * Tell the owner.
+   *
+   * With a code when one was sent, without when the session already proved
+   * the number — the server checks a code only if the request is not verified
+   * yet, so the same call serves both. A session comes back on success and is
+   * kept, which is what makes the NEXT request skip the code.
+   */
   async verify(id, otp) {
     try {
-      const res = await apiClient.post(`/visit-requests/${id}/verify`, { otp });
+      const res = await apiClient.post(`/visit-requests/${id}/verify`, otp ? { otp } : {});
+      saveSession(res.session);
       return res.data;
     } catch (err) {
       throw wrap(err);

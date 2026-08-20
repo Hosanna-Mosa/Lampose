@@ -123,6 +123,7 @@ export const FIELD_ANCHORS = {
   deposit: 'depositInput',
   address: 'addressInput',
   photos: 'propertyPhotos',
+  amenities: 'propertyAmenities',
   'categoryDetails.sharingTypes': 'sharingOptions',
   'categoryDetails.roomTypes': 'roomTypes',
   'categoryDetails.bedTypes': 'bedTypes',
@@ -322,6 +323,21 @@ export function validateOnboarding(formData = {}) {
     errs.address = 'Give the full street address, or leave it blank';
   }
 
+  /*
+   * At least one amenity, where the form asks for any.
+   *
+   * Only PG / Hostel shows the general picker now: bachelor and co-live take
+   * theirs from the furnishing list, and a hotel is not asked at all. So the
+   * rule follows the control rather than the field — requiring amenities on a
+   * category that has no way to enter them would be a gate nobody could pass.
+   */
+  if (category === 'PG_HOSTEL') {
+    const chosen = Array.isArray(formData.amenities) ? formData.amenities.filter(Boolean) : [];
+    if (chosen.length === 0) {
+      errs.amenities = 'Pick at least one amenity — this is what a student filters on';
+    }
+  }
+
   /* — photos — */
 
   const localImages = Array.isArray(formData.localImages) ? formData.localImages : [];
@@ -518,6 +534,21 @@ function validateCategory(category, details, { isShortStay, documents }) {
       const level = (details.furnishingByLayout || {})[layout];
       if (!text(level)) {
         errs[furnishingKey(layout)] = `Choose the furnishing for ${layout}`;
+      }
+
+      /*
+       * At least one amenity per furnished layout.
+       *
+       * "Semi-Furnished" with nothing ticked is the vaguest possible answer —
+       * it is exactly the word the checklist was added to pin down, so a
+       * layout that names a level and lists nothing has recorded less than one
+       * that says Unfurnished. Unfurnished itself has no list and is exempt.
+       */
+      if (level && level !== 'Unfurnished') {
+        const items = (details.furnishingItemsByLayout || {})[layout];
+        if (!Array.isArray(items) || items.length === 0) {
+          errs[furnishingKey(layout)] = `Tick what the ${level.toLowerCase()} ${layout} includes`;
+        }
       }
 
       /* Counts are optional — an agent outside a building does not always know

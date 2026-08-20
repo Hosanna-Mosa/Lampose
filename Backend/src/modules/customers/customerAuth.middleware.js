@@ -40,10 +40,13 @@ const TOKEN_TYPE = 'customer';
  * `sub` is the customerId rather than the Mongo `_id`, matching what the
  * profile endpoints look up and what the device stores.
  */
-const signCustomerToken = (customer) => jwt.sign(
+const signCustomerToken = (customer, { expiresIn } = {}) => jwt.sign(
   { sub: customer.customerId, typ: TOKEN_TYPE, phone: customer.phone },
   config.auth.jwtSecret,
-  { expiresIn: config.auth.jwtExpiresIn },
+  /* Caller-chosen life, defaulting to the app's. The website passes a shorter
+     one — see `auth.webJwtExpiresIn`. The claim set is identical either way,
+     so one token type serves both and `requireCustomer` needs no branch. */
+  { expiresIn: expiresIn || config.auth.jwtExpiresIn },
 );
 
 const readToken = (req) => {
@@ -108,4 +111,40 @@ async function requireCustomer(req, res, next) {
   }
 }
 
-module.exports = { TOKEN_TYPE, signCustomerToken, requireCustomer };
+/**
+ * Loads the customer when a token happens to be there, and never refuses.
+ *
+ * For routes the public can use signed out, where being signed in only makes
+ * them shorter — the website's visit request being the case this was written
+ * for: a returning visitor skips the OTP, a new one still gets the full form.
+ *
+ * Every failure is silent and lands the caller in the signed-out path, which
+ * is the correct handling for all of them: an expired token, a staff token, a
+ * deleted account and a blocked one are all "not a customer session" as far as
+ * a route that does not require one is concerned. Nothing here grants
+ * anything — it only says who is asking when that is knowable.
+ */
+async function attachCustomerIfPresent(req, res, next) {
+  try {
+    const token = readToken(req);
+    if (!token || !config.auth.configured) return next();
+
+    const decoded = jwt.verify(token, config.auth.jwtSecret);
+    if (decoded.typ !== TOKEN_TYPE) return next();
+
+    const customer = await Customer.findOne({ customerId: decoded.sub });
+    /* Blocked is checked here as well: the whole point of the database read on
+       every request is that blocking takes effect now rather than when the
+       token happens to expire. */
+    if (customer && customer.status !== 'blocked') req.customer = customer;
+    return next();
+  } catch (error) {
+    /* Includes TokenExpiredError and JsonWebTokenError, both of which simply
+       mean "signed out" on a route that does not require signing in. */
+    return next();
+  }
+}
+
+module.exports = {
+  TOKEN_TYPE, signCustomerToken, requireCustomer, attachCustomerIfPresent,
+};

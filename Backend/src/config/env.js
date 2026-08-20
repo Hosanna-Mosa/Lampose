@@ -224,6 +224,12 @@ const config = {
        user routes answer 503 instead of issuing a forgeable token. */
     configured: Boolean(jwtSecret),
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
+    /* The website's sessions are deliberately shorter than the app's.
+       A phone is a personal device someone unlocks; a browser may be a shared
+       or public machine, and `localStorage` survives closing the tab. One day
+       means a forgotten session on someone else's computer is dead by
+       tomorrow, and a regular visitor still signs in at most once a day. */
+    webJwtExpiresIn: process.env.WEB_JWT_EXPIRES_IN || '1d',
     adminSecretKey,
     /* Guards the v2 routes that only ever run behind the leads panel's login
        screen. Set to false only if a client that cannot send an Authorization

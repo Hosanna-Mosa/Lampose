@@ -23,6 +23,7 @@ const {
   createPaymentOrder, verifyPayment, setJoiningDate, renderCheckout, paymentCallback,
 } = require('./visitPayment.controller');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
+const { attachCustomerIfPresent } = require('../customers/customerAuth.middleware');
 const { rateLimit } = require('../../shared/middleware/rateLimit');
 
 const router = express.Router();
@@ -39,8 +40,12 @@ const resendLimit = rateLimit({ name: 'visit-resend-ip', windowMs: 60 * 60 * 100
    backs off from 4s to 20s and gives up after fifteen minutes. */
 const statusLimit = rateLimit({ name: 'visit-status-ip', windowMs: 60 * 1000, max: 60 });
 
-router.post('/', requireLamposeDb, startLimit, createVisitRequest);
-router.post('/:id/verify', requireLamposeDb, verifyLimit, verifyVisitRequest);
+/* Optional auth: a held session skips the SMS code, no session still works.
+   See `createVisitRequest` for why the phone must match the token. */
+router.post('/', requireLamposeDb, attachCustomerIfPresent, startLimit, createVisitRequest);
+/* Optional auth here too: a request created from a session is finished with
+   that session and no code — see the SESSION_REQUIRED guard in the handler. */
+router.post('/:id/verify', requireLamposeDb, attachCustomerIfPresent, verifyLimit, verifyVisitRequest);
 router.post('/:id/resend', requireLamposeDb, resendLimit, resendVisitOtp);
 router.get('/:id', requireLamposeDb, statusLimit, getVisitRequest);
 

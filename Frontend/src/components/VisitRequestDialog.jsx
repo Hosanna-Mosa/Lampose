@@ -1,24 +1,72 @@
 import { useEffect, useRef, useState } from 'react';
 import Icon from './Icon';
 import visitRequestsApi from '../api/visitRequestsApi';
+import { sessionUser, clearSession } from '../auth/session';
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Request a visit — the two steps before the owner hears anything.
+   Request a visit — what happens before the owner hears anything.
 
-     1. Who is asking:  name, phone, email, and consent to be messaged.
+     1. Who is asking:  name, phone, and consent to be messaged.
      2. Prove the phone: a code by SMS.
 
    The owner is contacted only after step 2 clears. That ordering is the whole
    reason this dialog exists — without it the button on the listing page is a
    way to make a stranger's phone ring with an invented name attached.
+
+   ## Coming back
+
+   Step 2 leaves a session behind, good for a day. A visitor who returns
+   inside that day has already done both steps, so the dialog opens on a
+   confirm-and-send panel instead: their name, their number, the consent tick,
+   one button. No form, no second SMS.
+
+   The rule is not weakened by this — the number is still proven by a code
+   before an owner is told, just not necessarily a code from today. The server
+   decides, never this component: it compares the session's number against the
+   one being requested and answers `otpRequired`. If that comes back true for
+   any reason — the session expired in the meantime, the number did not match,
+   auth is not configured — the dialog falls into step 2 and asks for a code.
+   That is why there is no "am I still signed in" check anywhere below.
    ══════════════════════════════════════════════════════════════════════════ */
 
 const TEN_DIGITS = /^[6-9]\d{9}$/;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+/** "+91 ••••• 34115" — enough to recognise, not enough to read out. */
+const maskPhone = (phone) => {
+  const digits = String(phone || '').replace(/\D/g, '').slice(-10);
+  return digits.length === 10 ? `+91 ••••• ${digits.slice(5)}` : '';
+};
 
 export default function VisitRequestDialog({ listing, sharing, intent, onClose, onVerified }) {
-  const [step, setStep] = useState('form');
-  const [form, setForm] = useState({ name: '', phone: '', email: '', consent: true });
+  /*
+   * Read once, when the dialog opens, rather than on every render: the token
+   * expiring mid-flow must not swap the panel out from under somebody who is
+   * halfway through. The request they are sending will simply be asked for a
+   * code, which is the correct outcome and one they can act on.
+   */
+  const [known] = useState(() => sessionUser());
+
+  /* Only skipped when the session carries BOTH halves of what the form asks
+     for. A session opened before the name was recorded still needs the form —
+     the server requires a name on every request. */
+  const canSkipForm = Boolean(known && known.name && known.phone);
+
+  const [step, setStep] = useState(canSkipForm ? 'known' : 'form');
+  /*
+   * No email.
+   *
+   * The whole flow runs on the phone number — the OTP that proves it, the
+   * owner's WhatsApp, the outcome message back. Nothing was ever sent to the
+   * address, so it was a required field standing between a visitor and a
+   * request for no return. The server treats it as optional now.
+   */
+  const [form, setForm] = useState(() => ({
+    /* Prefilled from a session that was not complete enough to skip the form
+       outright — half-known still beats typing it all again. */
+    name: (known && known.name) || '',
+    phone: String((known && known.phone) || '').replace(/\D/g, '').slice(-10),
+    consent: true,
+  }));
   const [pending, setPending] = useState(null);   // the started request
   const [otp, setOtp] = useState('');
   const [busy, setBusy] = useState(false);
@@ -27,6 +75,7 @@ export default function VisitRequestDialog({ listing, sharing, intent, onClose, 
 
   const firstField = useRef(null);
   const otpField = useRef(null);
+  const askButton = useRef(null);
   const panel = useRef(null);
   const opener = useRef(null);
 
@@ -66,7 +115,9 @@ export default function VisitRequestDialog({ listing, sharing, intent, onClose, 
   }, [onClose]);
 
   useEffect(() => {
-    (step === 'form' ? firstField : otpField).current?.focus();
+    /* The known panel has nothing to type in, so focus lands on its button —
+       something has to hold focus inside a modal for the keyboard to work. */
+    ({ form: firstField, otp: otpField, known: askButton })[step]?.current?.focus();
   }, [step]);
 
   // Resend countdown.
@@ -76,26 +127,20 @@ export default function VisitRequestDialog({ listing, sharing, intent, onClose, 
     return () => clearTimeout(t);
   }, [cooldown]);
 
-  const submitForm = async e => {
-    e.preventDefault();
-    setErr(null);
-
-    // Checked here as well as on the server, so a typo costs no round trip.
-    if (!form.name.trim()) return setErr({ message: 'Please enter your name.' });
-    if (!TEN_DIGITS.test(form.phone.trim())) {
-      return setErr({ message: 'Please enter a valid 10-digit mobile number.' });
-    }
-    if (!EMAIL_RE.test(form.email.trim())) {
-      return setErr({ message: 'Please enter a valid email address.' });
-    }
-
+  /**
+   * Send the request, and go wherever the server says next.
+   *
+   * Shared by both panels because the difference between them is only which
+   * name and number go in — everything after the call is identical, and the
+   * three outcomes below are the same three either way.
+   */
+  const startRequest = async ({ name, phone }) => {
     setBusy(true);
     try {
       const started = await visitRequestsApi.start({
         listingId: listing.id,
-        name: form.name.trim(),
-        phone: form.phone.trim(),
-        email: form.email.trim(),
+        name,
+        phone,
         sharing: sharing?.label || null,
         /* Only the choices travel — no prices. The backend re-derives every
            figure from the property, so nothing here can set what the owner
@@ -124,14 +169,55 @@ export default function VisitRequestDialog({ listing, sharing, intent, onClose, 
         return;
       }
 
+      /* The session covered it: the number is already proven, so no code was
+         sent and nothing needs typing. One more call tells the owner. */
+      if (!started.otpRequired) {
+        onVerified(await visitRequestsApi.verify(started.id));
+        return;
+      }
+
       setPending(started);
       setCooldown(started.resendInSeconds || 60);
       setStep('otp');
     } catch (error) {
       setErr(error);
+      /* A request that turns out to need the form after all — no name on the
+         session, say. Falling back beats an error the visitor cannot act on. */
+      if (error.code === 'BAD_NAME' || error.code === 'BAD_PHONE') setStep('form');
     } finally {
       setBusy(false);
     }
+  };
+
+  const submitForm = e => {
+    e.preventDefault();
+    setErr(null);
+
+    // Checked here as well as on the server, so a typo costs no round trip.
+    if (!form.name.trim()) return setErr({ message: 'Please enter your name.' });
+    if (!TEN_DIGITS.test(form.phone.trim())) {
+      return setErr({ message: 'Please enter a valid 10-digit mobile number.' });
+    }
+    return startRequest({ name: form.name.trim(), phone: form.phone.trim() });
+  };
+
+  /* The returning visitor's one button. The number sent is the session's own,
+     not anything on screen — the panel shows a masked copy, and a masked
+     number is not something that could be submitted. */
+  const submitKnown = e => {
+    e.preventDefault();
+    setErr(null);
+    return startRequest({ name: known.name, phone: known.phone });
+  };
+
+  /* "Not you?" — drop the session and ask properly. Deliberately available on
+     every request: a shared laptop at a property viewing is a real place for
+     this dialog to be, and the way out has to be one click. */
+  const useAnotherNumber = () => {
+    clearSession();
+    setForm({ name: '', phone: '', consent: form.consent });
+    setErr(null);
+    setStep('form');
   };
 
   const submitOtp = async e => {
@@ -185,23 +271,53 @@ export default function VisitRequestDialog({ listing, sharing, intent, onClose, 
           <span className="vr-head__badge"><Icon name="calendar" className="exp-ico" /></span>
           <div>
             <h2 className="vr-title" id="vr-title">
-              {step === 'form' ? 'Request a visit' : 'Verify your number'}
+              {step === 'otp' ? 'Verify your number' : 'Request a visit'}
             </h2>
             <p className="vr-sub">
-              {step === 'form'
-                ? (
+              {step === 'otp'
+                ? <>We sent a 6-digit code to <strong>{pending?.phoneMasked}</strong>.</>
+                : (
                   <>
                     We&rsquo;ll ask the owner of <strong>{listing.name}</strong> whether
                     {sharing?.label ? <> <strong>{sharing.label}</strong> is</> : <> it&rsquo;s</>} free
                     to look at.
                   </>
-                )
-                : <>We sent a 6-digit code to <strong>{pending?.phoneMasked}</strong>.</>}
+                )}
             </p>
           </div>
         </header>
 
-        {step === 'form' ? (
+        {step === 'known' ? (
+          <form className="vr-form" onSubmit={submitKnown} noValidate>
+            <div className="vr-known">
+              <span className="vr-known__label">Requesting as</span>
+              <strong className="vr-known__name">{known.name}</strong>
+              <span className="vr-known__phone">{maskPhone(known.phone)}</span>
+            </div>
+
+            <label className="vr-consent">
+              <input type="checkbox" checked={form.consent} onChange={set('consent')} />
+              <span>Send me the owner&rsquo;s answer on WhatsApp. You&rsquo;ll see it on this page either way.</span>
+            </label>
+
+            {err && <p className="vr-err" role="alert">{err.message}</p>}
+
+            <button className="vr-submit" type="submit" disabled={busy} ref={askButton}>
+              {busy ? 'Sending…' : 'Ask the owner'}
+            </button>
+
+            <div className="vr-resend">
+              <button type="button" className="vr-linkbtn" onClick={useAnotherNumber}>
+                Not you? Use another number
+              </button>
+            </div>
+
+            <p className="vr-fine">
+              Your number is shared with the owner of this property only, so they can
+              arrange the visit. Nothing is paid through this site.
+            </p>
+          </form>
+        ) : step === 'form' ? (
           <form className="vr-form" onSubmit={submitForm} noValidate>
             <label className="vr-field">
               <span>Your name</span>
@@ -224,14 +340,6 @@ export default function VisitRequestDialog({ listing, sharing, intent, onClose, 
                 />
               </div>
               <small>We&rsquo;ll text a code to confirm it&rsquo;s really you.</small>
-            </label>
-
-            <label className="vr-field">
-              <span>Email</span>
-              <input
-                type="email" value={form.email} onChange={set('email')}
-                autoComplete="email" placeholder="you@example.com"
-              />
             </label>
 
             <label className="vr-consent">
