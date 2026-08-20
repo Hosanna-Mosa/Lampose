@@ -57,6 +57,8 @@ export default function VisitTokenPanel({ request, onUpdated }) {
   const [error, setError] = useState('');
   const [joiningDate, setJoiningDate] = useState('');
   const [flexible, setFlexible] = useState(true);
+  /* Set when THIS page submitted the joining date, which is the only way the
+     address used to arrive. It is now also polled — see `shownAddress`. */
   const [address, setAddress] = useState('');
 
   useEffect(() => { setError(''); }, [payment?.status]);
@@ -135,16 +137,41 @@ export default function VisitTokenPanel({ request, onUpdated }) {
   if (!payment?.required) return null;
   if (request.status !== 'confirmed') return null;
 
-  /* ── paid, and the date already given ──────────────────────────────── */
-  if (payment.status === 'paid' && (address || request.intent?.joiningDate)) {
+  /*
+   * The address, from whichever source has it.
+   *
+   * `address` is what the joining-date call returned to this tab. The status
+   * endpoint now also carries it once the token is paid, which is what covers
+   * the case this panel could not handle: paying on the Razorpay link sent
+   * over WhatsApp. That happens on the phone, or in another tab, so nothing
+   * here ever returned an address — and a reload lost the local copy too.
+   *
+   * The server decides whether to send it at all; it is absent until the
+   * payment verifies. So taking whichever is present is not a way around the
+   * gate, it is just reading the answer.
+   */
+  const shownAddress = address || request.address || '';
+
+  /*
+   * ── paid, and the date already given ────────────────────────────────
+   *
+   * The DATE is what finishes this flow, so the date is what this branch
+   * tests. It used to test the address as well, which was harmless only
+   * because the address arrived as the reply to submitting a date — the two
+   * could not be apart. They can now: the address is released by the payment
+   * and polled, so an address-or-date test sent every paid request straight
+   * here and printed "Moving in on ." with nothing after it.
+   */
+  const movingIn = request.intent?.joiningDate || '';
+  if (payment.status === 'paid' && movingIn) {
     return (
       <div className="vt vt--done">
         <h4 className="vt__title">You're set</h4>
         <p className="vt__lead">
-          Moving in on {request.intent?.joiningDate || joiningDate}. The owner has your number.
+          Moving in on {movingIn}. The owner has your number.
         </p>
-        {address ? (
-          <p className="vt__addr"><strong>Address</strong><br />{address}</p>
+        {shownAddress ? (
+          <p className="vt__addr"><strong>Address</strong><br />{shownAddress}</p>
         ) : null}
       </div>
     );
@@ -156,8 +183,16 @@ export default function VisitTokenPanel({ request, onUpdated }) {
       <form className="vt" onSubmit={submitDate}>
         <h4 className="vt__title">When would you move in?</h4>
         <p className="vt__lead">
-          Your token is paid. Pick a date and we'll share the full address.
+          {shownAddress
+            ? 'Your token is paid and the address is below. Tell the owner when you plan to move in.'
+            : "Your token is paid. Pick a date and we'll share the full address."}
         </p>
+        {/* Shown here too. The payment released it, and withholding it until
+            a date is typed would be holding back something already paid
+            for — the customer has it in their WhatsApp either way. */}
+        {shownAddress ? (
+          <p className="vt__addr"><strong>Address</strong><br />{shownAddress}</p>
+        ) : null}
         <label className="vt__field">
           <span className="exp-lbl">Joining date</span>
           <input

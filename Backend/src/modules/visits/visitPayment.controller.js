@@ -27,6 +27,9 @@ const config = require('../../config/env');
 const razorpay = require('../../infrastructure/razorpay/razorpay');
 const VisitRequest = require('./visitRequest.model');
 const Property = require('../properties/property.model');
+const { readListingAddress } = require('./visitAddress.util');
+const { claimBed } = require('../inventory/inventory.service');
+const { shareTypeIdFor } = require('../listings/sharing.util');
 const { TOKEN_CATEGORIES, normaliseCategory } = require('../../shared/constants/categories');
 const { isISODate, joinWindow } = require('../listings/stayIntent.util');
 const twilio = require('../../infrastructure/twilio/twilio');
@@ -126,6 +129,54 @@ const markPaidAndReleaseAddress = async (doc, paymentId) => {
     doc.entryPin = generateEntryPin();
     doc.entryPinIssuedAt = new Date();
   }
+
+  /*
+   * The bed comes out of the pool HERE.
+   *
+   * This is the website's only real commitment point. The owner saying
+   * "available" on WhatsApp is an answer about a viewing, not a let, and
+   * taking a bed on it would empty a building every time somebody asked to
+   * look around. Money changing hands is different: the token is paid, the
+   * address is handed over, and from this moment the room is spoken for.
+   *
+   * Three things this deliberately does NOT do:
+   *
+   *  · It never fails the payment. `claimBed` returning null means the last
+   *    bed went while this customer was paying — a real and unavoidable race,
+   *    because nothing is held during a Razorpay redirect. The rupee is
+   *    already taken and the address is already theirs; refusing here would
+   *    leave them paid, address-less and with no way forward. It is recorded
+   *    instead (`bedClaimedAt` stays null on a paid request) so it can be
+   *    found and settled by a person.
+   *
+   *  · It never claims twice. Every caller already guards on
+   *    `payment.status === 'paid'`, but a redelivered webhook is exactly the
+   *    kind of thing that slips past a guard someone edits later, and a double
+   *    decrement invents an occupancy the building does not have.
+   *
+   *  · It never invents a pool. Requests made before the id was recorded fall
+   *    back to deriving it from the property and the label — the same
+   *    derivation `sharingOptionsFor` uses — and a request with no room type
+   *    at all simply has no bed to take.
+   */
+  if (!doc.bedClaimedAt) {
+    const shareTypeId = doc.shareTypeId
+      || (doc.sharing && doc.sharing.label
+        ? shareTypeIdFor(doc.listingId, doc.sharing.label)
+        : null);
+
+    if (shareTypeId) {
+      const held = await claimBed(shareTypeId);
+      if (held) {
+        doc.bedClaimedAt = new Date();
+        console.log(`[token] ${shareTypeId} → ${held.availableBeds}/${held.totalBeds} free`);
+      } else {
+        console.error(`[token] PAID BUT NO BED: request ${doc._id} paid for ${shareTypeId}, `
+          + 'which had none free. The address was released; this needs a human.');
+      }
+    }
+  }
+
   await doc.save();
 
   /*
@@ -147,18 +198,10 @@ const markPaidAndReleaseAddress = async (doc, paymentId) => {
     }
   }
 
-  let full = '';
-  try {
-    const listing = await Property.findById(doc.listingId).select('address place').lean();
-    if (listing) {
-      full = listing.address && listing.place
-        && String(listing.address).toLowerCase().includes(String(listing.place).toLowerCase())
-        ? listing.address
-        : [listing.address, listing.place].filter(Boolean).join(', ');
-    }
-  } catch (error) {
-    console.warn('[token] Could not read the listing address to release it:', error.message);
-  }
+  /* The same read the status endpoint and the owner's message use — one
+     copy, so "what counts as this listing's address" cannot drift between
+     the WhatsApp message and the page showing it. */
+  const full = await readListingAddress(doc.listingId);
 
   /*
    * ── Which surface gets told ─────────────────────────────────────────────

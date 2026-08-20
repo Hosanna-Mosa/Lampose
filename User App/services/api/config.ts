@@ -149,6 +149,22 @@ export const API_BASE_URL = resolveBaseUrl();
  * fails exactly like a backend that is down, and knowing which of the two you
  * are looking at saves the afternoon described at the top of this file.
  */
+/**
+ * Whether the URL points at the device itself.
+ *
+ * `localhost` and `127.0.0.1` on a handset ARE the handset, and `10.0.2.2` is
+ * an alias only the Android emulator's network stack understands. A real
+ * phone asking any of them reaches nothing, and the failure is identical to a
+ * backend that is down — which is the whole reason this is a named flag and
+ * not a comment.
+ *
+ * Correct in a browser on the same machine, and correct in the emulator, so
+ * it is never an error on its own. `client.ts` only acts on it in a
+ * production build, where neither of those is what is running.
+ */
+export const API_BASE_URL_IS_LOOPBACK =
+  /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|10\.0\.2\.2)(:\d+)?(\/|$)/i.test(API_BASE_URL);
+
 export const API_BASE_URL_IS_GUESSED =
   !API_URL &&
   !(Constants.expoConfig?.extra as { apiUrl?: string } | undefined)?.apiUrl;

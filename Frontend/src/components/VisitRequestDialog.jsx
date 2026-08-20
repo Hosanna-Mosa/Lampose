@@ -69,7 +69,10 @@ export default function VisitRequestDialog({ listing, sharing, intent, onClose, 
   }));
   const [pending, setPending] = useState(null);   // the started request
   const [otp, setOtp] = useState('');
+  /* `false`, or the sentence to show on the button while it works. */
   const [busy, setBusy] = useState(false);
+  /* The room is gone: the request is finished and cannot be retried. */
+  const [closed, setClosed] = useState(false);
   const [err, setErr] = useState(null);
   const [cooldown, setCooldown] = useState(0);
 
@@ -135,7 +138,9 @@ export default function VisitRequestDialog({ listing, sharing, intent, onClose, 
    * three outcomes below are the same three either way.
    */
   const startRequest = async ({ name, phone }) => {
-    setBusy(true);
+    /* A sentence, not `true`: the button renders this, and one panel is
+       sending a code while the other is asking the owner outright. */
+    setBusy('Sending...');
     try {
       const started = await visitRequestsApi.start({
         listingId: listing.id,
@@ -220,18 +225,36 @@ export default function VisitRequestDialog({ listing, sharing, intent, onClose, 
     setStep('form');
   };
 
+  /*
+   * This step does more than check six digits.
+   *
+   * Behind it the server proves the number, saves the request, checks the
+   * room, and messages the owner. The room is no longer checked at the form —
+   * it is checked HERE — so "that room is taken" now arrives at this step
+   * rather than the previous one, and it is final when it does: the request
+   * is recorded as declined and there is nothing further to try.
+   *
+   * Which is why `closed` exists. Leaving the visitor on a Verify button that
+   * can only ever fail again is the kind of dead end people re-tap three
+   * times before giving up on the site.
+   */
   const submitOtp = async e => {
     e.preventDefault();
     setErr(null);
     if (otp.trim().length !== 6) return setErr({ message: 'Enter the 6-digit code.' });
 
-    setBusy(true);
+    /* Named, because the wait here is longer than a code check and the
+       button is the only place the page can say what it is doing. */
+    setBusy('Checking the room...');
     try {
       const verified = await visitRequestsApi.verify(pending.id, otp.trim());
       onVerified(verified);
     } catch (error) {
       setErr(error);
       if (error.code === 'OTP_EXPIRED' || error.code === 'OTP_LOCKED') setOtp('');
+      /* The room went. The code was right and the request is saved — there is
+         simply nothing left to ask the owner. */
+      if (error.code === 'NO_BEDS_FREE' || error.code === 'OWNER_PAUSED') setClosed(true);
     } finally {
       setBusy(false);
     }
@@ -239,7 +262,7 @@ export default function VisitRequestDialog({ listing, sharing, intent, onClose, 
 
   const resend = async () => {
     setErr(null);
-    setBusy(true);
+    setBusy('Sending a new code...');
     try {
       const again = await visitRequestsApi.resend(pending.id);
       setPending(again);
@@ -302,8 +325,8 @@ export default function VisitRequestDialog({ listing, sharing, intent, onClose, 
 
             {err && <p className="vr-err" role="alert">{err.message}</p>}
 
-            <button className="vr-submit" type="submit" disabled={busy} ref={askButton}>
-              {busy ? 'Sending…' : 'Ask the owner'}
+            <button className="vr-submit" type="submit" disabled={Boolean(busy)} aria-busy={Boolean(busy)} ref={askButton}>
+              {busy || 'Ask the owner'}
             </button>
 
             <div className="vr-resend">
@@ -349,8 +372,8 @@ export default function VisitRequestDialog({ listing, sharing, intent, onClose, 
 
             {err && <p className="vr-err" role="alert">{err.message}</p>}
 
-            <button className="vr-submit" type="submit" disabled={busy}>
-              {busy ? 'Sending code…' : 'Send verification code'}
+            <button className="vr-submit" type="submit" disabled={Boolean(busy)} aria-busy={Boolean(busy)}>
+              {busy || 'Send verification code'}
             </button>
 
             <p className="vr-fine">
@@ -381,22 +404,37 @@ export default function VisitRequestDialog({ listing, sharing, intent, onClose, 
               </p>
             )}
 
-            <button className="vr-submit" type="submit" disabled={busy || otp.length !== 6}>
-              {busy ? 'Checking…' : 'Verify & ask the owner'}
-            </button>
-
-            <div className="vr-resend">
-              {cooldown > 0
-                ? <span>Didn&rsquo;t get it? You can resend in {cooldown}s.</span>
-                : (
-                  <button type="button" className="vr-linkbtn" onClick={resend} disabled={busy}>
-                    Resend the code
-                  </button>
-                )}
-              <button type="button" className="vr-linkbtn" onClick={() => { setStep('form'); setErr(null); }}>
-                Change number
+            {closed ? (
+              /* Nothing to verify any more — the room went and the request is
+                 closed. One button, and it is the one that helps. */
+              <button className="vr-submit" type="button" onClick={onClose}>
+                Browse other rooms
               </button>
-            </div>
+            ) : (
+              <button
+                className="vr-submit"
+                type="submit"
+                disabled={Boolean(busy) || otp.length !== 6}
+                aria-busy={Boolean(busy)}
+              >
+                {busy || 'Verify & ask the owner'}
+              </button>
+            )}
+
+            {!closed && (
+              <div className="vr-resend">
+                {cooldown > 0
+                  ? <span>Didn&rsquo;t get it? You can resend in {cooldown}s.</span>
+                  : (
+                    <button type="button" className="vr-linkbtn" onClick={resend} disabled={Boolean(busy)}>
+                      Resend the code
+                    </button>
+                  )}
+                <button type="button" className="vr-linkbtn" onClick={() => { setStep('form'); setErr(null); }}>
+                  Change number
+                </button>
+              </div>
+            )}
           </form>
         )}
       </div>

@@ -1,5 +1,7 @@
 import {
   API_BASE_URL,
+  API_BASE_URL_IS_GUESSED,
+  API_BASE_URL_IS_LOOPBACK,
   API_GET_RETRIES,
   API_RETRY_DELAY_MS,
   API_TIMEOUT_MS,
@@ -7,6 +9,7 @@ import {
   CLIENT_VERSION,
 } from './config';
 import { debugLogs } from '@/services/runtimeEnv';
+import { IS_PRODUCTION_BUILD } from '@/constants/env';
 
 /**
  * The one place in this app that calls `fetch`.
@@ -89,6 +92,32 @@ export class ApiError extends Error {
    */
   get displayMessage(): string {
     if (this.isNetwork) {
+      /*
+       * A release build that never got a backend URL guesses one, and the
+       * guess is `10.0.2.2` — the Android emulator's alias for the developer's
+       * laptop, which routes nowhere on a real handset. Every call then fails
+       * exactly like a dead signal, and the phone blames the user's data pack
+       * for a mistake made at build time.
+       *
+       * This branch cost a whole build cycle to diagnose once. Naming it is
+       * the difference between "check your connection" and knowing to go and
+       * set EXPO_PUBLIC_API_URL — see `API_BASE_URL_IS_GUESSED`, which has
+       * always known the answer and was never asked.
+       *
+       * Gated on `IS_PRODUCTION_BUILD` rather than `__DEV__`: `constants/env.ts`
+       * is the only file in this app allowed to name `__DEV__`, so that the
+       * dev/production split is decided in one place. In development the
+       * guess is usually RIGHT — it resolves to the Metro host — so this
+       * sentence would be wrong there anyway.
+       */
+      /* Two ways to end up with a URL a phone cannot reach: never setting
+         one (the guess is itself a loopback alias), or setting one that
+         points at a machine only the developer can see. Both are a build
+         fault rather than the user's signal. */
+      if ((API_BASE_URL_IS_GUESSED || API_BASE_URL_IS_LOOPBACK) && IS_PRODUCTION_BUILD) {
+        return 'This build has no server address, so it cannot reach Lampose. '
+          + 'It needs rebuilding with EXPO_PUBLIC_API_URL set.';
+      }
       return 'We could not reach Lampose. Check your connection and try again.';
     }
     if (this.status === 503) {

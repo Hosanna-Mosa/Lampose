@@ -62,6 +62,7 @@ const Property = require('../src/modules/properties/property.model');
 const VisitRequest = require('../src/modules/visits/visitRequest.model');
 const { signCustomerToken } = require('../src/modules/customers/customerAuth.middleware');
 const { syncShareTypes } = require('../src/modules/inventory/inventory.service');
+const { PartnerShareType } = require('../src/modules/partners/partnerDomains.model');
 const { resetRateLimits } = require('../src/shared/middleware/rateLimit');
 
 withDatabase();
@@ -355,5 +356,178 @@ describe('the website session — what must never skip a code', () => {
 
   it('no token at all', async () => {
     await mustDemandACode('no token', () => null);
+  });
+});
+
+describe('the status endpoint and the address', () => {
+  /* The page polls this endpoint and nothing else. So whatever it does not
+     say, the page cannot show — which is how a paid customer ended up
+     looking at "pay to get the address" while the address sat in their
+     WhatsApp. */
+  const paidRequest = async ({ paid }) => {
+    const property = await Property.create({
+      name: 'Address probe',
+      place: 'Chintal',
+      address: '12-3-45 Main Road',
+      category: 'BACHELOR',
+      ownerName: 'Owner',
+      ownerMobile: '+919876500031',
+      rent: 12000,
+      isVerified: true,
+      categoryDetails: { roomTypes: ['1 BHK'], sharingPrices: { '1 BHK': 12000 }, sharingBeds: { '1 BHK': 2 } },
+    });
+    await syncShareTypes(property);
+
+    return VisitRequest.create({
+      listingId: String(property._id),
+      propertyName: property.name,
+      ownerName: 'Owner',
+      ownerMobile: property.ownerMobile,
+      customer: { name: 'Venky', phone: '+919000012399' },
+      status: 'confirmed',
+      decidedAt: new Date(),
+      sharing: { label: '1 BHK', price: 12000 },
+      payment: paid
+        ? { required: true, status: 'paid', amountPaise: 2000, verifiedAt: new Date() }
+        : { required: true, status: 'pending', amountPaise: 2000 },
+      ...(paid ? { addressReleasedAt: new Date() } : {}),
+    });
+  };
+
+  it('gives the address once the token is paid', async () => {
+    const doc = await paidRequest({ paid: true });
+    const { status, body } = await call('GET', `/api/v2/visit-requests/${doc._id}`);
+
+    assert.equal(status, 200);
+    /* Both halves, and the locality only once. */
+    assert.equal(body.data.address, '12-3-45 Main Road, Chintal');
+  });
+
+  it('and withholds it while the token is outstanding', async () => {
+    const doc = await paidRequest({ paid: false });
+    const { body } = await call('GET', `/api/v2/visit-requests/${doc._id}`);
+
+    assert.equal(body.data.addressReleasedAt, null);
+    assert.equal(body.data.address, undefined, 'an unpaid request must get no address');
+    /* And the thing that decides it is the server's own timestamp, not a
+       field the caller could have asked for. */
+    assert.equal(body.data.payment.status, 'pending');
+  });
+
+  it('says enough for the page to know it is still owed a token', async () => {
+    /* The page keeps polling on exactly this combination — confirmed, token
+       required, not yet paid. If any of the three stopped being reported the
+       loop would stop and the payment would go unnoticed again. */
+    const doc = await paidRequest({ paid: false });
+    const { body } = await call('GET', `/api/v2/visit-requests/${doc._id}`);
+
+    assert.equal(body.data.status, 'confirmed');
+    assert.equal(body.data.payment.required, true);
+    assert.notEqual(body.data.payment.status, 'paid');
+  });
+});
+
+describe('a full room is refused AFTER the code, not before it', () => {
+  /* The check used to run at the form, which saved an SMS but turned the
+     visitor away before they existed — no row, no name, no number. Somebody
+     who filled in the form for a room that is gone is exactly who to call
+     when it frees up, so the form now completes and the refusal happens once
+     the number is proven. The trade is one SMS for one lead. */
+  const fullListing = async () => {
+    const property = await Property.create({
+      name: `Full probe ${Date.now().toString(36)}`,
+      place: 'Chintal',
+      category: 'BACHELOR',
+      ownerName: 'Owner',
+      ownerMobile: '+919876500051',
+      rent: 12000,
+      isVerified: true,
+      categoryDetails: {
+        roomTypes: ['1 BHK'],
+        sharingPrices: { '1 BHK': 12000 },
+        sharingBeds: { '1 BHK': 1 },
+      },
+    });
+    await syncShareTypes(property);
+    await PartnerShareType.updateOne(
+      { shareTypeId: `${property._id}:1-bhk` },
+      { $set: { availableBeds: 0 } },
+    );
+    return property;
+  };
+
+  const applyTo = (property) => call('POST', '/api/v2/visit-requests', {
+    body: {
+      listingId: String(property._id),
+      name: 'Raju',
+      phone: '9398334845',
+      sharing: '1 BHK',
+      intent: {},
+      consentedTerms: true,
+      consentWhatsApp: true,
+    },
+  });
+
+  it('the form goes through, and the code is sent', async () => {
+    const property = await fullListing();
+    const started = await applyTo(property);
+
+    assert.equal(started.status, 201, 'a full room no longer refuses at the form');
+    assert.equal(codes.length, 1, 'the code is sent');
+  });
+
+  it('and the visitor is in the database before anything is refused', async () => {
+    const property = await fullListing();
+    const started = await applyTo(property);
+
+    const row = await VisitRequest.findById(started.body.data.id);
+    assert.equal(row.customer.name, 'Raju');
+    assert.equal(row.customer.phone, '+919398334845');
+  });
+
+  it('the refusal lands on the verify step, and names when it went', async () => {
+    const property = await fullListing();
+    const started = await applyTo(property);
+
+    const verified = await call('POST', `/api/v2/visit-requests/${started.body.data.id}/verify`, {
+      body: { otp: codes[0].otp },
+    });
+
+    assert.equal(verified.status, 409);
+    assert.equal(verified.body.code, 'NO_BEDS_FREE');
+    assert.match(verified.body.message, /was booked on/);
+    /* Not "while you were confirming your number" — nothing checked the room
+       at the form, so it may equally have gone last week. */
+    assert.doesNotMatch(verified.body.message, /while you were confirming/);
+  });
+
+  it('the owner is never told', async () => {
+    const property = await fullListing();
+    const started = await applyTo(property);
+    await call('POST', `/api/v2/visit-requests/${started.body.data.id}/verify`, {
+      body: { otp: codes[0].otp },
+    });
+
+    assert.equal(ownerMessages.length, 0);
+  });
+
+  it('and the lead survives as a real row, not a validation error', async () => {
+    const property = await fullListing();
+    const started = await applyTo(property);
+    const verified = await call('POST', `/api/v2/visit-requests/${started.body.data.id}/verify`, {
+      body: { otp: codes[0].otp },
+    });
+
+    /* This path was unreachable while the form refused first, and it wrote a
+       `decisionReason` outside the schema enum. The save threw, the customer
+       saw a validation error instead of an explanation, and the request was
+       left mid-flight. */
+    assert.notEqual(verified.body.code, 'VALIDATION_ERROR');
+
+    const row = await VisitRequest.findById(started.body.data.id);
+    assert.equal(row.status, 'declined');
+    /* The word both mobile apps already carry in their union and render. */
+    assert.equal(row.decisionReason, 'INVENTORY_TAKEN');
+    assert.ok(row.phoneVerifiedAt, 'the number was proven, so the lead is a real one');
   });
 });

@@ -58,7 +58,29 @@ export default function useVisitRequest(listingId) {
 
   const clear = useCallback(() => setRequest(null), [setRequest]);
 
-  const isWaiting = request?.status === 'pending_owner';
+  /*
+   * Still watching?
+   *
+   * "Waiting for the owner" is the obvious case, and it used to be the only
+   * one — `confirmed` is in TERMINAL, so the loop stopped the moment the
+   * owner said yes.
+   *
+   * That is wrong for a bachelor or co-live request, where the owner's yes is
+   * the MIDDLE of the flow: a token is paid, and only then is the address
+   * released. The payment happens on the Razorpay link sent over WhatsApp —
+   * on the customer's phone, or in another tab — so the in-page callback that
+   * normally refreshes never fires. Nothing was watching, and the page sat on
+   * "pay to get the address" while the address was already in their WhatsApp.
+   *
+   * So: keep polling while a confirmed request still owes a token. It stops
+   * the moment the money lands, which is when there is nothing left to wait
+   * for.
+   */
+  const owesToken = request?.status === 'confirmed'
+    && request?.payment?.required === true
+    && request?.payment?.status !== 'paid';
+
+  const isWaiting = request?.status === 'pending_owner' || owesToken;
 
   /* One poll, then schedule the next from inside itself — a fixed interval
      would stack requests if the API ever answered slower than the gap. */
