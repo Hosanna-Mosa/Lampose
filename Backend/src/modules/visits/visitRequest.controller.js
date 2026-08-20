@@ -33,6 +33,7 @@ const Property = require('../properties/property.model');
 const VisitRequest = require('./visitRequest.model');
 const { sharingOptionsFor, findSharingOption } = require('../listings/sharing.util');
 const { requestableOptions, bookedAtLabel } = require('../inventory/inventory.service');
+const { readListingAddress } = require('./visitAddress.util');
 const { validateIntent, describeIntent } = require('../listings/stayIntent.util');
 const config = require('../../config/env');
 const { needsToken, ensurePaymentLink } = require('./visitPayment.controller');
@@ -410,22 +411,21 @@ const createVisitRequest = async (req, res, next) => {
     }
 
     /*
-     * The room, before anything else happens.
+     * The room is NOT checked here, and that is a deliberate reversal.
      *
-     * Checked here so a full room costs nobody an SMS: the OTP goes out
-     * below, and sending one to start a conversation that cannot end well is
-     * a charge and an interruption for no reason.
+     * It used to be, so that a full room cost nobody an SMS. But refusing at
+     * this point means the visitor is turned away before they exist: no row,
+     * no name, no number, nothing to follow up with. Somebody who wanted this
+     * room enough to fill the form is worth knowing about even when the room
+     * is gone — they are the first person to call when it frees up, or the
+     * one to offer the room next door.
+     *
+     * So the form completes, the code is sent, and the request is written
+     * with their details on it. `verifyVisitRequest` checks the room once the
+     * number is proven, refuses there if it is taken, and the row stays.
+     *
+     * The trade is one DLT SMS for one lead. That is the intended price.
      */
-    const stock = await checkRoomIsFree(property, chosen);
-    if (!stock.free) {
-      return res.status(409).json({
-        success: false,
-        code: stock.code,
-        message: stock.message,
-        error: stock.message,
-        sharing: chosen.label,
-      });
-    }
 
     /* Already waiting on this exact property? Hand back the request in flight
        instead of ringing the owner a second time about it. */
@@ -475,6 +475,19 @@ const createVisitRequest = async (req, res, next) => {
       preferredDate: preferredDate ? String(preferredDate).trim().slice(0, 60) : null,
       preferredTime: preferredTime ? String(preferredTime).trim().slice(0, 60) : null,
       sharing: chosen ? { label: chosen.label, price: chosen.price } : { label: null, price: null },
+      /*
+       * Which bed pool this request is for.
+       *
+       * The app has always recorded it; the website never did, and the label
+       * alone is not enough — the pool is keyed by a slug of it. Without this
+       * there is nothing to decrement when the token is paid, and nothing to
+       * look up when saying WHEN a room was booked.
+       *
+       * Derived at creation from the option the visitor actually picked, so a
+       * label renamed on the property later cannot re-point a request that is
+       * already in flight at a different pool.
+       */
+      shareTypeId: (chosen && chosen.shareTypeId) || null,
       intent,
       /*
        * A bachelor or co-live visit is paid for once the owner confirms.
@@ -686,29 +699,19 @@ const verifyVisitRequest = async (req, res, next) => {
       await doc.save();
     }
 
-    /* The address is not snapshotted on the request, so it is read from the
-       listing at send time. A listing that has since been removed simply
-       drops the line rather than blocking a verified customer's request. */
-    let listingAddress = '';
-    try {
-      const listing = await Property.findById(doc.listingId).select('address place').lean();
-      if (listing) {
-        listingAddress = listing.address && listing.place
-          && String(listing.address).toLowerCase().includes(String(listing.place).toLowerCase())
-          ? listing.address
-          : [listing.address, listing.place].filter(Boolean).join(', ');
-      }
-    } catch (err) {
-      console.warn('[visit-requests] Could not read the listing address:', err.message);
-    }
+    /* Read from the listing at send time rather than snapshotted onto the
+       request, so a corrected door number corrects every request at once. The
+       util swallows a missing listing into an empty string — a dropped line,
+       never a blocked request. */
+    const listingAddress = await readListingAddress(doc.listingId);
 
     /*
-     * Asked again, because time passed.
+     * The room, checked once — here.
      *
-     * Between the first check and this line the visitor read an SMS and typed
-     * six digits — minutes in which somebody else's request can have taken
-     * the last bed. The first check saves an SMS; this one is what actually
-     * protects the owner from being asked about a room that is gone.
+     * This is the last moment before an owner's phone rings, and the only
+     * place the check now lives. It runs after the number is proven and after
+     * the request is written, so a visitor turned away is still a visitor on
+     * record rather than one who bounced off the form.
      */
     /* Read here rather than reusing a variable from the create handler —
        this is a separate request, minutes later, with none of that scope. */
@@ -719,15 +722,35 @@ const verifyVisitRequest = async (req, res, next) => {
     if (!stillFree.free) {
       doc.status = 'declined';
       doc.decidedAt = new Date();
-      doc.decisionReason = stillFree.code;
+      /*
+       * `INVENTORY_TAKEN`, not the raw check code.
+       *
+       * `decisionReason` is a small closed vocabulary that both mobile apps
+       * carry as a TypeScript union and switch on — `INVENTORY_TAKEN` is
+       * already their word for "a decline the owner never made, forced by the
+       * room being gone", and both render a sentence for it. Writing
+       * `NO_BEDS_FREE` here instead put a value in the field that is not in
+       * the schema enum at all: the save threw, the customer got a validation
+       * error in place of an explanation, and the request was left mid-flight.
+       *
+       * A paused room lands here too. It is not literally taken, but it is
+       * the same fact for everyone downstream — unavailable, and not the
+       * owner's answer — and the customer's sentence comes from `message`,
+       * which says which of the two it was.
+       */
+      doc.decisionReason = 'INVENTORY_TAKEN';
       await doc.save();
 
+      /* `stillFree.message` verbatim now. It used to be reworded to "it went
+         while you were confirming your number", which was true only because
+         the room had been checked and found free at the form. Nothing checks
+         it there any more, so it may equally have been taken yesterday, and
+         the plain "was booked on <when>" is the sentence that is true in both
+         cases. */
       return res.status(409).json({
         success: false,
         code: stillFree.code,
-        message: stillFree.bookedAt
-          ? `${doc.sharing.label} was booked on ${stillFree.bookedAt}, while you were confirming your number. The owner has not been contacted.`
-          : `${stillFree.message.split('.')[0]}. It went while you were confirming your number — the owner has not been contacted.`,
+        message: stillFree.message,
         error: stillFree.code,
         data: doc.toPublic(),
       });
@@ -850,9 +873,31 @@ const getVisitRequest = async (req, res, next) => {
 
     await settleIfExpired(doc);
 
+    const data = doc.toPublic();
+
+    /*
+     * The address, but only once it has been released.
+     *
+     * `toPublic` says WHEN the address was released and never what it is —
+     * it is a synchronous method on the document and the address lives on the
+     * property. So the page could see that it had been paid for and still had
+     * nothing to show; the street address only ever arrived as the return
+     * value of `setJoiningDate`, which meant a reload lost it and a payment
+     * made on the phone never produced it at all.
+     *
+     * `addressReleasedAt` is the gate, exactly as it is everywhere else: set
+     * by the token handler when the payment verifies, and null until then.
+     * Reading it here rather than trusting a client flag keeps the rule in
+     * one place — a request that has not paid gets no address from this
+     * endpoint no matter what it asks for.
+     */
+    if (doc.addressReleasedAt) {
+      data.address = await readListingAddress(doc.listingId);
+    }
+
     // Polled every few seconds by every waiting customer — never cached.
     res.set('Cache-Control', 'no-store');
-    return res.json({ success: true, data: doc.toPublic() });
+    return res.json({ success: true, data });
   } catch (error) {
     return next(error);
   }

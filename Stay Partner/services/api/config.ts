@@ -131,11 +131,16 @@ export const API_CONFIG_HINT =
  * refused, and the app reports "we could not reach Lampose", which is
  * indistinguishable from a backend that is genuinely down.
  *
+ * `10.0.2.2` counts as well: it is not the device, but it is an alias only
+ * the Android emulator's network stack resolves, so it is equally unreachable
+ * from a real handset and fails in the same indistinguishable way.
+ *
  * It is not an error, because it is correct when the app runs in a web browser
- * on the same machine. It is a loud warning everywhere else.
+ * on the same machine, or in that emulator. It is a loud warning everywhere
+ * else, and on screen in a production build.
  */
 export const API_BASE_URL_IS_LOOPBACK =
-  /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i.test(API_BASE_URL);
+  /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|10\.0\.2\.2)(:\d+)?(\/|$)/i.test(API_BASE_URL);
 
 /**
  * The one-line answer to "where is this app actually calling?".

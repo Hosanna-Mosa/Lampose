@@ -9,7 +9,7 @@ import {
   CLIENT_NAME,
   CLIENT_VERSION,
 } from './config';
-import { DEBUG_LOGS } from '@/constants/env';
+import { DEBUG_LOGS, IS_PRODUCTION_BUILD } from '@/constants/env';
 
 /**
  * The one place in this app that calls `fetch`.
@@ -98,6 +98,24 @@ export class ApiError extends Error {
       return 'This app has not been set up to reach Lampose. Please contact support.';
     }
     if (this.isNetwork) {
+      /*
+       * A base URL pointing at the device itself can never work on a handset,
+       * so this is a setup fault and not a connection one — and saying
+       * "check your connection" sends an owner to restart their router over
+       * a mistake made at build time.
+       *
+       * There is already a warning for this, but it is a `console.warn` gated
+       * on DEBUG_LOGS, which is off in exactly the build where nobody is
+       * watching a console. On screen, in production, it said nothing.
+       *
+       * Same sentence as API_NOT_CONFIGURED above, deliberately: from the
+       * owner's side these are one fact — the app cannot reach Lampose and
+       * there is nothing they can do about it. The developer's version of
+       * the answer stays in the console, where it is useful.
+       */
+      if (API_BASE_URL_IS_LOOPBACK && IS_PRODUCTION_BUILD) {
+        return 'This app has not been set up to reach Lampose. Please contact support.';
+      }
       return 'We could not reach Lampose. Check your connection and try again.';
     }
     if (this.status === 503) {

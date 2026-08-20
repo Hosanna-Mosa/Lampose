@@ -183,6 +183,20 @@ const visitRequestSchema = new mongoose.Schema(
 
     /* Released once the token is paid — before that a student has the area
        and not the door. */
+    /*
+     * When the paid token took a bed out of the pool.
+     *
+     * Its own field rather than an inference from `payment.status`, for two
+     * reasons: a Razorpay redelivery must not decrement twice, and a bed that
+     * could NOT be claimed — the last one went while the customer was paying —
+     * has to be visibly different from one that was, because somebody has paid
+     * for a room that is gone and a human has to deal with it.
+     *
+     * Null therefore means "not claimed", which is either "not paid yet" or
+     * "paid but there was nothing left". `payment.status` tells those apart.
+     */
+    bedClaimedAt: { type: Date, default: null },
+
     addressReleasedAt: { type: Date, default: null },
 
     /* Evidence that the Privacy Policy and Terms were accepted, and when. */
