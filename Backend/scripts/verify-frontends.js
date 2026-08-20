@@ -87,6 +87,54 @@ const expectFields = (object, fields, label, forbidden = []) => {
   return `${fields.length} fields present${forbidden.length ? `, ${forbidden.length} withheld` : ''}`;
 };
 
+
+/**
+ * The resolved Expo config for an app.
+ *
+ * Both apps moved from `app.json` to a self-contained `app.config.js`, which
+ * is the shape `driver/` already used: one file, so a value cannot be declared
+ * in two places and disagree. These checks read the config rather than the
+ * file, so the move does not quietly turn them off — reading `app.json`
+ * directly failed with ENOENT and took three real invariants down with it.
+ *
+ * `app.json` is still honoured where it exists, because nothing forces the
+ * two apps to migrate on the same day.
+ */
+const readExpoConfig = (dir) => {
+  /* Required here rather than relied on from the enclosing scope: the checks
+     that call this each require their own `fs`/`path`, and this helper is
+     defined above all of them. */
+  const fs = require('fs');
+  const path = require('path');
+
+  const jsonPath = path.join(dir, 'app.json');
+  if (fs.existsSync(jsonPath)) return JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+
+  const configPath = path.join(dir, 'app.config.js');
+  if (!fs.existsSync(configPath)) {
+    throw new Error(`neither app.json nor app.config.js exists in ${dir}`);
+  }
+  /*
+   * It is an ES module with `export default`, and this script is CommonJS.
+   *
+   * The WHOLE module is evaluated, not just the object literal after the
+   * keyword: that literal reads consts declared above it — brand colours, the
+   * google-services existence check — so evaluating it alone fails on the
+   * first one. Swapping the keyword for a CommonJS assignment and running the
+   * file is the smallest thing that actually resolves them.
+   *
+   * `__dirname` is the app's own directory so the existence checks inside the
+   * config look where they would during a real build.
+   */
+  const src = fs.readFileSync(configPath, 'utf8').replace('export default', 'module.exports =');
+  const shim = { exports: {} };
+  // eslint-disable-next-line no-new-func
+  new Function('module', 'exports', 'require', '__dirname', 'process', src)(
+    shim, shim.exports, require, dir, process,
+  );
+  return shim.exports;
+};
+
 const stamp = Date.now();
 const created = {
   userIds: [], propertyIds: [], leadIds: [], jobIds: [], permissionIds: [], adminIds: [],
@@ -2270,7 +2318,7 @@ const run = async () => {
 
   await check('both declare the notifications plugin and the stay-requests channel', async () => {
     for (const app of APPS) {
-      const { expo } = readJson(path.join(app.dir, 'app.json'));
+      const { expo } = readExpoConfig(app.dir);
       const plugin = (expo.plugins || []).find((p) => Array.isArray(p) && p[0] === 'expo-notifications');
       expect(plugin, `${app.label} does not declare the expo-notifications plugin`);
 
@@ -2333,7 +2381,7 @@ const run = async () => {
     const gaps = [];
 
     for (const app of APPS) {
-      const { expo } = readJson(path.join(app.dir, 'app.json'));
+      const { expo } = readExpoConfig(app.dir);
 
       /* 1 — the EAS project id. Issued by `eas init`; without it every
              getExpoPushTokenAsync returns null. */
@@ -2349,7 +2397,7 @@ const run = async () => {
         gaps.push(`${app.label}: no google-services.json — add the Android app in Firebase`);
       } else {
         if (!expo.android || expo.android.googleServicesFile !== './google-services.json') {
-          gaps.push(`${app.label}: google-services.json exists but app.json does not declare it`);
+          gaps.push(`${app.label}: google-services.json exists but the Expo config does not declare it`);
         }
         /* 3 — and it has to be for THIS package. A mismatch fails the Gradle
                build with "No matching client found", which is at least loud —
@@ -2540,7 +2588,9 @@ const run = async () => {
     });
     expect(status === 422, `expected 422, got ${status}`);
     expect(refused.code === 'NO_BEDS_FREE', `expected NO_BEDS_FREE, got ${refused.code}`);
-    return '0 beds, requestable false, and 422 NO_BEDS_FREE if asked anyway';
+    /* And the sentence says it was BOOKED, not merely that it failed. */
+    expect(/booked/i.test(refused.message), `refusal does not mention booking: ${refused.message}`);
+    return '0 beds, requestable false, and a 422 that says when it was booked';
   });
 
   /* ══════════════════════════════════════════════════════════════════════
@@ -3301,9 +3351,26 @@ const run = async () => {
        * have not set up Firebase yet" — which is why the config guards it on
        * existence and app.json must not declare it.
        */
-      const appJson = readJson(path.join(dir, 'app.json'));
-      expect(!appJson.expo.android || !appJson.expo.android.googleServicesFile,
-        `${app} hardcodes googleServicesFile in app.json, defeating the existence guard`);
+      /*
+       * The config may name `googleServicesFile`, and must never name one that
+       * is not there.
+       *
+       * The old rule was "app.json must not declare it" — a proxy for the real
+       * invariant, written when app.json and app.config.js were two files and
+       * only the second could guard on existence. They are one file now, so
+       * the proxy fails on a machine where the guard correctly resolved. What
+       * actually breaks a build is a path to a missing file: Gradle fails with
+       * a missing-file error rather than an honest "Firebase is not set up".
+       *
+       * An absolute path is EAS supplying it as a file variable, which only
+       * exists on the builder — so it is accepted without a local check.
+       */
+      const resolved = readExpoConfig(dir);
+      const declared = resolved.expo?.android?.googleServicesFile;
+      if (declared && !path.isAbsolute(declared)) {
+        expect(fs.existsSync(path.join(dir, declared)),
+          `${app} names googleServicesFile "${declared}" but no such file exists`);
+      }
 
       const dynamic = fs.readFileSync(path.join(dir, 'app.config.js'), 'utf8');
       expect(dynamic.includes('existsSync'),

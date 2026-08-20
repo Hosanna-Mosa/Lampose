@@ -1,8 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-// Firebase config is per-installation and is not committed. Drop your own
-// google-services.json next to this file to enable Android push notifications.
+// Firebase Android push notifications config file
 const googleServicesPath = path.join(__dirname, 'google-services.json');
 const googleServicesFile = fs.existsSync(googleServicesPath) ? './google-services.json' : undefined;
 
@@ -10,9 +9,7 @@ const googleServicesFile = fs.existsSync(googleServicesPath) ? './google-service
  * Brand colours — keep in sync with `theme/index.ts`.
  *
  * These are the customer app's Food palette: the grey ground behind the splash
- * and the adaptive icon, and the brand green that tints notifications. The
- * notification tint moved from near-black to green deliberately — a black tint
- * on a black-and-white status bar icon is invisible.
+ * and the adaptive icon, and the brand green that tints notifications.
  */
 const BRAND = {
   ink: '#101214',
@@ -38,9 +35,6 @@ export default {
     ios: {
       supportsTablet: false,
       bundleIdentifier: 'com.driver.app',
-      config: {
-        googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY,
-      },
       infoPlist: {
         UIBackgroundModes: ['location', 'remote-notification'],
       },
@@ -51,11 +45,6 @@ export default {
       adaptiveIcon: {
         foregroundImage: './assets/images/adaptive-icon.png',
         backgroundColor: BRAND.background,
-      },
-      config: {
-        googleMaps: {
-          apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY,
-        },
       },
       permissions: [
         'ACCESS_COARSE_LOCATION',
@@ -96,17 +85,11 @@ export default {
       ],
     ],
     experiments: {
-      // Disabled: expo-router's typed-route generator strips a trailing
-      // "/index" before normalising Windows backslashes, so `(tabs)/index.tsx`
-      // is typed as `/index` instead of `/`, and files outside app/ leak in as
-      // routes. The generated .d.ts then fails `npm run typecheck` even though
-      // the routes resolve correctly at runtime. Re-enable once that is fixed.
       typedRoutes: false,
       reactCompiler: true,
     },
     extra: {
       apiUrl: process.env.EXPO_PUBLIC_API_URL,
-      // Run `eas init` to create a project and populate `extra.eas.projectId`.
     },
   },
 };

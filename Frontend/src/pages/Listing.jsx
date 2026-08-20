@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import Icon from '../components/Icon';
-import ListingCard, { rupees } from '../components/ListingCard';
+import ListingCard, { availability, rupees } from '../components/ListingCard';
 import ConnectionError from '../components/ConnectionError';
 import VisitRequestDialog from '../components/VisitRequestDialog';
 import StayIntentPicker from '../components/StayIntentPicker';
@@ -12,6 +12,98 @@ import { useReveals } from '../hooks/useSite';
 import useVisitRequest from '../hooks/useVisitRequest';
 
 const iconFor = iconForCategory;
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   What each category's detail table shows, and in what order.
+
+   ## Why this is a curated list and not the object
+
+   It used to print `categoryDetails` verbatim, label-ised. That produced rows
+   nobody could act on — `Sharing Beds: Single: 2 · 2 Sharing: 8` restating the
+   room chooser, `Rate Type: Daily Rate` restating the price — and it published
+   whatever a future field happened to be called, including one that should
+   never have been public (see `wardenContact` below).
+
+   ## The order comes from what renters actually look for
+
+   Researched against how Indian platforms present this stock — NoBroker, Zolo,
+   Colive, 99acres — and against tenant-side checklists. Three things drove it:
+
+     · Inclusions beat labels. "Food included: Yes" is the flag every platform
+       shows and the one tenants say misleads them; the meals and their timings
+       are the answer they actually want, so those lead.
+     · House rules are a first-class field for shared stock. NoBroker ships
+       "Gate Closing Time" as its own row — no other rental category has it —
+       and curfew is the most common post-move complaint.
+     · Shared-resource RATIOS matter more than the amenity flag. A washroom
+       count against a bed count is what tells somebody whether the queue is
+       tolerable; "Attached bathroom: Yes" does not.
+
+   Anything absent is simply not rendered, so a half-filled listing shows a
+   short table rather than a wall of "Not specified".
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** "Breakfast 7:30 AM - 9:30 AM · Dinner 8:00 PM - 10:00 PM" */
+const mealSchedule = (provided, timings) => {
+  const meals = Array.isArray(provided) ? provided : [];
+  if (!meals.length) return null;
+  const at = timings && typeof timings === 'object' ? timings : {};
+  return meals.map(m => (at[m] ? `${m} ${at[m]}` : m)).join(' · ');
+};
+
+const categoryFacts = (category, d = {}) => {
+  const rows = [];
+  const add = (label, value) => {
+    if (value === null || value === undefined || value === '' ) return;
+    if (Array.isArray(value) && !value.length) return;
+    rows.push([label, typeof value === 'boolean' ? (value ? 'Yes' : 'No') : value]);
+  };
+
+  if (category === 'PG_HOSTEL') {
+    add('Who it is for', d.hostelType);
+    add('Meals', d.foodIncluded === false ? 'Not provided' : mealSchedule(d.mealsProvided, d.mealTimings));
+    add('Food', d.foodIncluded === false ? null : d.foodType);
+    add('Mess / canteen', d.canteenFacility);
+    /* NoBroker ships this as its own field, and it is the rule people are
+       most often caught out by. */
+    add('Gate closing time', d.curfewTime);
+    add('Warden on site', d.wardenContact ? 'Yes' : d.securityCCTV === undefined ? null : false);
+    add('CCTV & security', d.securityCCTV);
+    add('Housekeeping', d.housekeeping);
+    add('Study room', d.studyRoom);
+    return rows;
+  }
+
+  if (category === 'BACHELOR' || category === 'COLIVE') {
+    /* Who it is let to leads, because it is a gate rather than a detail: a
+       flat that will not take the person reading it wastes their whole visit,
+       and "bachelors allowed" is the field renters filter on first. */
+    add('Let to', String(d.allowedTenants || '').replace(/^Bachelors /, '') || null);
+    add('Furnishing', d.furnishing);
+    add('What is included', Array.isArray(d.furnishingItems) ? d.furnishingItems.join(', ') : null);
+    add('Kitchen', d.kitchenAvailable);
+    add('Water supply', d.waterSupply);
+    return rows;
+  }
+
+  if (category === 'HOTEL') {
+    add('Beds in total', d.totalBeds);
+    /* The ratio, not the count — one number against the other is what says
+       whether the morning queue is bearable. */
+    add('Shared washrooms', d.washroomsCount
+      ? (d.totalBeds ? `${d.washroomsCount} · about ${Math.ceil(d.totalBeds / d.washroomsCount)} beds each` : d.washroomsCount)
+      : null);
+    add('Lockers', d.lockersAvailable);
+    /* Older rows carry these; the form no longer collects them. Shown where
+       present because a nightly guest turned away at 1 PM has lost a day. */
+    add('Check-in', d.checkInTime);
+    add('Check-out', d.checkOutTime);
+    return rows;
+  }
+
+  return rows;
+};
 
 const labelise = key => key
   .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -364,43 +456,36 @@ export default function Listing() {
      where it updates into the live quote as the stay is chosen. The deposit
      appears in both places on purpose — under the price as a cost, here as
      a fact beside the others. */
+  /*
+   * ── No prices here, and no stay lengths ─────────────────────────────────
+   *
+   * Every figure this block used to carry — deposit, monthly rent, daily rate
+   * — is already in the booking rail directly above, where the visitor is
+   * actually deciding. Printing them again put the same number on screen
+   * twice, and when the two disagreed the lower one was always the wrong one:
+   * a nightly hotel listing showed "Minimum term: 1 Month+" beside a ₹450
+   * daily rate, because the backend defaults those fields whether or not the
+   * property sells that way.
+   *
+   * What is left is what the rail does NOT say: who the listing belongs to,
+   * when it appeared, and the facts that decide whether the place suits
+   * somebody at all.
+   */
   const facts = [
-    ['Deposit', item.deposit ? rupees(item.deposit) : null],
     ['Owner / manager', item.ownerName || null],
-    ['Category', item.category || null],
-    ['Stay type', item.stayType || null],
-    ['Minimum term', item.longStayDuration || null],
-    ['Short stay', item.shortStayDuration || null],
-    ['Monthly rent', item.monthlyPrice && rupees(item.monthlyPrice)],
-    ['Daily rate', item.dailyPrice && rupees(item.dailyPrice)],
     ['Listed', item.listedAt && new Date(item.listedAt).toLocaleDateString('en-IN', {
       day: 'numeric', month: 'short', year: 'numeric',
     })],
-    /* `sharingPrices` and the category's occupancy key are the chooser in
-       the rail; repeating them here would say the same thing twice, and
-       `description` is already the About section. */
-    ...Object.entries(item.details || {})
-      .filter(([k]) => ![
-        'sharingPrices', ...(OCCUPANCY_KEY[item.category] || []), 'description',
-        /* Bookkeeping for the onboarding panel's "Custom" occupancy button:
-           which options an agent typed in by hand. The options themselves are
-           already the chooser in the rail — this would repeat them as a row
-           saying nothing a visitor can use. */
-        'customSharingTypes',
-        /* Same reason: which amenities an agent typed by hand is bookkeeping.
-           The amenities themselves are already a row. */
-        'customFurnishingItems',
-        'customRoomTypes',
-        'customBedTypes',
-        /* Per-layout detail. The occupancy chooser in the rail already shows
-           each layout, and `furnishing` / `furnishingItems` carry the summary
-           — these two would repeat both as unreadable objects. */
-        'furnishingByLayout',
-        'furnishingItemsByLayout',
-        'allowedTenantsByLayout',
-        'kitchenByLayout',
-      ].includes(k))
-      .map(([k, v]) => [labelise(k), formatValue(v)]),
+    /*
+     * The category's own facts, curated and ordered — see `categoryFacts`.
+     *
+     * This replaced a verbatim dump of `categoryDetails`. That dump restated
+     * the room chooser as unreadable maps, restated the price as "Rate type",
+     * and published every field an onboarding form happened to add — including
+     * `wardenContact`, which put a real phone number on a public page while
+     * the owner's own number was deliberately withheld two lines above.
+     */
+    ...categoryFacts(item.category, item.details || {}),
   ].filter(([, v]) => v !== null && v !== undefined && v !== '');
 
   const tiles = images.slice(0, 5);
@@ -408,7 +493,16 @@ export default function Listing() {
   const chips = (
     <span className="lst-mosaic__chips">
       <span className="exp-chip exp-chip--light">{labelForCategory(item.category)}</span>
-      {item.stayType && <span className="exp-chip exp-chip--dark">{item.stayType}</span>}
+      {/* Beds free, not stay type. The old chip read "Long Stay" on almost
+          every listing because the backend defaults that field — the same
+          word on every card is not information. This one changes as owners
+          accept requests. */}
+      {(() => {
+        const free = availability(item);
+        return free
+          ? <span className={`exp-chip ${free.full ? 'exp-chip--muted' : 'exp-chip--dark'}`}>{free.label}</span>
+          : null;
+      })()}
     </span>
   );
 

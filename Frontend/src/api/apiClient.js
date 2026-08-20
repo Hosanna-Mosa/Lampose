@@ -3,6 +3,8 @@
  * Uses VITE_API_BASE_URL from environment variables (.env)
  */
 
+import { authHeader, clearSession } from '../auth/session';
+
 const getBaseUrl = () => {
   const envUrl = import.meta.env.VITE_API_BASE_URL;
   if (envUrl) {
@@ -27,6 +29,12 @@ export async function apiRequest(endpoint, options = {}) {
   const defaultHeaders = {
     'Content-Type': 'application/json',
     Accept: 'application/json',
+    /* The visitor's session, when there is one. Sent on every call rather
+       than only the ones that need it: the routes that ignore it cost nothing,
+       and remembering which ones care is how a header goes missing from the
+       one call that did. Signed out, `authHeader()` is empty and spreads
+       away. */
+    ...authHeader(),
   };
 
   const config = {
@@ -61,6 +69,14 @@ export async function apiRequest(endpoint, options = {}) {
       error.status = response.status;
       error.code = data?.code || null;
       error.body = data;
+
+      /* A session the server has finished with — expired, malformed, or
+         belonging to an account that is gone. Dropped here, at the one place
+         every call passes through, so the next render already knows it is
+         signed out instead of retrying with a token that cannot work. The
+         error still propagates: the caller decides what to show. */
+      if (response.status === 401) clearSession();
+
       throw error;
     }
 

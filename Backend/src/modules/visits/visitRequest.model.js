@@ -82,7 +82,16 @@ const visitRequestSchema = new mongoose.Schema(
     customer: {
       name: { type: String, required: true, trim: true },
       phone: { type: String, required: true, index: true },     // E.164
-      email: { type: String, required: true, trim: true, lowercase: true },
+      /*
+       * Optional. The visit-request form stopped asking for it: the whole
+       * flow runs on the phone number — the OTP, the owner's WhatsApp, the
+       * outcome message — and an address nothing sends to was one more field
+       * between a visitor and a request.
+       *
+       * Older rows keep theirs, and the mobile app no longer has to invent
+       * one to satisfy a required field.
+       */
+      email: { type: String, default: '', trim: true, lowercase: true },
     },
 
     /* When they would like to come, as free text. Kept for the clients that

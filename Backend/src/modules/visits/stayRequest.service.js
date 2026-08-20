@@ -58,7 +58,7 @@ const mongoose = require('mongoose');
 const config = require('../../config/env');
 const VisitRequest = require('./visitRequest.model');
 const Partner = require('../partners/partner.model');
-const { claimBed, releaseBed } = require('../inventory/inventory.service');
+const { claimBed, releaseBed, bookedAtLabel } = require('../inventory/inventory.service');
 
 const { phoneKey } = Partner;
 
@@ -309,10 +309,16 @@ const createStayRequest = async ({ customer, listingId, sharing, intent, consent
      "nobody recorded a count" and "every bed is taken" are different problems
      and only one of them is about being busy. */
   if (!option.requestable) {
+    /* A taken room says WHEN it went. It shows the listing is live rather
+       than stale, and tells someone whether they missed it by an hour or a
+       month. Same wording as the website's form — one fact, one sentence. */
+    const when = option.reason === 'NO_BEDS_FREE' ? await bookedAtLabel(option.shareTypeId) : null;
     const REASONS = {
       NO_INVENTORY_RECORDED: ['INVENTORY_NOT_SET', 'We do not have live availability for this room type yet.'],
       OWNER_PAUSED: ['INVENTORY_PAUSED', 'The owner has paused this room type.'],
-      NO_BEDS_FREE: ['NO_BEDS_FREE', 'Every bed in this room type is taken right now.'],
+      NO_BEDS_FREE: ['NO_BEDS_FREE', when
+        ? `This room type was booked on ${when}.`
+        : 'This room type is fully booked.'],
     };
     const [code, message] = REASONS[option.reason] || ['INVENTORY_UNAVAILABLE', 'This room type is not available.'];
     throw new StayRequestError(code, message, 422);
@@ -375,7 +381,11 @@ const createStayRequest = async ({ customer, listingId, sharing, intent, consent
     customer: {
       name: String(customer.name).trim(),
       phone: customer.phone,
-      email: (customer.email || '').trim().toLowerCase() || `${customer.customerId}@no-email.lampose`,
+      /* Was `${customerId}@no-email.lampose` — a fabricated address written to
+         satisfy a required field. The field is optional now, so a customer
+         without an email simply has none rather than one that looks real and
+         bounces. */
+      email: (customer.email || '').trim().toLowerCase(),
     },
 
     shareTypeId: option.shareTypeId,

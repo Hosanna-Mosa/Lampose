@@ -32,6 +32,7 @@ const mongoose = require('mongoose');
 const Property = require('../properties/property.model');
 const VisitRequest = require('./visitRequest.model');
 const { sharingOptionsFor, findSharingOption } = require('../listings/sharing.util');
+const { requestableOptions, bookedAtLabel } = require('../inventory/inventory.service');
 const { validateIntent, describeIntent } = require('../listings/stayIntent.util');
 const config = require('../../config/env');
 const { needsToken, ensurePaymentLink } = require('./visitPayment.controller');
@@ -197,10 +198,74 @@ const issueOtp = async (doc) => {
 
 /* ── POST / — start a request ─────────────────────────────────────────────── */
 
+
+/**
+ * Is the room the visitor picked actually free?
+ *
+ * ## Why this is asked before the owner is ever messaged
+ *
+ * An owner whose last bed went yesterday was still being sent a WhatsApp
+ * template asking whether it was free, and the visitor was still being told to
+ * wait for an answer — an answer that could only ever be "no". That is a
+ * message an owner did not need and a wait a student should not have had.
+ *
+ * ## Silence is not zero
+ *
+ * `NO_INVENTORY_RECORDED` means nobody ever counted this property's beds, and
+ * a third of the live listings are in that state. Refusing those would break
+ * requests for properties that are perfectly available and merely unmeasured,
+ * so only a KNOWN empty pool — or an owner who paused the room — stops a
+ * request here. The unmeasured case carries on exactly as before.
+ *
+ * @returns {Promise<{free: true} | {free: false, code: string, message: string}>}
+ */
+const checkRoomIsFree = async (property, chosen) => {
+  if (!chosen || !chosen.label) return { free: true };
+
+  let options;
+  try {
+    options = await requestableOptions(property);
+  } catch (error) {
+    /* The inventory read failing is not the visitor's problem, and refusing
+       on it would turn a database hiccup into "this room is taken". */
+    console.warn('[visit-requests] Could not read inventory; letting the request through:', error.message);
+    return { free: true };
+  }
+
+  const option = options.find((o) => o.label === chosen.label);
+  if (!option) return { free: true };
+
+  if (option.reason === 'NO_BEDS_FREE') {
+    /* Naming the moment it went does two things a bare "full" cannot: it
+       shows the listing is live rather than stale, and it tells somebody
+       whether they missed it by an hour or a fortnight. */
+    const when = await bookedAtLabel(option.shareTypeId);
+    return {
+      free: false,
+      code: 'NO_BEDS_FREE',
+      bookedAt: when,
+      message: when
+        ? `${chosen.label} was booked on ${when}. Nothing has been sent to the owner — try another room type, or check back later.`
+        : `${chosen.label} is fully booked. Nothing has been sent to the owner — try another room type, or check back later.`,
+    };
+  }
+  if (option.reason === 'OWNER_PAUSED') {
+    return {
+      free: false,
+      code: 'OWNER_PAUSED',
+      message: `The owner has paused ${chosen.label} for now. Nothing has been sent to them — try another room type.`,
+    };
+  }
+  return { free: true };
+};
+
 const createVisitRequest = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
-    if (smsConfigProblem()) return smsUnavailable(res);
+    /* The SMS gateway is checked further down, once it is known whether a code
+       is going out at all. Someone already signed in needs no code, and
+       refusing them because the gateway is down would be a 503 for a
+       dependency their request never touches. */
 
     const {
       listingId, name, phone, email, sharing,
@@ -214,8 +279,12 @@ const createVisitRequest = async (req, res, next) => {
     if (!String(name || '').trim()) {
       return res.status(400).json({ success: false, code: 'BAD_NAME', message: 'Please enter your name.' });
     }
-    if (!EMAIL_RE.test(String(email || '').trim())) {
-      return res.status(400).json({ success: false, code: 'BAD_EMAIL', message: 'Please enter a valid email address.' });
+    /* Optional, and only checked when given: a visitor who typed something
+       into the box deserves to know it is malformed, but one who left it
+       alone is not being asked for it at all. */
+    const givenEmail = String(email || '').trim();
+    if (givenEmail && !EMAIL_RE.test(givenEmail)) {
+      return res.status(400).json({ success: false, code: 'BAD_EMAIL', message: 'That email address does not look right. You can leave it blank.' });
     }
 
     const customerPhone = toE164(phone);
@@ -226,6 +295,25 @@ const createVisitRequest = async (req, res, next) => {
         message: 'Please enter a valid 10-digit Indian mobile number.',
       });
     }
+
+    /*
+     * Already signed in as this number?
+     *
+     * `attachCustomerIfPresent` put the customer here if a valid session came
+     * with the request. The phone comparison is the part that matters: a
+     * session proves one number, and it must not be usable to skip the code
+     * for a different one. Mismatched, it is ignored and the form behaves
+     * exactly as it does for a stranger.
+     *
+     * This preserves the rule the whole flow is built on — the owner is
+     * contacted only after the customer's number is proven. A session IS that
+     * proof, an SMS code from the same number within the last day, and it is
+     * re-verified against the database on every request rather than trusted
+     * from the token alone.
+     */
+    const signedInAs = req.customer && req.customer.phone === customerPhone
+      ? req.customer
+      : null;
 
     /* The property is the source of truth for who gets messaged. */
     const property = OBJECT_ID.test(String(listingId))
@@ -321,6 +409,24 @@ const createVisitRequest = async (req, res, next) => {
       });
     }
 
+    /*
+     * The room, before anything else happens.
+     *
+     * Checked here so a full room costs nobody an SMS: the OTP goes out
+     * below, and sending one to start a conversation that cannot end well is
+     * a charge and an interruption for no reason.
+     */
+    const stock = await checkRoomIsFree(property, chosen);
+    if (!stock.free) {
+      return res.status(409).json({
+        success: false,
+        code: stock.code,
+        message: stock.message,
+        error: stock.message,
+        sharing: chosen.label,
+      });
+    }
+
     /* Already waiting on this exact property? Hand back the request in flight
        instead of ringing the owner a second time about it. */
     const open = await VisitRequest.findOne({
@@ -364,7 +470,7 @@ const createVisitRequest = async (req, res, next) => {
       customer: {
         name: String(name).trim(),
         phone: customerPhone,
-        email: String(email).trim(),
+        email: givenEmail,
       },
       preferredDate: preferredDate ? String(preferredDate).trim().slice(0, 60) : null,
       preferredTime: preferredTime ? String(preferredTime).trim().slice(0, 60) : null,
@@ -386,7 +492,24 @@ const createVisitRequest = async (req, res, next) => {
       consentedTermsAt: consentedTerms === true ? new Date() : null,
       requestIp: req.ip,
       status: 'otp_pending',
+      /* Stamped from the session rather than from an SMS about to be sent.
+         The status stays `otp_pending` because the step it names — telling the
+         owner — has not happened yet; `/verify` does that, and skips the code
+         check when this field is already set. */
+      phoneVerifiedAt: signedInAs ? new Date() : null,
     });
+
+    /* Signed in: no code, nothing to wait for. The site posts straight to
+       `/verify`, which sees a verified number and goes on to the owner. */
+    if (signedInAs) {
+      return res.status(201).json({
+        success: true,
+        otpRequired: false,
+        data: Object.assign(doc.toPublic(), { phoneMasked: maskPhone(customerPhone) }),
+      });
+    }
+
+    if (smsConfigProblem()) return smsUnavailable(res);
 
     const sent = await issueOtp(doc);
     if (!sent.success) {
@@ -399,6 +522,7 @@ const createVisitRequest = async (req, res, next) => {
 
     return res.status(201).json({
       success: true,
+      otpRequired: true,
       data: Object.assign(doc.toPublic(), {
         phoneMasked: maskPhone(customerPhone),
         resendInSeconds: Math.ceil(OTP_RESEND_COOLDOWN_MS / 1000),
@@ -406,6 +530,62 @@ const createVisitRequest = async (req, res, next) => {
     });
   } catch (error) {
     return next(error);
+  }
+};
+
+/* ── the browser session ───────────────────────────────────────────────────
+ *
+ * A visit request already proves a phone number with an SMS code. That is the
+ * same proof `/customers/auth/verify` demands, so rather than stand up a
+ * fourth identity system for the website, the same OTP mints the same kind of
+ * customer session the app uses — one day rather than seven.
+ *
+ * Signing in is therefore a side effect of asking for a visit, never a gate in
+ * front of it. Nothing below can fail the request: a session is a convenience
+ * that saves the NEXT request an SMS, and losing it costs one code.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Find or create the customer behind a verified request, and issue a session.
+ *
+ * Returns null rather than throwing — every caller is on a path where the
+ * visit request itself has already succeeded.
+ */
+const startWebSession = async (doc) => {
+  if (!config.auth.configured) return null;
+  try {
+    const Customer = require('../customers/customer.model');
+    const { signCustomerToken } = require('../customers/customerAuth.middleware');
+
+    let customer = await Customer.findOne({ phone: doc.customer.phone });
+    if (!customer) {
+      customer = await Customer.create({
+        customerId: `cus_${crypto.randomBytes(9).toString('hex')}`,
+        phone: doc.customer.phone,
+      });
+    }
+    /* A blocked number gets no session. The visit request it just made still
+       stands — blocking is about signing in, and unpicking a request that is
+       already on its way to an owner is not this function's business. */
+    if (customer.status === 'blocked') return null;
+
+    /* Only ever filled in, never overwritten: someone who set a name in the
+       app must not have it replaced by whatever they typed into a form on a
+       phone borrowed at a property viewing. */
+    if (!customer.name && doc.customer.name) customer.name = doc.customer.name.slice(0, 80);
+    if (!customer.email && doc.customer.email) customer.email = doc.customer.email;
+    if (!customer.phoneVerifiedAt) customer.phoneVerifiedAt = new Date();
+    customer.lastLoginAt = new Date();
+    await customer.save();
+
+    return {
+      token: signCustomerToken(customer, { expiresIn: config.auth.webJwtExpiresIn }),
+      expiresIn: config.auth.webJwtExpiresIn,
+      customer: customer.toPublic(),
+    };
+  } catch (error) {
+    console.warn('[visit-requests] Could not open a web session:', error.message);
+    return null;
   }
 };
 
@@ -431,6 +611,31 @@ const verifyVisitRequest = async (req, res, next) => {
     if (doc.status !== 'otp_pending') {
       await settleIfExpired(doc);
       return res.json({ success: true, data: doc.toPublic() });
+    }
+
+    /*
+     * A request nobody was ever sent a code for was created by a held
+     * session, and that session is the ONLY thing standing behind its
+     * number. So finishing it requires the same session.
+     *
+     * Without this, the code is no longer what protects the step: request ids
+     * are ObjectIds, which carry a timestamp and a counter and are therefore
+     * guessable enough to try, and a hit would ring an owner's phone with
+     * somebody else's half-finished request. The blast radius was small — the
+     * name and number on it are the real customer's — but "small" is not a
+     * reason to leave the door open when the check is one comparison.
+     *
+     * A request that DID get a code is untouched by this: the code is its
+     * proof, it is checked below, and demanding a session as well would break
+     * the ordinary signed-out flow entirely.
+     */
+    const codeWasSent = Boolean(doc.otp && doc.otp.lastSentAt);
+    if (!codeWasSent && (!req.customer || req.customer.phone !== doc.customer.phone)) {
+      return res.status(401).json({
+        success: false,
+        code: 'SESSION_REQUIRED',
+        message: 'Please start the request again.',
+      });
     }
 
     /* Already verified means this is a retry of the step *after* the code —
@@ -497,6 +702,37 @@ const verifyVisitRequest = async (req, res, next) => {
       console.warn('[visit-requests] Could not read the listing address:', err.message);
     }
 
+    /*
+     * Asked again, because time passed.
+     *
+     * Between the first check and this line the visitor read an SMS and typed
+     * six digits — minutes in which somebody else's request can have taken
+     * the last bed. The first check saves an SMS; this one is what actually
+     * protects the owner from being asked about a room that is gone.
+     */
+    /* Read here rather than reusing a variable from the create handler —
+       this is a separate request, minutes later, with none of that scope. */
+    const propertyNow = await Property.findById(doc.listingId).lean();
+    const stillFree = propertyNow
+      ? await checkRoomIsFree(propertyNow, doc.sharing)
+      : { free: true };
+    if (!stillFree.free) {
+      doc.status = 'declined';
+      doc.decidedAt = new Date();
+      doc.decisionReason = stillFree.code;
+      await doc.save();
+
+      return res.status(409).json({
+        success: false,
+        code: stillFree.code,
+        message: stillFree.bookedAt
+          ? `${doc.sharing.label} was booked on ${stillFree.bookedAt}, while you were confirming your number. The owner has not been contacted.`
+          : `${stillFree.message.split('.')[0]}. It went while you were confirming your number — the owner has not been contacted.`,
+        error: stillFree.code,
+        data: doc.toPublic(),
+      });
+    }
+
     const sent = await sendVisitRequestMessage({
       ownerMobile: doc.ownerMobile,
       ownerName: doc.ownerName,
@@ -530,7 +766,10 @@ const verifyVisitRequest = async (req, res, next) => {
     doc.expiresAt = new Date(Date.now() + OWNER_REPLY_WINDOW_MS);
     await doc.save();
 
-    return res.json({ success: true, data: doc.toPublic() });
+    /* The number is proven and the owner is away — so this is the moment the
+       session is worth issuing. `session` is null when auth is unconfigured
+       or the number is blocked, and the site simply stays signed out. */
+    return res.json({ success: true, data: doc.toPublic(), session: await startWebSession(doc) });
   } catch (error) {
     return next(error);
   }

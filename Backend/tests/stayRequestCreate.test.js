@@ -315,6 +315,43 @@ describe('the refusals — a row nobody can answer is never written', () => {
     await failsWith('NO_BEDS_FREE', () => send(student, property));
   });
 
+  it('and the refusal says WHEN it was booked, not just that it is full', async () => {
+    await makeOwner();
+    const student = await makeStudent();
+    const property = await makeProperty({ beds: 1 });
+    const shareTypeId = `${property._id}:2-sharing`;
+    await claimBed(shareTypeId);
+
+    /* Somebody took it yesterday, and the acceptance recorded which pool. */
+    const bookedOn = new Date(Date.UTC(2026, 7, 19, 5, 2));  // 10:32 am IST
+    await VisitRequest.create({
+      listingId: String(property._id), propertyName: property.name,
+      ownerName: 'Owner', ownerMobile: property.ownerMobile,
+      customer: { name: 'Earlier Guest', phone: '+919000099998' },
+      status: 'confirmed', decidedAt: bookedOn, shareTypeId,
+      sharing: { label: '2 Sharing', price: 6000 },
+    });
+
+    const error = await send(student, property).then(() => null, (e) => e);
+    assert.equal(error.code, 'NO_BEDS_FREE');
+    /* The date and the time, in IST — a person reads this and knows whether
+       they missed it by an hour or a month. */
+    assert.match(error.message, /booked on 19 Aug at 10:32 am/);
+  });
+
+  it('but no time is invented when nothing recorded one', async () => {
+    await makeOwner();
+    const student = await makeStudent();
+    const property = await makeProperty({ beds: 1 });
+    await claimBed(`${property._id}:2-sharing`);
+
+    /* No acceptance names this pool, so it falls back to when the count last
+       moved — which claimBed just did. Either way a real moment, never a
+       guess, and the sentence still reads as a sentence. */
+    const error = await send(student, property).then(() => null, (e) => e);
+    assert.match(error.message, /^This room type (was booked on .+|is fully booked)\.$/);
+  });
+
   it('owner paused the room type → refused', async () => {
     await makeOwner();
     const student = await makeStudent();

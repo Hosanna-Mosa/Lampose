@@ -280,6 +280,52 @@ const claimBed = async (shareTypeId) => {
 };
 
 /**
+ * When the last bed in a pool went, as a sentence fragment.
+ *
+ * Two sources, best first. An acceptance stamps `decidedAt` and names the pool
+ * it took from, so that is the real moment. Where no acceptance names this
+ * pool — an older row, or a request answered over WhatsApp before the id was
+ * recorded — the share type's own `updatedAt` is when its count last moved,
+ * which is close enough to say "booked around then" and far better than a
+ * bare "full".
+ *
+ * One collection covers both surfaces: app requests are visit requests with
+ * `channel: 'app'`, and both claim from the same pool, so whoever took the
+ * last bed is found either way.
+ *
+ * Null when neither source knows, and every caller then omits the time rather
+ * than inventing one.
+ */
+const bookedAtLabel = async (shareTypeId) => {
+  const at = await lastBookedAt(shareTypeId);
+  if (!at) return null;
+  /* IST: where the customers and the owners both are. */
+  return new Date(at).toLocaleString('en-IN', {
+    day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
+    hour12: true, timeZone: 'Asia/Kolkata',
+  }).replace(',', ' at');
+};
+
+const lastBookedAt = async (shareTypeId) => {
+  if (!shareTypeId || mongoose.connection.readyState !== 1) return null;
+  try {
+    const VisitRequest = require('../visits/visitRequest.model');
+    const taken = await VisitRequest
+      .findOne({ shareTypeId, status: 'confirmed' })
+      .sort({ decidedAt: -1 })
+      .select('decidedAt')
+      .lean();
+    if (taken && taken.decidedAt) return taken.decidedAt;
+
+    const row = await PartnerShareType.findOne({ shareTypeId }).select('updatedAt').lean();
+    return (row && row.updatedAt) || null;
+  } catch (error) {
+    console.warn('[inventory] Could not read when the last bed went:', error.message);
+    return null;
+  }
+};
+
+/**
  * Give one bed back.
  *
  * Three callers: the accept handler when it took a bed and then lost the
@@ -375,6 +421,7 @@ module.exports = {
   requestableOptions,
   findRequestableOption,
   claimBed,
+  bookedAtLabel,
   releaseBed,
   shareTypeIdForBooking,
   reconcile,

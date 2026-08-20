@@ -754,10 +754,11 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
         * entered is worse than a hotel claiming nothing.
         */}
       {isBachelor || isHotel ? null : (
-        <div className="form-group">
+        <div className="form-group" id="propertyAmenities">
           <label className="form-label" style={{ color: '#181e1b', fontWeight: 700, marginBottom: '12px' }}>
-            Key Amenities Included
+            Key Amenities Included *
           </label>
+          <FieldError message={errors.amenities} />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '8px' }}>
             {ALL_AMENITIES.map((amenity) => {
               const isChecked = selectedAmenities.includes(amenity);

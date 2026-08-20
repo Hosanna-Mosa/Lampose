@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+
 import { rupees } from './ListingCard';
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -144,6 +146,42 @@ export default function StayIntentPicker({ listing, value, onChange }) {
 
   const tracks = TRACKS.filter(t => rates[t.id]?.available);
   const units = value.stayType === 'short' ? durations.shortDays : durations.longMonths;
+
+  /*
+   * ── One option is not a choice, so it is the answer ─────────────────────
+   *
+   * A listing that offers a single room type, a single stay track or a single
+   * duration was rendering that option unselected and keeping the button
+   * disabled — with a hint telling the visitor to pick the only thing on
+   * screen. There was nothing else to pick instead.
+   *
+   * Runs for each control independently, because choosing a track reveals the
+   * durations for it: a property with one track and one duration answers both
+   * in two passes rather than needing a special case for the pair.
+   *
+   * This is not the same as pre-selecting a default among alternatives, which
+   * would be deciding a price on somebody's behalf. Where alternatives exist,
+   * nothing is touched.
+   */
+  useEffect(() => {
+    const patch = {};
+
+    if (sharingOptions.length === 1 && !value.sharing) {
+      patch.sharing = sharingOptions[0];
+    }
+    if (!nightly && !simple && tracks.length === 1 && !value.stayType) {
+      patch.stayType = tracks[0].id;
+      patch.durationUnit = tracks[0].id === 'short' ? 'days' : 'months';
+    }
+    /* Only once the track is settled — `units` is read from it. */
+    if (!nightly && !simple && value.stayType && Array.isArray(units)
+      && units.length === 1 && !value.duration) {
+      patch.duration = units[0];
+    }
+
+    if (Object.keys(patch).length) onChange({ ...value, ...patch });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharingOptions, tracks.length, units, value.stayType, value.sharing, value.duration]);
   const unitWord = value.stayType === 'short' ? 'day' : 'month';
 
   return (
