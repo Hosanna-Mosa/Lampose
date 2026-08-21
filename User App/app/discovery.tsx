@@ -126,7 +126,7 @@ export default function DiscoveryPreview() {
     );
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader
         title="Discovery"
@@ -137,7 +137,7 @@ export default function DiscoveryPreview() {
       <ScrollView
         contentContainerStyle={{
           paddingTop: space[4],
-          paddingBottom: insets.bottom + space[8],
+          paddingBottom: space[8],
           gap: space[6],
         }}
       >

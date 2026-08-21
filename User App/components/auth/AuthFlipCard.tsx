@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import React, { useEffect } from 'react';
+import { StyleSheet, View } from 'react-native';
 import Animated, { interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 
@@ -31,14 +31,39 @@ export type AuthFlipCardProps = {
  * crossfading inside it. So `elevation.float` and the fill live on each face,
  * and it is the face — not an outer shell — that carries the `rotateY`.
  *
- * ## Sizing without an animated height
+ * ## The visible face carries the height. It is not measured.
  *
- * The two faces hold a different number of fields, but height may not
- * animate (motion rules: transform and opacity only). Both faces are always
- * mounted — the hidden one just has zero opacity and, in the non-reduced
- * path, its back turned to the viewer — so both report their natural height
- * on mount via `onLayout`, and the stack is sized once to the taller of the
- * two. Nothing about the flip itself ever touches height.
+ * This used to mount both faces absolutely and size the stack to the taller of
+ * two `onLayout` measurements, so that height never changed across a flip —
+ * the motion rules allow transform and opacity only.
+ *
+ * That was wrong in a way that made the screen unusable, and the mechanism is
+ * worth keeping written down. An absolutely-positioned child contributes NO
+ * height to its parent. So with both faces absolute, the stack's height — and
+ * therefore the SCROLL EXTENT of the form around it — was whatever that
+ * measurement happened to say, rather than how tall the card actually was. Any
+ * content that grew after the first layout pass put the rest of the card
+ * outside the scrollable area: not clipped-but-reachable, genuinely
+ * unreachable, because the scroller did not believe there was anything there.
+ * And `borderRadius` on the face makes Android clip the spill rather than let
+ * it overhang, so it vanished instead of merely overflowing.
+ *
+ * Three things grow a face after its first measure, and this form has all
+ * three: text re-wrapping once the webfont replaces the fallback, a validation
+ * error appearing under a field, and the optional-field helpers. Sign-up lost
+ * its bottom — the legal line and "Already have an account?" — and sign-in lost
+ * its top.
+ *
+ * Now the ACTIVE face is in normal flow and only the hidden one is absolute, so
+ * the stack is exactly as tall as what you can see, always, with nothing
+ * measured and no state to go stale.
+ *
+ * The cost is that height changes when the card flips. That is a real trade
+ * against the rule above, and it is the right way round: the rule forbids
+ * ANIMATING height, and this does not animate it — it changes once, on the
+ * frame the flip starts, while the card is already turning and the eye is on
+ * the rotation. A form you cannot scroll to is not a defensible price for a
+ * smoother transition between two faces of it.
  */
 export function AuthFlipCard({ flipped, front, back, frontLabel, backLabel }: AuthFlipCardProps) {
   const { colors, space, radius, elevation } = useTheme();
@@ -53,13 +78,6 @@ export function AuthFlipCard({ flipped, front, back, frontLabel, backLabel }: Au
       easing: spec.easing,
     });
   }, [flipped, reduceMotion, progress, spec.duration, spec.reducedDuration, spec.easing]);
-
-  const [frontHeight, setFrontHeight] = useState(0);
-  const [backHeight, setBackHeight] = useState(0);
-  const stackHeight = Math.max(frontHeight, backHeight) || undefined;
-
-  const onFrontLayout = (event: LayoutChangeEvent) => setFrontHeight(event.nativeEvent.layout.height);
-  const onBackLayout = (event: LayoutChangeEvent) => setBackHeight(event.nativeEvent.layout.height);
 
   const frontStyle = useAnimatedStyle(() => {
     if (reduceMotion) return { opacity: 1 - progress.value };
@@ -98,25 +116,36 @@ export function AuthFlipCard({ flipped, front, back, frontLabel, backLabel }: Au
         </Svg>
       </View>
 
-      <View style={[styles.stack, { height: stackHeight }]}>
+      {/* Exactly one of these is in flow at a time — the one you can see. The
+          other is absolute and contributes no height, which is what keeps the
+          stack honest about how tall the card is. */}
+      <View style={styles.stack}>
         <Animated.View
-          onLayout={onFrontLayout}
           pointerEvents={flipped ? 'none' : 'auto'}
           accessibilityElementsHidden={flipped}
           importantForAccessibility={flipped ? 'no-hide-descendants' : 'auto'}
           accessibilityLabel={frontLabel}
-          style={[styles.face, faceBase, elevation.float, frontStyle]}
+          style={[
+            flipped ? styles.faceHidden : styles.faceLive,
+            faceBase,
+            elevation.float,
+            frontStyle,
+          ]}
         >
           {front}
         </Animated.View>
 
         <Animated.View
-          onLayout={onBackLayout}
           pointerEvents={flipped ? 'auto' : 'none'}
           accessibilityElementsHidden={!flipped}
           importantForAccessibility={!flipped ? 'no-hide-descendants' : 'auto'}
           accessibilityLabel={backLabel}
-          style={[styles.face, faceBase, elevation.float, backStyle]}
+          style={[
+            flipped ? styles.faceLive : styles.faceHidden,
+            faceBase,
+            elevation.float,
+            backStyle,
+          ]}
         >
           {back}
         </Animated.View>
@@ -136,7 +165,10 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   stack: { width: '100%', maxWidth: 360 },
-  face: {
+  /** In flow: this face is what the stack — and the scroller — measures. */
+  faceLive: { backfaceVisibility: 'hidden' },
+  /** Out of flow, pinned over the live one, contributing no height. */
+  faceHidden: {
     position: 'absolute',
     left: 0,
     right: 0,

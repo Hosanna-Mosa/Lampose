@@ -158,7 +158,22 @@ export default function Booked() {
   };
 
   return (
-    <View style={styles.flex}>
+    /*
+     * The bottom inset lives on the SCREEN, not on the scroll content.
+     *
+     * Content padding only guarantees the LAST item clears the navigation bar.
+     * The viewport still runs underneath it, so on an edge-to-edge Android
+     * build everything above the end visibly slides under the gesture bar as
+     * you scroll — which is what this screen was reported for: a paragraph
+     * half-disappearing into the system navigation.
+     *
+     * Padding the root ends the viewport ABOVE the bar instead and leaves a
+     * band of `bg` behind it, so nothing ever passes underneath. It is the
+     * same thing the tab bar does on the screens that have one — it paints an
+     * opaque surface across that band — done with the page's own ground on a
+     * screen that has no bottom chrome of its own.
+     */
+    <View style={[styles.flex, { backgroundColor: colors.bg, paddingBottom: insets.bottom }]}>
       <StatusBar style="auto" />
       {/* No back arrow. Back would be the wait, which no longer exists. */}
       <StandardHeader title="Confirmed" subtitle={listing.name} />
@@ -168,7 +183,7 @@ export default function Booked() {
         contentContainerStyle={{
           paddingHorizontal: layout.gutter,
           paddingTop: space[5],
-          paddingBottom: insets.bottom + space[6],
+          paddingBottom: space[8],
           gap: space[6],
         }}
       >

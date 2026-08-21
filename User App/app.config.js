@@ -24,12 +24,27 @@ const adaptiveIconPath = path.join(__dirname, 'assets/images/adaptive-icon.png')
 const adaptiveIcon = fs.existsSync(adaptiveIconPath) ? './assets/images/adaptive-icon.png' : undefined;
 
 /**
- * Brand colours — keep in sync with `constants/tokens.ts`.
+ * Brand colours for the NATIVE chrome — keep in sync with `constants/tokens.ts`.
+ *
+ * These are the only colours in the app that JavaScript never gets to set: the
+ * launch screen, the adaptive icon's plate and the notification tint are all
+ * baked at build time by the OS. Nothing here can read `useTheme()`, so it has
+ * to be copied, and copies rot — these were still the ORIGINAL purple brand
+ * (#4B2BE0 on navy) two repaints after the app stopped using it, which meant
+ * every cold start opened on a navy launch screen and handed over to a green
+ * one, and every push notification arrived tinted purple.
+ *
+ * GROUND rather than INK for the launch background, so the hand-off to the
+ * first React screen is invisible: the splash and `colors.bg` are now the same
+ * value. The old dark background was a visible flash against a light app.
+ *
+ * ACCENT is the notification tint — the one place the colour is seen outside
+ * the app entirely, in the shade next to other apps' icons.
  */
 const BRAND = {
-  ink: '#0b1724',
-  accent: '#4B2BE0',
-  background: '#0b1724',
+  ink: '#1A1917',
+  accent: '#0E6E5C',
+  background: '#EFEDE9',
 };
 
 export default {
@@ -86,6 +101,9 @@ export default {
       'expo-router',
       'expo-font',
       'expo-web-browser',
+      /* The OS date dialog behind `DateField`. A config plugin rather than an
+         autolinked module: it needs a compileSdk bump on Android. */
+      '@react-native-community/datetimepicker',
       [
         'expo-notifications',
         {

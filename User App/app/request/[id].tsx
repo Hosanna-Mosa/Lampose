@@ -78,7 +78,7 @@ export default function RequestFlow() {
 
   if (!listing || !quote) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <StateTemplate
           copy={errorStates.notFound()}
@@ -119,7 +119,7 @@ export default function RequestFlow() {
       <ScrollView
         contentContainerStyle={{
           padding: layout.gutter,
-          paddingBottom: insets.bottom + space[8],
+          paddingBottom: space[8],
           gap: space[5],
         }}
         keyboardShouldPersistTaps="handled"

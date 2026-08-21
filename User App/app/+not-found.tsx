@@ -1,19 +1,41 @@
-import { Link, Stack } from 'expo-router';
+import { Link, Stack, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Text } from '@/components/ui';
+import { StandardHeader } from '@/components/shell';
 import { useTheme } from '@/context/ThemeContext';
 
 export default function NotFoundScreen() {
   const { colors, space, radius, touch, layout } = useTheme();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   return (
     <>
       <Stack.Screen options={{ title: 'Not found' }} />
+      {/*
+        Back, but only when there is a back to offer.
+
+        A 404 is reached two ways and they need different exits: from inside
+        the app, where the previous screen is real and returning to it is the
+        cheapest recovery; and from a cold deep link, where nothing is behind
+        this and an arrow would be a dead control. "Go to home" below covers
+        the second case and stays regardless.
+      */}
+      <StandardHeader
+        title=""
+        onBack={router.canGoBack() ? () => router.back() : undefined}
+      />
       <View
         style={[
           styles.container,
-          { backgroundColor: colors.bg, padding: layout.gutter, gap: space[4] },
+          {
+            backgroundColor: colors.bg,
+            padding: layout.gutter,
+            paddingBottom: insets.bottom + layout.gutter,
+            gap: space[4],
+          },
         ]}
       >
         <View style={{ gap: space[2], alignItems: 'center' }}>
@@ -36,8 +58,8 @@ export default function NotFoundScreen() {
               },
             ]}
           >
-            {/* `onBrand`, not white. White on #22A355 is 2.8:1 — this is the
-                only primary action on the screen and it was the one failing. */}
+            {/* `onBrand`, not white. The token flips per mode — white on the light-mode
+                accent, near-black on the lightened dark-mode one. */}
             <Text variant="bodyStrong" style={{ color: colors.onBrand }}>
               Go to home
             </Text>

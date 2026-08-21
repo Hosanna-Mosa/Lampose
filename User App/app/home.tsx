@@ -98,15 +98,15 @@ const APP_ENV_OPTIONS: readonly { id: AppEnv; label: string; note: string }[] = 
 
 /**
  * The Food pivot: Profile leaves the bar and Food takes its slot, raised and
- * in the red set so it reads as a door to another module rather than a fourth
- * peer screen. Profile is now the person icon in the header — the same
+ * in the caution set so it reads as a door to another module rather than a
+ * fourth peer screen. Profile is now the person icon in the header — the same
  * demotion Alerts went through when Saved was promoted here.
  */
 const TABS: readonly TabItem[] = [
   { id: 'explore', label: 'Home', icon: 'home' },
   { id: 'saved', label: 'Saved', icon: 'bookmark' },
   { id: 'bookings', label: 'Bookings', icon: 'calendar' },
-  { id: 'food', label: 'Food', icon: 'food', raised: true, tone: 'danger' },
+  { id: 'food', label: 'Food', icon: 'food', raised: true, tone: 'caution' },
 ];
 
 /**
@@ -117,7 +117,7 @@ const TABS: readonly TabItem[] = [
  * while you read a mess menu. In their place the SAME bar, in the same
  * position, carries the module's own three screens, and the fourth slot keeps
  * the raised disc: the button you pressed to get in is the button you press to
- * get out, wearing the stay side's brand instead of the module's red.
+ * get out, wearing the stay side's accent instead of the module's orange.
  *
  * The disc takes a map pin rather than Explore's magnifier, because Food has a
  * Search of its own two slots to the left and one bar cannot carry two

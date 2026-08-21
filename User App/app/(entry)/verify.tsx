@@ -168,7 +168,23 @@ export default function VerifyScreen() {
         : undefined);
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    /*
+     * The bottom safe-area band is owned by the SCREEN ROOT, matching every
+     * other screen in the app.
+     *
+     * It sat in the scroll content until now — first as `contentContainerStyle`
+     * padding, then as a spacer `<View>` once it turned out a keyboard-aware
+     * scroller manages its own content-container inset and can overwrite that
+     * padding. Both only ever guaranteed the LAST element cleared the
+     * navigation bar; the viewport still ran underneath it, so mid-scroll the
+     * form visibly slid under the gesture bar.
+     *
+     * On the root it ends the viewport above the bar instead. It also puts this
+     * padding somewhere the keyboard-aware scroller cannot reach at all — it is
+     * a property of the parent View, not of the scroll content — which is what
+     * the spacer was working around.
+     */
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       {/* Back is the number field, which is exactly where somebody who
           mistyped it needs to go. */}
@@ -179,7 +195,6 @@ export default function VerifyScreen() {
           paddingHorizontal: layout.gutter,
           /* Matches `auth.tsx` — the screen before this one. */
           paddingTop: space[4],
-          paddingBottom: insets.bottom + space[8],
           gap: space[5],
         }}
       >

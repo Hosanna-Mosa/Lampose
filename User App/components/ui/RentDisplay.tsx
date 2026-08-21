@@ -201,7 +201,7 @@ export function RentDisplay({
           </Text>
         ) : (
           // Never bold, never priced-coloured, and always carrying the dotted
-          // amber underline — refundable money has to read differently from
+          // caution underline — refundable money has to read differently from
           // money that is gone.
           <View style={styles.depositRow}>
             <Text

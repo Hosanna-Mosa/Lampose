@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
@@ -34,6 +35,7 @@ const UPI_APPS: readonly Method[] = [
  */
 export default function PaymentScreen() {
   const { colors, space, layout, radius, mode } = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const {
     kitchenId,
@@ -60,7 +62,7 @@ export default function PaymentScreen() {
 
   if (!kitchen || count === 0) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <StandardHeader title="Payment" onBack={() => router.back()} />
         <FoodEmptyState

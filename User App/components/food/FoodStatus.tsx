@@ -29,7 +29,7 @@ type StatusDescriptor = {
  * twenty-minute hold behind it.
  *
  * Colour is the second signal in all eleven. Each carries a glyph and a word,
- * so a student who cannot separate the green from the amber still knows
+ * so a student who cannot separate the confirm colour from the caution one still knows
  * whether the kitchen has started.
  */
 const STATUS: Record<FoodOrderStatus, StatusDescriptor> = {

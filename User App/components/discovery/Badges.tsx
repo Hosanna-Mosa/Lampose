@@ -196,7 +196,7 @@ export function GenderBadge({ gender, matchesUser = true, onPhoto = false, compa
 
   const meta = genderMeta[gender];
 
-  const background = onPhoto ? 'rgba(16,21,28,0.72)' : colors.graphite;
+  const background = onPhoto ? 'rgba(26,25,23,0.72)' : colors.graphite;
   const ink = colors.onGraphite;
 
   return (

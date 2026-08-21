@@ -579,6 +579,11 @@ const acceptAndBook = async (requestId, partner) => {
 
     booking = await PartnerBooking.create({
       partnerPhoneDigits: partner.phoneDigits || phoneKey(partner.phone),
+      /* The student's side of the link. Set here because this is the one place
+         a booking is created from a request, so it is the one place the
+         customer is actually known. */
+      customerId: request.customerId || null,
+      requestId: String(request._id),
       propertyId: request.listingId,
       propertyName: request.propertyName,
       guestName: (request.customer && request.customer.name) || '',

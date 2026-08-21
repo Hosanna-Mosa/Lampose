@@ -100,7 +100,7 @@ export default function TicketThread() {
    */
   if (error?.status === 404) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <StateTemplate copy={errorStates.notFound()} onPrimary={() => router.replace('/support')} />
       </View>
@@ -162,7 +162,7 @@ export default function TicketThread() {
         style={{
           paddingHorizontal: layout.gutter,
           paddingTop: layout.gutter,
-          paddingBottom: insets.bottom + layout.gutter,
+          paddingBottom: layout.gutter,
           gap: space[2],
           borderTopColor: colors.borderSubtle,
           borderTopWidth: StyleSheet.hairlineWidth,

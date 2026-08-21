@@ -18,7 +18,7 @@ import { formatRemaining } from '@/hooks/useCountdown';
  * WaitLoader
  * ------------------------------------------------------------------ */
 
-/** Under this many seconds the remaining stub goes amber. */
+/** Under this many seconds the remaining stub takes the caution colour. */
 const URGENT_AT_SECONDS = 30;
 
 export type WaitLoaderProps = {
@@ -37,7 +37,7 @@ export type WaitLoaderProps = {
  * because nothing is being computed. Something is being waited on, and the
  * honest picture of that is a quantity running out.
  *
- * Under thirty seconds the remaining stub turns amber. Only the stub, not the
+ * Under thirty seconds the remaining stub turns caution-orange. Only the stub, not the
  * whole bar, so what changes colour is the thing that is nearly gone. It never
  * turns red: nothing has gone wrong, no money has moved, and a red bar on a
  * student's phone tells a parent looking over their shoulder otherwise.

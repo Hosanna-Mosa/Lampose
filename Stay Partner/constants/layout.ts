@@ -51,14 +51,14 @@ export const layout = {
 /** Card elevation, matching the design system's two-layer shadow. */
 export const shadow = {
   card: {
-    shadowColor: '#141210',
+    shadowColor: '#1A1917',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.06,
     shadowRadius: 12,
     elevation: 2,
   },
   sheet: {
-    shadowColor: '#141210',
+    shadowColor: '#1A1917',
     shadowOffset: { width: 0, height: -8 },
     shadowOpacity: 0.15,
     shadowRadius: 30,

@@ -272,7 +272,7 @@ const styles = StyleSheet.create({
     width: THUMB,
     height: THUMB,
     borderWidth: 2,
-    shadowColor: '#10151C',
+    shadowColor: '#1A1917',
     shadowOpacity: 0.18,
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 1 },

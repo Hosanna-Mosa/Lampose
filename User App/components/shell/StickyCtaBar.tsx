@@ -50,7 +50,7 @@ export type StickyCtaBarProps = {
  *
  * Rent and deposit sit to the left of the button so the thumb passes over both
  * numbers on its way to the tap. They are never collapsed into a single total:
- * they are different kinds of money, and the deposit keeps its dotted amber
+ * they are different kinds of money, and the deposit keeps its dotted caution
  * underline to say so.
  */
 export function StickyCtaBar({

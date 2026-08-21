@@ -107,7 +107,8 @@ export function SavedRow({ entry, onPress, onRemove }: SavedRowProps) {
               {delta < 0 ? '−' : '+'}
               {formatRupees(Math.abs(delta))}
             </Text>
-            {/* Batch 12: a drop was green and a rise was amber, and nothing
+            {/* Batch 12: a drop took the confirm colour and a rise the caution
+                one, and nothing
                 else differed. The sign and the word carry it now — the colour
                 only reinforces. */}
             <Text variant="numMeta" color="tertiary">

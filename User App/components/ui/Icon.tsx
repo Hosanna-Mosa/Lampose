@@ -45,6 +45,8 @@ import {
   Wifi,
   X,
   type LucideProps,
+  Moon,
+  Sun,
 } from 'lucide-react-native';
 
 import { useTheme } from '@/context/ThemeContext';
@@ -270,6 +272,13 @@ const LUCIDE_GLYPHS = {
   expired: Ban,
   rupee: IndianRupee,
   agreement: FileText,
+
+  /* The appearance toggle in the Explore header. The glyph names the mode you
+     are switching TO, not the one you are in — a sun on a dark screen means
+     "tap for light", which is the only reading that makes a one-tap control
+     predictable. */
+  sun: Sun,
+  moon: Moon,
 } as const satisfies Record<string, React.ComponentType<LucideProps>>;
 
 export type IconName = keyof typeof LUCIDE_GLYPHS | keyof typeof CUSTOM_GLYPHS;

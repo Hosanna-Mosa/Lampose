@@ -106,8 +106,8 @@ export default function AuthScreen() {
      time. It used to be the literal string '9:41'. */
   const failure = sendFailure
     ? sendFailureCopy(sendFailure, {
-        retryAfterLabel: resendIn > 0 ? `${resendIn} seconds` : 'a few minutes',
-      })
+      retryAfterLabel: resendIn > 0 ? `${resendIn} seconds` : 'a few minutes',
+    })
     : null;
 
   // Every failure names whose fault it is. The body is the server's own
@@ -243,7 +243,23 @@ export default function AuthScreen() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    /*
+     * The bottom safe-area band is owned by the SCREEN ROOT, matching every
+     * other screen in the app.
+     *
+     * It sat in the scroll content until now — first as `contentContainerStyle`
+     * padding, then as a spacer `<View>` once it turned out a keyboard-aware
+     * scroller manages its own content-container inset and can overwrite that
+     * padding. Both only ever guaranteed the LAST element cleared the
+     * navigation bar; the viewport still ran underneath it, so mid-scroll the
+     * form visibly slid under the gesture bar.
+     *
+     * On the root it ends the viewport above the bar instead. It also puts this
+     * padding somewhere the keyboard-aware scroller cannot reach at all — it is
+     * a property of the parent View, not of the scroll content — which is what
+     * the spacer was working around.
+     */
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
       <StatusBar style={themeMode === 'dark' ? 'light' : 'dark'} />
 
       {/* No opaque header bar here — the flip card is meant to float on the
@@ -263,15 +279,32 @@ export default function AuthScreen() {
         ) : null}
       </View>
 
+      {/*
+        The safe-area inset is NOT repeated here — the screen root above owns
+        it, which is what bounds the viewport above the navigation bar. This
+        spacer is now only breathing room under the card, so the "Sign in" link
+        does not sit flush against the end of the scroll.
+
+        It carried `Math.max(insets.bottom, 36) + space[8]` for a while, which
+        both cleared the bar AND floored the clearance at 36 in case the
+        platform under-reported the inset. Once the root took the inset that
+        floor was being added on top of it — roughly 76pt of dead space below
+        the card on a device that reports a normal inset. If the floor turns
+        out to be load-bearing on real hardware it belongs on the root, and in
+        one shared place rather than on this screen alone.
+
+        `justifyContent: 'center'` stays omitted from `contentContainerStyle`:
+        the sign-up face is taller than a short phone, and top-aligning is the
+        arrangement that cannot tuck it under either bar.
+      */}
       <KeyboardAwareScrollViewCompat
         contentContainerStyle={{
           paddingHorizontal: layout.gutter,
-          paddingBottom: insets.bottom + space[8],
-          flexGrow: 1,
-          justifyContent: 'center',
+          paddingTop: space[4],
         }}
       >
         <AuthFlipCard flipped={signingUp} front={frontFace} back={backFace} frontLabel="Sign in" backLabel="Sign up" />
+        <View pointerEvents="none" style={{ height: space[8] }} />
       </KeyboardAwareScrollViewCompat>
     </View>
   );

@@ -32,8 +32,18 @@ export type TabItem = {
    * a module door matters most when it is NOT the active tab.
    */
   raised?: boolean;
-  /** Palette of the raised disc. The Food module ships in the red set. */
-  tone?: 'brand' | 'danger';
+  /**
+   * Palette of the raised disc. The Food module ships in the caution set.
+   *
+   * It was the DANGER set until the Dock repaint, and that was always a borrow
+   * rather than a choice — the old palette simply had no third colour to spend.
+   * It is untenable now: Dock's danger is a true red at #B3261E, and painting
+   * the door to a module in the one colour reserved for a failed payment and a
+   * cancelled booking teaches the wrong thing about red. Caution's burnt orange
+   * is a real role in this palette, reads warm next to food, and is nowhere
+   * near the accent teal it has to be told apart from.
+   */
+  tone?: 'brand' | 'caution';
 };
 
 export type TabBarProps = {
@@ -498,9 +508,9 @@ function TabButton({
   /* The raised disc is a solid fill, so its glyph takes the `on` ink of its
      tone — never white by assumption; both flip between modes. The active
      label follows the same tone so the door and its name agree. */
-  const discBg = tab.tone === 'danger' ? colors.danger.base : colors.brand;
-  const discInk = tab.tone === 'danger' ? colors.danger.on : colors.onBrand;
-  const activeInk = tab.tone === 'danger' ? colors.danger.ink : colors.brandInk;
+  const discBg = tab.tone === 'caution' ? colors.warning.base : colors.brand;
+  const discInk = tab.tone === 'caution' ? colors.warning.on : colors.onBrand;
+  const activeInk = tab.tone === 'caution' ? colors.warning.ink : colors.brandInk;
 
   return (
     <Pressable
@@ -530,7 +540,7 @@ function TabButton({
                 is exempt from it for the reason the accessibility pass allows:
                 the same count is stated in words on the Alerts row in Profile,
                 so nothing is only available here. */}
-            <Text variant="numMeta" style={{ color: colors.onBrand, fontSize: 10, lineHeight: 12 }}>
+            <Text variant="numMeta" style={{ color: colors.danger.on, fontSize: 10, lineHeight: 12 }}>
               {badgeLabel}
             </Text>
           </View>

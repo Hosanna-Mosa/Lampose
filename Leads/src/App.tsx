@@ -121,7 +121,7 @@ function MainAppContent() {
           )}
 
           {activeTab === 'users' && isAdmin && (
-            <UserManagementPage usersList={usersList} onUserCreated={fetchUsers} />
+            <UserManagementPage usersList={usersList} onUserCreated={fetchUsers} currentUserId={user.userId} />
           )}
         </main>
       </div>

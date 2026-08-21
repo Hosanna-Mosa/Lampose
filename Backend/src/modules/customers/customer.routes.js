@@ -30,6 +30,7 @@ const { getSaved, addSaved, removeSaved } = require('./saved.controller');
 const {
   createRequest, getRequest, listRequests, withdrawRequest, confirmMovedIn,
 } = require('../visits/stayRequest.controller');
+const { listBookings, getBooking } = require('./customerBooking.controller');
 const {
   registerCustomerDevice, unregisterCustomerDevice,
 } = require('../notifications/device.controller');
@@ -146,6 +147,14 @@ router.post(
   '/stay-requests/:id/moved-in',
   requireLamposeDb, requireCustomer, confirmMovedIn,
 );
+
+/* ── The student's own bookings ──────────────────────────────────────────
+   Read-only, and the customer half of a row the owner writes. Everything the
+   owner does after confirming — room assignment, check-in, check-out,
+   cancellation — reaches the student through here; before this existed it
+   reached nobody. See `customerBooking.controller.js`. */
+router.get('/bookings', requireLamposeDb, requireCustomer, listBookings);
+router.get('/bookings/:id', requireLamposeDb, requireCustomer, getBooking);
 
 /* ── This device ─────────────────────────────────────────────────────────
    Where to reach them when the app is closed, which is the case the whole

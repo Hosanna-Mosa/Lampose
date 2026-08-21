@@ -27,9 +27,18 @@ const adaptiveIcon = fs.existsSync(adaptiveIconPath) ? './assets/images/adaptive
  * Brand colours — keep in sync with partner theme tokens.
  */
 const BRAND = {
-  ink: '#0F291E',
-  accent: '#14492F',
-  background: '#14492F',
+  ink: '#1A1917',
+  accent: '#0E6E5C',
+  /*
+   * GROUND, not the accent.
+   *
+   * The launch screen used to be a full-bleed dark green, which meant every
+   * cold start opened on a saturated field and then cut to a light app one
+   * frame later. Matching `bg` in `constants/colors.ts` makes that hand-off
+   * invisible. Nothing here can read the palette at runtime — the OS bakes
+   * these at build time — so it is a copy, and it has to be kept in step.
+   */
+  background: '#EFEDE9',
 };
 
 export default {

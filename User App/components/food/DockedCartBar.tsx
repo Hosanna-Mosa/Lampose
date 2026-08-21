@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
@@ -31,11 +32,18 @@ export type DockedCartBarProps = {
  */
 export function DockedCartBar({ count, total, context, label = 'View cart', onPress, onMeasure }: DockedCartBarProps) {
   const { colors, space, layout, radius } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const measure = (event: LayoutChangeEvent) => onMeasure?.(event.nativeEvent.layout.height);
 
   return (
-    <View onLayout={measure} style={{ paddingHorizontal: layout.gutter, paddingBottom: space[2] }}>
+    /* The safe-area inset belongs on the BAR, not on the screens that show it.
+       This is the last thing above the gesture bar on a phone drawing
+       edge-to-edge, so without it the tappable row sits underneath the system
+       navigation. Adding it here also keeps the measured height honest: every
+       screen sizes its scroll padding from `onMeasure`, so they all clear the
+       navigation bar without any of them knowing it exists. */
+    <View onLayout={measure} style={{ paddingHorizontal: layout.gutter, paddingBottom: insets.bottom + space[2] }}>
       <Pressable
         onPress={onPress}
         accessibilityRole="button"

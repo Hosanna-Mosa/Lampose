@@ -4,6 +4,30 @@ const mongoose = require('mongoose');
 const partnerBookingSchema = new mongoose.Schema(
   {
     partnerPhoneDigits: { type: String, required: true, index: true },
+
+    /*
+     * Who this booking belongs to on the CUSTOMER side.
+     *
+     * The row was owner-scoped only — `partnerPhoneDigits` and a `guestPhone`
+     * string — which meant the student it is about had no way to read their own
+     * booking. Everything the owner does after confirmation (check in, check
+     * out, cancel) landed here and stopped, so the customer app could only ever
+     * show them a request that had gone quiet.
+     *
+     * `customerId`, not the phone, for the reason `stayRequest.service.js`
+     * already gives about withdrawals: a phone is a string anybody can send,
+     * and it changes. `guestPhone` stays as the human-readable contact and as
+     * the only join available for a booking an owner keyed in by hand.
+     *
+     * Null on `source: 'manual'` bookings — an owner adding a walk-in has no
+     * customer account to point at, and that is a real state rather than
+     * missing data.
+     */
+    customerId: { type: String, default: null, index: true },
+    /* The `VisitRequest` this came from, when it came from one. Lets either
+       side walk between the request and the booking without a phone match. */
+    requestId: { type: String, default: null, index: true },
+
     propertyId: { type: String, required: true, index: true },
     propertyName: { type: String, required: true },
     guestName: { type: String, required: true },

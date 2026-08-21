@@ -120,7 +120,25 @@ export function Screen({
   const insets = useSafeAreaInsets();
 
   const bg = background === 'bg' ? c.bg : c.surface;
-  const bottomPad = tabBarSpacing ? layout.tabBarHeight + insets.bottom + 16 : insets.bottom + 24;
+  /*
+   * Who owns the band over the system navigation bar.
+   *
+   * Android draws edge-to-edge, so the navigation bar is transparent and the
+   * app paints behind it. Padding the scroll CONTENT only guarantees the last
+   * row clears the bar — the viewport still runs underneath, so everything
+   * above the end visibly slides under the gesture bar while you scroll.
+   *
+   * So exactly one thing pads for it, and which one depends on what is pinned
+   * to the bottom:
+   *   footer        the footer does. It is opaque and sits over that band.
+   *   tabBarSpacing the tab navigator's bar does, and it OVERLAYS the screen —
+   *                 hence the room reserved in the scroll rather than a bound.
+   *   neither       the screen root does, which ends the viewport above the
+   *                 bar and leaves a band of `bg` behind it. Nothing can be
+   *                 painted there at any scroll position.
+   */
+  const rootBottomInset = footer || tabBarSpacing ? 0 : insets.bottom;
+  const bottomPad = tabBarSpacing ? layout.tabBarHeight + insets.bottom + 16 : 24;
 
   /**
    * A non-scrolling screen fills the space it's given. Without this the wrapper
@@ -145,7 +163,7 @@ export function Screen({
   const pinned = Boolean(header || stickyHeader);
 
   return (
-    <View style={[styles.flex, { backgroundColor: bg }]}>
+    <View style={[styles.flex, { backgroundColor: bg, paddingBottom: rootBottomInset }]}>
       {header}
 
       {stickyHeader ? (

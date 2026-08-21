@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
 import { ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
@@ -27,6 +28,7 @@ import { usePreviewControls } from '@/hooks/useAppEnv';
 export default function DepositRefund() {
   const previewControls = usePreviewControls();
   const { colors, space, layout, mode } = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
 
   /** Dev-only, so the four stages and the bounce are all reachable. */
@@ -36,7 +38,7 @@ export default function DepositRefund() {
   const refund: RefundState = { ...refundInProgress, stage, failed };
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader
         title="Your deposit"

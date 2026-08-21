@@ -2,6 +2,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import { ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
@@ -25,13 +26,14 @@ import { useTheme } from '@/context/ThemeContext';
  */
 export default function VisitConfirmed() {
   const { colors, space, layout, mode } = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const listing = id ? findListing(id) : undefined;
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader
         title="Visit confirmed"

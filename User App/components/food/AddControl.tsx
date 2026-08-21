@@ -25,7 +25,7 @@ export type AddControlProps = {
  * point: a menu where adding an item makes its row reflow throws every other
  * row down the screen mid-tap, and the second tap lands on the wrong dish.
  *
- * The filled state is `graphite`, not the brand green — green in this app is
+ * The filled state is `graphite`, not the accent — the accent in this app is
  * reserved for confirmed outcomes, and having one item in a cart is not one.
  */
 export function AddControl({

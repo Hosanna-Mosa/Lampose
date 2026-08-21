@@ -208,6 +208,41 @@ const notifyStudentDeclined = async (request) => {
   });
 };
 
+/**
+ * The owner cancelled a booking that was already confirmed.
+ *
+ * The one owner action after confirmation that a student cannot afford to
+ * discover by opening the app. Everything else the owner does later — a room
+ * number, a check-in, a check-out — either happens while the student is
+ * standing there or does not change their plans. A cancellation does: they
+ * have a move-in date, possibly a train booked, and the bed is gone.
+ *
+ * Takes the BOOKING rather than the request, because by this point the booking
+ * is the record that is still moving; the request has been terminal since it
+ * was accepted. It is keyed on `customerId`, which is why that field had to
+ * exist on the booking at all.
+ */
+const notifyStudentBookingCancelled = async (booking) => {
+  if (!booking || !booking.customerId) return null;
+  say(`[notify] booking cancelled → student ${booking.customerId} (${booking.propertyName})`);
+
+  return pushTo(Customer(), { customerId: booking.customerId }, {
+    title: 'Your booking was cancelled',
+    /* Names the property and says the money position in the same breath.
+       "Cancelled" on its own sends somebody straight to support to ask the
+       question this sentence already answers. */
+    body: `${booking.propertyName} cancelled your booking for ${booking.checkInDate || 'your move-in date'}.`
+      + ' Anything you paid is refunded. You can find another place in the app.',
+    data: {
+      kind: 'booking.cancelled',
+      bookingId: String(booking._id),
+      requestId: booking.requestId || null,
+      listingId: booking.propertyId,
+      status: 'cancelled',
+    },
+  });
+};
+
 /** Nobody answered. */
 const notifyStudentExpired = async (request) => {
   say(`[notify] expired → student ${request.customerId} (${request.propertyName})`);
@@ -290,6 +325,7 @@ module.exports = {
   notifyOwnerOfNewRequest,
   notifyStudentAccepted,
   notifyStudentDeclined,
+  notifyStudentBookingCancelled,
   notifyStudentExpired,
   notifyOwnerOfWithdrawal,
   notifyExpired,

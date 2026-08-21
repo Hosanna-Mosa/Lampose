@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -12,9 +12,6 @@ import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useTheme } from '@/context/ThemeContext';
 import { confirmationRewards } from '@/data/rewards';
 import { useListing, useStayRequest } from '@/services';
-import * as Linking from 'expo-linking';
-import * as WebBrowser from 'expo-web-browser';
-import { API_URL } from '@/constants/env';
 
 /**
  * The request, and the owner deciding — in three minutes.
@@ -221,45 +218,68 @@ export default function OwnerConfirmation() {
    * thing to press: pay, then the booking screen opens. A PG has no token and
    * goes straight through, so this whole branch is invisible there.
    *
-   * ## Why a browser rather than a native SDK
+   * ## A WebView in the app, not a browser and not the native SDK
    *
    * Razorpay's React Native SDK needs a prebuild and a config plugin on both
-   * platforms for one screen. `expo-web-browser` opens a real browser session
-   * against a checkout the server renders, and the server verifies the result
-   * where the secret already lives. The app never touches a payment id or a
-   * signature — it opens a URL and waits to be returned to.
+   * platforms for one screen, so the checkout is a page the SERVER renders and
+   * verifies — the app never touches a payment id or a signature.
+   *
+   * That page used to be handed to `WebBrowser.openAuthSessionAsync`. It is
+   * meant to stay in-app, and on Android with no Chrome Custom Tabs provider it
+   * quietly falls back to launching the browser APP instead: Lampose disappears
+   * and a browser opens on the student's payment. Paying is the worst moment in
+   * the product to leave the app.
+   *
+   * `pay/checkout.tsx` renders the same URL in a `WebView` inside this
+   * navigator, where there is no fallback to fall back TO. What the server does
+   * is unchanged.
    */
   const [paying, setPaying] = useState(false);
 
-  const payThenContinue = useCallback(async () => {
+  const payThenContinue = useCallback(() => {
     if (!stay.request?.id) return;
-    setPaying(true);
-    try {
-      const back = Linking.createURL(`/confirm/${String(id)}`);
-      const url = `${API_URL}/api/v2/visit-requests/${encodeURIComponent(stay.request.id)}`
-        + `/payment/checkout?redirect=${encodeURIComponent(back)}`;
+    router.push({
+      pathname: '/pay/checkout',
+      params: { requestId: String(stay.request.id), returnTo: `/confirm/${String(id)}` },
+    } as never);
+  }, [stay.request?.id, router, id]);
 
-      await WebBrowser.openAuthSessionAsync(url, back);
+  /*
+   * Coming back from checkout is not an answer either way.
+   *
+   * Backing out without paying and paying successfully look identical from
+   * here — Razorpay's webhook can land a second or two after the view closes.
+   * So the SERVER is asked, a few times, on the way back in. Telling somebody
+   * who just paid that they have not is the worse mistake of the two.
+   *
+   * On focus rather than after an `await`, because the checkout is now a
+   * screen rather than a call that returns: this fires whichever way the
+   * student left it — the redirect, the header's back, or the OS gesture.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      if (!stay.request?.payment?.required) return;
+      if (stay.request.payment.status === 'paid') return;
 
-      /*
-       * Closing the browser is not an answer.
-       *
-       * Backing out without paying and paying successfully look identical from
-       * here — Razorpay's webhook may land a second or two after the browser
-       * closes. So the SERVER is asked, a few times, before deciding. Telling
-       * somebody who just paid that they have not is the worse mistake of the
-       * two.
-       */
-      for (let attempt = 0; attempt < 5; attempt += 1) {
-        // eslint-disable-next-line no-await-in-loop
-        await stay.refresh();
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise((resolve) => setTimeout(resolve, 900));
-      }
-    } finally {
-      setPaying(false);
-    }
-  }, [stay.request?.id, stay.refresh, id]);
+      let live = true;
+      setPaying(true);
+      (async () => {
+        for (let attempt = 0; attempt < 5 && live; attempt += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await stay.refresh();
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((resolve) => setTimeout(resolve, 900));
+        }
+        if (live) setPaying(false);
+      })();
+
+      return () => {
+        live = false;
+        setPaying(false);
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [stay.request?.payment?.required, stay.request?.payment?.status, stay.refresh]),
+  );
 
   /*
    * The server decides this, never the browser.
@@ -513,7 +533,7 @@ export default function OwnerConfirmation() {
   };
 
   return (
-    <View style={styles.flex}>
+    <View style={[styles.flex, { backgroundColor: colors.bg, paddingBottom: insets.bottom }]}>
       <StatusBar style="auto" />
       {/* No back arrow while a request is in flight: backing out has to mean
           something definite, so the only ways off are the buttons. */}
@@ -524,7 +544,7 @@ export default function OwnerConfirmation() {
         contentContainerStyle={{
           paddingHorizontal: layout.gutter,
           paddingTop: space[4],
-          paddingBottom: insets.bottom + space[6],
+          paddingBottom: space[8],
           gap: space[5],
         }}
       >

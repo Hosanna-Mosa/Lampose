@@ -59,7 +59,7 @@ export default function RequestWaiting() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader
         title="Your request"
@@ -70,7 +70,7 @@ export default function RequestWaiting() {
       <ScrollView
         contentContainerStyle={{
           padding: layout.gutter,
-          paddingBottom: insets.bottom + space[8],
+          paddingBottom: space[8],
           gap: space[5],
         }}
       >

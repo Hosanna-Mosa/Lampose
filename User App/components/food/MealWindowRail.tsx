@@ -18,7 +18,7 @@ import { clockLabel, minutesUntilClose, minutesUntilOpen, railFor } from '@/type
  *
  * The current cell is the inverted surface (`graphite`), which is the app's
  * existing "this is the one" treatment for a bar sitting on the ground colour.
- * It is not the brand green, because green in this app means confirmed, and a
+ * It is not the accent, because the accent in this app means confirmed, and a
  * meal window is not an outcome.
  */
 export function MealWindowRail({

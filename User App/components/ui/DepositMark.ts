@@ -3,7 +3,7 @@ import type { TextStyle } from 'react-native';
 import { useTheme } from '@/context/ThemeContext';
 
 /**
- * The dotted amber underline that means "this money comes back".
+ * The dotted caution-orange underline that means "this money comes back".
  *
  * The Batch 12 consistency audit put this at the top of its list, and it was
  * right to. Fourteen places hand-rolled the three declarations, one of them
