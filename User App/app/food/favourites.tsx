@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, SegmentedControl, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
@@ -26,6 +27,7 @@ const TABS = ['Dishes', 'Kitchens'] as const;
  */
 export default function FavouritesScreen() {
   const { colors, space, layout, radius, mode } = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { locality } = useAppState();
   const {
@@ -64,7 +66,7 @@ export default function FavouritesScreen() {
 
   if (!dishes.length && !kitchens.length) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <StandardHeader title="Favourites" onBack={() => router.back()} />
         <FoodEmptyState

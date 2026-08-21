@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Icon, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
@@ -34,6 +35,7 @@ import { formatRupees } from '@/utils/money';
  */
 export default function CartScreen() {
   const { colors, space, layout, radius, mode } = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const {
     lines,
@@ -62,7 +64,7 @@ export default function CartScreen() {
 
   if (count === 0 || !kitchen) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <StandardHeader title="Cart" onBack={() => router.back()} />
         <FoodEmptyState

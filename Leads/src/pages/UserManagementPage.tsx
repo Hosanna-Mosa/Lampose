@@ -1,13 +1,21 @@
 import React, { useState } from 'react';
 import { User, userApi } from '../api/userApi';
-import { UserCheck, Plus, ShieldCheck, Mail, User as UserIcon, Lock, Search, Trash2, Loader2, CheckCircle2, UserPlus } from 'lucide-react';
+import { UserCheck, Plus, ShieldCheck, Mail, User as UserIcon, Lock, Search, Trash2, Loader2, CheckCircle2, UserPlus, Pencil, Eye, EyeOff, X } from 'lucide-react';
 
 interface UserManagementPageProps {
   usersList: User[];
   onUserCreated: () => void;
+  /**
+   * The signed-in account, when the shell knows it.
+   *
+   * Only used to grey out the role switch on your own card. The server
+   * enforces the same rule regardless — this just avoids offering an action
+   * that is going to come back as an error.
+   */
+  currentUserId?: string;
 }
 
-export const UserManagementPage: React.FC<UserManagementPageProps> = ({ usersList, onUserCreated }) => {
+export const UserManagementPage: React.FC<UserManagementPageProps> = ({ usersList, onUserCreated, currentUserId }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,6 +26,86 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ usersLis
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  /* Which account is open in the edit dialog, and the draft of its fields. */
+  const [editing, setEditing] = useState<User | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editRole, setEditRole] = useState<'ADMIN' | 'EMPLOYEE'>('EMPLOYEE');
+  const [editPassword, setEditPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState('');
+
+  const isSelf = Boolean(editing && currentUserId && editing.userId === currentUserId);
+
+  const openEdit = (u: User) => {
+    setEditing(u);
+    setEditName(u.name);
+    setEditEmail(u.email);
+    setEditRole(u.role);
+    /* Always blank. There is nothing to prefill it WITH — the server stores a
+       bcrypt hash and never returns it — and a masked placeholder would imply
+       otherwise. Blank means "leave the password alone". */
+    setEditPassword('');
+    setShowPassword(false);
+    setEditError('');
+  };
+
+  const closeEdit = () => {
+    setEditing(null);
+    setEditPassword('');
+    setEditError('');
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editing) return;
+    if (!editName.trim() || !editEmail.trim()) {
+      setEditError('Name and email cannot be blank.');
+      return;
+    }
+    if (editPassword && editPassword.length < 6) {
+      setEditError('A new password must be at least 6 characters.');
+      return;
+    }
+
+    /* Only what actually changed goes over the wire, so an edit to the name
+       cannot quietly rewrite a role somebody changed in another tab. */
+    const changes: { name?: string; email?: string; role?: 'ADMIN' | 'EMPLOYEE'; password?: string } = {};
+    if (editName.trim() !== editing.name) changes.name = editName.trim();
+    if (editEmail.trim() !== editing.email) changes.email = editEmail.trim();
+    if (editRole !== editing.role && !isSelf) changes.role = editRole;
+    if (editPassword) changes.password = editPassword;
+
+    if (Object.keys(changes).length === 0) {
+      closeEdit();
+      return;
+    }
+
+    setSavingEdit(true);
+    setEditError('');
+    try {
+      const res = await userApi.updateUser(editing.userId, changes);
+      if (res.success) {
+        setSuccessMsg(
+          changes.password
+            ? `Updated "${editName.trim()}" and set a new password. Share it with them directly and ask them to change it.`
+            : `Updated the account for "${editName.trim()}".`,
+        );
+        setError('');
+        closeEdit();
+        onUserCreated();
+      } else {
+        setEditError(res.message || 'Failed to update the account.');
+      }
+    } catch (err: any) {
+      setEditError(
+        err.response?.data?.message || err.response?.data?.error || err.message || 'Error updating the account.',
+      );
+    } finally {
+      setSavingEdit(false);
+    }
+  };
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -268,6 +356,17 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ usersLis
                   </div>
                 </div>
 
+                <div className="flex items-center gap-1">
+                {/* Edit button */}
+                <button
+                  type="button"
+                  onClick={() => openEdit(u)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 border border-transparent hover:border-cyan-200 transition cursor-pointer"
+                  title={`Edit ${u.name}'s account`}
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+
                 {/* Delete button */}
                 <button
                   type="button"
@@ -282,11 +381,150 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ usersLis
                     <Trash2 className="w-4 h-4" />
                   )}
                 </button>
+                </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* ── Edit account modal ─────────────────────────────────────────── */}
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200 shadow-xl p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">Edit account</h3>
+                <p className="text-xs text-slate-500 font-mono mt-0.5">ID: {editing.userId}</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeEdit}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition cursor-pointer"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {editError && (
+              <div className="px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
+                {editError}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-2xs font-bold text-slate-500 uppercase mb-1.5">Full name</label>
+                <div className="relative">
+                  <UserIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-cyan-500 transition"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-2xs font-bold text-slate-500 uppercase mb-1.5">Email</label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="email"
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 font-mono focus:outline-none focus:border-cyan-500 transition"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">This is what they sign in with.</p>
+              </div>
+
+              <div>
+                <label className="block text-2xs font-bold text-slate-500 uppercase mb-1.5">Role</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['EMPLOYEE', 'ADMIN'] as const).map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setEditRole(r)}
+                      disabled={isSelf}
+                      className={`px-3 py-2.5 rounded-xl text-xs font-extrabold border transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
+                        editRole === r
+                          ? 'bg-cyan-50 border-cyan-500 text-cyan-700'
+                          : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'
+                      }`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+                {isSelf && (
+                  <p className="text-[10px] text-amber-600 mt-1 font-semibold">
+                    You cannot change your own role — sign in as another admin to do that.
+                  </p>
+                )}
+              </div>
+
+              {/*
+                Set, never show.
+
+                The server keeps a bcrypt hash and strips it from every
+                response, so there is no existing password to display here —
+                not as a policy, but because nothing in the system is holding
+                one. Leaving this blank changes nothing.
+              */}
+              <div className="pt-1 border-t border-slate-100">
+                <label className="block text-2xs font-bold text-slate-500 uppercase mb-1.5 mt-4">
+                  Set a new password
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    placeholder="Leave blank to keep the current one"
+                    className="w-full pl-9 pr-10 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-cyan-500 transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition cursor-pointer"
+                    title={showPassword ? 'Hide' : 'Show what you are typing'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Existing passwords are stored hashed and cannot be read back — this replaces it.
+                  Minimum 6 characters. Tell them to change it after signing in.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={closeEdit}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 text-xs font-extrabold hover:bg-slate-100 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                disabled={savingEdit}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-cyan-600 text-white text-xs font-extrabold hover:bg-cyan-700 transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {savingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                Save changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

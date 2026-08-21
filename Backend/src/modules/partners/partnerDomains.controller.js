@@ -17,6 +17,7 @@ const { phoneKey } = Partner;
 const {
   releaseBed, shareTypeIdForBooking, OCCUPYING,
 } = require('../inventory/inventory.service');
+const { notifyStudentBookingCancelled } = require('../notifications/stayRequest.notifier');
 
 /* ══════════════════════════════════════════════════════════════════════════
    Freeing a bed.
@@ -194,9 +195,25 @@ const cancelBooking = async (req, res, next) => {
     const booking = await freeBookingBed(id, key, 'cancelled');
     if (!booking) {
       const existing = await PartnerBooking.findOne({ _id: id, partnerPhoneDigits: key }).lean();
+      /* Already cancelled. Idempotent for the owner, and deliberately silent —
+         re-notifying on a repeat tap would tell the student twice. */
       if (existing) return res.json({ success: true, data: { ...existing, id: String(existing._id) } });
       return res.status(404).json({ success: false, message: 'Booking not found' });
     }
+
+    /*
+     * Tell the student.
+     *
+     * This was the one owner action after confirmation that reached nobody. A
+     * cancellation is not something to discover on next open: they have a
+     * move-in date and possibly a train booked against it. Fire-and-forget for
+     * the same reason the accept path is — the owner's response must not wait
+     * on a push, and a push that fails must not fail the cancellation.
+     */
+    notifyStudentBookingCancelled(booking).catch((error) => {
+      console.error('[booking] cancelled but the student was not notified:', error.message);
+    });
+
     return res.json({ success: true, data: { ...booking, id: String(booking._id) } });
   } catch (error) {
     return next(error);

@@ -223,7 +223,7 @@ function OtpBox({ index, digit, width, radius, state, active, colors, reduceMoti
         },
       ]}
     >
-      {/* Martian Mono at 600 so a 1 and a 7 cannot be confused at a glance. */}
+      {/* DM Mono, so a 1 and a 7 cannot be confused at a glance. */}
       <Text variant="priceMd">{digit ?? ''}</Text>
     </Animated.View>
   );

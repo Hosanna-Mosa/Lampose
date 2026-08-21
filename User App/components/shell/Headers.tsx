@@ -54,8 +54,32 @@ export function ExploreHeader({
   alertCount,
   onPressProfile,
 }: ExploreHeaderProps) {
-  const { colors, space, layout } = useTheme();
+  const { colors, space, layout, mode, setPreference } = useTheme();
   const insets = useSafeAreaInsets();
+
+  /*
+   * The appearance toggle.
+   *
+   * It reads the theme itself rather than taking a prop, because every screen
+   * that draws this header wants the same control and threading two more props
+   * through each of them buys nothing.
+   *
+   * ## It is a two-state toggle over a three-state setting
+   *
+   * The preference is `light | dark | system`. A header button that cycles
+   * three states is a button whose next press you cannot predict — and the
+   * third state is the confusing one, because "system" LOOKS like whichever of
+   * the other two the phone happens to be set to. So this sets an explicit
+   * light or dark, chosen as the opposite of what is currently RENDERED, which
+   * makes one tap mean exactly one visible change whatever the setting was
+   * before.
+   *
+   * Choosing `system` again is still possible — Profile › Appearance offers all
+   * three. This is the quick control, that one is the full one, and the split
+   * is deliberate: the setting somebody sets once lives in settings, the one
+   * they flip when a room gets dark lives where their thumb already is.
+   */
+  const nextMode = mode === 'dark' ? 'light' : 'dark';
 
   return (
     <View
@@ -89,6 +113,13 @@ export function ExploreHeader({
         </Pressable>
 
         <View style={styles.row}>
+          {/* 20, matching the bell beside it — see the note there. */}
+          <IconButton
+            name={mode === 'dark' ? 'sun' : 'moon'}
+            size={20}
+            onPress={() => setPreference(nextMode)}
+            accessibilityLabel={`Switch to ${nextMode} theme`}
+          />
           <View>
             {/* 20, matching the chevron on the locality beside it.
                 At the IconButton default of 24 the bell was the largest mark in
@@ -423,7 +454,7 @@ export function PhotoHero({ scrollY, heroHeight, children }: PhotoHeroProps) {
       {children}
       <Animated.View style={[StyleSheet.absoluteFill, scrimStyle]} pointerEvents="none">
         <LinearGradient
-          colors={['rgba(16,21,28,0.55)', 'rgba(16,21,28,0)']}
+          colors={['rgba(26,25,23,0.55)', 'rgba(26,25,23,0)']}
           style={{ height: 140 }}
         />
       </Animated.View>
@@ -446,7 +477,7 @@ export type SearchHeaderProps = {
 };
 
 /**
- * Two lines inside the pill: what you searched, then the numbers you
+ * Two lines inside the field: what you searched, then the numbers you
  * constrained.
  *
  * Both ceilings stay visible, because a filter you cannot see is a filter you
@@ -481,7 +512,9 @@ export function SearchHeader({ query, constraints, onPress, onBack, filterCount 
             styles.searchPill,
             {
               backgroundColor: colors.surfaceSunken,
-              borderRadius: radius.pill,
+              // Matches `SearchField` — see the note on it for why neither of
+              // them is a pill any more.
+              borderRadius: radius.button,
               borderColor: colors.border,
               paddingHorizontal: space[4],
               gap: space[2],

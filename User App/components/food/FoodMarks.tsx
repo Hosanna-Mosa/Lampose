@@ -24,7 +24,7 @@ import { DIET_LABEL } from '@/types/food';
  * The veg / egg / non-veg mark.
  *
  * Shape carries it, colour confirms it: a dot in a green square, a dot in an
- * amber square, a triangle in a red square. This is the same rule the booking
+ * caution square, a triangle in a red square. This is the same rule the booking
  * statuses follow — and here it is also the mark Indian food packaging has
  * been teaching people to read for twenty years, so inventing anything else
  * would be strictly worse than copying it.

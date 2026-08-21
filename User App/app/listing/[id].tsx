@@ -27,6 +27,8 @@ import {
   stayIntentComplete,
   type StayIntent,
   defaultSharingSelection,
+  defaultHotelIntent,
+  defaultStayIntent,
   type PhotoGroup,
 } from '@/components/discovery';
 import { errorStates } from '@/constants/copy';
@@ -78,11 +80,6 @@ export default function ListingDetail() {
    */
   const [sharing, setSharing] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (sharing !== null) return;
-    if (!listing?.sharingOptions?.length) return;
-    setSharing(defaultSharingSelection(listing.sharingOptions));
-  }, [listing, sharing]);
 
   /*
    * Neighbours, fetched only for a listing that has filled.
@@ -105,9 +102,10 @@ export default function ListingDetail() {
    * product and the short rates are the exception, not the headline.
    */
   const [intent, setIntent] = useState<StayIntent>(() => ({
-    // Neither dropdown is preselected. A default stay type means the student
-    // sends a request for a length they never chose, and the owner receives it
-    // as though they had — so the action stays disabled until both are answered.
+    /* Null here, then seeded by the effect above once the listing lands —
+       monthly rate, smallest count, first available bed. The move-in date is
+       NOT seeded: a length the student can see and change is one thing, a date
+       they never picked travelling on a request is another. */
     stayType: null,
     units: null,
     sharingId: null,
@@ -127,6 +125,43 @@ export default function ListingDetail() {
     checkOut: null,
     rateQuantity: null,
   });
+
+  /*
+   * Seed whichever control this listing is going to render.
+   *
+   * The three branches below mirror the render exactly — a hotel gets
+   * `HotelStaySelector`, a property with stay rates gets `StayIntentSelector`,
+   * everything else gets `SharingTypeSelector` — so a category cannot end up
+   * with a default meant for a different control.
+   *
+   * Kept as one effect rather than three because the condition that decides
+   * WHICH default applies is the same condition that decides which selector is
+   * on screen, and splitting them is how the two drift apart. Every helper
+   * returns `null` when there is nothing to do, so this runs once per listing
+   * and never moves a choice somebody has already made.
+   *
+   * What each one fills in, and what it deliberately leaves blank, is in
+   * `defaultSelection.ts`.
+   */
+  useEffect(() => {
+    if (!listing) return;
+
+    if (listing.category === 'HOTEL' && listing.sharingOptions?.length) {
+      const seeded = defaultHotelIntent(listing.sharingOptions, hotelIntent);
+      if (seeded) setHotelIntent(seeded);
+      return;
+    }
+
+    if (listing.stayRates?.length) {
+      const seeded = defaultStayIntent(listing.stayRates, listing.sharingOptions, intent);
+      if (seeded) setIntent(seeded);
+      return;
+    }
+
+    if (sharing === null && listing.sharingOptions?.length) {
+      setSharing(defaultSharingSelection(listing.sharingOptions));
+    }
+  }, [listing, sharing, intent, hotelIntent]);
 
   /** The bar's second gate. Never remembered across listings. */
   const [consented, setConsented] = useState(false);
@@ -674,6 +709,6 @@ export default function ListingDetail() {
 
 const styles = StyleSheet.create({
   centre: { alignItems: 'center', justifyContent: 'center' },
-  hero: { backgroundColor: '#3a4553' },
+  hero: { backgroundColor: '#4A463E' },
   row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
 });

@@ -5,6 +5,8 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Button, Icon, InlineAlert, Text, TextField } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import {
   REPORT_DETAIL_HINT,
@@ -40,6 +42,7 @@ import { useCreateSupportRequest } from '@/services';
  */
 export default function ReportProblem() {
   const { colors, space, layout, mode, radius, touch } = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
 
   const [reasonId, setReasonId] = useState<string | null>(null);
@@ -76,7 +79,23 @@ export default function ReportProblem() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    /*
+     * The bottom safe-area band is owned by the SCREEN ROOT, matching every
+     * other screen in the app.
+     *
+     * It sat in the scroll content until now — first as `contentContainerStyle`
+     * padding, then as a spacer `<View>` once it turned out a keyboard-aware
+     * scroller manages its own content-container inset and can overwrite that
+     * padding. Both only ever guaranteed the LAST element cleared the
+     * navigation bar; the viewport still ran underneath it, so mid-scroll the
+     * form visibly slid under the gesture bar.
+     *
+     * On the root it ends the viewport above the bar instead. It also puts this
+     * padding somewhere the keyboard-aware scroller cannot reach at all — it is
+     * a property of the parent View, not of the scroll content — which is what
+     * the spacer was working around.
+     */
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader
         title="Report a serious problem"
@@ -85,7 +104,7 @@ export default function ReportProblem() {
       />
 
       <KeyboardAwareScrollViewCompat
-        contentContainerStyle={{ padding: layout.gutter, gap: space[5], paddingBottom: space[8] }}
+        contentContainerStyle={{ padding: layout.gutter, gap: space[5] }}
         keyboardShouldPersistTaps="handled"
       >
         {/* Nothing is placed above this. */}

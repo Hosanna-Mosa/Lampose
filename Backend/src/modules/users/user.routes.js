@@ -1,5 +1,5 @@
 const express = require('express');
-const { getUsers, createUser, deleteUser } = require('./user.controller');
+const { getUsers, createUser, updateUser, deleteUser } = require('./user.controller');
 const { protect, protectRole } = require('../../shared/middleware/authMiddleware');
 const { requireScriperStore, requireAuthConfig } = require('../../shared/middleware/requireDb');
 
@@ -14,6 +14,9 @@ router.use(requireScriperStore);
    changes nothing for them. REQUIRE_AUTH=false restores the old behaviour. */
 router.get('/', protect, getUsers);
 router.post('/', protect, protectRole('ADMIN'), createUser);
+/* Edit, including setting a new password. ADMIN-only for the same reason
+   create and delete are: it can hand somebody else the keys. */
+router.put('/:userId', protect, protectRole('ADMIN'), updateUser);
 router.delete('/:userId', protect, protectRole('ADMIN'), deleteUser);
 
 module.exports = router;

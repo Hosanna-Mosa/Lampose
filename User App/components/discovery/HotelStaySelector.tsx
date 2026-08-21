@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
-import { Text } from '@/components/ui';
+import { DateField, Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
 import { formatRupees } from '@/utils/money';
 import type { SharingOption } from '@/types/listing';
@@ -67,6 +67,14 @@ export type HotelStaySelectorProps = {
 
 const nightsBetween = (from: string, to: string): number =>
   Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+
+/** The next calendar day, as `YYYY-MM-DD`. The earliest a check-out can be. */
+const nextDay = (iso: string): string => {
+  const [y, m, d] = iso.split('-').map(Number);
+  const date = new Date(y, m - 1, d + 1);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
 
 const prettyDay = (iso: string): string =>
   new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-IN', {
@@ -180,19 +188,19 @@ export function HotelStaySelector({ options, value, onChange, joinWindow }: Hote
           <View style={[styles.row, { gap: space[3] }]}>
             <View style={{ flex: 1, gap: space[1] }}>
               <Text variant="caption" color="tertiary">CHECK-IN</Text>
-              <TextInput
-                value={value.checkIn ?? ''}
-                onChangeText={(checkIn) => set({
-                  checkIn: checkIn || null,
-                  checkOut: value.checkOut && checkIn && value.checkOut <= checkIn ? null : value.checkOut,
+              <DateField
+                value={value.checkIn}
+                onChange={(checkIn) => set({
+                  checkIn,
+                  /* A check-out that is no longer after the new check-in is not
+                     a date any more. Cleared rather than corrected — guessing
+                     the night count they meant is worse than asking again. */
+                  checkOut: value.checkOut && value.checkOut <= checkIn ? null : value.checkOut,
                 })}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={colors.textTertiary}
-                autoCapitalize="none"
-                style={[styles.input, {
-                  borderColor: colors.border, backgroundColor: colors.surface,
-                  color: colors.textPrimary, borderRadius: radius.card, padding: space[3],
-                }]}
+                placeholder="Pick a date"
+                minimumDate={joinWindow?.min ?? undefined}
+                maximumDate={joinWindow?.max ?? undefined}
+                accessibilityLabel="Check-in date"
               />
             </View>
 
@@ -201,16 +209,16 @@ export function HotelStaySelector({ options, value, onChange, joinWindow }: Hote
                 {byNight ? 'CHECK-OUT' : `HOW MANY ${(active?.qtyUnit ?? 'nights').toUpperCase()}?`}
               </Text>
               {byNight ? (
-                <TextInput
-                  value={value.checkOut ?? ''}
-                  onChangeText={(checkOut) => set({ checkOut: checkOut || null })}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={colors.textTertiary}
-                  autoCapitalize="none"
-                  style={[styles.input, {
-                    borderColor: colors.border, backgroundColor: colors.surface,
-                    color: colors.textPrimary, borderRadius: radius.card, padding: space[3],
-                  }]}
+                <DateField
+                  value={value.checkOut}
+                  onChange={(checkOut) => set({ checkOut })}
+                  placeholder="Pick a date"
+                  /* Never before the check-in, and never the same day: a stay
+                     of zero nights is not a stay. The picker enforces it, so
+                     the invalid range cannot be entered in the first place. */
+                  minimumDate={value.checkIn ? nextDay(value.checkIn) : (joinWindow?.min ?? undefined)}
+                  maximumDate={joinWindow?.max ?? undefined}
+                  accessibilityLabel="Check-out date"
                 />
               ) : (
                 <TextInput

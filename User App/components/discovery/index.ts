@@ -61,6 +61,12 @@ export {
   type SharingTypeSelectorProps,
 } from './SharingTypeSelector';
 
+/* Every category's opening selection, in one place. */
+export {
+  defaultStayIntent,
+  defaultHotelIntent,
+} from './defaultSelection';
+
 export {
   AmenityIcon,
   AmenityRow,

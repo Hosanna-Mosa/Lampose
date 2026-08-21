@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Switch, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
@@ -35,11 +36,12 @@ const SPICES: readonly SpiceLevel[] = ['mild', 'medium', 'hot'];
  */
 export default function FoodPreferencesScreen() {
   const { colors, space, layout, radius, mode } = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { preferences, setPreferences } = useFood();
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader title="Food preferences" onBack={() => router.back()} />
 

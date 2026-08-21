@@ -16,6 +16,12 @@ import type { StayCategory } from '@/constants/tokens';
 export const queryKeys = {
   health: ['health'] as const,
 
+  /* The stay itself, as opposed to the request that asked for it. Both are
+     cached separately because they change for different reasons and at
+     different rates — see `useBookings`. */
+  bookings: ['bookings'] as const,
+  booking: (id: string) => ['bookings', id] as const,
+
   listings: ['listings'] as const,
   listingList: (filters: {
     category?: StayCategory | null;

@@ -66,7 +66,23 @@ export function TextField({
   return (
     <View style={[{ gap: space[2] }, containerStyle]}>
       <View style={styles.labelRow}>
-        <Text variant="bodyStrong" color={inert ? 'tertiary' : 'primary'}>
+        {/*
+          `label`, not `bodyStrong` — small, uppercase and tracked, which is how
+          the Dock reference sets every field label on its sign-in screen.
+
+          It is a hierarchy fix as much as a stylistic one. A field label set in
+          the same face, size and weight as the body copy around it competes
+          with that copy, and this screen has four labels, four helper lines and
+          a paragraph of legal text: at `bodyStrong` the labels were the
+          loudest thing on it, above even the heading. Uppercase at 10pt with
+          1pt of tracking reads unmistakably as a NAME FOR THE FIELD BELOW
+          rather than as something to read, which is the job.
+
+          10pt is the floor of the scale and it is only defensible because the
+          label is never the only thing identifying a field — the placeholder,
+          the helper line under it and the accessible name all carry it too.
+        */}
+        <Text variant="label" color={inert ? 'tertiary' : 'secondary'}>
           {label}
         </Text>
         {optional ? (
@@ -153,8 +169,21 @@ export type SearchFieldProps = Omit<TextInputProps, 'style'> & {
 };
 
 /**
- * Search, and only search, gets the pill radius. Every other field is r8, so
- * the shape is doing the labelling before a single word is read.
+ * Search, and only search, gets `radius.button`. Every other field is r8, so
+ * the shape is still doing some labelling before a single word is read — but
+ * it is a rounded rect rather than the full pill it used to be.
+ *
+ * The pill came from a system where shape was the ONLY thing separating search
+ * from a text input. The Dock reference draws both of its search fields as
+ * rounded rects and leaves the labelling to the magnifier inside them, which is
+ * the stronger signal anyway: a glyph says "search" to somebody who has never
+ * used the app, and a corner radius does not.
+ *
+ * The pill also read badly next to everything around it once the palette went
+ * warm. It sits directly above a row of pill-shaped filter CHIPS, which are
+ * controls of a completely different kind, and a full-round 52pt field over a
+ * line of full-round 40pt chips reads as one family of five things rather than
+ * one field and four filters.
  */
 export function SearchField({ value, onClear, containerStyle, ...rest }: SearchFieldProps) {
   const { colors, space, radius, touch } = useTheme();
@@ -166,7 +195,7 @@ export function SearchField({ value, onClear, containerStyle, ...rest }: SearchF
         styles.field,
         {
           minHeight: touch.min + 4,
-          borderRadius: radius.pill,
+          borderRadius: radius.button,
           borderWidth: focused ? 1.5 : 1,
           borderColor: focused ? colors.brand : colors.borderInput,
           backgroundColor: colors.surface,

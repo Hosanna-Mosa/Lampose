@@ -20,11 +20,32 @@ import { findBooking } from '@/data/bookings';
 /**
  * "It's yours."
  *
- * Two words, and the only genuine celebration in the product. A green band, one
- * disc at 320ms, then straight into what to do on move-in day.
+ * Two words, and the only genuine celebration in the product. One accent disc
+ * at 320ms, then straight into what to do on move-in day.
  *
  * No confetti. The payoff here is certainty, not a party — and a screen that
  * cheers over a student's ₹26,499 reads as a sales screen rather than a receipt.
+ *
+ * ## The band went, the disc stayed
+ *
+ * This opened on a full-bleed accent band with white type on it until the Dock
+ * repaint, which draws this screen — it is the reference's own sixth frame,
+ * down to the words — as a filled accent disc standing on the ordinary page
+ * ground, with the headline in ink underneath it.
+ *
+ * That is the better read of what the screen is for, not just the reference's
+ * preference. A coloured band is the app announcing something. Everything below
+ * the fold here is a document the student will come back to and show to
+ * somebody at a gate — a code, a rent, a move-in date, an address — and a
+ * celebration banner stapled to the top of it makes the document look like
+ * marketing. On the page ground the disc still lands as the one saturated mark
+ * on the screen, and the eye goes to it precisely because nothing else is
+ * competing.
+ *
+ * It also removes an inversion. The band was the only place in the app where
+ * body copy was set in `onBrand`, which meant this screen's text ran white in
+ * light mode and near-black in dark — the opposite of every other screen — and
+ * every string added here had to remember to opt into it.
  */
 export default function PaymentConfirmed() {
   const { colors, space, layout, mode, radius } = useTheme();
@@ -41,7 +62,7 @@ export default function PaymentConfirmed() {
 
   if (!listing || listing.rent === null) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <StateTemplate copy={errorStates.notFound()} onPrimary={() => router.replace('/home')} />
       </View>
@@ -55,15 +76,14 @@ export default function PaymentConfirmed() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <StatusBar style="light" />
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: insets.bottom + space[8] }}
+        contentContainerStyle={{ paddingBottom: space[8] }}
         showsVerticalScrollIndicator={false}
       >
         <View
           style={{
-            backgroundColor: colors.success.base,
             paddingTop: insets.top + space[6],
             paddingBottom: space[6],
             paddingHorizontal: layout.gutter,
@@ -71,20 +91,19 @@ export default function PaymentConfirmed() {
             gap: space[3],
           }}
         >
+          {/* The one saturated mark on the screen. Filled rather than outlined,
+              because this is the only place in the product where a tick means
+              "done, and it cost money" rather than "selected". */}
           <Animated.View
             entering={
               reduceMotion ? FadeIn.duration(120) : FadeIn.duration(signature.successConfirm.duration)
             }
-            style={[styles.disc, { borderRadius: radius.pill }]}
+            style={[styles.disc, { borderRadius: radius.pill, backgroundColor: colors.success.base }]}
           >
-            <Icon name="check" size={28} color={colors.success.base} />
+            <Icon name="check" size={28} color={colors.success.on} />
           </Animated.View>
-          {/* The hero fills with success green, which is the brand green — so
-              its ink flips by mode exactly as a primary button's does. */}
-          <Text variant="display1" style={{ color: colors.onBrand }}>
-            It&apos;s yours
-          </Text>
-          <Text variant="bodyLg" style={[styles.centred, { color: colors.onBrand }]}>
+          <Text variant="display1">It&apos;s yours</Text>
+          <Text variant="bodyLg" color="secondary" style={styles.centred}>
             {listing.sharingLabel ?? 'Your bed'} at {listing.name}, from 5 September. {owner} is expecting
             you by 7 pm.
           </Text>
@@ -204,7 +223,7 @@ function Row({
 }
 
 const styles = StyleSheet.create({
-  disc: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
+  disc: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
   centred: { textAlign: 'center' },
   row: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
   flex: { flex: 1 },

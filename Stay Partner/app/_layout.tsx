@@ -60,7 +60,10 @@ function RootLayoutNav() {
   const navigationState = useRootNavigationState();
 
   const inAuthFlow = segments[0] === '(auth)';
-  const onProfileSetup = segments[1] === 'profile-setup';
+  /* `useSegments()` is typed as a 1-tuple, but a nested route genuinely has a
+     second segment at runtime — `(auth)/profile-setup` is two. Widened rather
+     than indexed past the declared length, which TypeScript rejects outright. */
+  const onProfileSetup = (segments as readonly string[])[1] === 'profile-setup';
 
   /*
    * One navigator, always mounted, and the gate redirects inside it.

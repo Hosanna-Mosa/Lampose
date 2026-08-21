@@ -2,6 +2,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Icon, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
@@ -41,6 +42,7 @@ import {
  */
 export default function Results() {
   const { colors, space, layout, radius, mode } = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { locality } = useAppState();
 
@@ -103,7 +105,7 @@ export default function Results() {
   const title = category ? CATEGORY_LABEL[category] : 'All places';
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader
         title={title}

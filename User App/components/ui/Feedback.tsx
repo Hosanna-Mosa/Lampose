@@ -48,13 +48,22 @@ export function Toast({ message, tone = 'success', visible, onDismiss, duration 
 
   /* The disc and the ink that goes on it, chosen together. Picking a fill in
      one expression and a glyph colour in another is how the six white-on-light
-     discs happened. */
+     discs happened.
+
+     The info disc is the odd one out and has to be reasoned about separately.
+     Its fill is `brandOnDark`, which is the one accent token that is LIGHT in
+     both palettes — it exists to be legible on the near-black snackbar this
+     sits on, and the snackbar is near-black in light mode too. So its ink has
+     to be dark in both modes, which is `graphite` and not `onBrand`: `onBrand`
+     tracks the accent FILL, and the Dock repaint made that white in light mode.
+     Pairing it with a light disc would have put white on pale teal at 1.7:1 —
+     exactly the failure the note above is about. `graphite` gives 10.6:1. */
   const disc =
     tone === 'success'
       ? { fill: colors.success.base, on: colors.success.on }
       : tone === 'error'
         ? { fill: colors.danger.base, on: colors.danger.on }
-        : { fill: colors.brandOnDark, on: colors.onBrand };
+        : { fill: colors.brandOnDark, on: colors.graphite };
 
   return (
     <Animated.View

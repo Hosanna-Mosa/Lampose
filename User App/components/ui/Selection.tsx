@@ -235,13 +235,28 @@ export function Chip({ label, selected = false, onPress, onRemove, disabled = fa
 
   const removable = Boolean(onRemove);
 
+  /*
+   * A selected chip is accent-tinted, not filled near-black.
+   *
+   * It used to be a solid `textPrimary` pill with the page ground as its label,
+   * and on its own that was a perfectly good "on" state. What was wrong with it
+   * is that it was a FIFTH one. The app says "this is the one you picked" in
+   * four places — the option card, the sharing list, the category tabs, this —
+   * and a student who has just learned that a chosen thing goes pale teal with
+   * a green edge has to learn it again, differently, in the filter row.
+   *
+   * So it now borrows `OptionCard`'s language exactly: accent tint, accent
+   * border at 1.5 against the unselected 1, accent ink. The heavier border is
+   * what keeps it obvious in a horizontally scrolling row, where the tint alone
+   * would be a weaker signal than the solid fill it replaces.
+   */
   const background = removable
     ? colors.brandTint
     : selected
-      ? colors.textPrimary
+      ? colors.brandTint
       : colors.surface;
-  const labelColor = removable ? colors.info.ink : selected ? colors.bg : colors.textPrimary;
-  const borderColor = removable ? 'transparent' : selected ? colors.textPrimary : colors.border;
+  const labelColor = removable ? colors.info.ink : selected ? colors.brandInk : colors.textPrimary;
+  const borderColor = removable ? 'transparent' : selected ? colors.brand : colors.border;
 
   const body = (
     <Animated.View
@@ -252,6 +267,8 @@ export function Chip({ label, selected = false, onPress, onRemove, disabled = fa
           borderRadius: radius.pill,
           backgroundColor: background,
           borderColor,
+          // Heavier when selected — see the note above `background`.
+          borderWidth: selected && !removable ? 1.5 : 1,
           paddingLeft: space[4],
           paddingRight: removable ? space[2] : space[4],
           gap: space[2],
@@ -444,6 +461,248 @@ export function Stepper({ value, onChange, min = 1, max = 4, accessibilityLabel,
   );
 }
 
+/* ------------------------------------------------------------------ *
+ * Option card
+ * ------------------------------------------------------------------ */
+
+export type OptionCardProps = {
+  /** The answer itself — "PG & Hostels", "2-sharing". */
+  label: string;
+  /** The line under it. What picking this actually gets you. */
+  description?: string;
+  selected: boolean;
+  onSelect?: () => void;
+  /**
+   * The right-hand column, between the text and the tick. A price, normally.
+   *
+   * A node rather than a string because the thing on the right is usually two
+   * lines of different type — a figure and its unit — and the card must not
+   * decide how money is set. `RentDisplay` owns that.
+   */
+  trailing?: React.ReactNode;
+  /**
+   * Sold out, full, not offered here.
+   *
+   * The card stays on screen and keeps its place in the list — it is the
+   * explanation for why the option above it costs what it does — but it loses
+   * its tick and its press, because it is information rather than a choice.
+   */
+  unavailable?: boolean;
+  /**
+   * A row in a list (default), or a tile in a grid.
+   *
+   * `tile` exists because a grid says something a list cannot: that the options
+   * are PEERS. A stack of full-width rows reads as ordered — the top one looks
+   * recommended, the bottom one an afterthought — and where the choices are
+   * genuinely equal, as the four kinds of place are, that ordering is a lie the
+   * layout tells.
+   *
+   * The two share every colour, every border weight and the same tick, so a
+   * selected tile and a selected row are recognisably the same state. Only the
+   * arrangement differs: a tile stacks its content and parks the tick on the
+   * top row beside `leading`, so the label and description sit on a common
+   * baseline across the grid and can be read as a set.
+   */
+  layout?: 'row' | 'tile';
+  /**
+   * A mark at the start of the card — a category monogram, an icon.
+   *
+   * In `tile` it shares the top row with the tick, which is what keeps the
+   * text below it from moving when the card is selected. A tile that reflows on
+   * selection reads as a different tile.
+   */
+  leading?: React.ReactNode;
+  /** Single choice (default) or a multi-select list. */
+  role?: 'radio' | 'checkbox';
+  /** Overrides the composed default, which is label + description + trailing. */
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
+  style?: ViewStyle;
+  testID?: string;
+};
+
+/**
+ * The one selectable card in the app.
+ *
+ * Every "pick one of these" in the product is this component: the kind of place
+ * on the entry screen, the sharing type on a listing, the meal plan, the
+ * payment method. That is the point of it — before this existed each of those
+ * had drawn its own row, and they had drifted into four different ideas of what
+ * "selected" looks like.
+ *
+ * ## What selection is made of
+ *
+ * Three signals, and deliberately not one:
+ *
+ *   - the accent TINT behind the card,
+ *   - the accent BORDER, at 1.5 against the unselected 1,
+ *   - a filled accent disc with a tick in it, replacing a hollow ring.
+ *
+ * The tint and the border are the reference's own treatment and are what make a
+ * selected card obvious across a list at arm's length. The tick is what makes
+ * it obvious to someone who cannot separate the tint from the surface — it is a
+ * change of SHAPE, not of colour, and it is why this component does not do what
+ * the reference literally draws on its sharing rows, which is tint alone.
+ *
+ * The label also steps from `bodyLg` to `bodyStrong`. That is a fourth channel
+ * and the weakest of the four; it is there because it costs nothing, not
+ * because it could carry the state on its own.
+ *
+ * ## The card is the target
+ *
+ * The whole card takes the press, not the tick. A 22pt disc is under half the
+ * minimum target, and a list of them asks for precision the content does not
+ * need — anywhere on the row means the same thing.
+ */
+export function OptionCard({
+  label,
+  description,
+  selected,
+  onSelect,
+  trailing,
+  unavailable = false,
+  layout = 'row',
+  leading,
+  role = 'radio',
+  accessibilityLabel,
+  accessibilityHint,
+  style,
+  testID,
+}: OptionCardProps) {
+  const { colors, space, radius, touch } = useTheme();
+  const reduceMotion = useReduceMotion();
+
+  const on = selected && !unavailable;
+  const progress = useDerivedValue(() => withTiming(on ? 1 : 0, TICK), [on]);
+
+  const discStyle = useAnimatedStyle(
+    () => ({
+      opacity: progress.value,
+      transform: [{ scale: reduceMotion ? 1 : 0.4 + progress.value * 0.6 }],
+    }),
+    [reduceMotion],
+  );
+
+  const tile = layout === 'tile';
+
+  /* Shared by both layouts, so a selected tile and a selected row are visibly
+     the same state and differ only in arrangement. */
+  const shell = {
+    borderRadius: radius.button,
+    /* The selected border is heavier as well as louder. At a constant 1pt the
+       tint does all the work, and the tint is the signal that a colour-blind
+       user does not get. */
+    borderWidth: on ? 1.5 : 1,
+    borderColor: unavailable ? colors.borderSubtle : on ? colors.brand : colors.border,
+    backgroundColor: unavailable ? colors.surfaceSunken : on ? colors.brandTint : colors.surface,
+  };
+
+  const text = (
+    <View style={tile ? styles.optionTileText : styles.flex}>
+      <Text variant={on ? 'bodyStrong' : 'bodyLg'} color={unavailable ? 'tertiary' : 'primary'}>
+        {label}
+      </Text>
+      {description ? (
+        <Text variant="caption" color={unavailable ? 'tertiary' : 'secondary'}>
+          {description}
+        </Text>
+      ) : null}
+    </View>
+  );
+
+  /* An unavailable card has no control, so it draws no indicator at all — not a
+     greyed-out one. A dimmed tick still reads as something you could tap if you
+     tried harder. */
+  const indicator = unavailable ? null : (
+    <View
+      style={[
+        styles.optionIndicator,
+        {
+          borderRadius: radius.pill,
+          /* The ring is `borderInput`, not `border`: an unanswered control needs
+             3:1 against the surface it sits on, and the decorative hairline is a
+             fifth of that. Same rule as an empty text field. */
+          borderColor: on ? colors.brand : colors.borderInput,
+          borderWidth: on ? 0 : 1.75,
+        },
+      ]}
+    >
+      <Animated.View
+        style={[
+          StyleSheet.absoluteFill,
+          discStyle,
+          styles.optionDisc,
+          { borderRadius: radius.pill, backgroundColor: colors.brand },
+        ]}
+      >
+        <Icon name="check" size={16} color={colors.onBrand} />
+      </Animated.View>
+    </View>
+  );
+
+  const body = tile ? (
+    <View
+      style={[
+        styles.optionTile,
+        shell,
+        { minHeight: 148, padding: space[4], gap: space[3] },
+      ]}
+    >
+      {/* The tick rides the leading mark's row, so selecting a tile never
+          displaces the text under it. `space-between` on the row keeps the tick
+          hard right whether or not a `leading` node was given. */}
+      <View style={styles.optionTileHead}>
+        {leading ?? <View />}
+        {indicator}
+      </View>
+      {text}
+    </View>
+  ) : (
+    <View
+      style={[
+        styles.optionCard,
+        shell,
+        {
+          minHeight: 64,
+          paddingVertical: space[3],
+          paddingHorizontal: space[4],
+          gap: space[3],
+        },
+      ]}
+    >
+      {leading}
+      {text}
+      {trailing ? <View style={styles.optionTrailing}>{trailing}</View> : null}
+      {indicator}
+    </View>
+  );
+
+  const spoken =
+    accessibilityLabel ?? (description ? `${label}, ${description}` : label);
+
+  if (unavailable || !onSelect) {
+    return (
+      <View accessible accessibilityLabel={spoken} style={style} testID={testID}>
+        {body}
+      </View>
+    );
+  }
+
+  return (
+    <Pressable
+      onPress={onSelect}
+      accessibilityRole={role}
+      accessibilityState={role === 'radio' ? { selected } : { checked: selected }}
+      accessibilityLabel={spoken}
+      accessibilityHint={accessibilityHint}
+      testID={testID}
+      style={[{ minHeight: touch.min }, style]}
+    >
+      {body}
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   flex: { flex: 1 },
@@ -470,7 +729,7 @@ const styles = StyleSheet.create({
     width: 26,
     height: 26,
     backgroundColor: '#FFFFFF',
-    shadowColor: '#10151C',
+    shadowColor: '#1A1917',
     shadowOpacity: 0.25,
     shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
@@ -486,4 +745,20 @@ const styles = StyleSheet.create({
   segmented: { flexDirection: 'row' },
   segment: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   stepButton: { alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
+  optionCard: { flexDirection: 'row', alignItems: 'center' },
+  /* The mark and the tick at the top, the words at the bottom, so the labels
+     land on one horizontal line across a grid of these. */
+  optionTile: { justifyContent: 'space-between', alignItems: 'stretch' },
+  optionTileHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    alignSelf: 'stretch',
+  },
+  optionTileText: { gap: 2 },
+  optionTrailing: { alignItems: 'flex-end' },
+  /* 22pt to match the radio and the checkbox, so the three indicators are one
+     size wherever they appear beside each other. */
+  optionIndicator: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
+  optionDisc: { alignItems: 'center', justifyContent: 'center' },
 });

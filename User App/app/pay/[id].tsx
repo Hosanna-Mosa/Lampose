@@ -40,7 +40,7 @@ export default function PaymentMethod() {
 
   if (!listing || listing.rent === null) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <StateTemplate copy={errorStates.notFound()} onPrimary={() => router.replace('/home')} />
       </View>
@@ -126,7 +126,7 @@ export default function PaymentMethod() {
       <ScrollView
         contentContainerStyle={{
           padding: layout.gutter,
-          paddingBottom: insets.bottom + space[8],
+          paddingBottom: space[8],
           gap: space[5],
         }}
       >

@@ -58,7 +58,7 @@ export function Badge({ label, count, tone = 'neutral', dot = false, size = 'md'
       >
         <Text
           style={{
-            color: tone === 'danger' ? '#FFFFFF' : set.fg,
+            color: tone === 'danger' ? colors.danger.on : set.fg,
             fontSize: 10,
             lineHeight: 12,
             fontWeight: '700',

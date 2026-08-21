@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
@@ -23,6 +24,7 @@ import { useTheme } from '@/context/ThemeContext';
  */
 export default function GiveNotice() {
   const { colors, space, layout, mode, radius } = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
 
   // Defaults to the first option that costs nothing, not the soonest date.
@@ -32,7 +34,7 @@ export default function GiveNotice() {
   const selected = noticeTerms.options.find((option) => option.id === selectedId)!;
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader title="Moving out" onBack={() => router.back()} />
 

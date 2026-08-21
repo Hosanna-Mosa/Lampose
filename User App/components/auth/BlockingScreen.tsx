@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
 import { Button, Icon, Text } from '@/components/ui';
@@ -30,7 +31,7 @@ export type BlockingScreenProps = {
   cooldownOnAction?: boolean;
   secondaryLabel?: string;
   onSecondary?: () => void;
-  /** An amber note above the action: a paused deadline, a held booking. */
+  /** A caution note above the action: a paused deadline, a held booking. */
   notice?: string;
 };
 
@@ -46,6 +47,7 @@ export function BlockingScreen({
   notice,
 }: BlockingScreenProps) {
   const { colors, space, radius, layout } = useTheme();
+  const insets = useSafeAreaInsets();
   const reduceMotion = useReduceMotion();
   const [cooldown, setCooldown] = useState(0);
 
@@ -63,7 +65,20 @@ export function BlockingScreen({
   return (
     <Animated.View
       entering={FadeIn.duration(reduceMotion ? 120 : 200)}
-      style={[styles.host, { backgroundColor: colors.bg, padding: layout.gutter, gap: space[5] }]}
+      style={[
+        styles.host,
+        {
+          backgroundColor: colors.bg,
+          padding: layout.gutter,
+          /* Centre within the SAFE area, not the raw screen. On a phone drawing
+             edge-to-edge the retry button would otherwise sit closer to the
+             gesture bar than it looks, and this screen is sometimes the only
+             thing on it. */
+          paddingTop: insets.top + layout.gutter,
+          paddingBottom: insets.bottom + layout.gutter,
+          gap: space[5],
+        },
+      ]}
     >
       <View
         style={[

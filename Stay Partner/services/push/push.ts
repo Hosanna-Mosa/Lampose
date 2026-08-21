@@ -123,7 +123,7 @@ async function ensureChannel(): Promise<void> {
     name: 'Stay requests',
     importance: Notifications.AndroidImportance.MAX,
     vibrationPattern: [0, 250, 250, 250],
-    lightColor: '#14492F',
+    lightColor: '#0E6E5C',
     /* The deadline is the whole point — it has to be visible on a locked
        screen, not hidden behind "tap to reveal". */
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,

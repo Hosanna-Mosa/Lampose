@@ -1,4 +1,4 @@
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,6 +33,7 @@ import {
   Toast,
   Tooltip,
 } from '@/components/ui';
+import { StandardHeader } from '@/components/shell';
 import { useTheme } from '@/context/ThemeContext';
 import { actions } from '@/constants/actions';
 
@@ -80,6 +81,7 @@ function Section({ title, note, children }: { title: string; note?: string; chil
 export default function PrimitivesPreview() {
   const { colors, space, layout } = useTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('98490 12');
@@ -103,12 +105,15 @@ export default function PrimitivesPreview() {
   return (
     <>
       <Stack.Screen options={{ title: 'Primitives' }} />
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
+        {/* A way out. This sheet is reachable by address and had no exit of its
+            own, so it relied entirely on the OS gesture. */}
+        <StandardHeader title="Primitives" onBack={() => router.back()} />
         <OfflineBanner offline ageLabel="4 min old" />
         <ScrollView
           contentContainerStyle={{
             paddingTop: space[4],
-            paddingBottom: insets.bottom + space[8] * 2,
+            paddingBottom: space[8] * 2,
             paddingHorizontal: layout.gutter,
             gap: space[6],
           }}

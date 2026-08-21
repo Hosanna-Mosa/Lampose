@@ -1,4 +1,4 @@
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
@@ -41,6 +41,7 @@ const VIEWS = ['Headers', 'CTA bar', 'States', 'Photo'] as const;
 
 export default function ShellPreview() {
   const { colors, space, layout } = useTheme();
+  const router = useRouter();
   const heroHeight = usePhotoHeroHeight();
   const [tab, setTab] = useState('explore');
   const [view, setView] = useState<(typeof VIEWS)[number]>('Headers');
@@ -59,6 +60,10 @@ export default function ShellPreview() {
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        {/* A way out of the preview itself. It sits ABOVE the header being
+            demonstrated, so the two are never confused for one bar — the one
+            below is the specimen, this one is the exit. */}
+        <StandardHeader title="Shell preview" onBack={() => router.back()} />
         {view === 'Photo' ? (
           <>
             <PhotoHeader

@@ -8,8 +8,8 @@ import { useTheme } from '@/context/ThemeContext';
  * An offer, stated as a saving.
  *
  * Amber is the app's accent colour and it is also what deadlines wear, so the
- * two are told apart by SHAPE rather than hue: an offer is a filled amber chip
- * on a plain surface card, a deadline is a fully amber-tinted card with no
+ * two are told apart by SHAPE rather than hue: an offer is a filled caution
+ * chip on a plain surface card, a deadline is a fully caution-tinted card with no
  * chip. One offer strip per screen, ever — a feed with three of them is an
  * advertisement, and this one exists because ₹20 off a ₹99 meal is a fifth of
  * the price to the person reading it.

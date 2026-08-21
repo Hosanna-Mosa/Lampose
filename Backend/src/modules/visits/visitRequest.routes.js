@@ -21,6 +21,7 @@ const {
 } = require('./visitRequest.controller');
 const {
   createPaymentOrder, verifyPayment, setJoiningDate, renderCheckout, paymentCallback,
+  recordPaymentFailure,
 } = require('./visitPayment.controller');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const { attachCustomerIfPresent } = require('../customers/customerAuth.middleware');
@@ -63,5 +64,8 @@ router.post('/:id/joining-date', requireLamposeDb, statusLimit, setJoiningDate);
    already lives, and bounces back through the app's deep link. */
 router.get('/:id/payment/checkout', requireLamposeDb, renderCheckout);
 router.post('/:id/payment/callback', requireLamposeDb, paymentCallback);
+/* Telemetry from the checkout page when Razorpay declines. Records the reason
+   and answers 204 — it never decides anything. */
+router.post('/:id/payment/failed', requireLamposeDb, recordPaymentFailure);
 
 module.exports = router;

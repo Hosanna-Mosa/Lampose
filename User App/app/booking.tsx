@@ -134,7 +134,7 @@ export default function BookingPreview() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader
         title="Booking"
@@ -145,7 +145,7 @@ export default function BookingPreview() {
       <ScrollView
         contentContainerStyle={{
           paddingTop: space[4],
-          paddingBottom: insets.bottom + space[8],
+          paddingBottom: space[8],
           paddingHorizontal: layout.gutter,
           gap: space[6],
         }}

@@ -1,10 +1,11 @@
-import { Link, Redirect } from 'expo-router';
+import { Link, Redirect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Text } from '@/components/ui';
+import { StandardHeader } from '@/components/shell';
 import { usePreviewControls } from '@/hooks/useAppEnv';
 import { useTheme, type ThemePreference } from '@/context/ThemeContext';
 import {
@@ -124,6 +125,7 @@ export default function DesignSystemPreview() {
   const previewControls = usePreviewControls();
   const { colors, space: sp, radius, mode, preference, setPreference, reduceMotion, layout } = useTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   /*
    * Gone in a production build.
@@ -140,12 +142,17 @@ export default function DesignSystemPreview() {
   if (!previewControls) return <Redirect href="/home" />;
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
+      {/* A way out. This is pushed from Profile and had none, so the only exit
+          was the OS gesture — which is nothing at all on the web build. */}
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      <StandardHeader title="Design-system sheets" onBack={() => router.back()} />
       <ScrollView
         contentContainerStyle={{
-          paddingTop: insets.top + sp[4],
-          paddingBottom: insets.bottom + sp[8],
+          // No `insets.top`: the header above already clears the status bar,
+          // and adding it here would indent the content by it twice.
+          paddingTop: sp[4],
+          paddingBottom: sp[8],
           paddingHorizontal: layout.gutter,
           gap: sp[6],
         }}
@@ -355,7 +362,7 @@ export default function DesignSystemPreview() {
                   justifyContent: 'center',
                 }}
               >
-                <Text variant="bodyStrong" style={{ color: '#FFFFFF' }}>
+                <Text variant="bodyStrong" style={{ color: colors.onBrand }}>
                   {sheet.label}
                 </Text>
               </Pressable>

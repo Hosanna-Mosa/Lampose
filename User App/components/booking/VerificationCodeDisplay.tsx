@@ -92,16 +92,37 @@ export function VerificationCodeDisplay({
         style={[styles.tiles, { gap: space[2] }]}
       >
         {digits.map((digit, index) => (
+          /*
+           * Outlined in the accent, not filled in graphite.
+           *
+           * Changed with the Dock repaint to match the reference's gate-code
+           * screen, and it is a legibility change rather than a stylistic one.
+           * Four solid near-black slabs are the heaviest mark this app ever
+           * draws, and they were competing with the confirmation's own
+           * meaning — the code is the *answer*, so it should read as a value
+           * on the page rather than as four buttons.
+           *
+           * The outline also survives the thing this screen is built for. It
+           * runs at forced maximum brightness in a dim corridor, where a large
+           * black field blooms and the white numerals inside it smear; ink on
+           * white does not. 6.25:1 for the numeral, and the accent edge is
+           * what makes the four boxes a set.
+           */
           <View
             key={`${digit}-${index}`}
             style={[
               styles.tile,
-              { backgroundColor: colors.graphite, borderRadius: radius.card },
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.brand,
+                borderWidth: 1.5,
+                borderRadius: radius.card,
+              },
             ]}
           >
-            {/* codeHero: 50px, Martian Mono 700, tabular, and the only style
-                in the app that never scales with the OS setting. */}
-            <Text variant="codeHero" style={{ color: colors.onGraphite }}>
+            {/* codeHero: 50px, DM Mono, tabular, and the only style in the app
+                that never scales with the OS setting. */}
+            <Text variant="codeHero" style={{ color: colors.brandInk }}>
               {digit}
             </Text>
           </View>

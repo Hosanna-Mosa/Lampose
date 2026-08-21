@@ -529,7 +529,41 @@ const renderCheckout = async (req, res, next) => {
     document.body.appendChild(f); f.submit();
   };
   opts.modal = { ondismiss: function () { window.location = ${JSON.stringify(`${redirect}?paid=0`)}; } };
-  new Razorpay(opts).open();
+
+  var rzp = new Razorpay(opts);
+
+  /*
+   * Razorpay FAILING and Razorpay never opening were indistinguishable from
+   * outside until this existed.
+   *
+   * A declined payment showed the gateway's own "please use another method"
+   * screen and stopped there: nothing posted back, nothing recorded, and the
+   * reason — which Razorpay hands over in full, with a code, a step and a
+   * source — was thrown away. Anybody debugging it afterwards had a screenshot
+   * and no error code, which is exactly the position an in-app checkout puts
+   * you in when it behaves differently from a browser.
+   *
+   * Reported with \`keepalive\` so it still leaves if the page is navigating,
+   * and wrapped so that reporting a failure can never itself break the retry
+   * the student is about to make.
+   */
+  rzp.on('payment.failed', function (e) {
+    var err = (e && e.error) || {};
+    try {
+      var f = new FormData();
+      f.append('code', err.code || '');
+      f.append('description', err.description || '');
+      f.append('reason', err.reason || '');
+      f.append('step', err.step || '');
+      f.append('source', err.source || '');
+      f.append('paymentId', (err.metadata && err.metadata.payment_id) || '');
+      fetch(${JSON.stringify(`/api/v2/visit-requests/${doc._id}/payment/failed`)}, {
+        method: 'POST', body: f, keepalive: true,
+      });
+    } catch (ignored) { /* Never block the retry. */ }
+  });
+
+  rzp.open();
 </script>
 </body></html>`);
   } catch (error) {
@@ -591,8 +625,51 @@ const page = (title, body) => `<!doctype html>
 <div><h1 style="font-size:1.1rem">${title}</h1><p style="color:#46564d">${body}</p></div>
 </body></html>`;
 
+/**
+ * What Razorpay said when it refused.
+ *
+ * Records only — it never marks anything paid, and it deliberately does not
+ * end the request: a declined card is a reason to try another one, and the
+ * checkout stays open behind this call.
+ *
+ * The values are Razorpay's own (`code`, `step`, `source`, `reason`) and are
+ * written verbatim rather than mapped to our own vocabulary, because the whole
+ * point is to be able to quote them back to Razorpay support. `payment.status`
+ * stays `pending`: the order is still open and a retry on the same order is
+ * exactly what the student is being offered.
+ *
+ * @route POST /api/v2/visit-requests/:id/payment/failed
+ */
+const recordPaymentFailure = async (req, res, next) => {
+  try {
+    const doc = await VisitRequest.findById(req.params.id).catch(() => null);
+    /* 204 either way. This is telemetry from a page that is mid-retry; an
+       error status here would surface in the checkout as a failed fetch and
+       tell the student about a problem that is not theirs. */
+    if (!doc || !doc.payment?.required) return res.status(204).end();
+
+    const trim = (value) => String(value || '').slice(0, 200);
+    const detail = [
+      trim(req.body?.code),
+      trim(req.body?.step),
+      trim(req.body?.source),
+      trim(req.body?.reason),
+      trim(req.body?.description),
+    ].filter(Boolean).join(' · ');
+
+    doc.payment.failureReason = detail || 'razorpay declined, no reason given';
+    if (req.body?.paymentId) doc.payment.paymentId = trim(req.body.paymentId);
+    await doc.save();
+
+    console.warn(`💳 [payment failed] request ${doc._id} — ${doc.payment.failureReason}`);
+    return res.status(204).end();
+  } catch (error) {
+    return next(error);
+  }
+};
+
 module.exports = {
   createPaymentOrder, verifyPayment, setJoiningDate, needsToken,
   ensurePaymentLink, markPaidAndReleaseAddress,
-  renderCheckout, paymentCallback,
+  renderCheckout, paymentCallback, recordPaymentFailure,
 };

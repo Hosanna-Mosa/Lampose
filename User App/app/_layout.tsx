@@ -12,23 +12,18 @@ import { FoodProvider } from '@/context/FoodContext';
 import { PendingRequestProvider } from '@/context/PendingRequestContext';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import {
-  Archivo_400Regular,
-  Archivo_500Medium,
-  Archivo_600SemiBold,
-  Archivo_700Bold,
-} from '@expo-google-fonts/archivo';
+  Outfit_400Regular,
+  Outfit_500Medium,
+  Outfit_600SemiBold,
+  Outfit_700Bold,
+} from '@expo-google-fonts/outfit';
 import {
-  InstrumentSans_400Regular,
-  InstrumentSans_500Medium,
-  InstrumentSans_600SemiBold,
-  InstrumentSans_700Bold,
-} from '@expo-google-fonts/instrument-sans';
-import {
-  MartianMono_400Regular,
-  MartianMono_500Medium,
-  MartianMono_600SemiBold,
-  MartianMono_700Bold,
-} from '@expo-google-fonts/martian-mono';
+  SourceSans3_400Regular,
+  SourceSans3_500Medium,
+  SourceSans3_600SemiBold,
+  SourceSans3_700Bold,
+} from '@expo-google-fonts/source-sans-3';
+import { DMMono_400Regular, DMMono_500Medium } from '@expo-google-fonts/dm-mono';
 import { useFonts } from 'expo-font';
 import { StyleSheet, View } from 'react-native';
 import { Stack } from 'expo-router';
@@ -58,26 +53,30 @@ AppState.addEventListener('change', (status: AppStateStatus) => {
 });
 
 /**
- * Three faces, each with a job.
+ * The Dock trio, each face with a job.
  *
- * Archivo carries headings, Instrument Sans carries reading text, and Martian
- * Mono carries every number — rent, deposit, timers, distances, booking ids
- * and verification codes. React Native cannot synthesise weights, so each
- * weight is registered as its own family; `constants/tokens.ts` maps them.
+ * Outfit carries headings and the hero rent, Source Sans 3 carries reading
+ * text, and DM Mono carries the secondary numerals — deposit, timers,
+ * distances, counts, booking ids and the gate code. React Native cannot
+ * synthesise weights, so each weight is registered as its own family;
+ * `constants/tokens.ts` maps them.
+ *
+ * DM Mono ships only Light/Regular/Medium, so just two of its weights are
+ * loaded here and `fontFamilies` folds 600 and 700 onto Medium. Registering
+ * fewer files is the point — three faces at four weights each was twelve
+ * blocking downloads before the splash could lift.
  */
 const fonts = {
-  Archivo_400Regular,
-  Archivo_500Medium,
-  Archivo_600SemiBold,
-  Archivo_700Bold,
-  InstrumentSans_400Regular,
-  InstrumentSans_500Medium,
-  InstrumentSans_600SemiBold,
-  InstrumentSans_700Bold,
-  MartianMono_400Regular,
-  MartianMono_500Medium,
-  MartianMono_600SemiBold,
-  MartianMono_700Bold,
+  Outfit_400Regular,
+  Outfit_500Medium,
+  Outfit_600SemiBold,
+  Outfit_700Bold,
+  SourceSans3_400Regular,
+  SourceSans3_500Medium,
+  SourceSans3_600SemiBold,
+  SourceSans3_700Bold,
+  DMMono_400Regular,
+  DMMono_500Medium,
 };
 
 /**

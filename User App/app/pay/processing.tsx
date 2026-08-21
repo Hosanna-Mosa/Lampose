@@ -88,7 +88,7 @@ export default function PaymentProcessing() {
   });
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
 
       <ScrollView
@@ -96,7 +96,7 @@ export default function PaymentProcessing() {
           flexGrow: 1,
           padding: layout.gutter,
           paddingTop: insets.top + space[6],
-          paddingBottom: insets.bottom + space[6],
+          paddingBottom: space[6],
           gap: space[5],
         }}
       >

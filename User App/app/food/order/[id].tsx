@@ -2,6 +2,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
@@ -46,6 +47,7 @@ const CANCEL_REASONS = [
  */
 export default function OrderScreen() {
   const { colors, space, layout, radius, mode } = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { id, placed } = useLocalSearchParams<{ id: string; placed?: string }>();
   const { orders, cancelOrder, address } = useFood();
@@ -57,7 +59,7 @@ export default function OrderScreen() {
 
   if (!order) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <StandardHeader title="Order" onBack={() => router.back()} />
         <FoodEmptyState

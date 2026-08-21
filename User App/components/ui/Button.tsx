@@ -7,6 +7,20 @@ import { Text } from './Text';
 import { usePressAnimation } from '@/hooks/usePressAnimation';
 import { useTheme } from '@/context/ThemeContext';
 
+/**
+ * The `onImage` disc and its glyph, as literals rather than tokens.
+ *
+ * Everything else in this file reads its colours from the theme. These two
+ * cannot: they are drawn on top of a PHOTOGRAPH, which has no mode. A token
+ * pair would flip with the app's appearance setting and put a near-black disc
+ * with a near-white glyph over the same night shot the white one was chosen
+ * for. The photo does not get darker because the user turned dark mode on.
+ *
+ * SURFACE and INK from the Dock palette, held here at 17.6:1.
+ */
+const ON_IMAGE_DISC = '#FFFFFF';
+const ON_IMAGE_INK = '#1A1917';
+
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive';
 export type ButtonSize = 'lg' | 'md' | 'sm' | 'xs';
 
@@ -263,18 +277,39 @@ export function IconButton({
   style,
   testID,
 }: IconButtonProps) {
-  const { colors, touch, radius } = useTheme();
+  const { colors, touch, radius, elevation } = useTheme();
   const { animatedStyle, onPressIn, onPressOut } = usePressAnimation('iconButton');
 
+  /*
+   * `onImage` is a WHITE DISC with an ink glyph, not a dark scrim with a white
+   * one — changed with the Dock repaint to match the reference's listing
+   * screen, where the back arrow and the bookmark are white circles over the
+   * photo.
+   *
+   * It is also the more robust of the two over owner-uploaded photography,
+   * which is not art-directed. A 55% dark scrim carries a white glyph well over
+   * a bright photo and poorly over a dark one — the disc itself disappears into
+   * a night shot or a dim stairwell, taking the control's edge with it. An
+   * opaque white disc has the same silhouette on every photo there is, and the
+   * glyph inside it is ink on white at 17.6:1 rather than white on a
+   * part-transparent grey.
+   *
+   * The trade is that a white disc is louder over a pale photo than a scrim
+   * was. That is the right way round for these two controls: back and save are
+   * the only things on the image, and both need to be found immediately.
+   */
   const glyphColor = disabled
     ? colors.textTertiary
     : active
       ? colors.brandInk
       : variant === 'brand'
-        // A glyph drawn in green on a light surface is type, not fill.
+        // A glyph drawn in the accent on a light surface is type, not fill.
         ? colors.brandInk
         : variant === 'onImage'
-          ? '#FFFFFF'
+          // Literal ink, for the same reason the disc is literal white: in dark
+          // mode `textPrimary` is near-WHITE, and a near-white glyph on a white
+          // disc is an empty circle.
+          ? ON_IMAGE_INK
           : colors.textPrimary;
 
   return (
@@ -298,11 +333,16 @@ export function IconButton({
             width: touch.iconButtonVisual,
             height: touch.iconButtonVisual,
             borderRadius: radius.pill,
-            // A 55% scrim is what keeps a white glyph legible over an unknown
-            // photograph — owner uploads are not art-directed.
-            backgroundColor: variant === 'onImage' ? 'rgba(16,21,28,0.55)' : 'transparent',
+            // An opaque white disc, per the note on `glyphColor`. Literal white
+            // rather than `surface`, because this sits on a photograph in both
+            // modes — a dark-mode surface would put a near-black disc on a
+            // near-black night shot.
+            backgroundColor: variant === 'onImage' ? ON_IMAGE_DISC : 'transparent',
             opacity: disabled ? 0.55 : 1,
           },
+          // The disc needs to lift off the photo it is standing on. Without it
+          // a white control on an overexposed sky has no edge at all.
+          variant === 'onImage' ? elevation.raised : null,
         ]}
       >
         <Icon name={name} size={size} color={glyphColor} fill={active ? glyphColor : 'none'} />

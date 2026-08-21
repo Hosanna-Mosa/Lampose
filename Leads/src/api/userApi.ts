@@ -19,6 +19,22 @@ export const userApi = {
     return res.data;
   },
 
+  /**
+   * Edit an account. Every field is optional — send only what changed.
+   *
+   * `password` SETS a new one; there is no way to read the existing one. The
+   * server stores a bcrypt hash and strips it from every response, so no read
+   * path anywhere holds the plaintext. Resetting is the operation that
+   * actually unblocks a locked-out employee.
+   */
+  async updateUser(
+    userId: string,
+    changes: { name?: string; email?: string; role?: 'ADMIN' | 'EMPLOYEE'; avatar?: string; password?: string },
+  ): Promise<{ success: boolean; message?: string; data: User }> {
+    const res = await apiClient.put(`/users/${userId}`, changes);
+    return res.data;
+  },
+
   async deleteUser(userId: string): Promise<{ success: boolean; message?: string }> {
     const res = await apiClient.delete(`/users/${userId}`);
     return res.data;

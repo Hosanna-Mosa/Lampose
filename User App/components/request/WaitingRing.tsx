@@ -32,7 +32,7 @@ const AnimatedCircle = Animated.createAnimatedComponent(Circle);
  * It is one of exactly two infinite animations in the product.
  *
  * At five minutes there is a one-shot urgency shift: the ring and halo cross to
- * amber, the card pops once, granularity switches to mm:ss, and a single light
+ * caution-orange, the card pops once, granularity switches to mm:ss, and a single light
  * haptic fires. **It never turns red.** Nothing has gone wrong, and red here
  * would tell a parent looking over a shoulder that their child is losing money.
  */

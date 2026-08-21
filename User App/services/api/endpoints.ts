@@ -67,6 +67,10 @@ export const endpoints = {
    * The deadline is minutes, not a day, and it is set and owned entirely by
    * the server. This app renders `expiresAt`; it never computes one.
    */
+  /* The student's own bookings — the customer half of the row the owner's app
+     writes. Read-only from here; every state change on it is an owner action. */
+  bookings: `${V2}/customers/bookings`,
+  booking: (id: string) => `${V2}/customers/bookings/${encodeURIComponent(id)}`,
   stayRequests: `${V2}/customers/stay-requests`,
   /* The visit-request routes, shared with the website. The token steps live
      there rather than under /customers because a request made from either

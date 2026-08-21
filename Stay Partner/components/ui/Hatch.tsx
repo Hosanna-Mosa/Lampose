@@ -25,7 +25,11 @@ export function Hatch({
   style?: ViewStyle;
 }) {
   const c = useColors();
-  const [a, b] = tone === 'accent' ? [c.accentTint, c.accentTintAlt] : ['#F0EEEC', '#F7F6F5'];
+  /* The neutral pair comes from the palette rather than two literals, which is
+     what kept the hatching cool-grey after the ground went warm — and, worse,
+     identically light in dark mode, where a near-white hatch on a near-black
+     card is the loudest thing on the screen. */
+  const [a, b] = tone === 'accent' ? [c.accentTint, c.accentTintAlt] : [c.borderSubtle, c.surfaceSunken];
   const id = `hatch-${tone}`;
 
   return (

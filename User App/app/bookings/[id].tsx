@@ -2,6 +2,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Text } from '@/components/ui';
 import { StandardHeader, StateTemplate } from '@/components/shell';
@@ -34,6 +35,7 @@ import { usePreviewControls } from '@/hooks/useAppEnv';
 export default function BookingDetail() {
   const previewControls = usePreviewControls();
   const { colors, space, layout, mode, radius } = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
 
@@ -89,7 +91,7 @@ export default function BookingDetail() {
 
   if (!stored) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <StateTemplate copy={errorStates.notFound()} onPrimary={() => router.replace('/home')} />
       </View>

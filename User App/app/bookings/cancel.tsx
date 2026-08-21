@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Icon, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
@@ -27,13 +28,14 @@ import { useDepositMark } from '@/components/ui/DepositMark';
  */
 export default function CancelBooking() {
   const { colors, space, layout, mode, radius, touch } = useTheme();
+  const insets = useSafeAreaInsets();
   const depositMark = useDepositMark();
   const router = useRouter();
 
   const [reasonId, setReasonId] = useState<string | null>(null);
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader
         title="Cancel your booking"

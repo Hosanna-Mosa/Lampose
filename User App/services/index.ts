@@ -70,6 +70,15 @@ export {
   type StayRequestsResult,
 } from './api/stayRequests.api';
 
+export {
+  fetchBookings,
+  fetchBooking,
+  isMovedIn,
+  isClosed,
+  type CustomerBooking,
+  type BookingStatus,
+} from './api/bookings.api';
+
 export { fetchHealth } from './api/health.api';
 
 export {
@@ -141,6 +150,7 @@ export {
 export { queryKeys } from './hooks/keys';
 export { useListing, useListingMeta, useListings, type ListingMeta } from './hooks/useListings';
 export { useStayRequest, isTerminalPhase, type StayPhase } from './hooks/useStayRequest';
+export { useBookings, useBooking } from './hooks/useBookings';
 export { useNotifications, type NotificationDay } from './hooks/useNotifications';
 export { useSaved } from './hooks/useSaved';
 export { useMyCoupon } from './hooks/useMyCoupon';

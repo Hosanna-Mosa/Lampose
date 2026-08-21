@@ -1,157 +1,207 @@
 /**
  * LAMPOSE Stay Partner — color tokens.
  *
- * Converted from the oklch values in `designs/LAMPOSE Stay Partner - Design System.dc.html`.
- * `dark` is a real palette (added 18 Aug) — the design set only ever specified light, so
- * every dark value below is derived from `light`'s own hues rather than a source file:
- * same semantic families (warm neutral, brand green, amber, red, violet), lightness ramp
- * inverted for a dark background, kept saturated enough to still read as the same brand
- * rather than a desaturated grey version of it. `useColors()` picks whichever key matches
- * the device's `useColorScheme()` with no other code changes.
+ * Aligned 20 Aug 2026 to the "Dock" palette the customer app runs on, so an
+ * owner and a student are looking at one product rather than two that happen to
+ * share a name. The supplied roles, verbatim:
  *
- * Every pairing below was checked against WCAG AA the same way `light`'s deviations were —
- * a standalone contrast script (relative luminance, not a library), 4.5:1 for body text,
- * 3:1 accepted only for bold/medium UI text (buttons, links) or already-tertiary roles.
+ *   GROUND  #EFEDE9   SURFACE #FFFFFF   INK     #1A1917
+ *   ACCENT  #0E6E5C   CONFIRM #0E6E5C   CAUTION #A85A1E
  *
- * Two foregrounds deviate from the source design because the originals fail WCAG AA
- * against their own tints (see `successOnTint` / `warningOnTint` below).
+ * ## What this replaced, and what carried over
  *
- * The Accent family was re-themed 16 Aug from the design set's blue to the real
- * lampose.com brand green — the app's own site, not a design-file color, refined
- * same day once the app switched from the site's textured splash-mark favicon to
- * its flat square logo (`/assets/logo-*.png` in the site's own JS bundle — the
- * mark actually used in its UI, not just its favicon). `accent` and `brandYellow`
- * are pixel-sampled straight from that flat mark's solid fill; `accentHover` is
- * darkened from the same sampled hue, since the site's <meta name="theme-color">
- * (used for this role in the first pass) turned out lighter than this more
- * saturated sample, which would read as the pressed state going brighter, not
- * darker. The rest of the family (tint/ink/muted) is fanned out from the sampled
- * hue the same way the old blue family was — one canonical hue, lightness/
- * saturation varied per role. Every text-on-tint pairing below was re-checked
- * for WCAG AA (4.5:1) at its actual usage size.
+ * The old palette was already warm — hue-75 neutrals, a sampled brand green —
+ * so this is a re-tuning rather than a change of temperature. Three things did
+ * change in kind:
+ *
+ *   · The green moved from the logo mark's very dark #14492F to Dock's ACCENT.
+ *     The old value was so dark it read as near-black at button size; #0E6E5C
+ *     is a teal that still carries white at 6.25:1 but is visibly a colour.
+ *   · The amber family became CAUTION #A85A1E. That fixed something the old
+ *     file had already had to patch around: `warningFill` existed only because
+ *     white on the amber measured 4.38:1 and needed a separate darker value.
+ *     White on CAUTION is 5.10:1, so the two are one colour again.
+ *   · `info` stopped being violet. Dock deliberately has no second saturated
+ *     hue — a completed or refunded booking is a NOTE, and rendering it in its
+ *     own colour dressed up bookkeeping as an event.
+ *
+ * Every token name is unchanged, so no call site moved.
+ *
+ * ## ACCENT and CONFIRM are the same hex, on purpose
+ *
+ * That is the reference's own definition — in this product "confirmed" IS the
+ * good outcome — and it is only survivable because of the standing rule the
+ * customer app also runs on: status is never carried by colour alone. Every
+ * badge here ships a glyph and a word, so a solid accent button and a green
+ * "Paid" pill are told apart by shape and content rather than hue.
+ *
+ * ## The constraint that shapes the dark palette
+ *
+ * `Button` draws `c.white` on `accent`, `success` and `error`. So all three
+ * must stay dark enough to carry white IN BOTH MODES, which is why the dark
+ * fills below are deeper than a dark theme would otherwise pick. The previous
+ * dark palette did not hold that line — white on its `success` #4CBA76 measured
+ * 2.45:1 and on its `error` #E15A5C 3.63:1, both failing on a button label.
+ * Every fill here clears 4.5:1 for white.
+ *
+ * Ratios in the comments are measured (relative luminance), not estimated.
  */
 
 const palette = {
-  // ── Neutrals (hue 75, warm) ─────────────────────────────────────────────
-  surface: '#FEFDFC', // cards, sheets, headers — oklch(99.5% .002 75)
-  bg: '#FAF8F5', // app background — oklch(98% .004 75)
-  surfaceSunken: '#F3F1F0', // disabled fields, segmented track — oklch(96% .003 75)
-  borderSubtle: '#EAE7E4', // dividers — oklch(93% .005 75)
-  borderCard: '#E4E1DD', // card outlines — oklch(91% .006 75)
-  border: '#DDDAD6', // input borders — oklch(89% .006 75)
+  // ── Neutrals (Dock's warm ramp) ─────────────────────────────────────────
+  surface: '#FFFFFF', // cards, sheets, headers — SURFACE
+  bg: '#EFEDE9', // app background — GROUND
+  surfaceSunken: '#E5E2DB', // disabled fields, segmented track
+  borderSubtle: '#EDEAE4', // dividers
+  borderCard: '#E2DED6', // card outlines
+  /* Input borders, and the one border that is not decorative. WCAG 1.4.11 asks
+     3:1 for the boundary of a control, and an empty field's edge is its whole
+     affordance — 3.5:1 on the white fill, 3.0:1 on the ground behind it. The
+     two above are hairlines around cards and are deliberately far fainter. */
+  border: '#8F897C',
 
-  textDisabled: '#A8A49F', // oklch(72% .008 75)
-  textTertiary: '#898581', // timestamps, placeholders — oklch(62% .008 75)
-  textCaption: '#75716B', // helper copy — oklch(55% .01 75)
-  textSecondary: '#615D57', // descriptions — oklch(48% .01 75)
-  textBody: '#3E3A35', // review/message body — oklch(35% .01 75)
-  textPrimary: '#1D1A16', // headings, values — oklch(22% .01 75)
+  textDisabled: '#A9A398',
+  textTertiary: '#837D72', // timestamps, placeholders — 3.6:1 on bg, tertiary role
+  textCaption: '#66625A', // helper copy — 5.3:1 on bg, 6.2:1 on a card
+  textSecondary: '#55524C', // descriptions — 6.7:1 on bg, 7.8:1 on a card
+  textBody: '#3B3833', // review/message body — 10.0:1 on bg
+  textPrimary: '#1A1917', // headings, values — INK, 15.1:1 on bg
 
-  // ── Accent (lampose.com brand green, extracted & refined 16 Aug) ─────────
-  accent: '#14492F', // pixel-sampled from the flat logo mark's fill — 10.38:1 on white
-  accentHover: '#0D3622', // pressed — darkened from the same sample, 13.45:1 on white
-  accentTint: '#EAF5F0', // focus ring, selected range
-  accentTintAlt: '#F5F9F7', // placeholder hatching
-  accentInk: '#197648', // text on accentTint — 5.07:1
-  accentInkDeep: '#0E4E2F', // large figures on accentTint — 8.76:1
-  accentMuted: '#317252', // secondary text on accentTint — 5.13:1
-  brandYellow: '#FFDE59', // pixel-sampled from the logo's "o" — splash tagline only, 7.83:1 on accent
+  // ── Accent (Dock ACCENT) ────────────────────────────────────────────────
+  accent: '#0E6E5C', // 6.25:1 for white on it
+  accentHover: '#0A5748', // pressed — darker, so a white label only gets safer
+  accentTint: '#E3F0EB', // focus ring, selected range
+  accentTintAlt: '#F1F7F4', // placeholder hatching
+  accentInk: '#0E6E5C', // text on accentTint — 5.3:1
+  accentInkDeep: '#0B5245', // large figures on accentTint — 7.8:1
+  accentMuted: '#2E7566', // secondary text on accentTint — 4.7:1
+  /* Kept. It is pixel-sampled from the logo's own "o" and is the one mark that
+     is identity rather than palette. Splash tagline only — 4.7:1 on ACCENT,
+     which is a large-text role. It must never carry small text. */
+  brandYellow: '#FFDE59',
 
-  // ── Success / paid / confirmed ──────────────────────────────────────────
-  success: '#227C45', // fills, icons, bars — oklch(52% .12 152)
-  successTint: '#D6F4DD', // oklch(94% .045 152)
-  successOnTint: '#1A763F', // DEVIATION: design's #227C45 is 4.42:1 on the tint; this is 4.81:1
-  successInk: '#005126', // oklch(38% .1 152)
-  successInkDeep: '#104625', // oklch(35% .08 152)
+  // ── Success / paid / confirmed (Dock CONFIRM — same hex as ACCENT) ──────
+  success: '#0E6E5C', // fills, icons, bars — 6.25:1 for white on it
+  successTint: '#E3F0EB',
+  successOnTint: '#0B5245', // 7.8:1 on the tint
+  successInk: '#0B5245',
+  successInkDeep: '#084237',
 
-  // ── Warning / pending / in review ───────────────────────────────────────
-  warning: '#A96B00', // stars, icons, bars — oklch(58% .14 75)
-  warningTint: '#FEE9BE', // oklch(94% .06 85)
-  warningOnTint: '#8F5300', // DEVIATION: design's #A96B00 is 3.68:1 on the tint; this is 5.17:1
-  warningFill: '#A56300', // DEVIATION: solid-badge fill; white on #A96B00 is 4.38:1, this is 4.79:1
-  warningInk: '#754B00', // oklch(45% .1 75)
-  warningInkDeep: '#604008', // oklch(40% .08 75)
+  // ── Warning / pending / in review (Dock CAUTION) ────────────────────────
+  warning: '#A85A1E', // stars, icons, bars
+  warningTint: '#FBEEE2',
+  warningOnTint: '#7A3D0F', // 7.4:1 on the tint
+  /* Now the same value as `warning`. It existed only because the old amber
+     could not carry white (4.38:1); CAUTION does, at 5.10:1. */
+  warningFill: '#A85A1E',
+  warningInk: '#7A3D0F',
+  warningInkDeep: '#63310C',
 
   // ── Error / failed / cancelled ──────────────────────────────────────────
-  error: '#B63132', // oklch(52% .17 25)
-  errorTint: '#FFE0DC', // oklch(94% .045 25)
-  errorHover: '#A21921', // oklch(46% .17 25)
-  errorInk: '#800613', // oklch(38% .15 25)
-  errorInkDeep: '#6C1517', // oklch(35% .12 25)
+  /* Dock has no danger role and this app cannot do without one — a failed
+     payout and a cancelled booking must not render in the accent. Warm red,
+     chosen to sit in the same desaturated register as CAUTION. 6.6:1 both ways. */
+  error: '#B3261E',
+  errorTint: '#FBEAE8',
+  errorHover: '#8E1E17',
+  errorInk: '#8C1D17', // 7.8:1 on the tint
+  errorInkDeep: '#74170F',
 
   // ── Info / completed / refunded ─────────────────────────────────────────
-  info: '#635EA5', // oklch(52% .11 285)
-  infoTint: '#E8E8FF', // oklch(94% .035 285)
+  /* Neutral, not violet — see the note at the top. It reads as "a note", which
+     is what a completed booking is. */
+  info: '#55524C',
+  infoTint: '#E9E6E0',
 
   // ── Fixed values ────────────────────────────────────────────────────────
   white: '#FFFFFF',
-  scrim: 'rgba(29, 26, 22, 0.45)', // sheet backdrop — oklch(22% .01 75 / .45)
+  scrim: 'rgba(26, 25, 23, 0.45)', // sheet backdrop — INK at 45%
 };
 
+/**
+ * Dark palette.
+ *
+ * Derived, not supplied — Dock is light-only. The rule followed: keep the
+ * relationships, invert the ground, and keep it WARM. A neutral-grey dark mode
+ * under a bone-and-teal light mode reads as a different app.
+ *
+ * `surfaceSunken` stays a step LIGHTER than `surface` here, opposite to the
+ * light palette. That is this app's own convention and its segmented track and
+ * disabled fields depend on it: on a dark ground a well has to be lifted to be
+ * seen, because there is nothing darker left to sink into.
+ */
 const darkPalette = {
-  // ── Neutrals (hue 75, warm — same family as light, ramp inverted) ────────
-  surface: '#211D17', // cards, sheets, headers — one step above bg
-  bg: '#17140F', // app background
-  surfaceSunken: '#2A251E', // disabled fields, segmented track
-  borderSubtle: '#332D24',
-  borderCard: '#3D362B',
-  border: '#473F33',
+  // ── Neutrals (same warm family, ramp inverted) ──────────────────────────
+  surface: '#1C1B19', // cards, sheets, headers
+  bg: '#131211', // app background
+  surfaceSunken: '#252320', // disabled fields, segmented track — see above
+  borderSubtle: '#232220',
+  borderCard: '#302E2A',
+  border: '#736E64', // input borders — 3.4:1 on the dark surface
 
-  textDisabled: '#6B655A',
-  textTertiary: '#8B8477', // 4.95:1 on bg
-  textCaption: '#A39B8C', // 6.67:1 on bg
-  textSecondary: '#BEB6A6', // 9.12:1 on bg
-  textBody: '#DCD4C4', // 12.47:1 on bg
-  textPrimary: '#F5F1E8', // 16.29:1 on bg
+  textDisabled: '#6B6559',
+  textTertiary: '#8A8479', // 4.6:1 on bg
+  textCaption: '#948F87', // 5.6:1 on bg
+  textSecondary: '#BFBAB1', // 9.5:1 on bg
+  textBody: '#DAD5CC', // 12.5:1 on bg
+  textPrimary: '#F2F0EC', // 16.2:1 on bg
 
-  // ── Accent (same sampled brand green, brightened for a dark ground) ──────
-  /* One token still does double duty — primary button fill (white text on
-     top) and ghost-button/link text (on bg) — same as light. No single value
-     clears 4.5:1 both ways on a dark ground the way the light value does on
-     white, so this is chosen for the fill role at full AA (4.63:1 white text)
-     and lands at 3.97:1 for the text-on-bg role — short of body-text AA but
-     comfortably past the 3:1 large/bold-text bar every actual use here
-     (buttons, link labels) qualifies for. */
-  accent: '#1F8552',
-  accentHover: '#186B41', // pressed — darker, 6.53:1 for white text on it
-  accentTint: '#132B20',
-  accentTintAlt: '#16241C',
-  accentInk: '#5FD498', // text on accentTint — 8.15:1
-  accentInkDeep: '#8FE6BB', // large figures on accentTint — 10.19:1
-  accentMuted: '#7FBE9E', // secondary text on accentTint — 7.00:1
+  // ── Accent ──────────────────────────────────────────────────────────────
+  /* One token does double duty — the primary button fill, with white on top,
+     and ghost-button/link text on the ground. No single value clears 4.5:1 both
+     ways on a dark background, so this is tuned for the FILL role, where a
+     failing label is unreadable rather than merely quiet: white on it is 4.9:1.
+     As text on the ground it lands at 3.8:1, short of body-text AA but past the
+     3:1 bar every actual use here — buttons, link labels — qualifies for.
+     `accentInk` below is the value to use for accent-coloured PROSE. */
+  accent: '#18806A',
+  accentHover: '#126957', // pressed — darker; white on it is 6.7:1
+  accentTint: '#0F2721',
+  accentTintAlt: '#16211E',
+  accentInk: '#5FC9AF', // text on accentTint — 8.6:1
+  accentInkDeep: '#8FD6C3', // large figures on accentTint — 10.6:1
+  accentMuted: '#7FBEAC', // secondary text on accentTint — 7.4:1
   brandYellow: '#FFDE59', // unchanged — a bright yellow reads fine on dark too
 
   // ── Success / paid / confirmed ──────────────────────────────────────────
-  success: '#4CBA76', // 7.51:1 on bg
-  successTint: '#123322',
-  successOnTint: '#6FE0A0', // 8.44:1 on successTint
-  successInk: '#8FEEB8', // 13.20:1 on bg
-  successInkDeep: '#B0F5D0', // 14.71:1 on bg
+  /* Same hex as `accent`, exactly as in light mode. It also repairs a real
+     failure: the previous dark `success` could not carry the white label
+     `Button` puts on it. */
+  success: '#18806A',
+  successTint: '#0F2721',
+  successOnTint: '#7FD3BE', // 8.9:1 on successTint
+  successInk: '#7FD3BE',
+  successInkDeep: '#A8E3D3',
 
-  // ── Warning / pending / in review ────────────────────────────────────────
-  warning: '#E0A030', // 8.08:1 on bg
-  warningTint: '#3A2A0A',
-  warningOnTint: '#F0B94D', // 7.75:1 on warningTint
-  warningFill: '#8F5D00', // solid-badge fill; white text is 5.62:1 on it
-  warningInk: '#F3C876', // 11.66:1 on bg
-  warningInkDeep: '#F8DBA0', // 13.67:1 on bg
+  // ── Warning / pending / in review ───────────────────────────────────────
+  warning: '#E0954A', // 7.1:1 on bg — icons and bars, never a white label
+  warningTint: '#2C1E0E',
+  warningOnTint: '#EEBC85', // 7.9:1 on warningTint
+  /* Split from `warning` here, unlike light mode: the lightened amber above is
+     right for a glyph on the ground and cannot carry white. This one does, at
+     4.8:1. */
+  warningFill: '#8A5A22',
+  warningInk: '#EEBC85',
+  warningInkDeep: '#F5D3AC',
 
-  // ── Error / failed / cancelled ───────────────────────────────────────────
-  error: '#E15A5C', // 5.09:1 on bg
-  errorTint: '#3A1416',
-  errorHover: '#C94547',
-  errorInk: '#F0A5A6', // 9.30:1 on bg
-  errorInkDeep: '#F5BBBC', // 11.12:1 on bg
+  // ── Error / failed / cancelled ──────────────────────────────────────────
+  /* Deeper than a dark theme would instinctively pick, for the reason in the
+     header note: `Button` draws a white label on this. White is 5.4:1 here
+     against 3.6:1 on the brighter red this replaced. */
+  error: '#C0392F',
+  errorTint: '#2C1513',
+  errorHover: '#9E2C24',
+  errorInk: '#F5A49E', // 9.0:1 on bg — the value for error PROSE
+  errorInkDeep: '#F8C0BC',
 
-  // ── Info / completed / refunded ──────────────────────────────────────────
-  info: '#9691D4', // 6.38:1 on bg
-  infoTint: '#242058',
+  // ── Info / completed / refunded ─────────────────────────────────────────
+  info: '#BFBAB1',
+  infoTint: '#252320',
 
   // ── Fixed values ────────────────────────────────────────────────────────
   white: '#FFFFFF',
-  scrim: 'rgba(0, 0, 0, 0.55)', // sheet backdrop — darker than light's, since a
-  // warm dark overlay reads as a lighter smudge rather than a dim, on top of an
-  // already-dark screen
+  scrim: 'rgba(0, 0, 0, 0.62)', // sheet backdrop — a warm overlay on an already
+  // dark screen reads as a lighter smudge rather than a dim, so this is neutral
 };
 
 const colors = {

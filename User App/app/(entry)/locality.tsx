@@ -64,20 +64,47 @@ export default function LocalityPickerScreen() {
 
   const choose = async (locality: Locality) => {
     await setLocality(locality);
-    // First run continues into the category step; later visits — changing city
-    // from the Explore header — go straight back to the feed.
-    // Category is required, so a first-run user continues to it; someone
-    // changing their locality later already has one and goes back to the feed.
-    router.replace(category ? '/home' : '/(entry)/categories');
+    /*
+     * Always the feed, and always by `dismissTo`.
+     *
+     * Two things changed here on 20 Aug 2026, and they are separate.
+     *
+     * The destination is unconditional now because this is the LAST gate:
+     * category is asked before it, so by the time anyone answers this screen
+     * they already have one. The old `category ? ... : '/(entry)/categories'`
+     * was the branch that made this screen the first step of the chain, and
+     * with the order reversed it can never take the false side.
+     *
+     * `dismissTo` rather than `replace` because this screen is `push`ed from
+     * the Explore header every time somebody changes their area, and `replace`
+     * means "pop this and PUSH the target" — not "go back to the target". So
+     * replacing to `/home` while a `/home` was already underneath left TWO of
+     * them stacked, one per visit. `dismissTo` pops back to the existing one,
+     * and still replaces on first run when there is no home behind it yet.
+     */
+    router.dismissTo('/home');
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
-      {/* No back arrow the first time through — there is nothing behind it. */}
+      {/*
+        The arrow appears whenever there IS something behind it, which is not
+        the same question as "has this student already picked an area".
+
+        It used to ask the second one — `chosen ? back : undefined` — and that
+        was right while this was the FIRST gate: on a first run nothing was
+        behind it, so an arrow would have been a dead control. Reordering the
+        chain to category-then-area made it wrong the same day, because the
+        category screen is now underneath this one and a student who picked
+        the wrong kind of place had no way back to change it.
+
+        `canGoBack()` asks the navigator instead of inferring from app state,
+        so it stays correct whichever screen ends up behind this one.
+      */}
       <StandardHeader
         title="Where are you looking?"
-        onBack={chosen ? () => router.back() : undefined}
+        onBack={router.canGoBack() ? () => router.back() : undefined}
       />
 
       {/*
@@ -139,7 +166,7 @@ export default function LocalityPickerScreen() {
           <ScrollView
             contentContainerStyle={{
               paddingHorizontal: layout.gutter,
-              paddingBottom: insets.bottom + space[8],
+              paddingBottom: space[8],
             }}
             keyboardShouldPersistTaps="handled"
           >

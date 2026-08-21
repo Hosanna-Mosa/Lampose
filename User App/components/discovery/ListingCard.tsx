@@ -100,11 +100,11 @@ export function AvailabilityChip({ availability }: { availability: Availability 
 
 /** Stand-ins until real photography lands. Deterministic per listing. */
 const PLACEHOLDERS = [
-  ['#6d7b8d', '#3a4553'],
-  ['#7d8d7b', '#3f5340'],
-  ['#8d7b8a', '#533f50'],
-  ['#7b8a8d', '#3f5053'],
-  ['#8d857b', '#534b3f'],
+  ['#8C8578', '#4A463E'],
+  ['#83897A', '#454940'],
+  ['#8E8177', '#4C443D'],
+  ['#7E8781', '#424744'],
+  ['#8F8779', '#4D473D'],
 ] as const;
 
 function PhotoCarousel({

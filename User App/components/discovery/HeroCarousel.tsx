@@ -146,7 +146,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     paddingHorizontal: 8,
     paddingVertical: 3,
-    backgroundColor: 'rgba(16,21,28,0.55)',
+    backgroundColor: 'rgba(26,25,23,0.55)',
   },
   counterText: { color: '#FFFFFF' },
 });
