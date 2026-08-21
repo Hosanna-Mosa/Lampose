@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
 import visitRequestsApi from '../api/visitRequestsApi';
+import { loadCheckout, rupees } from '../lib/razorpayCheckout';
 
 /* ══════════════════════════════════════════════════════════════════════════
    What happens after a bachelor or co-live owner says yes.
@@ -23,27 +24,9 @@ import visitRequestsApi from '../api/visitRequestsApi';
    server would still refuse.
    ══════════════════════════════════════════════════════════════════════════ */
 
-const CHECKOUT_SRC = 'https://checkout.razorpay.com/v1/checkout.js';
-
-/** Load Razorpay's script once, and only when somebody is actually paying. */
-const loadCheckout = () => new Promise((resolve, reject) => {
-  if (window.Razorpay) return resolve(window.Razorpay);
-  const existing = document.querySelector(`script[src="${CHECKOUT_SRC}"]`);
-  if (existing) {
-    existing.addEventListener('load', () => resolve(window.Razorpay));
-    existing.addEventListener('error', () => reject(new Error('Could not load the payment window.')));
-    return undefined;
-  }
-  const script = document.createElement('script');
-  script.src = CHECKOUT_SRC;
-  script.async = true;
-  script.onload = () => resolve(window.Razorpay);
-  script.onerror = () => reject(new Error('Could not load the payment window.'));
-  document.body.appendChild(script);
-  return undefined;
-});
-
-const rupees = paise => `₹${((paise || 0) / 100).toLocaleString('en-IN')}`;
+/* The script loader and the paise formatter moved to lib/razorpayCheckout.js
+   when the ₹99 contact unlock became a second thing that opens a checkout.
+   Two copies of the loader means two script tags racing for one global. */
 
 const todayPlus = days => {
   const d = new Date();

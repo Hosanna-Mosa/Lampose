@@ -23,6 +23,10 @@ const {
   createPaymentOrder, verifyPayment, setJoiningDate, renderCheckout, paymentCallback,
   recordPaymentFailure,
 } = require('./visitPayment.controller');
+const {
+  createUnlockOrder, verifyUnlockPayment, createAssistedOrder, verifyAssistedPayment,
+  createBalanceOrder, verifyBalancePayment,
+} = require('./contactUnlock.controller');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const { attachCustomerIfPresent } = require('../customers/customerAuth.middleware');
 const { rateLimit } = require('../../shared/middleware/rateLimit');
@@ -67,5 +71,25 @@ router.post('/:id/payment/callback', requireLamposeDb, paymentCallback);
 /* Telemetry from the checkout page when Razorpay declines. Records the reason
    and answers 204 — it never decides anything. */
 router.post('/:id/payment/failed', requireLamposeDb, recordPaymentFailure);
+
+/* ── After the owner confirms: the two ways to actually see the room ──────
+   Free and accompanied, or paid and alone. Same capability as the routes
+   above — the request id — and the same ceiling, because neither is cheaper
+   to abuse than starting a checkout is.
+
+   Opening an assisted-visit order writes a slot and calls Razorpay, so it
+   gets the tighter of the two limits: a caller who re-opens a checkout ten
+   times an hour has stopped being a customer picking a time. Verifying is on
+   the looser one, because a customer whose network drops mid-payment has to
+   be able to retry. */
+const lamposeLimit = rateLimit({ name: 'lampose-visit-ip', windowMs: 60 * 60 * 1000, max: 10 });
+
+router.post('/:id/unlock/order', requireLamposeDb, statusLimit, createUnlockOrder);
+router.post('/:id/unlock/verify', requireLamposeDb, statusLimit, verifyUnlockPayment);
+router.post('/:id/assisted/order', requireLamposeDb, lamposeLimit, createAssistedOrder);
+router.post('/:id/assisted/verify', requireLamposeDb, statusLimit, verifyAssistedPayment);
+/* The other half of an assisted visit, settled when the room is confirmed. */
+router.post('/:id/assisted/balance/order', requireLamposeDb, statusLimit, createBalanceOrder);
+router.post('/:id/assisted/balance/verify', requireLamposeDb, statusLimit, verifyBalancePayment);
 
 module.exports = router;

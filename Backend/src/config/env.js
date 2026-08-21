@@ -168,6 +168,46 @@ const config = {
       return Math.round(raw);
     })(),
 
+    /* The SECOND, separate charge: the owner's phone number and a map pin.
+       9900 = ₹99.
+
+       Its own figure rather than a reuse of `tokenAmountPaise` because it
+       buys a different thing and is decided independently — the token holds a
+       visit, this hands over a way to reach the owner directly. Repricing one
+       must never silently reprice the other. */
+    contactUnlockAmountPaise: (() => {
+      const raw = Number(process.env.VISIT_CONTACT_UNLOCK_PAISE);
+      if (!Number.isFinite(raw) || raw < 100) return 9900;
+      return Math.round(raw);
+    })(),
+
+    /* The THIRD charge, and the only one that buys a person rather than a
+       fact: a Lampose representative meets the customer at the property and
+       walks them round. 19900 = ₹199.
+
+       Priced above the contact unlock because it costs an agent's time
+       rather than a database read, and independent of it — paying this books
+       a visit and does NOT release the owner's number. */
+    assistedVisitAmountPaise: (() => {
+      const raw = Number(process.env.VISIT_ASSISTED_AMOUNT_PAISE);
+      if (!Number.isFinite(raw) || raw < 100) return 19900;
+      return Math.round(raw);
+    })(),
+
+    /* Of that total, what is taken UP FRONT to book the representative.
+       10000 = ₹100, leaving ₹99 owed when the room is confirmed.
+
+       Only the advance is configured; the balance is the total minus this,
+       computed in one place (`assistedSplit` below) rather than being a third
+       number that can drift out of step with the other two. A deployment that
+       sets an advance at or above the total simply charges it all at once and
+       owes nothing — which is a coherent configuration, not an error. */
+    assistedAdvancePaise: (() => {
+      const raw = Number(process.env.VISIT_ASSISTED_ADVANCE_PAISE);
+      if (!Number.isFinite(raw) || raw < 100) return 10000;
+      return Math.round(raw);
+    })(),
+
     /* How long an accepted request waits to be paid for.
        The owner has agreed and is holding a layout; without a deadline an
        unpaid request holds it for ever. */

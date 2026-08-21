@@ -202,6 +202,87 @@ One-time codes are salted+peppered SHA-256, never stored in plaintext,
 cooldown. The endpoints are rate-limited per IP (`shared/middleware/rateLimit`)
 because each send costs real money.
 
+### After AVAILABLE: what a confirmed customer can buy
+
+A confirmed **bachelor or co-live** request (`payment.required`, decided from
+the category when the request was made and frozen there) offers the steps
+below. They are independent — any can happen without the others, and none
+reads another's state.
+
+| | Route | Costs | Gives | Lives in |
+| --- | --- | --- | --- | --- |
+| Visit token | `POST /:id/payment/order` → `/verify` → `/joining-date` | `VISIT_TOKEN_AMOUNT_PAISE` (₹20) | the street address, and claims a bed | `visitPayment.controller.js` |
+| Direct Access | `POST /:id/unlock/order` → `/unlock/verify` | `VISIT_CONTACT_UNLOCK_PAISE` (₹99) | the owner's number and a Maps pin | `contactUnlock.controller.js` |
+| Assisted Visit — advance | `POST /:id/assisted/order` → `/assisted/verify` | `VISIT_ASSISTED_ADVANCE_PAISE` (₹100) | books the slot, messages the roster | `contactUnlock.controller.js` |
+| Assisted Visit — balance | `POST /:id/assisted/balance/order` → `/balance/verify` | total minus advance (₹99) | settles the visit | `contactUnlock.controller.js` |
+
+The site shows the last three as a two-tab strip: **Assisted Visit** (₹199,
+taken as ₹100 now and ₹99 on confirmation) and **Direct Access** (₹99).
+
+**Neither tab includes the other.** Paying for an assisted visit does *not*
+release the owner's number — the representative deals with the owner, so the
+customer never needs it — and Direct Access books nobody's time. Copy that
+implies otherwise is selling something the payment does not deliver.
+
+#### The ₹199 is taken in two parts
+
+Only `VISIT_ASSISTED_ADVANCE_PAISE` is configured; the balance is
+`total − advance`, derived in `assistedSplit()` so the halves can never drift
+out of step with the total. An advance at or above the total charges
+everything up front and owes nothing, which is a coherent setup rather than
+an error.
+
+The balance is a debt, so it is treated like one:
+
+- The customer must tick a box agreeing to it. The server refuses the advance
+  order with `400 BALANCE_NOT_ACCEPTED` unless `balanceConsent === true`, and
+  records `balanceConsentAt` — "they must have ticked it" is not evidence six
+  weeks later.
+- `balance.status` is `not_due` until the advance verifies. There is nothing
+  to owe on a visit nobody booked.
+- The balance route deliberately skips the lapsed-confirmation gate: a
+  confirmation window closing afterwards does not cancel what is owed, and
+  refusing to let somebody settle it would strand them.
+
+#### Four orders, one request — the thing to keep right
+
+A confirmed request can carry the visit token, the contact unlock, the
+assisted advance and the assisted balance, and **all four carry the same
+`visitRequestId`** in their Razorpay notes. They are told apart by a
+`purpose` note:
+
+| `purpose` | Handler |
+| --- | --- |
+| *absent* | the visit token — what every payment and payment link made before these existed looks like, so old events keep their meaning |
+| `contact_unlock` | Direct Access |
+| `assisted_visit` | the assisted advance |
+| `assisted_balance` | the assisted balance |
+
+`razorpayWebhook.controller.js` dispatches on it, testing the balance *before*
+the advance — reading a settled balance as an advance would re-book a visit
+that already exists and message the roster a second time. Without the
+dispatch at all, any of the three would mark the token paid, release an
+address and take a bed out of the pool, none of which anybody bought.
+
+Each also has its **own receipt** — `unlock_<id>`, `assist_<id>`,
+`assistbal_<id>`, and the bare `<id>` for the token. Razorpay folds a repeated
+receipt into the order it already made, so a shared one hands a checkout the
+wrong order and the wrong amount.
+
+#### Where the gated values are assembled
+
+`toPublic()` carries each payment's *status* and never its contents. The
+owner's number and the map pin are attached by the **status endpoint** after
+it re-reads `contactUnlock.verifiedAt` — the field only an HMAC check writes.
+One place decides who may see a phone number.
+
+The roster is messaged only once the advance verifies, never when the slot is
+first picked: `pending_payment` is a held slot nobody is told about, or an
+abandoned checkout would put an agent's morning aside for somebody who closed
+the tab. The message itself is best-effort — Meta only carries free-form
+messages inside a 24-hour session — and a failed send leaves the paid booking
+standing with `teamNotifiedAt` null, which the page reports plainly.
+
 ---
 
 ## Two identity systems
