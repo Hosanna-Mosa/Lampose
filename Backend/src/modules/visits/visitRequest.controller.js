@@ -33,7 +33,7 @@ const Property = require('../properties/property.model');
 const VisitRequest = require('./visitRequest.model');
 const { sharingOptionsFor, findSharingOption } = require('../listings/sharing.util');
 const { requestableOptions, bookedAtLabel } = require('../inventory/inventory.service');
-const { readListingAddress } = require('./visitAddress.util');
+const { readListingAddress, readListingContact } = require('./visitAddress.util');
 const { validateIntent, describeIntent } = require('../listings/stayIntent.util');
 const config = require('../../config/env');
 const { needsToken, ensurePaymentLink } = require('./visitPayment.controller');
@@ -893,6 +893,23 @@ const getVisitRequest = async (req, res, next) => {
      */
     if (doc.addressReleasedAt) {
       data.address = await readListingAddress(doc.listingId);
+    }
+
+    /*
+     * The owner's number and a map pin, once the ₹99 unlock has verified.
+     *
+     * A separate gate from the one above and deliberately so: the visit token
+     * releases the address, this releases a way to ring the owner, and they
+     * are bought separately. Reading `contactUnlock.verifiedAt` — the field
+     * only an HMAC check writes — rather than trusting anything the client
+     * sent keeps that decision here, next to the other one, instead of in a
+     * browser.
+     *
+     * `toPublic` deliberately carries the status and not the contents, so
+     * this is the only place a customer's number-shaped answer is assembled.
+     */
+    if (doc.contactUnlock?.status === 'paid' && doc.contactUnlock?.verifiedAt) {
+      data.contact = await readListingContact(doc.listingId);
     }
 
     // Polled every few seconds by every waiting customer — never cached.

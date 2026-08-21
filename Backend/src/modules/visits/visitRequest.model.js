@@ -51,6 +51,7 @@
    commit wins.
    ══════════════════════════════════════════════════════════════════════════ */
 const mongoose = require('mongoose');
+const config = require('../../config/env');
 
 const STATUSES = ['otp_pending', 'pending_owner', 'confirmed', 'declined', 'expired', 'cancelled'];
 const TERMINAL = ['confirmed', 'declined', 'expired', 'cancelled'];
@@ -179,6 +180,118 @@ const visitRequestSchema = new mongoose.Schema(
          id — the webhook reports the link, not the order. */
       linkId: { type: String, default: null },
       linkUrl: { type: String, default: null },
+    },
+
+    /* ── The contact unlock ───────────────────────────────────────────
+       A SECOND and entirely separate charge from `payment` above, and the
+       separation is the point rather than an accident of layout.
+
+       The token buys a held visit; this buys the owner's phone number and a
+       map pin. They are decided independently, priced independently, and
+       either can be paid without the other — so they cannot share a status.
+       Folding them together would mean a customer who paid one appearing to
+       have paid both, which is the one mistake that costs somebody money.
+
+       Its own `orderId` for the same reason: two live Razorpay orders against
+       one request is normal here, and the webhook tells them apart by the
+       `purpose` note rather than by guessing from the amount. */
+    contactUnlock: {
+      status: {
+        type: String,
+        enum: ['none', 'pending', 'paid', 'failed'],
+        default: 'none',
+      },
+      /* Paise, snapshotted when the order is created — a later change to the
+         platform price must not reprice an order already open. */
+      amountPaise: { type: Number, default: null },
+      orderId: { type: String, default: null },
+      paymentId: { type: String, default: null },
+      /* Set only after the HMAC over `orderId|paymentId` verified. Its
+         presence IS the proof that the number may be handed over. */
+      verifiedAt: { type: Date, default: null },
+      failureReason: { type: String, default: '' },
+    },
+
+    /* ── A viewing accompanied by Lampose ─────────────────────────────
+       The other half of the choice a confirmed customer is offered: instead
+       of buying the owner's number and going alone, ask us to take them.
+
+       Free, and deliberately so — it costs a slot in an agent's day rather
+       than a payment, and putting a price on it would make the paid path the
+       only path. Nothing here releases an address or a phone number; it is a
+       request for a human to call back. */
+    lamposeVisit: {
+      status: {
+        type: String,
+        /* `pending_payment` is the slot somebody chose and has not paid for.
+           It is not a booking and nobody is told about it — the roster only
+           hears once the money verifies, or an unpaid checkout would put an
+           agent's morning aside for a person who closed the tab. */
+        enum: ['none', 'pending_payment', 'requested'],
+        default: 'none',
+      },
+      /* `YYYY-MM-DD` and `HH:MM`, stored as the strings the picker produced.
+         Not a Date: the customer means 4pm where the property is, and putting
+         that through a timezone would be inventing precision nobody typed. */
+      date: { type: String, default: null },
+      time: { type: String, default: null },
+      note: { type: String, default: '' },
+      /* When it became a real booking, which is when the payment verified —
+         not when the slot was first picked. */
+      requestedAt: { type: Date, default: null },
+      /* Null when WhatsApp was unreachable or no roster is configured. The
+         booking still stands — see the controller. */
+      teamNotifiedAt: { type: Date, default: null },
+
+      /* ── Its own money ────────────────────────────────────────────
+         The THIRD independent payment a confirmed request can carry, beside
+         the ₹20 visit token and the ₹99 contact unlock. Independent in the
+         sense that matters: paying this books an agent and nothing else — it
+         does not release the address, the owner's number or a bed. Its own
+         order id for the same reason the unlock has one, and the webhook
+         tells all three apart by a `purpose` note. */
+      /* The TOTAL, snapshotted — ₹199. What was actually charged up front is
+         `advancePaise`, and the difference is what is still owed. Keeping the
+         total means a later reprice cannot make an old booking's two halves
+         stop adding up. */
+      amountPaise: { type: Number, default: null },
+      advancePaise: { type: Number, default: null },
+      orderId: { type: String, default: null },
+      paymentId: { type: String, default: null },
+      /* Set only after the HMAC over `orderId|paymentId` verified. Its
+         presence IS the proof that an agent is owed a visit. */
+      verifiedAt: { type: Date, default: null },
+      failureReason: { type: String, default: '' },
+
+      /*
+       * Agreeing to owe the rest.
+       *
+       * Recorded like `consentedTerms` is, and for the same reason: the
+       * customer is taking on a debt, and "they must have ticked it" is not
+       * evidence six weeks later when they say they never agreed to a second
+       * charge. Written only from an explicit `true` on the request that
+       * opened the checkout, never inferred.
+       */
+      balanceConsent: { type: Boolean, default: false },
+      balanceConsentAt: { type: Date, default: null },
+
+      /* The other half, owed once the room is confirmed. Its own order and
+         its own verified stamp — the same rule as everywhere else in this
+         file: nothing is paid until an HMAC says so. */
+      balance: {
+        status: {
+          type: String,
+          /* `not_due` until the advance verifies; there is nothing to owe on
+             a visit nobody booked. */
+          enum: ['not_due', 'due', 'paid'],
+          default: 'not_due',
+        },
+        amountPaise: { type: Number, default: null },
+        orderId: { type: String, default: null },
+        paymentId: { type: String, default: null },
+        verifiedAt: { type: Date, default: null },
+        failureReason: { type: String, default: '' },
+      },
     },
 
     /* Released once the token is paid — before that a student has the area
@@ -396,6 +509,73 @@ visitRequestSchema.methods.toPublic = function toPublic() {
         paidAt: this.payment.verifiedAt ? this.payment.verifiedAt.toISOString() : null,
       }
       : { required: false, status: 'not_required', amountPaise: null, dueBy: null, paidAt: null },
+
+    /*
+     * The ₹99 unlock, as a state and never as its contents.
+     *
+     * `status` and `amountPaise` only — the phone number and the map pin are
+     * NOT in here. They are attached by the status endpoint, which reads them
+     * from the property after checking this same field, so the rule about who
+     * may see a number lives in one place and a document method cannot leak
+     * one by being called somewhere new.
+     */
+    contactUnlock: {
+      status: this.contactUnlock?.status || 'none',
+      /* Falls back to the configured price so the button can name the figure
+         BEFORE an order exists — `amountPaise` is only snapshotted onto the
+         document when a checkout is opened, and until then a page with no
+         fallback either says nothing or prints a number of its own that a
+         change to the env var would make a lie. */
+      amountPaise: this.contactUnlock?.amountPaise
+        || config.razorpay.contactUnlockAmountPaise,
+      paidAt: this.contactUnlock?.verifiedAt
+        ? this.contactUnlock.verifiedAt.toISOString()
+        : null,
+    },
+
+    /* The free alternative: what was asked for, and whether it got through to
+       a human. `teamNotifiedAt` is null when WhatsApp refused, which the page
+       says out loud rather than hiding — a request nobody was told about must
+       not look identical to one that landed. */
+    lamposeVisit: {
+      status: this.lamposeVisit?.status || 'none',
+      date: this.lamposeVisit?.date || null,
+      time: this.lamposeVisit?.time || null,
+      note: this.lamposeVisit?.note || '',
+      requestedAt: this.lamposeVisit?.requestedAt
+        ? this.lamposeVisit.requestedAt.toISOString()
+        : null,
+      teamNotified: Boolean(this.lamposeVisit?.teamNotifiedAt),
+      /* Same fallback as the unlock: the page has to be able to name the
+         price before any order exists, and a figure hardcoded in the browser
+         would go stale the moment the env var changed.
+
+         All three numbers travel because the page shows the split before the
+         button — a button that charges ₹100 under a heading saying ₹199 is
+         the kind of surprise that becomes a chargeback. `balancePaise` is
+         derived here, never stored twice, so the halves always add up. */
+      amountPaise: this.lamposeVisit?.amountPaise
+        || config.razorpay.assistedVisitAmountPaise,
+      advancePaise: this.lamposeVisit?.advancePaise
+        || Math.min(
+          config.razorpay.assistedAdvancePaise,
+          this.lamposeVisit?.amountPaise || config.razorpay.assistedVisitAmountPaise,
+        ),
+      balancePaise: (() => {
+        const total = this.lamposeVisit?.amountPaise
+          || config.razorpay.assistedVisitAmountPaise;
+        const advance = this.lamposeVisit?.advancePaise
+          || Math.min(config.razorpay.assistedAdvancePaise, total);
+        return Math.max(0, total - advance);
+      })(),
+      balanceConsent: this.lamposeVisit?.balanceConsent === true,
+      balance: {
+        status: this.lamposeVisit?.balance?.status || 'not_due',
+        paidAt: this.lamposeVisit?.balance?.verifiedAt
+          ? this.lamposeVisit.balance.verifiedAt.toISOString()
+          : null,
+      },
+    },
 
     /* Released by the payment, not by asking. Null until then, so a client
        cannot render a door number it was never given. */

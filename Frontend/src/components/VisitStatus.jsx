@@ -1,5 +1,6 @@
 import Icon from './Icon';
 import VisitTokenPanel from './VisitTokenPanel';
+import VisitNextSteps from './VisitNextSteps';
 
 /* ══════════════════════════════════════════════════════════════════════════
    What the visitor sees once the owner has been asked.
@@ -61,37 +62,65 @@ export default function VisitStatus({ request, onAskAgain, onRefresh }) {
   const canRetry = request.status === 'expired';
 
   return (
-    <div className={`vs-card ${state.cls}`} role="status" aria-live="polite">
-      <span className="vs-badge">
-        {waiting
-          ? <span className="vs-spinner" aria-hidden="true" />
-          : <Icon name={state.icon} className="exp-ico" />}
-      </span>
-
-      <div className="vs-body">
-        <h3 className="vs-title">{state.title}</h3>
-        <p className="vs-lead">{state.lead}</p>
-
-        <p className="vs-meta">
-          {/* Which room was asked about — a listing can have four, and the
-              answer only applies to one of them. */}
-          {request.sharing?.label && <><strong>{request.sharing.label}</strong> · </>}
+    /*
+     * The answer, and then what to do about it — as two stacked cards.
+     *
+     * `VisitNextSteps` used to render inside `.vs-body`, which is the wrong
+     * place for it: that column starts after a 34px badge and its gutter, so
+     * a card in the listing rail had about 215px to lay two tabs and a date
+     * field out in. As a sibling it gets the rail's full width, and the
+     * status card goes back to being only the status.
+     */
+    <div className="vs-wrap">
+      <div className={`vs-card ${state.cls}`} role="status" aria-live="polite">
+        <span className="vs-badge">
           {waiting
-            ? <>Asked {when(request.createdAt)} · checking every few seconds</>
-            : <>Answered {when(request.decidedAt)}</>}
-        </p>
+            ? <span className="vs-spinner" aria-hidden="true" />
+            : <Icon name={state.icon} className="exp-ico" />}
+        </span>
 
-        {canRetry && (
-          <button className="exp-more vs-again" onClick={onAskAgain}>
-            Ask again <span aria-hidden="true">→</span>
-          </button>
-        )}
+        <div className="vs-body">
+          <h3 className="vs-title">{state.title}</h3>
+          <p className="vs-lead">{state.lead}</p>
 
-        {/* Bachelor and co-live: the owner has confirmed, and what happens
-            next is a token, then a date, then the address. Renders nothing on
-            every other category and on every other status. */}
-        <VisitTokenPanel request={request} onUpdated={onRefresh} />
+          <p className="vs-meta">
+            {/* Which room was asked about — a listing can have four, and the
+                answer only applies to one of them. */}
+            {request.sharing?.label && <><strong>{request.sharing.label}</strong> · </>}
+            {waiting
+              ? <>Asked {when(request.createdAt)} · checking every few seconds</>
+              : <>Answered {when(request.decidedAt)}</>}
+          </p>
+
+          {canRetry && (
+            <button className="exp-more vs-again" onClick={onAskAgain}>
+              Ask again <span aria-hidden="true">→</span>
+            </button>
+          )}
+        </div>
       </div>
+
+      {/*
+        * The ₹20 visit token — pay, pick a joining date, get the address.
+        *
+        * HIDDEN FOR NOW, deliberately and reversibly: uncomment the line
+        * below to bring it back. Only the rendering is commented out. The
+        * import above, the component, its API methods and the whole
+        * server-side token flow (order, verify, payment link, webhook,
+        * joining date, bed claim, expiry) are all untouched and still
+        * work — a customer who pays the link sent to them on WhatsApp is
+        * still recorded exactly as before.
+        *
+        * Note while it is hidden: the token's `payment.dueBy` deadline is
+        * still enforced server-side, and a lapsed confirmation is what
+        * VisitNextSteps reports below — that used to be this panel's job.
+        */}
+      {/* <VisitTokenPanel request={request} onUpdated={onRefresh} /> */}
+
+      {/* How they actually get there: with an agent, or with the owner's
+          number. No shared state with the token above — they are separate
+          money for separate things. */}
+      <VisitNextSteps request={request} onUpdated={onRefresh} />
     </div>
   );
 }

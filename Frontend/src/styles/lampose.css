@@ -11133,3 +11133,490 @@ footer {
   cursor: pointer;
 }
 .vt .btn { align-self: flex-start; }
+
+
+
+/* ══ The two ways to see the room ══════════════════════════════════════════
+   The choice offered once an owner confirms: a free visit with a Lampose
+   agent, or the owner's number and a map pin for a fee.
+
+   ## Why this is sized by CONTAINER and not by viewport
+
+   This card lives in two places of very different widths, and the viewport
+   does not tell them apart. In the listing page's booking rail it gets about
+   300px WHILE THE VIEWPORT IS 1400px WIDE; stacked on a phone it gets nearly
+   the whole screen at a viewport of 390px. A `@media (max-width: ...)` rule
+   reads those exactly backwards — it would hand the cramped desktop rail the
+   roomy layout and the roomy phone the cramped one.
+
+   So `.vn` declares itself a container and everything below sizes off its own
+   width. The narrow layout is the default and the roomier ones are added at
+   `@container` breakpoints, so a browser without container-query support
+   still gets a layout that works everywhere rather than a broken one.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* The status card and this one, stacked. This card used to render INSIDE
+   `.vs-body`, which begins after the status badge and its gutter — about
+   215px in the rail, and no layout survives that. */
+.vs-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  width: 100%;
+}
+
+.vn {
+  container-type: inline-size;
+  container-name: vn;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--rl);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+/* ── The choice ──────────────────────────────────────────────────────────
+   Narrow default: two full-width rows, label left and price right, reading
+   as a list of options. Two columns at 250px turns every label into three
+   wrapped lines, which is what the rail was doing. */
+.vn__tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px;
+  background: var(--bg2);
+}
+.vn__tab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.6rem 0.72rem;
+  background: transparent;
+  border: 0;
+  border-radius: 12px;
+  font-family: var(--font-body);
+  font-size: 0.83rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink-light);
+  text-align: left;
+  cursor: none;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+}
+.vn__tab:hover { color: var(--ink); }
+.vn__tab.is-on {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(16, 18, 20, 0.07), 0 4px 12px rgba(16, 18, 20, 0.07);
+}
+
+/* The price, as a pill. On the selected row it reads as a fact about the
+   thing chosen rather than as more label. */
+.vn__tag {
+  flex: none;
+  padding: 0.2rem 0.5rem;
+  border-radius: 100px;
+  background: var(--bg3);
+  font-size: 0.63rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-light);
+  transition: background 0.2s, color 0.2s;
+}
+.vn__tab.is-on .vn__tag { background: var(--green-t); color: var(--green); }
+
+/* ── The panel ───────────────────────────────────────────────────────── */
+.vn__panel,
+.vn__panel form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.62rem;
+}
+.vn__panel { padding: 1.05rem 1.1rem 1.15rem; }
+
+.vn__title {
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: 1.02rem;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+.vn__lead {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--ink-mid);
+}
+.vn__meta {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--ink-light);
+}
+.vn__err {
+  margin: 0;
+  padding: 0.58rem 0.72rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  font-size: 0.79rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: #b91c1c;
+}
+
+/* ── Fields ──────────────────────────────────────────────────────────── */
+.vn__field { display: flex; flex-direction: column; gap: 0.34rem; }
+.vn__field .si-date {
+  padding: 0.66rem 0.8rem;
+  font-size: 0.88rem;
+  background: var(--surface2);
+  border-color: var(--border);
+}
+.vn__field .si-date:focus { border-color: var(--green); outline: none; }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────
+   `.exp-book` is the site's primary CTA — a near-black pill — and these
+   match it deliberately rather than reaching for `.btn--primary`, which the
+   stylesheet has never defined. */
+.vn__cta {
+  display: block;
+  width: 100%;
+  margin-top: 0.2rem;
+  padding: 0.78rem 1.2rem;
+  background: var(--forest);
+  color: #f8f6f1;
+  border: 1px solid var(--forest);
+  border-radius: 100px;
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  cursor: none;
+  transition: background 0.3s, transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.vn__cta:hover:not(:disabled) { background: #2a2f33; transform: translateY(-2px); }
+.vn__cta:disabled { opacity: 0.4; transform: none; }
+
+.vn__ghost {
+  width: 100%;
+  padding: 0.64rem 1rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  font-family: var(--font-body);
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: none;
+  transition: background 0.25s, border-color 0.25s;
+}
+.vn__ghost:hover { background: var(--bg); border-color: var(--ink-ghost); }
+
+/* ── The booked slot ─────────────────────────────────────────────────── */
+.vn__slot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  padding: 0.75rem 0.9rem;
+  background: var(--green-t);
+  border: 1px solid var(--green-p);
+  border-radius: 12px;
+}
+.vn__slot-k {
+  font-family: var(--font-body);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--green);
+}
+.vn__slot-v {
+  font-family: var(--font-head);
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+/* ── What the fee bought ─────────────────────────────────────────────────
+   A definition list, because that is what it is — a screen reader then reads
+   each label with its value. Each pair is wrapped in a div in the markup, so
+   the gap below falls between PAIRS and not between a label and the value it
+   names. */
+.vn__contact {
+  margin: 0;
+  padding: 0.85rem 0.95rem;
+  background: var(--green-t);
+  border: 1px solid var(--green-p);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.vn__contact > div { display: block; }
+.vn__contact dt {
+  margin: 0 0 0.12rem;
+  font-family: var(--font-body);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--green);
+}
+.vn__contact dd {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.vn__contact a {
+  font-family: var(--font-head);
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 2px solid var(--green-p);
+}
+.vn__contact a:hover { border-bottom-color: var(--green); }
+
+/* ── The price, said once and properly ───────────────────────────────── */
+.vn__price {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin: 0;
+}
+.vn__price b {
+  font-family: var(--font-head);
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1;
+  color: var(--ink);
+}
+.vn__price span {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--ink-light);
+}
+
+/* Date over time by default; side by side only where they fit. */
+.vn__row { display: contents; }
+
+/* ══ Wider than a booking rail ═════════════════════════════════════════════
+   A phone with the rail stacked full-bleed, a tablet, a wide card. There is
+   room for the two options side by side, and for the type to grow a little.
+   Keyed to the CARD's width — see the note at the top of this section. */
+@container vn (min-width: 380px) {
+  .vn__tabs {
+    flex-direction: row;
+    gap: 5px;
+    padding: 6px;
+  }
+  .vn__tab {
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.32rem;
+    min-height: 64px;
+    padding: 0.7rem 0.6rem;
+    text-align: center;
+    font-size: 0.88rem;
+  }
+  .vn__panel { padding: 1.25rem 1.35rem 1.35rem; }
+  .vn__panel,
+  .vn__panel form { gap: 0.7rem; }
+  .vn__title { font-size: 1.12rem; }
+  .vn__lead { font-size: 0.9rem; }
+  .vn__price b { font-size: 1.85rem; }
+}
+
+/* Roomier still — a full-width card on a tablet or a wide phone in
+   landscape. A date and a time finally fit on one line, which is how a
+   person reads a date and a time. */
+@container vn (min-width: 520px) {
+  .vn__row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+  .vn__panel { padding: 1.4rem 1.5rem 1.5rem; }
+  .vn__cta,
+  .vn__ghost { width: auto; align-self: flex-start; min-width: 210px; }
+  .vn__contact {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.85rem 1.1rem;
+  }
+  /* The address runs longest, so an odd one out takes the whole row. */
+  .vn__contact > div:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+
+/* ── What the assisted visit includes ────────────────────────────────────
+   The list that opens the tab, before it asks for a date. Ticks are drawn as
+   a pseudo-element rather than typed into the strings, so the copy stays
+   plain text — a screen reader reads the benefit, not "check mark". */
+.vn__list {
+  list-style: none;
+  margin: 0.1rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.42rem;
+}
+.vn__list li {
+  position: relative;
+  padding-left: 1.5rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--ink-mid);
+}
+.vn__list li::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  /* Sits on the first line's optical centre, so a benefit that wraps to two
+     lines keeps its tick beside the first rather than floating mid-block. */
+  top: 0.3em;
+  width: 13px;
+  height: 7px;
+  border-left: 2px solid var(--green);
+  border-bottom: 2px solid var(--green);
+  transform: rotate(-45deg);
+}
+
+/* The line between what it includes and what we need from them. */
+.vn__rule {
+  height: 1px;
+  margin: 0.35rem 0 0.1rem;
+  background: var(--border);
+  border: 0;
+}
+
+/* "Choose when you would like to visit" — a step heading, not body copy. */
+.vn__step {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-light);
+}
+
+/* ── The split ───────────────────────────────────────────────────────────
+   ₹199 is not taken in one go: ₹100 now to book the representative, ₹99 when
+   the room is confirmed. Both halves are shown together and before the
+   button, because "₹199" alone on a button that charges ₹100 is the kind of
+   surprise that becomes a chargeback. */
+.vn__split {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.7rem 0.85rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.vn__split-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.7rem;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--ink-mid);
+}
+.vn__split-row b {
+  font-family: var(--font-head);
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+}
+/* The half being charged right now. */
+.vn__split-row.is-now b { color: var(--green); }
+.vn__split-row span { min-width: 0; }
+
+/* ── The consent tick ────────────────────────────────────────────────────
+   Required before the advance can be taken: the customer is agreeing to owe
+   the balance, and an agreement nobody made explicitly is not one. Its own
+   styling rather than the site's `.vt__check`, which was written for an
+   optional preference and reads far too quietly for a financial commitment. */
+.vn__consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--amber-t);
+  border: 1px solid #f0dfae;
+  border-radius: 12px;
+  font-size: 0.81rem;
+  line-height: 1.45;
+  color: var(--ink-mid);
+  cursor: none;
+}
+.vn__consent input {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  margin: 0.08rem 0 0;
+  accent-color: var(--green);
+  cursor: none;
+}
+.vn__consent strong { color: var(--ink); font-weight: 700; }
+
+/* ── The balance, once it is owed ────────────────────────────────────────
+   Shown on a booked visit until it is paid. Amber rather than green: it is
+   outstanding, and a green panel would read as settled. */
+.vn__due {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.72rem 0.88rem;
+  background: var(--amber-t);
+  border: 1px solid #f0dfae;
+  border-radius: 12px;
+}
+.vn__due-k {
+  font-family: var(--font-body);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+.vn__due-v {
+  font-family: var(--font-head);
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--ink);
+}
+.vn__due-n { margin: 0.1rem 0 0; font-size: 0.78rem; line-height: 1.45; color: var(--ink-mid); }
+
+/* Paid in full — the same block, settled. */
+.vn__settled {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--green);
+}
+
+@container vn (min-width: 380px) {
+  .vn__list li { font-size: 0.88rem; }
+  .vn__split-row { font-size: 0.85rem; }
+  .vn__consent { font-size: 0.84rem; }
+}

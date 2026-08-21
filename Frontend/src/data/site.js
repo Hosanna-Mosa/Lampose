@@ -47,8 +47,8 @@ export const FOOTER_COLS = [
   {
     title: 'Contact',
     links: [
-      { label: 'hello@lampose.com', href: 'mailto:hello@lampose.com' },
-      { label: '— 6302321942 —', href: 'tel:+916302321942' },
+      { label: 'contact@lampose.com', href: 'mailto:contact@lampose.com' },
+      // { label: '— 6302321942 —', href: 'tel:+916302321942' },
       { label: 'Visakhapatnam, AP', href: '#top' },
       { label: 'Hyderabad, TS', href: '#top' },
       { label: 'Send a Message', to: '/contact' },

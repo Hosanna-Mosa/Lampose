@@ -134,6 +134,89 @@ export const visitRequestsApi = {
     }
   },
 
+  /* ── After the owner confirms: the two ways to see the room ─────────────
+     Assisted (an agent takes them) or Direct Access (the owner's number and a
+     map pin, and they go alone). Both are offered once the owner replies
+     AVAILABLE. All three payments here — these two and the visit token above
+     — are independent orders: paying one says nothing about the others. */
+
+  /**
+   * Open a checkout for an assisted visit at a date and time they picked.
+   *
+   * Charges the ADVANCE only. `balanceConsent` is the customer's explicit
+   * agreement to owe the rest on confirmation, and the server refuses the
+   * order without it — so this must never be defaulted to true here.
+   */
+  async startAssistedVisit(id, { date, time, note, balanceConsent }) {
+    try {
+      const res = await apiClient.post(`/visit-requests/${id}/assisted/order`, {
+        date, time, note: note || '', balanceConsent: balanceConsent === true,
+      });
+      return { ok: true, data: res?.data ?? res };
+    } catch (error) {
+      return { ok: false, code: error?.code, message: error?.message };
+    }
+  },
+
+  /** Hand Razorpay's values back. The booking exists only if they check out. */
+  async confirmAssistedVisit(id, { razorpayPaymentId, razorpaySignature }) {
+    try {
+      const res = await apiClient.post(`/visit-requests/${id}/assisted/verify`, {
+        razorpayPaymentId,
+        razorpaySignature,
+      });
+      return { ok: true, data: res?.data ?? res };
+    } catch (error) {
+      return { ok: false, code: error?.code, message: error?.message };
+    }
+  },
+
+  /** Start the ₹99 checkout for the owner's number and a map pin. */
+  async startContactUnlock(id) {
+    try {
+      const res = await apiClient.post(`/visit-requests/${id}/unlock/order`);
+      return { ok: true, data: res?.data ?? res };
+    } catch (error) {
+      return { ok: false, code: error?.code, message: error?.message };
+    }
+  },
+
+  /** Hand Razorpay's values back. The contact comes back only if they check out. */
+  async confirmContactUnlock(id, { razorpayPaymentId, razorpaySignature }) {
+    try {
+      const res = await apiClient.post(`/visit-requests/${id}/unlock/verify`, {
+        razorpayPaymentId,
+        razorpaySignature,
+      });
+      return { ok: true, data: res?.data ?? res };
+    } catch (error) {
+      return { ok: false, code: error?.code, message: error?.message };
+    }
+  },
+
+  /** Open a checkout for the outstanding half, once the room is confirmed. */
+  async startAssistedBalance(id) {
+    try {
+      const res = await apiClient.post(`/visit-requests/${id}/assisted/balance/order`);
+      return { ok: true, data: res?.data ?? res };
+    } catch (error) {
+      return { ok: false, code: error?.code, message: error?.message };
+    }
+  },
+
+  /** Hand Razorpay's values back so the server can settle the balance. */
+  async confirmAssistedBalance(id, { razorpayPaymentId, razorpaySignature }) {
+    try {
+      const res = await apiClient.post(`/visit-requests/${id}/assisted/balance/verify`, {
+        razorpayPaymentId,
+        razorpaySignature,
+      });
+      return { ok: true, data: res?.data ?? res };
+    } catch (error) {
+      return { ok: false, code: error?.code, message: error?.message };
+    }
+  },
+
   /** The date, once the token is paid. The address comes back with it. */
   async setJoiningDate(id, { joiningDate, flexibleJoin }) {
     try {

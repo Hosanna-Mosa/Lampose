@@ -28,6 +28,10 @@ const config = require('../../config/env');
 const razorpay = require('../../infrastructure/razorpay/razorpay');
 const VisitRequest = require('./visitRequest.model');
 const { markPaidAndReleaseAddress } = require('./visitPayment.controller');
+const {
+  markContactUnlocked, markAssistedBooked, markBalancePaid,
+  UNLOCK_PURPOSE, ASSISTED_PURPOSE, ASSISTED_BALANCE_PURPOSE,
+} = require('./contactUnlock.controller');
 
 /**
  * @route POST /api/v2/payments/razorpay/webhook
@@ -87,13 +91,64 @@ const razorpayWebhook = async (req, res) => {
 
   if (!doc) return ack(`no visit request for "${requestId || linkId || 'unknown'}"`);
 
+  const paymentId = paymentEntity.id || entity.id || null;
+
+  /*
+   * WHICH of this request's payments was this?
+   *
+   * A confirmed bachelor request can have FOUR distinct orders against it —
+   * the visit token, the contact unlock, the assisted visit's advance and
+   * that visit's balance — and every one of them carries the same
+   * `visitRequestId` home. Without this they would all be read as the token:
+   * any of the other three would mark it paid, release the address and take
+   * a bed out of the pool, none of which anybody bought.
+   *
+   * The balance is tested BEFORE the advance. Both belong to the assisted
+   * visit, and reading a settled balance as an advance would re-book a visit
+   * that already exists and message the roster about it a second time.
+   *
+   * The note is set by contactUnlock.controller.js. Its absence means the
+   * token, which is what every payment made before this existed looks like —
+   * so old events and payment links keep meaning exactly what they meant.
+   */
+  const purpose = entity.notes?.purpose || paymentEntity.notes?.purpose || '';
+
+  if (purpose === ASSISTED_BALANCE_PURPOSE) {
+    if (doc.lamposeVisit?.balance?.status === 'paid') {
+      return ack(`request ${doc._id} assisted balance was already paid`);
+    }
+    await markBalancePaid(doc, paymentId);
+    console.log(`[razorpay-webhook] ${event} → request ${doc._id} assisted balance paid (${paymentId}).`);
+    return ack();
+  }
+
+  if (purpose === ASSISTED_PURPOSE) {
+    if (doc.lamposeVisit?.status === 'requested') {
+      return ack(`request ${doc._id} assisted visit was already booked`);
+    }
+    /* The slot was written when the order was created, so the booking can be
+       completed here with nothing from the browser — which is the whole point
+       of this path. */
+    await markAssistedBooked(doc, paymentId);
+    console.log(`[razorpay-webhook] ${event} → request ${doc._id} assisted visit booked (${paymentId}).`);
+    return ack();
+  }
+
+  if (purpose === UNLOCK_PURPOSE) {
+    if (doc.contactUnlock?.status === 'paid') {
+      return ack(`request ${doc._id} contact unlock was already paid`);
+    }
+    await markContactUnlocked(doc, paymentId);
+    console.log(`[razorpay-webhook] ${event} → request ${doc._id} contact unlock paid (${paymentId}).`);
+    return ack();
+  }
+
   if (doc.payment?.status === 'paid') {
     /* Razorpay redelivers, and a customer can trigger both paths. Doing this
        twice must not send a second address message. */
     return ack(`request ${doc._id} was already paid`);
   }
 
-  const paymentId = paymentEntity.id || entity.id || null;
   await markPaidAndReleaseAddress(doc, paymentId);
 
   console.log(`[razorpay-webhook] ${event} → request ${doc._id} paid (${paymentId}), address released.`);
