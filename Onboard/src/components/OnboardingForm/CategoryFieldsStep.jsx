@@ -151,6 +151,7 @@ const TENANT_OPTIONS = {
     { id: 'Bachelors Male / Female', label: 'Male / Female (mixed)' },
     { id: 'Bachelors Male Only', label: 'Male Only' },
     { id: 'Bachelors Female Only', label: 'Female Only' },
+    { id: 'Family', label: 'Family' },
   ],
 };
 
