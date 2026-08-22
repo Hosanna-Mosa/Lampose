@@ -64,6 +64,7 @@ const v1ScriperUserAdminRoutes = require('../src/modules/scraper/scriperUser.adm
 const v1ScraperJobAdminRoutes = require('../src/modules/scraper/scraperJob.admin.routes');
 const v1ScraperLeadAdminRoutes = require('../src/modules/scraper/scraperLead.admin.routes');
 const v1ProductAdminRoutes = require('../src/modules/properties/product.routes');
+const v1MessagingRoutes = require('../src/modules/messaging/messaging.routes');
 
 const v2ListingRoutes = require('../src/modules/listings/listing.routes');
 const v2VisitRequestRoutes = require('../src/modules/visits/visitRequest.routes');
@@ -92,6 +93,7 @@ const V1_GROUPS = [
   ['/admin/scriper-jobs', v1ScraperJobAdminRoutes, 'Super Admin CRUD — scrape job history (scriper_jobs)'],
   ['/admin/scriper-leads', v1ScraperLeadAdminRoutes, 'Super Admin CRUD — scraped leads (scriper_leads)'],
   ['/admin/products', v1ProductAdminRoutes, 'Super Admin CRUD — products collection'],
+  ['/admin/whatsapp', v1MessagingRoutes, 'admin-console ad-hoc WhatsApp sends (free text or configured Content Templates)'],
 ];
 
 const V2_GROUPS = [
@@ -139,6 +141,7 @@ const LEGACY_ALIASES = [
   ['/admin/scriper-jobs', v1ScraperJobAdminRoutes, false],
   ['/admin/scriper-leads', v1ScraperLeadAdminRoutes, false],
   ['/admin/products', v1ProductAdminRoutes, false],
+  ['/admin/whatsapp', v1MessagingRoutes, false],
   ['/listings', v2ListingRoutes, true],
   ['/visit-requests', v2VisitRequestRoutes, true],
   ['/auth', v2AuthRoutes, true],

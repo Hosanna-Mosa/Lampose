@@ -230,8 +230,13 @@ export default function Listing() {
 
   // A different listing means a different gallery; without this the index
   // would carry over and land past the end of a shorter one — with the
-  // previous listing's lightbox still open over it.
-  useEffect(() => { setShot(0); setLightbox(false); }, [id]);
+  // previous listing's lightbox still open over it. Also fires when the
+  // selected sharing option changes, for the same reason: picking "2 BHK"
+  // after "1 BHK" can swap in a shorter (or longer) per-option gallery, and
+  // `shot` must not be left pointing past the end of it. Keyed on the
+  // option's `label` rather than the object itself — `intent.sharing` is a
+  // new reference every render, `label` is the one thing that's stable.
+  useEffect(() => { setShot(0); setLightbox(false); }, [id, intent.sharing?.label]);
 
   /* Nothing is preselected. Most listings quote only one stay track, and
      filling it in for the visitor made the page look like it had decided —
@@ -251,7 +256,13 @@ export default function Listing() {
     setShowAllAmenities(false);
   }, [item]);
 
-  const images = Array.isArray(item?.images) ? item.images : (item?.imageUrl ? [item.imageUrl] : []);
+  // The selected sharing option's own photos, when it has any, take over
+  // from the property's whole-gallery ones — "1 BHK" and "2 BHK" can show
+  // different rooms. An option with none (or none selected yet) falls back
+  // to the same property-level gallery every listing has always shown.
+  const propertyImages = Array.isArray(item?.images) ? item.images : (item?.imageUrl ? [item.imageUrl] : []);
+  const optionImages = Array.isArray(intent.sharing?.images) ? intent.sharing.images.filter(Boolean) : [];
+  const images = optionImages.length ? optionImages : propertyImages;
   const shots = images.length;
   const amenities = Array.isArray(item?.amenities) ? item.amenities : [];
   // Normalised by the API from whichever key this category uses.
@@ -811,7 +822,12 @@ export default function Listing() {
             {...(shots > 1 ? swipe : {})}
           >
             <img
-              src={images[shot]}
+              // Clamped rather than a bare `images[shot]`: the reset effect
+              // above fires a render after `images` itself changes length
+              // (a new sharing option picked), so there's one frame where
+              // `shot` could still be pointing past the end of a shorter
+              // gallery. This never reads past the array either way.
+              src={images[Math.min(shot, Math.max(images.length - 1, 0))]}
               alt={item.name}
               decoding="async"
               onError={e => { e.currentTarget.style.visibility = 'hidden'; }}

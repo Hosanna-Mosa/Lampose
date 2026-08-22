@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   ListChecks,
   LogOut,
+  MessageCircle,
   Package,
   Radar,
   Server,
@@ -64,6 +65,12 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'scraper-jobs', label: 'Scrape Jobs', icon: Radar },
       { id: 'scraper-leads', label: 'Scraped Leads', icon: ListChecks },
       { id: 'products', label: 'Products', icon: Package },
+    ],
+  },
+  {
+    heading: 'Tools',
+    items: [
+      { id: 'messages', label: 'Messages', icon: MessageCircle },
     ],
   },
   {

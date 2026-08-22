@@ -16,6 +16,7 @@ import {
   onboardProperty,
   uploadPropertyDocuments,
   uploadPropertyImages,
+  uploadSharingImages,
 } from './services/api.js';
 import { getCurrentUser, logout, getSavedEmployeeEmail } from './services/auth.js';
 import { validateOnboarding, firstErrorKey, anchorFor } from './services/validation.js';
@@ -65,7 +66,21 @@ const INITIAL_FORM_STATE = {
     sharingAC: {},
     sharingAcPrices: {},
     curfewTime: '10:30 PM',
-    housekeeping: true
+    housekeeping: true,
+    /* Kept in step with handleCategorySelect('PG_HOSTEL') below — that
+       function only runs when an agent explicitly SWITCHES to this category,
+       but PG_HOSTEL is also the category the form opens on by default, which
+       never calls it. Without these five here too, a fresh form's Hostel Type
+       dropdown shows "Boys Hostel" selected (its own `|| 'Boys Hostel'`
+       fallback) while categoryDetails.hostelType is actually empty — so
+       submit fails on a required field that already looks filled in, and
+       nothing on screen shows what to fix. Switching category away and back
+       used to be the only way to actually write the default into state. */
+    hostelType: 'Boys Hostel',
+    canteenFacility: true,
+    wardenContact: '',
+    securityCCTV: true,
+    studyRoom: true
   }
 };
 
@@ -493,6 +508,14 @@ export default function App() {
 
       const uploadedDocs = await uploadPropertyDocuments(pendingDocs, setSubmitStage);
 
+      /* Per-layout photos — "1 BHK" and "2 BHK" each get their own set,
+         staged under categoryDetails.localSharingImages by CategoryFieldsStep
+         and uploaded here the same way the whole-property gallery and the
+         hotel documents above already are: to URLs, before the property is
+         ever created. */
+      const localSharingImages = (formData.categoryDetails || {}).localSharingImages || {};
+      const sharingImages = await uploadSharingImages(localSharingImages, setSubmitStage);
+
       setSubmitStage('Saving accommodation to MongoDB database...');
 
       const assignedEmail = formData.employeeEmail || user?.email || getSavedEmployeeEmail() || '';
@@ -508,10 +531,13 @@ export default function App() {
 
       /* The File objects never leave this device — only the URLs the upload
          returned do. Sending them would put a base64 PAN in the request body
-         and in every log that touches it. */
+         and in every log that touches it. Same rule for per-layout photos:
+         `sharingImages` (the uploaded URLs) replaces `localSharingImages`
+         (the staged Files), which never reaches the payload at all. */
       if (payload.categoryDetails) {
-        payload.categoryDetails = { ...payload.categoryDetails };
+        payload.categoryDetails = { ...payload.categoryDetails, sharingImages };
         delete payload.categoryDetails.localDocuments;
+        delete payload.categoryDetails.localSharingImages;
       }
 
       /* Development only. This prints the WHOLE submission — the owner's name
