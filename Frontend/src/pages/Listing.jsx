@@ -440,8 +440,9 @@ export default function Listing() {
       return null;
     }
 
-    /* A whole flat: the layout, and the tick. The move-in date is asked after
-       the owner confirms and the token is paid — see VisitTokenPanel. */
+    /* A whole flat: the layout, and the tick. On paid categories the visit
+       date is picked after the owner confirms and the ₹199 is paid — see
+       VisitNextSteps. */
     if (simple) {
       if (!tokenRequired && !intent.joiningDate) return 'Pick a move-in date.';
       if (!intent.consented) return 'Accept the Privacy Policy and Terms to continue.';

@@ -145,16 +145,18 @@ const formatListing = (input) => {
     simpleSharingPath: SIMPLE_PATH_CATEGORIES.includes(normaliseCategory(doc.category)),
 
     /*
-     * Whether a confirmed visit here is paid for.
+     * Whether a confirmed visit here is paid for — the ₹199 assisted visit.
      *
      * Exposed rather than inferred from `simpleSharingPath`. The two happen to
      * cover the same categories today, and a page that guessed one from the
      * other would start asking for money — or stop — the moment they diverge.
      * The amount travels so a button can name the figure instead of hardcoding
-     * a number that lives in the server's config.
+     * a number that lives in the server's config. (The field keeps its old
+     * `visitToken` name so no client parsing breaks; the ₹20 token itself is
+     * retired.)
      */
     visitToken: TOKEN_CATEGORIES.includes(normaliseCategory(doc.category))
-      ? { required: true, amountPaise: config.razorpay.tokenAmountPaise }
+      ? { required: true, amountPaise: config.razorpay.assistedVisitAmountPaise }
       : { required: false, amountPaise: null },
 
     /* Meal facts, only where the panel recorded them. `foodIncluded` false is

@@ -7,7 +7,7 @@ import { WebView, type WebViewNavigation } from 'react-native-webview';
 
 import { Button, Spinner, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
-import { API_URL } from '@/constants/env';
+import { API_BASE_URL } from '@/services/api/config';
 import { useTheme } from '@/context/ThemeContext';
 
 /**
@@ -125,11 +125,15 @@ export default function PaymentCheckout() {
   }
 
   /* Built here rather than passed in, so a URL this screen loads can only ever
-     point at our own API with our own redirect. */
+     point at our own API with our own redirect. `API_BASE_URL` rather than the
+     raw env value: it is the same resolved origin every other call uses, with
+     the dev fallback to the Metro host — the raw value is undefined in
+     development, and `undefined/api/v2/…` was this screen's one way to break
+     while the rest of the app worked. */
   const back = 'lampose://payment-done';
   const source = {
     uri:
-      `${API_URL}/api/v2/visit-requests/${encodeURIComponent(String(requestId))}` +
+      `${API_BASE_URL}/api/v2/visit-requests/${encodeURIComponent(String(requestId))}` +
       `/payment/checkout?redirect=${encodeURIComponent(back)}`,
   };
 
@@ -144,7 +148,7 @@ export default function PaymentCheckout() {
         goes unrecorded on the device. Leaving is safe: the server is the
         authority on whether this was paid.
       */}
-      <StandardHeader title="Pay the visit token" onBack={leave} />
+      <StandardHeader title="Pay for your visit" onBack={leave} />
 
       {failed ? (
         <View style={[styles.centre, { padding: layout.gutter, gap: space[3] }]}>

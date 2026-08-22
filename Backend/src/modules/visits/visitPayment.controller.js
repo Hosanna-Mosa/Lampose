@@ -1,41 +1,45 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   The visit token — paying for a confirmed bachelor or co-live viewing.
+   The ₹199 assisted-visit payment — the ONE charge on a bachelor or co-live
+   visit.
 
    ## The order of events, and why it is this order
 
      1  the student asks, with a LAYOUT and nothing else
      2  the owner accepts
-     3  the student pays a small token
-     4  only then are they asked for a joining date
-     5  and only then do they get the street address
+     3  the customer pays ₹199 — ₹100 for the representative who accompanies
+        them, ₹99 Lampose fee — via the WhatsApp link, the website, or the
+        app's checkout. All of them settle the same record.
+     4  only then do they pick a date and time (WhatsApp on the web channel,
+        the app on the app channel — see assistedSlot.controller.js)
+     5  and only when the slot is fixed do they get the street address
 
-   A joining date asked at step 1 is a guess about a viewing that may never be
-   agreed to. Asked at step 4 it is a commitment, because money has already
-   changed hands — which is the whole point of the token. The address moves for
-   the same reason: an owner's door number is not something to hand out to
-   everyone who taps a button.
+   Paying releases NOTHING by itself — no address, no owner number, no PIN,
+   no bed. The address comes with the slot, the representative deals with
+   the owner, and there is no PIN because the representative is at the door.
+   (This file used to be the ₹20 visit token, which released all of those;
+   the ₹20 and the separate ₹99 contact unlock are both retired.)
 
    ## What may mark a request paid
 
-   Exactly one thing: `razorpay.verifySignature`, over an HMAC only this server
-   can compute. A client saying "it worked" is not evidence and is never
-   treated as any.
+   Exactly one thing: `razorpay.verifySignature` (or the webhook's own
+   signature check), over an HMAC only this server can compute. A client
+   saying "it worked" is not evidence and is never treated as any.
    ══════════════════════════════════════════════════════════════════════════ */
 const mongoose = require('mongoose');
 
 const config = require('../../config/env');
 const razorpay = require('../../infrastructure/razorpay/razorpay');
 const VisitRequest = require('./visitRequest.model');
-const Property = require('../properties/property.model');
-const { readListingAddress } = require('./visitAddress.util');
-const { claimBed } = require('../inventory/inventory.service');
-const { shareTypeIdFor } = require('../listings/sharing.util');
 const { TOKEN_CATEGORIES, normaliseCategory } = require('../../shared/constants/categories');
-const { isISODate, joinWindow } = require('../listings/stayIntent.util');
 const twilio = require('../../infrastructure/twilio/twilio');
-const { generateEntryPin } = require('./otp.util');
 
 const OBJECT_ID = /^[0-9a-fA-F]{24}$/;
+
+/* The note that travels on every order and payment link this flow mints, and
+   that the webhook dispatches on. Its ABSENCE also routes here — that is what
+   a payment link minted before purposes existed looks like — which is why the
+   webhook guards on the amount as well. */
+const ASSISTED_PURPOSE = 'assisted_visit';
 
 const fail = (res, status, code, message) =>
   res.status(status).json({ success: false, code, message, error: message });
@@ -57,10 +61,8 @@ const load = async (res, id) => {
   return doc;
 };
 
-
-
 /**
- * The payment link a confirmed customer is sent on WhatsApp.
+ * The payment link the confirmed customer is sent on WhatsApp.
  *
  * Created once and reused: reopening the same link is how somebody who closed
  * it comes back, and minting a second would leave two live ways to pay for one
@@ -77,13 +79,14 @@ const ensurePaymentLink = async (doc) => {
 
   try {
     const link = await razorpay.createPaymentLink({
-      amountPaise: doc.payment.amountPaise || config.razorpay.tokenAmountPaise,
-      description: `Visit token · ${doc.propertyName || 'Lampose'}`,
+      amountPaise: doc.payment.amountPaise || config.razorpay.assistedVisitAmountPaise,
+      description: `Assisted visit · ${doc.propertyName || 'Lampose'}`,
       name: doc.customer?.name,
       phone: doc.customer?.phone,
-      /* The id rides along on the webhook, so the money finds its way home
-         without a lookup table. */
-      notes: { visitRequestId: String(doc._id) },
+      /* The id AND the purpose ride along on the webhook, so the money finds
+         its way home without a lookup table — and cannot be mistaken for a
+         legacy payment. */
+      notes: { visitRequestId: String(doc._id), purpose: ASSISTED_PURPOSE },
       expiresAt: doc.payment.dueBy ? Math.floor(doc.payment.dueBy.getTime() / 1000) : null,
     });
 
@@ -93,164 +96,64 @@ const ensurePaymentLink = async (doc) => {
     await doc.save();
     return doc.payment.linkUrl;
   } catch (error) {
-    console.error('[token] Could not create the payment link:', error.message);
+    console.error('[visit-pay] Could not create the payment link:', error.message);
     return null;
   }
 };
 
 /**
- * Mark the token paid, and send the address the token just bought.
+ * Mark the visit paid, and start the slot step.
  *
- * One implementation, called by both the API route and the browser callback,
- * so a payment made from the website and one made from the app cannot end up
- * releasing different things.
+ * One implementation, called by the API verify, the browser callback and the
+ * webhook, so a payment made anywhere lands identically. Deliberately narrow:
+ * it settles the money, flips the visit to `slot_pending`, and tells the
+ * customer what to do next. It releases nothing — the address waits for the
+ * slot, and the owner is not told until there is a slot to tell them.
  *
- * The confirmation message the owner's YES triggered deliberately withheld the
- * street address while this was outstanding — see visitRequest.controller.js.
- * This is where it is handed over, which is the whole shape of the flow: the
- * owner agrees, the student pays, and only then do they learn the door.
- *
- * The message is fire-and-forget. The payment has already committed; making a
- * verified rupee depend on WhatsApp being reachable would be the wrong way
- * round.
+ * The messages are fire-and-forget. The payment has already committed; making
+ * a verified rupee depend on WhatsApp or push being reachable would be the
+ * wrong way round. A customer whose T2 never arrived is caught by the slot
+ * reminder sweep two hours later.
  */
-const markPaidAndReleaseAddress = async (doc, paymentId) => {
+const markVisitPaid = async (doc, paymentId) => {
+  if (doc.payment.status === 'paid') return;
+
   doc.payment.status = 'paid';
-  doc.payment.paymentId = String(paymentId);
+  doc.payment.paymentId = paymentId ? String(paymentId) : null;
   doc.payment.verifiedAt = new Date();
   doc.payment.failureReason = '';
-  doc.addressReleasedAt = new Date();
-
-  /* The reference is minted HERE, not when the owner tapped.
-     It is what the two of them match at the door, so it belongs to a visit
-     somebody has actually paid for. */
-  const firstIssue = !doc.entryPin;
-  if (firstIssue) {
-    doc.entryPin = generateEntryPin();
-    doc.entryPinIssuedAt = new Date();
+  /* A slot fixed before the money cannot happen in this flow, but a redelivered
+     webhook after scheduling can — and must not knock a scheduled visit back
+     to the picker. */
+  if (!['scheduled', 'manual'].includes(doc.lamposeVisit.status)) {
+    doc.lamposeVisit.status = 'slot_pending';
+    doc.lamposeVisit.slotStage = 'none';
   }
-
-  /*
-   * The bed comes out of the pool HERE.
-   *
-   * This is the website's only real commitment point. The owner saying
-   * "available" on WhatsApp is an answer about a viewing, not a let, and
-   * taking a bed on it would empty a building every time somebody asked to
-   * look around. Money changing hands is different: the token is paid, the
-   * address is handed over, and from this moment the room is spoken for.
-   *
-   * Three things this deliberately does NOT do:
-   *
-   *  · It never fails the payment. `claimBed` returning null means the last
-   *    bed went while this customer was paying — a real and unavoidable race,
-   *    because nothing is held during a Razorpay redirect. The rupee is
-   *    already taken and the address is already theirs; refusing here would
-   *    leave them paid, address-less and with no way forward. It is recorded
-   *    instead (`bedClaimedAt` stays null on a paid request) so it can be
-   *    found and settled by a person.
-   *
-   *  · It never claims twice. Every caller already guards on
-   *    `payment.status === 'paid'`, but a redelivered webhook is exactly the
-   *    kind of thing that slips past a guard someone edits later, and a double
-   *    decrement invents an occupancy the building does not have.
-   *
-   *  · It never invents a pool. Requests made before the id was recorded fall
-   *    back to deriving it from the property and the label — the same
-   *    derivation `sharingOptionsFor` uses — and a request with no room type
-   *    at all simply has no bed to take.
-   */
-  if (!doc.bedClaimedAt) {
-    const shareTypeId = doc.shareTypeId
-      || (doc.sharing && doc.sharing.label
-        ? shareTypeIdFor(doc.listingId, doc.sharing.label)
-        : null);
-
-    if (shareTypeId) {
-      const held = await claimBed(shareTypeId);
-      if (held) {
-        doc.bedClaimedAt = new Date();
-        console.log(`[token] ${shareTypeId} → ${held.availableBeds}/${held.totalBeds} free`);
-      } else {
-        console.error(`[token] PAID BUT NO BED: request ${doc._id} paid for ${shareTypeId}, `
-          + 'which had none free. The address was released; this needs a human.');
-      }
-    }
-  }
-
   await doc.save();
 
-  /*
-   * The booking row was written when the owner accepted, which on a token
-   * category is BEFORE the PIN exists — so it copied a null and kept it. This
-   * is the moment the PIN becomes real, so it is also the moment the booking
-   * has to learn it: the two are compared at the door, and a booking holding
-   * null against a request holding LV-… is a match that cannot be made.
-   */
-  if (firstIssue && doc.bookingId) {
-    try {
-      const { PartnerBooking } = require('../partners/partnerDomains.model');
-      await PartnerBooking.updateOne(
-        { _id: doc.bookingId },
-        { $set: { entryPin: doc.entryPin } },
-      );
-    } catch (error) {
-      console.error('[token] Could not copy the PIN onto the booking:', error.message);
-    }
-  }
-
-  /* The same read the status endpoint and the owner's message use — one
-     copy, so "what counts as this listing's address" cannot drift between
-     the WhatsApp message and the page showing it. */
-  const full = await readListingAddress(doc.listingId);
-
-  /*
-   * ── Which surface gets told ─────────────────────────────────────────────
-   *
-   * A request made in the app is answered in the app. Its owner accepted in
-   * Stay Partner and its student is holding a phone with the request open, so
-   * both are reachable by push — and neither asked for WhatsApp. Sending it
-   * anyway put a message in front of people who never opted in, and in a test
-   * account where the owner and the student share a number it arrived twice.
-   *
-   * The web channel is the opposite: it has no app on either side, WhatsApp is
-   * how the whole flow has been conducted, and the student ticked the box for
-   * it. So the channel decides, not a preference lookup.
-   */
   if (doc.channel === 'app') {
-    const notifier = require('../notifications/stayRequest.notifier');
-    if (typeof notifier.notifyTokenPaid === 'function') {
-      notifier.notifyTokenPaid(doc).catch((e) => console.error('[token] push failed:', e.message));
+    /* An app request is answered in the app: the push says "pick your slot"
+       and the picker is a screen, not a chat. */
+    try {
+      const notifier = require('../notifications/stayRequest.notifier');
+      notifier.notifyVisitPaid(doc).catch((e) => console.error('[visit-pay] push failed:', e.message));
+    } catch (error) {
+      console.error('[visit-pay] notifier unavailable:', error.message);
     }
     return;
   }
 
-  /* Fire and forget, both of them. The payment has already committed; making a
-     verified rupee depend on WhatsApp being reachable would be backwards. */
+  /* Web channel: T2, whose quick-reply button opens the session the two list
+     pickers ride in. Only where they opted in — WhatsApp will not carry a
+     business message to someone who never agreed to hear from us. */
   if (doc.consentWhatsApp && doc.customer?.phone) {
-    twilio.sendVisitConfirmationToCustomer({
+    twilio.sendPaymentReceived({
       customerPhone: doc.customer.phone,
       customerName: doc.customer.name,
       propertyName: doc.propertyName,
-      address: full,
-      sharingLabel: doc.sharing && doc.sharing.label,
-      joiningDate: doc.intent?.joiningDate || '',
-      pin: doc.entryPin,
     }).then((r) => {
-      if (!r?.success) console.error('[token] Address message failed:', r?.error);
-    }).catch((e) => console.error('[token] Address message threw:', e.message));
-  }
-
-  /* And the owner, who was told to wait for exactly this. */
-  if (doc.ownerMobile) {
-    const what = doc.sharing?.label ? `${doc.sharing.label} at ${doc.propertyName}` : doc.propertyName;
-    twilio.sendOwnerText({
-      ownerMobile: doc.ownerMobile,
-      body: `${doc.customer?.name || 'The visitor'} has confirmed their visit for ${what}.\n\n`
-        + `Visit reference: ${doc.entryPin}\n\n`
-        + 'They have the same number. Please ask for it when they arrive and check that it matches.',
-    }).then((r) => {
-      if (r && r.success === false) console.error('[token] Owner reference message failed:', r.error);
-    }).catch((e) => console.error('[token] Owner reference message threw:', e.message));
+      if (!r?.success) console.error('[visit-pay] Payment-received message failed:', r?.error);
+    }).catch((e) => console.error('[visit-pay] Payment-received message threw:', e.message));
   }
 };
 
@@ -277,7 +180,7 @@ const createPaymentOrder = async (req, res, next) => {
     if (!doc) return undefined;
 
     if (!doc.payment?.required) {
-      return fail(res, 400, 'NO_TOKEN_REQUIRED', 'This visit does not need a token.');
+      return fail(res, 400, 'NO_PAYMENT_REQUIRED', 'This visit has nothing to pay for.');
     }
     if (doc.status !== 'confirmed') {
       return fail(res, 409, 'NOT_CONFIRMED',
@@ -285,7 +188,7 @@ const createPaymentOrder = async (req, res, next) => {
     }
     if (doc.payment.status === 'paid') {
       /* Idempotent: reopening a finished checkout should not create a second
-         order, and must not look like an error to a student who tapped twice. */
+         order, and must not look like an error to a customer who tapped twice. */
       return res.json({ success: true, data: { alreadyPaid: true, payment: doc.payment } });
     }
     if (doc.payment.dueBy && doc.payment.dueBy.getTime() < Date.now()) {
@@ -293,17 +196,21 @@ const createPaymentOrder = async (req, res, next) => {
         doc.payment.status = 'expired';
         await doc.save();
       }
-      return fail(res, 410, 'TOKEN_WINDOW_CLOSED',
+      return fail(res, 410, 'CONFIRMATION_LAPSED',
         'This confirmation has lapsed. Ask the owner again to arrange a visit.');
     }
 
-    const amountPaise = doc.payment.amountPaise || config.razorpay.tokenAmountPaise;
+    const amountPaise = doc.payment.amountPaise || config.razorpay.assistedVisitAmountPaise;
 
     const order = await razorpay.createOrder({
       amountPaise,
       /* Our own id, so a payment in their dashboard traces straight back. */
       receipt: String(doc._id),
-      notes: { visitRequestId: String(doc._id), property: doc.propertyName || '' },
+      notes: {
+        visitRequestId: String(doc._id),
+        purpose: ASSISTED_PURPOSE,
+        property: doc.propertyName || '',
+      },
     });
 
     doc.payment.status = 'pending';
@@ -351,7 +258,7 @@ const verifyPayment = async (req, res, next) => {
       return res.json({ success: true, data: { payment: doc.payment, alreadyPaid: true } });
     }
     if (!doc.payment?.required) {
-      return fail(res, 400, 'NO_TOKEN_REQUIRED', 'This visit does not need a token.');
+      return fail(res, 400, 'NO_PAYMENT_REQUIRED', 'This visit has nothing to pay for.');
     }
 
     const { razorpayPaymentId, razorpaySignature } = req.body || {};
@@ -377,7 +284,7 @@ const verifyPayment = async (req, res, next) => {
         'That payment could not be verified. If money left your account it has not been taken — contact support.');
     }
 
-    await markPaidAndReleaseAddress(doc, razorpayPaymentId);
+    await markVisitPaid(doc, razorpayPaymentId);
 
     return res.json({ success: true, data: doc.toPublic() });
   } catch (error) {
@@ -385,75 +292,27 @@ const verifyPayment = async (req, res, next) => {
   }
 };
 
-/**
- * The joining date, asked only once the token is paid.
+/*
+ * The redirect a checkout page may bounce to.
  *
- * @route POST /api/v2/visit-requests/:id/joining-date
+ * Prefix-checked AND charset-checked. The prefix keeps it ours; the charset
+ * is what stops a crafted `redirect` breaking out of the meta-refresh
+ * attribute it is interpolated into — `"` and `>` are simply not in the set.
  */
-const setJoiningDate = async (req, res, next) => {
-  try {
-    if (mongoose.connection.readyState !== 1) {
-      return fail(res, 503, 'DB_DISCONNECTED', 'The server is not connected to the database.');
-    }
-
-    const doc = await load(res, req.params.id);
-    if (!doc) return undefined;
-
-    if (doc.payment?.required && doc.payment.status !== 'paid') {
-      return fail(res, 402, 'TOKEN_UNPAID', 'Pay the visit token before choosing a date.');
-    }
-
-    const { joiningDate, flexibleJoin } = req.body || {};
-    if (!isISODate(joiningDate)) {
-      return fail(res, 400, 'BAD_JOIN_DATE', 'Please choose a joining date.');
-    }
-
-    /* The same window the listing offered, re-derived here rather than
-       believed — a date is being agreed with an owner, not just recorded. */
-    const window = joinWindow();
-    if (joiningDate < window.min || joiningDate > window.max) {
-      return res.status(400).json({
-        success: false,
-        code: 'JOIN_DATE_OUT_OF_RANGE',
-        window,
-        message: `Joining date must be between ${window.min} and ${window.max}.`,
-      });
-    }
-
-    doc.intent = { ...(doc.intent ? doc.intent.toObject?.() ?? doc.intent : {}), joiningDate, flexibleJoin: flexibleJoin === true };
-    doc.markModified('intent');
-    await doc.save();
-
-    /* The address goes back with it — this is the moment it is earned. */
-    const property = await Property.findById(doc.listingId).lean();
-    return res.json({
-      success: true,
-      data: {
-        ...doc.toPublic(),
-        address: property?.address || '',
-        ownerMobile: doc.ownerMobile || '',
-      },
-    });
-  } catch (error) {
-    return next(error);
-  }
-};
+const SAFE_REDIRECT = /^lampose:\/\/[A-Za-z0-9\-._~/?=&:%]*$/;
+const safeRedirect = (raw) =>
+  (SAFE_REDIRECT.test(String(raw || '')) ? String(raw) : 'lampose://visit');
 
 /**
- * A checkout page the mobile app can open in a browser tab.
+ * A checkout page the mobile app renders in its own WebView.
  *
  * ## Why a server-rendered page rather than a native SDK
  *
  * Razorpay's React Native SDK needs a native module, which needs a prebuild
- * and a config plugin, on both platforms, for one screen. `expo-web-browser`
- * is already a dependency and opens a real browser session — so this route
- * renders the same checkout the website uses, verifies the result HERE where
- * the secret already lives, and hands control back through the app's own
- * deep link.
- *
- * The app never sees the payment id or the signature. It opens a URL and waits
- * to be returned to, which is less that can go wrong on a phone with a flaky
- * connection and one less place a secret could end up.
+ * and a config plugin, on both platforms, for one screen. This route renders
+ * the same checkout the website uses, verifies the result HERE where the
+ * secret already lives, and hands control back through the app's own deep
+ * link. The app never sees the payment id or the signature.
  *
  * @route GET /api/v2/visit-requests/:id/payment/checkout
  */
@@ -472,21 +331,26 @@ const renderCheckout = async (req, res, next) => {
       return res.status(409).type('html').send(page('Not confirmed yet',
         'The owner has not confirmed this visit, so there is nothing to pay for.'));
     }
+    /* The same deadline the JSON route enforces. The two paths refusing
+       different things is how somebody pays for a hold that ended. */
+    if (doc.payment.dueBy && doc.payment.dueBy.getTime() < Date.now()) {
+      if (doc.payment.status !== 'expired') {
+        doc.payment.status = 'expired';
+        await doc.save();
+      }
+      return res.status(410).type('html').send(page('This confirmation has lapsed',
+        'The owner held the place for a while and nothing was arranged. Ask again and they can confirm a fresh visit.'));
+    }
 
-    /* The app passes where to come back to. Only a scheme we recognise is
-       honoured — an open redirect here would let anybody bounce a paying
-       customer to a page of their choosing. */
-    const raw = String(req.query.redirect || '');
-    const redirect = /^lampose:\/\//.test(raw) ? raw : 'lampose://visit';
+    const redirect = safeRedirect(req.query.redirect);
 
-    let order;
     if (doc.payment.status === 'paid') {
       return res.type('html').send(bounce(redirect, 'paid'));
     }
-    order = await razorpay.createOrder({
-      amountPaise: doc.payment.amountPaise || config.razorpay.tokenAmountPaise,
+    const order = await razorpay.createOrder({
+      amountPaise: doc.payment.amountPaise || config.razorpay.assistedVisitAmountPaise,
       receipt: String(doc._id),
-      notes: { visitRequestId: String(doc._id) },
+      notes: { visitRequestId: String(doc._id), purpose: ASSISTED_PURPOSE },
     });
     doc.payment.status = 'pending';
     doc.payment.orderId = order.id;
@@ -498,7 +362,7 @@ const renderCheckout = async (req, res, next) => {
       amount: order.amount,
       currency: order.currency || 'INR',
       name: 'Lampose',
-      description: `Visit token · ${doc.propertyName || ''}`.trim(),
+      description: `Assisted visit · ${doc.propertyName || ''}`.trim(),
       prefill: { name: doc.customer?.name || '', contact: doc.customer?.phone || '' },
       theme: { color: '#45855a' },
     };
@@ -508,7 +372,7 @@ const renderCheckout = async (req, res, next) => {
     return res.type('html').send(`<!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Lampose · Visit token</title>
+<title>Lampose · Assisted visit</title>
 <style>body{font-family:system-ui,-apple-system,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f7f9f7;color:#14201a}p{color:#46564d}</style>
 </head><body>
 <div><p>Opening the payment window…</p></div>
@@ -534,18 +398,9 @@ const renderCheckout = async (req, res, next) => {
 
   /*
    * Razorpay FAILING and Razorpay never opening were indistinguishable from
-   * outside until this existed.
-   *
-   * A declined payment showed the gateway's own "please use another method"
-   * screen and stopped there: nothing posted back, nothing recorded, and the
-   * reason — which Razorpay hands over in full, with a code, a step and a
-   * source — was thrown away. Anybody debugging it afterwards had a screenshot
-   * and no error code, which is exactly the position an in-app checkout puts
-   * you in when it behaves differently from a browser.
-   *
-   * Reported with \`keepalive\` so it still leaves if the page is navigating,
-   * and wrapped so that reporting a failure can never itself break the retry
-   * the student is about to make.
+   * outside until this existed. Reported with \`keepalive\` so it still
+   * leaves if the page is navigating, and wrapped so that reporting a
+   * failure can never itself break the retry the customer is about to make.
    */
   rzp.on('payment.failed', function (e) {
     var err = (e && e.error) || {};
@@ -581,8 +436,7 @@ const renderCheckout = async (req, res, next) => {
 const paymentCallback = async (req, res, next) => {
   try {
     const doc = await VisitRequest.findById(req.params.id).catch(() => null);
-    const raw = String(req.body?.redirect || '');
-    const redirect = /^lampose:\/\//.test(raw) ? raw : 'lampose://visit';
+    const redirect = safeRedirect(req.body?.redirect);
 
     if (!doc || !doc.payment?.orderId) {
       return res.type('html').send(bounce(redirect, 'error'));
@@ -601,7 +455,7 @@ const paymentCallback = async (req, res, next) => {
       return res.type('html').send(bounce(redirect, 'unverified'));
     }
 
-    await markPaidAndReleaseAddress(doc, req.body.razorpayPaymentId);
+    await markVisitPaid(doc, req.body.razorpayPaymentId);
 
     return res.type('html').send(bounce(redirect, 'paid'));
   } catch (error) {
@@ -609,7 +463,9 @@ const paymentCallback = async (req, res, next) => {
   }
 };
 
-/** A bare page that hands control back to the app. */
+/** A bare page that hands control back to the app. The redirect has already
+    been through `safeRedirect`, whose charset admits nothing that can close
+    an attribute or a tag. */
 const bounce = (redirect, outcome) => `<!doctype html>
 <html><head><meta charset="utf-8">
 <meta http-equiv="refresh" content="0;url=${redirect}?paid=${outcome === 'paid' ? '1' : '0'}&outcome=${outcome}">
@@ -630,13 +486,9 @@ const page = (title, body) => `<!doctype html>
  *
  * Records only — it never marks anything paid, and it deliberately does not
  * end the request: a declined card is a reason to try another one, and the
- * checkout stays open behind this call.
- *
- * The values are Razorpay's own (`code`, `step`, `source`, `reason`) and are
- * written verbatim rather than mapped to our own vocabulary, because the whole
- * point is to be able to quote them back to Razorpay support. `payment.status`
- * stays `pending`: the order is still open and a retry on the same order is
- * exactly what the student is being offered.
+ * checkout stays open behind this call. `payment.status` stays `pending`: the
+ * order is still open and a retry on the same order is exactly what the
+ * customer is being offered.
  *
  * @route POST /api/v2/visit-requests/:id/payment/failed
  */
@@ -645,7 +497,7 @@ const recordPaymentFailure = async (req, res, next) => {
     const doc = await VisitRequest.findById(req.params.id).catch(() => null);
     /* 204 either way. This is telemetry from a page that is mid-retry; an
        error status here would surface in the checkout as a failed fetch and
-       tell the student about a problem that is not theirs. */
+       tell the customer about a problem that is not theirs. */
     if (!doc || !doc.payment?.required) return res.status(204).end();
 
     const trim = (value) => String(value || '').slice(0, 200);
@@ -669,7 +521,8 @@ const recordPaymentFailure = async (req, res, next) => {
 };
 
 module.exports = {
-  createPaymentOrder, verifyPayment, setJoiningDate, needsToken,
-  ensurePaymentLink, markPaidAndReleaseAddress,
+  createPaymentOrder, verifyPayment, needsToken,
+  ensurePaymentLink, markVisitPaid,
   renderCheckout, paymentCallback, recordPaymentFailure,
+  ASSISTED_PURPOSE,
 };

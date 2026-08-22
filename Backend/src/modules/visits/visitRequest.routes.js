@@ -20,13 +20,10 @@ const {
   getVisitRequest,
 } = require('./visitRequest.controller');
 const {
-  createPaymentOrder, verifyPayment, setJoiningDate, renderCheckout, paymentCallback,
+  createPaymentOrder, verifyPayment, renderCheckout, paymentCallback,
   recordPaymentFailure,
 } = require('./visitPayment.controller');
-const {
-  createUnlockOrder, verifyUnlockPayment, createAssistedOrder, verifyAssistedPayment,
-  createBalanceOrder, verifyBalancePayment,
-} = require('./contactUnlock.controller');
+const { setSlot } = require('./assistedSlot.controller');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const { attachCustomerIfPresent } = require('../customers/customerAuth.middleware');
 const { rateLimit } = require('../../shared/middleware/rateLimit');
@@ -54,42 +51,27 @@ router.post('/:id/verify', requireLamposeDb, attachCustomerIfPresent, verifyLimi
 router.post('/:id/resend', requireLamposeDb, resendLimit, resendVisitOtp);
 router.get('/:id', requireLamposeDb, statusLimit, getVisitRequest);
 
-/* ── The visit token ──────────────────────────────────────────────────────
+/* ── The ₹199 assisted-visit payment ──────────────────────────────────────
    Bachelor and co-live only, and only after the owner has confirmed. The
    request id is the capability, exactly as it is for GET above — these routes
-   add no new exposure, and the address they eventually release is behind a
-   verified payment rather than behind knowing an id. */
+   add no new exposure, and the address the flow eventually releases is behind
+   a verified payment AND a fixed slot rather than behind knowing an id. */
 router.post('/:id/payment/order', requireLamposeDb, statusLimit, createPaymentOrder);
 router.post('/:id/payment/verify', requireLamposeDb, statusLimit, verifyPayment);
-router.post('/:id/joining-date', requireLamposeDb, statusLimit, setJoiningDate);
 
-/* The mobile app opens this in a browser tab rather than carrying a native
-   Razorpay SDK. It renders the same checkout, verifies here where the secret
-   already lives, and bounces back through the app's deep link. */
-router.get('/:id/payment/checkout', requireLamposeDb, renderCheckout);
+/* The mobile app renders this in its own WebView rather than carrying a
+   native Razorpay SDK. It renders the same checkout, verifies here where the
+   secret already lives, and bounces back through the app's deep link. Rate
+   limited like the JSON order route: every load of an unpaid checkout mints
+   a Razorpay order. */
+router.get('/:id/payment/checkout', requireLamposeDb, statusLimit, renderCheckout);
 router.post('/:id/payment/callback', requireLamposeDb, paymentCallback);
 /* Telemetry from the checkout page when Razorpay declines. Records the reason
    and answers 204 — it never decides anything. */
 router.post('/:id/payment/failed', requireLamposeDb, recordPaymentFailure);
 
-/* ── After the owner confirms: the two ways to actually see the room ──────
-   Free and accompanied, or paid and alone. Same capability as the routes
-   above — the request id — and the same ceiling, because neither is cheaper
-   to abuse than starting a checkout is.
-
-   Opening an assisted-visit order writes a slot and calls Razorpay, so it
-   gets the tighter of the two limits: a caller who re-opens a checkout ten
-   times an hour has stopped being a customer picking a time. Verifying is on
-   the looser one, because a customer whose network drops mid-payment has to
-   be able to retry. */
-const lamposeLimit = rateLimit({ name: 'lampose-visit-ip', windowMs: 60 * 60 * 1000, max: 10 });
-
-router.post('/:id/unlock/order', requireLamposeDb, statusLimit, createUnlockOrder);
-router.post('/:id/unlock/verify', requireLamposeDb, statusLimit, verifyUnlockPayment);
-router.post('/:id/assisted/order', requireLamposeDb, lamposeLimit, createAssistedOrder);
-router.post('/:id/assisted/verify', requireLamposeDb, statusLimit, verifyAssistedPayment);
-/* The other half of an assisted visit, settled when the room is confirmed. */
-router.post('/:id/assisted/balance/order', requireLamposeDb, statusLimit, createBalanceOrder);
-router.post('/:id/assisted/balance/verify', requireLamposeDb, statusLimit, verifyBalancePayment);
+/* The slot a paid visit happens in — the app's picker posts here. The web
+   channel picks its slot in WhatsApp and never calls this. */
+router.post('/:id/assisted/slot', requireLamposeDb, statusLimit, setSlot);
 
 module.exports = router;

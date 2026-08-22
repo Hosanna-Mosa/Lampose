@@ -588,6 +588,167 @@ async function sendOwnerText({ ownerMobile, body }) {
   }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   The ₹199 assisted-visit conversation — six messages, one flow.
+
+   The owner says AVAILABLE, the customer pays ₹199 (₹100 representative +
+   ₹99 Lampose fee), then picks a slot inside WhatsApp: a quick-reply button
+   opens the session, two list pickers take the day and the time, and the
+   confirmation with the address closes it. The templates were created on
+   2026-08-22; the four business-initiated ones are Meta-reviewed, the two
+   list pickers are session messages and need no approval.
+
+   Every sender here degrades to plain text when its SID is unset — good
+   enough to test inside an open session, not good enough for production
+   cold starts, exactly like the visit-request template above.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** One helper for every content send below: template when the SID is set,
+    the plain-text body otherwise. */
+async function sendContentOrText({ to, contentSid, variables, fallbackBody }) {
+  if (!client) return { success: false, error: 'Twilio client not initialized' };
+
+  const target = formatWhatsAppNumber(to);
+  if (!target) return { success: false, error: 'That phone number is not valid.' };
+
+  try {
+    const message = await client.messages.create(contentSid
+      ? {
+        from: whatsappFrom,
+        to: target,
+        contentSid,
+        contentVariables: JSON.stringify(variables),
+      }
+      : { from: whatsappFrom, to: target, body: fallbackBody });
+    return { success: true, messageSid: message.sid };
+  } catch (error) {
+    console.error(`❌ WhatsApp send failed (${contentSid || 'plain'}): ${error.message}`);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * T1 — the owner confirmed; here is what ₹199 buys and where to pay it.
+ *
+ * Replaces the retired ₹20 pre-payment message. The listing URL rides along
+ * as the second way to pay, and as the fallback when Razorpay refused to
+ * mint a link at all.
+ */
+async function sendAssistedPayRequest({
+  customerPhone, customerName, sharingLabel, propertyName, payLink, listingUrl,
+}) {
+  return sendContentOrText({
+    to: customerPhone,
+    contentSid: process.env.TWILIO_ASSISTED_PAY_CONTENT_SID,
+    variables: {
+      1: oneLine(customerName, 60),
+      2: oneLine(sharingLabel || 'the room', 60),
+      3: oneLine(propertyName, 80),
+      4: payLink || listingUrl,
+      5: listingUrl,
+    },
+    fallbackBody:
+      `Good news ${customerName} — the owner has confirmed `
+      + `${sharingLabel || 'the room'} at ${propertyName} is available to visit.\n\n`
+      + 'Book your assisted visit:\n'
+      + '• ₹100 — a Lampose representative accompanies you on the visit\n'
+      + '• ₹99 — Lampose fee\n\n'
+      + 'Total ₹199 — pay via the link below.\n\n'
+      + `💳 Pay here: ${payLink || listingUrl}\n\n`
+      + `🔗 Or pay on the listing: ${listingUrl}\n\n`
+      + 'The representative arranges everything with the owner and meets you at the '
+      + 'property. After payment, you’ll pick a convenient date and time right '
+      + 'here on WhatsApp.',
+  });
+}
+
+/**
+ * T2 — the money landed; nothing else yet, as designed. The quick-reply
+ * button ("Pick my slot") is what opens the session the two list pickers
+ * ride in.
+ */
+async function sendPaymentReceived({ customerPhone, customerName, propertyName }) {
+  return sendContentOrText({
+    to: customerPhone,
+    contentSid: process.env.TWILIO_PAYMENT_RECEIVED_CONTENT_SID,
+    variables: { 1: oneLine(customerName, 60), 2: oneLine(propertyName, 80) },
+    fallbackBody:
+      `✅ Payment received — Lampose\n\nHi ${customerName}, your ₹199 payment for the `
+      + `assisted visit to ${propertyName} is confirmed.\n\n`
+      + 'Next step: pick a date and time for your visit. Reply here to choose your slot.',
+  });
+}
+
+/**
+ * L1 — which day. Nine dynamic rows plus a fixed "Another day"; the ids are
+ * day_1…day_9 where day_1 means the day this message was SENT — the caller
+ * records that base date on the request, because the reply may arrive after
+ * midnight.
+ */
+async function sendPickDay({ customerPhone, propertyName, dayLabels }) {
+  const labels = (dayLabels || []).slice(0, 9);
+  const variables = { 1: oneLine(propertyName, 80) };
+  labels.forEach((label, i) => { variables[i + 2] = oneLine(label, 24); });
+
+  return sendContentOrText({
+    to: customerPhone,
+    contentSid: process.env.TWILIO_PICK_DAY_CONTENT_SID,
+    variables,
+    fallbackBody:
+      `When would you like to visit ${propertyName}? Reply with a day `
+      + '(for example "tomorrow" or "25 Aug") and our team will arrange it.',
+  });
+}
+
+/** L2 — what time on the chosen day. The rows are fixed (t_0900…t_2000). */
+async function sendPickTime({ customerPhone, dayLabel }) {
+  return sendContentOrText({
+    to: customerPhone,
+    contentSid: process.env.TWILIO_PICK_TIME_CONTENT_SID,
+    variables: { 1: oneLine(dayLabel, 40) },
+    fallbackBody:
+      `What time on ${dayLabel}? Visits run 8:00 AM – 8:00 PM. `
+      + 'Reply with a time (for example "4 PM").',
+  });
+}
+
+/**
+ * M1 — the visit is fixed, and this is the message the whole flow was for:
+ * the slot and the address together. Free-form on purpose — it is only ever
+ * sent seconds after the customer's own list reply, inside the session that
+ * reply opened, so no template is needed and the body can carry everything.
+ *
+ * No owner number and no PIN, by design: the representative deals with the
+ * owner and is present at the door, so there is nothing to match.
+ */
+async function sendVisitScheduled({
+  customerPhone, propertyName, sharingLabel, slotLabel, address,
+}) {
+  if (!client) return { success: false, error: 'Twilio client not initialized' };
+
+  const to = formatWhatsAppNumber(customerPhone);
+  if (!to) return { success: false, error: 'That phone number is not valid.' };
+
+  const addressLine = oneLine(address, 160);
+  const mapsUrl = addressLine
+    ? `https://maps.google.com/?q=${encodeURIComponent(addressLine)}`
+    : '';
+
+  const body =
+    '🎉 Your visit is confirmed!\n\n'
+    + `🏠 ${propertyName}${sharingLabel ? ` — ${sharingLabel}` : ''}\n`
+    + `🗓 ${slotLabel}\n`
+    + '👤 A Lampose representative will meet you there — everything is arranged '
+    + 'with the owner.\n\n'
+    + `📍 Address: ${addressLine || 'Shared by our representative before the visit'}\n`
+    + (mapsUrl ? `🗺 Directions: ${mapsUrl}\n` : '')
+    + '\nNeed to change the time? Just reply here and our team will help.';
+
+  try {
+    const message = await client.messages.create({ from: whatsappFrom, to, body });
+    return { success: true, messageSid: message.sid };
+  } catch (error) {
+    console.error(`❌ Visit-scheduled message failed: ${error.message}`);
 /**
  * Ad-hoc WhatsApp send, triggered by an admin from the console rather than
  * by any of the business flows above — the "Messages" page in Admin.
@@ -620,6 +781,43 @@ async function sendAdminMessage({ to, body, contentSid, contentVariables }) {
   }
 }
 
+/** T3 — the owner learns the slot. Templated: their AVAILABLE session may
+    have lapsed by the time the customer pays and picks. */
+async function sendOwnerVisitNotice({
+  ownerMobile, customerName, sharingLabel, propertyName, slotLabel,
+}) {
+  return sendContentOrText({
+    to: ownerMobile,
+    contentSid: process.env.TWILIO_OWNER_VISIT_NOTICE_CONTENT_SID,
+    variables: {
+      1: oneLine(customerName, 60),
+      2: oneLine(sharingLabel || 'the room', 60),
+      3: oneLine(propertyName, 80),
+      4: oneLine(slotLabel, 40),
+    },
+    fallbackBody:
+      `Hello! An update on ${propertyName}:\n\n`
+      + `${customerName} will visit ${sharingLabel || 'the room'}, accompanied by a `
+      + `Lampose representative, on ${slotLabel}.\n\n`
+      + 'The representative will coordinate the visit with you. Reply here if that '
+      + 'time does not work.',
+  });
+}
+
+/** T4 — paid, two hours, no slot. Sent once; after this the follow-up is the
+    team's phone call, not another message. */
+async function sendSlotReminder({ customerPhone, customerName, propertyName }) {
+  return sendContentOrText({
+    to: customerPhone,
+    contentSid: process.env.TWILIO_SLOT_REMINDER_CONTENT_SID,
+    variables: { 1: oneLine(customerName, 60), 2: oneLine(propertyName, 80) },
+    fallbackBody:
+      `Hi ${customerName}, your assisted visit to ${propertyName} is paid and waiting `
+      + 'for a time slot.\n\nReply here to pick your slot and we’ll confirm the '
+      + 'visit and send you the full address.',
+  });
+}
+
 module.exports = {
   sendOwnerText,
   sendVerificationMessage,
@@ -633,4 +831,11 @@ module.exports = {
   maskPhone,
   sendVisitRequestMessage,
   sendVisitOutcomeMessage,
+  sendAssistedPayRequest,
+  sendPaymentReceived,
+  sendPickDay,
+  sendPickTime,
+  sendVisitScheduled,
+  sendOwnerVisitNotice,
+  sendSlotReminder,
 };

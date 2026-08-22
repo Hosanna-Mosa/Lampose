@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   Razorpay telling us a visit token was paid.
+   Razorpay telling us the ₹199 assisted visit was paid.
 
    ## Why this exists as well as the in-page verification
 
@@ -9,8 +9,8 @@
    WhatsApp, possibly hours later, on a different device.
 
    So this is the path that actually completes most payments. The two share
-   one implementation of "mark paid and release the address" so a payment made
-   either way releases exactly the same thing.
+   one implementation of "mark paid and start the slot step"
+   (`markVisitPaid`) so a payment made either way lands identically.
 
    ## What is believed
 
@@ -21,17 +21,26 @@
    With no `RAZORPAY_WEBHOOK_SECRET` configured the route refuses everything.
    That is deliberate: an unauthenticated endpoint that marks payments as
    received is worse than no endpoint at all.
+
+   ## Legacy money
+
+   The retired flows' purposes (`contact_unlock`, `assisted_balance`) are
+   acknowledged and ignored — those products no longer exist. A payment with
+   NO purpose is how every link minted before purposes existed looks, which
+   includes the retired ₹20 token links still sitting in old WhatsApp chats:
+   the amount guard below is what stops a ₹20 payment being recorded as a
+   ₹199 one. Underpayments are logged and the team is told, because somebody
+   has genuinely paid money that bought nothing and a human owes them a call.
    ══════════════════════════════════════════════════════════════════════════ */
 const mongoose = require('mongoose');
 
 const config = require('../../config/env');
 const razorpay = require('../../infrastructure/razorpay/razorpay');
 const VisitRequest = require('./visitRequest.model');
-const { markPaidAndReleaseAddress } = require('./visitPayment.controller');
-const {
-  markContactUnlocked, markAssistedBooked, markBalancePaid,
-  UNLOCK_PURPOSE, ASSISTED_PURPOSE, ASSISTED_BALANCE_PURPOSE,
-} = require('./contactUnlock.controller');
+const { markVisitPaid, ASSISTED_PURPOSE } = require('./visitPayment.controller');
+const twilio = require('../../infrastructure/twilio/twilio');
+
+const LEGACY_PURPOSES = ['contact_unlock', 'assisted_balance'];
 
 /**
  * @route POST /api/v2/payments/razorpay/webhook
@@ -74,7 +83,7 @@ const razorpayWebhook = async (req, res) => {
 
   /* Two events mean the same thing here. `payment_link.paid` is the one the
      link flow fires; `payment.captured` covers a payment made against an
-     order from the website. Either carries our id in `notes`. */
+     order from the website or the app. Either carries our id in `notes`. */
   const entity = payload.payment_link?.entity || payload.payment?.entity || {};
   const paymentEntity = payload.payment?.entity || {};
 
@@ -92,66 +101,54 @@ const razorpayWebhook = async (req, res) => {
   if (!doc) return ack(`no visit request for "${requestId || linkId || 'unknown'}"`);
 
   const paymentId = paymentEntity.id || entity.id || null;
-
-  /*
-   * WHICH of this request's payments was this?
-   *
-   * A confirmed bachelor request can have FOUR distinct orders against it —
-   * the visit token, the contact unlock, the assisted visit's advance and
-   * that visit's balance — and every one of them carries the same
-   * `visitRequestId` home. Without this they would all be read as the token:
-   * any of the other three would mark it paid, release the address and take
-   * a bed out of the pool, none of which anybody bought.
-   *
-   * The balance is tested BEFORE the advance. Both belong to the assisted
-   * visit, and reading a settled balance as an advance would re-book a visit
-   * that already exists and message the roster about it a second time.
-   *
-   * The note is set by contactUnlock.controller.js. Its absence means the
-   * token, which is what every payment made before this existed looks like —
-   * so old events and payment links keep meaning exactly what they meant.
-   */
   const purpose = entity.notes?.purpose || paymentEntity.notes?.purpose || '';
 
-  if (purpose === ASSISTED_BALANCE_PURPOSE) {
-    if (doc.lamposeVisit?.balance?.status === 'paid') {
-      return ack(`request ${doc._id} assisted balance was already paid`);
-    }
-    await markBalancePaid(doc, paymentId);
-    console.log(`[razorpay-webhook] ${event} → request ${doc._id} assisted balance paid (${paymentId}).`);
-    return ack();
-  }
-
-  if (purpose === ASSISTED_PURPOSE) {
-    if (doc.lamposeVisit?.status === 'requested') {
-      return ack(`request ${doc._id} assisted visit was already booked`);
-    }
-    /* The slot was written when the order was created, so the booking can be
-       completed here with nothing from the browser — which is the whole point
-       of this path. */
-    await markAssistedBooked(doc, paymentId);
-    console.log(`[razorpay-webhook] ${event} → request ${doc._id} assisted visit booked (${paymentId}).`);
-    return ack();
-  }
-
-  if (purpose === UNLOCK_PURPOSE) {
-    if (doc.contactUnlock?.status === 'paid') {
-      return ack(`request ${doc._id} contact unlock was already paid`);
-    }
-    await markContactUnlocked(doc, paymentId);
-    console.log(`[razorpay-webhook] ${event} → request ${doc._id} contact unlock paid (${paymentId}).`);
+  /* The retired products. Their money is real but buys nothing any more —
+     acknowledged so Razorpay stops redelivering, logged so it can be found. */
+  if (LEGACY_PURPOSES.includes(purpose)) {
+    console.warn(`[razorpay-webhook] LEGACY PAYMENT ignored: request ${doc._id}, `
+      + `purpose "${purpose}", payment ${paymentId}. A human should refund this.`);
     return ack();
   }
 
   if (doc.payment?.status === 'paid') {
     /* Razorpay redelivers, and a customer can trigger both paths. Doing this
-       twice must not send a second address message. */
+       twice must not send a second message. */
     return ack(`request ${doc._id} was already paid`);
   }
 
-  await markPaidAndReleaseAddress(doc, paymentId);
+  /*
+   * The amount guard.
+   *
+   * Purpose `assisted_visit` — or none, which is what every payment link
+   * minted before purposes existed looks like, INCLUDING the retired ₹20
+   * token links still live in old WhatsApp chats. The signature proves the
+   * money is real; only the amount says which product it bought. A payment
+   * short of the price on the document must not settle it.
+   */
+  const expected = doc.payment?.amountPaise || config.razorpay.assistedVisitAmountPaise;
+  const amount = Number(paymentEntity.amount || entity.amount || entity.amount_paid || 0);
+  if (amount > 0 && amount < expected) {
+    console.error(`[razorpay-webhook] UNDERPAID: request ${doc._id} received ${amount} paise `
+      + `against ${expected} (payment ${paymentId}, likely a legacy link). Not marking paid.`);
+    const roster = String(process.env.VERIFICATION_TEAM_NUMBERS || '')
+      .split(',').map((n) => n.trim()).filter(Boolean);
+    for (const number of roster) {
+      twilio.sendOwnerText({
+        ownerMobile: number,
+        body: '⚠️ Underpaid visit payment\n\n'
+          + `Property: ${doc.propertyName || 'Unnamed'}\n`
+          + `Customer: ${doc.customer?.name || 'Not given'} · ${doc.customer?.phone || ''}\n`
+          + `Paid ₹${amount / 100} against ₹${expected / 100} — probably an old payment link.\n`
+          + `Please call them and arrange a refund. Request: ${doc._id}`,
+      }).catch(() => {});
+    }
+    return ack();
+  }
 
-  console.log(`[razorpay-webhook] ${event} → request ${doc._id} paid (${paymentId}), address released.`);
+  await markVisitPaid(doc, paymentId);
+
+  console.log(`[razorpay-webhook] ${event} → request ${doc._id} paid (${paymentId}), slot step started.`);
   return ack();
 };
 

@@ -20,6 +20,7 @@ const dbStore = require('./src/modules/scraper/scraper.store');
 const { initStore, countUsers } = require('./src/modules/scraper/scraper.store');
 const { stopAllJobs } = require('./src/modules/scraper/playwrightScraper.service');
 const { startExpiryWorker, stopExpiryWorker, setExpiryHandler } = require('./src/modules/visits/expiry.worker');
+const { startSlotReminderWorker, stopSlotReminderWorker } = require('./src/modules/visits/slotReminder.worker');
 const { notifyExpired } = require('./src/modules/notifications/stayRequest.notifier');
 const { logSmsStatus } = require('./src/infrastructure/sms/sms');
 const { routeMap } = require('./routes');
@@ -267,6 +268,9 @@ const startServer = async () => {
      the notification layer and can be tested without it. */
   setExpiryHandler(notifyExpired);
   startExpiryWorker();
+  /* The second timer: paid ₹199 visits that never picked a slot get one
+     nudge and one team alert. Minutes-scale, harmless when idle. */
+  startSlotReminderWorker();
 
   const server = app.listen(config.port, config.host, () => {
     banner();
@@ -308,6 +312,7 @@ const startServer = async () => {
     /* Stopped before the listener closes: a tick that starts during shutdown
        would write to a connection `closeConnections` is about to drop. */
     stopExpiryWorker();
+    stopSlotReminderWorker();
     server.close(async () => {
       await closeConnections();
       clearTimeout(forceExit);

@@ -218,8 +218,8 @@ export default function StayIntentPicker({ listing, value, onChange }) {
       {/*
         * ── Whole-property lets: the layout, and nothing else yet ──────
         *
-        * No joining date here. On a category that takes a visit token the
-        * date is asked AFTER the owner confirms and the token is paid — at
+        * No joining date here. On a paid category the VISIT date is picked
+        * after the owner confirms and the ₹199 assisted visit is paid — at
         * which point it is a commitment rather than a guess about a viewing
         * nobody has agreed to. Asking twice, once on each side of the
         * payment, would be asking the same question and then ignoring the
@@ -228,9 +228,10 @@ export default function StayIntentPicker({ listing, value, onChange }) {
       {simple && tokenRequired && (
         <div className="si-group">
           <p className="si-note">
-            Ask first, choose a date after. The owner confirms, you pay a{' '}
-            {rupees(listing.visitToken.amountPaise / 100)} token, and then you pick a move-in date
-            and get the full address.
+            Ask first, schedule after. The owner confirms, you book a{' '}
+            {rupees(listing.visitToken.amountPaise / 100)} assisted visit, and then you pick a
+            date and time — a Lampose representative accompanies you, and the full address
+            comes with your slot.
           </p>
         </div>
       )}

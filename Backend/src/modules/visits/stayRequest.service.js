@@ -392,7 +392,7 @@ const createStayRequest = async ({ customer, listingId, sharing, intent, consent
     sharing: { label: option.label, price: option.price },
     intent: checked.intent || null,
     /*
-     * The visit token, on the categories that charge one.
+     * The ₹199 assisted-visit payment, on the categories that charge one.
      *
      * Set here as well as on the web path because a bachelor visit costs the
      * same whichever surface asked for it — the only difference is that this
@@ -401,7 +401,7 @@ const createStayRequest = async ({ customer, listingId, sharing, intent, consent
      * request unpaid.
      */
     payment: TOKEN_CATEGORIES.includes(normaliseCategory(property.category))
-      ? { required: true, status: 'pending', amountPaise: config.razorpay.tokenAmountPaise }
+      ? { required: true, status: 'pending', amountPaise: config.razorpay.assistedVisitAmountPaise }
       : { required: false, status: 'not_required' },
 
     consentedTerms: true,
@@ -482,11 +482,12 @@ const accept = async (requestId, partner) => {
   /*
    * A visit that has to be paid for is not settled by the owner's tap.
    *
-   * The reference is what the two of them match at the door, so issuing it
-   * here would hand over a confirmed visit before the token cleared — and
-   * would tell the owner to expect somebody carrying a number that made the
-   * payment pointless. On those categories it is minted when the money lands
-   * (visitPayment.controller), and the clock to pay starts now.
+   * On paid categories there is no entry PIN at all any more: a Lampose
+   * representative accompanies the visit, so there is nothing to match at
+   * the door. What starts now is the clock to pay the ₹199 — the slot and
+   * the address come after the money (assistedSlot.controller). The PIN
+   * branch below is the free categories', whose visit IS settled by this
+   * tap.
    */
   const tokenDue = Boolean(pending?.payment?.required && pending.payment.status !== 'paid');
 

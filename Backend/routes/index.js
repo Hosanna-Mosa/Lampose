@@ -100,10 +100,10 @@ const V2_GROUPS = [
   ['/health', healthRoutes, 'process + database status'],
   ['/listings', v2ListingRoutes, 'public Explore feed for lampose.com'],
   ['/visit-requests', v2VisitRequestRoutes, 'availability requests: OTP, then the owner is asked on WhatsApp'],
-  /* Razorpay reporting a paid visit token. Its own mount because it is called
-     by a payment gateway rather than by any of our clients, and it verifies a
-     signature over the raw body rather than trusting a session. */
-  ['/payments', v2PaymentWebhookRoutes, 'razorpay webhook: a paid visit token releases the address'],
+  /* Razorpay reporting a paid ₹199 assisted visit. Its own mount because it
+     is called by a payment gateway rather than by any of our clients, and it
+     verifies a signature over the raw body rather than trusting a session. */
+  ['/payments', v2PaymentWebhookRoutes, 'razorpay webhook: a paid ₹199 visit starts the slot step'],
   ['/properties', v2PropertyRoutes, 'direct property CRUD for the leads panel'],
   ['/auth', v2AuthRoutes, 'leads panel + onboarding employee login'],
   ['/users', v2UserRoutes, 'leads panel team management'],

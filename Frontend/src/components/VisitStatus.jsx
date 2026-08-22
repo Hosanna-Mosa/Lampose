@@ -1,5 +1,4 @@
 import Icon from './Icon';
-import VisitTokenPanel from './VisitTokenPanel';
 import VisitNextSteps from './VisitNextSteps';
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -100,26 +99,9 @@ export default function VisitStatus({ request, onAskAgain, onRefresh }) {
         </div>
       </div>
 
-      {/*
-        * The ₹20 visit token — pay, pick a joining date, get the address.
-        *
-        * HIDDEN FOR NOW, deliberately and reversibly: uncomment the line
-        * below to bring it back. Only the rendering is commented out. The
-        * import above, the component, its API methods and the whole
-        * server-side token flow (order, verify, payment link, webhook,
-        * joining date, bed claim, expiry) are all untouched and still
-        * work — a customer who pays the link sent to them on WhatsApp is
-        * still recorded exactly as before.
-        *
-        * Note while it is hidden: the token's `payment.dueBy` deadline is
-        * still enforced server-side, and a lapsed confirmation is what
-        * VisitNextSteps reports below — that used to be this panel's job.
-        */}
-      {/* <VisitTokenPanel request={request} onUpdated={onRefresh} /> */}
-
-      {/* How they actually get there: with an agent, or with the owner's
-          number. No shared state with the token above — they are separate
-          money for separate things. */}
+      {/* The ₹199 assisted visit — pay once, pick the slot on WhatsApp, get
+          the address with it. (The ₹20 token and ₹99 unlock this rail used
+          to hold are retired, server-side included.) */}
       <VisitNextSteps request={request} onUpdated={onRefresh} />
     </div>
   );

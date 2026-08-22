@@ -33,7 +33,7 @@ const Property = require('../properties/property.model');
 const VisitRequest = require('./visitRequest.model');
 const { sharingOptionsFor, findSharingOption } = require('../listings/sharing.util');
 const { requestableOptions, bookedAtLabel } = require('../inventory/inventory.service');
-const { readListingAddress, readListingContact } = require('./visitAddress.util');
+const { readListingAddress } = require('./visitAddress.util');
 const { validateIntent, describeIntent } = require('../listings/stayIntent.util');
 const config = require('../../config/env');
 const { needsToken, ensurePaymentLink } = require('./visitPayment.controller');
@@ -47,6 +47,7 @@ const { sendOtpSms, smsConfigProblem } = require('../../infrastructure/sms/sms')
 const {
   toE164, isIndianMobile, maskPhone,
   sendVisitRequestMessage, sendVisitOutcomeMessage, sendVisitConfirmationToCustomer,
+  sendAssistedPayRequest,
 } = require('../../infrastructure/twilio/twilio');
 const {
   OTP_TTL_MS, OTP_MAX_ATTEMPTS, OTP_MAX_RESENDS, OTP_RESEND_COOLDOWN_MS,
@@ -497,7 +498,7 @@ const createVisitRequest = async (req, res, next) => {
        * unpaid, or turn a free one into a debt.
        */
       payment: needsToken(property)
-        ? { required: true, status: 'pending', amountPaise: config.razorpay.tokenAmountPaise }
+        ? { required: true, status: 'pending', amountPaise: config.razorpay.assistedVisitAmountPaise }
         : { required: false, status: 'not_required' },
       consentWhatsApp: Boolean(consentWhatsApp),
       consentAt: consentWhatsApp ? new Date() : null,
@@ -880,36 +881,16 @@ const getVisitRequest = async (req, res, next) => {
      *
      * `toPublic` says WHEN the address was released and never what it is —
      * it is a synchronous method on the document and the address lives on the
-     * property. So the page could see that it had been paid for and still had
-     * nothing to show; the street address only ever arrived as the return
-     * value of `setJoiningDate`, which meant a reload lost it and a payment
-     * made on the phone never produced it at all.
+     * property, so it is attached here instead.
      *
      * `addressReleasedAt` is the gate, exactly as it is everywhere else: set
-     * by the token handler when the payment verifies, and null until then.
-     * Reading it here rather than trusting a client flag keeps the rule in
-     * one place — a request that has not paid gets no address from this
-     * endpoint no matter what it asks for.
+     * by `confirmSchedule` when the paid visit's slot is fixed, and null
+     * until then. Reading it here rather than trusting a client flag keeps
+     * the rule in one place — a request whose visit is not scheduled gets no
+     * address from this endpoint no matter what it asks for.
      */
     if (doc.addressReleasedAt) {
       data.address = await readListingAddress(doc.listingId);
-    }
-
-    /*
-     * The owner's number and a map pin, once the ₹99 unlock has verified.
-     *
-     * A separate gate from the one above and deliberately so: the visit token
-     * releases the address, this releases a way to ring the owner, and they
-     * are bought separately. Reading `contactUnlock.verifiedAt` — the field
-     * only an HMAC check writes — rather than trusting anything the client
-     * sent keeps that decision here, next to the other one, instead of in a
-     * browser.
-     *
-     * `toPublic` deliberately carries the status and not the contents, so
-     * this is the only place a customer's number-shaped answer is assembled.
-     */
-    if (doc.contactUnlock?.status === 'paid' && doc.contactUnlock?.verifiedAt) {
-      data.contact = await readListingContact(doc.listingId);
     }
 
     // Polled every few seconds by every waiting customer — never cached.
@@ -1073,68 +1054,74 @@ const handleAvailabilityReply = async ({ from, body, buttonPayload }) => {
        retry of the whole tap. */
     if (confirmed) {
       /*
-       * The address is withheld while a token is outstanding.
+       * Two different messages, because the two categories are in different
+       * flows from here.
        *
-       * On a category that charges for a visit, the street address is what the
-       * token buys — so a confirmation message that carried it handed over the
-       * thing being paid for a minute before the payment. The owner's own
-       * message still shows it; theirs is the door they own.
-       *
-       * The AREA still goes, because a confirmation with no location at all
-       * reads as though nobody knows where the property is. What is held back
-       * is the door number and the map link that leads to it.
+       * A paid category (bachelor / co-live) gets T1: the ₹100 + ₹99
+       * breakdown and the ₹199 payment link — no address, no PIN, because
+       * the address comes with the slot and the representative makes a PIN
+       * pointless. A free category (PG) is settled by this very tap, so it
+       * gets the full confirmation with the address and the entry PIN,
+       * exactly as before.
        */
-      const tokenOutstanding = doc.payment?.required && doc.payment.status !== 'paid';
-
-      let pinAddress = '';
-      try {
-        const listing = await Property.findById(doc.listingId).select('address place').lean();
-
-        if (tokenOutstanding) {
-          /*
-           * No address at all — a link to pay for it instead.
-           *
-           * The approved template's address variable takes any string, so the
-           * instruction goes in that slot rather than needing a second
-           * template through Meta review. A payment LINK rather than a button
-           * on the site, because the person reading this is in WhatsApp: a
-           * URL they can tap is one step, and finding their way back to a tab
-           * they closed is several.
-           */
-          const link = await ensurePaymentLink(doc);
-          const site = String(process.env.PUBLIC_SITE_URL || 'https://lampose.com').replace(/\/$/, '');
-          const listingUrl = `${site}/explore/${doc.listingId}`;
-
-          pinAddress = link
-            ? `Pay ₹${(doc.payment.amountPaise || 0) / 100} to unlock the full address: ${link}`
-            + ` — or open the listing: ${listingUrl}`
-            : `Open the listing to pay and unlock the full address: ${listingUrl}`;
-        } else if (listing) {
-          pinAddress = listing.address && listing.place
-            && String(listing.address).toLowerCase().includes(String(listing.place).toLowerCase())
-            ? listing.address
-            : [listing.address, listing.place].filter(Boolean).join(', ');
-        }
-      } catch (err) {
-        console.warn('[availability] Could not read the listing address for the PIN message:', err.message);
-      }
+      const paymentOutstanding = doc.payment?.required && doc.payment.status !== 'paid';
 
       // Only where they opted in — WhatsApp will not carry a business message
       // to someone who never wrote first, template or not.
-      if (doc.consentWhatsApp) {
+      if (doc.consentWhatsApp && paymentOutstanding) {
+        const site = String(process.env.PUBLIC_SITE_URL || 'https://lampose.com').replace(/\/$/, '');
+        const listingUrl = `${site}/explore/${doc.listingId}`;
+
+        /* A payment LINK rather than only a button on the site, because the
+           person reading this is in WhatsApp: a URL they can tap is one step,
+           and finding their way back to a tab they closed is several. The
+           listing URL rides along as the second way to pay, and as the whole
+           message's fallback when Razorpay refused to mint a link. */
+        let payLink = null;
+        try {
+          payLink = await ensurePaymentLink(doc);
+        } catch (err) {
+          console.warn('[availability] Could not create the payment link:', err.message);
+        }
+
+        sendAssistedPayRequest({
+          customerPhone: doc.customer.phone,
+          customerName: doc.customer.name,
+          sharingLabel: doc.sharing && doc.sharing.label,
+          propertyName: doc.propertyName,
+          payLink,
+          listingUrl,
+        }).then((result) => {
+          if (!result.success) {
+            console.error('[availability] Pay-request message failed:', result.error);
+            return;
+          }
+          VisitRequest.updateOne({ _id: doc._id }, { customerMessageSid: result.messageSid })
+            .catch((err) => console.error('[availability] Could not record the customer message SID:', err.message));
+        }).catch((err) => console.error('[availability] Pay-request send failed:', err.message));
+      } else if (doc.consentWhatsApp) {
+        let pinAddress = '';
+        try {
+          const listing = await Property.findById(doc.listingId).select('address place').lean();
+          if (listing) {
+            pinAddress = listing.address && listing.place
+              && String(listing.address).toLowerCase().includes(String(listing.place).toLowerCase())
+              ? listing.address
+              : [listing.address, listing.place].filter(Boolean).join(', ');
+          }
+        } catch (err) {
+          console.warn('[availability] Could not read the listing address for the PIN message:', err.message);
+        }
+
         sendVisitConfirmationToCustomer({
           customerPhone: doc.customer.phone,
           customerName: doc.customer.name,
           propertyName: doc.propertyName,
           address: pinAddress,
-          /* No map link on the pre-payment message: that slot holds a "pay
-             here" line, and a link built from it points Google at the
-             sentence. */
-          directions: !tokenOutstanding,
+          directions: true,
           sharingLabel: doc.sharing && doc.sharing.label,
           joiningDate: describeJoiningDate(doc),
-          /* Nothing to show at a door that has not been paid for. */
-          pin: doc.entryPin || 'Sent once your token is paid',
+          pin: doc.entryPin,
         }).then((result) => {
           if (!result.success) {
             console.error('[availability] Visit confirmation to customer failed:', result.error);
@@ -1174,24 +1161,22 @@ const handleAvailabilityReply = async ({ from, body, buttonPayload }) => {
     console.log(`${confirmed ? '✅' : '❌'} [Availability] ${sender} marked ${what} `
       + `${confirmed ? 'available' : 'unavailable'} for ${doc.customer.name}.`);
 
-    /* The PIN is repeated in this reply as well as its own message. The
-       owner has just tapped a button and is looking at the chat right now,
-       and the separate template can be delayed or fail — this reply cannot,
-       because it is the response to their own inbound message. */
     /*
      * Two different truths, and the owner is owed the right one.
      *
-     * Without a token the visit is settled the moment they tap, so they get
-     * the reference now. With one outstanding, it is not settled: the visitor
-     * still has to pay, and telling the owner to expect somebody with a
-     * reference number nobody has issued would have them turn up to a door
-     * expecting a match that cannot happen.
+     * A free category (PG) is settled by this very tap, so that owner gets
+     * the entry PIN now — the reply to their own message cannot fail to
+     * arrive the way a separate template can. A paid category is NOT
+     * settled: the visitor still has to pay ₹199 and pick a slot, so that
+     * owner is told to wait for the date and time — which arrive in their
+     * own message (T3) the moment the slot is fixed.
      */
     return confirmed
       ? (doc.payment?.required && doc.payment.status !== 'paid'
         ? `Thank you. We have told ${doc.customer.name} that ${what} is available.\n\n`
-          + 'They are confirming their visit now. We will send you the visit reference number '
-          + 'as soon as they do — please wait for it before expecting them.'
+          + 'They are booking their assisted visit now. We will send you the visit '
+          + 'date and time as soon as it is fixed — a Lampose representative will '
+          + 'accompany them, so please wait for our message before expecting anyone.'
         : `Thank you. We have told ${doc.customer.name} that ${what} is available.\n\n`
           + `Visit reference: ${doc.entryPin}\n\n`
           + `${doc.customer.name} has the same reference number. Please ask them for it when they arrive and check that it matches.`)

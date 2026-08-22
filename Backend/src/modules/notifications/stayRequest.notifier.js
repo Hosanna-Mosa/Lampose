@@ -293,35 +293,74 @@ const notifyExpired = async (requests) => {
 };
 
 /**
- * The token cleared: the address and the reference now exist.
+ * The ₹199 cleared: the visit is paid and waiting for its slot.
  *
- * Both sides, both in-app. This is the app channel's answer to the WhatsApp
- * pair the web flow sends — an app request is answered in the app, and putting
- * a WhatsApp message in front of somebody who never asked for one is how a
- * test account with one number for the owner and the student received the same
- * news twice.
+ * Student only, and in-app — this is the app channel's answer to the
+ * WhatsApp "payment received" the web flow sends. The owner is NOT told yet:
+ * a payment with no slot is nothing they can act on, and their notification
+ * comes with the slot in `notifyVisitScheduled`.
  */
-const notifyTokenPaid = async (request) => {
-  say(`[notify] token paid → ${request.customerId} + owner (${request.propertyName})`);
+const notifyVisitPaid = async (request) => {
+  say(`[notify] visit paid → ${request.customerId} (${request.propertyName})`);
+
+  return pushTo(Customer(), { customerId: request.customerId }, {
+    title: 'Payment received',
+    body: `${request.propertyName} — now pick a date and time for your visit.`,
+    data: payloadFor(request, 'visit.paid'),
+  });
+};
+
+/**
+ * The slot is fixed: both sides learn it at once.
+ *
+ * This is the app channel's answer to the WhatsApp trio the web flow sends
+ * (customer confirmation, owner notice, team message) — the team's WhatsApp
+ * message goes out either way, from the controller.
+ */
+const notifyVisitScheduled = async (request) => {
+  const slot = `${request.lamposeVisit?.date || ''} at ${request.lamposeVisit?.time || ''}`.trim();
+  say(`[notify] visit scheduled → ${request.customerId} + owner (${request.propertyName}, ${slot})`);
 
   const student = pushTo(Customer(), { customerId: request.customerId }, {
     title: 'Visit confirmed',
-    body: `${request.propertyName} — your address and visit reference are ready.`,
-    data: payloadFor(request, 'request.accepted'),
+    body: `${request.propertyName} — ${slot}. A Lampose representative will meet you there; the address is in the app.`,
+    data: payloadFor(request, 'visit.scheduled'),
   });
 
-  const owner = pushTo(Partner(), { phoneDigits: ownerKeyOf(request) }, {
-    title: 'Visit confirmed',
-    body: `${request.customer?.name || 'The visitor'} paid for their visit to ${request.propertyName}.`
-      + ` Reference ${request.entryPin}.`,
-    data: payloadFor(request, 'request.accepted'),
-  });
+  const ownerKey = ownerKeyOf(request);
+  const owner = ownerKey
+    ? (async () => {
+      await ownerInboxRow(ownerKey, {
+        title: 'Visit scheduled',
+        message: `${request.customer?.name || 'The visitor'} and a Lampose representative will visit ${request.propertyName} on ${slot}.`,
+        requestId: String(request._id),
+      });
+      return pushTo(Partner(), { phoneDigits: ownerKey }, {
+        title: 'Visit scheduled',
+        body: `${request.customer?.name || 'The visitor'} and a Lampose representative will visit ${request.propertyName} on ${slot}.`,
+        data: payloadFor(request, 'visit.scheduled'),
+      });
+    })()
+    : Promise.resolve({ sent: 0 });
 
   return Promise.all([student, owner]);
 };
 
+/** Paid, hours gone, no slot. One nudge; after it the team calls. */
+const notifyVisitSlotReminder = async (request) => {
+  say(`[notify] slot reminder → ${request.customerId} (${request.propertyName})`);
+
+  return pushTo(Customer(), { customerId: request.customerId }, {
+    title: 'Pick your visit slot',
+    body: `${request.propertyName} — your visit is paid and waiting for a date and time.`,
+    data: payloadFor(request, 'visit.slot_reminder'),
+  });
+};
+
 module.exports = {
-  notifyTokenPaid,
+  notifyVisitPaid,
+  notifyVisitScheduled,
+  notifyVisitSlotReminder,
   notifyOwnerOfNewRequest,
   notifyStudentAccepted,
   notifyStudentDeclined,

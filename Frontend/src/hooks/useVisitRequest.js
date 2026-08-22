@@ -14,9 +14,27 @@ import visitRequestsApi from '../api/visitRequestsApi';
    ══════════════════════════════════════════════════════════════════════════ */
 
 const KEY = id => `lampose:visit:${id}`;
-/* Must match the API's status values exactly — a status missing from this
-   list is polled forever, because the loop only stops on a terminal one. */
-const TERMINAL = ['confirmed', 'declined', 'expired'];
+
+/*
+ * Whether a request still has something to wait for.
+ *
+ * One predicate, used by the render ("is the loop running?") AND by the loop
+ * itself ("schedule another tick?") — two copies of this rule is how the loop
+ * once stopped dead on `confirmed` while the payment it was supposed to be
+ * watching was still unpaid.
+ *
+ * `confirmed` is only the end for a free category. On a paid one the owner's
+ * yes is the middle: the ₹199 is still owed, and then the slot is picked in
+ * WhatsApp — both off this page, so the poll is how the page learns of them.
+ */
+const stillWatching = r => {
+  if (!r) return false;
+  if (r.status === 'pending_owner') return true;
+  if (r.status !== 'confirmed') return false;   // declined / expired: over.
+  if (r.payment?.required !== true) return false;
+  if (r.payment?.status !== 'paid') return true;                      // owes the ₹199
+  return ['slot_pending', 'manual'].includes(r.lamposeVisit?.status); // owes a slot
+};
 
 /* Polling backs off: an owner who answers does it in the first minute or two,
    and after that this is a page left open in a tab. Stops entirely after
@@ -58,29 +76,7 @@ export default function useVisitRequest(listingId) {
 
   const clear = useCallback(() => setRequest(null), [setRequest]);
 
-  /*
-   * Still watching?
-   *
-   * "Waiting for the owner" is the obvious case, and it used to be the only
-   * one — `confirmed` is in TERMINAL, so the loop stopped the moment the
-   * owner said yes.
-   *
-   * That is wrong for a bachelor or co-live request, where the owner's yes is
-   * the MIDDLE of the flow: a token is paid, and only then is the address
-   * released. The payment happens on the Razorpay link sent over WhatsApp —
-   * on the customer's phone, or in another tab — so the in-page callback that
-   * normally refreshes never fires. Nothing was watching, and the page sat on
-   * "pay to get the address" while the address was already in their WhatsApp.
-   *
-   * So: keep polling while a confirmed request still owes a token. It stops
-   * the moment the money lands, which is when there is nothing left to wait
-   * for.
-   */
-  const owesToken = request?.status === 'confirmed'
-    && request?.payment?.required === true
-    && request?.payment?.status !== 'paid';
-
-  const isWaiting = request?.status === 'pending_owner' || owesToken;
+  const isWaiting = stillWatching(request);
 
   /* One poll, then schedule the next from inside itself — a fixed interval
      would stack requests if the API ever answered slower than the gap. */
@@ -90,7 +86,7 @@ export default function useVisitRequest(listingId) {
     try {
       const fresh = await visitRequestsApi.status(request.id);
       setRequest(fresh);
-      if (TERMINAL.includes(fresh.status)) return;
+      if (!stillWatching(fresh)) return;
     } catch (err) {
       /* The request is gone from the server — an old id in a browser that
          has been sitting on this page for a very long time. Forget it rather
@@ -129,17 +125,22 @@ export default function useVisitRequest(listingId) {
   }, [isWaiting, request?.id]);
 
   /*
-   * Re-read once, now.
+   * Re-read once, now. Called by the payment panel the moment a checkout
+   * verifies, so the page flips to the paid state without waiting a poll.
    *
-   * The polling loop above only runs while a request is WAITING, which is the
-   * right rule for an unanswered one — but the token steps all happen after
-   * the owner answered, so nothing was watching when paying or dating changed
-   * the request server-side. This is what those steps call.
+   * `status()` returns the request itself and THROWS on failure — it has no
+   * `ok` envelope. (A guard on `res.ok` here used to make this a no-op: the
+   * panel called it after every payment and the page never updated until
+   * the background poll happened to land.)
    */
   const refresh = useCallback(async () => {
     if (!request?.id) return;
-    const res = await visitRequestsApi.status(request.id);
-    if (res?.ok && res.data) setRequest(res.data);
+    try {
+      const fresh = await visitRequestsApi.status(request.id);
+      if (fresh) setRequest(fresh);
+    } catch {
+      /* A dropped refresh is not a failed payment — the poll retries. */
+    }
   }, [request?.id, setRequest]);
 
   return { request, setRequest, clear, isWaiting, refresh };
