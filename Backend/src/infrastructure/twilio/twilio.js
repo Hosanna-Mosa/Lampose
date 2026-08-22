@@ -749,6 +749,10 @@ async function sendVisitScheduled({
     return { success: true, messageSid: message.sid };
   } catch (error) {
     console.error(`❌ Visit-scheduled message failed: ${error.message}`);
+    return { success: false, error: error.message };
+  }
+}
+
 /**
  * Ad-hoc WhatsApp send, triggered by an admin from the console rather than
  * by any of the business flows above — the "Messages" page in Admin.
