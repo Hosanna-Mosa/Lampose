@@ -334,6 +334,37 @@ export const uploadPropertyImages = async (items = [], onStage = () => {}) => {
 };
 
 /**
+ * Photos for one sharing option/layout at a time — "1 BHK" gets its own set,
+ * "2 BHK" gets its own, distinct from the whole-property gallery.
+ *
+ * Reuses `uploadPropertyImages` per label rather than a new endpoint: each
+ * label's set is its own batch-then-single-fallback upload, so a label with
+ * no photos staged is simply skipped rather than sent as an empty request.
+ *
+ * @param {Record<string, {file?: File, url?: string}[]>} mapOfLabelToItems
+ * @param {(stage: string) => void} [onStage]
+ * @returns {Promise<Record<string, string[]>>} label -> uploaded URLs, only
+ *   for labels that actually had something to upload.
+ */
+export const uploadSharingImages = async (mapOfLabelToItems = {}, onStage = () => {}) => {
+  const out = {};
+  const labels = Object.keys(mapOfLabelToItems);
+
+  for (let i = 0; i < labels.length; i += 1) {
+    const label = labels[i];
+    const items = mapOfLabelToItems[label] || [];
+    if (!items.length) continue;
+
+    onStage(`Uploading photos for "${label}" (${i + 1}/${labels.length})...`);
+    // eslint-disable-next-line no-await-in-loop
+    const urls = await uploadPropertyImages(items, () => {});
+    if (urls.length) out[label] = urls;
+  }
+
+  return out;
+};
+
+/**
  * Replace a listing's photos.
  *
  * Send the WHOLE list in the order it should appear — the endpoint writes

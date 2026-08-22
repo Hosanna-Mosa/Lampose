@@ -10,6 +10,7 @@ import { PropertiesPage } from './pages/PropertiesPage';
 import { VerificationsPage } from './pages/VerificationsPage';
 import { OnboardingTeamPage } from './pages/OnboardingTeamPage';
 import { PermissionsPage } from './pages/PermissionsPage';
+import { MessagesPage } from './pages/MessagesPage';
 import { SystemPage } from './pages/SystemPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { LoginPage } from './pages/LoginPage';
@@ -32,6 +33,7 @@ const VALID_TABS = [
   'onboarding-team',
   'permissions',
   'users',
+  'messages',
   'system',
   'settings',
   'visit-requests',
@@ -134,6 +136,8 @@ const AppContent: React.FC = () => {
         return <PermissionsPage search={search} />;
       case 'users':
         return <UsersPage search={search} />;
+      case 'messages':
+        return <MessagesPage />;
       case 'system':
         return <SystemPage />;
       case 'settings':

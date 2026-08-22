@@ -23,7 +23,12 @@
    and both spellings are live in the collection. First non-empty wins.
 
    Newer rows also carry categoryDetails.sharingPrices — a map of label to
-   monthly rent, e.g. {"Single":8000,"2 Sharing":5999}.
+   monthly rent, e.g. {"Single":8000,"2 Sharing":5999} — and, newer still,
+   categoryDetails.sharingImages, the same shape but label to an array of
+   photo URLs, e.g. {"1 BHK":["https://...","https://..."]}. A label absent
+   from that map has no photos of its own; callers fall back to the
+   property's whole-gallery `images` field, which this file does not do on
+   their behalf — see `sharingOptionsFor` below.
 
    Normalised here, in one place, because two callers need the same answer:
    utils/listingFormatter renders these as choices on the public site, and the
@@ -93,8 +98,13 @@ const shareTypeIdFor = (propertyId, label) => {
 };
 
 /**
- * [{ label, price|null, rooms|null, totalBeds|null, shareTypeId }] for a
- * property document. Never throws.
+ * [{ label, price|null, rooms|null, totalBeds|null, images, shareTypeId }]
+ * for a property document. Never throws.
+ *
+ * `images` is always an array (possibly empty) — this option's own photos,
+ * never the property's shared gallery. An empty array is a real answer
+ * ("nothing uploaded for this option") for a caller to fall back from, not
+ * a sign anything went wrong.
  *
  * `totalBeds` is the CAPACITY the property was onboarded with, not what is
  * free today — that lives on the `partner_share_types` row and moves as beds
@@ -114,6 +124,11 @@ const sharingOptionsFor = (doc) => {
   const prices = asMap(details.sharingPrices);
   const rooms = asMap(details.sharingRooms);
   const beds = asMap(details.sharingBeds);
+  /* Per-option photos — optional. A label absent here, or mapped to [],
+     means "no photos of its own"; the fallback to the property's own
+     `images` gallery is a read-side decision (Frontend), not baked in here,
+     so this stays a pure reflection of what onboarding actually stored. */
+  const imagesByLabel = asMap(details.sharingImages);
 
   /* Normalised rather than looked up directly: this reads documents, and a
      document may predate the migration to category codes. */
@@ -175,6 +190,7 @@ const sharingOptionsFor = (doc) => {
       rooms: Number.isFinite(roomCount) && roomCount > 0 ? roomCount : null,
       occupancy,
       totalBeds: Number.isFinite(totalBeds) && totalBeds > 0 ? totalBeds : null,
+      images: asList(imagesByLabel[label]),
       shareTypeId: propertyId ? shareTypeIdFor(propertyId, label) : null,
     };
   });
