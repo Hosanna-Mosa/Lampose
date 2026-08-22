@@ -170,7 +170,10 @@ const MEAL_TIMING_PLACEHOLDERS = {
 // Keyed maps that hang off a checkbox list: deselecting an option must take its
 // entries with it, or a stale price would keep counting toward the headline rent.
 const DEPENDENT_MAPS = {
-  sharingTypes: ['sharingPrices', 'sharingAC', 'sharingAcPrices', 'sharingRooms', 'sharingBeds'],
+  sharingTypes: [
+    'sharingPrices', 'sharingAC', 'sharingAcPrices', 'sharingRooms', 'sharingBeds',
+    'localSharingImages', 'sharingImages',
+  ],
   mealsProvided: ['mealTimings']
 };
 
@@ -209,6 +212,11 @@ export default function CategoryFieldsStep({ category, details = {}, onChangeDet
       updated = currentArray.filter(i => i !== item);
       (DEPENDENT_MAPS[field] || []).forEach((mapField) => {
         if (details[mapField] && details[mapField][item] !== undefined) {
+          if (mapField === 'localSharingImages') {
+            (details[mapField][item] || []).forEach((staged) => {
+              if (staged?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(staged.previewUrl);
+            });
+          }
           const trimmed = { ...details[mapField] };
           delete trimmed[item];
           onChangeDetails(mapField, trimmed);
@@ -729,6 +737,98 @@ function HotelDocuments({ details, onChangeDetails, errors }) {
 }
 
 
+/**
+ * Per-layout/option photo picker — "1 BHK" gets its own set, "2 BHK" gets
+ * its own, distinct from the whole-property gallery in
+ * PricingAmenitiesStep. Optional: a layout with none falls back to that
+ * shared gallery on the public site (see Backend's sharing.util.js).
+ *
+ * State: categoryDetails.localSharingImages = { [layoutId]: [{id, file,
+ * previewUrl, name}, ...] } — mirrors PricingAmenitiesStep's `localImages`
+ * item shape exactly (same createObjectURL/revokeObjectURL handling), one
+ * array per label instead of one for the whole property. Uploaded in
+ * App.jsx on submit via `uploadSharingImages`, then stripped before the
+ * payload is sent — same treatment as `localImages`/`localDocuments`.
+ */
+function LayoutPhotos({ details, onChangeDetails, layoutId, layoutLabel }) {
+  const allStaged = details.localSharingImages || {};
+  const staged = allStaged[layoutId] || [];
+
+  const setStaged = (next) => {
+    onChangeDetails('localSharingImages', { ...allStaged, [layoutId]: next });
+  };
+
+  const handleFileSelect = (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newItems = Array.from(files).map((file) => ({
+      id: `simg_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      file,
+      previewUrl: URL.createObjectURL(file),
+      name: file.name,
+    }));
+    /* Cleared so picking the same file(s) again still fires a change. */
+    e.target.value = '';
+    setStaged([...staged, ...newItems]);
+  };
+
+  const handleRemove = (indexToRemove) => {
+    const item = staged[indexToRemove];
+    if (item?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl);
+    setStaged(staged.filter((_, idx) => idx !== indexToRemove));
+  };
+
+  return (
+    <div style={{ marginTop: '12px' }}>
+      <span style={{ fontSize: '0.75rem', color: '#45855a', fontWeight: 600 }}>
+        Photos for {layoutLabel}{' '}
+        <span style={{ color: '#94a3b8', fontWeight: 500 }}>
+          (optional — falls back to the main photos above if left empty)
+        </span>
+      </span>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '8px' }}>
+        {staged.map((item, idx) => (
+          <div key={item.id} style={{ position: 'relative', width: '64px', height: '64px' }}>
+            <img
+              src={item.previewUrl}
+              alt=""
+              style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+            />
+            <button
+              type="button"
+              onClick={() => handleRemove(idx)}
+              title="Remove"
+              aria-label={`Remove this photo from ${layoutLabel}`}
+              style={{
+                position: 'absolute', top: '-6px', right: '-6px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: '18px', height: '18px', borderRadius: '50%', border: '1px solid #fff',
+                background: '#475569', color: '#fff', cursor: 'pointer', padding: 0,
+              }}
+            >
+              <X size={10} />
+            </button>
+          </div>
+        ))}
+
+        <label
+          style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '4px',
+            width: '64px', height: '64px', borderRadius: '8px',
+            border: '1px dashed #94a3b8', color: '#64748b', cursor: 'pointer',
+          }}
+        >
+          <CloudUpload size={16} />
+          <span style={{ fontSize: '0.62rem', fontWeight: 600 }}>Add</span>
+          <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleFileSelect} />
+        </label>
+      </div>
+    </div>
+  );
+}
+
 function ChipPicker({
   presets, custom, selected, label, error, addPrompt, addHint,
   onToggle, onAddCustom, onRemoveCustom, id,
@@ -878,10 +978,16 @@ function BedTypes({ details, onChangeDetails, errors }) {
       /* A price for a bed nobody offers would resurface on the site, so it
          goes with the bed — and before the selection changes, because the
          headline-rate recompute hangs off `bedTypes` and should read the
-         prices that are already gone. */
-      ['sharingPrices', 'sharingAC', 'sharingAcPrices'].forEach((mapField) => {
+         prices that are already gone. Photos go the same way, staged and
+         saved alike. */
+      ['sharingPrices', 'sharingAC', 'sharingAcPrices', 'localSharingImages', 'sharingImages'].forEach((mapField) => {
         const map = details[mapField];
         if (map && map[bed] !== undefined) {
+          if (mapField === 'localSharingImages') {
+            (map[bed] || []).forEach((item) => {
+              if (item?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl);
+            });
+          }
           const trimmed = { ...map };
           delete trimmed[bed];
           onChangeDetails(mapField, trimmed);
@@ -1025,6 +1131,13 @@ function BedTypes({ details, onChangeDetails, errors }) {
                     ))}
                   </div>
                 </div>
+
+                <LayoutPhotos
+                  details={details}
+                  onChangeDetails={onChangeDetails}
+                  layoutId={bed}
+                  layoutLabel={bed}
+                />
               </div>
             );
           })}
@@ -1230,10 +1343,16 @@ function RoomLayouts({ category, details, onChangeDetails, errors }) {
          the site, so it all goes with the layout — and before the selection
          changes, because the headline-rent recompute hangs off `roomTypes`. */
       ['sharingPrices', 'sharingRooms', 'sharingBeds', 'furnishingByLayout',
-        'furnishingItemsByLayout', 'allowedTenantsByLayout', 'kitchenByLayout']
+        'furnishingItemsByLayout', 'allowedTenantsByLayout', 'kitchenByLayout',
+        'localSharingImages', 'sharingImages']
         .forEach((mapField) => {
           const map = details[mapField];
           if (map && map[layout] !== undefined) {
+            if (mapField === 'localSharingImages') {
+              (map[layout] || []).forEach((item) => {
+                if (item?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl);
+              });
+            }
             const trimmed = { ...map };
             delete trimmed[layout];
             onChangeDetails(mapField, trimmed);
@@ -1416,6 +1535,13 @@ function RoomLayouts({ category, details, onChangeDetails, errors }) {
               onChangeSelected={(next) => setMap('furnishingItemsByLayout', layout.id, next)}
               onChangeCustom={(next) => onChangeDetails('customFurnishingItems', next)}
             />
+
+            <LayoutPhotos
+              details={details}
+              onChangeDetails={onChangeDetails}
+              layoutId={layout.id}
+              layoutLabel={layout.label}
+            />
           </div>
         );
       })}
@@ -1469,9 +1595,15 @@ function SharingOptions({ details, onChangeDetails, onToggleType, setMapValue, e
    *  a standard one does — a stale price would keep counting toward the
    *  headline rent App.jsx derives from this map. */
   const removeCustom = (label) => {
-    ['sharingPrices', 'sharingAC', 'sharingAcPrices', 'sharingRooms', 'sharingBeds'].forEach((mapField) => {
+    ['sharingPrices', 'sharingAC', 'sharingAcPrices', 'sharingRooms', 'sharingBeds',
+      'localSharingImages', 'sharingImages'].forEach((mapField) => {
       const map = details[mapField];
       if (map && map[label] !== undefined) {
+        if (mapField === 'localSharingImages') {
+          (map[label] || []).forEach((item) => {
+            if (item?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl);
+          });
+        }
         const trimmed = { ...map };
         delete trimmed[label];
         onChangeDetails(mapField, trimmed);
@@ -1762,6 +1894,13 @@ function SharingOptions({ details, onChangeDetails, onToggleType, setMapValue, e
                       <FieldError message={errors[sharingAcPriceKey(type)]} />
                     </div>
                   )}
+
+                  <LayoutPhotos
+                    details={details}
+                    onChangeDetails={onChangeDetails}
+                    layoutId={type}
+                    layoutLabel={type}
+                  />
                 </div>
               );
             })}

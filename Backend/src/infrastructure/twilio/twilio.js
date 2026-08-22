@@ -588,12 +588,45 @@ async function sendOwnerText({ ownerMobile, body }) {
   }
 }
 
+/**
+ * Ad-hoc WhatsApp send, triggered by an admin from the console rather than
+ * by any of the business flows above — the "Messages" page in Admin.
+ *
+ * Two shapes, chosen by which fields are set: `body` alone sends free text,
+ * deliverable only inside a 24-hour session the recipient opened by writing
+ * to this number first. `contentSid` sends an approved Content Template
+ * instead, deliverable cold, with `contentVariables` as the already-built
+ * JSON string of numbered {{n}} substitutions — this function does not
+ * shape or validate them, since it has no idea which template SID is which;
+ * see messaging.routes.js for what it does and does not assume about them.
+ */
+async function sendAdminMessage({ to, body, contentSid, contentVariables }) {
+  if (!client) return { success: false, error: 'Twilio client not initialized' };
+
+  const target = formatWhatsAppNumber(to);
+  if (!target) return { success: false, error: 'That phone number is not valid.' };
+
+  const payload = contentSid
+    ? { from: whatsappFrom, to: target, contentSid, ...(contentVariables ? { contentVariables } : {}) }
+    : { from: whatsappFrom, to: target, body: String(body) };
+
+  try {
+    const message = await client.messages.create(payload);
+    console.log(`📤 Admin WhatsApp message sent to ${target}${contentSid ? ` (template ${contentSid})` : ' (free text)'}. Message SID: ${message.sid}`);
+    return { success: true, sid: message.sid };
+  } catch (error) {
+    console.error(`❌ Admin WhatsApp message to ${target} failed:`, error.message);
+    return { success: false, error: error.message };
+  }
+}
+
 module.exports = {
   sendOwnerText,
   sendVerificationMessage,
   sendConfirmationMessage,
   sendVisitConfirmationToCustomer,
   sendTeamVerificationMessage,
+  sendAdminMessage,
   formatWhatsAppNumber,
   toE164,
   isIndianMobile,

@@ -125,7 +125,9 @@ const formatListing = (input) => {
     /* Room sharing (occupancy) choices, normalised out of whichever key this
        category uses — see utils/sharing.js. The public site renders these as
        the chooser above "Request a visit", and the visit-request controller
-       validates the customer's pick against the same list. */
+       validates the customer's pick against the same list. Each option now
+       also carries its own `images` (possibly empty) — the frontend falls
+       back to the top-level `images` above when an option has none. */
     sharingOptions: sharingOptionsFor(doc),
 
     /* ── Visit-intent inputs ─────────────────────────────────────────────

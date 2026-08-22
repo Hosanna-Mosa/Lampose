@@ -580,3 +580,20 @@ export interface ProductEntity {
   createdAt: string | null;
   updatedAt: string | null;
 }
+
+/** One configured Twilio Content Template, as reported by GET
+ *  /admin/whatsapp/templates. `key` is the env var name — what a send names
+ *  in `templateKey`, never the SID itself. */
+export interface WhatsAppTemplate {
+  key: string;
+  label: string;
+  hint: string;
+}
+
+export interface WhatsAppSendStatus {
+  configured: boolean;
+  from: string;
+  templates: WhatsAppTemplate[];
+}
+
+export type WhatsAppSendMode = 'text' | 'template';

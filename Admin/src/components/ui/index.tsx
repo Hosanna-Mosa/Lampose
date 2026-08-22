@@ -249,6 +249,11 @@ export const NO_AUTOFILL = {
   'data-bwignore': true,
 } as const;
 
+export const Textarea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaElement>> = ({
+  className,
+  ...rest
+}) => <textarea className={cx('field resize-y', className)} {...rest} />;
+
 export const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = ({
   className,
   children,
