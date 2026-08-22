@@ -165,64 +165,26 @@ export async function confirmMovedIn(
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   The visit token — bachelor and co-live only.
+   The ₹199 assisted visit — bachelor and co-live only.
 
-   The owner confirms, the student pays a small token, and only then are they
-   asked for a joining date and given the street address. Everything priced or
-   proved is decided server-side: this file starts a checkout and hands back
-   what Razorpay returned, and the server recomputes the HMAC before believing
-   any of it.
+   The owner confirms, the student pays ₹199 in the in-app checkout (a
+   server-rendered page — see pay/checkout.tsx), then picks a visit slot with
+   the picker screen. The slot is when everything is released: the address
+   arrives with it, the owner and the Lampose team are told, and a
+   representative accompanies the visit. Everything priced or proved is
+   decided server-side; this file posts a choice and reads back the result.
    ══════════════════════════════════════════════════════════════════════════ */
 
-export type VisitTokenOrder = {
-  orderId: string;
-  amountPaise: number;
-  currency: string;
-  /** Publishable. It identifies the account; it authorises nothing. */
-  keyId: string;
-  propertyName?: string;
-  customerName?: string;
-  customerPhone?: string;
-  /** Set when the token was already paid — reopening is not an error. */
-  alreadyPaid?: boolean;
-};
-
-/** Create the order a checkout is opened against. */
-export async function startVisitTokenPayment(
+/** The visit's slot, once the payment has verified. The address comes back
+    with the response. */
+export async function setVisitSlot(
   id: string,
+  input: { date: string; time: string },
   signal?: AbortSignal,
-): Promise<VisitTokenOrder> {
-  const envelope = await api.post<ApiEnvelope<VisitTokenOrder>>(
-    `${endpoints.visitRequests}/${encodeURIComponent(id)}/payment/order`,
-    {},
-    { signal },
-  );
-  return unwrap(envelope);
-}
-
-/** Hand Razorpay's payment id and signature back to be verified. */
-export async function confirmVisitTokenPayment(
-  id: string,
-  input: { razorpayPaymentId: string; razorpaySignature: string },
-  signal?: AbortSignal,
-): Promise<BackendStayRequest> {
-  const envelope = await api.post<ApiEnvelope<BackendStayRequest>>(
-    `${endpoints.visitRequests}/${encodeURIComponent(id)}/payment/verify`,
-    input,
-    { signal },
-  );
-  return unwrap(envelope);
-}
-
-/** The date, once the token is paid. The address comes back with it. */
-export async function setVisitJoiningDate(
-  id: string,
-  input: { joiningDate: string; flexibleJoin?: boolean },
-  signal?: AbortSignal,
-): Promise<BackendStayRequest & { address?: string; ownerMobile?: string }> {
+): Promise<BackendStayRequest & { address?: string }> {
   const envelope = await api.post<ApiEnvelope<BackendStayRequest & { address?: string }>>(
-    `${endpoints.visitRequests}/${encodeURIComponent(id)}/joining-date`,
-    { joiningDate: input.joiningDate, flexibleJoin: input.flexibleJoin === true },
+    `${endpoints.visitRequests}/${encodeURIComponent(id)}/assisted/slot`,
+    { date: input.date, time: input.time },
     { signal },
   );
   return unwrap(envelope);

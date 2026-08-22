@@ -202,86 +202,63 @@ One-time codes are salted+peppered SHA-256, never stored in plaintext,
 cooldown. The endpoints are rate-limited per IP (`shared/middleware/rateLimit`)
 because each send costs real money.
 
-### After AVAILABLE: what a confirmed customer can buy
+### After AVAILABLE: the ₹199 assisted visit
 
 A confirmed **bachelor or co-live** request (`payment.required`, decided from
-the category when the request was made and frozen there) offers the steps
-below. They are independent — any can happen without the others, and none
-reads another's state.
+the category when the request was made and frozen there) has exactly ONE
+charge: a **₹199 assisted visit** — a Lampose representative accompanies the
+customer to the property. Explained everywhere as ₹100 for the representative
+plus ₹99 Lampose fee (`VISIT_ASSISTED_REPRESENTATIVE_PAISE` is display-only;
+the whole `VISIT_ASSISTED_AMOUNT_PAISE` is charged in one shot).
 
-| | Route | Costs | Gives | Lives in |
-| --- | --- | --- | --- | --- |
-| Visit token | `POST /:id/payment/order` → `/verify` → `/joining-date` | `VISIT_TOKEN_AMOUNT_PAISE` (₹20) | the street address, and claims a bed | `visitPayment.controller.js` |
-| Direct Access | `POST /:id/unlock/order` → `/unlock/verify` | `VISIT_CONTACT_UNLOCK_PAISE` (₹99) | the owner's number and a Maps pin | `contactUnlock.controller.js` |
-| Assisted Visit — advance | `POST /:id/assisted/order` → `/assisted/verify` | `VISIT_ASSISTED_ADVANCE_PAISE` (₹100) | books the slot, messages the roster | `contactUnlock.controller.js` |
-| Assisted Visit — balance | `POST /:id/assisted/balance/order` → `/balance/verify` | total minus advance (₹99) | settles the visit | `contactUnlock.controller.js` |
+> The ₹20 visit token, the ₹99 Direct Access contact unlock and the
+> advance/balance split this section used to describe are **retired**. Their
+> env vars do nothing, their routes are gone, and the webhook acknowledges
+> their `purpose` notes as legacy without acting on them.
 
-The site shows the last three as a two-tab strip: **Assisted Visit** (₹199,
-taken as ₹100 now and ₹99 on confirmation) and **Direct Access** (₹99).
+The flow, in order — the ordering IS the product:
 
-**Neither tab includes the other.** Paying for an assisted visit does *not*
-release the owner's number — the representative deals with the owner, so the
-customer never needs it — and Direct Access books nobody's time. Copy that
-implies otherwise is selling something the payment does not deliver.
+1. Owner replies AVAILABLE → the pay window (`payment.dueBy`) starts and the
+   customer gets the WhatsApp pay message (template T1: breakdown, Razorpay
+   payment link, listing link). No address, no PIN — there is no PIN on paid
+   categories at all, because the representative is at the door.
+2. The customer pays — WhatsApp link, website checkout, or the app's WebView
+   checkout. All three settle the same `payment` subdocument through
+   `markVisitPaid` (`visitPayment.controller.js`), which flips the visit to
+   `slot_pending` and sends "payment received" (T2, with a **Pick my slot**
+   quick-reply button) — or a push on the app channel.
+3. The customer picks a slot. **Web channel: inside WhatsApp** — the button
+   tap opens the session, then a day list and a time list
+   (`assistedSlot.controller.js → handleSlotReply`, dispatched from the shared
+   webhook by the `pick_slot` payload and `day_*` / `t_*` list ids). **App
+   channel: an in-app picker** posting `POST /:id/assisted/slot`. The website
+   never takes the slot — it tells the customer to pick it on WhatsApp, so a
+   link-payer and a site-payer have the same next step.
+4. `confirmSchedule` is the single commitment point: it stamps the visit
+   `scheduled`, **releases the address**, and tells everybody at once — the
+   customer (M1 with address + maps link, or a push), the owner (template T3,
+   or a push), and the roster (`VERIFICATION_TEAM_NUMBERS`, plain WhatsApp).
+5. "Another day" / "A different time" marks the visit `manual`: the team is
+   told to call, the customer is told the team will, and nothing is lost.
 
-#### The ₹199 is taken in two parts
+A paid visit with no slot after `VISIT_SLOT_REMINDER_HOURS` (default 2) gets
+exactly one reminder (T4 / push) plus a roster alert, sent by
+`slotReminder.worker.js` — same design as the expiry worker, guarded update
+so two instances send once.
 
-Only `VISIT_ASSISTED_ADVANCE_PAISE` is configured; the balance is
-`total − advance`, derived in `assistedSplit()` so the halves can never drift
-out of step with the total. An advance at or above the total charges
-everything up front and owes nothing, which is a coherent setup rather than
-an error.
+#### The webhook and legacy money
 
-The balance is a debt, so it is treated like one:
+`payment_link.paid` / `payment.captured` land on
+`razorpayWebhook.controller.js`. Purpose `assisted_visit` — or **no purpose**,
+which is what old payment links look like, including retired ₹20 token links
+still sitting in WhatsApp histories — routes to `markVisitPaid`, behind an
+**amount guard**: a payment short of `payment.amountPaise` is logged, the
+roster is told to arrange a refund, and nothing is marked paid. Purposes
+`contact_unlock` / `assisted_balance` are acknowledged and ignored.
 
-- The customer must tick a box agreeing to it. The server refuses the advance
-  order with `400 BALANCE_NOT_ACCEPTED` unless `balanceConsent === true`, and
-  records `balanceConsentAt` — "they must have ticked it" is not evidence six
-  weeks later.
-- `balance.status` is `not_due` until the advance verifies. There is nothing
-  to owe on a visit nobody booked.
-- The balance route deliberately skips the lapsed-confirmation gate: a
-  confirmation window closing afterwards does not cancel what is owed, and
-  refusing to let somebody settle it would strand them.
-
-#### Four orders, one request — the thing to keep right
-
-A confirmed request can carry the visit token, the contact unlock, the
-assisted advance and the assisted balance, and **all four carry the same
-`visitRequestId`** in their Razorpay notes. They are told apart by a
-`purpose` note:
-
-| `purpose` | Handler |
-| --- | --- |
-| *absent* | the visit token — what every payment and payment link made before these existed looks like, so old events keep their meaning |
-| `contact_unlock` | Direct Access |
-| `assisted_visit` | the assisted advance |
-| `assisted_balance` | the assisted balance |
-
-`razorpayWebhook.controller.js` dispatches on it, testing the balance *before*
-the advance — reading a settled balance as an advance would re-book a visit
-that already exists and message the roster a second time. Without the
-dispatch at all, any of the three would mark the token paid, release an
-address and take a bed out of the pool, none of which anybody bought.
-
-Each also has its **own receipt** — `unlock_<id>`, `assist_<id>`,
-`assistbal_<id>`, and the bare `<id>` for the token. Razorpay folds a repeated
-receipt into the order it already made, so a shared one hands a checkout the
-wrong order and the wrong amount.
-
-#### Where the gated values are assembled
-
-`toPublic()` carries each payment's *status* and never its contents. The
-owner's number and the map pin are attached by the **status endpoint** after
-it re-reads `contactUnlock.verifiedAt` — the field only an HMAC check writes.
-One place decides who may see a phone number.
-
-The roster is messaged only once the advance verifies, never when the slot is
-first picked: `pending_payment` is a held slot nobody is told about, or an
-abandoned checkout would put an agent's morning aside for somebody who closed
-the tab. The message itself is best-effort — Meta only carries free-form
-messages inside a 24-hour session — and a failed send leaves the paid booking
-standing with `teamNotifiedAt` null, which the page reports plainly.
+The six Twilio content templates (T1–T4 Meta-approved, two session list
+pickers) are documented in `.env.example` — the flow degrades to plain text
+without them, which works only inside an open 24-hour session.
 
 ---
 

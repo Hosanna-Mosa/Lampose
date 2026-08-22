@@ -103,16 +103,19 @@ export const visitRequestsApi = {
     }
   },
 
-  /* ── The visit token ────────────────────────────────────────────────────
-     Bachelor and co-live only. The owner confirms, the student pays, and only
-     then are they asked for a joining date and given the address.
+  /* ── The ₹199 assisted visit ────────────────────────────────────────────
+     Bachelor and co-live only, and the one payment on the flow. The owner
+     confirms, the customer pays ₹199 (₹100 representative + ₹99 Lampose
+     fee), then picks the slot ON WHATSAPP — the site never takes the slot,
+     so a customer who paid via the WhatsApp link and one who paid here have
+     the same next step.
 
      Nothing here is trusted by the server on the client's word: the order is
      created server-side and the callback is verified against an HMAC only the
      server can compute. A browser saying "it worked" proves nothing. */
 
-  /** Start a checkout. Returns the order plus the publishable key id. */
-  async startTokenPayment(id) {
+  /** Start the ₹199 checkout. Returns the order plus the publishable key id. */
+  async startVisitPayment(id) {
     try {
       const res = await apiClient.post(`/visit-requests/${id}/payment/order`);
       return { ok: true, data: res?.data ?? res };
@@ -121,108 +124,12 @@ export const visitRequestsApi = {
     }
   },
 
-  /** Hand Razorpay's three values back for checking. */
-  async confirmTokenPayment(id, { razorpayPaymentId, razorpaySignature }) {
+  /** Hand Razorpay's values back for checking. */
+  async confirmVisitPayment(id, { razorpayPaymentId, razorpaySignature }) {
     try {
       const res = await apiClient.post(`/visit-requests/${id}/payment/verify`, {
         razorpayPaymentId,
         razorpaySignature,
-      });
-      return { ok: true, data: res?.data ?? res };
-    } catch (error) {
-      return { ok: false, code: error?.code, message: error?.message };
-    }
-  },
-
-  /* ── After the owner confirms: the two ways to see the room ─────────────
-     Assisted (an agent takes them) or Direct Access (the owner's number and a
-     map pin, and they go alone). Both are offered once the owner replies
-     AVAILABLE. All three payments here — these two and the visit token above
-     — are independent orders: paying one says nothing about the others. */
-
-  /**
-   * Open a checkout for an assisted visit at a date and time they picked.
-   *
-   * Charges the ADVANCE only. `balanceConsent` is the customer's explicit
-   * agreement to owe the rest on confirmation, and the server refuses the
-   * order without it — so this must never be defaulted to true here.
-   */
-  async startAssistedVisit(id, { date, time, note, balanceConsent }) {
-    try {
-      const res = await apiClient.post(`/visit-requests/${id}/assisted/order`, {
-        date, time, note: note || '', balanceConsent: balanceConsent === true,
-      });
-      return { ok: true, data: res?.data ?? res };
-    } catch (error) {
-      return { ok: false, code: error?.code, message: error?.message };
-    }
-  },
-
-  /** Hand Razorpay's values back. The booking exists only if they check out. */
-  async confirmAssistedVisit(id, { razorpayPaymentId, razorpaySignature }) {
-    try {
-      const res = await apiClient.post(`/visit-requests/${id}/assisted/verify`, {
-        razorpayPaymentId,
-        razorpaySignature,
-      });
-      return { ok: true, data: res?.data ?? res };
-    } catch (error) {
-      return { ok: false, code: error?.code, message: error?.message };
-    }
-  },
-
-  /** Start the ₹99 checkout for the owner's number and a map pin. */
-  async startContactUnlock(id) {
-    try {
-      const res = await apiClient.post(`/visit-requests/${id}/unlock/order`);
-      return { ok: true, data: res?.data ?? res };
-    } catch (error) {
-      return { ok: false, code: error?.code, message: error?.message };
-    }
-  },
-
-  /** Hand Razorpay's values back. The contact comes back only if they check out. */
-  async confirmContactUnlock(id, { razorpayPaymentId, razorpaySignature }) {
-    try {
-      const res = await apiClient.post(`/visit-requests/${id}/unlock/verify`, {
-        razorpayPaymentId,
-        razorpaySignature,
-      });
-      return { ok: true, data: res?.data ?? res };
-    } catch (error) {
-      return { ok: false, code: error?.code, message: error?.message };
-    }
-  },
-
-  /** Open a checkout for the outstanding half, once the room is confirmed. */
-  async startAssistedBalance(id) {
-    try {
-      const res = await apiClient.post(`/visit-requests/${id}/assisted/balance/order`);
-      return { ok: true, data: res?.data ?? res };
-    } catch (error) {
-      return { ok: false, code: error?.code, message: error?.message };
-    }
-  },
-
-  /** Hand Razorpay's values back so the server can settle the balance. */
-  async confirmAssistedBalance(id, { razorpayPaymentId, razorpaySignature }) {
-    try {
-      const res = await apiClient.post(`/visit-requests/${id}/assisted/balance/verify`, {
-        razorpayPaymentId,
-        razorpaySignature,
-      });
-      return { ok: true, data: res?.data ?? res };
-    } catch (error) {
-      return { ok: false, code: error?.code, message: error?.message };
-    }
-  },
-
-  /** The date, once the token is paid. The address comes back with it. */
-  async setJoiningDate(id, { joiningDate, flexibleJoin }) {
-    try {
-      const res = await apiClient.post(`/visit-requests/${id}/joining-date`, {
-        joiningDate,
-        flexibleJoin: flexibleJoin === true,
       });
       return { ok: true, data: res?.data ?? res };
     } catch (error) {

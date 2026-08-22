@@ -145,10 +145,12 @@ const config = {
     timeoutMs: Number(process.env.PUSH_TIMEOUT_MS) || 6000,
   },
 
-  /* ── The visit token ──────────────────────────────────────────────────
-     A bachelor or co-live visit is confirmed by the owner and then paid for:
-     a small token that turns a browse into an intent, and buys the joining-date
-     step and the address behind it.
+  /* ── The assisted visit ───────────────────────────────────────────────
+     ONE payment, on bachelor and co-live: the owner confirms, the customer
+     pays ₹199 for a visit a Lampose representative accompanies, then picks a
+     slot — in WhatsApp on the web channel, in the app on the app channel —
+     and only then gets the address. There is no other charge: the ₹20 token
+     and the ₹99 contact unlock this replaced are gone.
 
      Absent keys are not fatal. Nothing here exits the process — the payment
      routes answer a named 503 and every other flow carries on, which is the
@@ -161,49 +163,24 @@ const config = {
     webhookSecret: String(process.env.RAZORPAY_WEBHOOK_SECRET || '').trim(),
 
     /* In PAISE, because that is the only unit Razorpay accepts and converting
-       at the boundary is where rounding bugs get in. 2000 = ₹20. */
-    tokenAmountPaise: (() => {
-      const raw = Number(process.env.VISIT_TOKEN_AMOUNT_PAISE);
-      if (!Number.isFinite(raw) || raw < 100) return 2000;
-      return Math.round(raw);
-    })(),
-
-    /* The SECOND, separate charge: the owner's phone number and a map pin.
-       9900 = ₹99.
-
-       Its own figure rather than a reuse of `tokenAmountPaise` because it
-       buys a different thing and is decided independently — the token holds a
-       visit, this hands over a way to reach the owner directly. Repricing one
-       must never silently reprice the other. */
-    contactUnlockAmountPaise: (() => {
-      const raw = Number(process.env.VISIT_CONTACT_UNLOCK_PAISE);
-      if (!Number.isFinite(raw) || raw < 100) return 9900;
-      return Math.round(raw);
-    })(),
-
-    /* The THIRD charge, and the only one that buys a person rather than a
-       fact: a Lampose representative meets the customer at the property and
-       walks them round. 19900 = ₹199.
-
-       Priced above the contact unlock because it costs an agent's time
-       rather than a database read, and independent of it — paying this books
-       a visit and does NOT release the owner's number. */
+       at the boundary is where rounding bugs get in. 19900 = ₹199, charged in
+       one shot — there is no advance/balance split any more. */
     assistedVisitAmountPaise: (() => {
       const raw = Number(process.env.VISIT_ASSISTED_AMOUNT_PAISE);
       if (!Number.isFinite(raw) || raw < 100) return 19900;
       return Math.round(raw);
     })(),
 
-    /* Of that total, what is taken UP FRONT to book the representative.
-       10000 = ₹100, leaving ₹99 owed when the room is confirmed.
-
-       Only the advance is configured; the balance is the total minus this,
-       computed in one place (`assistedSplit` below) rather than being a third
-       number that can drift out of step with the other two. A deployment that
-       sets an advance at or above the total simply charges it all at once and
-       owes nothing — which is a coherent configuration, not an error. */
-    assistedAdvancePaise: (() => {
-      const raw = Number(process.env.VISIT_ASSISTED_ADVANCE_PAISE);
+    /* DISPLAY ONLY: how the ₹199 is explained to the customer, on the site
+       and in the WhatsApp message — "₹100 for the representative who
+       accompanies you, the rest is the Lampose fee". Nothing is charged
+       against this figure; the fee half is derived (total − this) in
+       `toPublic` so the two lines always add up to the total. */
+    assistedRepresentativePaise: (() => {
+      const raw = Number(
+        process.env.VISIT_ASSISTED_REPRESENTATIVE_PAISE
+        ?? process.env.VISIT_ASSISTED_ADVANCE_PAISE,   // the variable's old name
+      );
       if (!Number.isFinite(raw) || raw < 100) return 10000;
       return Math.round(raw);
     })(),
@@ -212,8 +189,18 @@ const config = {
        The owner has agreed and is holding a layout; without a deadline an
        unpaid request holds it for ever. */
     payWindowHours: (() => {
-      const raw = Number(process.env.VISIT_TOKEN_WINDOW_HOURS);
+      const raw = Number(process.env.VISIT_PAY_WINDOW_HOURS
+        ?? process.env.VISIT_TOKEN_WINDOW_HOURS);      // the variable's old name
       if (!Number.isFinite(raw) || raw < 1 || raw > 168) return 24;
+      return Math.round(raw);
+    })(),
+
+    /* How long a paid visit may sit without a slot before the customer is
+       reminded and the team is told to call. One reminder, ever — after it,
+       the follow-up is a person's job, not a message loop's. */
+    slotReminderHours: (() => {
+      const raw = Number(process.env.VISIT_SLOT_REMINDER_HOURS);
+      if (!Number.isFinite(raw) || raw < 1 || raw > 48) return 2;
       return Math.round(raw);
     })(),
   },

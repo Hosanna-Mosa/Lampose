@@ -342,6 +342,27 @@ router.post('/webhook', async (req, res) => {
       return res.send(twiml.toString());
     }
 
+    /* ── The assisted-visit slot conversation ───────────────────────────────
+       A third flow on the same webhook: the CUSTOMER (matched by their own
+       number, never the owner's) picking a day and time for a paid ₹199
+       visit. Told apart by its own vocabulary — the `pick_slot` button
+       payload and the day_* / t_* list-picker ids in ListId — and by having
+       a paid, unscheduled visit open. `handled: false` passes the message on
+       to verification untouched; a handled message with no reply means the
+       answer went out through the API (list pickers cannot ride in TwiML). */
+    const { handleSlotReply } = require('../visits/assistedSlot.controller');
+    const slotResult = await handleSlotReply({
+      from: senderMobile,
+      body: Body,
+      buttonPayload: req.body.ButtonPayload,
+      listId: req.body.ListId,
+    });
+    if (slotResult && slotResult.handled) {
+      if (slotResult.reply) twiml.message(slotResult.reply);
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
     // Load and parse Verification Team Numbers
     const verifierNumbersStr = process.env.VERIFICATION_TEAM_NUMBERS || '';
     const verifierNumbers = verifierNumbersStr

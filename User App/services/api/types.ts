@@ -400,21 +400,38 @@ export type StayDecisionReason =
 
 export type BackendStayRequest = {
   /**
-   * The visit token, on the categories that charge one.
+   * The ₹199 assisted-visit payment, on the categories that charge one.
    *
    * `required` is the category's answer; `status` is where this request got
-   * to. A client can tell "no token needed" from "not paid yet" without
-   * knowing the category rules.
+   * to. A client can tell "nothing to pay" from "not paid yet" without
+   * knowing the category rules. The two `…Paise` breakdown lines are how the
+   * price is explained — "₹100 for the representative who accompanies you,
+   * ₹99 Lampose fee" — and always add up to `amountPaise`.
    */
   payment?: {
     required: boolean;
     status: 'not_required' | 'pending' | 'paid' | 'failed' | 'expired';
     amountPaise: number | null;
+    representativePaise?: number | null;
+    feePaise?: number | null;
     /** ISO. The owner is holding a layout until this passes. */
     dueBy: string | null;
     paidAt: string | null;
   };
-  /** ISO, once the token is paid. Null before — the address is not given. */
+  /**
+   * The visit the payment buys: waiting for its slot, scheduled, or being
+   * arranged by the team ('manual'). The slot is picked in this app once the
+   * payment lands — see `setVisitSlot`.
+   */
+  lamposeVisit?: {
+    status: 'none' | 'slot_pending' | 'scheduled' | 'manual';
+    /** `YYYY-MM-DD` / `HH:MM`, as the picker produced them. */
+    date: string | null;
+    time: string | null;
+    scheduledAt: string | null;
+  };
+  /** ISO, once the visit's slot is fixed. Null before — the address is not
+      given until then. */
   addressReleasedAt?: string | null;
   id: string;
   listingId: string;

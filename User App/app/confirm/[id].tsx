@@ -211,12 +211,14 @@ export default function OwnerConfirmation() {
   }, [stay.phase, settlePill, clearPill]);
 
   /*
-   * ── The visit token, on the one tap that continues ──────────────────────
+   * ── The ₹199 assisted visit, on the one tap that continues ──────────────
    *
-   * Bachelor and co-live charge for a confirmed visit. Rather than a separate
-   * panel to find, the payment sits on the button that was already the next
-   * thing to press: pay, then the booking screen opens. A PG has no token and
-   * goes straight through, so this whole branch is invisible there.
+   * Bachelor and co-live charge ₹199 for a confirmed visit — ₹100 for the
+   * Lampose representative who accompanies it, ₹99 Lampose fee. Rather than
+   * a separate panel to find, the payment sits on the button that was
+   * already the next thing to press: pay, then the slot picker opens, and
+   * the address arrives with the slot. A PG has no charge and goes straight
+   * through, so this whole branch is invisible there.
    *
    * ## A WebView in the app, not a browser and not the native SDK
    *
@@ -289,24 +291,38 @@ export default function OwnerConfirmation() {
    * the screen's early returns, and reaching forward to a `const` that has not
    * been evaluated yet would be a temporal-dead-zone crash on the first paid
    * render.
+   *
+   * Where it goes depends on whether the visit has its SLOT yet. Paying is
+   * no longer the last step — the ₹199 buys a visit that still needs a day
+   * and a time, so a paid request without one goes to the picker, and only a
+   * scheduled (or team-handled) one goes through to the booking.
    */
   useEffect(() => {
     if (paying) return;
     if (stay.request?.payment?.status !== 'paid') return;
     if (stay.phase !== 'confirmed') return;
-    router.replace({
-      pathname: '/booked/[id]',
-      params: {
-        id: String(id),
-        ...(stayType ? { stayType } : null),
-        ...(units ? { units } : null),
-        ...(sharingId ? { sharingId } : null),
-        ...(joinDate ? { joinDate } : null),
-        ...(flexibleJoin ? { flexibleJoin } : null),
-      },
-    } as never);
+
+    const passthrough = {
+      id: String(id),
+      ...(stayType ? { stayType } : null),
+      ...(units ? { units } : null),
+      ...(sharingId ? { sharingId } : null),
+      ...(joinDate ? { joinDate } : null),
+      ...(flexibleJoin ? { flexibleJoin } : null),
+    };
+
+    const visitStatus = stay.request?.lamposeVisit?.status;
+    if (stay.request?.payment?.required && visitStatus !== 'scheduled' && visitStatus !== 'manual') {
+      router.replace({
+        pathname: '/visit/slot',
+        params: { requestId: String(stay.request.id), ...passthrough },
+      } as never);
+      return;
+    }
+
+    router.replace({ pathname: '/booked/[id]', params: passthrough } as never);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paying, stay.request?.payment?.status, stay.phase]);
+  }, [paying, stay.request?.payment?.status, stay.request?.lamposeVisit?.status, stay.phase]);
 
   /* Read back before anything is drawn, so a student returning to a wait
      never sees the form flash first. */
@@ -449,15 +465,31 @@ export default function OwnerConfirmation() {
          with this step, it simply never got its turn. */
       state: accepted && stay.request?.bookingId ? 'done' : answered ? 'pending' : 'pending',
     },
-    {
-      id: 'pin',
-      label: stay.request?.entryPin ? `Your entry PIN · ${stay.request.entryPin}` : 'Your entry PIN',
-      note: stay.request?.entryPin
-        ? 'Read this out at the door. The owner has the same one.'
-        : 'You and the owner get the same code to check you in.',
-      when: stamp(stay.request?.entryPinIssuedAt),
-      state: stay.request?.entryPin ? 'done' : 'pending',
-    },
+    /* The last row differs by category. A paid visit has NO entry PIN — a
+       Lampose representative is at the door, so there is nothing to match —
+       and promising one would leave this row "pending" forever. Its slot in
+       the trail is the visit schedule instead. */
+    stay.request?.payment?.required
+      ? {
+        id: 'slot',
+        label: stay.request?.lamposeVisit?.status === 'scheduled'
+          ? `Visit scheduled · ${stay.request.lamposeVisit.date} at ${stay.request.lamposeVisit.time}`
+          : 'Your visit slot',
+        note: stay.request?.lamposeVisit?.status === 'scheduled'
+          ? 'A Lampose representative will meet you there.'
+          : 'Pay, then pick a day and time. The address arrives with your slot.',
+        when: stamp(stay.request?.lamposeVisit?.scheduledAt),
+        state: (stay.request?.lamposeVisit?.status === 'scheduled' ? 'done' : 'pending') as TrailStep['state'],
+      }
+      : {
+        id: 'pin',
+        label: stay.request?.entryPin ? `Your entry PIN · ${stay.request.entryPin}` : 'Your entry PIN',
+        note: stay.request?.entryPin
+          ? 'Read this out at the door. The owner has the same one.'
+          : 'You and the owner get the same code to check you in.',
+        when: stamp(stay.request?.entryPinIssuedAt),
+        state: (stay.request?.entryPin ? 'done' : 'pending') as TrailStep['state'],
+      },
   ];
 
   const tokenDue = Boolean(
@@ -473,7 +505,7 @@ export default function OwnerConfirmation() {
       tint: colors.success.tint,
       ink: colors.success.ink,
       title: `${owner} confirmed`,
-      body: 'Your room is held. Nothing has been charged.' + (tokenDue ? ` A ₹${tokenAmount} token unlocks the address and your visit reference.` : '') + '',
+      body: 'Your room is held. Nothing has been charged.' + (tokenDue ? ` Book your assisted visit for ₹${tokenAmount} — a Lampose representative accompanies you, and you pick the day and time right after paying.` : '') + '',
     }
     : bedTaken
       ? {
@@ -692,8 +724,12 @@ export default function OwnerConfirmation() {
               disabled={paying}
               fullWidth
             />
+            {/* The caption under the button must not contradict the button.
+                With a payment due, it explains the figure instead. */}
             <Text variant="numMeta" color="tertiary" style={styles.centred}>
-              Nothing is charged at any point
+              {tokenDue
+                ? '₹100 Lampose representative · ₹99 Lampose fee'
+                : 'Nothing is charged at any point'}
             </Text>
           </View>
         ) : waiting ? (
