@@ -28,6 +28,7 @@ const CANONICAL: [string, string[]][] = [
   ["isBestseller", ["isbestseller", "bestseller", "tags", "tag"]],
 ];
 
+
 const toCanonical = (value: string): string => {
   const n = normalise(value);
   const hit = CANONICAL.find(([, spellings]) => spellings.map(normalise).includes(n));
