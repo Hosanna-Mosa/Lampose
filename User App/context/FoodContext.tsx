@@ -1,15 +1,9 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 
-import {
-  COUPONS,
-  FOOD_ADDRESSES,
-  SEED_FAVOURITE_DISHES,
-  SEED_FAVOURITE_KITCHENS,
-  SEED_ORDERS,
-  findCoupon,
-  findDish,
-  findKitchen,
-} from '@/data/food';
+import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
+import { splitOptions } from '@/services/adapters/food.adapter';
+import { placeFoodOrder, type ServerFoodOrder } from '@/services/api/foodOrders.api';
+import { COUPONS, FOOD_ADDRESSES, findCoupon } from '@/data/food';
 import type {
   Coupon,
   Dish,
@@ -19,6 +13,7 @@ import type {
   Fulfilment,
   MealWindowId,
   SpiceLevel,
+  FoodOrderStatus,
 } from '@/types/food';
 import { clockLabel, focusWindow, minuteOfDay } from '@/types/food';
 
@@ -147,7 +142,16 @@ export type FoodContextValue = {
   orders: readonly FoodOrder[];
   /** The one order still in flight, if any. Drives the pinned card. */
   liveOrder: FoodOrder | null;
-  placeOrder: (now?: Date) => FoodOrder;
+  /**
+   * Send the cart to the kitchen.
+   *
+   * Async because it is a real request now: the server prices the order from
+   * `food_products`, writes it to `food_orders` and rings the restaurant.
+   * Rejects with the server's own reason — a sold-out dish, a closed kitchen,
+   * an order under the minimum — which the payment screen shows verbatim
+   * rather than paraphrasing.
+   */
+  placeOrder: (now?: Date) => Promise<FoodOrder>;
   cancelOrder: (id: string, reason: string) => void;
 
   /* — preferences — */
@@ -185,6 +189,9 @@ function lineKey(dishId: string, addOnIds: readonly string[], spice: SpiceLevel)
  * ------------------------------------------------------------------ */
 
 export function FoodProvider({ children }: { children: React.ReactNode }) {
+  /* The catalogue is the data source; this context is the cart and the
+     order history built on top of it, which is why it nests inside. */
+  const { findDish, findKitchen } = useFoodCatalogue();
   const [browseWindow, setBrowseWindow] = useState<MealWindowId>(() => focusWindow(new Date()).id);
   const [foodTab, setFoodTab] = useState<FoodTab>('home');
   const [kitchenId, setKitchenId] = useState<string | null>(null);
@@ -196,10 +203,17 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   const [addressId, setAddressId] = useState<string>(FOOD_ADDRESSES[0].id);
   const [pendingAdd, setPendingAdd] = useState<PendingAdd | null>(null);
 
-  const [orders, setOrders] = useState<readonly FoodOrder[]>(SEED_ORDERS);
+  /* Empty, not seeded. The order history a student sees has to be their own —
+     a fabricated receipt is a number they will try to reconcile against a bank
+     statement. Orders placed in this session are appended here; there is no
+     orders endpoint to read past ones from yet. */
+  const [orders, setOrders] = useState<readonly FoodOrder[]>([]);
   const [preferences, setPreferencesState] = useState<FoodPreferences>(DEFAULT_PREFERENCES);
-  const [favouriteDishes, setFavouriteDishes] = useState<readonly string[]>(SEED_FAVOURITE_DISHES);
-  const [favouriteKitchens, setFavouriteKitchens] = useState<readonly string[]>(SEED_FAVOURITE_KITCHENS);
+  /* No seeds: the fixture ids they used ('podi-idli', 'annapurna') do not
+     exist in `food_products`, so a seeded favourite would render as a
+     permanently missing dish. */
+  const [favouriteDishes, setFavouriteDishes] = useState<readonly string[]>([]);
+  const [favouriteKitchens, setFavouriteKitchens] = useState<readonly string[]>([]);
 
   /* Order numbers continue the seeded series rather than restarting at 1 — a
      student whose last order was 8842 and whose next is 1 has been shown a
@@ -348,55 +362,100 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
 
   /* — cart becomes an order — */
 
+/**
+ * A stored order, in the shape the app's order screens already render.
+ *
+ * The server's vocabulary is not the app's — it has no `confirmed`, and it
+ * says `picked_up` where the app says `pickedUp`. Mapped rather than cast, so
+ * a status the app cannot draw becomes `placed` instead of an empty screen.
+ */
+const SERVER_STATUS: Record<string, FoodOrderStatus> = {
+  placed: 'placed',
+  accepted: 'confirmed',
+  preparing: 'preparing',
+  ready: 'ready',
+  picked_up: 'pickedUp',
+  delivered: 'delivered',
+  rejected: 'cancelled',
+  cancelled: 'cancelled',
+};
+
+function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodOrder {
+  const at = clockLabel(minuteOfDay(now));
+  const isPickup = !row.deliveryAddress;
+
+  return {
+    /* The server's order number IS the id the diner reads out. Keeping a
+       separate local counter would give the same order two names. */
+    id: row.orderNumber,
+    kitchenId: row.restaurantId,
+    kitchenName,
+    status: SERVER_STATUS[row.status] ?? 'placed',
+    fulfilment: isPickup ? 'pickup' : 'delivery',
+    window: focusWindow(now).id,
+    lines: (row.lines ?? []).map((line) => ({
+      dishId: line.productId,
+      name: line.variantName ? `${line.productName} · ${line.variantName}` : line.productName,
+      qty: line.quantity,
+      price: line.lineTotal,
+      diet: line.isVeg === 'non-veg' ? 'nonveg' : line.isVeg === 'egg' ? 'egg' : 'veg',
+      ...(line.note ? { note: line.note } : null),
+    })),
+    itemTotal: row.itemsTotal,
+    deliveryFee: row.deliveryFee,
+    /* The server itemises packaging where the app's receipt has a "taxes and
+       charges" row. It is the same money under a truer name. */
+    taxes: row.packagingCharge,
+    discount: row.discount ?? 0,
+    paid: row.grandTotal,
+    placedLabel: `Today, ${at}`,
+    monthLabel: 'This month',
+    paymentLabel: row.paymentMode === 'cod' ? 'Cash on delivery' : 'Paid online',
+    timeline: [
+      { label: 'Order placed', at },
+      { label: 'Confirmed by the kitchen' },
+      { label: 'Preparing' },
+      isPickup ? { label: 'Ready at the counter' } : { label: 'On the way' },
+      isPickup ? { label: 'Picked up' } : { label: 'Delivered' },
+    ],
+  };
+}
+
   const placeOrder = useCallback(
-    (now: Date = new Date()) => {
-      const id = String(nextOrderNumber.current++);
-      const orderKitchen = kitchenId ? findKitchen(kitchenId) : undefined;
+    async (now: Date = new Date()) => {
+      if (!kitchenId) throw new Error('There is no kitchen selected.');
+
+      const orderKitchen = findKitchen(kitchenId);
       const isPickup = fulfilment === 'pickup';
-      const readyAt = clockLabel(minuteOfDay(now) + (orderKitchen?.prepMinutes ?? 10));
 
-      const order: FoodOrder = {
-        id,
-        kitchenId: kitchenId ?? 'annapurna',
-        kitchenName: orderKitchen?.name ?? 'Kitchen',
-        status: 'confirmed',
-        fulfilment,
-        window: window ?? browseWindow,
-        lines: lines.map((line) => ({
-          dishId: line.dish.id,
-          name: line.dish.name,
-          qty: line.qty,
-          price: line.lineTotal,
-          diet: line.dish.diet,
-          note: line.note,
-        })),
-        itemTotal,
-        deliveryFee,
-        taxes,
-        discount,
-        couponCode: coupon?.code,
-        paid: toPay,
-        placedLabel: `Today, ${clockLabel(minuteOfDay(now))}`,
-        monthLabel: 'This month',
-        paymentLabel: 'GPay',
-        /* Four digits, derived from the order number so the same order always
-           shows the same code — a code that changed on re-render would be worse
-           than no code at all. */
-        pickupCode: isPickup ? String(4000 + (Number(id) % 1000)).padStart(4, '0') : undefined,
-        timeline: [
-          { label: 'Order placed', at: clockLabel(minuteOfDay(now)) },
-          { label: 'Confirmed by the kitchen', at: clockLabel(minuteOfDay(now) + 2) },
-          { label: 'Preparing', note: `Ready by about ${readyAt}` },
-          isPickup ? { label: 'Ready at the counter' } : { label: 'On the way' },
-          isPickup ? { label: 'Picked up' } : { label: 'Delivered' },
-        ],
-      };
+      /* WHAT was ordered, never how much it costs. Every figure comes back
+         from the server, which prices from the menu rows — see
+         `foodOrders.api.ts`. */
+      const { order: placed } = await placeFoodOrder({
+        restaurantId: kitchenId,
+        fulfilment: isPickup ? 'pickup' : 'delivery',
+        /* Cash until a gateway is wired to this flow. Claiming `online` would
+           write a payment status no money backs. */
+        paymentMode: 'cod',
+        ...(isPickup ? null : { deliveryAddress: [address?.title, address?.detail, address?.instructions].filter(Boolean).join(' · ') }),
+        lines: lines.map((line) => {
+          const { variantName, addOnNames } = splitOptions(line.dish, line.addOnIds);
+          return {
+            productId: line.dish.id,
+            quantity: line.qty,
+            ...(variantName ? { variantName } : null),
+            ...(addOnNames.length ? { addOns: addOnNames } : null),
+            ...(line.note ? { note: line.note } : null),
+          };
+        }),
+      });
 
+      const order = toAppOrder(placed, orderKitchen?.name ?? 'Kitchen', now);
       setOrders((current) => [order, ...current]);
       clear();
       return order;
     },
-    [kitchenId, fulfilment, window, browseWindow, lines, itemTotal, deliveryFee, taxes, discount, coupon, toPay, clear],
+    [kitchenId, fulfilment, lines, address, findKitchen, clear],
   );
 
   const cancelOrder = useCallback((id: string, reason: string) => {

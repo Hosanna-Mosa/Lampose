@@ -1,0 +1,281 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   The restaurant's own record, and the way out.
+
+   Everything is read from `GET /me`. The presentation and operations fields
+   are editable in place and PATCH straight back; the legal numbers and the
+   payout account are shown but NOT editable, because they were verified by a
+   person during approval and a field that silently un-verifies itself is worse
+   than no field. Changing them is a conversation with the team.
+
+   The account number is shown as its last four digits and never in full — the
+   server does not send more than that on this route, which is the real
+   protection; the masking here just matches it.
+   ══════════════════════════════════════════════════════════════════════════ */
+import { router, useFocusEffect } from "expo-router";
+import React, { useCallback, useState } from "react";
+import { Image, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+
+import { Block, Field, Note, NumberField, SwitchRow, TextField } from "@/components/form";
+import { Btn, Card, Chip, ConfirmSheet, DataRow, Icon, Stepper, Text, TopBar } from "@/components/ui";
+import { rupees } from "@/lib/money";
+import { getMe, updateMe, type ServerRestaurant } from "@/services/foodPartner";
+import { usePartnerStore } from "@/store/partnerStore";
+import { colors, layout, radius, space } from "@/theme";
+
+export default function DashProfile() {
+  const session = usePartnerStore((s) => s.session);
+  const signOut = usePartnerStore((s) => s.signOut);
+
+  const [me, setMe] = useState<ServerRestaurant | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [confirmOut, setConfirmOut] = useState(false);
+
+  /* The editable subset, held locally while it is being typed in. */
+  const [draft, setDraft] = useState({
+    description: "",
+    contactNumber: "",
+    avgPreparationTime: 30,
+    deliveryRadiusKm: 5,
+    minOrderValue: "",
+    packagingCharge: "",
+    acceptsOnlinePayment: true,
+    acceptsCod: true,
+  });
+
+  const load = useCallback(async () => {
+    if (!session?.token) return;
+    setError("");
+    try {
+      const r = await getMe(session.token);
+      setMe(r);
+      setDraft({
+        description: r.description ?? "",
+        contactNumber: (r.contactNumber ?? "").replace(/^\+91/, ""),
+        avgPreparationTime: r.avgPreparationTime ?? 30,
+        deliveryRadiusKm: r.deliveryRadiusKm ?? 5,
+        minOrderValue: r.minOrderValue != null ? String(r.minOrderValue) : "",
+        packagingCharge: r.packagingCharge != null ? String(r.packagingCharge) : "",
+        acceptsOnlinePayment: r.acceptsOnlinePayment ?? true,
+        acceptsCod: r.acceptsCod ?? true,
+      });
+    } catch (err) {
+      setError((err as Error)?.message || "We could not load your details.");
+    } finally {
+      setLoading(false);
+    }
+  }, [session?.token]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
+
+  const save = async () => {
+    if (!session?.token) return;
+    setSaving(true);
+    setError("");
+    setSaved("");
+    try {
+      const updated = await updateMe(session.token, {
+        description: draft.description.trim(),
+        contactNumber: `+91${draft.contactNumber}`,
+        avgPreparationTime: draft.avgPreparationTime,
+        deliveryRadiusKm: draft.deliveryRadiusKm,
+        minOrderValue: Number(draft.minOrderValue) || 0,
+        packagingCharge: Number(draft.packagingCharge) || 0,
+        acceptsOnlinePayment: draft.acceptsOnlinePayment,
+        acceptsCod: draft.acceptsCod,
+      });
+      setMe(updated);
+      setSaved("Saved.");
+    } catch (err) {
+      setError((err as Error)?.message || "That did not save.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const address = me?.address
+    ? [me.address.line1, me.address.line2, me.address.city, me.address.state, me.address.pincode]
+        .filter(Boolean)
+        .join(", ")
+    : "—";
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <TopBar back={null} title="Profile" subtitle={me?.restaurantId} />
+
+      <ScrollView
+        contentContainerStyle={styles.body}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.brand} />}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {!!error && <Note tone="bad">{error}</Note>}
+        {!!saved && <Note tone="ok">{saved}</Note>}
+
+        {/* ── Identity ─────────────────────────────────────────────────── */}
+        <Card style={{ gap: space[3] }}>
+          {me?.coverBannerImage?.url ? (
+            <Image source={{ uri: me.coverBannerImage.url }} style={styles.cover} resizeMode="cover" />
+          ) : null}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space[3] }}>
+            {me?.logoImage?.url ? (
+              <Image source={{ uri: me.logoImage.url }} style={styles.logo} resizeMode="cover" />
+            ) : (
+              <View style={[styles.logo, styles.logoEmpty]}>
+                <Icon name="store" size={20} color={colors.brandInk} />
+              </View>
+            )}
+            <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+              <Text variant="title1" numberOfLines={1}>
+                {me?.restaurantName || "—"}
+              </Text>
+              <Text variant="caption" color="tertiary" numberOfLines={1}>
+                {me?.cuisineTypes?.join(" · ") || "—"}
+              </Text>
+            </View>
+            <Chip
+              label={me?.verificationStatus === "approved" ? "Approved" : me?.verificationStatus ?? "—"}
+              tone={me?.verificationStatus === "approved" ? "success" : "warning"}
+            />
+          </View>
+        </Card>
+
+        {/* ── Editable ─────────────────────────────────────────────────── */}
+        <Block glyph="store" title="How you appear">
+          <Field label="Tagline" hint="The one line a diner reads under your name">
+            <TextField
+              value={draft.description}
+              onChangeText={(v) => setDraft((d) => ({ ...d, description: v }))}
+              placeholder="e.g. Authentic Hyderabadi dum biryani"
+              maxLength={80}
+            />
+          </Field>
+          <Field label="Customer support number">
+            <TextField
+              value={draft.contactNumber}
+              onChangeText={(v) => setDraft((d) => ({ ...d, contactNumber: v.replace(/\D/g, "").slice(0, 10) }))}
+              keyboardType="number-pad"
+              prefix="+91"
+            />
+          </Field>
+        </Block>
+
+        <Block glyph="truck" title="Operations">
+          <Field label="Average preparation time" hint="The ETA a diner sees">
+            <Stepper
+              value={draft.avgPreparationTime}
+              onChange={(v) => setDraft((d) => ({ ...d, avgPreparationTime: v }))}
+              min={5}
+              max={120}
+              step={5}
+              suffix="min"
+            />
+          </Field>
+          <Field label="Delivery radius">
+            <Stepper
+              value={draft.deliveryRadiusKm}
+              onChange={(v) => setDraft((d) => ({ ...d, deliveryRadiusKm: v }))}
+              min={1}
+              max={30}
+              suffix="km"
+            />
+          </Field>
+          <Field label="Minimum order">
+            <NumberField
+              value={draft.minOrderValue}
+              onChangeText={(v) => setDraft((d) => ({ ...d, minOrderValue: v }))}
+              prefix="₹"
+              placeholder="0"
+            />
+          </Field>
+          <Field label="Packaging charge">
+            <NumberField
+              value={draft.packagingCharge}
+              onChangeText={(v) => setDraft((d) => ({ ...d, packagingCharge: v }))}
+              prefix="₹"
+              placeholder="0"
+            />
+          </Field>
+          <SwitchRow
+            glyph="card"
+            label="Online payment"
+            value={draft.acceptsOnlinePayment}
+            onChange={(v) => setDraft((d) => ({ ...d, acceptsOnlinePayment: v }))}
+          />
+          <SwitchRow
+            glyph="wallet"
+            label="Cash on delivery"
+            value={draft.acceptsCod}
+            onChange={(v) => setDraft((d) => ({ ...d, acceptsCod: v }))}
+          />
+          {!draft.acceptsOnlinePayment && !draft.acceptsCod && (
+            <Note tone="bad">With both off there is no way for a diner to pay you.</Note>
+          )}
+        </Block>
+
+        <Btn label="Save changes" loading={saving} onPress={save} />
+
+        {/* ── Read-only, and why ───────────────────────────────────────── */}
+        <Card style={{ gap: space[1] }}>
+          <Text variant="title1" style={{ marginBottom: space[1] }}>
+            Verified details
+          </Text>
+          <DataRow first label="Address" value={address} tabular={false} />
+          <DataRow label="Owner" value={me?.ownerName || "—"} tabular={false} />
+          <DataRow label="Email" value={me?.ownerEmail || "—"} tabular={false} />
+          <DataRow label="Phone" value={me?.ownerPhone || "—"} />
+          <DataRow label="FSSAI" value={me?.fssaiLicenseNumber || "—"} />
+          <DataRow label="GST" value={me?.gstNumber || "Exempt"} />
+          <DataRow label="PAN" value={me?.panNumber || "—"} />
+          <DataRow
+            label="Payout account"
+            value={me?.payout?.accountLast4 ? `ending ${me.payout.accountLast4}` : "—"}
+          />
+          <DataRow label="IFSC" value={me?.payout?.ifscCode || "—"} />
+          <DataRow label="Minimum order" value={rupees(me?.minOrderValue ?? 0)} />
+          <Text variant="caption" color="tertiary" style={{ marginTop: space[2] }}>
+            These were checked by a person during approval, so they can only be changed by contacting
+            the team.
+          </Text>
+        </Card>
+
+        <Btn label="Sign out" variant="danger" glyph="logout" onPress={() => setConfirmOut(true)} />
+      </ScrollView>
+
+      <ConfirmSheet
+        visible={confirmOut}
+        onDismiss={() => setConfirmOut(false)}
+        onPrimary={() => {
+          setConfirmOut(false);
+          signOut();
+          router.replace("/signin");
+        }}
+        spec={{
+          kicker: "Signing out",
+          tone: "warning",
+          title: "Sign out of this restaurant?",
+          body: "You will need your email and password to get back in. Your menu is not affected.",
+          primary: "Sign out",
+          secondary: "Stay signed in",
+        }}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  body: { padding: layout.gutter, gap: space[4], paddingBottom: space[10] },
+  cover: { width: "100%", height: 110, borderRadius: radius.chip },
+  logo: { width: 52, height: 52, borderRadius: radius.chip },
+  logoEmpty: {
+    backgroundColor: colors.brandTint,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});

@@ -10,9 +10,9 @@ import { FoodEmptyState, FoodNotice, FulfilmentToggle, RoomTargetRow, SlotPicker
 import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
-import { findKitchen } from '@/data/food';
 import { clockLabel, findWindow, focusWindow, minuteOfDay, readyLabel } from '@/types/food';
 import { formatRupees } from '@/utils/money';
+import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 
 /**
  * How you get it, and when.
@@ -23,6 +23,7 @@ import { formatRupees } from '@/utils/money';
  * clears the slot rather than carrying a time that has quietly changed meaning.
  */
 export default function SlotScreen() {
+  const { findKitchen } = useFoodCatalogue();
   const { colors, space, layout, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -73,7 +74,7 @@ export default function SlotScreen() {
             onChange={setFulfilment}
             kitchen={kitchen}
             readyAt={readyLabel(now, kitchen.prepMinutes)}
-            arrivesAt={readyLabel(now, kitchen.deliveryMinutes)}
+            arrivesAt={kitchen.deliveryMinutes > 0 ? readyLabel(now, kitchen.deliveryMinutes) : null}
             deliveryFee={deliveryFee || kitchen.deliveryFee}
             deliveryDisabled={gateClosed}
             deliveryDisabledNote={gateClosed ? 'The gate is shut — after 11:30 pm it is pickup at the gate only.' : undefined}
@@ -110,7 +111,7 @@ export default function SlotScreen() {
             now={now}
             value={slot}
             onChange={setSlot}
-            asapLabel={`about ${readyLabel(now, fulfilment === 'pickup' ? kitchen.prepMinutes : kitchen.deliveryMinutes)}`}
+            asapLabel={`about ${readyLabel(now, kitchen.prepMinutes)}${fulfilment === 'pickup' ? '' : ' plus delivery'}`}
           />
         </View>
 

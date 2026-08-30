@@ -173,6 +173,47 @@ export const endpoints = {
   supportTicketRead: (reference: string) =>
     `${V2}/support/tickets/${encodeURIComponent(reference)}/read`,
   supportReports: `${V2}/support/reports`,
+
+  /* ---------------------------------------------------------------- *
+   * Food
+   * ---------------------------------------------------------------- */
+
+  /**
+   * Kitchens, from `food_restaurants`.
+   *
+   * The restaurants on the other end of these routes onboard through the
+   * Food-Partner app and are listed only once an administrator has approved
+   * them — the feed filters on `verificationStatus: 'approved'` AND
+   * `isActive`, server-side, so an unapproved kitchen cannot reach a diner
+   * even if this app asked for one by id.
+   *
+   * `?lat&lng&radiusKm` runs a 2dsphere query and returns `distanceKm` on
+   * every row, which is what the walking time is derived from. Without them
+   * the feed is unordered by distance and the cards say nothing about how far
+   * away a kitchen is, which is honest — the alternative is inventing a
+   * number.
+   */
+  foodKitchens: `${V2}/food-partners/restaurants`,
+  /** One kitchen, plus its menu already grouped by category. */
+  foodKitchen: (restaurantId: string) =>
+    `${V2}/food-partners/restaurants/${encodeURIComponent(restaurantId)}`,
+  /** One dish, plus enough of its kitchen to render the screen. */
+  foodDish: (productId: string) =>
+    `${V2}/food-partners/products/${encodeURIComponent(productId)}`,
+
+  /**
+   * Orders, behind the customer session.
+   *
+   * The same `/food-partners` group as the kitchens above, because an order
+   * belongs to the food domain rather than to a separate one — but on a
+   * different identity: these are the only routes in that group a diner's
+   * token opens, and none of them can see another restaurant's queue.
+   */
+  foodOrders: `${V2}/food-partners/orders`,
+  foodOrder: (orderNumber: string) =>
+    `${V2}/food-partners/orders/${encodeURIComponent(orderNumber)}`,
+  foodOrderCancel: (orderNumber: string) =>
+    `${V2}/food-partners/orders/${encodeURIComponent(orderNumber)}/cancel`,
 } as const;
 
 export default endpoints;

@@ -5,7 +5,6 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Text } from '@/components/ui';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
-import { findDish } from '@/data/food';
 import type { FoodOrder } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 
@@ -14,6 +13,7 @@ import { foodHref } from './routes';
 import { FoodEmptyState } from './FoodStates';
 import { FoodSectionHeader } from './FoodNotices';
 import { ActiveOrderCard, FoodStatusChip } from './FoodStatus';
+import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 
 /**
  * Orders — the live one, then everything that has already happened.
@@ -25,6 +25,7 @@ import { ActiveOrderCard, FoodStatusChip } from './FoodStatus';
  * written.
  */
 export function FoodOrders({ onHome }: { onHome: () => void }) {
+  const { findDish } = useFoodCatalogue();
   const { colors, space, layout, radius } = useTheme();
   const router = useRouter();
   const { orders, liveOrder, address, add, clear } = useFood();
@@ -209,6 +210,7 @@ function OrderCard({
   onPress: () => void;
   onReorder: () => void;
 }) {
+  const { findDish } = useFoodCatalogue();
   const { colors, space, radius } = useTheme();
   const refunded = order.status === 'refunded';
   /* The first line's dish, when it is still on the menu. A receipt has to

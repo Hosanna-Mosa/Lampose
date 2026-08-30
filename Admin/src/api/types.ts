@@ -44,7 +44,15 @@ export interface ApiRequestOptions extends AxiosRequestConfig {
   retryCount?: number;
 }
 
-export type AdminRole = 'Super Admin' | 'Admin' | 'Editor' | 'Viewer';
+/**
+ * Console roles.
+ *
+ * 'Food Admin' works the food-partner approval queue and nothing else. It is a
+ * role rather than a flag because the console already gates its nav and its
+ * pages on `role`, and a second mechanism beside that one is how the two drift
+ * apart. Kept in step with the enum in `Backend/src/modules/admins/admin.model.js`.
+ */
+export type AdminRole = 'Super Admin' | 'Admin' | 'Editor' | 'Viewer' | 'Food Admin';
 export type AdminStatus = 'Active' | 'Inactive' | 'Pending';
 
 /**
@@ -597,3 +605,121 @@ export interface WhatsAppSendStatus {
 }
 
 export type WhatsAppSendMode = 'text' | 'template';
+
+
+/* ── Food partners ─────────────────────────────────────────────────────────
+   The `food_restaurants` and `food_products` collections, as the approval
+   queue reads them. Field names mirror the Mongoose schemas so nothing is
+   invented on the way to the UI. */
+
+export type FoodVerificationStatus = 'pending' | 'approved' | 'rejected';
+
+export interface FoodImage {
+  url: string;
+  publicId?: string;
+}
+
+export interface FoodOpeningHour {
+  day: string;
+  openTime: string;
+  closeTime: string;
+}
+
+export interface FoodDocument {
+  kind: string;
+  number?: string;
+  expiry?: string | null;
+  url?: string;
+  fileName?: string;
+  uploadedAt?: string | null;
+}
+
+/** A row in the queue. The list endpoint projects only these columns. */
+export interface FoodRestaurantRow {
+  restaurantId: string;
+  restaurantName: string;
+  ownerName: string;
+  ownerEmail: string;
+  ownerPhone: string;
+  description: string;
+  cuisineTypes: string[];
+  logoImage?: FoodImage | null;
+  coverBannerImage?: FoodImage | null;
+  address: {
+    line1?: string;
+    line2?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+    landmark?: string;
+  };
+  contactNumber: string;
+  verificationStatus: FoodVerificationStatus;
+  verificationNote: string;
+  isActive: boolean;
+  ratingAvg: number;
+  ratingCount: number;
+  avgPreparationTime: number;
+  deliveryRadiusKm: number;
+  minOrderValue: number;
+  menuItemCount: number;
+  createdAt: string | null;
+  verifiedAt: string | null;
+}
+
+/** One dish, as the detail drawer renders it. */
+export interface FoodProductRow {
+  productId: string;
+  productName: string;
+  category: string;
+  description: string;
+  price: number;
+  discountedPrice?: number | null;
+  isVeg: 'veg' | 'non-veg' | 'egg';
+  isAvailable: boolean;
+  productImage?: FoodImage | null;
+  variants?: { name: string; price: number }[];
+  addOns?: { name: string; price: number }[];
+  tags?: string[];
+  allergenInfo?: string[];
+  spiceLevel?: string | null;
+  serves?: number | null;
+  calories?: number | null;
+  preparationTime?: number | null;
+}
+
+/** The full application: everything a decision is made on. */
+export interface FoodRestaurantDetail {
+  restaurant: FoodRestaurantRow & {
+    fssaiLicenseNumber?: string;
+    fssaiExpiry?: string | null;
+    gstNumber?: string;
+    gstExempt?: boolean;
+    panNumber?: string;
+    openingHours?: FoodOpeningHour[];
+    openState?: string;
+    packagingCharge?: number;
+    deliveryFee?: { type?: string; amount?: number; perKm?: number; freeAboveValue?: number };
+    acceptsOnlinePayment?: boolean;
+    acceptsCod?: boolean;
+    payout?: {
+      accountHolderName?: string;
+      bankAccountNumber?: string;
+      accountLast4?: string;
+      ifscCode?: string;
+      accountType?: string;
+      upiId?: string;
+    };
+    verificationDocuments?: FoodDocument[];
+    contract?: { accepted?: boolean; signature?: string; acceptedAt?: string | null };
+    location?: { coordinates?: number[] };
+  };
+  menu: { category: string; items: FoodProductRow[] }[];
+  menuItemCount: number;
+}
+
+export interface FoodQueueCounts {
+  pending: number;
+  approved: number;
+  rejected: number;
+}

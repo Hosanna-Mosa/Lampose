@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import { metaLine, walkLabel } from '@/services/adapters/food.adapter';
 
 import { Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
@@ -84,7 +85,7 @@ export function KitchenCard({ kitchen, locality, window, now, open, reopensAt, o
         </View>
 
         <Text variant="caption" color="tertiary" numberOfLines={1}>
-          {kitchen.cuisine} · {locality} · {kitchen.walkMinutes} min walk
+          {metaLine(kitchen.cuisine, locality, walkLabel(kitchen))}
         </Text>
 
         {open ? (

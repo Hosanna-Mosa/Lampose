@@ -10,9 +10,9 @@ import { BillBreakdown, FoodEmptyState, FoodNotice, type BillLine } from '@/comp
 import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
-import { findKitchen } from '@/data/food';
 import { findWindow, focusWindow } from '@/types/food';
 import { formatRupees } from '@/utils/money';
+import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 
 type Method = { id: string; label: string; detail: string; disabled?: boolean };
 
@@ -34,6 +34,7 @@ const UPI_APPS: readonly Method[] = [
  * is how people come to feel tricked, and this is a student's food budget.
  */
 export default function PaymentScreen() {
+  const { findKitchen } = useFoodCatalogue();
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -56,6 +57,7 @@ export default function PaymentScreen() {
   const [now] = useState(() => new Date());
   const [method, setMethod] = useState<string>('gpay');
   const [state, setState] = useState<'idle' | 'paying' | 'failed'>('idle');
+  const [error, setError] = useState<string | null>(null);
 
   const kitchen = kitchenId ? findKitchen(kitchenId) : undefined;
   const activeWindow = findWindow(window ?? focusWindow(now).id);
@@ -95,15 +97,29 @@ export default function PaymentScreen() {
     ...(coupon ? [{ id: 'coupon', label: coupon.code, amount: discount, discount: true }] : []),
   ];
 
-  const pay = () => {
+  /*
+   * The order is created by the server, which prices it from the menu and
+   * rings the kitchen. There is still no UPI round trip — every order is
+   * placed as cash on delivery, because claiming otherwise would write a
+   * payment status no money backs. Wiring a gateway in means taking its
+   * result and passing `paymentMode: 'online'`; the shape here does not
+   * change.
+   *
+   * A refusal is shown in the SERVER'S words. It knows things this screen
+   * cannot — a dish sold out while the cart sat open, the kitchen closed at
+   * 11pm, the order under the minimum — and paraphrasing them into "something
+   * went wrong" throws away the one sentence that tells a student what to do.
+   */
+  const pay = async () => {
     setState('paying');
-    // The mock stands in for the UPI round trip. Everything the real one has to
-    // do — order created only after the bank answers, cart cleared in the same
-    // act — is already the shape here, so wiring it up is one call site.
-    setTimeout(() => {
-      const order = placeOrder(new Date());
+    setError(null);
+    try {
+      const order = await placeOrder(new Date());
       router.replace(foodHref.order(order.id, true));
-    }, 900);
+    } catch (err) {
+      setError((err as Error)?.message || 'We could not reach the kitchen. Please try again.');
+      setState('failed');
+    }
   };
 
   return (

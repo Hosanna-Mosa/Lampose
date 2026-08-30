@@ -116,10 +116,25 @@ const unregisterPartnerDevice = (req, res, next) => unregisterFor(
   { partnerId: req.partner.partnerId },
 )(req, res, next);
 
+/* A restaurant, in `food_restaurants`. Same rules again — this is the third
+   account type through one controller, which is the whole reason it takes the
+   model and the filter rather than knowing them. */
+const registerFoodPartnerDevice = (req, res, next) => registerFor(
+  require('../foodpartners/foodRestaurant.model'),
+  { restaurantId: req.foodPartner.restaurantId },
+)(req, res, next);
+
+const unregisterFoodPartnerDevice = (req, res, next) => unregisterFor(
+  require('../foodpartners/foodRestaurant.model'),
+  { restaurantId: req.foodPartner.restaurantId },
+)(req, res, next);
+
 module.exports = {
   MAX_DEVICES,
   registerCustomerDevice,
   unregisterCustomerDevice,
   registerPartnerDevice,
   unregisterPartnerDevice,
+  registerFoodPartnerDevice,
+  unregisterFoodPartnerDevice,
 };

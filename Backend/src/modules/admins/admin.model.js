@@ -22,7 +22,11 @@ const adminSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['Super Admin', 'Admin', 'Editor', 'Viewer'],
+      /* 'Food Admin' works the food-partner approval queue and nothing else.
+         A role rather than a flag because the console already gates its nav
+         and its pages on `role`, and a second mechanism beside that one is how
+         the two drift apart. See foodAdmin.routes.js for what it unlocks. */
+      enum: ['Super Admin', 'Admin', 'Editor', 'Viewer', 'Food Admin'],
       default: 'Admin',
     },
     status: {

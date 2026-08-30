@@ -65,6 +65,7 @@ const v1ScraperJobAdminRoutes = require('../src/modules/scraper/scraperJob.admin
 const v1ScraperLeadAdminRoutes = require('../src/modules/scraper/scraperLead.admin.routes');
 const v1ProductAdminRoutes = require('../src/modules/properties/product.routes');
 const v1MessagingRoutes = require('../src/modules/messaging/messaging.routes');
+const v1FoodAdminRoutes = require('../src/modules/foodpartners/foodAdmin.routes');
 
 const v2ListingRoutes = require('../src/modules/listings/listing.routes');
 const v2VisitRequestRoutes = require('../src/modules/visits/visitRequest.routes');
@@ -76,6 +77,7 @@ const v2ScraperRoutes = require('../src/modules/scraper/scraper.routes');
 const v2CustomerRoutes = require('../src/modules/customers/customer.routes');
 const v2SupportRoutes = require('../src/modules/support/ticket.routes');
 const v2PartnerRoutes = require('../src/modules/partners/partner.routes');
+const v2FoodPartnerRoutes = require('../src/modules/foodpartners/foodPartner.routes');
 
 /* [mount path, router, one-line description]. The description is what the
    banner and GET /api print, so it is worth keeping accurate. */
@@ -94,6 +96,11 @@ const V1_GROUPS = [
   ['/admin/scriper-leads', v1ScraperLeadAdminRoutes, 'Super Admin CRUD — scraped leads (scriper_leads)'],
   ['/admin/products', v1ProductAdminRoutes, 'Super Admin CRUD — products collection'],
   ['/admin/whatsapp', v1MessagingRoutes, 'admin-console ad-hoc WhatsApp sends (free text or configured Content Templates)'],
+  /* The food-partner approval queue. v1 because its reader is an administrator
+     in `admins` — the v1 identity system — not the restaurant's own session.
+     Role-gated to Admin / Food Admin inside the router rather than locked to
+     Super Admin: it is daily operational work with a screen of its own. */
+  ['/admin/food-restaurants', v1FoodAdminRoutes, 'food partner applications: the approval queue and its decisions'],
 ];
 
 const V2_GROUPS = [
@@ -122,6 +129,13 @@ const V2_GROUPS = [
      requests are scoped by the phone number they proved, which is the same
      number the onboarding flow already recorded on the property. */
   ['/partners', v2PartnerRoutes, 'Stay Partner app: owner accounts, their properties and visit requests'],
+  /* Restaurants, in `food_restaurants` + `food_products` + `food_orders`. A
+     FIFTH identity system — see foodPartnerAuth.middleware.js, which refuses
+     any token not carrying `typ: 'foodpartner'`. Deliberately given NO
+     unversioned alias: nothing was ever written against one, and the aliases
+     below exist to keep old callers working, not to hand new ones a second
+     spelling to drift onto. */
+  ['/food-partners', v2FoodPartnerRoutes, 'Food-Partner app: restaurant onboarding, menu, orders, public discovery'],
 ];
 
 /* Which version answers each unversioned path, and whether it also answers

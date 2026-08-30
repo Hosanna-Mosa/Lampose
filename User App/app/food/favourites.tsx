@@ -11,9 +11,9 @@ import { useAppState } from '@/context/AppStateContext';
 import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
-import { findDish, findKitchen, kitchenOpen } from '@/data/food';
 import type { Dish } from '@/types/food';
 import { clockLabel, findWindow, minutesUntilOpen } from '@/types/food';
+import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 
 const TABS = ['Dishes', 'Kitchens'] as const;
 
@@ -26,6 +26,7 @@ const TABS = ['Dishes', 'Kitchens'] as const;
  * that reorders itself is a list you cannot learn.
  */
 export default function FavouritesScreen() {
+  const { findDish, findKitchen, kitchenOpen } = useFoodCatalogue();
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();

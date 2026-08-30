@@ -1,5 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { metaLine, walkLabel } from '@/services/adapters/food.adapter';
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
@@ -19,10 +20,10 @@ import { useAppState } from '@/context/AppStateContext';
 import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
-import { findKitchen, kitchenOpen, menuFor } from '@/data/food';
 import type { Dish } from '@/types/food';
 import { clockLabel, findWindow, minutesUntilOpen, readyLabel } from '@/types/food';
 import { formatRupees } from '@/utils/money';
+import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 
 /**
  * A kitchen, with its menu.
@@ -37,6 +38,7 @@ import { formatRupees } from '@/utils/money';
  * ("is this the place with the ₹95 thali?") unanswerable at 4 pm.
  */
 export default function KitchenScreen() {
+  const { findKitchen, kitchenOpen, menuFor } = useFoodCatalogue();
   const { colors, space, layout, radius, mode } = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -111,7 +113,7 @@ export default function KitchenScreen() {
 
       <StandardHeader
         title={kitchen.name}
-        subtitle={`${kitchen.cuisine} · ${locality?.name ?? 'near you'} · ${kitchen.walkMinutes} min walk`}
+        subtitle={metaLine(kitchen.cuisine, locality?.name ?? 'near you', walkLabel(kitchen))}
         onBack={() => router.back()}
         actionIcon="phone"
         onAction={() => {}}
@@ -146,7 +148,7 @@ export default function KitchenScreen() {
             onChange={setFulfilment}
             kitchen={kitchen}
             readyAt={readyLabel(now, kitchen.prepMinutes)}
-            arrivesAt={readyLabel(now, kitchen.deliveryMinutes)}
+            arrivesAt={kitchen.deliveryMinutes > 0 ? readyLabel(now, kitchen.deliveryMinutes) : null}
             deliveryFee={kitchen.deliveryFee}
           />
 

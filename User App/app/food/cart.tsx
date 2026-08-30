@@ -20,9 +20,9 @@ import {
 import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
-import { findKitchen } from '@/data/food';
 import { clockLabel, findWindow, focusWindow, minutesUntilClose } from '@/types/food';
 import { formatRupees } from '@/utils/money';
+import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 
 /**
  * The cart.
@@ -34,6 +34,7 @@ import { formatRupees } from '@/utils/money';
  * out what the delivery fee is.
  */
 export default function CartScreen() {
+  const { findKitchen } = useFoodCatalogue();
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();

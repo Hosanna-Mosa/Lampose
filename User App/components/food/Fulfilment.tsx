@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import { metaLine, walkLabel } from '@/services/adapters/food.adapter';
 
 import { Icon, Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
@@ -16,7 +17,15 @@ export type FulfilmentToggleProps = {
   kitchen: Kitchen;
   /** Already-formatted ready and arrival times, from the kitchen's own clock. */
   readyAt: string;
-  arrivesAt: string;
+  /**
+   * When the order reaches the door.
+   *
+   * Null when nothing knows: the travel time depends on the rider, the
+   * traffic and the queue, and `food_restaurants` records none of them. The
+   * delivery option then quotes the kitchen's real ready time and says
+   * delivery is on top, rather than printing an arrival nobody measured.
+   */
+  arrivesAt: string | null;
   deliveryFee: number;
   /** After the gate shuts, delivery to the room is not on offer. */
   deliveryDisabled?: boolean;
@@ -112,7 +121,11 @@ export function FulfilmentToggle({
       {option(
         'delivery',
         'Deliver to my room',
-        deliveryDisabled ? 'Not available now' : `Arrives about ${arrivesAt}`,
+        deliveryDisabled
+          ? 'Not available now'
+          : arrivesAt
+            ? `Arrives about ${arrivesAt}`
+            : `Ready about ${readyAt} · plus delivery`,
         deliveryFee === 0 ? 'Free' : formatRupees(deliveryFee),
         deliveryDisabled,
         deliveryDisabled ? deliveryDisabledNote : undefined,
@@ -120,7 +133,7 @@ export function FulfilmentToggle({
       {option(
         'pickup',
         'Pick up at the counter',
-        `${kitchen.walkMinutes} min walk · ready about ${readyAt}`,
+        metaLine(walkLabel(kitchen), `ready about ${readyAt}`),
         'Free',
       )}
     </View>
