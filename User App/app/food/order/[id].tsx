@@ -20,9 +20,9 @@ import {
 import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
-import { findKitchen } from '@/data/food';
 import { findWindow } from '@/types/food';
 import { formatRupees } from '@/utils/money';
+import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 
 const CANCEL_REASONS = [
   'Ordered by mistake',
@@ -46,6 +46,7 @@ const CANCEL_REASONS = [
  * goes to support to ask where it went.
  */
 export default function OrderScreen() {
+  const { findKitchen } = useFoodCatalogue();
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();

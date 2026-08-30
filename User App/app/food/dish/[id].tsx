@@ -9,10 +9,10 @@ import { StandardHeader } from '@/components/shell';
 import { AddControl, DietMark, FoodEmptyState, FoodNotice, FoodPhoto, RatingPill } from '@/components/food';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
-import { findDish, findKitchen } from '@/data/food';
 import type { SpiceLevel } from '@/types/food';
 import { SPICE_LABEL, clockLabel, findWindow, minutesUntilOpen } from '@/types/food';
 import { formatRupees } from '@/utils/money';
+import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 
 const SPICES: readonly SpiceLevel[] = ['mild', 'medium', 'hot'];
 
@@ -31,6 +31,7 @@ const SPICES: readonly SpiceLevel[] = ['mild', 'medium', 'hot'];
  * whose dish silently vanished cannot.
  */
 export default function DishScreen() {
+  const { findDish, findKitchen } = useFoodCatalogue();
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();

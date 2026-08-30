@@ -6,7 +6,6 @@ import { Icon, Text } from '@/components/ui';
 import { useAppState } from '@/context/AppStateContext';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
-import { dishesFor, findKitchen, kitchenOpen, kitchensFor } from '@/data/food';
 import { clockLabel, findWindow, minutesUntilClose, minutesUntilOpen } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 
@@ -19,6 +18,7 @@ import { KitchenCard } from './KitchenCard';
 import { MealWindowRail, WindowStatusLine } from './MealWindowRail';
 import { VegOnlyToggle } from './FoodMarks';
 import { ActiveOrderCard } from './FoodStatus';
+import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 
 /**
  * Home — the Food module's feed.
@@ -36,6 +36,7 @@ import { ActiveOrderCard } from './FoodStatus';
  * and their room.
  */
 export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void }) {
+  const { dishesFor, findKitchen, kitchenOpen, kitchensFor } = useFoodCatalogue();
   const { colors, space, layout, radius } = useTheme();
   const router = useRouter();
   const { locality } = useAppState();

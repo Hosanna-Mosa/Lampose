@@ -68,7 +68,20 @@ const pushReady = () => !pushConfigProblem();
  * in `invalid` so the caller can drop them. That pruning is the only reason
  * this returns anything at all.
  */
-async function sendPush(tokens, { title, body, data = {} } = {}) {
+async function sendPush(tokens, {
+  title,
+  body,
+  data = {},
+  /* Both default to what the stay-request flow has always sent, so its call
+     site is unchanged. A food order overrides them: it needs its own Android
+     channel, because on 8+ the CHANNEL decides whether anything is audible and
+     a kitchen's order alert must not be muted along with a stay reminder. */
+  channelId = 'stay-requests',
+  sound = 'default',
+  /* Seconds. A stay request expires; a food order does not, so it overrides
+     this rather than being dropped by Expo mid-service. */
+  ttlSeconds = null,
+} = {}) {
   const problem = pushConfigProblem();
   if (problem) return { sent: 0, failed: 0, invalid: [], problem };
 
@@ -84,15 +97,16 @@ async function sendPush(tokens, { title, body, data = {} } = {}) {
        window, so the payload carries the request id rather than making the
        app go and find it. */
     data,
-    sound: 'default',
+    sound,
     /* Android needs a channel to show anything at all on 8+; the apps create
        one with this id. High priority because the whole point is that it
        arrives while somebody can still act on it. */
-    channelId: 'stay-requests',
+    channelId,
     priority: 'high',
     /* Pointless after the deadline. Expo drops it rather than delivering a
-       countdown that finished while the handset was off. */
-    ttl: config.booking.expiryMinutes * 60,
+       countdown that finished while the handset was off. Callers with no
+       deadline pass their own. */
+    ttl: ttlSeconds ?? config.booking.expiryMinutes * 60,
   }));
 
   let sent = 0;

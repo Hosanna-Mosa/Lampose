@@ -1,5 +1,5 @@
 import { api } from '../apiCaller';
-import type { ApiResponse, UserEntity } from '../types';
+import type { ApiResponse, UserEntity, AdminRole } from '../types';
 
 export interface AuthResponseData {
   token: string;
@@ -21,7 +21,7 @@ export const authService = {
     name: string,
     email: string,
     password: string,
-    role: 'Super Admin' | 'Admin' | 'Editor' | 'Viewer',
+    role: AdminRole,
     adminSecretKey: string
   ): Promise<ApiResponse<AuthResponseData>> {
     return api.post<AuthResponseData>('/admin/register', {

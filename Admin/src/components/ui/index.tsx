@@ -503,20 +503,30 @@ export const Modal: React.FC<ModalProps> = ({
         aria-label={title}
         tabIndex={-1}
         className={cx(
-          'relative w-full bg-surface border border-line rounded-panel shadow-[var(--shadow-lg)] anim-scale-in outline-none',
+          /* A column capped to the viewport, so the BODY scrolls rather than
+             the panel growing off the screen. Without the cap a long dialog —
+             a food-partner application is a couple of thousand pixels — runs
+             past both edges with nothing to scroll, because the container is
+             `fixed inset-0` and the page behind it is locked. */
+          'relative w-full flex flex-col max-h-[calc(100vh-2rem)]',
+          'bg-surface border border-line rounded-panel shadow-[var(--shadow-lg)] anim-scale-in outline-none',
           widths[size]
         )}
       >
-        <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-line">
+        <div className="shrink-0 flex items-start justify-between gap-4 px-5 py-4 border-b border-line">
           <div className="min-w-0">
             <h2 className="text-section text-ink">{title}</h2>
             {description && <p className="text-sm text-ink-3 mt-0.5">{description}</p>}
           </div>
           <IconButton icon={X} label="Close dialog" onClick={onClose} className="-mr-1 -mt-0.5" />
         </div>
-        <div className="px-5 py-5">{children}</div>
+        {/* `min-h-0` is load-bearing: a flex child defaults to `min-height:auto`,
+            which refuses to shrink below its content and defeats the overflow.
+            `overscroll-contain` stops a scroll that reaches the end here from
+            chaining to whatever is behind the dialog. */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-5">{children}</div>
         {footer && (
-          <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-line bg-surface-subtle rounded-b-panel">
+          <div className="shrink-0 flex items-center justify-end gap-2 px-5 py-3.5 border-t border-line bg-surface-subtle rounded-b-panel">
             {footer}
           </div>
         )}

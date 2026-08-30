@@ -16,6 +16,33 @@ import type { StayCategory } from '@/constants/tokens';
 export const queryKeys = {
   health: ['health'] as const,
 
+  /* Food. `['food']` invalidates every kitchen and dish at once — which is
+     what a pull-to-refresh on the food home wants, without needing to know
+     which kitchen pages happen to be mounted behind it. */
+  food: ['food'] as const,
+  foodKitchenList: (query: {
+    lat?: number | null;
+    lng?: number | null;
+    radiusKm?: number | null;
+    cuisine?: string | null;
+    search?: string | null;
+    openNow?: boolean;
+    limit?: number;
+  }) =>
+    [
+      'food',
+      'kitchens',
+      query.lat ?? null,
+      query.lng ?? null,
+      query.radiusKm ?? null,
+      query.cuisine ?? null,
+      query.search?.trim() || null,
+      query.openNow ?? false,
+      query.limit ?? null,
+    ] as const,
+  foodKitchen: (restaurantId: string) => ['food', 'kitchen', restaurantId] as const,
+  foodDish: (productId: string) => ['food', 'dish', productId] as const,
+
   /* The stay itself, as opposed to the request that asked for it. Both are
      cached separately because they change for different reasons and at
      different rates — see `useBookings`. */

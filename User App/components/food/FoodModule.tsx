@@ -5,7 +5,6 @@ import { StyleSheet, View } from 'react-native';
 import { useFood } from '@/context/FoodContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useTheme } from '@/context/ThemeContext';
-import { findKitchen } from '@/data/food';
 import { findWindow } from '@/types/food';
 
 import { CartSwitchSheet } from './CartSwitchSheet';
@@ -14,6 +13,7 @@ import { DockedCartBar } from './DockedCartBar';
 import { FoodHome } from './FoodHome';
 import { FoodOrders } from './FoodOrders';
 import { FoodSearch } from './FoodSearch';
+import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 
 /**
  * The Food module, inside the Food tab.
@@ -34,6 +34,7 @@ import { FoodSearch } from './FoodSearch';
  * the cart bar sitting under it about what time it is.
  */
 export function FoodModule() {
+  const { findKitchen } = useFoodCatalogue();
   const { space } = useTheme();
   const router = useRouter();
   const {

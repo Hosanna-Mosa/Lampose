@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { authService } from '../api/services/authService';
-import type { UserEntity } from '../api/types';
+import type { AdminRole, UserEntity } from '../api/types';
 
 interface AuthContextType {
   user: UserEntity | null;
@@ -11,7 +11,7 @@ interface AuthContextType {
     name: string,
     email: string,
     password: string,
-    role: 'Super Admin' | 'Admin' | 'Editor' | 'Viewer',
+    role: AdminRole,
     adminSecretKey: string
   ) => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
@@ -55,7 +55,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     name: string,
     email: string,
     password: string,
-    role: 'Super Admin' | 'Admin' | 'Editor' | 'Viewer',
+    role: AdminRole,
     adminSecretKey: string
   ) => {
     const res = await authService.register(name, email, password, role, adminSecretKey);

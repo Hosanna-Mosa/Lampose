@@ -1,12 +1,13 @@
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
+import { metaLine, walkLabel } from '@/services/adapters/food.adapter';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Chip, SearchField, Text } from '@/components/ui';
 import { useAppState } from '@/context/AppStateContext';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
-import { DISHES, findKitchen, kitchensFor } from '@/data/food';
+import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 import type { Dish } from '@/types/food';
 import { clockLabel, findWindow } from '@/types/food';
 import { formatRupees } from '@/utils/money';
@@ -34,6 +35,13 @@ type PriceBand = 'any' | 'under80' | 'under150';
  * has ever opened this screen and typed "Bawarchi".
  */
 export function FoodSearch({ now }: { now: Date }) {
+  const { dishes: allDishes, findKitchen, kitchensFor, kitchens } = useFoodCatalogue();
+
+  /* Walking times exist only when the feed was asked with the student's
+     coordinates. With none, every kitchen reads 0 and a "under 10 min walk"
+     filter would match all of them — a control that appears to narrow and
+     does nothing is worse than one that is not offered. */
+  const haveDistances = kitchens.some((kitchen) => kitchen.walkMinutes > 0);
   const { colors, space, layout, radius } = useTheme();
   const router = useRouter();
   const { locality } = useAppState();
@@ -51,14 +59,14 @@ export function FoodSearch({ now }: { now: Date }) {
   const ceiling = price === 'under80' ? 80 : price === 'under150' ? 150 : Number.POSITIVE_INFINITY;
 
   const results = useMemo(() => {
-    const inWindow = DISHES.filter((dish) => dish.windows.includes(windowId));
+    const inWindow = allDishes.filter((dish) => dish.windows.includes(windowId));
     return inWindow
       .filter((dish) => {
         const kitchen = findKitchen(dish.kitchenId);
         if (!kitchen) return false;
         if (preferences.vegOnly && dish.diet !== 'veg') return false;
         if (dish.price > ceiling) return false;
-        if (nearbyOnly && kitchen.walkMinutes > 10) return false;
+        if (haveDistances && nearbyOnly && kitchen.walkMinutes > 10) return false;
         if (!term) return true;
         return (
           dish.name.toLowerCase().includes(term) ||
@@ -77,7 +85,8 @@ export function FoodSearch({ now }: { now: Date }) {
     );
   }, [term, windowId]);
 
-  const activeFilters = (price !== 'any' ? 1 : 0) + (nearbyOnly ? 1 : 0) + (preferences.vegOnly ? 1 : 0);
+  const activeFilters =
+    (price !== 'any' ? 1 : 0) + (haveDistances && nearbyOnly ? 1 : 0) + (preferences.vegOnly ? 1 : 0);
 
   const setDishQty = (dish: Dish, next: number) => {
     const existing = lines.find((line) => line.dishId === dish.id);
@@ -130,7 +139,9 @@ export function FoodSearch({ now }: { now: Date }) {
           />
           <Chip label={`Under ${formatRupees(80)}`} selected={price === 'under80'} onPress={() => setPrice(price === 'under80' ? 'any' : 'under80')} />
           <Chip label={`Under ${formatRupees(150)}`} selected={price === 'under150'} onPress={() => setPrice(price === 'under150' ? 'any' : 'under150')} />
-          <Chip label="Under 10 min walk" selected={nearbyOnly} onPress={() => setNearbyOnly(!nearbyOnly)} />
+          {haveDistances && (
+            <Chip label="Under 10 min walk" selected={nearbyOnly} onPress={() => setNearbyOnly(!nearbyOnly)} />
+          )}
         </ScrollView>
       </View>
 
@@ -168,7 +179,7 @@ export function FoodSearch({ now }: { now: Date }) {
                   key={dish.id}
                   dish={dish}
                   layout="feed"
-                  meta={`${kitchen?.name ?? ''} · ${kitchen?.walkMinutes ?? 0} min walk`}
+                  meta={metaLine(kitchen?.name, kitchen ? walkLabel(kitchen) : null)}
                   qty={qtyOf(dish.id)}
                   onQtyChange={(next) => setDishQty(dish, next)}
                   onPress={() => router.push(foodHref.dish(dish.id))}
@@ -212,7 +223,7 @@ export function FoodSearch({ now }: { now: Date }) {
                 <View style={{ flex: 1 }}>
                   <Text variant="title3">{kitchen.name}</Text>
                   <Text variant="caption" color="tertiary" numberOfLines={1}>
-                    {kitchen.cuisine} · {kitchen.walkMinutes} min walk
+                    {metaLine(kitchen.cuisine, walkLabel(kitchen))}
                   </Text>
                 </View>
                 <RatingPill rating={kitchen.rating} count={kitchen.ratingCount} />

@@ -1,7 +1,7 @@
 {
   "name": "lampose-main-backend",
   "version": "2.0.0",
-  "description": "Unified Lampose backend \u2014 onboarding (v1) and the public site + leads panel (v2)",
+  "description": "Unified Lampose backend — onboarding (v1) and the public site + leads panel (v2)",
   "main": "server.js",
   "engines": {
     "node": ">=18.0.0"
@@ -25,7 +25,10 @@
     "test": "NODE_ENV=test node --test \"tests/**/*.test.js\"",
     "test:watch": "NODE_ENV=test node --test --watch \"tests/**/*.test.js\"",
     "browsers": "playwright install --with-deps chromium",
-    "migrate:categories": "node scripts/migrate-categories.js"
+    "migrate:categories": "node scripts/migrate-categories.js",
+    "verify:food-partner": "node scripts/verify-food-partner.js",
+    "seed:food-menu": "node scripts/seed-food-menu.js",
+    "verify:food-order": "node scripts/verify-food-order-loop.js"
   },
   "keywords": [
     "express",

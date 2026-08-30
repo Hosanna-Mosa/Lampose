@@ -20,8 +20,11 @@ import { ScriperUsersPage } from './pages/ScriperUsersPage';
 import { ScrapeJobsPage } from './pages/ScrapeJobsPage';
 import { ScrapedLeadsPage } from './pages/ScrapedLeadsPage';
 import { ProductsPage } from './pages/ProductsPage';
+import { FoodRestaurantsPage } from './pages/FoodRestaurantsPage';
 import { insightsService } from './api/services/insightsService';
 import { permissionService } from './api/services/permissionService';
+import { visibleGroupsFor } from './components/layout/Sidebar';
+import type { UserEntity } from './api/types';
 import { useFetch } from './lib/useFetch';
 
 const VALID_TABS = [
@@ -41,6 +44,7 @@ const VALID_TABS = [
   'scraper-jobs',
   'scraper-leads',
   'products',
+  'food-restaurants',
 ] as const;
 
 type Tab = (typeof VALID_TABS)[number];
@@ -56,6 +60,25 @@ const SUPER_ADMIN_TABS = new Set<Tab>([
   'scraper-leads',
   'products',
 ]);
+
+/**
+ * A tab a role can actually open, derived from the SAME nav definition the
+ * sidebar renders from.
+ *
+ * Deriving it rather than keeping a second list is the point: a group added to
+ * `NAV_GROUPS` later is gated here automatically, where a hand-maintained copy
+ * would be one forgotten edit away from letting a typed hash through. The
+ * backend is the real guard either way — this keeps the console's own UI
+ * honest with it.
+ */
+const tabAllowedFor = (tab: Tab, role?: UserEntity['role']): boolean =>
+  visibleGroupsFor(role).some((group) => group.items.some((item) => item.id === tab));
+
+/* A Food Admin has no Dashboard in their nav, so sending them there on a
+   refused tab would strand them on a page their sidebar cannot navigate back
+   to. They land on their own queue instead. */
+const homeTabFor = (role?: UserEntity['role']): Tab =>
+  role === 'Food Admin' ? 'food-restaurants' : 'dashboard';
 
 const readTabFromHash = (): Tab => {
   const hash = window.location.hash.replace('#', '');
@@ -86,13 +109,31 @@ const AppContent: React.FC = () => {
   // The backend already refuses those requests; this just keeps the console's
   // own UI from showing a page whose every action would 403.
   useEffect(() => {
-    if (isAuthenticated && SUPER_ADMIN_TABS.has(activeTab) && !isSuperAdmin) {
+    if (!isAuthenticated) return;
+    if (SUPER_ADMIN_TABS.has(activeTab) && !isSuperAdmin) {
       setActiveTab('dashboard');
+      return;
     }
-  }, [isAuthenticated, activeTab, isSuperAdmin]);
+    /* Any other role-gated tab — today the Food group, tomorrow whatever is
+       added to NAV_GROUPS. `dashboard` itself is never gated, so this cannot
+       loop. */
+    if (!tabAllowedFor(activeTab, user?.role) && activeTab !== 'dashboard') {
+      setActiveTab(homeTabFor(user?.role));
+    }
+  }, [isAuthenticated, activeTab, isSuperAdmin, user?.role]);
 
   // The header filter is per-page; clear it when the page changes.
   useEffect(() => setSearch(''), [activeTab]);
+
+  /* A Food Admin's nav has no Dashboard, so the default landing tab moves to
+     the one page they do have. Only on first load — it must not fight a tab
+     they have chosen. */
+  useEffect(() => {
+    if (isAuthenticated && user?.role === 'Food Admin' && activeTab === 'dashboard') {
+      setActiveTab('food-restaurants');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, user?.role]);
 
   const stats = useFetch(() => insightsService.getStats(30), [isAuthenticated]);
 
@@ -152,6 +193,12 @@ const AppContent: React.FC = () => {
         return isSuperAdmin ? <ScrapedLeadsPage search={search} /> : <Dashboard setActiveTab={setActiveTab as (t: string) => void} />;
       case 'products':
         return isSuperAdmin ? <ProductsPage search={search} /> : <Dashboard setActiveTab={setActiveTab as (t: string) => void} />;
+      case 'food-restaurants':
+        return tabAllowedFor('food-restaurants', user?.role) ? (
+          <FoodRestaurantsPage search={search} />
+        ) : (
+          <Dashboard setActiveTab={setActiveTab as (t: string) => void} />
+        );
       case 'dashboard':
       default:
         return <Dashboard setActiveTab={setActiveTab as (t: string) => void} />;
