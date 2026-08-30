@@ -8,13 +8,16 @@ const googleServicesFile = fs.existsSync(googleServicesPath) ? './google-service
 /**
  * Brand colours — keep in sync with `theme/index.ts`.
  *
- * These are the customer app's Food palette: the grey ground behind the splash
- * and the adaptive icon, and the brand green that tints notifications.
+ * The Dock palette Stay Partner also builds from (`Stay Partner/app.config.js`):
+ * the warm bone ground behind the splash and the adaptive icon, and the deep
+ * teal ACCENT that tints notifications. Nothing here can read the palette at
+ * runtime — the OS bakes these in at build time — so this is a copy, and it
+ * has to be kept in step by hand.
  */
 const BRAND = {
-  ink: '#101214',
-  accent: '#22A355',
-  background: '#F1F2F4',
+  ink: '#1A1917',
+  accent: '#0E6E5C',
+  background: '#EFEDE9',
 };
 
 export default {

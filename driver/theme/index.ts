@@ -1,34 +1,43 @@
 /**
  * Lampose Driver — design tokens.
  *
- * Ported wholesale from the customer app's Food module
- * (`User App/constants/tokens.ts`), so the rider app and the Food surface a
- * student sees are visibly the same product: grey ground, white cards, one
- * saturated green, near-black primary actions, and the Archivo / Instrument
- * Sans / Martian Mono type trio.
+ * Layout, spacing, radius and type were ported wholesale from the customer
+ * app's Food module (`User App/constants/tokens.ts`). The PALETTE below was
+ * re-pointed on 30 Aug 2026 to the "Dock" palette the Stay Partner app runs
+ * on (`Stay Partner/constants/colors.ts`), so a driver, a property partner
+ * and a guest are looking at one product family rather than apps that happen
+ * to share a name. The supplied roles, verbatim:
  *
- * What replaced what:
- *   - The "Classical" warm neutrals and the single gold accent are gone. Gold
- *     survives only as `warning`, which is what an accent that means "check
- *     this" actually is.
- *   - Corner radius is chosen by what an element *is* (chip / button / card /
- *     sheet), not by its size. The old sm-2 / md-4 / lg-7 ramp is aliased onto
- *     the new values so nothing that still reads it breaks.
- *   - Type comes from `type` (the food scale) via the `Text` component. The
- *     old `typography` presets remain as a thin compatibility layer.
+ *   GROUND  #EFEDE9   SURFACE #FFFFFF   INK     #1A1917
+ *   ACCENT  #0E6E5C   CONFIRM #0E6E5C   CAUTION #A85A1E
  *
- * Two departures from the source, both forced by React Native and both already
- * present in the customer app:
- *   - `color-mix(...)` becomes a literal rgba().
- *   - Every weight is a separately registered font family; RN cannot synthesise
- *     one from a single face.
+ * What changed, and why:
+ *   - Ground moved from a cool grey (#F1F2F4) to Dock's warm bone (#EFEDE9),
+ *     and every neutral — text, hairlines, wells — was re-picked off the same
+ *     warm ramp so nothing reads as a leftover cool grey next to it.
+ *   - The saturated colour moved from a light, whitish-mint green (#22A355,
+ *     3.26:1 for white) to Dock's deep teal ACCENT (#0E6E5C, 6.25:1 for
+ *     white). That is a second-order change, not just a hue swap: the old
+ *     green could not carry a white label, which is why primary buttons here
+ *     used a near-black label and lightened on press. Dock's teal can, so
+ *     `onBrand` is now white and the pressed state goes DARKER — the
+ *     ordinary direction — matching how Stay Partner's own `Button` behaves.
+ *   - `success` is the same hex as `brand`, exactly as Dock specifies: a
+ *     confirmed delivery IS the good outcome. Survivable only because status
+ *     is never carried by colour alone in this app either — every status
+ *     chip already ships a glyph or a word beside the tint.
+ *   - `warning` moved to Dock's CAUTION (#A85A1E), which — unlike the old
+ *     amber — clears 4.5:1 for a white label (5.06:1), so it no longer needs
+ *     a separate near-black `on` colour in light mode.
+ *   - `danger` has no Dock equivalent (Dock has no error role); it was
+ *     re-picked as a warm red in the same desaturated register as CAUTION,
+ *     the same reasoning Stay Partner used for its own `error` token.
+ *   - `info` stopped being a cool blue-grey and became Dock's own neutral
+ *     `textSecondary` tone — a completed order is a note, not an event, so it
+ *     gets no colour of its own.
  *
- * `ms()` is gone. The old app ran every size through `moderateScale`, which
- * meant a card's padding and a font's size both drifted with device width and
- * neither matched the customer app on any real handset. The food scale is
- * literal points, so a 16pt gutter is 16pt everywhere — and a design system
- * that exports two competing ways to size things is exactly what these tokens
- * exist to prevent. `react-native-size-matters` is now unused.
+ * Every token name is unchanged, so no call site moved. Ratios noted below
+ * are measured (relative luminance), not estimated.
  */
 import { Platform, TextStyle, ViewStyle } from "react-native";
 
@@ -73,9 +82,10 @@ export type ThemeColors = {
 
   brand: string;
   brandPressed: string;
-  /** Ink for anything sitting ON `brand`. Near-black, not white — see note. */
+  /** Ink for anything sitting ON `brand`. White — `brand` is dark enough to
+      carry it in both palettes; see the file header. */
   onBrand: string;
-  /** The green used as INK — a ghost button's label, a link, an active icon. */
+  /** The teal used as INK — a ghost button's label, a link, an active icon. */
   brandInk: string;
   brandTint: string;
   /** Brand ink for use on `graphite`. Never use `brand` there. */
@@ -98,70 +108,71 @@ export type ThemeColors = {
 
 const lightColors: ThemeColors = {
   /*
-   * The brand palette, as adopted by the customer app on 14 Aug 2026:
-   * "Ground is a soft grey, content sits on white cards, and the only
-   * saturated colour is a single green. Black carries the primary actions;
-   * the yellow is reserved for the logo mark."
-   *
-   * Every deviation below is a measured contrast failure rather than a
-   * preference, and each is carried over from the customer app's own
-   * accessibility pass — do not undo them by repainting.
+   * The Dock palette (see the file header). Ground is warm bone, content
+   * sits on white cards, and the only saturated colour is a single deep
+   * teal that is dark enough to carry a white label on its own.
    */
-  bg: "#F1F2F4",
+  bg: "#EFEDE9",
   surface: "#FFFFFF",
-  surfaceRaised: "#FAFBFC",
-  surfaceSunken: "#E9EBEE",
+  surfaceRaised: "#F8F7F5",
+  surfaceSunken: "#E5E2DB",
 
-  textPrimary: "#101214",
-  textSecondary: "#3D4247",
-  /* #6B7280 measures 4.32:1 on the grey ground; this holds 5.18:1. */
-  textTertiary: "#5F6670",
+  textPrimary: "#1A1917",
+  textSecondary: "#55524C",
+  /* 3.6:1 on the ground — Dock's own `textTertiary`. */
+  textTertiary: "#837D72",
 
-  border: "#E3E6EA",
-  borderSubtle: "#EEF0F3",
-  /* 3.3:1 on the white field fill, 3.0:1 on the ground behind it. */
-  borderInput: "#878E99",
+  /* Hairline around cards and between rows — Dock's `borderCard`. */
+  border: "#E2DED6",
+  /* Quieter hairline for dividers inside a card — Dock's `borderSubtle`. */
+  borderSubtle: "#EDEAE4",
+  /* The one border that is not decorative — Dock's own `border`, 3:1 on the
+     white field fill, 3.0:1 on the ground behind it. */
+  borderInput: "#8F897C",
 
   /*
-   * The fill is the lighter green. White on it is 3.26:1 and a 15px/600
-   * button label is not "large text", so the label flips to near-black at
-   * 5.73:1 — which is what the brand note describes anyway. Because the
-   * label is dark, the press goes LIGHTER, not darker.
+   * Dock's ACCENT. White on it is 6.17:1, so — unlike the old whitish
+   * green — the label stays white and the press goes DARKER, the ordinary
+   * direction for a button that no longer has to protect a dark label.
    */
-  brand: "#22A355",
-  brandPressed: "#2BB25F",
-  onBrand: "#101312",
-  brandInk: "#17803D",
-  brandTint: "#E9F5ED",
-  brandOnDark: "#B7D8C4",
+  brand: "#0E6E5C",
+  brandPressed: "#0A5748",
+  onBrand: "#FFFFFF",
+  brandInk: "#0E6E5C",
+  brandTint: "#E3F0EB",
+  brandOnDark: "#B7D4CE",
 
-  graphite: "#101312",
-  graphiteRaised: "#1C201F",
+  graphite: "#1A1917",
+  graphiteRaised: "#252320",
   onGraphite: "#FFFFFF",
-  onGraphiteMuted: "#A8B0B8",
+  onGraphiteMuted: "#BFBAB1",
 
-  scrim: "rgba(16,19,18,0.45)",
+  scrim: "rgba(26,25,23,0.45)",
 
   /*
-   * Success shares the brand green. Survivable only because of the standing
-   * rule that status is never carried by colour alone — every status chip
-   * has a glyph or a word beside it.
+   * Success shares ACCENT, exactly as Dock specifies: a delivered order IS
+   * the good outcome. Survivable only because status is never carried by
+   * colour alone — every status chip ships a glyph or a word beside it.
    */
-  success: { base: "#17803D", ink: "#125C2E", tint: "#E9F5ED", border: "#B7D8C4", on: "#FFFFFF" },
-  /* Amber is reserved for small accents. #B8860B is 3.25:1 on white, so the
-     text ink is the darker #6E4700 at 8.19:1. */
+  success: { base: "#0E6E5C", ink: "#0B5245", tint: "#E3F0EB", border: "#B7D4CE", on: "#FFFFFF" },
+  /* Dock's CAUTION. White on it is 5.06:1, so one value now covers the icon
+     tone AND a solid fill — no separate near-black ink required. */
   warning: {
-    base: "#B8860B",
-    ink: "#6E4700",
-    tint: "#FFF8E6",
-    border: "#EBD9A8",
-    borderStrong: "#B8860B",
-    on: "#241900",
+    base: "#A85A1E",
+    ink: "#7A3D0F",
+    tint: "#FBEEE2",
+    border: "#E3CAB7",
+    borderStrong: "#A85A1E",
+    on: "#FFFFFF",
   },
-  danger: { base: "#C0242B", ink: "#8E1B21", tint: "#FBE9E9", border: "#E3ABAE", on: "#FFFFFF" },
-  /* Neutral rather than a second saturated hue: a note is a note, and making
-     it green would dress a caveat up as good news. */
-  info: { base: "#3D4247", ink: "#101214", tint: "#E9EBEE", border: "#DEE1E6", on: "#FFFFFF" },
+  /* Dock has no danger role; re-picked as a warm red in the same
+     desaturated register as CAUTION, the way Stay Partner's own `error`
+     token was chosen. White on it is 6.54:1. */
+  danger: { base: "#B3261E", ink: "#8C1D17", tint: "#FBEAE8", border: "#E4B3B0", on: "#FFFFFF" },
+  /* Neutral rather than a second saturated hue: a note is a note, and
+     making it green would dress a caveat up as good news. This is Dock's
+     own `textSecondary` tone, used verbatim as the info colour. */
+  info: { base: "#55524C", ink: "#1A1917", tint: "#E9E6E0", border: "#E2DED6", on: "#FFFFFF" },
 };
 
 /**
@@ -173,44 +184,50 @@ const lightColors: ThemeColors = {
  * up is a `ThemeProvider` around `colors` and nothing else.
  */
 const darkColors: ThemeColors = {
-  bg: "#0C0E0E",
-  surface: "#161A19",
-  surfaceRaised: "#1E2322",
-  surfaceSunken: "#101312",
+  bg: "#131211",
+  surface: "#1C1B19",
+  surfaceRaised: "#211F1D",
+  surfaceSunken: "#252320",
 
-  textPrimary: "#F1F2F4",
-  textSecondary: "#B6BDC2",
-  textTertiary: "#8B939C",
+  textPrimary: "#F2F0EC",
+  textSecondary: "#BFBAB1",
+  textTertiary: "#8A8479",
 
-  border: "#2A302E",
-  borderSubtle: "#1D2221",
-  borderInput: "#69736E",
+  border: "#302E2A",
+  borderSubtle: "#232220",
+  borderInput: "#736E64",
 
-  brand: "#22A355",
-  brandPressed: "#3FBF6E",
-  onBrand: "#101312",
-  brandInk: "#5FCF8E",
-  brandTint: "#10241A",
-  brandOnDark: "#B7D8C4",
+  /* One value carries both the button fill (white on it, 4.84:1) and, via
+     `brandInk`, accent-coloured prose — Dock's own dark ACCENT split. */
+  brand: "#18806A",
+  brandPressed: "#126957",
+  onBrand: "#FFFFFF",
+  brandInk: "#5FC9AF",
+  brandTint: "#0F2721",
+  brandOnDark: "#B7D4CE",
 
-  graphite: "#1E2322",
-  graphiteRaised: "#2A302E",
-  onGraphite: "#F1F2F4",
-  onGraphiteMuted: "#A8B0B8",
+  graphite: "#252320",
+  graphiteRaised: "#302E2A",
+  onGraphite: "#F2F0EC",
+  onGraphiteMuted: "#BFBAB1",
 
   scrim: "rgba(0,0,0,0.62)",
 
-  success: { base: "#22A355", ink: "#7FCF9C", tint: "#10241A", border: "#245C3A", on: "#101312" },
+  success: { base: "#18806A", ink: "#7FD3BE", tint: "#0F2721", border: "#145446", on: "#FFFFFF" },
+  /* Split from `warning.base`, unlike light mode: the brightened caution
+     above is right for an icon on the dark ground but cannot carry white
+     (Dock's own dark palette makes the same split). `borderStrong` is the
+     value that does, at 5.89:1. */
   warning: {
-    base: "#FFC93C",
-    ink: "#F5D68A",
-    tint: "#2B2409",
-    border: "#5C4B16",
-    borderStrong: "#8A701F",
-    on: "#101312",
+    base: "#E0954A",
+    ink: "#EEBC85",
+    tint: "#2C1E0E",
+    border: "#624220",
+    borderStrong: "#8A5A22",
+    on: "#131211",
   },
-  danger: { base: "#FF7A7F", ink: "#FF9DA1", tint: "#2E1416", border: "#5E2428", on: "#101312" },
-  info: { base: "#B6BDC2", ink: "#F1F2F4", tint: "#1E2322", border: "#2A302E", on: "#101312" },
+  danger: { base: "#C0392F", ink: "#F5A49E", tint: "#2C1513", border: "#762721", on: "#FFFFFF" },
+  info: { base: "#BFBAB1", ink: "#F2F0EC", tint: "#252320", border: "#302E2A", on: "#131211" },
 };
 
 export const palettes = { light: lightColors, dark: darkColors };
@@ -240,7 +257,7 @@ export const colors = {
   /** @deprecated use `textSecondary`. */
   textLabel: lightColors.textSecondary,
 
-  /** @deprecated the gold accent is gone; green carries emphasis now. */
+  /** @deprecated the gold accent is gone; teal carries emphasis now. */
   accent: lightColors.brand,
   /** @deprecated */
   accent2: lightColors.brandInk,
@@ -249,9 +266,9 @@ export const colors = {
   /** @deprecated */
   accent200: lightColors.brandOnDark,
   /** @deprecated */
-  accent300: "#7FCF9C",
+  accent300: "#7AAFA5",
   /** @deprecated */
-  accent400: "#3FBF6E",
+  accent400: "#438E80",
   /** @deprecated use `brand`. */
   accent500: lightColors.brand,
   /** @deprecated use `brandInk`. */
@@ -259,11 +276,11 @@ export const colors = {
   /** @deprecated use `brandInk`. */
   accent700: lightColors.brandInk,
   /** @deprecated */
-  accent800: "#125C2E",
+  accent800: "#0A4F42",
   /** @deprecated */
-  accent900: "#0C3D1F",
+  accent900: "#07372E",
 
-  // Neutral ramp, remapped onto the food greys.
+  // Neutral ramp, remapped onto the Dock greys.
   neutral100: lightColors.surfaceRaised,
   neutral200: lightColors.surfaceSunken,
   neutral300: lightColors.border,
@@ -271,7 +288,7 @@ export const colors = {
   neutral500: lightColors.textTertiary,
   neutral600: lightColors.textTertiary,
   neutral700: lightColors.textSecondary,
-  neutral800: "#22262A",
+  neutral800: "#2B2822",
   neutral900: lightColors.textPrimary,
 
   /** @deprecated use `success.base`. */
@@ -490,6 +507,10 @@ export const radius = {
 /**
  * Elevation, pre-shaped so no caller hand-writes shadow props. Shadows are
  * never animated.
+ *
+ * Shadow colour is Dock's own INK (`#1A1917`), not a cool near-black — Stay
+ * Partner shadows off the same value (`constants/layout.ts`), and a neutral
+ * grey shadow under a warm bone ground reads as a mismatched sticker.
  */
 const shade = (
   opacity: number,
@@ -498,9 +519,9 @@ const shade = (
   elev: number,
 ): ViewStyle =>
   Platform.select<ViewStyle>({
-    android: { elevation: elev, shadowColor: "#10151C" },
+    android: { elevation: elev, shadowColor: "#1A1917" },
     default: {
-      shadowColor: "#10151C",
+      shadowColor: "#1A1917",
       shadowOpacity: opacity,
       shadowRadius,
       shadowOffset: { width: 0, height: y },
