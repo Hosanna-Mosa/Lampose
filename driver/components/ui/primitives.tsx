@@ -194,11 +194,11 @@ export type BtnVariant = "ink" | "ghost" | "accent" | "quiet" | "danger";
 /**
  * The button set.
  *
- * `ink` keeps its name and loses its colour: the primary action is the brand
- * green with a NEAR-BLACK label, because white on this green measures 3.26:1
- * and a 13pt semibold label is not large text. That is also why the pressed
- * state goes lighter — darkening it would squeeze the very label that has to
- * stay readable under a thumb.
+ * `ink` keeps its name from when the primary action carried a near-black
+ * label — as of the 30 Aug 2026 Dock repaint, `brand` is a deep teal dark
+ * enough to carry a WHITE label (6.17:1) instead, so `onBrand` is white and
+ * the pressed state goes darker, the ordinary direction for a button whose
+ * label is no longer the thing protecting readability.
  */
 const BTN: Record<
   BtnVariant,
