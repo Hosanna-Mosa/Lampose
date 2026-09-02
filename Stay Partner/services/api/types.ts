@@ -25,12 +25,38 @@ export type BackendHealth = {
  * The partner's account
  * ------------------------------------------------------------------ */
 
+/**
+ * The OWNER's own address — not a property's, which lives on the property.
+ *
+ * ONE, not a list: an owner has an address the way a person does. The shape
+ * and every validation rule are shared with the diner's address book and the
+ * rider's, so the three cannot drift — see
+ * `Backend/src/shared/utils/address.js`.
+ */
+export type PartnerAddress = {
+  addressId: string;
+  kind: 'room' | 'hostel' | 'home' | 'work' | 'gate' | 'other';
+  label: string;
+  line1: string;
+  line2: string;
+  landmark: string;
+  city: string;
+  state: string;
+  pincode: string;
+  instructions: string;
+  /** `[longitude, latitude]`, or null when no pin was captured. */
+  location: [number, number] | null;
+  isDefault: boolean;
+};
+
 export type BackendPartner = {
   id: string;
   phone: string;
   name: string;
   email: string;
   businessName: string;
+  /** Null until the owner adds one. Never required to trade. */
+  address: PartnerAddress | null;
   phoneVerifiedAt: string | null;
   profileCompletedAt: string | null;
   /**

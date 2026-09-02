@@ -94,6 +94,16 @@ export default {
        */
       'expo-router',
       'expo-font',
+      /* The crosshair on the address forms. Foreground only — nothing here
+         tracks anybody; the permission is asked at the moment somebody taps
+         "use my location" and the fix is used once to fill a form. */
+      [
+        'expo-location',
+        {
+          locationWhenInUsePermission:
+            'Lampose Partner uses your location once, when you tap it, to fill in your address.',
+        },
+      ],
       'expo-web-browser',
       [
         'expo-notifications',

@@ -2,7 +2,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
 
 import { Button, RentDisplay, Text } from '@/components/ui';
 import { usePendingRequest } from '@/context/PendingRequestContext';
@@ -68,7 +68,7 @@ export function StickyCtaBar({
   onMeasure,
 }: StickyCtaBarProps) {
   const { colors, space, layout, elevation } = useTheme();
-  const insets = useSafeAreaInsets();
+  const bottomInset = useBottomEdgeInset();
 
   /*
    * Content fit, not device width.
@@ -147,7 +147,14 @@ export function StickyCtaBar({
             backgroundColor: colors.surface,
             paddingHorizontal: layout.gutter,
             paddingTop: space[3],
-            paddingBottom: insets.bottom + layout.gutter,
+            /* `useBottomEdgeInset`, not the raw inset: this bar is absolutely
+               positioned, so no root padding reaches it and on Android
+               `insets.bottom` is frequently 0 — a build that is not
+               edge-to-edge, a gesture device reporting the bar as consumed, an
+               OEM shell that under-reports. When it is 0 the only clearance
+               left was the gutter, and the button sat under the gesture
+               handle. This is a no-op on any handset that reports properly. */
+            paddingBottom: bottomInset + layout.gutter,
             gap: space[2],
           },
         ]}

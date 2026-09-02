@@ -9,10 +9,11 @@ import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 import type { Dish } from '@/types/food';
-import { clockLabel, findWindow } from '@/types/food';
+import { clockLabel, findWindow, minutesUntilOpen } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 
 import { DishRow } from './DishRow';
+import { KitchenCard } from './KitchenCard';
 import { foodHref } from './routes';
 import { FoodEmptyState } from './FoodStates';
 import { FoodSectionHeader } from './FoodNotices';
@@ -35,7 +36,7 @@ type PriceBand = 'any' | 'under80' | 'under150';
  * has ever opened this screen and typed "Bawarchi".
  */
 export function FoodSearch({ now }: { now: Date }) {
-  const { dishes: allDishes, findKitchen, kitchensFor, kitchens } = useFoodCatalogue();
+  const { dishes: allDishes, findKitchen, kitchensFor, kitchens, kitchenOpen } = useFoodCatalogue();
 
   /* Walking times exist only when the feed was asked with the student's
      coordinates. With none, every kitchen reads 0 and a "under 10 min walk"
@@ -55,6 +56,39 @@ export function FoodSearch({ now }: { now: Date }) {
   const activeWindow = findWindow(windowId);
   const areaLabel = locality?.name ?? 'your area';
   const term = query.trim().toLowerCase();
+
+  /*
+   * Is the window we are browsing actually happening right now?
+   *
+   * This screen used to ignore it. It filtered dishes on `windows.includes`
+   * alone and then drew a live Add control, while `dish/[id].tsx` refuses
+   * unless the window is ALSO open and the dish is not sold out — so a student
+   * could add a dish here, open it, and be told "Not cooking right now" about
+   * the thing already in their cart. The dish screen was right; this screen
+   * was the bug, and the fix is to ask the same question rather than a weaker
+   * one.
+   */
+  const windowOpen = minutesUntilOpen(activeWindow, now) === 0;
+
+  /**
+   * The single rule for whether a dish can be ordered, matching
+   * `dish/[id].tsx` exactly: in this window, the window is open, the kitchen
+   * is open for it, and it is not sold out.
+   *
+   * A closed result is NOT hidden. It keeps its place with the control
+   * explaining itself, because a search that silently drops half its matches
+   * teaches a student that we do not have the dish — and they stop looking.
+   */
+  const orderState = (dish: Dish) => {
+    const kitchen = findKitchen(dish.kitchenId);
+    if (!kitchen) return { orderable: false, reason: 'Unavailable' };
+    if (dish.soldOut) return { orderable: false, reason: 'Sold out' };
+    if (!windowOpen) {
+      return { orderable: false, reason: `From ${clockLabel(activeWindow.startMinute)}` };
+    }
+    if (!kitchenOpen(kitchen, windowId)) return { orderable: false, reason: 'Kitchen closed' };
+    return { orderable: true, reason: undefined };
+  };
 
   const ceiling = price === 'under80' ? 80 : price === 'under150' ? 150 : Number.POSITIVE_INFINITY;
 
@@ -94,6 +128,12 @@ export function FoodSearch({ now }: { now: Date }) {
       setQty(existing.key, next);
       return;
     }
+    /* The disabled control is the first guard and this is the second. A row
+       rendered a moment before the window closed still has a live handler, and
+       the cart is the one place that must never end up holding food nobody is
+       cooking. Removing an existing line is always allowed — that is how
+       somebody gets uncookable food back OUT. */
+    if (next > 0 && !orderState(dish).orderable) return;
     if (next > 0) add(dish, { window: windowId });
   };
 
@@ -174,6 +214,7 @@ export function FoodSearch({ now }: { now: Date }) {
           <View style={{ paddingHorizontal: layout.gutter, gap: space[2] }}>
             {results.slice(0, 12).map((dish) => {
               const kitchen = findKitchen(dish.kitchenId);
+              const state = orderState(dish);
               return (
                 <DishRow
                   key={dish.id}
@@ -183,6 +224,9 @@ export function FoodSearch({ now }: { now: Date }) {
                   qty={qtyOf(dish.id)}
                   onQtyChange={(next) => setDishQty(dish, next)}
                   onPress={() => router.push(foodHref.dish(dish.id))}
+                  favouritable
+                  disabled={!state.orderable}
+                  reason={state.reason}
                 />
               );
             })}

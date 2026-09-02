@@ -19,6 +19,30 @@ export const rupees = (value: number, compact = false): string => {
   return `₹${compact ? compactNumber(value) : value.toLocaleString('en-IN')}`;
 };
 
+/**
+ * Money that has to be exact, taken in the unit the gateway counts in.
+ *
+ * `rupees` above is for a figure somebody reads at a glance — a rent, a day's
+ * takings — and it hands `toLocaleString` no fraction-digit control, so 320.5
+ * comes out "₹320.5" and a third decimal would come out in full. That is right
+ * for a summary and wrong on a sheet that authorises a payment, where the
+ * number is not a description of the amount, it IS the amount: a confirmation
+ * reading "₹320.5" for 32050 paise is a figure nobody can check against a bank
+ * statement. `rupees` itself is deliberately untouched — every caller it has
+ * is a summary.
+ *
+ * Paise in, because that is what Razorpay records and what the order stores,
+ * so no caller divides by a hundred and no division can round. The rupees and
+ * the paise are split with integer arithmetic and the paise are always both
+ * digits: 32050 → "₹320.50", 100000 → "₹1,000.00".
+ */
+export const rupeesFromPaise = (paise: number): string => {
+  if (!Number.isFinite(paise)) return '—';
+  const whole = Math.round(Math.abs(paise));
+  return `${paise < 0 ? '-' : ''}₹${Math.floor(whole / 100).toLocaleString('en-IN')}`
+    + `.${String(whole % 100).padStart(2, '0')}`;
+};
+
 export const percent = (value: number | null, digits = 1): string =>
   value === null || !Number.isFinite(value) ? '—' : `${value.toFixed(digits)}%`;
 

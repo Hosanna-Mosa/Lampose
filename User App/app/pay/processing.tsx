@@ -19,6 +19,7 @@ import {
   type ProcessingStep,
 } from '@/types/payment';
 import { usePreviewControls } from '@/hooks/useAppEnv';
+import { useActionBarInset } from '@/hooks/useActionBarInset';
 
 /**
  * Leaving, returning, waiting, and the three ways it fails.
@@ -39,6 +40,9 @@ export default function PaymentProcessing() {
   const previewControls = usePreviewControls();
   const { colors, space, layout, mode, radius } = useTheme();
   const insets = useSafeAreaInsets();
+  /* Nothing on a handset that reports a real inset; the shortfall on one
+     that reports none, so the action clears the navigation bar. */
+  const actionInset = useActionBarInset();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
 
@@ -96,7 +100,7 @@ export default function PaymentProcessing() {
           flexGrow: 1,
           padding: layout.gutter,
           paddingTop: insets.top + space[6],
-          paddingBottom: space[6],
+          paddingBottom: space[6] + actionInset,
           gap: space[5],
         }}
       >

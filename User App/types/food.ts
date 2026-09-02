@@ -266,12 +266,19 @@ export type Dish = {
  * ------------------------------------------------------------------ */
 
 /**
- * Nine states, and only two of them are FILLED chips.
+ * Twelve states, and only two of them are FILLED chips.
  *
  * A filled chip means the student has to do something or is being waited on:
  * the food is ready at a counter, or it has been handed over. Everything else
  * is a tinted chip, which reads as "we are telling you where this is". If
  * every state shouted, "Ready" would stop meaning anything.
+ *
+ * `rejected` and `cancelled` are two different events and the diner is owed
+ * the difference. A cancellation is something the diner did; a rejection is
+ * the KITCHEN refusing the order, with a reason of its own that the tracking
+ * screen prints. Folding the first into the second — which is what this union
+ * forced for as long as it had no `rejected` — told a student they had called
+ * off a dinner the restaurant had turned down.
  */
 export type FoodOrderStatus =
   | 'placed'
@@ -282,6 +289,7 @@ export type FoodOrderStatus =
   | 'delivered'
   | 'pickedUp'
   | 'pending'
+  | 'rejected'
   | 'cancelled'
   | 'refunded'
   | 'failed';
@@ -314,7 +322,26 @@ export type FoodOrder = {
   lines: readonly OrderLine[];
   itemTotal: number;
   deliveryFee: number;
-  taxes: number;
+  /**
+   * What the kitchen charged to pack it.
+   *
+   * `food_orders.packagingCharge`, carried across under its own name. This used
+   * to be written into `taxes` below, so a real packing charge reached the
+   * diner labelled as tax — money nobody has collected on this order named
+   * after a levy nobody remitted. Optional because only a server row can fill
+   * it in: the demo fixtures never had one.
+   */
+  packagingCharge?: number;
+  /**
+   * Nothing on a real order sets this, and nothing should.
+   *
+   * There is no tax on a Lampose food order: the checkout adds items,
+   * packaging and delivery and nothing else — see
+   * `foodCustomerOrder.controller.js`. The field survives only because the
+   * demo fixtures in `data/food.ts` still carry it, and it is left optional so
+   * that a receipt reading it prints nothing rather than an invented line.
+   */
+  taxes?: number;
   discount: number;
   /** Coupon that produced `discount`, for the receipt line. */
   couponCode?: string;
@@ -326,6 +353,44 @@ export type FoodOrder = {
   paymentLabel: string;
   /** Four digits shown at the counter. Pickup orders only. */
   pickupCode?: string;
+  /**
+   * Four digits read out to the rider at the door. Delivery orders only.
+   *
+   * Not a credential and not treated as one — it opens nothing. It is a value
+   * the diner and the rider COMPARE, which is what a hand-over is, and it has
+   * to be shown on screen to work at all.
+   */
+  deliveryOtp?: string;
+  /**
+   * The rider search, which runs BESIDE the kitchen's status rather than
+   * inside it — an order is being cooked and looked for at the same time.
+   * `unassigned` is "everybody nearby said no", not a failure: the server
+   * tries again when the food is ready.
+   */
+  dispatch?: {
+    state: 'idle' | 'searching' | 'assigned' | 'unassigned';
+    candidateCount?: number;
+    failureReason?: string;
+  };
+  /** Null until a rider accepts. Everything the diner is told about them. */
+  rider?: {
+    name: string;
+    phone: string;
+    vehicle?: { type?: string; model?: string; plate?: string };
+    pickedUpAt?: string | null;
+    /* Set the moment the rider confirms the hand-over. It is what turns the
+       card from a journey in progress into a record of one. */
+    deliveredAt?: string | null;
+    /** [longitude, latitude]. Null when the last fix is too old to draw. */
+    location?: [number, number] | null;
+    heading?: number | null;
+    /** When that fix was taken — the map shows its age rather than hiding it. */
+    at?: string | null;
+  } | null;
+  /** [longitude, latitude] of the kitchen, snapshotted onto the order. */
+  pickupLocation?: [number, number] | null;
+  /** [longitude, latitude] of the door. Absent without location access. */
+  dropLocation?: [number, number] | null;
   /** Set on cancelled orders; drives the refund block. */
   refund?: {
     amount: number;
@@ -335,7 +400,14 @@ export type FoodOrder = {
     status: 'initiated' | 'sentToBank' | 'credited';
     reason: string;
   };
-  timeline?: readonly { label: string; at?: string; note?: string }[];
+  /**
+   * The order's history, one row per step.
+   *
+   * `done` is set from the server's own `statusHistory` — a step is complete
+   * because an event says it happened, never because a later step did. Left
+   * undefined by the demo fixtures, which the renderer falls back to indexing.
+   */
+  timeline?: readonly { label: string; at?: string; note?: string; done?: boolean }[];
 };
 
 export type Coupon = {
@@ -372,6 +444,16 @@ export type FoodAddress = {
   /** Why it is not serviceable, said plainly. */
   unserviceableNote?: string;
   deliveryFee?: number;
+  /**
+   * Where this actually is, so a rider can be searched for around it.
+   *
+   * Optional, and absent is an ordinary case rather than a fault: a hostel
+   * address typed by hand has no pin, and the dispatcher falls back to
+   * searching around the RESTAURANT — a rider near the kitchen can always
+   * reach the address written on the order.
+   */
+  lat?: number;
+  lng?: number;
 };
 
 /* ------------------------------------------------------------------ *

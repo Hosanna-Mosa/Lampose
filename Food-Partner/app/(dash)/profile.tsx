@@ -19,6 +19,7 @@ import { Block, Field, Note, NumberField, SwitchRow, TextField } from "@/compone
 import { Btn, Card, Chip, ConfirmSheet, DataRow, Icon, Stepper, Text, TopBar } from "@/components/ui";
 import { rupees } from "@/lib/money";
 import { getMe, updateMe, type ServerRestaurant } from "@/services/foodPartner";
+import { listTickets } from "@/services/support";
 import { usePartnerStore } from "@/store/partnerStore";
 import { colors, layout, radius, space } from "@/theme";
 
@@ -32,6 +33,9 @@ export default function DashProfile() {
   const [saved, setSaved] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirmOut, setConfirmOut] = useState(false);
+  /* How many support threads have a reply nobody has opened. Zero and "we
+     could not ask" look the same on purpose — see `load`. */
+  const [supportUnread, setSupportUnread] = useState(0);
 
   /* The editable subset, held locally while it is being typed in. */
   const [draft, setDraft] = useState({
@@ -46,7 +50,15 @@ export default function DashProfile() {
   });
 
   const load = useCallback(async () => {
-    if (!session?.token) return;
+    /* A missing session must END the loading state, never skip past it — the
+       same bug fixed in `(dash)/orders.tsx`: `loading` starts `true`, so an
+       early return leaves a spinner turning over a blank screen with nothing
+       saying why. Either the screen has data, or it says what is wrong. */
+    if (!session?.token) {
+      setLoading(false);
+      setError("You are signed out. Sign in again to continue.");
+      return;
+    }
     setError("");
     try {
       const r = await getMe(session.token);
@@ -65,6 +77,18 @@ export default function DashProfile() {
       setError((err as Error)?.message || "We could not load your details.");
     } finally {
       setLoading(false);
+    }
+
+    /* The support badge is a SECOND request with its own failure. A support
+       queue that cannot be reached must not put an error banner over a profile
+       that loaded perfectly well, and must not stop the page rendering — the
+       worst case is a badge that is not shown, and the support screen itself
+       says what went wrong when it is opened. */
+    try {
+      const support = await listTickets(session.token);
+      setSupportUnread(support.unread);
+    } catch {
+      setSupportUnread(0);
     }
   }, [session?.token]);
 
@@ -243,6 +267,30 @@ export default function DashProfile() {
             These were checked by a person during approval, so they can only be changed by contacting
             the team.
           </Text>
+        </Card>
+
+        {/* ── Help ─────────────────────────────────────────────────────── */}
+        {/* Directly under the sentence above, which says the verified details
+            can only be changed by contacting the team — this is where that
+            sentence sends somebody. */}
+        <Card style={{ gap: space[3] }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
+            <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+              <Text variant="title1">Help &amp; support</Text>
+              <Text variant="caption" color="tertiary">
+                A settlement, one order, your menu, a rider — ask us here and the reply comes back
+                inside the app.
+              </Text>
+            </View>
+            {supportUnread > 0 && (
+              <Chip
+                label={supportUnread === 1 ? "1 new reply" : `${supportUnread} new replies`}
+                tone="brand"
+                glyph="bell"
+              />
+            )}
+          </View>
+          <Btn label="Get help" variant="ghost" glyph="help" onPress={() => router.push("/support")} />
         </Card>
 
         <Btn label="Sign out" variant="danger" glyph="logout" onPress={() => setConfirmOut(true)} />

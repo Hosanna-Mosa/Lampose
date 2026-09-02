@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { authService } from '../api/services/authService';
 import type { AdminRole, UserEntity } from '../api/types';
+import { disconnectSupportSocket } from '../lib/supportSocket';
 
 interface AuthContextType {
   user: UserEntity | null;
@@ -70,6 +71,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    /*
+     * The socket goes FIRST, before the token is cleared.
+     *
+     * This console is a single-page app: signing out never reloads the page,
+     * so a live socket survives it in module state and the next person to sign
+     * in on the same workstation inherits the previous agent's connection —
+     * which sits in the server's `support` room, the deliberate firehose
+     * carrying every safety report and every requester's phone number on the
+     * platform. Clearing `localStorage` does nothing to a connection that was
+     * authenticated at its handshake and is never re-checked.
+     *
+     * Ordered first so that even if a later line throws, the stream is already
+     * closed. `connectSupportSocket` also refuses to reuse a socket opened
+     * with a different token, so this is one of two independent guards.
+     */
+    disconnectSupportSocket();
+
     setToken(null);
     setUser(null);
     localStorage.removeItem('admin_access_token');

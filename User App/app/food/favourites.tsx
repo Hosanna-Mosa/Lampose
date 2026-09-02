@@ -1,12 +1,18 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, SegmentedControl, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
-import { DishRow, FoodEmptyState, FoodSectionHeader, KitchenCard } from '@/components/food';
+import {
+  DishRow,
+  FavouritesUnavailableNote,
+  FoodEmptyState,
+  FoodSectionHeader,
+  KitchenCard,
+} from '@/components/food';
 import { useAppState } from '@/context/AppStateContext';
 import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
@@ -32,8 +38,11 @@ export default function FavouritesScreen() {
   const router = useRouter();
   const { locality } = useAppState();
   const {
-    favouriteDishes,
-    favouriteKitchens,
+    favouriteDishList,
+    favouriteKitchenList,
+    favouritesUnavailable,
+    favouritesLoading,
+    refreshFavourites,
     toggleFavouriteDish,
     toggleFavouriteKitchen,
     qtyOf,
@@ -51,8 +60,18 @@ export default function FavouritesScreen() {
   const activeWindow = findWindow(windowId);
   const areaLabel = locality?.name ?? 'your area';
 
-  const dishes = favouriteDishes.map((id) => findDish(id)).filter((dish): dish is Dish => Boolean(dish));
-  const kitchens = favouriteKitchens.map((id) => findKitchen(id)).filter(Boolean);
+  /*
+   * The SERVER's list, not ids resolved against the loaded catalogue.
+   *
+   * The old version did `favouriteDishes.map(findDish)`, and the catalogue is
+   * one locality's feed filtered to listed restaurants — so a favourite from a
+   * kitchen that was closed, out of area, or simply absent from today's feed
+   * resolved to nothing and silently disappeared. A favourites screen that
+   * hides your favourites is worse than no screen. The server sends whole
+   * dishes with their kitchens; see `foodFavourites.api.ts`.
+   */
+  const dishes = favouriteDishList;
+  const kitchens = favouriteKitchenList;
 
   const openNow = dishes.filter((dish) => dish.windows.includes(windowId)).length;
 
@@ -65,13 +84,28 @@ export default function FavouritesScreen() {
     if (next > 0) add(dish, { window: windowId, spice: preferences.spice });
   };
 
+  /* A network read, so loading is a state this screen did not used to have.
+     Without it the empty state flashes on every open before the list lands,
+     which reads as "we lost your favourites". */
+  if (favouritesLoading && !dishes.length && !kitchens.length) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <StandardHeader title="Favourites" onBack={() => router.back()} />
+        <View style={{ padding: layout.gutter }}>
+          <Text variant="body" color="tertiary">Loading your favourites…</Text>
+        </View>
+      </View>
+    );
+  }
+
   if (!dishes.length && !kitchens.length) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <StandardHeader title="Favourites" onBack={() => router.back()} />
         <FoodEmptyState
-          glyph="bookmark"
+          glyph="heart"
           title="Nothing saved yet"
           body={`Tap the heart on a dish and it lands here, with the time it is cooked. ${activeWindow.label} is running now.`}
           primaryLabel="Browse what is cooking"
@@ -90,7 +124,12 @@ export default function FavouritesScreen() {
         <SegmentedControl options={TABS} value={tab} onChange={setTab} accessibilityLabel="Favourites" />
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: space[8], gap: space[3] }}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: space[8], gap: space[3] }}
+        refreshControl={
+          <RefreshControl refreshing={favouritesLoading} onRefresh={refreshFavourites} />
+        }
+      >
         <View style={{ paddingHorizontal: layout.gutter }}>
           <View
             style={[
@@ -104,6 +143,12 @@ export default function FavouritesScreen() {
             </Text>
           </View>
         </View>
+
+        {favouritesUnavailable > 0 ? (
+          <View style={{ paddingHorizontal: layout.gutter }}>
+            <FavouritesUnavailableNote count={favouritesUnavailable} />
+          </View>
+        ) : null}
 
         {tab === 'Dishes' ? (
           <View style={{ paddingHorizontal: layout.gutter, gap: space[2] }}>
@@ -132,7 +177,7 @@ export default function FavouritesScreen() {
                     accessibilityLabel={`Remove ${dish.name} from favourites`}
                     style={styles.heart}
                   >
-                    <Icon name="bookmark" size={20} color={colors.brandInk} />
+                    <Icon name="heart" size={20} color={colors.danger.ink} fill={colors.danger.ink} />
                   </Pressable>
                 </View>
               );
@@ -162,7 +207,7 @@ export default function FavouritesScreen() {
                     accessibilityLabel={`Remove ${kitchen.name} from favourites`}
                     style={styles.heart}
                   >
-                    <Icon name="bookmark" size={20} color={colors.brandInk} />
+                    <Icon name="heart" size={20} color={colors.danger.ink} fill={colors.danger.ink} />
                   </Pressable>
                 </View>
               ) : null,

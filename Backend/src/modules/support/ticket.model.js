@@ -47,8 +47,20 @@ const crypto = require('crypto');
 
 const mongoose = require('mongoose');
 
-/** The six the app offers. Kept in step with `types/support.ts`. */
-const TICKET_CATEGORIES = ['property', 'deposit', 'payment', 'owner', 'booking', 'other'];
+const {
+  ALL_CATEGORIES, CUSTOMER_CATEGORIES, REQUESTER_KINDS, audienceOf,
+} = require('./support.audiences');
+
+/**
+ * The diner's six, re-exported under the name this file has always used.
+ *
+ * Kept as a named export because `ticket.controller.js`, the User App's
+ * `types/support.ts` and the original verify script all import
+ * `TICKET_CATEGORIES` from here. The list itself now lives in
+ * `support.audiences.js` alongside the rider's and the kitchen's, so there is
+ * one place a category is added rather than three.
+ */
+const TICKET_CATEGORIES = CUSTOMER_CATEGORIES;
 
 /** The six the report screen offers, by the ids `data/support.ts` uses. */
 const REPORT_REASONS = [
@@ -121,19 +133,60 @@ const ticketSchema = new mongoose.Schema(
      */
     kind: { type: String, enum: ['ticket', 'report'], required: true, index: true },
 
-    /* `app_customers.customerId`, not the Mongo `_id`, matching what every
-       other customer-owned record in this process stores. */
-    customerId: { type: String, required: true, index: true },
+    /*
+     * WHO filed it — one of three audiences, not just a diner.
+     *
+     * `kind` is the same word the socket layer derives from a token's `typ`
+     * claim (`customer` | `driver` | `restaurant`), so "may this socket read
+     * this thread" is a string comparison rather than a mapping table.
+     *
+     * `id` is the PUBLIC id of that identity — `customerId`, `driverId` or
+     * `restaurantId` — never the Mongo `_id`, matching what every other
+     * cross-module reference in this process stores. It is what authorises a
+     * read, so it is indexed and it is never taken from a request body.
+     *
+     * `name` and `phone` are denormalised so the queue can call somebody back
+     * without a second lookup into whichever of three collections they came
+     * from, and so a two-year-old thread still reads correctly after the
+     * account is renamed. Neither is ever used for auth.
+     */
+    requester: {
+      kind: { type: String, enum: REQUESTER_KINDS, required: true, index: true },
+      id: { type: String, required: true, index: true },
+      name: { type: String, default: '', trim: true },
+      phone: { type: String, default: '', trim: true },
+    },
 
-    /* Denormalised so the queue can call somebody back without a second
-       lookup, and so the record still reads correctly if the account is later
-       renamed. Neither is used for auth — `customerId` is. */
+    /*
+     * The diner's id, kept in step with `requester.id` by the hook below.
+     *
+     * Every ticket written before support had three audiences has this field
+     * and no `requester`, and both the compound index and the original list
+     * query are built on it. Rather than migrate the collection — a migration
+     * that fails halfway leaves a student unable to see a deposit dispute —
+     * the two are mirrored: `requester` is filled from `customerId` when it is
+     * missing, and `customerId` is filled from `requester` when the kind is
+     * `customer`. A rider's or a restaurant's ticket leaves it null, which is
+     * why it is no longer `required`.
+     */
+    customerId: { type: String, default: null, index: true },
+
+    /* Mirrors of `requester.phone` / `requester.name`, for the same
+       backward-compatibility reason. Read `requester` in new code. */
     customerPhone: { type: String, default: '', trim: true },
     customerName: { type: String, default: '', trim: true },
 
-    /* Tickets carry a category; reports carry a reason. Exactly one is set,
-       enforced in the pre-validate hook below. */
-    category: { type: String, enum: [...TICKET_CATEGORIES, null], default: null },
+    /*
+     * Tickets carry a category; reports carry a reason. Exactly one is set,
+     * enforced in the pre-validate hook below.
+     *
+     * The enum is every category ANY audience offers, because a mongoose enum
+     * cannot depend on a sibling field. The narrower question — may a RIDER
+     * file under `deposit`? — is asserted in the controller, where the
+     * requester's kind is known. Both checks are needed: this one stops a
+     * category nobody offers, that one stops a category the wrong app offered.
+     */
+    category: { type: String, enum: [...ALL_CATEGORIES, null], default: null },
     reason: { type: String, enum: [...REPORT_REASONS, null], default: null },
 
     /* True when the reason chosen requires evidence. The attachment itself is
@@ -168,6 +221,55 @@ const ticketSchema = new mongoose.Schema(
      */
     outcome: { type: String, default: '', trim: true, maxlength: 140 },
 
+    /*
+     * The order this is about, where there is one.
+     *
+     * `listingId` above is the stay side's equivalent and is left alone. A
+     * rider's and a kitchen's complaints are almost always about one delivery,
+     * and an order number in the record is the difference between support
+     * reading a thread and support reading a thread WITH the order open beside
+     * it. A string and never a populated ref, for the same reason `listingId`
+     * is one: the order may be cancelled and the complaint still has to say
+     * which order it was.
+     */
+    orderNumber: { type: String, default: null, index: true },
+
+    /*
+     * Who on the support team owns this, and what they are called.
+     *
+     * Assignment is the difference between a queue and a pile. Without it two
+     * people answer the same rider in the same minute with different answers,
+     * which is worse than nobody answering — and the rider now has to decide
+     * which of us to believe.
+     *
+     * Deliberately NOT required to reply: an unassigned ticket that somebody
+     * answers is fine, and a gate that forced a claim first would mean a
+     * one-line answer costs two clicks. Claiming is offered, not enforced.
+     */
+    assignedToId: { type: String, default: null, index: true },
+    assignedToName: { type: String, default: '', trim: true },
+
+    /*
+     * The queue's own read watermark, mirroring `customerReadAt`.
+     *
+     * Two watermarks rather than one, because "has the student seen our reply"
+     * and "has support seen their message" are different questions asked by
+     * different screens, and a single field would answer whichever was written
+     * last. This is what puts a row in bold in the console.
+     */
+    supportReadAt: { type: Date, default: null },
+
+    /*
+     * How urgent, in the queue's judgement — never the requester's.
+     *
+     * A priority a client could set is a priority every client sets to
+     * `urgent`, and a queue where everything is urgent is sorted by nothing.
+     * Reports start at `high` because an allegation about a person is time
+     * sensitive by nature; everything else starts `normal` and a human moves
+     * it.
+     */
+    priority: { type: String, enum: ['low', 'normal', 'high', 'urgent'], default: 'normal', index: true },
+
     messages: { type: [messageSchema], default: [] },
 
     /*
@@ -190,12 +292,21 @@ const ticketSchema = new mongoose.Schema(
   { timestamps: true, collection: 'app_support_tickets', strict: true },
 );
 
-/* The list query: this customer's items, newest activity first. */
+/* The list query: this customer's items, newest activity first. Kept for the
+   tickets written before `requester` existed, which have no `requester.id`. */
 ticketSchema.index({ customerId: 1, lastActivityAt: -1 });
+
+/* The same list query for all three audiences, which is what every app now
+   actually runs: one requester's items, newest activity first. */
+ticketSchema.index({ 'requester.kind': 1, 'requester.id': 1, lastActivityAt: -1 });
 
 /* The queue's query: everything open in one kind, oldest first — whoever is
    working the safety queue wants the report that has been waiting longest. */
 ticketSchema.index({ kind: 1, status: 1, lastActivityAt: 1 });
+
+/* The console's default view: one audience's open work, oldest first. The
+   person answering riders this morning is filtering to riders. */
+ticketSchema.index({ 'requester.kind': 1, status: 1, lastActivityAt: 1 });
 
 /**
  * Exactly one of `category` / `reason`, matching `kind`.
@@ -204,6 +315,73 @@ ticketSchema.index({ kind: 1, status: 1, lastActivityAt: 1 });
  * render wrong on the list and route wrong in the queue, and it is cheaper to
  * refuse it here than to find it later.
  */
+/**
+ * Keep `requester` and the legacy `customerId` mirroring each other.
+ *
+ * Runs before the kind check below, because a document loaded from the
+ * database that predates three-audience support has no `requester` at all and
+ * would fail its `required` validators before anything else got a chance to
+ * look at it. That is not a hypothetical: every existing diner ticket is in
+ * that shape, and the first write to one is a support reply — the exact moment
+ * a validation failure would mean a student's thread cannot be answered.
+ *
+ * The direction depends on which one is present:
+ *
+ *   legacy row, being re-saved   customerId → requester (kind is `customer`;
+ *                                nothing else could have written these)
+ *   new diner ticket             requester → customerId, so the old index and
+ *                                any query still written against it keep working
+ *   rider / kitchen ticket       customerId stays null, which is why it is no
+ *                                longer a required field
+ */
+ticketSchema.pre('validate', function mirrorRequester(next) {
+  const requester = this.requester || {};
+
+  if (!requester.kind || !requester.id) {
+    /* Reading an old row forward. Only a diner could have written it. */
+    if (this.customerId) {
+      this.requester = {
+        kind: 'customer',
+        id: this.customerId,
+        name: this.customerName || '',
+        phone: this.customerPhone || '',
+      };
+    }
+  } else if (requester.kind === 'customer') {
+    /* Writing a new one. Fill the legacy fields so nothing that still reads
+       them sees a diner ticket with no diner on it. */
+    this.customerId = requester.id;
+    if (!this.customerName) this.customerName = requester.name || '';
+    if (!this.customerPhone) this.customerPhone = requester.phone || '';
+  }
+
+  return next();
+});
+
+/**
+ * The category has to be one THIS audience offers.
+ *
+ * The enum on the field is the union of all three lists, because a mongoose
+ * enum cannot depend on a sibling field. This is the half of the check that
+ * can: a rider filing under `deposit` is a rider whose ticket would land in
+ * the stay queue under a word that means nothing on their side of the app.
+ *
+ * Asserted in the model rather than only in the controller because the admin
+ * side can write a category too, and a rule that lives on one write path is a
+ * rule the other write path does not have.
+ */
+ticketSchema.pre('validate', function enforceAudienceCategory(next) {
+  if (this.kind !== 'ticket' || !this.category) return next();
+
+  const audience = audienceOf(this.requester && this.requester.kind);
+  if (!audience) return next(new Error('A ticket needs a requester.'));
+
+  if (!audience.categories.includes(this.category)) {
+    return next(new Error(`A ${audience.label.toLowerCase()} cannot file a ticket about "${this.category}".`));
+  }
+  return next();
+});
+
 ticketSchema.pre('validate', function enforceKindShape(next) {
   if (this.kind === 'ticket') {
     if (!this.category) return next(new Error('A ticket needs a category.'));
@@ -269,6 +447,7 @@ ticketSchema.methods.toPublicSummary = function toPublicSummary() {
     subject: this.subject,
     placeLabel: this.placeLabel || '',
     listingId: this.listingId,
+    orderNumber: this.orderNumber || null,
     status: this.status,
     outcome: this.outcome || '',
     unread,
@@ -297,6 +476,79 @@ ticketSchema.methods.toPublicDetail = function toPublicDetail() {
   };
 };
 
+/**
+ * The row in the console's queue.
+ *
+ * A SUPERSET of the public summary rather than a different shape, plus the
+ * three things only the queue may see: who filed it and how to reach them,
+ * who on the team owns it, and whether support itself has read the last
+ * message.
+ *
+ * `unread` is inverted relative to the public one — here it means "the
+ * requester has said something we have not read", which is the question the
+ * queue is actually asking. Same watermark technique, different watermark.
+ */
+ticketSchema.methods.toAdminSummary = function toAdminSummary() {
+  const last = this.messages.length ? this.messages[this.messages.length - 1] : null;
+  const watermark = this.supportReadAt ? this.supportReadAt.getTime() : 0;
+
+  const unread = this.messages.some(
+    (message) => message.author === 'customer' && new Date(message.at).getTime() > watermark,
+  );
+
+  const requester = this.requester || {};
+
+  return {
+    reference: this.reference,
+    kind: this.kind,
+    category: this.category,
+    reason: this.reason,
+    subject: this.subject,
+    status: this.status,
+    priority: this.priority,
+    outcome: this.outcome || '',
+    placeLabel: this.placeLabel || '',
+    listingId: this.listingId,
+    orderNumber: this.orderNumber || null,
+    evidenceRequired: this.evidenceRequired,
+
+    /* The whole point of the console's version: WHO, in an app the person
+       working the queue may never have opened. */
+    requester: {
+      kind: requester.kind || 'customer',
+      id: requester.id || this.customerId || '',
+      name: requester.name || this.customerName || '',
+      phone: requester.phone || this.customerPhone || '',
+    },
+
+    assignedToId: this.assignedToId || null,
+    assignedToName: this.assignedToName || '',
+
+    unread,
+    messageCount: this.messages.length,
+    lastMessageAuthor: last ? last.author : null,
+    lastMessagePreview: last ? String(last.body).slice(0, 160) : '',
+    lastActivityAt: this.lastActivityAt,
+    customerReadAt: this.customerReadAt,
+    supportReadAt: this.supportReadAt,
+    createdAt: this.createdAt,
+  };
+};
+
+/** The thread, as the console reads it. */
+ticketSchema.methods.toAdminDetail = function toAdminDetail() {
+  return {
+    ...this.toAdminSummary(),
+    messages: this.messages.map((message) => ({
+      id: String(message._id),
+      author: message.author,
+      authorName: message.authorName || '',
+      body: message.body,
+      at: message.at,
+    })),
+  };
+};
+
 module.exports = mongoose.models.SupportTicket
   || mongoose.model('SupportTicket', ticketSchema);
 
@@ -308,3 +560,9 @@ module.exports.REPORT_MIN_CHARS = REPORT_MIN_CHARS;
 module.exports.TICKET_MIN_CHARS = TICKET_MIN_CHARS;
 module.exports.BODY_MAX_CHARS = BODY_MAX_CHARS;
 module.exports.makeReference = makeReference;
+
+/* The audience registry, re-exported so a caller that already has the model
+   does not need a second require to ask what a rider may file about. */
+module.exports.AUDIENCES = require('./support.audiences').AUDIENCES;
+module.exports.REQUESTER_KINDS = REQUESTER_KINDS;
+module.exports.ALL_CATEGORIES = ALL_CATEGORIES;

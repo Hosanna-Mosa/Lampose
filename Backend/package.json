@@ -28,7 +28,13 @@
     "migrate:categories": "node scripts/migrate-categories.js",
     "verify:food-partner": "node scripts/verify-food-partner.js",
     "seed:food-menu": "node scripts/seed-food-menu.js",
-    "verify:food-order": "node scripts/verify-food-order-loop.js"
+    "verify:food-order": "node scripts/verify-food-order-loop.js",
+    "verify:food-dispatch": "node scripts/verify-food-dispatch.js",
+    "verify:driver-onboarding": "node scripts/verify-driver-onboarding.js",
+    "verify:zones": "node scripts/verify-zones.js",
+    "verify:addresses": "node scripts/verify-addresses.js",
+    "verify:support": "node scripts/verify-support.js",
+    "verify:food-favourites": "node scripts/verify-food-favourites.js"
   },
   "keywords": [
     "express",
@@ -49,6 +55,7 @@
     "mongoose": "^8.4.1",
     "multer": "^2.2.0",
     "playwright": "^1.62.1",
+    "socket.io": "^4.8.1",
     "twilio": "^6.1.0"
   },
   "devDependencies": {

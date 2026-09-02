@@ -60,6 +60,14 @@ Notifications.setNotificationHandler({
 });
 
 /** What the backend puts in `data`, so a tap can go straight to the screen. */
+/**
+ * What the backend puts in `data`.
+ *
+ * Two unrelated flows notify this app and they are told apart by `kind`, never
+ * by which listener fired: a stay request carries `requestId`, a food order
+ * carries `orderNumber`, and neither has the other's id. That is what stops a
+ * "your rider is here" notification opening a room-booking screen.
+ */
 export type PushPayload = {
   kind:
     | 'request.created'
@@ -67,12 +75,36 @@ export type PushPayload = {
     | 'request.declined'
     | 'request.inventoryTaken'
     | 'request.expired'
-    | 'request.cancelled';
-  requestId: string;
+    | 'request.cancelled'
+    /* Everything the food flow sends — placed, a rider assigned, collected,
+       delivered. One kind rather than four, because they all open the same
+       screen and the SERVER's status decides what it draws. */
+    | 'food_order';
+  /** Stay flow only. */
+  requestId?: string;
   listingId?: string;
+  /** Food flow only. */
+  orderNumber?: string;
   status?: string;
+  dispatchState?: string;
   expiresAt?: string | null;
 };
+
+/** True when this payload is about a food order rather than a stay request. */
+export const isFoodPush = (payload?: PushPayload | null): boolean =>
+  !!payload && payload.kind === 'food_order' && !!payload.orderNumber;
+
+/**
+ * Is this one of ours at all.
+ *
+ * Either id is enough. Requiring `requestId` alone was what silently dropped
+ * every food notification, and it is written once here because it has to be
+ * asked in two places — the live listeners and the cold-start read — which is
+ * exactly how the two drifted apart the first time: the warm path was fixed
+ * and the cold one kept throwing food away.
+ */
+const isOurs = (payload?: PushPayload | null): boolean =>
+  !!(payload?.requestId || payload?.orderNumber);
 
 export type PushAvailability =
   | { ok: true }
@@ -116,9 +148,36 @@ export function pushAvailable(): PushAvailability {
   return { ok: true };
 }
 
-/** Android shows nothing without one, and the backend sends to this id. */
+/**
+ * The channels, and why there are two.
+ *
+ * On Android the CHANNEL — not the payload — decides whether a notification
+ * makes a sound, and each id here has to match one the backend sends or the
+ * alert arrives silent. `stay-requests` is named in `stayRequest.notifier.js`;
+ * `food-orders` is named in `foodOrder.notifier.js` and `dispatch.notifier.js`.
+ * Rename one without the other and the notification is perfect and inaudible.
+ *
+ * Separate channels because a student can reasonably want one and not the
+ * other: a room deadline is a once-a-month event, and a food order is a
+ * twenty-minute conversation. Android lets them silence either.
+ */
 async function ensureChannel(): Promise<void> {
   if (Platform.OS !== 'android') return;
+
+  await Notifications.setNotificationChannelAsync('food-orders', {
+    name: 'Food orders',
+    description: 'Your order, your rider, and the code for the door.',
+    importance: Notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 250, 200, 250],
+    lightColor: '#0E6E5C',
+    /* The delivery PIN is in the body. It has to be readable on a locked
+       screen — the moment it is needed is the moment somebody is standing at
+       the door holding food, and it opens nothing, so there is nothing to
+       protect by hiding it. */
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    sound: 'default',
+  });
+
   await Notifications.setNotificationChannelAsync('stay-requests', {
     name: 'Stay requests',
     importance: Notifications.AndroidImportance.MAX,
@@ -195,12 +254,12 @@ export function addPushListeners(handlers: {
 }): () => void {
   const received = Notifications.addNotificationReceivedListener((notification) => {
     const payload = notification.request.content.data as PushPayload | undefined;
-    if (payload?.requestId) handlers.onReceived?.(payload);
+    if (isOurs(payload)) handlers.onReceived?.(payload as PushPayload);
   });
 
   const tapped = Notifications.addNotificationResponseReceivedListener((response) => {
     const payload = response.notification.request.content.data as PushPayload | undefined;
-    if (payload?.requestId) handlers.onTapped?.(payload);
+    if (isOurs(payload)) handlers.onTapped?.(payload as PushPayload);
   });
 
   return () => {
@@ -216,12 +275,19 @@ export function addPushListeners(handlers: {
  * started it has already happened by the time anything mounts. Without this,
  * tapping "your request was accepted" on a killed app lands on the home screen
  * instead of the request — which reads as the notification being broken.
+ *
+ * BOTH flows arrive here, which is why the test is `isOurs` and not a check
+ * for a stay id. A food payload carries `orderNumber` and never `requestId`,
+ * so asking for `requestId` discarded every food notification tapped on a
+ * killed app — the same silent loss the listeners above were already fixed
+ * for, still happening on the one path where the app was closed, which is the
+ * path a "your order is on its way" alert is most likely to take.
  */
 export async function getInitialPush(): Promise<PushPayload | null> {
   try {
     const response = await Notifications.getLastNotificationResponseAsync();
     const payload = response?.notification.request.content.data as PushPayload | undefined;
-    return payload?.requestId ? payload : null;
+    return isOurs(payload) ? (payload as PushPayload) : null;
   } catch {
     return null;
   }

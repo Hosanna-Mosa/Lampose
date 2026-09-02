@@ -6,13 +6,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Checkbox, Icon, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
-import { AddControl, DietMark, FoodEmptyState, FoodNotice, FoodPhoto, RatingPill } from '@/components/food';
+import { AddControl, DietMark, FoodEmptyState, FoodNotice, FoodPhoto, RatingPill, FavouriteHeart } from '@/components/food';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { SpiceLevel } from '@/types/food';
 import { SPICE_LABEL, clockLabel, findWindow, minutesUntilOpen } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
+import { useActionBarInset } from '@/hooks/useActionBarInset';
 
 const SPICES: readonly SpiceLevel[] = ['mild', 'medium', 'hot'];
 
@@ -34,6 +35,9 @@ export default function DishScreen() {
   const { findDish, findKitchen } = useFoodCatalogue();
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
+  /* Nothing on a handset that reports a real inset; the shortfall on one
+     that reports none, so the action clears the navigation bar. */
+  const actionInset = useActionBarInset();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { add, qtyOf, preferences, browseWindow } = useFood();
@@ -101,6 +105,10 @@ export default function DishScreen() {
             <Text variant="display2" style={{ flex: 1 }}>
               {dish.name}
             </Text>
+            {/* Bigger here than on a row: this is the screen somebody arrives
+                at having decided they are interested, and it is the likeliest
+                place a favourite is actually made. */}
+            <FavouriteHeart kind="dish" id={dish.id} label={dish.name} size={24} />
           </View>
 
           <Text variant="body" color="secondary">
@@ -280,7 +288,7 @@ export default function DishScreen() {
             borderTopColor: colors.border,
             paddingHorizontal: layout.gutter,
             paddingTop: space[3],
-            paddingBottom: space[6],
+            paddingBottom: space[6] + actionInset,
             gap: space[3],
           },
         ]}

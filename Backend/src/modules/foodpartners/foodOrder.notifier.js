@@ -27,6 +27,7 @@
 const { sendPush, pushReady, pushConfigProblem } = require('../../infrastructure/push/push');
 const FoodRestaurant = require('./foodRestaurant.model');
 const { BADGE } = require('./foodPartner.log');
+const realtime = require('../../infrastructure/realtime/realtime');
 
 /**
  * The Android channel the partner app must create with the same id.
@@ -65,7 +66,44 @@ const summarise = (lines = []) => {
  * between "the kitchen ignored it" and "the kitchen was never told".
  */
 async function notifyRestaurantOfOrder(order) {
-  const result = { attempted: 0, sent: 0, failed: 0, reason: null };
+  const result = { attempted: 0, sent: 0, failed: 0, reason: null, live: false };
+
+  /*
+   * The socket first, and it is not a duplicate of the push.
+   *
+   * A push reaches a handset that is asleep and needs a registered device
+   * token to do it. `order_placed` reaches a tablet that is AWAKE — which is
+   * how a kitchen actually runs, face-up on a counter — and needs nothing but
+   * the session the app already holds.
+   *
+   * That distinction was not academic: the first restaurant in production had
+   * ZERO registered handsets, because `getPushToken` returns null on a
+   * simulator and on a refused permission, so every order arrived in total
+   * silence and the kitchen found out on the twenty-second poll. This is the
+   * path that does not depend on any of that.
+   *
+   * Emitted BEFORE the push and outside its `pushReady()` guard, deliberately:
+   * a deployment with no Expo credentials still has a working socket, and the
+   * old code returned early and told the kitchen nothing at all.
+   */
+  try {
+    /* The RETURN VALUE, not the absence of a throw. `emit` answers `false`
+       when no socket server is attached rather than raising — a deployment
+       without socket.io degrades to polling by design — so assuming success
+       here would have the log line claim a live event on exactly the
+       deployments that never sent one. */
+    result.live = realtime.toRestaurant(order.restaurantId, 'order_placed', {
+      orderNumber: order.orderNumber,
+      grandTotal: order.grandTotal,
+      itemCount: (order.lines || []).length,
+      summary: summarise(order.lines),
+      placedAt: order.placedAt || new Date().toISOString(),
+    }) === true;
+  } catch (error) {
+    /* Socket.io absent, or no listener attached. The push and the poll both
+       still stand. */
+    console.warn(`${BADGE} [Order Alert] ${order.orderNumber} live emit failed: ${error.message}`);
+  }
 
   try {
     if (!pushReady()) {
@@ -110,7 +148,8 @@ async function notifyRestaurantOfOrder(order) {
 
     console.log(
       `${BADGE} [Order Alert] ${order.orderNumber} → ${result.sent}/${tokens.length} handset(s) ` +
-      `at ${restaurant?.restaurantName || order.restaurantId}`,
+      `at ${restaurant?.restaurantName || order.restaurantId}` +
+      `${result.live ? ' · live event sent' : ''}`,
     );
   } catch (error) {
     /* Deliberately swallowed. See the header: a failed ping must not undo a

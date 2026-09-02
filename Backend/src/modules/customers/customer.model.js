@@ -36,6 +36,8 @@
    ══════════════════════════════════════════════════════════════════════════ */
 const mongoose = require('mongoose');
 
+const { addressSchema } = require('../../shared/utils/address');
+
 const customerSchema = new mongoose.Schema(
   {
     /* A stable public id. `_id` would work, but every other identity in this
@@ -136,6 +138,18 @@ const customerSchema = new mongoose.Schema(
      * survive a reinstall is a shortlist somebody rebuilds by scrolling, and
      * they will not.
      */
+    /*
+     * Where this diner has food sent. A LIST, because an address is a
+     * property of the ORDER — a room today, the gate tonight, a friend's
+     * block on Saturday — rather than a property of the person.
+     *
+     * Exactly one is `isDefault`, kept true by `applyDefault` in
+     * `shared/utils/address.js`; nothing else may set that flag. The shape
+     * itself is shared with `app_drivers` and `app_partners` so the three
+     * cannot drift — see that file's header.
+     */
+    addresses: { type: [addressSchema], default: [] },
+
     saved: {
       type: [
         {
@@ -149,6 +163,52 @@ const customerSchema = new mongoose.Schema(
         },
       ],
       default: [],
+    },
+
+    /*
+     * Food favourites — the heart on a dish and on a kitchen.
+     *
+     * Separate from `saved` above, and deliberately not folded into it. That
+     * one is a stay SHORTLIST whose whole job is price comparison; it carries
+     * `rentWhenSaved` and would carry a meaningless null for every dish. These
+     * two lists answer a different question ("take me back to this") and are
+     * read by a different screen. One polymorphic array with a `kind` and four
+     * always-null columns would make both worse.
+     *
+     * On the ACCOUNT rather than the device, for the same reason the stay
+     * shortlist is: a favourite that does not survive a reinstall — or that a
+     * student cannot see after signing in on a second handset — is a favourite
+     * they rebuild by scrolling, and they will not. The app kept these in
+     * React state until now, so they did not even survive backgrounding.
+     *
+     * `restaurantId` rides along on a dish because a favourite has to be
+     * resolvable on its own. The favourites screen must be able to show a dish
+     * from a kitchen that is closed, out of the current locality, or simply not
+     * in the feed that happens to be loaded — and without the owning
+     * restaurant it cannot fetch, price or link one.
+     */
+    foodFavourites: {
+      dishes: {
+        type: [
+          {
+            _id: false,
+            productId: { type: String, required: true },
+            restaurantId: { type: String, required: true },
+            savedAt: { type: Date, default: Date.now },
+          },
+        ],
+        default: [],
+      },
+      kitchens: {
+        type: [
+          {
+            _id: false,
+            restaurantId: { type: String, required: true },
+            savedAt: { type: Date, default: Date.now },
+          },
+        ],
+        default: [],
+      },
     },
 
     /*

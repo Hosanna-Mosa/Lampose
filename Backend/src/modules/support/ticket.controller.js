@@ -1,11 +1,24 @@
 /* ══════════════════════════════════════════════════════════════════════════
    Support tickets and safety reports.
 
-   Five handlers, all behind a customer session, all scoped to `req.customer`.
-   Every lookup below filters on `customerId` as well as `reference` — never on
-   the reference alone. The reference is short and readable BECAUSE it is read
-   down a phone line, which is exactly what makes it a poor secret: guessing
-   one must not be enough to read somebody else's deposit dispute.
+   Six handlers, shared by THREE apps — the diner's, the rider's and the
+   kitchen's — and scoped in every case to `req.support`, the requester that
+   this router's own guard put there.
+
+   Every lookup below filters on the owner as well as the `reference` — never
+   on the reference alone. The reference is short and readable BECAUSE it is
+   read down a phone line, which is exactly what makes it a poor secret:
+   guessing one must not be enough to read somebody else's deposit dispute.
+
+   ## One controller, three guards, no widened guard
+
+   `ticket.routes.js` builds three routers from this file, each behind its own
+   audience's guard (`requireCustomer`, `requireDriver`, `requireFoodPartner`).
+   Nothing here decodes a token or reads a `typ` claim; by the time a handler
+   runs, a middleware that only knows ONE answer has already decided who is
+   asking. That is the codebase's standing rule — never widen one guard to
+   understand another audience — and it is the reason this file could grow from
+   one app to three without growing an `if (token.typ === …)`.
 
    ## Creating a report is not creating a ticket
 
@@ -34,7 +47,55 @@ const {
   makeReference,
 } = Ticket;
 
+const { allowsCategory, allowsReports, audienceOf } = require('./support.audiences');
+const notifier = require('./support.notifier');
+
 const LIST_LIMIT = 50;
+
+/**
+ * Who is asking, whichever app they are in.
+ *
+ * Set by the router factory in `ticket.routes.js`, immediately after that
+ * router's OWN guard has run — `requireCustomer`, `requireDriver` or
+ * `requireFoodPartner`. Three routers, three guards, one controller.
+ *
+ * This function deliberately does NOT decode a token or look at `typ`. The
+ * codebase's rule is that each guard asserts its own claim and none of them is
+ * widened to understand another audience; a helper here that read a token
+ * would be exactly that widening, one require away from a driver token opening
+ * a diner's deposit dispute. By the time any handler runs, the question "who
+ * is this" has already been answered by a guard that only knows one answer.
+ */
+const requesterOf = (req) => req.support || null;
+
+/**
+ * The filter that says "this thread belongs to the person asking".
+ *
+ * Two shapes, because diner tickets predate the other two audiences. Every
+ * ticket written before `requester` existed has a `customerId` and no
+ * `requester` at all, and a query on `requester.id` alone would return an
+ * empty list to every student who has ever filed anything — their threads
+ * would appear to have been deleted.
+ *
+ * Riders and restaurants have no legacy rows, so theirs is the single clause.
+ *
+ * This is the ONLY authorisation on a read. It is a filter rather than a
+ * fetch-then-compare on purpose: a `findOne` by reference followed by an `if`
+ * is one early return away from leaking a thread, whereas a query that cannot
+ * match is a 404 no matter what the handler below it does.
+ */
+const ownedBy = (who) => {
+  if (!who) return { _id: null };
+  if (who.kind === 'customer') {
+    return {
+      $or: [
+        { 'requester.kind': 'customer', 'requester.id': who.id },
+        { customerId: who.id },
+      ],
+    };
+  }
+  return { 'requester.kind': who.kind, 'requester.id': who.id };
+};
 
 const dbDown = (res) => res.status(503).json({
   success: false,
@@ -105,7 +166,7 @@ const listTickets = async (req, res, next) => {
        sent it — and hiding it here would make the app look like it had been
        thrown away. What the two kinds do NOT share is the queue that reads
        them, and that is enforced on the staff side, not by omission here. */
-    const tickets = await Ticket.find({ customerId: req.customer.customerId })
+    const tickets = await Ticket.find(ownedBy(requesterOf(req)))
       .sort({ lastActivityAt: -1 })
       .limit(LIST_LIMIT);
 
@@ -131,7 +192,7 @@ const getTicket = async (req, res, next) => {
 
     const ticket = await Ticket.findOne({
       reference: String(req.params.reference || '').toUpperCase(),
-      customerId: req.customer.customerId,
+      ...ownedBy(requesterOf(req)),
     });
     if (!ticket) return notFound(res);
 
@@ -148,9 +209,23 @@ const createTicket = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
 
-    const { category, body, listingId, placeLabel } = req.body || {};
+    const {
+      category, body, listingId, placeLabel, orderNumber,
+    } = req.body || {};
 
-    if (!TICKET_CATEGORIES.includes(String(category || ''))) {
+    const who = requesterOf(req);
+    if (!who) return badInput(res, 'We could not tell who is asking.');
+
+    /*
+     * The category has to be one THIS audience offers.
+     *
+     * `allowsCategory` rather than a flat list, because the three apps offer
+     * three different lists and a rider filing under `deposit` would land in
+     * the stay queue under a word that means nothing on their side. The model
+     * asserts the same rule — this is the copy that produces a sentence
+     * somebody can act on rather than a mongoose validation error.
+     */
+    if (!allowsCategory(who.kind, category)) {
       return badInput(res, 'Please choose what this is about.');
     }
 
@@ -160,14 +235,17 @@ const createTicket = async (req, res, next) => {
       return badInput(res, `Please keep this under ${BODY_MAX_CHARS} characters.`);
     }
 
-    const customer = req.customer;
     const ticket = new Ticket({
       kind: 'ticket',
-      customerId: customer.customerId,
-      customerPhone: customer.phone,
-      customerName: customer.name || '',
+      /* From the SESSION, never the body. A requester a client could name is a
+         client that can file a ticket as somebody else and then read the
+         replies to it. */
+      requester: {
+        kind: who.kind, id: who.id, name: who.name || '', phone: who.phone || '',
+      },
       category: String(category),
       listingId: listingId ? String(listingId) : null,
+      orderNumber: orderNumber ? String(orderNumber).trim().toUpperCase().slice(0, 24) : null,
       placeLabel: placeLabel ? String(placeLabel).slice(0, 120) : '',
       subject: subjectFrom(text),
       status: 'open',
@@ -181,6 +259,13 @@ const createTicket = async (req, res, next) => {
     });
 
     await saveWithReference(ticket, 'ticket');
+
+    /* Tell the console. After the save, never before — a queue that lights up
+       for a ticket the database refused is a queue somebody opens and finds
+       nothing in. `notifier` swallows its own failures for the same reason
+       `push.js` does: a socket that is down must not fail a write that
+       succeeded. */
+    notifier.ticketOpened(ticket);
 
     return res.status(201).json({ success: true, data: ticket.toPublicDetail() });
   } catch (error) {
@@ -196,6 +281,28 @@ const createReport = async (req, res, next) => {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
 
     const { reason, body, listingId, placeLabel } = req.body || {};
+
+    const who = requesterOf(req);
+    if (!who) return badInput(res, 'We could not tell who is asking.');
+
+    /*
+     * Only the diner may file a safety report.
+     *
+     * A rider or a restaurant accusing somebody is a real thing and a
+     * different process — see the header of `support.audiences.js`. Routing
+     * them through this form would put those allegations into the safety queue
+     * under reasons written for a tenancy, and the safety queue is not
+     * somewhere you arrive by accident. Their apps do not show the form; this
+     * is the half of that rule a client cannot turn off.
+     */
+    if (!allowsReports(who.kind)) {
+      const audience = audienceOf(who.kind);
+      return res.status(403).json({
+        success: false,
+        code: 'REPORTS_NOT_AVAILABLE',
+        message: `Safety reports are not available from the ${audience ? audience.label.toLowerCase() : ''} app. Please open a support ticket and we will take it from there.`.replace('  ', ' '),
+      });
+    }
 
     if (!REPORT_REASONS.includes(String(reason || ''))) {
       return badInput(res, 'Please choose what is happening.');
@@ -222,12 +329,15 @@ const createReport = async (req, res, next) => {
       return badInput(res, `Please keep this under ${BODY_MAX_CHARS} characters.`);
     }
 
-    const customer = req.customer;
     const report = new Ticket({
       kind: 'report',
-      customerId: customer.customerId,
-      customerPhone: customer.phone,
-      customerName: customer.name || '',
+      requester: {
+        kind: who.kind, id: who.id, name: who.name || '', phone: who.phone || '',
+      },
+      /* An allegation about a person is time-sensitive by nature, so it does
+         not start life in the same pile as a menu question. The queue can move
+         it down; it does not have to notice it first. */
+      priority: 'high',
       reason: String(reason),
       listingId: listingId ? String(listingId) : null,
       placeLabel: placeLabel ? String(placeLabel).slice(0, 120) : '',
@@ -266,6 +376,8 @@ const createReport = async (req, res, next) => {
 
     await saveWithReference(report, 'report');
 
+    notifier.ticketOpened(report);
+
     return res.status(201).json({ success: true, data: report.toPublicDetail() });
   } catch (error) {
     return next(error);
@@ -287,7 +399,7 @@ const replyToTicket = async (req, res, next) => {
 
     const ticket = await Ticket.findOne({
       reference: String(req.params.reference || '').toUpperCase(),
-      customerId: req.customer.customerId,
+      ...ownedBy(requesterOf(req)),
     });
     if (!ticket) return notFound(res);
 
@@ -322,6 +434,12 @@ const replyToTicket = async (req, res, next) => {
 
     await ticket.save();
 
+    /* The live half. The console's open thread gets the bubble immediately;
+       the queue list gets a row that moved. Both are also on the next poll,
+       which is what makes this an optimisation rather than the delivery
+       mechanism. */
+    notifier.messageAdded(ticket, ticket.messages[ticket.messages.length - 1]);
+
     return res.status(201).json({ success: true, data: ticket.toPublicDetail() });
   } catch (error) {
     return next(error);
@@ -345,7 +463,7 @@ const markTicketRead = async (req, res, next) => {
      */
     const ticket = await Ticket.findOne({
       reference: String(req.params.reference || '').toUpperCase(),
-      customerId: req.customer.customerId,
+      ...ownedBy(requesterOf(req)),
     });
     if (!ticket) return notFound(res);
 
@@ -358,6 +476,44 @@ const markTicketRead = async (req, res, next) => {
   }
 };
 
+// @route   GET /api/v2/<audience>/support/categories
+// @desc    What THIS audience may file a ticket about, and whether it may report
+// @access  Any signed-in requester
+const getCategories = (req, res) => {
+  const who = requesterOf(req);
+  const audience = audienceOf(who && who.kind);
+
+  if (!audience) {
+    return res.status(401).json({
+      success: false, code: 'UNAUTHORIZED', message: 'Please sign in again.',
+    });
+  }
+
+  /*
+   * Served rather than hardcoded in each app.
+   *
+   * Three apps drawing three category lists from three constants files is
+   * three chances for one to drift from the server's enum, and the symptom is
+   * a rider picking "Payout" and being told "please choose what this is
+   * about". The label is the app's business, not ours — this is the list of
+   * ids the server will actually accept.
+   */
+  return res.json({
+    success: true,
+    data: {
+      audience: audience.kind,
+      label: audience.label,
+      categories: audience.categories,
+      /* So the app knows whether to draw the safety-report entry point at all,
+         rather than drawing it and taking a 403 after somebody has typed 200
+         characters about being harassed. */
+      reports: audience.reports,
+      reportReasons: audience.reports ? REPORT_REASONS : [],
+      limits: { bodyMax: BODY_MAX_CHARS, reportMin: REPORT_MIN_CHARS },
+    },
+  });
+};
+
 module.exports = {
   listTickets,
   getTicket,
@@ -365,4 +521,5 @@ module.exports = {
   createReport,
   replyToTicket,
   markTicketRead,
+  getCategories,
 };

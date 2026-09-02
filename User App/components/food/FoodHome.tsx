@@ -11,7 +11,7 @@ import { formatRupees } from '@/utils/money';
 
 import { DishTile } from './DishRow';
 import { foodHref } from './routes';
-import { FoodEmptyState } from './FoodStates';
+import { FoodEmptyState, FoodFeedSkeleton } from './FoodStates';
 import { FoodNotice, FoodSectionHeader, OfferStrip } from './FoodNotices';
 import { RoomTargetRow } from './Fulfilment';
 import { KitchenCard } from './KitchenCard';
@@ -36,7 +36,16 @@ import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
  * and their room.
  */
 export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void }) {
-  const { dishesFor, findKitchen, kitchenOpen, kitchensFor } = useFoodCatalogue();
+  const {
+    dishesFor,
+    findKitchen,
+    kitchenOpen,
+    kitchensFor,
+    loading,
+    loadingMenus,
+    error,
+    refetch,
+  } = useFoodCatalogue();
   const { colors, space, layout, radius } = useTheme();
   const router = useRouter();
   const { locality } = useAppState();
@@ -60,14 +69,54 @@ export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void })
   const opensIn = minutesUntilOpen(activeWindow, now);
   const areaLabel = locality?.name ?? 'your area';
 
-  const kitchens = useMemo(() => kitchensFor(windowId), [windowId]);
+  /* Both of these depend on the catalogue as well as on the window: the
+     helpers are rebuilt whenever rows arrive, so leaving them out of the
+     dependencies froze the feed at whatever was loaded on the first render —
+     which, on a cold start, is nothing at all. */
+  const kitchens = useMemo(() => kitchensFor(windowId), [kitchensFor, windowId]);
   const openKitchens = kitchens.filter((kitchen) => kitchenOpen(kitchen, windowId));
 
   const dishes = useMemo(() => {
     const inWindow = dishesFor(windowId);
     return preferences.vegOnly ? inWindow.filter((dish) => dish.diet === 'veg') : inWindow;
-  }, [windowId, preferences.vegOnly]);
+  }, [dishesFor, windowId, preferences.vegOnly]);
 
+  /*
+   * Three quiet screens that are not the same screen.
+   *
+   * Nothing has arrived yet; the request failed; or no kitchen near this
+   * student has been approved. Only the middle one is worth retrying, only the
+   * last one is about kitchens rather than about the network, and the first
+   * one is not a state at all — it is a wait, and it gets the layout it is
+   * about to become rather than a sentence apologising for itself.
+   */
+  if (loading && kitchens.length === 0) return <FoodFeedSkeleton />;
+
+  if (error && kitchens.length === 0) {
+    return (
+      <FoodEmptyState
+        tone="problem"
+        title="Could not load what is cooking"
+        body="Nothing is wrong with your account or an order you have placed — the kitchen feed did not answer. It is usually the connection."
+        primaryLabel="Try again"
+        onPrimary={refetch}
+        footnote={error}
+      />
+    );
+  }
+
+  if (kitchens.length === 0) {
+    return (
+      <FoodEmptyState
+        title={`No kitchen near ${areaLabel} yet`}
+        body="A kitchen appears here the day it is approved, and none near you has been. Nothing is hidden behind a filter — there is genuinely nobody cooking on LAMPOSE here."
+        primaryLabel="Check again"
+        onPrimary={refetch}
+      />
+    );
+  }
+
+  const unfiltered = dishesFor(windowId).length;
   const cheap = dishes.filter((dish) => dish.price <= 100 && !dish.soldOut).slice(0, 6);
   const popular = [...dishes]
     .filter((dish) => dish.ordersInBlock)
@@ -92,10 +141,14 @@ export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void })
 
       {/* 2 — where it goes. Above the feed, because it changes every price on it. */}
       <View style={{ paddingHorizontal: layout.gutter, gap: space[2] }}>
+        {/* The row says "tap to pick where your food goes", so it goes there.
+            The address screen is also where a diner with an address already
+            set changes it, which is the other half of the same tap. */}
         <RoomTargetRow
           address={address}
           fulfilment={fulfilment}
           onChange={setFulfilment}
+          onPress={() => router.push(foodHref.address)}
         />
 
         <Pressable
@@ -142,7 +195,7 @@ export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void })
             headline={
               liveOrder.fulfilment === 'pickup'
                 ? 'Waiting at the counter'
-                : `Arriving at ${address.title}`
+                : address ? `Arriving at ${address.title}` : 'Arriving soon'
             }
             detail={`${liveOrder.kitchenName} · ${liveOrder.lines.map((line) => line.name).join(', ')}`}
             actionLabel="Track order"
@@ -170,6 +223,22 @@ export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void })
             tone="deadline"
             title={`${activeWindow.label} closes at ${clockLabel(activeWindow.endMinute)}`}
             body={`Place an order in the next ${closesIn} minutes or it moves to the next window.`}
+          />
+        </View>
+      ) : null}
+
+      {/* A refresh that did not get through, over rows that did. The kitchens
+          below are still worth reading; whether they are cooking and what they
+          charge may have moved since, and that is worth one line and a retry
+          rather than a screen the student cannot get past. */}
+      {error ? (
+        <View style={{ paddingHorizontal: layout.gutter }}>
+          <FoodNotice
+            tone="problem"
+            title="This feed is not current"
+            body="The last refresh did not reach us, so prices and who is open may have changed."
+            actionLabel="Try again"
+            onAction={refetch}
           />
         </View>
       ) : null}
@@ -208,6 +277,7 @@ export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void })
                 open={open}
                 reopensAt={open ? undefined : clockLabel(findWindow(nextWindow).startMinute)}
                 onPress={() => openKitchen(kitchen.id)}
+                favouritable
               />
             );
           })}
@@ -262,16 +332,38 @@ export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void })
         </View>
       ) : null}
 
-      {/* Veg-only can empty a whole window. Say which filter did it. */}
+      {/*
+        An empty dish rail has three causes and only one of them is the veg
+        filter. Blaming the filter for a menu that has not arrived sends a
+        student to turn off a setting that was never the problem, and blaming
+        it on a window nobody cooks sends them nowhere at all.
+      */}
       {dishes.length === 0 ? (
-        <FoodEmptyState
-          title={`No veg ${activeWindow.label.toLowerCase()} near you`}
-          body={`Every kitchen cooking this window is non-veg today. Turning veg-only off shows ${dishesFor(windowId).length} dishes.`}
-          primaryLabel="Show everything"
-          onPrimary={() => setPreferences({ vegOnly: false })}
-          secondaryLabel="Try another window"
-          onSecondary={() => onWindowChange('dinner')}
-        />
+        loadingMenus ? (
+          <View style={{ paddingHorizontal: layout.gutter }}>
+            <FoodNotice
+              tone="info"
+              title="Reading the menus"
+              body={`${kitchens.length} ${kitchens.length === 1 ? 'kitchen is' : 'kitchens are'} listed near you. What each of them is cooking is still arriving.`}
+            />
+          </View>
+        ) : preferences.vegOnly && unfiltered > 0 ? (
+          <FoodEmptyState
+            title={`No veg ${activeWindow.label.toLowerCase()} near you`}
+            body={`Every kitchen cooking this window is non-veg today. Turning veg-only off shows ${unfiltered} dishes.`}
+            primaryLabel="Show everything"
+            onPrimary={() => setPreferences({ vegOnly: false })}
+            secondaryLabel="Try another window"
+            onSecondary={() => onWindowChange('dinner')}
+          />
+        ) : (
+          <FoodEmptyState
+            title={`No ${activeWindow.label.toLowerCase()} on any menu near you`}
+            body={`${kitchens.length} ${kitchens.length === 1 ? 'kitchen is' : 'kitchens are'} listed near ${areaLabel} and none of them cooks this window. Another window is usually busier.`}
+            primaryLabel="Try another window"
+            onPrimary={() => onWindowChange('dinner')}
+          />
+        )
       ) : null}
 
       <View style={{ paddingHorizontal: layout.gutter, gap: space[2] }}>

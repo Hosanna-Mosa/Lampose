@@ -473,17 +473,37 @@ export const Modal: React.FC<ModalProps> = ({
 }) => {
   const panelRef = useRef<HTMLDivElement>(null);
 
+  /*
+   * The latest `onClose`, without it being a dependency.
+   *
+   * This is the whole fix for a bug that made every form in this console
+   * unusable: the effect below focuses the panel, and it used to list
+   * `onClose` in its deps. Every call site passes an inline arrow or a
+   * function declared in the render body, so `onClose` has a NEW IDENTITY on
+   * every render — which means every keystroke in a modal re-ran the effect,
+   * and the effect stole focus back to the panel. You could type one letter,
+   * then had to click the field again.
+   *
+   * A ref keeps the Escape handler current without making the effect depend on
+   * it, so the effect runs exactly when the modal opens and closes.
+   */
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && closeRef.current();
     document.addEventListener('keydown', onKey);
     document.body.style.overflow = 'hidden';
+    /* Once, on open — moving focus to the panel is how a dialog announces
+       itself to a screen reader, and doing it on every render is how it takes
+       focus away from whatever the user is typing into. */
     panelRef.current?.focus();
     return () => {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = '';
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

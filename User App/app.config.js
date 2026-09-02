@@ -100,6 +100,16 @@ export default {
        */
       'expo-router',
       'expo-font',
+      /* The crosshair on the address forms. Foreground only — nothing here
+         tracks anybody; the permission is asked at the moment somebody taps
+         "use my location" and the fix is used once to fill a form. */
+      [
+        'expo-location',
+        {
+          locationWhenInUsePermission:
+            'Lampose uses your location once, when you tap it, to fill in a delivery address so a rider can find your door.',
+        },
+      ],
       'expo-web-browser',
       /* The OS date dialog behind `DateField`. A config plugin rather than an
          autolinked module: it needs a compileSdk bump on Android. */

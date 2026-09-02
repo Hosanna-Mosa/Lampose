@@ -604,6 +604,80 @@ export default function CategoryFieldsStep({ category, details = {}, onChangeDet
  * should be seeded with, both of which are passed in.
  */
 /**
+ * One document slot.
+ *
+ * Declared at MODULE scope, and that is the whole point. It used to live
+ * inside `HotelDocuments`, which meant React saw a brand-new component type on
+ * every render and threw the old subtree away — so the `<select>` inside it
+ * was unmounted and remounted on every keystroke, and anything focused lost
+ * focus after a single character.
+ *
+ * `docs` and `setDoc` therefore arrive as props rather than off the closure,
+ * which is the only thing hoisting it costs.
+ */
+function Slot({ kind, title, blurb, errorKey, children, docs, setDoc, errors }) {
+  const current = docs[kind];
+  return (
+    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px' }}>
+      <span style={{ fontSize: '0.88rem', color: '#181e1b', fontWeight: 700 }}>{title} *</span>
+      <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '4px 0 10px', lineHeight: 1.4 }}>{blurb}</p>
+
+      {children}
+
+      {current?.file ? (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px',
+          padding: '8px 12px', background: '#eaf3ed', border: '1px solid #c2e2cc', borderRadius: '8px',
+        }}>
+          <Check size={14} color="#45855a" />
+          <span style={{ fontSize: '0.8rem', color: '#2f6b45', fontWeight: 600, flex: 1, wordBreak: 'break-all' }}>
+            {current.file.name}
+          </span>
+          <button
+            type="button"
+            onClick={() => setDoc(kind, null)}
+            title="Remove"
+            aria-label={`Remove ${title}`}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: '20px', height: '20px', borderRadius: '50%', border: 'none',
+              background: 'rgba(100, 116, 139, 0.15)', color: '#475569', cursor: 'pointer', padding: 0,
+            }}
+          >
+            <X size={12} />
+          </button>
+        </div>
+      ) : (
+        <label
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+            marginTop: '10px', padding: '12px', borderRadius: '8px',
+            border: '1px dashed #94a3b8', color: '#64748b', cursor: 'pointer',
+            fontSize: '0.82rem', fontWeight: 600,
+          }}
+        >
+          <CloudUpload size={15} />
+          <span>Choose a photo or PDF</span>
+          <input
+            type="file"
+            accept="image/*,application/pdf"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files && e.target.files[0];
+              if (file) setDoc(kind, { file });
+              /* Cleared so picking the same file twice still fires. */
+              e.target.value = '';
+            }}
+          />
+        </label>
+      )}
+
+      <FieldError message={errors[errorKey]} />
+    </div>
+  );
+}
+
+/**
  * The two documents a hotel has to produce.
  *
  * ## Why a hotel and nothing else
@@ -634,67 +708,6 @@ function HotelDocuments({ details, onChangeDetails, errors }) {
     });
   };
 
-  const Slot = ({ kind, title, blurb, errorKey, children }) => {
-    const current = docs[kind];
-    return (
-      <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px' }}>
-        <span style={{ fontSize: '0.88rem', color: '#181e1b', fontWeight: 700 }}>{title} *</span>
-        <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '4px 0 10px', lineHeight: 1.4 }}>{blurb}</p>
-
-        {children}
-
-        {current?.file ? (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px',
-            padding: '8px 12px', background: '#eaf3ed', border: '1px solid #c2e2cc', borderRadius: '8px',
-          }}>
-            <Check size={14} color="#45855a" />
-            <span style={{ fontSize: '0.8rem', color: '#2f6b45', fontWeight: 600, flex: 1, wordBreak: 'break-all' }}>
-              {current.file.name}
-            </span>
-            <button
-              type="button"
-              onClick={() => setDoc(kind, null)}
-              title="Remove"
-              aria-label={`Remove ${title}`}
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                width: '20px', height: '20px', borderRadius: '50%', border: 'none',
-                background: 'rgba(100, 116, 139, 0.15)', color: '#475569', cursor: 'pointer', padding: 0,
-              }}
-            >
-              <X size={12} />
-            </button>
-          </div>
-        ) : (
-          <label
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-              marginTop: '10px', padding: '12px', borderRadius: '8px',
-              border: '1px dashed #94a3b8', color: '#64748b', cursor: 'pointer',
-              fontSize: '0.82rem', fontWeight: 600,
-            }}
-          >
-            <CloudUpload size={15} />
-            <span>Choose a photo or PDF</span>
-            <input
-              type="file"
-              accept="image/*,application/pdf"
-              style={{ display: 'none' }}
-              onChange={(e) => {
-                const file = e.target.files && e.target.files[0];
-                if (file) setDoc(kind, { file });
-                /* Cleared so picking the same file twice still fires. */
-                e.target.value = '';
-              }}
-            />
-          </label>
-        )}
-
-        <FieldError message={errors[errorKey]} />
-      </div>
-    );
-  };
 
   return (
     <div className="form-group" style={{ gridColumn: '1 / -1' }} id="hotelDocuments">
@@ -707,6 +720,9 @@ function HotelDocuments({ details, onChangeDetails, errors }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
         <Slot
+          docs={docs}
+          setDoc={setDoc}
+          errors={errors}
           kind="pan"
           title="Owner / Business PAN"
           blurb="The PAN of the person or company that will be paid."
@@ -714,6 +730,9 @@ function HotelDocuments({ details, onChangeDetails, errors }) {
         />
 
         <Slot
+          docs={docs}
+          setDoc={setDoc}
+          errors={errors}
           kind="premises"
           title="Proof of Premises"
           blurb="Any one credible document establishing that this business holds this building."

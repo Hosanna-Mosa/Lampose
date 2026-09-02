@@ -1,14 +1,15 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { metaLine, walkLabel } from '@/services/adapters/food.adapter';
+import { contactNumberOf, deliveryFeeFor, metaLine, walkLabel } from '@/services/adapters/food.adapter';
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
 import {
   DockedCartBar,
   FoodEmptyState,
+  FoodMenuSkeleton,
   FoodNotice,
   FulfilmentToggle,
   MealWindowToken,
@@ -38,7 +39,7 @@ import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
  * ("is this the place with the ₹95 thali?") unanswerable at 4 pm.
  */
 export default function KitchenScreen() {
-  const { findKitchen, kitchenOpen, menuFor } = useFoodCatalogue();
+  const { findKitchen, kitchenOpen, menuFor, loading, loadingMenus, error, refetch } = useFoodCatalogue();
   const { colors, space, layout, radius, mode } = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -60,6 +61,7 @@ export default function KitchenScreen() {
 
   const [now] = useState(() => new Date());
   const [section, setSection] = useState<string | null>(null);
+  const [callFailed, setCallFailed] = useState(false);
 
   const kitchen = id ? findKitchen(id) : undefined;
 
@@ -67,7 +69,10 @@ export default function KitchenScreen() {
   const activeWindow = findWindow(windowId);
   const open = kitchen ? kitchenOpen(kitchen, windowId) && minutesUntilOpen(activeWindow, now) === 0 : false;
 
-  const menu = useMemo(() => (kitchen ? menuFor(kitchen, windowId) : []), [kitchen, windowId]);
+  /* `menuFor` is rebuilt whenever dishes arrive, so it belongs in here beside
+     the kitchen: without it this menu is whatever had loaded on the render the
+     screen opened on. */
+  const menu = useMemo(() => (kitchen ? menuFor(kitchen, windowId) : []), [menuFor, kitchen, windowId]);
   const visible = useMemo(
     () => (preferences.vegOnly ? menu.filter((dish) => dish.diet === 'veg') : menu),
     [menu, preferences.vegOnly],
@@ -78,23 +83,80 @@ export default function KitchenScreen() {
     return (kitchen?.sections ?? []).filter((name) => present.has(name));
   }, [visible, kitchen]);
 
+  /*
+   * No kitchen under this id — which is three different situations wearing one
+   * face, and only one of them is the kitchen being gone.
+   *
+   * This screen is reachable straight from a link, so the ordinary case is a
+   * catalogue that has not arrived yet. Telling that student the kitchen "is
+   * not on LAMPOSE" is a flat lie told a second before it becomes untrue, and
+   * it is the sentence that sends them back to the feed instead of waiting the
+   * half second.
+   */
   if (!kitchen) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <StandardHeader title="Kitchen" onBack={() => router.back()} />
-        <FoodEmptyState
-          title="This kitchen is not on LAMPOSE"
-          body="It may have been removed while you were looking at it. Everything cooking near you is one tap away."
-          primaryLabel="Back to food"
-          onPrimary={() => router.back()}
-        />
+        {loading || loadingMenus ? (
+          <FoodMenuSkeleton />
+        ) : error ? (
+          <FoodEmptyState
+            tone="problem"
+            title="Could not open this kitchen"
+            body="The menu did not answer. The kitchen is probably fine — this is usually the connection."
+            primaryLabel="Try again"
+            onPrimary={refetch}
+            secondaryLabel="Back to food"
+            onSecondary={() => router.back()}
+            footnote={error}
+          />
+        ) : (
+          <FoodEmptyState
+            title="This kitchen is not on LAMPOSE"
+            body="It may have been removed while you were looking at it. Everything cooking near you is one tap away."
+            primaryLabel="Back to food"
+            onPrimary={() => router.back()}
+          />
+        )}
       </View>
     );
   }
 
   const nextOpen = findWindow(kitchen.windows[0]);
   const opensIn = minutesUntilOpen(nextOpen, now);
+
+  /*
+   * The number the header's phone button dials.
+   *
+   * `contactNumber` is the customer-facing number the restaurant gave us — the
+   * detail response keeps it apart from the owner's private line for exactly
+   * this — and it travels on that response only. A kitchen opened before its
+   * detail landed, or one that never filled the field in, therefore has no
+   * number, and then the header shows NO button: an icon that dials nothing is
+   * read as the app failing rather than as the kitchen having no line.
+   */
+  const phone = contactNumberOf(kitchen);
+  const call = () => {
+    if (!phone) return;
+    /* A stored number is punctuated for reading — "+91 98765 43210" — and a
+       `tel:` URI is not, so everything but the digits and a leading plus goes
+       before it reaches the dialler. */
+    Linking.openURL(`tel:${phone.replace(/[^\d+]/g, '')}`).catch(() => setCallFailed(true));
+  };
+
+  /*
+   * What is in the basket for THIS kitchen, which is what decides the delivery
+   * fee shown beside it.
+   *
+   * A kitchen on a `free_above` rule stops charging delivery the moment the
+   * items reach its threshold, and the toggle is read while the basket is
+   * being filled — a flat fee printed there is a number the checkout will not
+   * ask for. The cart holds one kitchen at a time, so a cart belonging to a
+   * different one counts as nothing here rather than as progress towards this
+   * kitchen's threshold.
+   */
+  const basket = lines[0]?.dish.kitchenId === kitchen.id ? itemTotal : 0;
 
   const setDishQty = (dish: Dish, next: number) => {
     const existing = lines.find((line) => line.dishId === dish.id);
@@ -115,8 +177,8 @@ export default function KitchenScreen() {
         title={kitchen.name}
         subtitle={metaLine(kitchen.cuisine, locality?.name ?? 'near you', walkLabel(kitchen))}
         onBack={() => router.back()}
-        actionIcon="phone"
-        onAction={() => {}}
+        actionIcon={phone ? 'phone' : undefined}
+        onAction={phone ? call : undefined}
       />
 
       <ScrollView
@@ -143,18 +205,29 @@ export default function KitchenScreen() {
             <RatingPill rating={kitchen.rating} count={kitchen.ratingCount} showCount />
           </View>
 
+          {/* A device with no dialler — a tablet, an emulator — still has a
+              student holding a question. The number goes on screen so it can
+              be read out or copied by hand. */}
+          {callFailed && phone ? (
+            <FoodNotice
+              tone="problem"
+              title="This device cannot place calls"
+              body={`${kitchen.name} answers on ${phone}.`}
+            />
+          ) : null}
+
           <FulfilmentToggle
             value={fulfilment}
             onChange={setFulfilment}
             kitchen={kitchen}
             readyAt={readyLabel(now, kitchen.prepMinutes)}
             arrivesAt={kitchen.deliveryMinutes > 0 ? readyLabel(now, kitchen.deliveryMinutes) : null}
-            deliveryFee={kitchen.deliveryFee}
+            deliveryFee={deliveryFeeFor(kitchen, basket)}
           />
 
           <View style={styles.metaRow}>
             <Text variant="numMeta" color="tertiary" style={{ flex: 1 }}>
-              Minimum {formatRupees(kitchen.minOrder)} for delivery to {address.title}
+              Minimum {formatRupees(kitchen.minOrder)} for delivery{address ? ` to ${address.title}` : ''}
             </Text>
             <MealWindowToken window={activeWindow} now={now} />
           </View>
@@ -168,8 +241,6 @@ export default function KitchenScreen() {
                   ? `In about ${Math.round(opensIn / 60) || 1} ${opensIn < 90 ? 'hour' : 'hours'}. Read the menu now — ordering opens with the window.`
                   : 'Read the menu now. Ordering opens with the window.'
               }
-              actionLabel="Remind me when it opens"
-              onAction={() => {}}
             />
           ) : null}
 
@@ -271,6 +342,7 @@ export default function KitchenScreen() {
                           onPress={() => router.push(foodHref.dish(dish.id))}
                           disabled={!open}
                           reason={!open ? clockLabel(nextOpen.startMinute) : undefined}
+                          favouritable
                         />
                       </View>
                     ))}
@@ -302,7 +374,7 @@ export default function KitchenScreen() {
           <DockedCartBar
             count={count}
             total={itemTotal}
-            context={`${activeWindow.label} · ${fulfilment === 'pickup' ? 'pickup' : address.title}`}
+            context={`${activeWindow.label}${fulfilment === 'pickup' ? ' · pickup' : address ? ` · ${address.title}` : ''}`}
             onPress={() => router.push(foodHref.cart)}
           />
         </View>

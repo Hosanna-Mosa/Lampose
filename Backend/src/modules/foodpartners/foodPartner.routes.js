@@ -53,6 +53,9 @@ const { listMyOrders, getMyOrder, setOrderStatus } = require('./foodOrder.contro
 const {
   placeOrder, listMyOrders: listCustomerOrders, getMyOrder: getCustomerOrder, cancelMyOrder,
 } = require('./foodCustomerOrder.controller');
+const {
+  startPayment, verifyPayment, renderCheckout, checkoutCallback,
+} = require('./foodPayment.controller');
 const { requireCustomer } = require('../customers/customerAuth.middleware');
 const {
   registerFoodPartnerDevice, unregisterFoodPartnerDevice,
@@ -183,6 +186,42 @@ router.post('/orders', customer, placeOrder);
 router.get('/orders', customer, listCustomerOrders);
 router.get('/orders/:orderNumber', customer, getCustomerOrder);
 router.patch('/orders/:orderNumber/cancel', customer, cancelMyOrder);
+
+/* ── Paying for one ───────────────────────────────────────────────────────
+   Both behind the diner's own session and scoped to their own order, because
+   the pair is the whole of the online-payment flow: the first mints a Razorpay
+   order for the amount THIS server computed, the second checks the signature
+   that comes back. Nothing else in this codebase may mark an order paid — see
+   `foodPayment.controller.js`.
+
+   Rate-limited by IP because each `payment` call can mint a Razorpay order,
+   which is a round trip to a third party on a route anybody with a session can
+   reach. The ceiling is well above a diner retrying a failed UPI app and well
+   below a loop. */
+router.post(
+  '/orders/:orderNumber/payment',
+  byIp('food-pay-start', 15 * 60 * 1000, 60),
+  ...customer,
+  startPayment,
+);
+router.post('/orders/:orderNumber/payment/verify', customer, verifyPayment);
+
+/* ── The checkout page ────────────────────────────────────────────────────
+   Rendered HTML, not JSON, and not behind `requireCustomer` — a WebView
+   loading a URL sends no Authorization header. What gates it is the short-lived
+   token in the query string, minted by the route above and naming exactly one
+   order; see `CHECKOUT_TOKEN_TYPE` in the controller.
+
+   The callback is posted by that page as a form and is authenticated by the
+   Razorpay SIGNATURE over the payment, which is the only thing worth believing
+   here anyway. Both answer HTML because a student is looking at them. */
+router.get('/checkout', requireLamposeDb, renderCheckout);
+router.post(
+  '/checkout/callback',
+  express.urlencoded({ extended: false }),
+  requireLamposeDb,
+  checkoutCallback,
+);
 
 /* ── Public discovery ────────────────────────────────────────────────────── */
 

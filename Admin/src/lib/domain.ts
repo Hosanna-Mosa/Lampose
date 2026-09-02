@@ -126,7 +126,7 @@ export const adminStatusMeta = (status: string) =>
 /* Every role dropdown in the console reads this one list — register, the
    Administrators filter, and the create/edit dialogs. Kept in step with the
    enum in `Backend/src/modules/admins/admin.model.js`. */
-export const ADMIN_ROLES: AdminRole[] = ['Super Admin', 'Admin', 'Editor', 'Viewer', 'Food Admin'];
+export const ADMIN_ROLES: AdminRole[] = ['Super Admin', 'Admin', 'Editor', 'Viewer', 'Food Admin', 'Support'];
 export const ADMIN_STATUSES: AdminStatus[] = ['Active', 'Inactive', 'Pending'];
 
 /**

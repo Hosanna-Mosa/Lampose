@@ -25,7 +25,8 @@ export const foodHref = {
     params: placed ? { id, placed: '1' } : { id },
   }),
   cart: '/food/cart' as const,
-  slot: '/food/slot' as const,
+  /* Replaced the slot picker. See app/food/address.tsx for why. */
+  address: '/food/address' as const,
   coupons: '/food/coupons' as const,
   payment: '/food/payment' as const,
   preferences: '/food/preferences' as const,

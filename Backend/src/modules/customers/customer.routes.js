@@ -28,6 +28,12 @@ const {
 const { getNotifications, markNotificationsRead } = require('./notification.controller');
 const { getSaved, addSaved, removeSaved } = require('./saved.controller');
 const {
+  listFoodFavourites, addFoodFavourite, removeFoodFavourite,
+} = require('./foodFavourite.controller');
+const {
+  listAddresses, addAddress, updateAddress, removeAddress, setDefaultAddress,
+} = require('./customerAddress.controller');
+const {
   createRequest, getRequest, listRequests, withdrawRequest, confirmMovedIn,
 } = require('../visits/stayRequest.controller');
 const { listBookings, getBooking } = require('./customerBooking.controller');
@@ -87,9 +93,37 @@ router.post('/notifications/read', requireLamposeDb, requireCustomer, markNotifi
 /* The shortlist. On the account rather than the device, so it survives a
    reinstall — and each entry keeps the rent it was saved at, which is what
    makes "cheaper since you saved it" possible at all. */
+/* ── The address book ────────────────────────────────────────────────────
+   A diner's addresses are a LIST, unlike the rider's and the owner's single
+   one, because an address is a property of the ORDER — a room today, the gate
+   tonight. The shape and every rule about it are shared with those two in
+   `shared/utils/address.js`; only the list behaviour lives in the controller.
+   Setting the default is its own route: it is one tap in a list, and routing
+   it through the edit endpoint would make that tap send a whole address. */
+router.get('/me/addresses', requireLamposeDb, requireCustomer, listAddresses);
+router.post('/me/addresses', requireLamposeDb, requireCustomer, addAddress);
+router.patch('/me/addresses/:addressId', requireLamposeDb, requireCustomer, updateAddress);
+router.delete('/me/addresses/:addressId', requireLamposeDb, requireCustomer, removeAddress);
+router.post('/me/addresses/:addressId/default', requireLamposeDb, requireCustomer, setDefaultAddress);
+
 router.get('/saved', requireLamposeDb, requireCustomer, getSaved);
 router.post('/saved', requireLamposeDb, requireCustomer, addSaved);
 router.delete('/saved/:listingId', requireLamposeDb, requireCustomer, removeSaved);
+
+/* ── Food favourites ─────────────────────────────────────────────────────
+   The heart on a dish and on a kitchen. A SEPARATE list from `/saved` above,
+   which is the stay shortlist: that one exists to compare rent over time and
+   carries `rentWhenSaved`, this one exists to get back to something you
+   liked. Folding them together would give every dish a null price column and
+   make one screen's query serve two unrelated questions.
+
+   The list comes back hydrated — see the controller for why ids alone make
+   favourites vanish whenever the owning kitchen is closed or out of area. */
+router.get('/food-favourites', requireLamposeDb, requireCustomer, listFoodFavourites);
+router.post('/food-favourites', requireLamposeDb, requireCustomer, addFoodFavourite);
+/* The kind is in the PATH, not the body: a DELETE with a meaningful body is a
+   DELETE that proxies and clients are entitled to strip. */
+router.delete('/food-favourites/:kind/:id', requireLamposeDb, requireCustomer, removeFoodFavourite);
 
 /* ── Stay requests ───────────────────────────────────────────────────────
    Asking an owner for a bed, and watching the three minutes they have to

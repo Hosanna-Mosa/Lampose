@@ -22,6 +22,10 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { DAYS } from "@/constants/partner";
 import { uid } from "@/lib/uid";
+import { disconnectOrderSocket } from "@/services/orderSocket";
+import { releaseOrderSound } from "@/services/alertSound";
+import { getPushToken } from "@/services/orderAlerts";
+import { unregisterDevice } from "@/services/foodPartner";
 
 // ─── Domain types ─────────────────────────────────────────────────────────────
 
@@ -637,7 +641,42 @@ export const usePartnerStore = create<PartnerState>()(
       },
 
       signIn: (session) => set({ session }),
-      signOut: () => set({ session: null }),
+      signOut: () => {
+        /* ── The two ways a counter tablet keeps ringing for the last kitchen
+           ─────────────────────────────────────────────────────────────────
+
+           The SOCKET is the one that stops here and now: left open it keeps
+           the previous partner's room joined, so the next restaurant to sign
+           in on that device would hear somebody else's orders arrive.
+
+           The PUSH REGISTRATION is the one that outlives the app being closed.
+           The server sends an order to every device token the restaurant has
+           registered, and it has no way of knowing this one walked away — the
+           sign-out call is the only thing that takes it off the list, which is
+           what `device.controller.js` says in as many words. Without it a
+           shared tablet keeps buzzing for the previous restaurant's orders,
+           on a screen the next one can read, until somebody reinstalls.
+
+           It is started before the session is cleared, because the request
+           needs that token to authenticate — and it is deliberately NOT
+           awaited. Signing out is a thing somebody does when they are leaving,
+           and a partner who has lost their connection must not be held on a
+           screen they are trying to get out of by a call that is going to time
+           out. A failed unregister is a stale row on the server; a sign-out
+           that hangs is a person standing there. */
+        const token = get().session?.token;
+        if (token) {
+          getPushToken()
+            .then((registration) => (registration ? unregisterDevice(registration.token, token) : null))
+            .catch(() => {
+              /* No push token on this handset, or no way to reach the server.
+                 Either way the sign-out below has already happened. */
+            });
+        }
+        disconnectOrderSocket();
+        releaseOrderSound();
+        set({ session: null });
+      },
 
       reset: () =>
         set({

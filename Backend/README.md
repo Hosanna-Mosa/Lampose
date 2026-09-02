@@ -43,6 +43,9 @@ src/
     database/db.js            connection + retry + the v1 in-memory failover
     twilio/twilio.js          every WhatsApp send (verification + availability) and phone normalisation
     sms/sms.js                DLT SMS gateway (smslogin.co) for one-time codes
+    push/push.js              Expo push, for the three mobile apps
+    razorpay/razorpay.js      order + signature verification. The one trust boundary for money
+    realtime/realtime.js      socket.io on the same port. ONLY the delivery flow needs it
   shared/
     middleware/               requestLogger, errorHandler, authMiddleware, requireDb, rateLimit
     utils/text.js             regex escaping
@@ -56,6 +59,8 @@ src/
     verification/             owner→verifier onboarding chain + the WhatsApp webhook
     permissions/              employee edit/delete grants
     scraper/                  Google Maps lead scraping, leads store
+    foodpartners/             restaurants, menus, orders, and paying for one
+    drivers/                  riders: accounts, duty, live position, and the dispatcher
 scripts/                      verify, smoke, inspect, export, migrate
 data/                         local JSON fallback store for leads (dev only)
 deploy/                       nginx vhost + systemd unit
@@ -112,6 +117,10 @@ Both behaviours are wanted. Neither is a bug. They just cannot share a path.
 /api/v1/verifications       owner/verifier verification requests
 /api/v1/whatsapp            Twilio inbound webhook
 /api/v1/permissions         employee edit/delete permission requests
+/api/v1/admin/food-restaurants  the restaurant approval queue and its decisions
+/api/v1/admin/drivers       the rider queue: per-DOCUMENT verdicts, approvals, suspensions
+/api/v1/admin/zones         service zones: draw, edit and retire the trading area
+/api/v1/admin/support       the support queue: every thread from all three apps
 
 /api/v2/health              process + database status         (shared router)
 /api/v2/listings            public Explore feed for lampose.com
@@ -120,6 +129,13 @@ Both behaviours are wanted. Neither is a bug. They just cannot share a path.
 /api/v2/auth                leads panel + onboarding employee login
 /api/v2/users               leads panel team management
 /api/v2/scraper             Google Maps lead scraping, leads, CSV export
+/api/v2/customers           mobile app accounts: phone + one-time code, profile
+/api/v2/support             the DINER's support tickets and safety reports
+/api/v2/partners            Stay Partner app: owner accounts, properties, visit requests
+/api/v2/food-partners/support  the KITCHEN's support tickets  (mounted before /food-partners)
+/api/v2/food-partners       Food-Partner app: onboarding, menu, orders, payment, discovery
+/api/v2/drivers/support     the RIDER's support tickets  (mounted before /drivers)
+/api/v2/drivers             Driver app: rider accounts, duty, live position, delivery offers
 ```
 
 `GET /api` returns this map as JSON, and the boot banner prints it.
@@ -262,21 +278,196 @@ without them, which works only inside an open 24-hour session.
 
 ---
 
-## Two identity systems
+## The food-delivery loop
 
-They share a process and a database and nothing else. Do not try to make one
-verify the other's tokens.
+The one flow that spans three apps and two collections. It is worth reading
+end to end before touching any part of it.
 
-| | v1 admin console | v2 leads panel |
+```
+User App        POST /api/v2/food-partners/orders
+                  every price re-derived from food_products — the request says
+                  WHAT, never how much
+
+  cash ─────────► the kitchen is rung, and the dispatcher starts
+  online ───────► the order is HELD: paymentStatus 'pending', nobody is told,
+                  no rider is sent
+                POST .../payment           mints a Razorpay order for OUR figure
+                GET  /food-partners/checkout?t=…   the page the app WebViews
+                POST .../checkout/callback  signature verified → confirmPayment
+
+backend         foodDispatch.service.js
+                  · driverMatch: 2km → 5km → 10km, first ring that finds anyone
+                  · ONE offer at a time, nearest first, 15s each
+                  · a decline moves to the next rider immediately
+                  · nobody left → dispatch.state 'unassigned', retried when the
+                    kitchen marks the order ready
+
+Driver app      delivery_offer over socket.io  AND  GET /drivers/me/offer
+                POST /drivers/orders/:n/accept    ← one atomic claim, no race
+                PATCH .../status picked_up        ← the KITCHEN's 4-digit code
+                PATCH .../status delivered        ← the DINER's 4-digit PIN
+
+Food-Partner    PATCH /me/orders/:n/status accepted → preparing → ready
+User App        GET /food-partners/orders/:n every 8s while the order is live
+```
+
+Two things are load-bearing and easy to undo by accident:
+
+- **`status` is the kitchen's track; `dispatch.state` is the rider's, and they
+  run in parallel.** An order is being cooked and looked for at the same time.
+  Folding the search into `status` makes that state unrepresentable.
+- **`paymentStatus: 'paid'` has exactly one cause: a verified Razorpay
+  signature.** The in-app verify, the checkout callback and the webhook all
+  funnel through `confirmPayment` for that reason. Nothing else may set it.
+
+`npm run verify:food-dispatch` walks the whole loop, including the parts that
+would fail silently: a rider who was not offered an order cannot accept it, two
+riders cannot both get one, the hand-over codes are actually checked, an unpaid
+online order sends nobody and is invisible to the kitchen, and the rider's
+position reaches the diner as `[lng, lat]` rather than swapped.
+
+### Getting a rider onto the road
+
+Before any of the loop above can reach somebody, a person has to be approved,
+and that span crosses the Driver app and the admin console:
+
+```
+Driver app      PATCH /v2/drivers/me            each step of the form
+                POST  /v2/drivers/me/uploads/images   a scan → Cloudinary
+                POST  /v2/drivers/me/documents  one document at a time
+Admin console   PATCH /v1/admin/drivers/:id/documents/:kind   verify / send back
+                PATCH /v1/admin/drivers/:id/decision          approve / suspend
+Driver app      GET   /v2/drivers/me            the verdict, in our words
+                POST  /v2/drivers/me/duty       now allowed
+```
+
+Three rules hold it together, and each one exists because the alternative was a
+bug we had:
+
+- **Two levels of verdict.** `documents[].status` is one document, one reason —
+  "photograph this again", which leaves the account exactly where it is.
+  `status` is the account. Collapsing them means one blurred PAN card rejects a
+  rider who sent four perfect documents.
+- **`hasCompletedOnboarding` is DERIVED, never accepted.** The app says "I am
+  done"; `PATCH /me` runs `onboardingProgress` and only agrees if the name, the
+  date of birth, the city, the vehicle, the three required documents and a
+  payout destination are all really there. That flag gates the duty switch, so
+  a client that could set it could put an unidentified rider in front of a
+  diner by sending one boolean.
+- **Nothing on the driver router writes either verdict.** Approval and every
+  document decision live behind `verifyAdminToken`, in a different identity
+  system. A module that can approve its own accounts is one where "approved"
+  means nothing.
+
+`documents` was an object of three scalars before it was a list, and riders
+created then still hold one — `readDocuments` reads the old shape (a licence
+number and its scan become the `licence` row) and a `pre('validate')` hook
+sweeps the empty husk out on the next write. Without both, one legacy rider
+500s the entire approval queue and can never edit their own profile again.
+
+`npm run verify:driver-onboarding` walks all of it.
+
+### Telling somebody an order arrived
+
+Both partner apps are told the same way, and the design point is that neither
+depends on a push:
+
+| Who | Live event | Fallback |
 | --- | --- | --- |
-| Route | `/api/v1/admin/login` | `/api/v2/auth/login` |
-| Collection | `admins` | `scriper_users` |
-| Roles | Super Admin / Admin / Editor / Viewer | ADMIN / EMPLOYEE |
-| Token verified server-side? | No — the console holds it client-side | Yes, on every guarded route |
+| Rider | `delivery_offer` | `GET /drivers/me/offer`, every 4s while online |
+| Kitchen | `order_placed` | `GET /food-partners/me/orders`, every 20s |
 
-The onboarding app authenticates its field agents against the **v2** accounts
-(`/api/v2/auth/onboarding-login`), then identifies them on writes with the
-`x-employee-email` header, which the v1 permission gate reads.
+`order_placed` is emitted by `foodOrder.notifier.js` into `restaurant:<id>`,
+**before** the push and outside its `pushReady()` guard. That ordering is the
+whole fix: a push needs a registered device token, `getPushToken` returns null
+on a simulator and on a refused permission, and the first restaurant in
+production had ZERO registered handsets — so the notifier logged "no handset is
+registered", returned, and the kitchen learned about each order silently on the
+next poll. The socket needs nothing but the session the app already holds.
+
+`emit` returns `false` rather than throwing when no socket server is attached,
+so the notifier reads its RETURN VALUE for the `live` flag; assuming success
+would have the log line claim a live event on exactly the deployments that
+never sent one.
+
+Both apps then play a tone **themselves** rather than relying on the
+notification to make the noise — a foregrounded app shows no notification, and
+a counter tablet face-up across the room is foregrounded. The two tones are
+deliberately different (the rider's is urgent and staccato, the kitchen's a
+warm two-note chime): a rider collecting at a counter is standing next to the
+tablet, and one tone across both apps is two people reaching for one phone.
+
+### Following the rider
+
+`PATCH /api/v2/drivers/me/location` is the hot path — four writes a minute per
+online rider, and a single `updateOne` for that reason. It feeds two readers:
+
+
+**Four writes a minute means a heartbeat, not a GPS callback.** The app's
+position watch is silent below five metres of movement, so a rider waiting at a
+junction produces no updates at all — and a fix over five minutes old is treated
+as no fix, which drops them out of every search silently. `driver/` therefore
+re-sends the last position on a 15-second timer whether or not it changed
+(`LOCATION_HEARTBEAT_MS`), which is twenty consecutive misses before the window
+closes and is where that window's five minutes comes from. This README claimed
+the fifteen seconds long before anything implemented it; a stationary rider sat
+online all shift receiving nothing.
+
+- the **dispatcher**, which skips any rider whose last fix is over 5 minutes old
+  (`driver.model.js`), because offering to a stale position burns a full
+  16-second timeout on somebody who is asleep;
+- the **diner's map**, joined onto the single-order read only. That one drops a
+  fix over 2 minutes old — deliberately a *shorter* patience than the
+  dispatcher's, because a marker left sitting still reads as a rider who has
+  stopped, which is more alarming than "we cannot see your rider right now".
+
+The list endpoint carries no positions at all: fifty orders would be fifty
+driver lookups to draw markers nobody is looking at.
+
+Both apps draw the same three points — kitchen, rider, door — with the same
+projection, at one uniform scale, with a scale bar and a real haversine
+distance. There are no street tiles: that means a native module and a Google
+Maps key, and `User App/components/food/DeliveryMap.tsx` is the seam where they
+would go. The geometry is duplicated in `driver/components/ui/MapPanel.tsx`
+because this monorepo has no workspace tooling — if you change one, change the
+other, or the rider and the diner are reading two different pictures of one
+journey.
+
+### Realtime is an optimisation, never a dependency
+
+`socket.io` rides on the same HTTP server and the same port. A rider's offer
+expires in fifteen seconds, which is shorter than any polling interval a phone
+can afford all day — so the offer is pushed.
+
+Everything it carries is also readable over HTTP: `GET /drivers/me/offer` for
+the rider, an 8-second poll for the diner, a 20-second poll for the kitchen.
+`require('socket.io')` is in a try/catch and every emit is a no-op without it,
+so a deployment that has not run `npm install` since this landed degrades to
+polling and says so in the boot banner. Behind nginx the delivery flow needs
+the `Upgrade`/`Connection` headers proxied; without them it falls back to
+long-polling on its own.
+
+## Six identity systems
+
+They share a process, a database and one signing secret, and nothing else. Do
+not try to make one verify another's tokens — what keeps them apart is the
+`typ` claim, asserted by each guard.
+
+| | Collection | Login | `typ` |
+| --- | --- | --- | --- |
+| v1 admin console | `admins` | `/api/v1/admin/login` | — (not verified server-side) |
+| v2 leads panel | `scriper_users` | `/api/v2/auth/login` | — (looked up by `userId`) |
+| User App | `app_customers` | `/api/v2/customers/auth/…` | `customer` |
+| Stay Partner | `app_partners` | `/api/v2/partners/auth/…` | `partner` |
+| Food-Partner | `food_restaurants` | `/api/v2/food-partners/auth/…` | `foodpartner` |
+| Driver | `app_drivers` | `/api/v2/drivers/auth/…` | `driver` |
+
+The four app systems all use a phone number and a one-time code. None of them
+has a password, for the reason `customer.model.js` sets out.
+
+The onboarding app authenticates its field agents against the **v2 leads**
+accounts (`/api/v2/auth/onboarding-login`), then identifies them on writes with
+the `x-employee-email` header, which the v1 permission gate reads.
 
 ## Every API call is logged
 
@@ -325,6 +516,11 @@ boot and in the response:
 | `npm run export:listings` | Build-time snapshot of `properties` into the public site's `src/data/listings.js`. `:clean` drops obvious test rows. |
 | `npm run migrate:json` | One-way, idempotent import of an old `data/*.json` leads store into MongoDB. |
 | `npm run seed:admins` | Creates the first v1 Super Admin. Refuses unless `ADMIN_PASSWORD` is set. |
+| `npm run verify:food-order` | The order loop: a diner orders, the kitchen accepts, cooks and marks ready, the diner tracks it. |
+| `npm run verify:food-dispatch` | The delivery loop: two riders, a real dispatch cascade, both hand-over codes, and the races. Needs an approved restaurant **with a map pin** — `npm run seed:food-menu` first. |
+| `npm run verify:addresses` | Addresses for all three identities that have one: the diner's book (one default always, including after the default is deleted; a partial edit that does not clear the other fields), and the rider's and owner's single address. Asserts the pin stays `[lng, lat]`, that a pin can be cleared with `null`, and that adding a rider address does NOT change whether an approved rider can go online. |
+| `npm run verify:zones` | Service zones end to end: a polygon and a circle drawn from the console, the open ring closed server-side, points in and out of each, the role gate, switching a zone off without losing its shape, redrawing a polygon as a circle (and the old boundary being removed), active hours, per-service restriction, and the unauthenticated client routes. Needs nothing seeded. |
+| `npm run verify:driver-onboarding` | Rider sign-up through approval: the form the server re-derives rather than trusts, one document at a time, the console's per-document and per-account verdicts, and the duty switch that only opens at the end. Needs nothing seeded, and texts nobody — the code is seeded the way `issueOtp` seeds it, because `sendOtpSms` reaches the live gateway in development too. |
 
 `verify` deliberately skips a complete `POST /api/v1/properties` (it would
 send a real WhatsApp message to a real number — the route is exercised through

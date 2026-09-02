@@ -40,7 +40,15 @@ export default function DashHome() {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
-    if (!session?.token) return;
+    /* A missing session must END the loading state, never skip past it — the
+       same bug fixed in `(dash)/orders.tsx`: `loading` starts `true`, so an
+       early return leaves a spinner turning over a blank screen with nothing
+       saying why. Either the screen has data, or it says what is wrong. */
+    if (!session?.token) {
+      setLoading(false);
+      setError("You are signed out. Sign in again to continue.");
+      return;
+    }
     setError("");
     try {
       const [restaurant, menu] = await Promise.all([

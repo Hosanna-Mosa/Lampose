@@ -91,6 +91,38 @@ const razorpayWebhook = async (req, res) => {
     return ack(`ignored event "${event}"`);
   }
 
+  /*
+   * A food order's payment arrives through the SAME webhook, and is told apart
+   * by the note it carries — never by the route.
+   *
+   * The same rule the WhatsApp webhook follows for YES/AVAILABLE: one inbound
+   * URL, dispatched on what the payload says rather than split into two
+   * endpoints a gateway would have to be reconfigured to reach. Razorpay is
+   * configured with one webhook URL and adding a second is a deployment step
+   * somebody will forget in the environment where it matters.
+   *
+   * Handled before the visit lookup so a food payment is never measured
+   * against a visit request it has nothing to do with.
+   */
+  const foodOrderNumber = entity.notes?.foodOrderNumber || paymentEntity.notes?.foodOrderNumber;
+  if (foodOrderNumber) {
+    try {
+      // eslint-disable-next-line global-require
+      const { handleFoodOrderWebhook } = require('../foodpartners/foodPayment.controller');
+      await handleFoodOrderWebhook({
+        orderNumber: foodOrderNumber,
+        paymentId: paymentEntity.id || entity.id || null,
+        amountPaise: Number(paymentEntity.amount ?? entity.amount),
+      });
+    } catch (error) {
+      /* Acknowledged anyway. A 500 makes Razorpay redeliver the same event for
+         hours; the money has already moved and the fault is ours to find in
+         the log, not theirs to retry. */
+      console.error(`[razorpay-webhook] food order ${foodOrderNumber} failed: ${error.message}`);
+    }
+    return ack(`food order ${foodOrderNumber}`);
+  }
+
   const requestId = entity.notes?.visitRequestId || paymentEntity.notes?.visitRequestId;
   const linkId = payload.payment_link?.entity?.id;
 

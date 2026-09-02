@@ -140,6 +140,13 @@ export const endpoints = {
    * the rent it was saved at, so the "cheaper since you saved it" line has
    * both numbers to compare.
    */
+  /* Food favourites — the heart on a dish and on a kitchen. A DIFFERENT list
+     from `customerSaved` above, which is the stay shortlist: that one exists
+     to compare rent over time, this one to get back to something you liked. */
+  customerFoodFavourites: `${V2}/customers/food-favourites`,
+  customerFoodFavouriteOne: (kind: 'dish' | 'kitchen', id: string) =>
+    `${V2}/customers/food-favourites/${kind}/${encodeURIComponent(id)}`,
+
   customerSaved: `${V2}/customers/saved`,
   customerSavedOne: (listingId: string) =>
     `${V2}/customers/saved/${encodeURIComponent(listingId)}`,
@@ -214,6 +221,52 @@ export const endpoints = {
     `${V2}/food-partners/orders/${encodeURIComponent(orderNumber)}`,
   foodOrderCancel: (orderNumber: string) =>
     `${V2}/food-partners/orders/${encodeURIComponent(orderNumber)}/cancel`,
+
+  /**
+   * Paying for an order, in two calls.
+   *
+   * The first mints a Razorpay order for the amount THIS SERVER computed — the
+   * app never names a figure, which is the same rule that governs placing the
+   * order in the first place. The second hands back the signature Razorpay's
+   * checkout returned, and the server checks it against a secret only the
+   * server holds.
+   *
+   * Nothing else marks an order paid. Until the second call (or Razorpay's own
+   * webhook) succeeds, the kitchen has not been told and no rider has been
+   * sent — see `Backend/src/modules/foodpartners/foodPayment.controller.js`.
+   */
+  foodOrderPayment: (orderNumber: string) =>
+    `${V2}/food-partners/orders/${encodeURIComponent(orderNumber)}/payment`,
+  foodOrderPaymentVerify: (orderNumber: string) =>
+    `${V2}/food-partners/orders/${encodeURIComponent(orderNumber)}/payment/verify`,
+
+  /**
+   * Service zones — where Lampose operates, drawn by the admin console.
+   *
+   * Both are deliberately UNAUTHENTICATED on the server. A student deciding
+   * whether Lampose delivers to their block is asking before they have an
+   * account, and refusing to answer until they make one is how that student
+   * leaves. There is nothing to protect: a boundary is something the product
+   * advertises.
+   */
+  /**
+   * The diner's address book.
+   *
+   * A LIST — an address is a property of the ORDER, chosen each time. Setting
+   * the default is its own call rather than a field on the edit, because it is
+   * one tap in a list and routing it through PATCH would make that tap send a
+   * whole address body it never loaded.
+   */
+  addresses: `${V2}/customers/me/addresses`,
+  address: (addressId: string) =>
+    `${V2}/customers/me/addresses/${encodeURIComponent(addressId)}`,
+  addressDefault: (addressId: string) =>
+    `${V2}/customers/me/addresses/${encodeURIComponent(addressId)}/default`,
+
+  zones: `${V2}/zones`,
+  /** `lat`/`lng` in, "is this served and what does it cost" out. */
+  zoneCheck: (lat: number, lng: number, service = 'food') =>
+    `${V2}/zones/check?lat=${lat}&lng=${lng}&service=${encodeURIComponent(service)}`,
 } as const;
 
 export default endpoints;

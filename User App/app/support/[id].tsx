@@ -17,6 +17,8 @@ import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
+
 import { Button, InlineAlert, Text, TextField } from '@/components/ui';
 import { StandardHeader, StateTemplate } from '@/components/shell';
 import { TicketMessageRow } from '@/components/lifecycle';
@@ -51,6 +53,7 @@ import { useTicket } from '@/services';
 export default function TicketThread() {
   const { colors, space, layout, mode } = useTheme();
   const insets = useSafeAreaInsets();
+  const bottomInset = useBottomEdgeInset();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
 
@@ -154,15 +157,18 @@ export default function TicketThread() {
         ))}
       </ScrollView>
 
-      {/* The composer owns the bottom edge, so it carries the safe-area inset
-          itself. Without it the Send button sits under the gesture bar on
-          every phone that has one — reachable only by pressing the strip the
-          OS uses to go home. */}
+      {/* The composer owns the bottom edge, so it carries the whole safe-area
+          clearance itself — the root here is a KeyboardAvoidingView, which
+          sets its own height and applies no inset. Without this the Send
+          button sits under the gesture bar on every phone that has one,
+          reachable only by pressing the strip the OS uses to go home.
+          `useBottomEdgeInset` and not `useActionBarInset`: the shortfall
+          version assumes a root that already paid, and there is none. */}
       <View
         style={{
           paddingHorizontal: layout.gutter,
           paddingTop: layout.gutter,
-          paddingBottom: layout.gutter,
+          paddingBottom: layout.gutter + bottomInset,
           gap: space[2],
           borderTopColor: colors.borderSubtle,
           borderTopWidth: StyleSheet.hairlineWidth,

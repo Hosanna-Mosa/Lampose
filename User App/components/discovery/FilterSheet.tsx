@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
 
 import { Button, CeilingSlider, Chip, Icon, Radio, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
@@ -70,7 +70,7 @@ export type FilterSheetProps = {
 
 export function FilterSheet({ query, inventory, onApply, onClose }: FilterSheetProps) {
   const { colors, space, radius, layout } = useTheme();
-  const insets = useSafeAreaInsets();
+  const bottomInset = useBottomEdgeInset();
   const reduceMotion = useReduceMotion();
 
   /** Every control writes to a draft. Nothing is committed until Apply. */
@@ -200,7 +200,10 @@ export function FilterSheet({ query, inventory, onApply, onClose }: FilterSheetP
             borderTopColor: colors.borderSubtle,
             paddingHorizontal: layout.gutter,
             paddingTop: space[3],
-            paddingBottom: insets.bottom + layout.gutter,
+            /* The sheet's footer owns the bottom edge, and on Android
+               `insets.bottom` is often 0 — see `useBottomEdgeInset`. Without
+               the floor, Apply sat on the gesture handle. */
+            paddingBottom: bottomInset + layout.gutter,
             gap: space[2],
           },
         ]}

@@ -66,6 +66,10 @@ const v1ScraperLeadAdminRoutes = require('../src/modules/scraper/scraperLead.adm
 const v1ProductAdminRoutes = require('../src/modules/properties/product.routes');
 const v1MessagingRoutes = require('../src/modules/messaging/messaging.routes');
 const v1FoodAdminRoutes = require('../src/modules/foodpartners/foodAdmin.routes');
+const v1FoodOrderAdminRoutes = require('../src/modules/foodpartners/foodOrderAdmin.routes');
+const v1DriverAdminRoutes = require('../src/modules/drivers/driverAdmin.routes');
+const v1ZoneAdminRoutes = require('../src/modules/zones/zoneAdmin.routes');
+const v1SupportAdminRoutes = require('../src/modules/support/supportAdmin.routes');
 
 const v2ListingRoutes = require('../src/modules/listings/listing.routes');
 const v2VisitRequestRoutes = require('../src/modules/visits/visitRequest.routes');
@@ -76,8 +80,17 @@ const v2UserRoutes = require('../src/modules/users/user.routes');
 const v2ScraperRoutes = require('../src/modules/scraper/scraper.routes');
 const v2CustomerRoutes = require('../src/modules/customers/customer.routes');
 const v2SupportRoutes = require('../src/modules/support/ticket.routes');
+/* The SAME module, built three times — one router per audience, each behind
+   its own guard. See the header of ticket.routes.js for why this is three
+   routers rather than one guard that understands three token types. */
+const {
+  driverSupportRouter: v2DriverSupportRoutes,
+  restaurantSupportRouter: v2RestaurantSupportRoutes,
+} = v2SupportRoutes;
 const v2PartnerRoutes = require('../src/modules/partners/partner.routes');
 const v2FoodPartnerRoutes = require('../src/modules/foodpartners/foodPartner.routes');
+const v2DriverRoutes = require('../src/modules/drivers/driver.routes');
+const v2ZoneRoutes = require('../src/modules/zones/zone.routes');
 
 /* [mount path, router, one-line description]. The description is what the
    banner and GET /api print, so it is worth keeping accurate. */
@@ -101,6 +114,30 @@ const V1_GROUPS = [
      Role-gated to Admin / Food Admin inside the router rather than locked to
      Super Admin: it is daily operational work with a screen of its own. */
   ['/admin/food-restaurants', v1FoodAdminRoutes, 'food partner applications: the approval queue and its decisions'],
+  /* The orders those restaurants cook, and the refund button. A SECOND admin
+     router in the same module rather than more routes on the one above,
+     because the two answer different questions and the role gates differ:
+     anybody signed in may read the queue, and only Super Admin / Admin may
+     send a diner their money back. Until this existed, `markForRefund` marked
+     an order `refunded`, warned "refund this in the dashboard" and there was
+     no dashboard — the money stopped at a status word. */
+  ['/admin/food-orders', v1FoodOrderAdminRoutes, 'food orders: the queue that needs a human, one order reconciled, and the refund'],
+  /* The rider queue, and the other half of the rule that makes "approved" mean
+     something: NO route on /api/v2/drivers can set a rider's status, so this is
+     the only way one ever gets on the road. Same identity, same roles and the
+     same reasoning as the restaurant queue above. */
+  ['/admin/drivers', v1DriverAdminRoutes, 'rider applications: the approval queue, suspensions, and the roster'],
+  /* Where Lampose operates, drawn on a map. v1 for the same reason as the two
+     queues above — the reader is an administrator in `admins`. Writing is
+     Super Admin / Admin only, because a zone decides where the product is sold
+     and what every order in it is multiplied by; reading is open to anybody
+     signed in, because "why was this address refused" is an everyday question.
+     The apps read the same shapes through /api/v2/zones, which cannot write. */
+  ['/admin/zones', v1ZoneAdminRoutes, 'service zones: draw, edit and retire the trading area'],
+  /* The support queue, spanning all three apps. Every ticket a diner, rider
+     or restaurant files arrives here; the three app-facing routers under v2
+     can only ever read their own author's threads. */
+  ['/admin/support', v1SupportAdminRoutes, 'support queue: threads from all three apps, replies, status and assignment'],
 ];
 
 const V2_GROUPS = [
@@ -135,7 +172,36 @@ const V2_GROUPS = [
      unversioned alias: nothing was ever written against one, and the aliases
      below exist to keep old callers working, not to hand new ones a second
      spelling to drift onto. */
+  /* The kitchen's support threads. Mounted UNDER its own app's path rather
+     than beside /support, because the guard is what makes them different
+     routers and the path should say whose guard it is.
+
+     BEFORE the general /food-partners mount, and that ordering is load
+     bearing: Express tries mounts in order, and a router whose own middleware
+     answers 401 on an unmatched path never calls next(). Registering the
+     broad prefix first would let it refuse a support request that was never
+     its to handle. */
+  ['/food-partners/support', v2RestaurantSupportRoutes, 'Food-Partner app: support tickets'],
   ['/food-partners', v2FoodPartnerRoutes, 'Food-Partner app: restaurant onboarding, menu, orders, public discovery'],
+  /* Riders, in `app_drivers`. A SIXTH identity system — see
+     driverAuth.middleware.js, which refuses any token not carrying
+     `typ: 'driver'`. This is the other half of the food-delivery loop: the
+     order is written under /food-partners and carried under /drivers, and the
+     two meet at `food_orders`. Deliberately given NO unversioned alias, for
+     the same reason /food-partners has none — the aliases exist to keep old
+     callers working, not to hand new ones a second spelling to drift onto. */
+  /* The rider's support threads — same module as the diner's, different
+     guard. Behind `requireDriver` and NOT `requireApprovedDriver`: a rider
+     whose documents were just rejected is the one most likely to need help.
+
+     Before the general /drivers mount, for the ordering reason given above. */
+  ['/drivers/support', v2DriverSupportRoutes, 'Driver app: support tickets'],
+  ['/drivers', v2DriverRoutes, 'Driver app: rider accounts, duty, live position, delivery offers'],
+  /* The zones, as every client reads them. Deliberately UNAUTHENTICATED: the
+     User App asks "do you deliver to my block" on the address screen before
+     anybody has signed in, and refusing to answer until they do is how that
+     student leaves. Read-only by construction — the console owns writing. */
+  ['/zones', v2ZoneRoutes, 'service zones: is this point served, and the live map of where we operate'],
 ];
 
 /* Which version answers each unversioned path, and whether it also answers

@@ -250,6 +250,37 @@ export type ServerOrder = {
   paymentMode: "online" | "cod";
   paymentStatus: string;
   status: string;
+  /**
+   * The rider search, which runs BESIDE `status` rather than inside it — an
+   * order is being cooked and looked for at the same time.
+   *
+   * The kitchen mostly needs one thing from it: whether somebody is coming to
+   * collect. `unassigned` means every rider nearby said no, and the server
+   * tries again the moment this order is marked ready — which is worth saying
+   * on the card, because a cook who plates food nobody is coming for has made
+   * a decision on bad information.
+   */
+  dispatch?: {
+    state: "idle" | "searching" | "assigned" | "unassigned";
+    candidateCount?: number;
+    failureReason?: string;
+  };
+  /** Null until a rider accepts. */
+  rider?: {
+    name: string;
+    phone: string;
+    vehicle?: { type?: string; model?: string; plate?: string };
+    assignedAt?: string | null;
+    pickedUpAt?: string | null;
+  } | null;
+  /**
+   * The four digits the cook reads out to the rider at the pass.
+   *
+   * Not a credential — it opens nothing. It is a value the two of them
+   * COMPARE, and the rider's app posts it to prove the hand-over happened
+   * where both people were standing.
+   */
+  pickupCode?: string;
   promisedMinutes?: number;
   rejectionReason?: string;
   placedAt: string;

@@ -9,6 +9,7 @@ import { clockLabel, minutesUntilClose } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 
 import { FoodPhoto, RatingPill } from './FoodMarks';
+import { FavouriteHeart } from './FavouriteHeart';
 
 export type KitchenCardProps = {
   kitchen: Kitchen;
@@ -20,6 +21,14 @@ export type KitchenCardProps = {
   /** When closed, the window it next cooks — the card must say when to come back. */
   reopensAt?: string;
   onPress: () => void;
+  /**
+   * Show the favourite heart.
+   *
+   * Opt-in for the same reason `DishRow`'s is: this card is also drawn on the
+   * favourites screen itself, where the row already carries its own remove
+   * control and a second one would be two ways to do the same thing.
+   */
+  favouritable?: boolean;
 };
 
 /**
@@ -35,7 +44,9 @@ export type KitchenCardProps = {
  * minimum — because that is the row a student compares across cards, and a row
  * that reorders itself cannot be compared at all.
  */
-export function KitchenCard({ kitchen, locality, window, now, open, reopensAt, onPress }: KitchenCardProps) {
+export function KitchenCard({
+  kitchen, locality, window, now, open, reopensAt, onPress, favouritable = false,
+}: KitchenCardProps) {
   const { colors, space, radius } = useTheme();
 
   const closesIn = open ? minutesUntilClose(window, now) : null;
@@ -68,6 +79,12 @@ export function KitchenCard({ kitchen, locality, window, now, open, reopensAt, o
           >
             {kitchen.name}
           </Text>
+          {/* Before the rating, so the two never swap places as a kitchen opens
+              and closes — a control that moves is a control that gets
+              mis-tapped on a list somebody is scrolling. */}
+          {favouritable ? (
+            <FavouriteHeart kind="kitchen" id={kitchen.id} label={kitchen.name} size={16} />
+          ) : null}
           {open ? (
             <RatingPill rating={kitchen.rating} count={kitchen.ratingCount} />
           ) : (

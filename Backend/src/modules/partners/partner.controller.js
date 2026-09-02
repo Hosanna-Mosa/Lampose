@@ -30,6 +30,10 @@
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 
+const {
+  AddressInputError, buildAddress, makeAddressId,
+} = require('../../shared/utils/address');
+
 const Partner = require('./partner.model');
 const { signPartnerToken } = require('./partnerAuth.middleware');
 const { sendOtpSms, smsConfigProblem } = require('../../infrastructure/sms/sms');
@@ -405,10 +409,37 @@ const updateMe = async (req, res, next) => {
       partner.businessName = String(businessName).trim().slice(0, 120);
     }
 
+    /*
+     * The OWNER's own address — not a property's, which lives on the property.
+     *
+     * Singular, for the reason `shared/utils/address.js` gives. `null` clears
+     * it; a partial body edits what is there rather than replacing it, so
+     * changing a landmark cannot blank the pincode.
+     */
+    if (req.body && req.body.address !== undefined) {
+      if (req.body.address === null) {
+        partner.address = undefined;
+      } else {
+        const fields = buildAddress(req.body.address, { partial: !!partner.address });
+        if (partner.address) {
+          Object.entries(fields).forEach(([key, value]) => { partner.address[key] = value; });
+        } else {
+          partner.address = { addressId: makeAddressId(), ...fields };
+        }
+      }
+    }
+
     await partner.save();
 
     return res.json({ success: true, data: partner.toPublic() });
   } catch (error) {
+    /* An address the owner can fix by retyping is a 400 that says what is
+       wrong, not a 500 from the shared handler. */
+    if (error instanceof AddressInputError) {
+      return res.status(400).json({
+        success: false, code: error.code, message: error.message, error: error.message,
+      });
+    }
     return next(error);
   }
 };

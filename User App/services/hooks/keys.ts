@@ -86,6 +86,11 @@ export const queryKeys = {
      listing saved from the feed is already saved when the tab is opened. */
   saved: ['saved'] as const,
 
+  /* Food favourites — a different list from `saved`, which is the stay
+     shortlist. Two keys because the two are invalidated by different acts:
+     hearting a dish must not refetch a shortlist of rooms. */
+  foodFavourites: ['food-favourites'] as const,
+
   /* Hierarchical, so filing a ticket or replying to one can invalidate
      `['tickets']` and refresh both the list and whichever thread is open,
      without either knowing about the other. */

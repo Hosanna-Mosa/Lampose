@@ -61,6 +61,13 @@ export default {
     plugins: [
       'expo-router',
       'expo-font',
+      /* Registers the native audio session for the new-order chime. The tone is
+         played in the foreground by the app itself rather than left to the
+         notification, because a push needs a registered device token — and
+         there is none on a simulator, on a refused permission, or before the
+         first successful registration. A kitchen that hears nothing is the one
+         failure this app cannot have. */
+      'expo-audio',
       'expo-web-browser',
       [
         'expo-location',

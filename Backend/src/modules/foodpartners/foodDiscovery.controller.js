@@ -1044,3 +1044,22 @@ module.exports = {
   getRestaurant,
   getProduct,
 };
+
+/*
+ * The serialisers, exported so a second reader cannot invent a second shape.
+ *
+ * `customers/foodFavourite.controller.js` hydrates a hearted dish and a
+ * hearted kitchen, and the app already has parsers for exactly these two
+ * objects. Re-deriving them there would produce a third spelling of a menu
+ * item — and the failure would be silent, because a card with a missing field
+ * renders as a card with a blank line rather than as an error.
+ *
+ * `LISTED` travels with them for the same reason: "which restaurants may a
+ * customer see" is one predicate, and a favourites screen that ignored it
+ * would keep showing a kitchen the moment it was suspended.
+ */
+module.exports.menuItem = menuItem;
+module.exports.listRow = listRow;
+module.exports.LISTED = LISTED;
+module.exports.MENU_SELECT = MENU_SELECT;
+module.exports.LIST_SELECT = LIST_SELECT;

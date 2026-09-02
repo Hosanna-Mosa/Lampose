@@ -3,6 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 
 import {
   ApiError,
+  disconnectSupportSocket,
   fetchMe,
   resendAuthCode,
   setAuthToken,
@@ -214,6 +215,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         pushToken.current = null;
       }
       await clearPushState();
+
+      /*
+       * The support socket goes with it, for the same reason.
+       *
+       * The server put that connection in `customer:<id>` from the token it
+       * was opened with and never re-checks it, so one left open outlives the
+       * session that authorised it — on a shared handset that is the next
+       * person's app holding a live line to the previous student's deposit
+       * dispute. Clearing the HTTP token below does nothing to a socket that
+       * is already connected.
+       */
+      disconnectSupportSocket();
 
       setUser(null);
       setToken(null);

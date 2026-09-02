@@ -78,6 +78,11 @@ export default {
         },
       ],
       'expo-font',
+      /* Registers the native audio session. The alert tone is played in the
+         foreground by the app itself rather than by a notification, because a
+         push needs a registered device token and there is none on a simulator,
+         on a refused permission, or before the first successful registration. */
+      'expo-audio',
       'expo-web-browser',
       [
         'expo-notifications',

@@ -30,7 +30,25 @@
    ══════════════════════════════════════════════════════════════════════════ */
 const config = require('../../config/env');
 
-const SECRET_KEY = /pass(word)?|token|secret|authorization|admincode|adminsecretkey|apikey|api_key|otp|hash|salt/i;
+/*
+ * What must never reach a log line.
+ *
+ * Two kinds of thing are in here, and the second is easy to forget. The first
+ * is credentials — a password, a token, a one-time code — which are dangerous
+ * because they grant access. The second is a bank account number, which grants
+ * nothing and is still the single worst field in this product to leave in a
+ * terminal that gets screen-shared: it is the rider's money, we ask for it
+ * once, and `driver.model.js` goes to the trouble of marking it `select: false`
+ * and deleting it in `toJSON` precisely so no read path can return it. A body
+ * log that prints it on the way IN undoes all of that, because `log.bodies`
+ * defaults to true.
+ *
+ * `account` is deliberately broad — it catches `bankAccountNumber`,
+ * `accountNumber` and `confirmAccountNumber` alike, and the cost of also
+ * redacting a harmless `accountType` is a log line that says [redacted] where
+ * it could have said "savings".
+ */
+const SECRET_KEY = /pass(word)?|token|secret|authorization|admincode|adminsecretkey|apikey|api_key|otp|hash|salt|account|ifsc|upi/i;
 
 /* A base64 data URI for a 15MB photo would otherwise fill the terminal with
    one request. Only its size is interesting. */

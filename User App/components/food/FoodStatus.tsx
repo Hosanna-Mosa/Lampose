@@ -20,7 +20,7 @@ type StatusDescriptor = {
 };
 
 /**
- * Eleven states, and only three of them are filled chips.
+ * Twelve states, and only three of them are filled chips.
  *
  * A filled chip means the student is being waited on or has been handed
  * something: the food is at a counter, or it has arrived. Everything else is
@@ -28,9 +28,16 @@ type StatusDescriptor = {
  * loud, Ready would stop meaning anything — and Ready is the one that has a
  * twenty-minute hold behind it.
  *
- * Colour is the second signal in all eleven. Each carries a glyph and a word,
+ * Colour is the second signal in all twelve. Each carries a glyph and a word,
  * so a student who cannot separate the confirm colour from the caution one still knows
  * whether the kitchen has started.
+ *
+ * `rejected` reads "Refused" and not "Cancelled", and the two carry different
+ * glyphs under the same danger tone. They are different
+ * events with different consequences: a cancellation is the diner's own doing
+ * and needs no explanation, while a refusal is the kitchen saying no — the one
+ * case where the diner has to be told, and the order screen has the kitchen's
+ * own reason to tell them.
  */
 const STATUS: Record<FoodOrderStatus, StatusDescriptor> = {
   placed: { label: 'Placed', glyph: 'check', shape: 'tinted', tone: 'info' },
@@ -41,6 +48,7 @@ const STATUS: Record<FoodOrderStatus, StatusDescriptor> = {
   delivered: { label: 'Delivered', glyph: 'check', shape: 'filledGraphite', tone: 'success' },
   pickedUp: { label: 'Picked up', glyph: 'check', shape: 'filledGraphite', tone: 'success' },
   pending: { label: 'Payment pending', glyph: 'clock', shape: 'tinted', tone: 'warning' },
+  rejected: { label: 'Refused', glyph: 'alert', shape: 'tinted', tone: 'danger' },
   cancelled: { label: 'Cancelled', glyph: 'close', shape: 'tinted', tone: 'danger' },
   refunded: { label: 'Refunded', glyph: 'rupee', shape: 'tinted', tone: 'success' },
   failed: { label: 'Payment failed', glyph: 'alert', shape: 'tinted', tone: 'danger' },
@@ -115,7 +123,7 @@ export function FoodTimeline({
   steps,
   currentIndex,
 }: {
-  steps: readonly { label: string; at?: string; note?: string }[];
+  steps: readonly { label: string; at?: string; note?: string; done?: boolean }[];
   currentIndex: number;
 }) {
   const { colors, space, radius } = useTheme();
@@ -127,9 +135,24 @@ export function FoodTimeline({
         { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, paddingHorizontal: space[4] },
       ]}
     >
+      {/*
+        `done` comes from the step when the caller knows — it is set from the
+        server's `statusHistory`, one event per transition. Falling back to the
+        index is what this used to do for EVERY step, and it made the list a
+        restatement of the current status rather than a history: an order that
+        reached `delivered` marked the kitchen steps complete whether or not
+        they ever happened. The fallback stays only for the demo fixtures,
+        which carry no `done`.
+      */}
       {steps.map((step, index) => {
-        const done = index < currentIndex;
-        const current = index === currentIndex;
+        const done = step.done ?? index < currentIndex;
+        /* The step being worked on is the first one NOT done — derived from
+           the same events, so the halo cannot land on a row the ticks say is
+           already finished. `currentIndex` still decides it for the fixtures. */
+        const firstPending = steps.findIndex((s) => !(s.done ?? false));
+        const current = steps.some((s) => s.done !== undefined)
+          ? index === firstPending
+          : index === currentIndex;
         return (
           <View key={step.label} style={[styles.step, { paddingVertical: space[2] + 2, gap: space[3] }]}>
             <View style={styles.dotColumn}>
@@ -137,13 +160,27 @@ export function FoodTimeline({
                   fourth colour to a list that already carries three states. It
                   is drawn behind the dot so the dot keeps its exact size. */}
               {current ? <View style={[styles.halo, { borderColor: colors.brandTint }]} /> : null}
+              {/*
+                FILLED means it happened. Nothing else does.
+
+                The current step used to be filled too, in graphite — and next
+                to four filled brand dots a fifth filled dot reads as "also
+                done", whatever its colour. So an order that had been picked up
+                but not delivered showed a solid dot against "Delivered", which
+                is the report this fixes: the timeline ran one step ahead of
+                the food.
+
+                The step being worked on is now a HOLLOW dot in the brand
+                colour with the halo around it — unmistakably "here, not yet"
+                rather than "finished". Pending steps stay hollow and grey.
+              */}
               <View
                 style={[
                   styles.dot,
                   {
-                    backgroundColor: done ? colors.brand : current ? colors.graphite : 'transparent',
-                    borderColor: done || current ? 'transparent' : colors.border,
-                    borderWidth: done || current ? 0 : 1.5,
+                    backgroundColor: done ? colors.brand : 'transparent',
+                    borderColor: done ? 'transparent' : current ? colors.brand : colors.border,
+                    borderWidth: done ? 0 : current ? 2.5 : 1.5,
                   },
                 ]}
               />
@@ -153,6 +190,14 @@ export function FoodTimeline({
               <Text variant="title3" style={{ color: done || current ? colors.textPrimary : colors.textTertiary }}>
                 {step.label}
               </Text>
+              {/* Said in words as well as by the dot. Colour and shape are not
+                  available to every reader, and "Delivered" with nothing beside
+                  it is exactly the row that was being misread. */}
+              {current && !done ? (
+                <Text variant="numMeta" color="tertiary" style={{ marginTop: 2 }}>
+                  Waiting for this
+                </Text>
+              ) : null}
               {step.at ? (
                 <Text variant="numMeta" color="tertiary" style={{ marginTop: 2 }}>
                   {step.at}
