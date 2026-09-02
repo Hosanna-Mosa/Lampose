@@ -47,6 +47,11 @@ export default function ReportProblem() {
 
   const [reasonId, setReasonId] = useState<string | null>(null);
   const [detail, setDetail] = useState('');
+  /* Which place this is about, in the student's own words. Optional, and it
+     stays optional: a report about a person is filed by somebody upset, and a
+     required field they cannot answer — the hostel whose real name they never
+     learned — is a report that does not get filed. */
+  const [place, setPlace] = useState('');
 
   const reason = reportReasons.find((item) => item.id === reasonId);
   const short = detail.trim().length < REPORT_MIN_CHARS;
@@ -71,7 +76,16 @@ export default function ReportProblem() {
   const send = async () => {
     if (!reasonId || short) return;
     try {
-      const created = await submitReport({ reason: reasonId, body: detail.trim() });
+      /* `placeLabel` only, never a `listingId`. This is a typed name, and
+         attaching it to a listing on a guess would put an allegation against
+         a specific owner's record on the strength of a spelling. The safety
+         queue can identify the place from the name and the account; it must
+         not be told we already did. */
+      const created = await submitReport({
+        reason: reasonId,
+        body: detail.trim(),
+        placeLabel: place.trim() || null,
+      });
       router.replace(`/support/${created.reference}` as never);
     } catch {
       /* Held in `reportError`, rendered beside the button. */
@@ -208,6 +222,17 @@ export default function ReportProblem() {
           <Text variant="numMeta" color={short ? 'tertiary' : 'secondary'}>
             {detail.trim().length} characters · {REPORT_MIN_CHARS} needed
           </Text>
+          {/* Asked under the account of what happened rather than above it.
+              Nothing on this screen may stand between somebody and the box
+              they came here to type in. */}
+          <TextField
+            label="Which place is this about?"
+            value={place}
+            onChangeText={setPlace}
+            placeholder="The PG, hostel or kitchen, as it is named in the app"
+            optional
+            maxLength={120}
+          />
         </View>
 
         {reason?.evidenceRequired ? (
@@ -221,12 +246,26 @@ export default function ReportProblem() {
               gap: space[2],
             }}
           >
-            <Text variant="bodyStrong">Anything you can show us</Text>
+            {/*
+              * This asked for screenshots under a button that has never had a
+              * handler, and cannot be given one: there is no attachment
+              * anywhere in the system — see the note in `ticket.model.js`,
+              * where their absence is a decision rather than an omission.
+              *
+              * So it now asks for the thing this app can actually carry. A
+              * date, a time, a name and the words that were used are what make
+              * one of these reasons investigable, and all four fit in the box
+              * above. Demanding evidence with no way to attach it left the one
+              * person who had a screenshot pressing a dead button, and the
+              * ones who had none believing their report could not be filed.
+              */}
+            <Text variant="bodyStrong">What makes this one investigable</Text>
             <Text variant="caption" color="secondary">
-              Screenshots of messages, photos of the room, a receipt. We cannot act on this reason
-              without something to look at — and a WhatsApp screenshot is usually enough.
+              For this reason especially: the date and time it happened, who was there, and the
+              exact words used or the exact amount asked for. Put them in the box above — we
+              cannot take screenshots here, and a plain account with those details in it is what
+              the safety team can act on.
             </Text>
-            <Button label="Add photos or screenshots" variant="secondary" fullWidth />
           </View>
         ) : null}
 

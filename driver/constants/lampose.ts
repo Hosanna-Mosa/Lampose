@@ -1,59 +1,94 @@
 /**
- * Content tables transcribed from the Lampose Driver design artifact.
+ * The app's fixed COPY — and nothing that pretends to be a rider's data.
  *
- * These are the exact strings, figures and status tones the design specifies.
- * Screens read from here rather than inlining copy, so the wording stays in one
- * place when it's swapped for live API data.
+ * This began as the whole design artifact transcribed: every string, every
+ * figure, every status tone, so screens could be built before the backend
+ * existed. Almost all of it has since been deleted rather than left lying
+ * about, and the notes below say which table went and why, because the pattern
+ * is the same every time. A table of plausible values does not stay inert. A
+ * screen reaches for it on the day the real list comes back empty, and then a
+ * rider is reading somebody's example week as their own — eight deliveries
+ * they did not make, ₹6,480 paid to an account they never opened, a licence
+ * they hold being called expired.
+ *
+ * What belongs here now is wording that is true for every rider whatever their
+ * account says: stage names, tab labels, the sentence under a duty state. What
+ * does not belong here is any number, name, date or status about a particular
+ * rider. Those have exactly one source each, and it is the server.
  */
 import type { IconName } from "@/components/ui";
 import type { ToneName } from "@/theme";
 
 // ─── Delivery flow ────────────────────────────────────────────────────────────
 
+/*
+ * FIVE stages, every one of which an order actually reaches.
+ *
+ * There used to be six, with "Picked up" between "Arrived at restaurant" and
+ * "Going to customer". `selectStage` could never return it — the moment the
+ * kitchen code is accepted the order is `picked_up`, which IS "going to the
+ * customer" — so the rail skipped from stage 3 to stage 5 and filled five of
+ * six bars the instant the food went in the bag. A rider who had just
+ * collected saw a progress bar that said they were nearly finished, and a
+ * diner watching the same journey saw the step after theirs already marked.
+ *
+ * A stage nothing can occupy is a stage that only ever miscounts the ones
+ * around it.
+ */
 export const STAGES = [
   "Accepted",
   "Going to restaurant",
   "Arrived at restaurant",
-  "Picked up",
   "Going to customer",
   "Delivered",
 ] as const;
 
+/*
+ * One line of guidance per stage, indexed by `selectStage`.
+ *
+ * Deliberately free of names, distances and codes. Those are on the cards
+ * around this line and come from the ORDER — a hint that named a restaurant
+ * would be naming the wrong one on every job but the fixture it was written
+ * for, and a rider reading "1.2 km to the restaurant" over a 4km trip stops
+ * reading the hints at all.
+ */
 export const STAGE_HINTS = [
-  "Head to Paradise Biryani. Navigation is ready.",
-  "1.2 km to the restaurant. Follow the route.",
-  "Show token 24 at the counter and check the items.",
-  "Order in the bag. Drop address is now unlocked.",
-  "3.6 km to Sneha at Morampudi Junction.",
-  "Hand over the order and mark it delivered.",
+  "Job accepted. The pickup is on the card below.",
+  "Head to the restaurant. The address is on the card below.",
+  "Ask at the counter for the 4-digit code, and check the items against the list.",
+  "Order in the bag and the drop address unlocked. Take the customer's PIN at the door.",
+  "Delivered. Nothing further to do.",
 ] as const;
 
 export const STAGE_CTAS = [
   "Start navigation",
   "Arrived at restaurant",
   "Order picked up",
-  "Start delivery",
-  "Arrived at customer",
   "Mark as delivered",
+  "Delivered",
 ] as const;
 
-export const ORDER_ITEMS = [
-  { name: "Hyderabadi Chicken Biryani (Family)", qty: "× 1" },
-  { name: "Mutton Keema Samosa", qty: "× 2" },
-  { name: "Mirchi ka Salan", qty: "× 1" },
-] as const;
+/*
+ * `ORDER_ITEMS` is gone. Three named dishes with quantities, which no screen
+ * has read since the active screen started rendering `currentJob.lines` — the
+ * real contents of the real order, from the server.
+ */
 
 // ─── Duty status copy ─────────────────────────────────────────────────────────
 
-export type Phase =
-  | "idle"
-  | "connecting"
-  | "searching"
-  | "noorders"
-  | "request"
-  | "expired"
-  | "active"
-  | "done";
+/**
+ * The three duty states the home screen can actually be in.
+ *
+ * There used to be eight. `connecting` announced "Connecting you to the
+ * Rajahmundry dispatch…", `noorders` read "Demand is low in Morampudi. Try
+ * Danavaipeta — 8 partners are getting orders there." — a claim about live
+ * demand in two named neighbourhoods, computed by nothing, that would have
+ * sent a rider across a city on it. Neither could ever be reached: the screen
+ * derives its phase from whether a job is held and whether duty is on, and
+ * that has exactly three answers. A phase nothing can occupy is copy nobody
+ * has to keep true.
+ */
+export type Phase = "idle" | "searching" | "active";
 
 export const STATUS: Record<Phase, { tone: ToneName; head: string; sub: string }> = {
   idle: {
@@ -61,29 +96,12 @@ export const STATUS: Record<Phase, { tone: ToneName; head: string; sub: string }
     head: "You're offline",
     sub: "Go online to start receiving delivery requests.",
   },
-  connecting: {
-    tone: "success",
-    head: "You're now online",
-    sub: "Connecting you to the Rajahmundry dispatch…",
-  },
   searching: {
     tone: "success",
     head: "You're online",
     sub: "Looking for delivery requests near you…",
   },
-  noorders: {
-    tone: "warning",
-    head: "No orders right now",
-    sub: "Demand is low in Morampudi. Try Danavaipeta — 8 partners are getting orders there.",
-  },
-  request: { tone: "success", head: "You're online", sub: "A delivery request is on screen." },
-  expired: {
-    tone: "success",
-    head: "You're online",
-    sub: "Looking for delivery requests near you…",
-  },
   active: { tone: "success", head: "You're online", sub: "One delivery in progress." },
-  done: { tone: "success", head: "You're online", sub: "Looking for delivery requests near you…" },
 };
 
 /** The online status when idle differs from the offline copy above. */
@@ -95,59 +113,19 @@ export const STATUS_ONLINE_IDLE: { tone: ToneName; head: string; sub: string } =
 
 // ─── Orders ───────────────────────────────────────────────────────────────────
 
-export type OrderRow = {
-  rest: string;
-  when: string;
-  id: string;
-  dist: string;
-  earn: string;
-  status: string;
-  tone: ToneName;
-};
+/*
+ * `OrderRow`, `ORDERS`, `TIMELINE` and `ORDER_EARNINGS` are gone.
+ *
+ * Eight example deliveries from Paradise Biryani and KFC Devi Chowk, a
+ * six-step timeline ending "Delivered to Sneha Reddy", and an earnings
+ * breakdown with a ₹10 customer tip in it. The Orders tab renders
+ * `GET /me/orders` and the detail screen renders the order behind the row; a
+ * table of plausible deliveries sitting beside them is what a screen reaches
+ * for on the day the real list comes back empty.
+ */
 
 export const ORDERS_TABS = ["Active", "Completed", "Cancelled"] as const;
 export type OrdersTab = (typeof ORDERS_TABS)[number];
-
-export const ORDERS: Record<OrdersTab, OrderRow[]> = {
-  Active: [
-    {
-      rest: "Paradise Biryani",
-      when: "Now · 7:42 pm",
-      id: "#LP48291",
-      dist: "4.8 km",
-      earn: "₹86",
-      status: "Picked up",
-      tone: "brand",
-    },
-  ],
-  Completed: [
-    { rest: "KFC · Devi Chowk", when: "Today 6:58 pm", id: "#LP48277", dist: "3.1 km", earn: "₹64", status: "Delivered", tone: "success" },
-    { rest: "Domino's · Morampudi", when: "Today 6:12 pm", id: "#LP48260", dist: "5.4 km", earn: "₹92", status: "Delivered", tone: "success" },
-    { rest: "Sri Sai Tiffins", when: "Today 5:20 pm", id: "#LP48241", dist: "2.2 km", earn: "₹55", status: "Delivered", tone: "success" },
-    { rest: "Paradise Biryani", when: "Today 3:04 pm", id: "#LP48198", dist: "6.0 km", earn: "₹104", status: "Delivered", tone: "success" },
-    { rest: "Ohri's Tandoor", when: "Yesterday 9:10 pm", id: "#LP48102", dist: "4.0 km", earn: "₹78", status: "Delivered", tone: "success" },
-  ],
-  Cancelled: [
-    { rest: "KFC · Devi Chowk", when: "Yesterday 8:30 pm", id: "#LP48090", dist: "1.4 km", earn: "₹25", status: "Restaurant closed", tone: "danger" },
-    { rest: "Cream Stone", when: "14 Aug 7:15 pm", id: "#LP47980", dist: "0.0 km", earn: "₹0", status: "Customer cancelled", tone: "danger" },
-  ],
-};
-
-export const TIMELINE = [
-  { t: "Request accepted", at: "7:42 pm" },
-  { t: "Reached Paradise Biryani", at: "7:47 pm" },
-  { t: "Order picked up · token 24", at: "7:53 pm" },
-  { t: "Left for Morampudi Junction", at: "7:54 pm" },
-  { t: "Reached customer", at: "8:03 pm" },
-  { t: "Delivered to Sneha Reddy", at: "8:05 pm" },
-] as const;
-
-export const ORDER_EARNINGS = [
-  { l: "Delivery fee", v: "₹64", tone: "info" },
-  { l: "Distance pay · 4.8 km", v: "₹12", tone: "info" },
-  { l: "Customer tip", v: "₹10", tone: "success" },
-  { l: "Adjustments", v: "₹0", tone: "muted" },
-] as const;
 
 // ─── Earnings ─────────────────────────────────────────────────────────────────
 
@@ -165,77 +143,31 @@ export type PeriodData = {
   rows: { l: string; v: string; tone?: ToneName }[];
 };
 
-export const PERIODS: Record<Period, PeriodData> = {
-  Today: {
-    label: "Today · 16 August",
-    total: "₹842",
-    delta: "₹118 more than your daily average",
-    orders: "12",
-    hours: "6h 24m",
-    bars: [["10a", 0.2, 0], ["12p", 0.55, 0], ["2p", 0.35, 0], ["4p", 0.28, 0], ["6p", 0.82, 0], ["8p", 1, 1], ["10p", 0.1, 0]],
-    rows: [
-      { l: "Delivery earnings", v: "₹648" },
-      { l: "Distance pay", v: "₹86" },
-      { l: "Incentives", v: "₹60", tone: "success" },
-      { l: "Tips", v: "₹48", tone: "success" },
-      { l: "Adjustments", v: "₹0", tone: "muted" },
-    ],
-  },
-  Week: {
-    label: "This week · 10–16 August",
-    total: "₹5,940",
-    delta: "₹640 more than last week",
-    orders: "78",
-    hours: "41h 10m",
-    bars: [["Mon", 0.5, 0], ["Tue", 0.62, 0], ["Wed", 0.44, 0], ["Thu", 0.7, 0], ["Fri", 0.86, 0], ["Sat", 1, 0], ["Sun", 0.72, 1]],
-    rows: [
-      { l: "Delivery earnings", v: "₹4,510" },
-      { l: "Distance pay", v: "₹620" },
-      { l: "Incentives", v: "₹500", tone: "success" },
-      { l: "Tips", v: "₹320", tone: "success" },
-      { l: "Adjustments", v: "− ₹10", tone: "danger" },
-    ],
-  },
-  Month: {
-    label: "This month · August",
-    total: "₹21,480",
-    delta: "On track for your best month yet",
-    orders: "286",
-    hours: "162h 45m",
-    bars: [["W1", 0.72, 0], ["W2", 0.88, 0], ["W3", 1, 1], ["W4", 0.2, 0]],
-    rows: [
-      { l: "Delivery earnings", v: "₹16,900" },
-      { l: "Distance pay", v: "₹2,180" },
-      { l: "Incentives", v: "₹1,600", tone: "success" },
-      { l: "Tips", v: "₹840", tone: "success" },
-      { l: "Adjustments", v: "− ₹40", tone: "danger" },
-    ],
-  },
-};
+/*
+ * The `PERIODS` table is gone: three periods of invented totals — "₹842",
+ * "₹5,940", "₹21,480" — with hour-by-hour bars, a "₹118 more than your daily
+ * average" comparison and rows for tips and incentives this product does not
+ * have. The Earnings tab builds a `PeriodData` from `GET /me/earnings` and
+ * shows a loading state before it, which is what the shape below is for.
+ */
 
-export const PAYOUTS = [
-  { amt: "₹3,240", date: "Scheduled 17 Aug", txn: "Pending", status: "Pending", tone: "warning" },
-  { amt: "₹6,480", date: "11 Aug 2026", txn: "LPPAY-77401", status: "Completed", tone: "success" },
-  { amt: "₹5,910", date: "4 Aug 2026", txn: "LPPAY-76812", status: "Completed", tone: "success" },
-  { amt: "₹4,200", date: "28 Jul 2026", txn: "LPPAY-75990", status: "Failed · IFSC", tone: "danger" },
-] as const;
-
-export const PAYOUT_ROWS = [
-  { l: "Deliveries included", v: "74" },
-  { l: "Delivery earnings", v: "₹5,180" },
-  { l: "Incentives", v: "₹900" },
-  { l: "Tips", v: "₹405" },
-  { l: "Adjustments", v: "− ₹5" },
-  { l: "Bank account", v: "HDFC ••••8841" },
-  { l: "Transaction ID", v: "LPPAY-77401" },
-] as const;
-
-export const INCENTIVES = [
-  { tag: "Active today", tone: "brand", title: "Complete 10 deliveries today", sub: "Earn ₹300 extra on top of your trip earnings.", pct: 80, progress: "8 of 10 done", reward: "₹300", expiry: "Ends 11:59 pm" },
-  { tag: "Peak hour", tone: "success", title: "Stay online 7–10 pm", sub: "₹40 bonus for every delivery in the dinner peak.", pct: 45, progress: "1h 21m of 3h", reward: "₹40 / order", expiry: "2h 39m left" },
-  { tag: "Weekly", tone: "brand", title: "75 deliveries this week", sub: "Unlock a ₹1,000 weekly bonus.", pct: 64, progress: "48 of 75 done", reward: "₹1,000", expiry: "Ends Sunday" },
-  { tag: "Locked", tone: "muted", title: "Refer a partner", sub: "Your friend must complete 30 deliveries in 14 days.", pct: 0, progress: "No referrals yet", reward: "₹1,500", expiry: "Always on" },
-] as const;
+/*
+ * `PAYOUTS`, `PAYOUT_ROWS` and `INCENTIVES` are gone with the four screens
+ * that displayed them.
+ *
+ * A ledger of four settlements with transaction ids, the breakdown of one of
+ * them naming HDFC ••••8841, and four bonus schemes with progress bars.
+ * Nothing in the backend pays out, records a settlement or defines an
+ * incentive: there is no route and no model for any of it, so every figure in
+ * those three tables was a number about a rider's money that no rider could
+ * ever have earned or been owed.
+ *
+ * The distinction that matters, and that the last pass lost: a rider's BANK
+ * DESTINATION is a real stored field — `drivers.payout`, written by
+ * `PATCH /me` — and it is the only part of any of this the product actually
+ * has. Deleting the ledger was right. Deleting the row that let a rider edit
+ * where their money goes was not, and `/bank-details` is that row's screen.
+ */
 
 // ─── Profile & account ────────────────────────────────────────────────────────
 
@@ -248,271 +180,99 @@ export type ProfileRow = {
   icon: IconName;
 };
 
+/*
+ * The account list on the Profile tab.
+ *
+ * `meta` is EMPTY on every row: the screen fills these from `profile`, and a
+ * placeholder left in this table is a value that looks live and is not.
+ * `tone` is likewise absent — a red Documents row means a document was
+ * actually refused, and only the profile knows that.
+ *
+ * "Incentives" has gone: the screen behind it was deleted with the four bonus
+ * schemes that were its only content, and a list row that navigates to a route
+ * with no file behind it is a crash rather than a dead end.
+ *
+ * "Bank details" went with it and should not have. The row pointed at
+ * `/payouts`, which was deleted for its invented balance and its Withdraw
+ * button — but that screen was also the only way a rider could change where
+ * their money is sent after sign-up, and THAT half is real: `PATCH /me`
+ * validates and stores a `payout` object, and always has. Removing the row
+ * left a rider whose bank account closes with no way to say so and a
+ * settlement heading for an account that no longer exists. It now points at
+ * `/bank-details`, which is that half and nothing else — no balance, no
+ * withdrawal, no history.
+ */
 export const PROFILE_ROWS: ProfileRow[] = [
-  { route: "/profile-details", t: "Personal information", meta: "Arjun Kumar", icon: "profile" },
-  { route: "/vehicle", t: "Vehicle", meta: "AP 05 CJ 4471", icon: "vehicle" },
-  { route: "/documents", t: "Documents", meta: "1 needs attention", tone: "danger", icon: "documents" },
-  { route: "/payouts", t: "Bank details", meta: "HDFC ••••8841", icon: "bank" },
-  { route: "/earnings", t: "Performance", meta: "94% acceptance", icon: "trendingUp" },
-  { route: "/orders", t: "Ratings & reviews", meta: "4.8 ★", icon: "star" },
-  { route: "/incentives", t: "Incentives", meta: "3 active", icon: "rupee" },
+  { route: "/profile-details", t: "Personal information", meta: "", icon: "profile" },
+  { route: "/vehicle", t: "Vehicle", meta: "", icon: "vehicle" },
+  { route: "/documents", t: "Documents", meta: "", icon: "documents" },
+  { route: "/zones", t: "Service area", meta: "", icon: "mapPin" },
+  { route: "/bank-details", t: "Bank details", meta: "", icon: "bank" },
+  { route: "/earnings", t: "Earnings", meta: "", icon: "trendingUp" },
+  { route: "/orders", t: "Delivery history", meta: "", icon: "orders" },
   { route: "/support", t: "Help & support", meta: "", icon: "support" },
   { route: "/settings", t: "Settings", meta: "", icon: "settings" },
 ];
 
-export const DOCS = [
-  { t: "Driving licence", meta: "AP0320190004471 · expired 2 Aug 2026", status: "Expired", tone: "danger", act: "Upload new", reason: "Expired document. Upload a renewed licence within 3 days to keep receiving orders." },
-  { t: "Vehicle registration", meta: "AP 05 CJ 4471 · valid till Mar 2027", status: "Verified", tone: "success", act: "Replace" },
-  { t: "Aadhaar (ID proof)", meta: "•••• •••• 4412", status: "Verified", tone: "success", act: "Replace" },
-  { t: "Vehicle insurance", meta: "Uploaded 14 Aug · under review", status: "Pending", tone: "warning", act: "Replace" },
-  { t: "PAN card", meta: "Photo was blurred", status: "Rejected", tone: "danger", act: "Resubmit", reason: "Rejected: the number was not readable. Take the photo in good light, without flash glare." },
-] as const;
+/*
+ * `DOCS` and `VEHICLE_ROWS` are gone. The Documents screen renders
+ * `profile.documents` — the five-row checklist the server builds, each row
+ * carrying the approver's verdict and, when refused, the sentence saying what
+ * to photograph again. The Vehicle screen reads and writes `profile.vehicle`.
+ */
 
-export const VEHICLE_ROWS = [
-  { l: "Vehicle type", v: "Two-wheeler", tone: "info" },
-  { l: "Registration", v: "AP 05 CJ 4471", tone: "info" },
-  { l: "Model", v: "Honda Activa 6G", tone: "info" },
-  { l: "RC status", v: "Verified", tone: "success" },
-  { l: "Insurance", v: "Under review", tone: "warning" },
-  { l: "Delivery bag", v: "Issued 12 Mar 2024", tone: "info" },
-] as const;
+/*
+ * `NOTIFS`, `SWITCHES` and `SETTING_ROWS` are gone.
+ *
+ * NOTIFS was seven fixed alerts, and the first of them read "Your driving
+ * licence expired. Upload a renewed copy to keep receiving orders." Shown to
+ * every rider who opened the bell, on every launch, whatever the approver had
+ * actually said about their licence — and a rider who believes it goes home
+ * rather than working a shift they were entitled to work. Beneath it, "₹86
+ * credited for order #LP48291" and "₹6,480 paid to HDFC ••••8841": money
+ * movements presented as this rider's own. There is no notification model and
+ * no endpoint that could ever have made any of it true, so the screen went
+ * with the table.
+ *
+ * SWITCHES was four notification toggles writing to in-memory flow state that
+ * reset on launch and was read by nothing. SETTING_ROWS was ten rows of
+ * `meta` asserted about the handset in front of the rider — "Security · PIN
+ * on", "Location · Always allowed" — beside a partner id, "LPD-11742", that
+ * belonged to nobody. `app/settings.tsx` now shows the rider's own id and
+ * standing from `profile`, and its rows do the thing they name.
+ */
 
-export const NOTIFS = [
-  { cat: "Account", tone: "danger", t: "Your driving licence expired. Upload a renewed copy to keep receiving orders.", at: "9:02 pm", unread: true },
-  { cat: "Earnings", tone: "success", t: "₹86 credited for order #LP48291.", at: "8:06 pm", unread: true },
-  { cat: "Incentives", tone: "brand", t: "2 more deliveries to unlock your ₹300 daily bonus.", at: "7:30 pm", unread: true },
-  { cat: "New order", tone: "info", t: "Delivery request from KFC Devi Chowk was declined.", at: "6:44 pm", unread: false },
-  { cat: "Payouts", tone: "success", t: "₹6,480 paid to HDFC ••••8841.", at: "11 Aug", unread: false },
-  { cat: "Support", tone: "info", t: "Support replied to ticket TCK-3391.", at: "15 Aug", unread: false },
-  { cat: "System", tone: "muted", t: "App updated to 4.2.1 — faster order acceptance.", at: "12 Aug", unread: false },
-] as const;
-
-export const SWITCHES = [
-  { k: "orders", t: "New order requests", sub: "Sound and vibration, even on silent" },
-  { k: "earnings", t: "Earnings and payouts", sub: "Credits, withdrawals and failures" },
-  { k: "incentives", t: "Incentives and bonuses", sub: "Progress reminders and new offers" },
-  { k: "news", t: "Lampose updates", sub: "Product news and partner offers" },
-] as const;
-
-export const SETTING_ROWS = [
-  { t: "Account", meta: "LPD-11742", toast: "Account details opened." },
-  { t: "Language", meta: "English", toast: "Language options: English, తెలుగు, हिन्दी." },
-  { t: "Privacy", meta: "", toast: "Privacy controls opened." },
-  { t: "Security", meta: "PIN on", toast: "Security settings opened." },
-  { t: "Location", meta: "Always allowed", toast: "Location permission is set to always allow." },
-  { t: "Appearance", meta: "Light", toast: "Dark mode arrives in the next release." },
-  { t: "Help & support", meta: "", toast: "Opening support." },
-  { t: "Terms of service", meta: "", toast: "Terms opened." },
-  { t: "Privacy policy", meta: "", toast: "Policy opened." },
-  { t: "About Lampose", meta: "v4.2.1", toast: "Lampose Technologies, Hyderabad." },
-] as const;
-
-export const SUPPORT_TILES = [
-  { t: "Order issue", sub: "Wrong or missing items, delays" },
-  { t: "Payment issue", sub: "Missing earnings, payout failed" },
-  { t: "Restaurant issue", sub: "Closed, order not ready" },
-  { t: "Customer issue", sub: "Unreachable, refused order" },
-  { t: "Account issue", sub: "Documents, suspension, ID" },
-  { t: "Technical issue", sub: "App, GPS, notifications" },
-] as const;
-
-export const TICKETS = [
-  { t: "Payment missing for #LP48102", id: "TCK-3391", at: "15 Aug, 9:24 pm", status: "Open", tone: "warning" },
-  { t: "Restaurant was closed · #LP48090", id: "TCK-3350", at: "14 Aug", status: "Resolved", tone: "success" },
-  { t: "GPS not updating during delivery", id: "TCK-3288", at: "9 Aug", status: "Resolved", tone: "success" },
-] as const;
-
-export const CHAT = [
-  { me: true, t: "I completed order #LP48102 yesterday but ₹78 is not showing in my earnings.", at: "9:24 pm" },
-  { me: false, t: "Thanks Arjun. I can see the delivery was marked complete at 9:10 pm. Checking the payment ledger now.", at: "9:27 pm" },
-  { me: false, t: "The credit was held by a bank reference error. I have released it — it will reflect within 2 hours.", at: "9:31 pm" },
-  { me: true, t: "Thank you.", at: "9:32 pm" },
-] as const;
+/*
+ * `SUPPORT_TILES`, `TICKETS` and `CHAT` are gone.
+ *
+ * Support is real: `app/support.tsx` lists the rider's own threads from
+ * `/api/v2/drivers/support/tickets`, `app/ticket.tsx` is the thread behind a
+ * reference, and the topics come from `GET …/support/categories` because the
+ * server owns that enum. The tiles were the worst of the three — six topic
+ * words sitting beside the seven the server accepts, which is exactly the
+ * drift `services/support.ts` exists to prevent.
+ */
 
 // ─── Onboarding ───────────────────────────────────────────────────────────────
 
-export const ONB_STEPS = [
-  "welcome",
-  "phone",
-  "otp",
-  "personal",
-  "vehicle",
-  "docs",
-  "bank",
-  "pending",
-  "rejected",
-  "approved",
-] as const;
+/*
+ * The ONB table used to live here: ten screens of example values — a name, a
+ * plate, four "Uploaded" documents — that `app/onboarding.tsx` rendered as
+ * read-only text. It has been deleted rather than left unused.
+ *
+ * Sign-up is now a real form against `/api/v2/drivers`: every field is a
+ * control the rider types into, each step PATCHes before it advances, and the
+ * document checklist is `profile.documents` from the server, with the
+ * approver's verdict and reason on each row. A leftover table of plausible
+ * values is exactly what a future screen reaches for when the real data is one
+ * request away, so there is no longer one to reach for.
+ */
 
-export type OnbStep = (typeof ONB_STEPS)[number];
+// ─── Demo identity ────────────────────────────────────────────────────────────
 
-export type OnbField = { l: string; v: string; hint?: string; tone?: ToneName };
-export type OnbListItem = { t: string; sub: string; status: string; tone: ToneName };
-
-export type OnbSpec = {
-  step?: number;
-  logo?: boolean;
-  centered?: boolean;
-  title: string;
-  body: string;
-  cta: string;
-  next: OnbStep | null;
-  alt?: string;
-  altStep?: OnbStep;
-  altRoute?: string;
-  fine?: string;
-  fields?: OnbField[];
-  list?: OnbListItem[];
-  otp?: boolean;
-  badge?: string;
-  badgeTone?: ToneName;
-  badgeSize?: number;
-};
-
-export const ONB: Record<OnbStep, OnbSpec> = {
-  welcome: {
-    logo: true,
-    centered: true,
-    title: "Earn on your own schedule",
-    body: "Deliver for Rajahmundry's best restaurants. Get paid weekly, with instant withdrawals whenever you need them.",
-    cta: "Create partner account",
-    next: "phone",
-    alt: "I already have an account",
-    altStep: "phone",
-    fine: "By continuing you agree to the Lampose partner terms.",
-  },
-  phone: {
-    step: 1,
-    title: "What's your mobile number?",
-    body: "We send delivery requests and OTPs to this number. Use the number linked to your bank account.",
-    cta: "Send OTP",
-    next: "otp",
-    fields: [{ l: "Mobile number", v: "+91 98490 41172", hint: "Change" }],
-  },
-  otp: {
-    step: 1,
-    title: "Enter the 6-digit code",
-    body: "Sent to +91 98490 41172 by SMS.",
-    cta: "Verify and continue",
-    next: "personal",
-    otp: true,
-    alt: "Change number",
-    altStep: "phone",
-  },
-  personal: {
-    step: 2,
-    title: "Your details",
-    body: "This must match your government ID exactly, or verification will fail.",
-    cta: "Continue",
-    next: "vehicle",
-    fields: [
-      { l: "Full name", v: "Arjun Kumar", hint: "Edit" },
-      { l: "Date of birth", v: "14 Jun 1996", hint: "Edit" },
-      { l: "City", v: "Rajahmundry", hint: "Edit" },
-      { l: "Profile photo", v: "arjun-photo.jpg", hint: "Retake", tone: "success" },
-    ],
-  },
-  vehicle: {
-    step: 3,
-    title: "Vehicle information",
-    body: "You can change your vehicle later from your profile.",
-    cta: "Continue",
-    next: "docs",
-    fields: [
-      { l: "Vehicle type", v: "Two-wheeler", hint: "Change" },
-      { l: "Registration number", v: "AP 05 CJ 4471", hint: "Edit" },
-      { l: "Model", v: "Honda Activa 6G", hint: "Edit" },
-    ],
-  },
-  docs: {
-    step: 4,
-    title: "Upload your documents",
-    body: "Photograph each document in good light. Verification usually takes under 24 hours.",
-    cta: "Submit documents",
-    next: "bank",
-    list: [
-      { t: "Driving licence", sub: "Front and back", status: "Uploaded", tone: "success" },
-      { t: "Vehicle registration", sub: "RC book", status: "Uploaded", tone: "success" },
-      { t: "Aadhaar card", sub: "ID proof", status: "Uploaded", tone: "success" },
-      { t: "PAN card", sub: "Required for payouts", status: "Add", tone: "brand" },
-    ],
-  },
-  bank: {
-    step: 5,
-    title: "Where should we pay you?",
-    body: "Earnings are paid every Monday. Instant withdrawal is available any day for ₹5.",
-    cta: "Save bank details",
-    next: "pending",
-    fields: [
-      { l: "Account holder", v: "Arjun Kumar", hint: "Edit" },
-      { l: "Account number", v: "•••• •••• 8841", hint: "Edit" },
-      { l: "IFSC", v: "HDFC0001432", hint: "Edit" },
-      { l: "UPI (optional)", v: "arjun@okhdfcbank", hint: "Edit" },
-    ],
-  },
-  pending: {
-    step: 6,
-    centered: true,
-    title: "Documents under review",
-    body: "Our team is verifying your licence, RC and ID. You will get a notification the moment you are approved — usually within 24 hours.",
-    cta: "Check status",
-    next: "rejected",
-    badge: "⌛",
-    badgeTone: "warning",
-    badgeSize: 64,
-    alt: "Talk to support",
-    altRoute: "/support",
-    fine: "Submitted 16 Aug, 9:04 pm · reference LPD-11742",
-  },
-  rejected: {
-    step: 6,
-    title: "One document needs a fix",
-    body: "Everything else is verified. Retake this photo and we will review it within an hour.",
-    cta: "Resubmit PAN card",
-    next: "approved",
-    list: [
-      { t: "PAN card", sub: "Rejected: number not readable, glare on the card", status: "Redo", tone: "danger" },
-      { t: "Driving licence", sub: "Verified 16 Aug", status: "Verified", tone: "success" },
-      { t: "Vehicle registration", sub: "Verified 16 Aug", status: "Verified", tone: "success" },
-      { t: "Aadhaar card", sub: "Verified 16 Aug", status: "Verified", tone: "success" },
-    ],
-  },
-  approved: {
-    step: 7,
-    centered: true,
-    title: "You're approved, Arjun",
-    body: "Your partner account is live. Go online and take your first delivery — first-week bonus of ₹500 on 20 deliveries.",
-    cta: "Start driving",
-    next: null,
-    badge: "✓",
-    badgeTone: "success",
-    badgeSize: 72,
-    fine: "Partner ID LPD-11742",
-  },
-};
-
-export const ONB_TOTAL_STEPS = 7;
-
-// ─── Driver identity (demo) ───────────────────────────────────────────────────
-
-export const DRIVER = {
-  name: "Arjun Kumar",
-  initials: "AK",
-  rating: "4.8 ★ · Rajahmundry zone",
-  partnerId: "LPD-11742",
-  phone: "+91 98490 41172",
-  vehicle: "AP 05 CJ 4471",
-  bank: "HDFC ••••8841",
-} as const;
-
-export const CURRENT_ORDER = {
-  id: "#LP48291",
-  restaurant: "Paradise Biryani",
-  restaurantArea: "Danavaipeta",
-  customer: "Sneha Reddy",
-  dropArea: "Morampudi Junction",
-  dropAddress: "Flat 302, Sai Enclave, Morampudi Junction",
-  earn: "₹86",
-  distance: "4.8 km",
-  token: "24",
-} as const;
+/*
+ * `DRIVER` and `CURRENT_ORDER` are gone for the same reason as ONB above. The
+ * rider's own name, partner id, vehicle and bank now come from
+ * `useDriverStore().profile`, and the job in hand from `currentJob` — both of
+ * which are the account, not a stand-in for one.
+ */

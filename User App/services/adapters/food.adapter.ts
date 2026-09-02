@@ -22,6 +22,15 @@
  * dinner" is answered from real trading hours instead of a tag somebody set.
  * A kitchen open 11:00–23:00 lands in lunch, snacks and dinner without anyone
  * having to say so.
+ *
+ * ## "Open right now" is NOT derived, and must not be
+ *
+ * The derivation above answers which windows a kitchen cooks. It cannot answer
+ * whether the counter is taking orders this minute, and it must not try: the
+ * partner has a switch (`openState`) that overrides the whole schedule, and the
+ * hours are per weekday while `windowsFrom` deliberately ignores the day. Both
+ * of those are known only to the server, which sends its own answer as
+ * `isCurrentlyOpen`. It is carried across untouched — see `FoodKitchen`.
  */
 import {
   MEAL_WINDOWS,
@@ -31,6 +40,7 @@ import {
   type MealWindow,
   type MealWindowId,
 } from '@/types/food';
+import { formatRupees } from '@/utils/money';
 
 /* ------------------------------------------------------------------ *
  * What the server sends
@@ -50,6 +60,14 @@ export type BackendKitchen = {
   address?: { line1?: string; line2?: string; city?: string; state?: string; pincode?: string; landmark?: string };
   openingHours?: BackendOpeningHour[];
   isCurrentlyOpen?: boolean;
+  /**
+   * The customer-facing number, on the detail response only.
+   *
+   * `foodDiscovery.controller.js` keeps it apart from `ownerPhone` precisely so
+   * that this one may be shown; the list row does not carry it, so a kitchen
+   * known only from the feed has no number to dial.
+   */
+  contactNumber?: string;
   avgPreparationTime?: number;
   deliveryRadiusKm?: number;
   minOrderValue?: number;
@@ -165,16 +183,43 @@ export function walkMinutesFrom(distanceKm: number | undefined): number | undefi
   return Math.max(1, Math.round((km / 5) * 60));
 }
 
-/** The flat delivery figure a card can print, from whichever rule is set. */
-function deliveryFeeOf(kitchen: BackendKitchen): number {
+/**
+ * The delivery rule the partner configured, kept whole rather than flattened
+ * to one number.
+ *
+ * The number alone lies on two of the three schemes. `free_above` waives the
+ * fee entirely once the basket reaches its threshold — the checkout in
+ * `foodCustomerOrder.controller.js` does exactly that — so a card printing a
+ * flat ₹19 is quoting money that will not be asked for. `distance_based` is
+ * the reverse: the partner configures a per-kilometre rate and that same
+ * checkout charges `amount` and nothing per kilometre, so a screen that
+ * multiplied the rate by a distance would be inventing a charge.
+ *
+ * `amount` here is therefore what the server charges when no waiver applies,
+ * on every scheme, and `freeAbove` is the only condition that changes it.
+ */
+export type DeliveryRule = {
+  type: 'flat' | 'free_above' | 'distance_based';
+  amount: number;
+  /** Basket value at or above which delivery is free. `free_above` only. */
+  freeAbove?: number;
+};
+
+const DELIVERY_TYPES: readonly DeliveryRule['type'][] = ['flat', 'free_above', 'distance_based'];
+
+function deliveryRuleOf(kitchen: BackendKitchen): DeliveryRule {
   const fee = kitchen.deliveryFee;
-  if (!fee) return 0;
-  if (fee.type === 'distance_based') {
-    /* A per-km rate cannot be shown as one number without a distance, and the
-       card has room for one number. The base is the honest floor. */
-    return num(fee.amount) ?? 0;
-  }
-  return num(fee.amount) ?? 0;
+  const type = DELIVERY_TYPES.find((known) => known === fee?.type) ?? 'flat';
+  const freeAbove = num(fee?.freeAboveValue) ?? 0;
+
+  return {
+    type,
+    amount: num(fee?.amount) ?? 0,
+    /* Only when it can actually be reached. A threshold of 0 would read as
+       "free over ₹0", which is a free-delivery kitchen described the long way
+       round — and the checkout ignores it too. */
+    ...(type === 'free_above' && freeAbove > 0 ? { freeAbove } : null),
+  };
 }
 
 const dietOf = (isVeg: BackendDish['isVeg']): Diet =>
@@ -183,6 +228,104 @@ const dietOf = (isVeg: BackendDish['isVeg']): Diet =>
 /* ------------------------------------------------------------------ *
  * Kitchens
  * ------------------------------------------------------------------ */
+
+/**
+ * A kitchen as a live server answers it: the shared `Kitchen` shape, plus the
+ * three facts only a server has.
+ *
+ * All three are OPTIONAL and every reader has to work without them, because
+ * the same `Kitchen` type is also satisfied by the mock catalogue behind
+ * `EXPO_PUBLIC_FOOD_MODE`, by a row cached before these fields shipped, and —
+ * in the case of `contactNumber` — by every row that came from the feed rather
+ * than from a kitchen's own page.
+ *
+ * They are read through the three functions below rather than off the object,
+ * so that a screen holding a plain `Kitchen` can still ask, and so that what
+ * "no answer" means is decided in one place instead of at each call site.
+ */
+export type FoodKitchen = Kitchen & {
+  /** The server's own "taking orders this minute" answer. See the header. */
+  openNow?: boolean;
+  /** Which delivery scheme the checkout will price this kitchen with. */
+  deliveryRule?: DeliveryRule;
+  /** The number a diner may ring. Detail responses only. */
+  contactNumber?: string;
+  /**
+   * What the kitchen adds to every order for packing it.
+   *
+   * A real charge, not a presentational one: `foodCustomerOrder.controller.js`
+   * reads `restaurant.packagingCharge` and puts it into `grandTotal` on every
+   * order it writes, pickup included. It travels on the DETAIL response only —
+   * `foodDiscovery.controller.js` keeps it out of the feed projection — so a
+   * kitchen known from the feed alone has no answer, which is why this is
+   * optional and read through `packagingChargeOf` below.
+   */
+  packagingCharge?: number;
+};
+
+/** The server's open/closed answer, or undefined when none travelled. */
+export function openNowOf(kitchen: FoodKitchen): boolean | undefined {
+  return typeof kitchen.openNow === 'boolean' ? kitchen.openNow : undefined;
+}
+
+/** The number to ring, or undefined — in which case nothing may offer a call. */
+export function contactNumberOf(kitchen: FoodKitchen): string | undefined {
+  return kitchen.contactNumber?.trim() || undefined;
+}
+
+/**
+ * The packing charge this kitchen will add, or undefined when nobody has said.
+ *
+ * Undefined is a real answer and must not be flattened to zero by whatever
+ * shows money: the feed does not carry the field, so "we have not loaded
+ * this kitchen's own row yet" and "this kitchen packs for free" arrive looking
+ * identical unless they are kept apart here. A bill that printed zero for the
+ * first case would be quoting a total the server is about to exceed.
+ */
+export function packagingChargeOf(kitchen: FoodKitchen): number | undefined {
+  return typeof kitchen.packagingCharge === 'number' ? kitchen.packagingCharge : undefined;
+}
+
+/**
+ * What the checkout will actually charge to deliver this basket.
+ *
+ * The mirror of `foodCustomerOrder.controller.js`, and deliberately the only
+ * copy of that rule on the device: the fee is waived outright once the items
+ * reach a `free_above` threshold, and no other scheme carries a condition. A
+ * per-kilometre rate is configured by the partner and never charged by that
+ * endpoint, so it is not applied here either — a screen that multiplied it out
+ * would be quoting money nobody collects.
+ */
+export function deliveryFeeFor(kitchen: FoodKitchen, itemsTotal: number): number {
+  const freeAbove = kitchen.deliveryRule?.freeAbove;
+  return freeAbove && itemsTotal >= freeAbove ? 0 : kitchen.deliveryFee;
+}
+
+/**
+ * "Free over ₹199" — the condition that makes the printed fee disappear.
+ *
+ * Null on every other scheme, and null on a kitchen that delivers free anyway,
+ * where there is no threshold worth reaching.
+ */
+export function freeDeliveryAbove(kitchen: FoodKitchen): string | null {
+  const freeAbove = kitchen.deliveryRule?.freeAbove;
+  if (!freeAbove || kitchen.deliveryFee === 0) return null;
+  return `Free over ${formatRupees(freeAbove)}`;
+}
+
+/**
+ * The one delivery sentence a card is allowed to print.
+ *
+ * A flat fee on a `free_above` kitchen is a fee the checkout will waive, so
+ * the threshold travels with the number rather than being dropped for want of
+ * room. Nothing here mentions kilometres: see `DeliveryRule`.
+ */
+export function deliveryLabel(kitchen: FoodKitchen): string {
+  if (kitchen.deliveryFee === 0) return 'Free delivery';
+  const waiver = freeDeliveryAbove(kitchen);
+  const flat = `${formatRupees(kitchen.deliveryFee)} delivery`;
+  return waiver ? `${flat}, ${waiver.toLowerCase()}` : flat;
+}
 
 /**
  * "8 min walk", or nothing.
@@ -201,9 +344,10 @@ export function metaLine(...parts: (string | null | undefined)[]): string {
   return parts.filter((part) => !!part && String(part).trim()).join(' · ');
 }
 
-export function toKitchen(raw: BackendKitchen, sections: readonly string[] = []): Kitchen {
+export function toKitchen(raw: BackendKitchen, sections: readonly string[] = []): FoodKitchen {
   const rating = num(raw.ratingAvg) ?? 0;
   const ratingCount = num(raw.ratingCount) ?? 0;
+  const delivery = deliveryRuleOf(raw);
 
   return {
     id: raw.restaurantId,
@@ -218,8 +362,17 @@ export function toKitchen(raw: BackendKitchen, sections: readonly string[] = [])
     rating,
     ratingCount,
     windows: windowsFrom(raw.openingHours),
-    deliveryFee: deliveryFeeOf(raw),
+    /* What the checkout charges when no waiver applies. The rule beside it is
+       what lets a screen say so honestly. */
+    deliveryFee: delivery.amount,
+    deliveryRule: delivery,
     minOrder: num(raw.minOrderValue) ?? 0,
+    /* Carried only when the response actually carried it. `num` answers 0 for
+       a null — which is what the checkout's own `money()` does with the same
+       value — and undefined for a field that never travelled, and those two
+       must stay apart: one is a kitchen that packs for free, the other is a
+       kitchen whose row we have not read. */
+    ...(num(raw.packagingCharge) !== undefined ? { packagingCharge: num(raw.packagingCharge) } : null),
     prepMinutes: num(raw.avgPreparationTime) ?? 0,
     /* ZERO, always — and read as "unknown" by every screen that prints it.
        An earlier revision guessed this from the distance at a made-up three
@@ -230,6 +383,10 @@ export function toKitchen(raw: BackendKitchen, sections: readonly string[] = [])
        something real produces it. */
     deliveryMinutes: 0,
     sections,
+    /* Carried, never recomputed. Absent on anything that predates the field,
+       which is the one case a screen falls back to the hours for. */
+    ...(typeof raw.isCurrentlyOpen === 'boolean' ? { openNow: raw.isCurrentlyOpen } : null),
+    ...(raw.contactNumber?.trim() ? { contactNumber: raw.contactNumber.trim() } : null),
     ...(url(raw.coverBannerImage) || url(raw.logoImage)
       ? { photo: url(raw.coverBannerImage) ?? url(raw.logoImage) }
       : null),
@@ -271,6 +428,9 @@ export function splitOptions(
 export function toDish(raw: BackendDish, kitchenId: string, windows: readonly MealWindowId[]): Dish {
   const full = num(raw.price) ?? 0;
   const offer = num(raw.discountedPrice ?? undefined);
+  /* What one of this dish costs before any option — the offer price when the
+     kitchen is running one, exactly as the checkout picks it. */
+  const base = offer && offer > 0 ? offer : full;
 
   const addOns = (raw.addOns ?? [])
     .filter((a) => a?.name)
@@ -285,16 +445,24 @@ export function toDish(raw: BackendDish, kitchenId: string, windows: readonly Me
      what the cart would have to charge anyway. A variant cheaper than the
      base is dropped rather than shown as a negative.
 
+     The difference is measured from `base`, the price this dish is actually
+     charged at, and not from `price`. The checkout replaces the whole base
+     with the variant's own price — an offer on the dish does not survive
+     choosing a bigger portion — so a delta taken from the full price would
+     leave the cart quoting `offer + variant − full` for a line the server
+     charges `variant` for, and the two would disagree by the discount on every
+     order of a discounted dish in a large portion.
+
      The id prefix is load-bearing, not cosmetic: when the order is placed the
      two have to be told apart again, because the server treats a variant as
      REPLACING the price and an add-on as adding to it. `splitOptions` below is
      the only thing allowed to read it. */
   const portions = (raw.variants ?? [])
-    .filter((v) => v?.name && (num(v.price) ?? 0) > full)
+    .filter((v) => v?.name && (num(v.price) ?? 0) > base)
     .map((v, i) => ({
       id: `${VARIANT_PREFIX}${raw.productId}-${i}`,
       label: String(v.name),
-      price: (num(v.price) ?? 0) - full,
+      price: (num(v.price) ?? 0) - base,
     }));
 
   const rating = num(raw.ratingAvg);
@@ -307,7 +475,7 @@ export function toDish(raw: BackendDish, kitchenId: string, windows: readonly Me
     name: raw.productName?.trim() || 'Unnamed dish',
     description: raw.description?.trim() || '',
     /* The offer price when there is one — it is what the diner pays. */
-    price: offer && offer > 0 ? offer : full,
+    price: base,
     diet: dietOf(raw.isVeg),
     section: raw.category?.trim() || 'Menu',
     /* A dish is orderable whenever its kitchen is trading. The backend has no
@@ -332,7 +500,7 @@ export function toDish(raw: BackendDish, kitchenId: string, windows: readonly Me
  * A whole kitchen page
  * ------------------------------------------------------------------ */
 
-export type KitchenWithMenu = { kitchen: Kitchen; dishes: Dish[] };
+export type KitchenWithMenu = { kitchen: FoodKitchen; dishes: Dish[] };
 
 /**
  * The detail response — a kitchen and its menu already grouped by category.

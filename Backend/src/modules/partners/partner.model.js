@@ -45,6 +45,8 @@
    ══════════════════════════════════════════════════════════════════════════ */
 const mongoose = require('mongoose');
 
+const { addressSchema, publicAddress } = require('../../shared/utils/address');
+
 /**
  * The last ten digits of a number, and the only safe way to match an owner to
  * their properties.
@@ -163,6 +165,17 @@ const partnerSchema = new mongoose.Schema(
      */
     acceptingBookings: { type: Boolean, default: false },
 
+    /*
+     * The OWNER's own address, not a property's.
+     *
+     * A property carries its own address in `properties`; this is where the
+     * person is — correspondence, and what a payout or a dispute is checked
+     * against. Singular for the reason `shared/utils/address.js` gives: an
+     * owner has an address the way a person does, and a second one would
+     * raise the question of which is real.
+     */
+    address: { type: addressSchema, default: undefined },
+
     /* Not an enum with a `deleted` member: an owner's records have retention
        consequences that are handled where bookings live. This flag exists so
        support can stop an abusive number ordering SMS at our expense. */
@@ -208,6 +221,8 @@ partnerSchema.methods.toPublic = function toPublic() {
     name: this.name || '',
     email: this.email || '',
     businessName: this.businessName || '',
+    /* `[lng, lat]` for the pin, unswapped — the app flips it where it draws. */
+    address: publicAddress(this.address),
     phoneVerifiedAt: this.phoneVerifiedAt,
     /* The app routes on this: null means show profile setup, a date means go
        to the dashboard. Sent as a boolean too, because that is the question

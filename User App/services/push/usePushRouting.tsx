@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { addPushListeners, getInitialPush, type PushPayload } from './push';
+import { addPushListeners, getInitialPush, isFoodPush, type PushPayload } from './push';
 
 /**
  * What happens when a notification arrives, and when one is tapped.
@@ -34,13 +34,25 @@ export function usePushRouting() {
 
   useEffect(() => {
     const open = (payload: PushPayload) => {
-      /* Everything the flow notifies about is one request, and the request
-         screen renders every ending — accepted, declined, taken, expired. So
-         there is one destination rather than a branch per `kind`, and the
-         server's status decides what is drawn. */
+      /* TWO flows notify this app, and the branch is on `kind` rather than on
+         which id happens to be present — a food order opening a room-booking
+         screen is the failure this exists to prevent.
+
+         Within each flow there is still ONE destination: the request screen
+         renders every ending (accepted, declined, taken, expired), and the
+         order screen renders every stage (searching, a rider, delivered). The
+         server's status decides what is drawn, never the payload. */
+      if (isFoodPush(payload)) {
+        router.push({
+          pathname: '/food/order/[id]',
+          params: { id: payload.orderNumber },
+        } as never);
+        return;
+      }
+
       router.push({
         pathname: '/confirm/[id]',
-        params: { id: payload.listingId ?? '', requestId: payload.requestId },
+        params: { id: payload.listingId ?? '', requestId: payload.requestId ?? '' },
       } as never);
     };
 
@@ -48,7 +60,12 @@ export function usePushRouting() {
       /* The screen may already be showing this request with a countdown on
          it. Invalidating is enough — the query refetches and renders whatever
          the server now says, which is the rule everywhere: the backend is the
-         status, never the notification payload. */
+         status, never the notification payload.
+
+         A food order needs nothing here: the tracking screen polls itself
+         every eight seconds while an order is live, so it has already redrawn
+         by the time this fires. */
+      if (isFoodPush(payload)) return;
       queryClient.invalidateQueries({ queryKey: ['stay-requests', payload.requestId] });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     };

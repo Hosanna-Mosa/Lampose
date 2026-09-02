@@ -34,6 +34,11 @@ export default function NewTicket() {
 
   const [categoryId, setCategoryId] = useState<TicketCategoryId | null>(null);
   const [body, setBody] = useState('');
+  /* Which place this is about, in the student's own words. Optional on
+     purpose — "a payment" is about nothing in the catalogue — and free text
+     rather than a picker, because the thing a ticket is about is often
+     somewhere they only viewed, or a kitchen they ordered from once. */
+  const [place, setPlace] = useState('');
 
   const { submitTicket, isSubmittingTicket, ticketError } = useCreateSupportRequest();
 
@@ -57,7 +62,16 @@ export default function NewTicket() {
   const send = async () => {
     if (!categoryId || body.trim().length === 0) return;
     try {
-      const created = await submitTicket({ category: categoryId, body: body.trim() });
+      /* `placeLabel` only. There is no `listingId` to send: this is a name
+         somebody typed, and matching it to a listing here would be a guess
+         the queue would then read as a fact. An empty box sends nothing
+         rather than an empty string, so the record says "not given" instead
+         of "given as blank". */
+      const created = await submitTicket({
+        category: categoryId,
+        body: body.trim(),
+        placeLabel: place.trim() || null,
+      });
       router.replace(`/support/${created.reference}` as never);
     } catch {
       /* Held in `ticketError`, rendered below. */
@@ -141,6 +155,18 @@ export default function NewTicket() {
             <Text variant="caption" color="tertiary">
               Dates and amounts help us get it fixed in one reply instead of three.
             </Text>
+            {/* Asked after what happened, never before it. The first question
+                on a support form should be the one somebody came to answer;
+                a name they may have to go and look up, asked first, is where
+                a ticket stops being filed. */}
+            <TextField
+              label="Which place is this about?"
+              value={place}
+              onChangeText={setPlace}
+              placeholder="The PG, hostel or kitchen, as it is named in the app"
+              optional
+              maxLength={120}
+            />
           </View>
         ) : null}
 

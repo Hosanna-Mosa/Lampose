@@ -14,7 +14,6 @@ import {
   FoodPhoto,
   FoodNotice,
   MealWindowToken,
-  RoomTargetRow,
   type BillLine,
 } from '@/components/food';
 import { foodHref } from '@/components/food/routes';
@@ -23,6 +22,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { clockLabel, findWindow, focusWindow, minutesUntilClose } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
+import { useActionBarInset } from '@/hooks/useActionBarInset';
 
 /**
  * The cart.
@@ -37,6 +37,9 @@ export default function CartScreen() {
   const { findKitchen } = useFoodCatalogue();
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
+  /* Nothing on a handset that reports a real inset; the shortfall on one
+     that reports none, so the action clears the navigation bar. */
+  const actionInset = useActionBarInset();
   const router = useRouter();
   const {
     lines,
@@ -46,10 +49,8 @@ export default function CartScreen() {
     window,
     itemTotal,
     deliveryFee,
-    taxes,
-    discount,
+    packagingCharge,
     toPay,
-    coupon,
     fulfilment,
     address,
     count,
@@ -83,15 +84,34 @@ export default function CartScreen() {
     );
   }
 
-  const belowMinimum = fulfilment === 'delivery' && itemTotal < kitchen.minOrder;
+  /* The minimum is the KITCHEN'S, and the checkout applies it to pickup as
+     well: `foodCustomerOrder.controller.js` compares the item total against
+     `minOrderValue` before it has even looked at the fulfilment mode. This
+     used to be tested for delivery only, under a notice that told the diner
+     pickup had no minimum — and the server refused those orders anyway. */
+  const belowMinimum = kitchen.minOrder > 0 && itemTotal < kitchen.minOrder;
 
+  /*
+    The bill, and nothing but the bill.
+
+    Three terms, because the server adds three things: the items, the kitchen's
+    packing charge and the delivery fee. The 5% "Taxes and charges" row that
+    used to sit here was this app's own invention — no tax is computed, charged
+    or remitted anywhere in the order flow — and the coupon line under it came
+    off a total the server never discounted.
+
+    Packaging prints only when there is some: a ₹0 row teaches a student to
+    skim the one block on the screen that must not be skimmed. It is also the
+    line that disappears while the kitchen's own row is still loading, which is
+    why the footnote below says so rather than letting a short total pass for a
+    complete one.
+  */
   const bill: BillLine[] = [
     { id: 'items', label: `Item total · ${count} ${count === 1 ? 'item' : 'items'}`, amount: itemTotal },
+    ...(packagingCharge ? [{ id: 'packaging', label: 'Packaging by the kitchen', amount: packagingCharge }] : []),
     fulfilment === 'pickup'
       ? { id: 'pickup', label: 'Pickup at the counter', amount: 0, amountLabel: 'Free' }
-      : { id: 'delivery', label: `Delivery to ${address.title}`, amount: deliveryFee },
-    ...(taxes ? [{ id: 'taxes', label: 'Taxes and charges', amount: taxes }] : []),
-    ...(coupon ? [{ id: 'coupon', label: `${coupon.code} · student price`, amount: discount, discount: true }] : []),
+      : { id: 'delivery', label: address ? `Delivery to ${address.title}` : 'Delivery', amount: deliveryFee },
   ];
 
   return (
@@ -183,9 +203,6 @@ export default function CartScreen() {
           </Text>
         </Pressable>
 
-        {/* Where and when */}
-        <RoomTargetRow address={address} onPress={() => router.push(foodHref.slot)} />
-
         {closesIn !== null && closesIn <= 45 ? (
           <FoodNotice
             tone="deadline"
@@ -197,12 +214,21 @@ export default function CartScreen() {
         {belowMinimum ? (
           <FoodNotice
             tone="info"
-            title={`${formatRupees(kitchen.minOrder - itemTotal)} more for delivery`}
-            body={`${kitchen.name} delivers from ${formatRupees(kitchen.minOrder)}. Pickup has no minimum and costs nothing.`}
+            title={`${formatRupees(kitchen.minOrder - itemTotal)} more to place this order`}
+            body={`${kitchen.name} takes orders from ${formatRupees(kitchen.minOrder)}, collected or delivered. Anything under that is refused at the counter.`}
           />
         ) : null}
 
-        {/* Coupon */}
+        {/*
+          The coupons screen, still reachable and no longer promising anything.
+
+          There is no coupon in this product yet: the place-order request has
+          no field for a code, and the checkout writes `discount: 0` on every
+          order it creates. This row used to print "Saving you ₹20" against a
+          code the app had applied to itself on launch, over a total the server
+          was never going to discount. It now says what is true and leads to a
+          screen that says the same thing at length.
+        */}
         <Pressable
           onPress={() => router.push(foodHref.coupons)}
           accessibilityRole="button"
@@ -224,11 +250,11 @@ export default function CartScreen() {
             ]}
           >
             <Text variant="numMeta" style={{ color: colors.warning.ink }}>
-              {coupon ? coupon.code : 'Coupon'}
+              Coupons
             </Text>
           </View>
           <Text variant="body" color="secondary" style={{ flex: 1 }} numberOfLines={1}>
-            {coupon ? `Saving you ${formatRupees(discount)}` : 'Apply a coupon or student code'}
+            Codes are not live yet
           </Text>
           <Icon name="chevronRight" size={16} color={colors.textTertiary} />
         </Pressable>
@@ -238,9 +264,17 @@ export default function CartScreen() {
           total={toPay}
           totalLabel="To pay"
           footnote={
-            fulfilment === 'pickup'
-              ? 'Pickup, so nothing is charged for delivery. The counter holds your order for 20 minutes once it is ready.'
-              : `Delivered to ${address.title}. The rider is assigned once the kitchen plates it.`
+            /* The one case where this block is NOT the whole bill: the
+               kitchen's own row carries its packing charge and has not
+               arrived, so the total below is short by an amount nobody has
+               told us yet. Said out loud rather than papered over with a zero. */
+            packagingCharge === null
+              ? 'This kitchen has not sent its packing charge yet, so the total is not final. The order is priced by the kitchen when you place it.'
+              : fulfilment === 'pickup'
+                ? 'Pickup, so nothing is charged for delivery. The counter holds your order for 20 minutes once it is ready.'
+                : address
+                  ? `Delivered to ${address.title}. The rider is assigned once the kitchen plates it.`
+                  : 'Choose where this is going next. The rider is assigned once the kitchen plates it.'
           }
         />
 
@@ -255,7 +289,7 @@ export default function CartScreen() {
               Clear {count} {count === 1 ? 'item' : 'items'} worth {formatRupees(itemTotal)}?
             </Text>
             <Text variant="caption" style={{ color: colors.danger.ink }}>
-              This also drops the add-ons and spice you set. {coupon ? `${coupon.code} stays available.` : ''}
+              This also drops the add-ons and spice you set.
             </Text>
             <View style={[styles.confirmActions, { gap: space[2] }]}>
               <Button label="Keep my cart" size="sm" onPress={() => setConfirmingClear(false)} />
@@ -282,14 +316,35 @@ export default function CartScreen() {
             borderTopColor: colors.border,
             paddingHorizontal: layout.gutter,
             paddingTop: space[3],
-            paddingBottom: space[6],
+            paddingBottom: space[6] + actionInset,
           },
         ]}
       >
+        {/*
+          The next thing this order actually needs, which depends on how it is
+          being collected.
+
+          A DELIVERY needs an address — the slot picker that used to sit here
+          set a time the server has no field for, where the address is the one
+          thing an order cannot go out without.
+
+          A PICKUP does not. The backend sends no rider for one and forces
+          `deliveryAddress` to empty, so demanding an address would be asking a
+          question with no consequence — and worse, the address screen's only
+          forward action for an empty book is "Add an address", which would
+          DEADLOCK somebody who has never saved one and only ever meant to
+          collect the food themselves.
+        */}
         <Button
-          label={`Choose slot · ${formatRupees(toPay)}`}
+          label={
+            fulfilment === 'pickup'
+              ? `Choose payment · ${formatRupees(toPay)}`
+              : `Choose address · ${formatRupees(toPay)}`
+          }
           fullWidth
-          onPress={() => router.push(foodHref.slot)}
+          onPress={() =>
+            router.push(fulfilment === 'pickup' ? foodHref.payment : foodHref.address)
+          }
         />
       </View>
     </View>

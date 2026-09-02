@@ -30,6 +30,7 @@ const SEARCH_PLACEHOLDERS: Record<string, string> = {
   'scraper-jobs': 'Filter by job name, query or location',
   'scraper-leads': 'Filter by business, city, category, phone or email',
   products: 'Filter by name or description',
+  'food-orders': "Find an order by number, diner's phone or Razorpay id",
 };
 
 export const AdminLayout: React.FC<AdminLayoutProps> = ({

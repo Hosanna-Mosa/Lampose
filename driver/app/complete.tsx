@@ -1,27 +1,46 @@
 import { router } from "expo-router";
-import React, { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import React from "react";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatCard } from "@/app/(tabs)/index";
 import { Btn, Icon, Text, Toast, TopBar } from "@/components/ui";
-import { CURRENT_ORDER } from "@/constants/lampose";
+import { useDriverStore } from "@/store/driverStore";
 import { useFlowStore } from "@/store/flowStore";
 import { colors, layout, radius, space } from "@/theme";
 
-/** Completion states the money first, then closes the loop. */
+/**
+ * Completion states the money first, then closes the loop.
+ *
+ * The figures are the SERVER'S. `history[0]` is the job that was just handed
+ * over — the store puts it there as the delivery lands — and `earnings` is
+ * re-read from `GET /me/earnings` at the same moment. Neither is added up
+ * locally: a counter in the app and a ledger on the server that disagree is
+ * the worst bug this product could have, and the only way they cannot disagree
+ * is for there to be one of them.
+ *
+ * ## What this deliberately does NOT ask
+ *
+ * "How was FP-9C4A21B8?", over five stars. Nothing in the platform stores a
+ * rider's opinion of a restaurant: there is no field for one on
+ * `food_restaurants` or on `food_orders` and no endpoint that would take it.
+ * The stars set a local `useState`, thanked the rider for helping other
+ * partners, and were discarded on the next navigation — so a rider who had
+ * just had a bad half-hour at a counter was invited to report it into
+ * nothing, and did. Whether riders should rate restaurants is a product
+ * decision with a queue and a consequence behind it; a control that pretends
+ * the decision has already been made is the one thing it cannot be.
+ */
 export default function CompleteScreen() {
   const insets = useSafeAreaInsets();
-  const { toast, earned, resetFlow, say } = useFlowStore();
-  const [rating, setRating] = useState(0);
+  const { toast } = useFlowStore();
+  const last = useDriverStore((s) => s.history[0]);
+  const earnings = useDriverStore((s) => s.earnings);
 
-  const backHome = () => {
-    resetFlow();
-    router.replace("/");
-  };
+  const backHome = () => router.replace("/");
 
   return (
     <View style={styles.root}>
-      <TopBar title="Delivery complete" subtitle={CURRENT_ORDER.id} />
+      <TopBar title="Delivery complete" subtitle={last?.orderNumber ?? ""} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.tick}>
@@ -32,7 +51,7 @@ export default function CompleteScreen() {
           Delivery completed
         </Text>
         <Text variant="caption" color="tertiary" style={styles.centered}>
-          Order {CURRENT_ORDER.id} · {CURRENT_ORDER.customer}
+          {last ? `Order ${last.orderNumber} · ${last.customerName || "Customer"}` : ""}
         </Text>
 
         {/* ── The money ─────────────────────────────────────────────── */}
@@ -41,53 +60,30 @@ export default function CompleteScreen() {
             You earned
           </Text>
           <Text variant="codeHero" adjustsFontSizeToFit numberOfLines={1} style={{ marginTop: space[2] }}>
-            ₹86
+            ₹{last?.earnings ?? 0}
           </Text>
+          {/* No invented breakdown. The rider is paid one figure for this job
+              and the server stores exactly that (`delivery.earnings`);
+              splitting it into a base and a tip that nobody computed would be
+              three numbers where there is one fact. */}
           <Text variant="numMeta" color="secondary" style={{ marginTop: space[2] }}>
-            ₹64 delivery + ₹12 distance + ₹10 tip
+            Delivery fee for {last?.orderNumber ?? "this order"}
           </Text>
         </View>
 
         <View style={styles.statGrid}>
-          <StatCard label="Distance" value="4.8 km" />
-          <StatCard label="Duration" value="21 min" />
-          <StatCard label="Today" value={`₹${earned}`} />
+          <StatCard label="Items" value={String(last?.itemCount ?? 0)} />
+          <StatCard label="Trips today" value={String(earnings.todayTrips)} />
+          <StatCard label="Today" value={`₹${earnings.today}`} />
         </View>
 
-        {/* ── Rating ────────────────────────────────────────────────── */}
-        <View style={styles.rateCard}>
-          <Text variant="title1" style={{ textAlign: "center" }}>
-            How was {CURRENT_ORDER.restaurant}?
-          </Text>
-          <View style={styles.stars}>
-            {[1, 2, 3, 4, 5].map((star) => (
-              <Pressable
-                key={star}
-                accessibilityRole="button"
-                accessibilityLabel={`Rate ${star} of 5`}
-                accessibilityState={{ selected: star <= rating }}
-                hitSlop={8}
-                onPress={() => {
-                  setRating(star);
-                  say("Thanks — your rating helps other partners.");
-                }}
-              >
-                <Icon
-                  name="star"
-                  size={30}
-                  color={star <= rating ? colors.warning.base : colors.border}
-                  fill={star <= rating ? colors.warning.base : "none"}
-                />
-              </Pressable>
-            ))}
-          </View>
-        </View>
-
-        <Btn label="Back to home" glyph="home" onPress={backHome} />
+        <Btn label="Back to home" glyph="home" onPress={backHome} style={{ marginTop: space[3] }} />
         <Btn
           label="View order details"
           variant="ghost"
-          onPress={() => router.push("/order-detail")}
+          onPress={() =>
+            router.push({ pathname: "/order-detail", params: { id: last?.orderNumber ?? "" } })
+          }
         />
       </ScrollView>
 
@@ -130,14 +126,4 @@ const styles = StyleSheet.create({
   },
 
   statGrid: { flexDirection: "row", gap: space[2] },
-
-  rateCard: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    borderRadius: radius.card,
-    backgroundColor: colors.surface,
-    padding: space[4],
-    marginBottom: space[2],
-  },
-  stars: { flexDirection: "row", gap: space[3], justifyContent: "center", marginTop: space[3] },
 });

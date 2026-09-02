@@ -108,6 +108,26 @@ export {
   type TicketsResult,
 } from './api/support.api';
 
+/**
+ * The live line to support — the one socket in this app.
+ *
+ * Sits beside `api/` rather than inside it because it is a second transport,
+ * not a second route table: one shared connection, authenticated with the
+ * same session the REST calls carry, delivering a support reply the moment it
+ * is written instead of on the next fetch. It is an optimisation and nothing
+ * on any screen depends on it; `support.socket.ts` explains why support is
+ * the one place in this app that earns one.
+ */
+export {
+  connectSupportSocket,
+  disconnectSupportSocket,
+  onSupportEvent,
+  referenceOf,
+  watchTicket,
+  SUPPORT_SOCKET_ORIGIN,
+  type SupportSocketEvent,
+} from './support.socket';
+
 export type {
   BackendCategory,
   BackendCustomer,

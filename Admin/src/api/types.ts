@@ -9,6 +9,17 @@ export interface ApiResponse<T = any> {
   message?: string;
   success: boolean;
   timestamp?: string;
+  /**
+   * Why it failed, in the SERVER's vocabulary when it sent one.
+   *
+   * A status alone cannot tell three refusals apart: ALREADY_REFUNDED,
+   * NOT_OWED and REFUND_IN_FLIGHT are all 409 and all mean a different next
+   * action. The body's own `code` is kept here so a caller can branch on the
+   * reason rather than on the number. Falls back to the transport code
+   * ('NETWORK_ERROR' when no response arrived at all, which is the one every
+   * caller that writes something must read), and is absent on success.
+   */
+  code?: string;
 }
 
 /**
@@ -52,7 +63,7 @@ export interface ApiRequestOptions extends AxiosRequestConfig {
  * pages on `role`, and a second mechanism beside that one is how the two drift
  * apart. Kept in step with the enum in `Backend/src/modules/admins/admin.model.js`.
  */
-export type AdminRole = 'Super Admin' | 'Admin' | 'Editor' | 'Viewer' | 'Food Admin';
+export type AdminRole = 'Super Admin' | 'Admin' | 'Editor' | 'Viewer' | 'Food Admin' | 'Support';
 export type AdminStatus = 'Active' | 'Inactive' | 'Pending';
 
 /**
@@ -722,4 +733,541 @@ export interface FoodQueueCounts {
   pending: number;
   approved: number;
   rejected: number;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Delivery riders — `app_drivers`, read through `/v1/admin/drivers`.
+
+   Two levels of verdict, and they are not the same one. `DriverDocument.status`
+   is one document, one decision, one reason — "photograph this again". `status`
+   on the rider is the ACCOUNT: whether this person may work at all. The console
+   surfaces both because the backend keeps both, and collapsing them is how one
+   blurred PAN card rejects a whole application.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+export type DriverStatus = 'pending' | 'approved' | 'rejected' | 'suspended';
+
+export type DriverDocumentKind = 'licence' | 'rc' | 'aadhaar' | 'pan' | 'insurance';
+
+/** `missing` is the absence of a decision, never one that was made. */
+export type DriverDocumentStatus = 'missing' | 'pending' | 'verified' | 'rejected';
+
+export interface DriverDocument {
+  kind: DriverDocumentKind;
+  /** The human name, from the server — so app, console and log agree. */
+  label: string;
+  required: boolean;
+  number: string;
+  frontUrl: string;
+  backUrl: string;
+  expiresAt: string | null;
+  status: DriverDocumentStatus;
+  /** Shown to the rider verbatim. Required to reject. */
+  reason: string;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+}
+
+export interface DriverVehicle {
+  type?: 'bike' | 'scooter' | 'cycle' | 'auto';
+  model?: string;
+  plate?: string;
+}
+
+/** The account number never leaves the backend — only its last four do. */
+export interface DriverPayout {
+  accountHolderName: string;
+  accountLast4: string;
+  ifscCode: string;
+  bankName: string;
+  accountType: string;
+  upiId: string;
+}
+
+export interface DriverRow {
+  driverId: string;
+  name: string;
+  phone: string;
+  email: string;
+  dateOfBirth: string | null;
+  city: string;
+  profilePhotoUrl: string;
+
+  status: DriverStatus;
+  statusReason: string;
+
+  vehicle: DriverVehicle;
+  documents: DriverDocument[];
+  documentCounts: Partial<Record<DriverDocumentStatus, number>>;
+  /** Everything required is on file and none of it is refused. */
+  documentsReady: boolean;
+
+  payout: DriverPayout;
+
+  hasCompletedOnboarding: boolean;
+  onboardingStep: string;
+  /** What the rider still has to send, in the words their own app shows them. */
+  onboardingMissing: string[];
+
+  isOnline: boolean;
+  isAvailable: boolean;
+  currentOrderNumber: string | null;
+  /** Whether the dispatcher can actually see them, by the rule it uses. */
+  locationFresh: boolean;
+  locationUpdatedAt: string | null;
+  /** `[longitude, latitude]` — MongoDB's order, kept unswapped. */
+  currentLocation: [number, number] | null;
+  heading: number | null;
+  onlineSince: string | null;
+  deviceCount: number;
+
+  phoneVerifiedAt: string | null;
+  lastLoginAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface DriverDelivery {
+  orderNumber: string;
+  status: string;
+  restaurantId: string;
+  placedAt: string | null;
+  assignedAt: string | null;
+  pickedUpAt: string | null;
+  deliveredAt: string | null;
+  earnings: number;
+  orderTotal: number;
+  paymentMode: string;
+}
+
+export interface DriverDetail extends DriverRow {
+  /** From the order ledger, not a counter on the rider. */
+  lifetime: { assigned: number; delivered: number; cancelled: number; earnings: number };
+  recentDeliveries: DriverDelivery[];
+}
+
+export interface DriverQueueCounts {
+  pending?: number;
+  approved?: number;
+  rejected?: number;
+  suspended?: number;
+  online?: number;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Service zones — `service_zones`, read through `/v1/admin/zones`.
+
+   A zone is a shape and a price: where Lampose operates, and what a delivery
+   inside that area is multiplied by. Two geometries answer the same question —
+   a CIRCLE (a centre and a radius) and a POLYGON (a closed ring of vertices).
+
+   Every coordinate here is `[longitude, latitude]`, GeoJSON's order and
+   MongoDB's, kept unswapped from the database to the map. Google Maps wants
+   `{lat, lng}`, so the page converts at the point of use and nowhere else.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+export type ZoneType = 'circle' | 'polygon';
+
+/** Empty `allowedServices` means every service — see the backend model. */
+export type ZoneService = 'food' | 'stay';
+
+export interface ZoneRow {
+  zoneId: string;
+  name: string;
+  description: string;
+  type: ZoneType;
+  /** `[longitude, latitude]`. Set for circles, null for polygons. */
+  center: [number, number] | null;
+  /** Metres. Set for circles. */
+  radius: number | null;
+  /** GeoJSON rings of `[longitude, latitude]`. Set for polygons. */
+  boundary: [number, number][][] | null;
+  pricingMultiplier: number;
+  isActive: boolean;
+  allowedServices: ZoneService[];
+  /** "HH:MM", both empty when the zone has no time restriction. */
+  activeHours: { start: string; end: string };
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface ZoneCounts {
+  total: number;
+  active: number;
+  circle: number;
+  polygon: number;
+}
+
+/** What the console sends to create or redraw one. */
+export interface ZoneInput {
+  name?: string;
+  description?: string;
+  type?: ZoneType;
+  /** `[longitude, latitude]`. */
+  center?: { coordinates: [number, number] };
+  radius?: number;
+  /** A bare ring is accepted — the server wraps and closes it. */
+  boundary?: [number, number][] | [number, number][][];
+  pricingMultiplier?: number;
+  isActive?: boolean;
+  allowedServices?: ZoneService[];
+  activeHours?: { start: string; end: string };
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Food orders — `food_orders`, read through `/v1/admin/food-orders`.
+
+   The restaurant and rider queues above answer "may this person trade with
+   us". This one answers a different question, asked on a different day: an
+   order has gone wrong, where is it, and where is the diner's money. So the
+   shapes here are reconciliation shapes — every component of a total is named
+   separately rather than collapsed into one figure that has to be trusted.
+
+   ## Three nullable things, and each null means something
+
+   `FoodOrderMoney.commissionAmount` and `lamposeNet` are `number | null`
+   rather than `number`: an order written before `partnerPayout` settled onto
+   the row has no answer to "what did the kitchen net", and a zero there would
+   read as "nothing" — a different claim, and a false one. `restaurantName` is
+   `''` when neither the order's snapshot nor the live row carries one, and the
+   console draws `restaurantId` in that case rather than a name nobody wrote.
+
+   `deliveryOtp` is absent from these shapes because it is absent from the
+   payload. The console can see the kitchen's `pickupCode`; the code that
+   proves a delivery happened belongs to the diner and stays with them.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+export type FoodOrderStatus =
+  | 'placed'
+  | 'accepted'
+  | 'preparing'
+  | 'ready'
+  | 'picked_up'
+  | 'delivered'
+  | 'rejected'
+  | 'cancelled';
+
+export type FoodOrderPaymentStatus = 'pending' | 'paid' | 'refunded' | 'failed';
+
+export type FoodOrderPaymentMode = 'online' | 'cod';
+
+export type FoodOrderFulfilment = 'delivery' | 'pickup';
+
+export type FoodDispatchState = 'idle' | 'searching' | 'assigned' | 'unassigned';
+
+/**
+ * The three faults the queue knows how to find, and their union.
+ *
+ * `refund`   — an online order that was cancelled or rejected, or already
+ *              marked refunded, with no settled-refund line against it.
+ * `dispatch` — still open, and the search for a rider gave up.
+ * `stuck`    — still open and older than `stuckAfterMinutes`, excluding online
+ *              orders still `pending`, which are abandoned checkouts.
+ * `human`    — the DEDUPLICATED union: an order that is both stuck and owed a
+ *              refund is one row of work, not two.
+ */
+export type FoodOrderNeeds = 'human' | 'refund' | 'dispatch' | 'stuck' | 'any';
+
+export type FoodRefundState = 'owed' | 'settled' | 'none';
+
+/**
+ * What happened to the money, as far as the record shows.
+ *
+ * `channel` tells apart a refund this console sent through Razorpay from one
+ * somebody made in the gateway's own dashboard and recorded afterwards. Both
+ * are settled; only one of them was pressed here.
+ */
+export interface FoodRefundRecord {
+  state: FoodRefundState;
+  channel: 'razorpay' | 'manual' | '';
+  /** The Razorpay refund id, or the bank reference. Empty unless settled. */
+  reference: string;
+  at: string | null;
+  /** The administrator's name — who signed for it. */
+  by: string;
+}
+
+export interface FoodOrderFlags {
+  refundOwed: boolean;
+  dispatchFailed: boolean;
+  stuck: boolean;
+  /** True when any of the three above is. */
+  needsHuman: boolean;
+}
+
+/** As much of a rider as a queue row needs: who to ring. */
+export interface FoodOrderRiderBrief {
+  driverId: string;
+  name: string;
+  phone: string;
+}
+
+/** A row in the queue. The list endpoint projects only these columns. */
+export interface FoodOrderRow {
+  orderNumber: string;
+  placedAt: string | null;
+  /** Minutes since `placedAt`, measured server-side against its own clock. */
+  ageMinutes: number;
+  status: FoodOrderStatus;
+  dispatchState: FoodDispatchState;
+  dispatchFailureReason: string;
+  fulfilment: FoodOrderFulfilment;
+  restaurantId: string;
+  /** '' when nothing was ever written down — draw `restaurantId` instead. */
+  restaurantName: string;
+  customerName: string;
+  customerPhone: string;
+  grandTotal: number;
+  paymentMode: FoodOrderPaymentMode;
+  paymentStatus: FoodOrderPaymentStatus;
+  refund: FoodRefundRecord;
+  rider: FoodOrderRiderBrief | null;
+  flags: FoodOrderFlags;
+}
+
+export interface FoodOrderPage {
+  rows: FoodOrderRow[];
+  /** Rows on THIS page. `total` is the whole filtered set. */
+  count: number;
+  total: number;
+  page: number;
+  pages: number;
+}
+
+/**
+ * The badge, and the strip of numbers above the queue.
+ *
+ * `needsHuman` is smaller than `refundOwed + dispatchFailed + stuck` whenever
+ * one order carries two faults, which is normal. `byStatus` and
+ * `byPaymentStatus` are zero-filled with every value in the model's enum, so
+ * the chip row never changes width as orders arrive.
+ */
+export interface FoodOrderCounts {
+  needsHuman: number;
+  refundOwed: number;
+  /** The summed grand totals of the refund-owed rows, in rupees. */
+  refundOwedValue: number;
+  dispatchFailed: number;
+  stuck: number;
+  /** How old an open order has to be before it counts as stuck. */
+  stuckAfterMinutes: number;
+  openOrders: number;
+  byStatus: Record<FoodOrderStatus, number>;
+  byPaymentStatus: Record<FoodOrderPaymentStatus, number>;
+}
+
+export interface FoodOrderCustomer {
+  customerId: string;
+  name: string;
+  phone: string;
+  deliveryAddress: string;
+}
+
+export interface FoodOrderRestaurant {
+  restaurantId: string;
+  name: string;
+  address: string;
+  phone: string;
+  ownerName: string;
+  ownerPhone: string;
+}
+
+export interface FoodOrderAddOn {
+  name: string;
+  price: number;
+}
+
+/** One line of the bill, snapshotted as it was when the order was placed. */
+export interface FoodOrderLine {
+  productId: string;
+  productName: string;
+  variantName: string;
+  addOns: FoodOrderAddOn[];
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  isVeg: 'veg' | 'non-veg' | 'egg';
+  note: string;
+}
+
+/**
+ * Every component of the total, named.
+ *
+ * `commissionAmount` is `itemsTotal − partnerPayout` and `lamposeNet` is
+ * `grandTotal − partnerPayout − riderEarnings`, both worked out server-side
+ * from figures already on the order. They are null — never zero — when the
+ * order never had a payout written; the console draws a dash for that.
+ */
+export interface FoodOrderMoney {
+  itemsTotal: number;
+  packagingCharge: number;
+  deliveryFee: number;
+  discount: number;
+  grandTotal: number;
+  partnerPayout: number;
+  /** Percent, as stored on the order. */
+  commissionRate: number;
+  commissionAmount: number | null;
+  riderEarnings: number;
+  lamposeNet: number | null;
+}
+
+export interface FoodRefundDetail extends FoodRefundRecord {
+  note: string;
+}
+
+/** A refund that was attempted and refused, in the gateway's own words. */
+export interface FoodRefundFailure {
+  note: string;
+  at: string | null;
+}
+
+export interface FoodOrderPayment {
+  mode: FoodOrderPaymentMode;
+  status: FoodOrderPaymentStatus;
+  razorpayOrderId: string;
+  razorpayPaymentId: string;
+  /** What the gateway recorded taking, in paise. */
+  amountPaise: number;
+  paidAt: string | null;
+  /** The refund button's enabled state. Decided by the server, not the page. */
+  refundable: boolean;
+  /** The sentence to show when `refundable` is false. Shown verbatim. */
+  refundBlockedReason: string;
+  refund: FoodRefundDetail;
+  lastFailure: FoodRefundFailure | null;
+}
+
+export type FoodDispatchOfferOutcome =
+  | 'offered'
+  | 'accepted'
+  | 'declined'
+  | 'timeout'
+  | 'cancelled';
+
+/** One rider who was asked, and what they said. */
+export interface FoodDispatchOffer {
+  driverId: string;
+  distanceMeters: number;
+  offeredAt: string | null;
+  respondedAt: string | null;
+  outcome: FoodDispatchOfferOutcome;
+  reason: string;
+}
+
+export interface FoodOrderDispatch {
+  state: FoodDispatchState;
+  candidateCount: number;
+  attempts: number;
+  startedAt: string | null;
+  failureReason: string;
+  /** The full shortlist. Shown to this console and to nobody else. */
+  offers: FoodDispatchOffer[];
+}
+
+export interface FoodOrderRider extends FoodOrderRiderBrief {
+  vehicle: { type?: string; model?: string; plate?: string };
+  assignedAt: string | null;
+  pickedUpAt: string | null;
+  deliveredAt: string | null;
+  earnings: number;
+  /** How far away they were when they accepted, in metres. */
+  acceptedFromMeters: number;
+}
+
+export interface FoodOrderStatusEvent {
+  status: FoodOrderStatus;
+  at: string | null;
+  /** 'system', 'admin', or whichever party moved it. */
+  by: string;
+  note: string;
+}
+
+/** One order, reconciled: the money, the dispatch, the history, the gateway. */
+export interface FoodOrderDetail {
+  orderNumber: string;
+  placedAt: string | null;
+  status: FoodOrderStatus;
+  fulfilment: FoodOrderFulfilment;
+  promisedMinutes: number;
+  rejectionReason: string;
+  ageMinutes: number;
+  customer: FoodOrderCustomer;
+  restaurant: FoodOrderRestaurant;
+  lines: FoodOrderLine[];
+  money: FoodOrderMoney;
+  payment: FoodOrderPayment;
+  dispatch: FoodOrderDispatch;
+  rider: FoodOrderRider | null;
+  /** The KITCHEN's hand-over code. The diner's delivery OTP is not sent here. */
+  pickupCode: string;
+  statusHistory: FoodOrderStatusEvent[];
+  flags: FoodOrderFlags;
+}
+
+/**
+ * What the console asks the queue for.
+ *
+ * `status` and `paymentStatus` accept an array because the route accepts a
+ * comma list — "everything still open" is five statuses, and the alternative
+ * is five requests or a filter that cannot say it.
+ */
+export interface FoodOrderQuery {
+  needs?: FoodOrderNeeds | '';
+  status?: FoodOrderStatus | FoodOrderStatus[] | 'all' | '';
+  paymentStatus?: FoodOrderPaymentStatus | FoodOrderPaymentStatus[] | 'all' | '';
+  paymentMode?: FoodOrderPaymentMode | 'all' | '';
+  dispatchState?: FoodDispatchState | 'all' | '';
+  restaurantId?: string;
+  /** 'YYYY-MM-DD' or a full ISO stamp. A bare `to` date covers its whole day. */
+  from?: string;
+  to?: string;
+  /** An order-number prefix, a phone substring, or an exact gateway id. */
+  q?: string;
+  /** Left unset, the server sorts oldest-first when a `needs` filter is on. */
+  sort?: 'oldest' | 'newest' | '';
+  page?: number;
+  limit?: number;
+}
+
+/**
+ * Why a refund was refused, in the server's own vocabulary.
+ *
+ * The console branches on these rather than on the HTTP status, because three
+ * different 409s mean three different next actions: one says the money already
+ * went, one says it was never owed, and one says a click is still in the air.
+ */
+export type FoodRefundCode =
+  | 'BAD_INPUT'
+  | 'UNAUTHORIZED'
+  | 'FORBIDDEN'
+  | 'NOT_FOUND'
+  | 'ALREADY_REFUNDED'
+  | 'NOT_OWED'
+  | 'NO_PAYMENT_ID'
+  | 'REFUND_IN_FLIGHT'
+  | 'REFUND_FAILED'
+  | 'PAYMENTS_NOT_CONFIGURED'
+  | 'DB_DISCONNECTED';
+
+/**
+ * What came back from either refund route.
+ *
+ * `recorded` is the one field that must be read before anything else. It is
+ * false in exactly one situation — the gateway sent the money and the order
+ * could not be saved — and in that situation there is no `order`, only the
+ * reference and a warning somebody has to act on by hand. That case arrives as
+ * a 200 rather than a 500 on purpose: a 500 reads as "the refund failed", and
+ * the one thing that must not happen next is somebody sending it again.
+ */
+export interface FoodRefundResult {
+  recorded: boolean;
+  orderNumber: string;
+  /** The server's confirmation sentence, carrying the real figure. */
+  message: string;
+  /** Non-empty only in the `recorded: false` shape. */
+  warning: string;
+  refund: FoodRefundDetail;
+  /** The whole order again, already updated. Null when `recorded` is false. */
+  order: FoodOrderDetail | null;
 }

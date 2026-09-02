@@ -24,20 +24,35 @@ npm run dev
 ```
 app/                    Routes (expo-router, file-based)
   _layout.tsx           Root stack + auth gate + splash handling
-  auth.tsx              Sign in / sign up with OTP
-  onboarding.tsx        4-step partner setup
-  (tabs)/               Home, Jobs, Earnings, Profile
-  active-order.tsx      Live job: map, step flow, hand-off codes
-  chat.tsx              Customer chat over socket.io
-  add-address.tsx       Saved addresses with autocomplete
-  identity-verify.tsx   Aadhaar / PAN verification
+  auth.tsx              Sign in / sign up: a number, then a six-digit code
+  onboarding.tsx        Partner setup — four steps, each one a real form that
+                        PATCHes before it advances, ending in the verdict.
+                        Personal details, vehicle, the five documents (a photo
+                        plus a number each, uploaded and submitted one at a
+                        time), and where to be paid. Nothing here can mark the
+                        form finished: `PATCH /me` re-derives completeness and
+                        refuses, naming what is left.
+  (tabs)/               Home (duty + offers), Orders, Earnings, Profile
+  request.tsx           A live offer: 15s, two numbers, accept or decline
+  active.tsx            The job in hand: map, stages, both hand-over codes
+                        The map is components/ui/MapPanel.tsx — a relative map
+                        on react-native-svg, drawing the rider's own GPS
+                        against the pickup and the drop at one uniform scale.
+                        No tiles: react-native-maps IS a dependency here, so
+                        upgrading is possible, but it needs a Google Maps key
+                        and a dev build. The customer app draws the same three
+                        points from the other side in
+                        `User App/components/food/DeliveryMap.tsx` — if you
+                        change the geometry in one, change the other.
+  complete.tsx          What the delivery paid
 
 theme/                  Design tokens — colours, spacing, radii, type, shadows
 components/ui/          Shared primitives (Button, Card, Input, Banner, …)
 components/order/       Active-job pieces (OrderMap, TripStats, ContactBar, …)
-store/driverStore.ts    Zustand store, persisted to AsyncStorage
-utils/                  api client, socket service, formatters, fare, polyline
-hooks/                  useDriverLocation (GPS + compass + broadcast)
+store/driverStore.ts    Session, duty, the live offer, the job in hand
+store/flowStore.ts      Screen state only — sheets, toasts, tab selection
+utils/                  api client, socket service, formatters, polyline
+hooks/                  useDriverLocation (GPS + compass)
 ```
 
 ### Design system
@@ -75,52 +90,100 @@ reskin. Wiring it up means putting `colors` behind a provider.
 The brand colours are mirrored in `app.config.js` (splash, adaptive icon,
 notification tint) — keep the two in sync.
 
-## Demo mode (no backend)
+## Getting a rider onto the road
 
-`EXPO_PUBLIC_AUTH_MODE=mock` swaps the auth endpoints for
-[`utils/mockAuth.ts`](utils/mockAuth.ts), so you can sign in and walk the app
-without a server running.
+There is no demo mode. Every screen reads the real backend, and the whole loop
+runs on a laptop:
 
-- **Demo account:** `+91 9876543210` / `demo1234` — already onboarded and verified,
-  so it lands straight on the tabs. The sign-in screen shows these with a **Fill**
-  button.
-- **Sign-up** works too: any details, and the OTP is always `123456`. New accounts
-  start un-onboarded so you can walk the setup flow.
-- Accounts are stored in AsyncStorage, so one you create survives a reload.
+1. `cd ../Backend && npm run dev`.
 
-Set `EXPO_PUBLIC_AUTH_MODE=api` to go back to the real endpoints. Changing it needs
-a dev-server restart — `EXPO_PUBLIC_*` values are inlined at bundle time.
+   > **The OTP is a real SMS, in development too.** This file used to claim the
+   > code is printed to the console outside production; it is not —
+   > `infrastructure/sms/sms.js` calls the live gateway whatever `NODE_ENV`
+   > says. Sign in with a number you own. An invented ten-digit Indian mobile
+   > number belongs to somebody, and they get the text.
+2. `npm run seed:food-menu` in `Backend/`, and give the seeded restaurant a
+   `location` pin — the dispatcher searches around it.
+3. Sign in here with any 10-digit number and the code from the backend log.
+4. The account starts `pending`. Finish the four onboarding steps — the
+   document photos go to Cloudinary, so `CLOUDINARY_*` has to be set in
+   `Backend/.env` or that step answers a named 503.
 
-Only auth is mocked. Jobs, earnings and history still come from the API, so those
-screens stay empty until a backend is reachable.
+   Each step carries a **Fill with dummy data** button in development, which
+   fills that step and advances. It will not invent the three fields an account
+   is identified by — the mobile number, the email address and the date of
+   birth — and refuses, pointing at the field, if one is still blank. The
+   document step attaches placeholder scan URLs rather than uploading, so the
+   flow is walkable without Cloudinary configured; use the camera path when the
+   upload itself is what is being tested. `constants/dummyPartner.ts` holds the
+   values and the `EXPO_PUBLIC_ALLOW_DUMMY_DATA` switch for preview builds.
+5. **Put yourself somewhere the dispatcher can see you.** An emulator reports
+   the Googleplex until told otherwise — 13,476km from Rajahmundry — and the
+   dispatcher only searches 2/5/10km around the KITCHEN'S pin, so every order
+   finds nobody and neither app says why. In a development build the Home
+   screen carries a **Test location** panel: "Put me in Rajahmundry", or paste
+   a pin copied from the admin console. It reports through the same
+   `PATCH /me/location` a real fix does.
+6. Approve the rider in the admin console: **Food → Delivery Riders**. Verify
+   each document (or send one back with a reason, which the app then shows on
+   that document), then approve the account. Until that happens the duty switch
+   refuses, in the server's own words.
+
+   `npm run verify:driver-onboarding` in `Backend/` walks that whole span —
+   sign-up, the form, the documents, the console's verdicts and the duty switch
+   — headlessly, and texts nobody.
+7. Go online, place an order from the User App, and the offer arrives.
+
+`npm run verify:food-dispatch` in `Backend/` walks the same loop headlessly.
 
 ## Backend endpoints
 
-The app calls `EXPO_PUBLIC_API_URL` and expects:
+The app calls `EXPO_PUBLIC_API_URL` and expects the **v2 driver surface** —
+`app_drivers`, the sixth identity system in the Lampose backend, whose tokens
+carry `typ: "driver"`:
 
-| Method  | Path                                | Used for                     |
-| ------- | ----------------------------------- | ---------------------------- |
-| `POST`  | `/api/v1/auth/login`                | Password sign in             |
-| `POST`  | `/api/v1/auth/request-otp`          | Send signup OTP              |
-| `POST`  | `/api/v1/auth/verify-otp`           | Verify OTP, create account   |
-| `GET`   | `/api/v1/auth/me`                   | Revalidate the stored token  |
-| `POST`  | `/api/v1/drivers/me/duty`           | Go online / offline          |
-| `GET`   | `/api/v1/drivers/me/earnings`       | Earnings summary             |
-| `GET`   | `/api/v1/orders/available`          | Nearby job requests          |
-| `POST`  | `/api/v1/orders/:id/accept`         | Accept a job                 |
-| `PATCH` | `/api/v1/orders/:id/status`         | Advance a job (with code)    |
-| `POST`  | `/api/v1/orders/:id/cancel`         | Cancel a job                 |
-| `POST`  | `/api/v1/orders/:id/sos`            | Emergency alert              |
-| `GET`   | `/api/v1/orders/history`            | Completed / cancelled jobs   |
-| `POST`  | `/api/v1/users/addresses`           | Create / update an address   |
-| `GET`   | `/api/v1/places/autocomplete`       | Address suggestions          |
-| `POST`  | `/api/v1/onboarding/verify-aadhaar` | Aadhaar check                |
-| `POST`  | `/api/v1/onboarding/verify-pan`     | PAN check                    |
+| Method  | Path                                       | Used for                       |
+| ------- | ------------------------------------------ | ------------------------------ |
+| `POST`  | `/api/v2/drivers/auth/start`               | A number in, a code out by SMS |
+| `POST`  | `/api/v2/drivers/auth/resend`              | Another code                   |
+| `POST`  | `/api/v2/drivers/auth/verify`              | The code back, a session out   |
+| `GET`   | `/api/v2/drivers/me`                       | Profile, documents, approval, duty |
+| `PATCH` | `/api/v2/drivers/me`                       | Name, dob, city, vehicle, payout |
+| `GET`   | `/api/v2/drivers/me/documents`             | The five-row checklist and its verdicts |
+| `POST`  | `/api/v2/drivers/me/documents`             | Submit or resubmit one document |
+| `POST`  | `/api/v2/drivers/me/uploads/images`        | A photo to Cloudinary, URL back |
+| `POST`  | `/api/v2/drivers/me/devices`               | Register this handset for push |
+| `POST`  | `/api/v2/drivers/me/duty`                  | Go online / offline            |
+| `PATCH` | `/api/v2/drivers/me/location`              | Position, every 15s while online |
+| `GET`   | `/api/v2/drivers/me/offer`                 | The live offer (poll fallback) |
+| `GET`   | `/api/v2/drivers/me/orders/active`         | The job in hand                |
+| `GET`   | `/api/v2/drivers/me/orders`                | What has been carried          |
+| `GET`   | `/api/v2/drivers/me/earnings`              | Derived from delivered orders  |
+| `POST`  | `/api/v2/drivers/orders/:n/accept`         | Take the job                   |
+| `POST`  | `/api/v2/drivers/orders/:n/decline`        | Pass it to the next rider      |
+| `POST`  | `/api/v2/drivers/orders/:n/release`        | Give back a job you cannot do  |
+| `PATCH` | `/api/v2/drivers/orders/:n/status`         | `picked_up` / `delivered` + code |
 
-Socket.io events (same host): `driver_online`, `driver_offline`,
-`driver_location_update`, `track_order`, `new_order_request`, `send_message`,
-`receive_message`, `order_status_update`, `assign_task_confirmed`,
-`helper_status_update`, `driver_issue_reported`.
+**An offer makes a noise.** `services/alertSound.ts` plays
+`assets/sounds/offer.wav` — three rising staccato pulses — from `receiveOffer`
+in the store, which is the ONE place both transports arrive and is idempotent
+on the order number, so the tone plays once per offer rather than once per
+delivery mechanism. It is played by the app rather than left to the push
+notification because a foregrounded app shows no notification at all, and a
+phone in a handlebar cradle with the screen on is how a rider actually waits
+for work. The session is opened with `playsInSilentMode`, since a rider's phone
+lives on silent and this is work arriving. The Food-Partner app plays a
+deliberately different chime — see `Backend/README.md`.
+
+Socket.io on the same origin, authenticated by the same bearer token in the
+handshake. In: `track_order`, `untrack_order`, `driver_location`. Out:
+`delivery_offer`, `delivery_offer_closed`, `delivery_cancelled`,
+`dispatch_update`.
+
+**The socket is an optimisation, never a dependency.** An offer arrives over
+it *and* over the four-second `GET /me/offer` poll, and both funnel into one
+idempotent handler — a rider in a lift, on a train, or on a deployment with no
+socket server still gets their work.
 
 The API client treats a 4xx as a real rejection and surfaces it, but lets transport
 failures fall through so a patchy connection doesn't strand a driver mid-job.

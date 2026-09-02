@@ -9,6 +9,7 @@ import {
   Bell,
   Bike,
   Bookmark,
+  Heart,
   Calendar,
   Car,
   Cctv,
@@ -30,6 +31,7 @@ import {
   LogIn,
   LogOut,
   MapPin,
+  Crosshair,
   Phone,
   Refrigerator,
   RotateCcw,
@@ -225,10 +227,19 @@ const LUCIDE_GLYPHS = {
   laundry: Shirt,
   sharing: Users,
   mapPin: MapPin,
+  /* The "use my location" control on every address form. A crosshair rather
+     than a pin: a pin marks a place, a crosshair asks to be centred on one. */
+  crosshair: Crosshair,
   home: House,
   search: Search,
   filters: SlidersHorizontal,
   bookmark: Bookmark,
+  /* The favourite mark on food. A HEART rather than the bookmark used on the
+     stay side, and the difference is meant: a bookmark is "come back to this
+     listing", a heart is "I liked this". They are also two different lists on
+     the account — see `foodFavourites` on the customer — and giving them the
+     same glyph would suggest one. */
+  heart: Heart,
   phone: Phone,
   calendar: Calendar,
   clock: Clock,

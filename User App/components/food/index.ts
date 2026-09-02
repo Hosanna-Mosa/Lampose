@@ -15,14 +15,25 @@ export { MealWindowRail, MealWindowToken, WindowStatusLine } from './MealWindowR
 export { AddControl, type AddControlProps } from './AddControl';
 export { KitchenCard, type KitchenCardProps } from './KitchenCard';
 export { DishRow, DishTile, type DishRowProps } from './DishRow';
+export {
+  FavouriteHeart,
+  FavouritesUnavailableNote,
+  type FavouriteHeartProps,
+} from './FavouriteHeart';
 export { FulfilmentToggle, RoomTargetRow, type FulfilmentToggleProps } from './Fulfilment';
 export { DockedCartBar, type DockedCartBarProps } from './DockedCartBar';
 export { BillBreakdown, ReceiptLine, type BillLine, type BillBreakdownProps } from './BillBreakdown';
 export { ActiveOrderCard, FoodStatusChip, FoodTimeline, timelineIndex } from './FoodStatus';
-export { SlotPicker, slotsFor, type Slot, type SlotPickerProps } from './SlotPicker';
 export { FoodNotice, FoodSectionHeader, OfferStrip, type FoodNoticeTone } from './FoodNotices';
 export { FoodEmptyState, FoodFeedSkeleton, FoodMenuSkeleton, type FoodEmptyStateProps } from './FoodStates';
 export { CartSwitchSheet, type CartSwitchSheetProps } from './CartSwitchSheet';
+export {
+  DeliveryMap,
+  metresBetween,
+  readableDistance,
+  type DeliveryMapProps,
+  type LngLat,
+} from './DeliveryMap';
 
 export { FoodHome } from './FoodHome';
 export { FoodSearch } from './FoodSearch';

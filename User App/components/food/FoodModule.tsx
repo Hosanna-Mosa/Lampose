@@ -97,9 +97,9 @@ export function FoodModule() {
     () =>
       [
         cartWindow.label,
-        fulfilment === 'pickup' ? `pickup · ${kitchen?.name ?? 'counter'}` : address.title,
+        fulfilment === 'pickup' ? `pickup · ${kitchen?.name ?? 'counter'}` : (address?.title ?? 'no address yet'),
       ].join(' · '),
-    [cartWindow.label, fulfilment, kitchen?.name, address.title],
+    [cartWindow.label, fulfilment, kitchen?.name, address?.title],
   );
 
   return (

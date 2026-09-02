@@ -13,6 +13,12 @@ import {
   type CreateTicketInput,
 } from '@/services/api/support.api';
 import { toTicket, toTickets, toTicketThread } from '@/services/adapters/support.adapter';
+import type { BackendTicketDetail } from '@/services/api/types';
+import {
+  connectSupportSocket,
+  onSupportEvent,
+  watchTicket,
+} from '@/services/support.socket';
 import { queryKeys } from './keys';
 
 /**
@@ -29,9 +35,27 @@ import { queryKeys } from './keys';
  * on a dead connection is precisely the failure that matters here — they would
  * believe it was sent, and nobody would have it. So the button stays in its
  * loading state until the server has the record, and a failure is shown.
+ *
+ * ## The live layer lives here, not on the screens
+ *
+ * `services/support.socket.ts` delivers a support reply the moment it is
+ * written, and both hooks subscribe to it. It is wired at this layer because
+ * this is the layer that owns the cache: an incoming message has to land in
+ * `queryKeys.ticket(reference)` and not in a screen's `useState`, or the next
+ * focus refetch — `refetchOnWindowFocus` is genuinely live in this app, see
+ * `app/_layout.tsx` — would blow it away and the message would flicker out
+ * and back in. Wiring it here also means the screens did not have to change
+ * at all, which is what they were owed.
+ *
+ * Nothing below is a dependency on the connection. Every fetch, refetch and
+ * pull-to-refresh that was here before is still here and still the thing that
+ * makes the feature work; the socket only decides how quickly a reply shows
+ * up on a screen somebody is already looking at.
  */
 
 export function useTickets(enabled = true) {
+  const client = useQueryClient();
+
   const query = useQuery({
     queryKey: queryKeys.ticketList,
     queryFn: ({ signal }) => fetchTickets(signal),
@@ -49,6 +73,40 @@ export function useTickets(enabled = true) {
      clock, so mapping inside the render body would recompute "2 days ago" on
      every keystroke elsewhere on the screen. */
   const tickets = useMemo(() => toTickets(backendTickets), [backendTickets]);
+
+  /*
+   * ── Live ──────────────────────────────────────────────────────────────
+   *
+   * No reference filter, and no `track_ticket`. A signed-in diner is put in
+   * `customer:<id>` by the handshake alone and the server emits every support
+   * event for every thread they own into it — so this list receives exactly
+   * the events it wants and nothing else.
+   *
+   * The event's own `ticket` is NOT written into the cache. It is the
+   * console's row (`toAdminSummary()`), and its `unread` means "the customer
+   * said something support has not read" — the mirror image of the rule this
+   * list draws. Writing it in would bold a row when the student last spoke
+   * and clear it when support replied, which is precisely backwards. So the
+   * event is treated as a signal that something moved, and the fetch that was
+   * already here produces the correct row. Refetching a LIST costs none of
+   * what makes refetching a thread wrong: there is no composer to blank and
+   * no scroll position to lose.
+   *
+   * `query.isSuccess` is a trigger, not a permission. It is proof that the
+   * token in `client.ts` has hydrated — a handshake sent before it does is
+   * refused by the server and never retried, which would be a socket that is
+   * dead for the whole session and silent about it.
+   */
+  const sessionProven = query.isSuccess;
+
+  useEffect(() => {
+    if (!enabled) return;
+    if (sessionProven) connectSupportSocket();
+
+    return onSupportEvent(() => {
+      client.invalidateQueries({ queryKey: queryKeys.ticketList });
+    });
+  }, [enabled, sessionProven, client]);
 
   return {
     ...query,
@@ -93,6 +151,95 @@ export function useTicket(reference: string | undefined) {
       .then(() => client.invalidateQueries({ queryKey: queryKeys.ticketList }))
       .catch(() => {});
   }, [reference, hasUnread, client]);
+
+  /*
+   * ── Live ──────────────────────────────────────────────────────────────
+   *
+   * The filter is the load-bearing part. The diner's own room carries events
+   * for every thread they own, so a screen showing one and appending whatever
+   * it hears would drop support's answer about a broken geyser into an open
+   * conversation about a deposit. `watchTicket` compares references — both
+   * sides uppercased, because the server uppercases before joining the room
+   * while the payload carries the stored value — and additionally joins
+   * `ticket:<reference>`.
+   *
+   * The message is APPENDED rather than fetched. A refetch here would replace
+   * the whole thread under somebody's thumb mid-scroll, and it would do it at
+   * the exact moment they are most likely to be reading — which is the moment
+   * a support reply arrives.
+   */
+  const sessionProven = query.isSuccess;
+
+  useEffect(() => {
+    if (!reference) return;
+    if (sessionProven) connectSupportSocket();
+
+    return watchTicket(reference, (event) => {
+      /* The row on the list carries the preview and the bold rule, and
+         neither of them lives in this cache. */
+      const refreshList = () => client.invalidateQueries({ queryKey: queryKeys.ticketList });
+
+      const message = event.message;
+      if (!message?.id) {
+        /* No message means the queue moved the thread — a status, an
+           outcome, a closure. The row that came with it is the console's, so
+           it cannot be patched in; the thread is asked for again instead.
+           React Query keeps the current data on screen while it refetches, so
+           nothing blanks and the composer is untouched, and a status moves a
+           handful of times in a thread's whole life. */
+        client.invalidateQueries({ queryKey: queryKeys.ticket(reference) });
+        refreshList();
+        return;
+      }
+
+      client.setQueryData<BackendTicketDetail>(queryKeys.ticket(reference), (current) => {
+        /* Nothing cached yet — the fetch that is already in flight will bring
+           the message with the rest of the thread. */
+        if (!current) return current;
+
+        /*
+         * The diner's OWN reply arrives here too.
+         *
+         * The server emits into the requester's room on the customer's own
+         * POST, and the mutation below has already written the server's copy
+         * of the thread into this same cache. Both paths stringify the same
+         * `_id`, so the id is what tells the two copies apart — without this
+         * check every sent message appears twice.
+         */
+        if (current.messages.some((existing) => existing.id === message.id)) return current;
+
+        return {
+          ...current,
+          messages: [...current.messages, message],
+          messageCount: current.messages.length + 1,
+          /* Sliced the way the server slices it, so an appended row and a
+             fetched one are the same shape rather than nearly the same. */
+          lastMessagePreview: message.body.slice(0, 160),
+          lastActivityAt: message.at,
+          /* `unread` is deliberately left as it was. It is the input to the
+             mark-read effect above, and flipping it true for a message that
+             is on screen would fire a watermark POST and a list refetch per
+             bubble — through an effect that only notices the first one. */
+        };
+      });
+
+      if (message.author === 'customer') {
+        refreshList();
+        return;
+      }
+
+      /* Support has spoken into a thread that is open on the screen, and
+         therefore into one that has been read. Moving the watermark here is
+         what stops the list row going bold for a sentence somebody is looking
+         at; the effect above cannot do it, because nothing set `unread`. */
+      markTicketRead(reference)
+        .catch(() => {
+          /* A watermark that did not move leaves the row bold for one more
+             screen, and opening the thread again corrects it. */
+        })
+        .then(refreshList);
+    });
+  }, [reference, sessionProven, client]);
 
   const messages = useMemo(() => (detail ? toTicketThread(detail) : []), [detail]);
   const ticket = useMemo(() => (detail ? toTicket(detail) : null), [detail]);

@@ -17,6 +17,10 @@ export {
   Well,
 } from "./primitives";
 export type { BtnVariant } from "./primitives";
+export { Input, ChoiceField, DateField, PhotoSlot } from "./Form";
+export type { Choice, InputProps } from "./Form";
+export { LocateButton } from "./LocateButton";
+export { TestLocation } from "./TestLocation";
 export { Text } from "./Text";
 export type { TextColor, TextProps } from "./Text";
 export { Icon, RouteSketch, ICON_PATHS } from "./Icon";

@@ -173,6 +173,7 @@ export default function Home() {
   const [envOpen, setEnvOpen] = useState(false);
   const appEnv = useAppEnv();
   const FOOD_MODE = useFoodMode();
+  const previewControls = usePreviewControls();
   const [segment, setSegment] = useState<BookingSegment>('active');
 
   useEffect(() => {
@@ -781,6 +782,11 @@ export default function Home() {
 
           <ProfileGroup title="Your stuff">
             <ProfileRow label="Alerts" value={`${unread} unread`} onPress={() => router.push('/notifications')} />
+            {/* The address book. Reachable here rather than only from the
+                checkout, because the moment somebody wants to FIX an address
+                is rarely the moment they are ordering. */}
+            <ProfileRow label="Your addresses" onPress={() => router.push('/addresses')} />
+            <ProfileRow label="Where we deliver" onPress={() => router.push('/food/delivery-area')} />
             <ProfileRow label="Saved places" value={String(saved.length)} onPress={() => setTab('saved')} />
             <ProfileRow label="Past stays" onPress={() => router.push('/bookings/history')} />
             <ProfileRow
@@ -800,14 +806,38 @@ export default function Home() {
               value={APPEARANCE_VALUE[preference](mode)}
               onPress={() => setThemeOpen(true)}
             />
-            <ProfileRow label="Language" value="English" />
-            <ProfileRow label="Notifications" value="All on" />
-            <ProfileRow label="Help & support" onPress={() => router.push('/support')} />
+            {/* "Language · English" and "Notifications · All on" used to sit
+                here. Both were assertions about settings that do not exist —
+                there is no language anywhere in the app and no notification
+                preference on the account — and every row in this list draws a
+                chevron, so both looked like doors. A settings row that states
+                a fact nobody can change, and cannot be opened to check it, is
+                worse than a shorter list. */}
             <ProfileRow
-              label="Design-system sheets"
-              onPress={() => router.push('/preview')}
-              last
+              label="Help & support"
+              onPress={() => router.push('/support')}
+              last={!previewControls}
             />
+            {/*
+              * Gated, like the Developer group below, because the screen
+              * behind it is.
+              *
+              * `app/preview.tsx` redirects to /home whenever preview controls
+              * are off, which a production build makes permanent — so an
+              * ungated row was a chevron that bounced. On the mode IN FORCE
+              * rather than on `CAN_OVERRIDE_ENV`: the redirect is written
+              * against the same answer, and the two have to agree or the row
+              * comes back the moment a switchable build is set to Production.
+              * The Developer group's opposite choice is deliberate for the
+              * opposite reason — see the note on it.
+              */}
+            {previewControls ? (
+              <ProfileRow
+                label="Design-system sheets"
+                onPress={() => router.push('/preview')}
+                last
+              />
+            ) : null}
           </ProfileGroup>
 
           {/*

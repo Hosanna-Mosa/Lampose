@@ -129,6 +129,20 @@ const unregisterFoodPartnerDevice = (req, res, next) => unregisterFor(
   { restaurantId: req.foodPartner.restaurantId },
 )(req, res, next);
 
+/* A rider, in `app_drivers`. The fourth account type through one controller,
+   and the one that needs it most: a delivery offer expires in fifteen seconds,
+   so the token this route stores is the difference between a rider getting the
+   work and never knowing it existed. */
+const registerDriverDevice = (req, res, next) => registerFor(
+  require('../drivers/driver.model'),
+  { driverId: req.driver.driverId },
+)(req, res, next);
+
+const unregisterDriverDevice = (req, res, next) => unregisterFor(
+  require('../drivers/driver.model'),
+  { driverId: req.driver.driverId },
+)(req, res, next);
+
 module.exports = {
   MAX_DEVICES,
   registerCustomerDevice,
@@ -137,4 +151,6 @@ module.exports = {
   unregisterPartnerDevice,
   registerFoodPartnerDevice,
   unregisterFoodPartnerDevice,
+  registerDriverDevice,
+  unregisterDriverDevice,
 };

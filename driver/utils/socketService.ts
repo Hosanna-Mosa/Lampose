@@ -41,9 +41,13 @@ class SocketService {
 
     this.socket.on("connect", () => {
       this.warnedOffline = false;
-      if (this.driverId) this.socket?.emit("driver_online", { driverId: this.driverId });
-      // Re-join any rooms we were watching before the drop.
-      this.trackedOrders.forEach((orderId) => this.socket?.emit("track_order", { orderId }));
+      // Re-join any rooms we were watching before the drop. Duty is NOT
+      // re-asserted here: it lives on `POST /me/duty`, and a socket that could
+      // put a rider back on duty would put them back on after a reconnect they
+      // did not ask for.
+      this.trackedOrders.forEach((orderNumber) =>
+        this.socket?.emit("track_order", { orderNumber }),
+      );
     });
 
     this.socket.on("connect_error", (err) => {
@@ -88,27 +92,40 @@ class SocketService {
     this.socket.emit(event, payload);
   }
 
-  /** Join an order's room so its chat and status events reach this client. */
-  trackOrder(orderId: string) {
-    if (!orderId) return;
-    this.trackedOrders.add(orderId);
-    this.emit("track_order", { orderId });
+  /**
+   * Watch one order.
+   *
+   * The server decides whether this socket may join: it reads the order and
+   * checks that this rider is the one assigned to it. Asking for a room is not
+   * the same as being let into it, which is what stops a six-digit order number
+   * being enough to watch a stranger's delivery.
+   */
+  trackOrder(orderNumber: string) {
+    if (!orderNumber) return;
+    this.trackedOrders.add(orderNumber);
+    this.emit("track_order", { orderNumber });
   }
 
-  untrackOrder(orderId: string) {
-    this.trackedOrders.delete(orderId);
-    this.emit("untrack_order", { orderId });
+  untrackOrder(orderNumber: string) {
+    this.trackedOrders.delete(orderNumber);
+    this.emit("untrack_order", { orderNumber });
   }
 
-  /** Broadcast the driver's position for live customer tracking. */
+  /**
+   * Broadcast the rider's position to whoever is watching this order.
+   *
+   * A RELAY, not a write. The position the dispatcher matches on is set by
+   * `PATCH /me/location`, which is validated and rate-limited; this is the
+   * copy that moves the marker on the diner's map between those. The server
+   * drops it unless the socket is actually in that order's room.
+   */
   sendLocation(payload: {
-    driverId: string;
+    orderNumber: string;
     lat: number;
     lng: number;
     heading?: number;
-    orderId?: string;
   }) {
-    this.emit("driver_location_update", payload);
+    this.emit("driver_location", payload);
   }
 }
 

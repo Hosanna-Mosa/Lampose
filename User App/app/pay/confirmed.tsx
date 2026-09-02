@@ -16,6 +16,7 @@ import { findListing } from '@/data/listings';
 import { formatRupees } from '@/utils/money';
 import { useDepositMark } from '@/components/ui/DepositMark';
 import { findBooking } from '@/data/bookings';
+import { useActionBarInset } from '@/hooks/useActionBarInset';
 
 /**
  * "It's yours."
@@ -50,6 +51,9 @@ import { findBooking } from '@/data/bookings';
 export default function PaymentConfirmed() {
   const { colors, space, layout, mode, radius } = useTheme();
   const insets = useSafeAreaInsets();
+  /* Nothing on a handset that reports a real inset; the shortfall on one
+     that reports none, so the action clears the navigation bar. */
+  const actionInset = useActionBarInset();
   const router = useRouter();
   const reduceMotion = useReduceMotion();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -85,7 +89,7 @@ export default function PaymentConfirmed() {
         <View
           style={{
             paddingTop: insets.top + space[6],
-            paddingBottom: space[6],
+            paddingBottom: space[6] + actionInset,
             paddingHorizontal: layout.gutter,
             alignItems: 'center',
             gap: space[3],

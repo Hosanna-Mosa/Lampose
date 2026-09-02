@@ -38,8 +38,25 @@ export default function PaymentCheckout() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const { requestId, returnTo } = useLocalSearchParams<{
+  /*
+   * Two flows land here, and they are told apart by which id arrives.
+   *
+   *   requestId   an assisted visit (`/visit-requests/:id/payment/checkout`)
+   *   foodToken   a food order (`/food-partners/checkout?t=…`)
+   *
+   * One screen rather than two, because everything below this line — the UPI
+   * intent handling, the cookie settings, the user agent, the bounce — is the
+   * same problem twice, and the second copy is the one that would not get the
+   * next fix. What differs is one URL.
+   *
+   * The food link carries a TOKEN rather than an order number because an order
+   * number is six digits: a WebView sends no Authorization header, so the link
+   * itself has to be the proof. It expires in ten minutes.
+   */
+  const { requestId, foodToken, orderNumber, returnTo } = useLocalSearchParams<{
     requestId?: string;
+    foodToken?: string;
+    orderNumber?: string;
     returnTo?: string;
   }>();
 
@@ -53,13 +70,29 @@ export default function PaymentCheckout() {
   const leave = useCallback(() => {
     if (done.current) return;
     done.current = true;
+
+    /*
+      A food order gets REPLACED onto its tracking screen rather than popped.
+
+      The screen underneath it is the payment screen, whose cart is now an
+      order that already exists — going back there would offer to place it a
+      second time. The tracking screen re-reads the order from the server on
+      open, so it shows the truth whether the payment landed or not: closing
+      this view is not evidence of anything either way, which is the same
+      reason the visit flow pops rather than assuming.
+    */
+    if (foodToken && orderNumber) {
+      router.replace(`/food/order/${encodeURIComponent(String(orderNumber))}` as never);
+      return;
+    }
+
     /* Back rather than replace: the screen underneath is the request the
        student is paying for, and it is the screen they expect to land on. It
        re-checks the payment with the SERVER when it regains focus — closing
        this view is not evidence of anything either way. */
     if (router.canGoBack()) router.back();
     else router.replace((returnTo as never) ?? ('/home' as never));
-  }, [router, returnTo]);
+  }, [router, returnTo, foodToken, orderNumber]);
 
   /**
    * Which URLs this view is allowed to load.
@@ -106,7 +139,7 @@ export default function PaymentCheckout() {
     [leave],
   );
 
-  if (!requestId) {
+  if (!requestId && !foodToken) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
         <StatusBar style="auto" />
@@ -131,10 +164,21 @@ export default function PaymentCheckout() {
      development, and `undefined/api/v2/…` was this screen's one way to break
      while the rest of the app worked. */
   const back = 'lampose://payment-done';
+
+  /* The header says which of the two flows this is. One screen serving both
+     means the title is the only thing on it that can, and "Pay for your visit"
+     over a food order reads as the wrong payment having opened — which, at the
+     one moment somebody is about to part with money, is when they back out
+     rather than read on. */
+  const heading = foodToken ? 'Pay for your order' : 'Pay for your visit';
+
   const source = {
-    uri:
-      `${API_BASE_URL}/api/v2/visit-requests/${encodeURIComponent(String(requestId))}` +
-      `/payment/checkout?redirect=${encodeURIComponent(back)}`,
+    uri: foodToken
+      ? `${API_BASE_URL}/api/v2/food-partners/checkout` +
+        `?t=${encodeURIComponent(String(foodToken))}` +
+        `&redirect=${encodeURIComponent(back)}`
+      : `${API_BASE_URL}/api/v2/visit-requests/${encodeURIComponent(String(requestId))}` +
+        `/payment/checkout?redirect=${encodeURIComponent(back)}`,
   };
 
   return (
@@ -148,7 +192,7 @@ export default function PaymentCheckout() {
         goes unrecorded on the device. Leaving is safe: the server is the
         authority on whether this was paid.
       */}
-      <StandardHeader title="Pay for your visit" onBack={leave} />
+      <StandardHeader title={heading} onBack={leave} />
 
       {failed ? (
         <View style={[styles.centre, { padding: layout.gutter, gap: space[3] }]}>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { metaLine, walkLabel } from '@/services/adapters/food.adapter';
+import { freeDeliveryAbove, metaLine, walkLabel } from '@/services/adapters/food.adapter';
 
 import { Icon, Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
@@ -60,6 +60,13 @@ export function FulfilmentToggle({
   size = 'card',
 }: FulfilmentToggleProps) {
   const { colors, space, radius } = useTheme();
+
+  /* The condition that makes the fee beside it disappear, when the kitchen
+     sets one. The checkout waives delivery outright once the basket reaches
+     the threshold — `foodCustomerOrder.controller.js` — so quoting the flat
+     fee on its own would be quoting money this diner may never be asked for,
+     and the ₹19 is exactly what decides against ordering a second roti. */
+  const freeAbove = deliveryFee > 0 ? freeDeliveryAbove(kitchen) : null;
 
   const option = (
     mode: FulfilmentMode,
@@ -128,7 +135,7 @@ export function FulfilmentToggle({
             : `Ready about ${readyAt} · plus delivery`,
         deliveryFee === 0 ? 'Free' : formatRupees(deliveryFee),
         deliveryDisabled,
-        deliveryDisabled ? deliveryDisabledNote : undefined,
+        deliveryDisabled ? deliveryDisabledNote : (freeAbove ?? undefined),
       )}
       {option(
         'pickup',
@@ -159,9 +166,20 @@ export function RoomTargetRow({
   onChange,
   onPress,
 }: {
-  address: FoodAddress;
+  /**
+   * NULL when the diner has not chosen one yet — the ordinary state of a new
+   * account now that the hardcoded "Block C · Room 214" fixture is gone. The
+   * row becomes an invitation rather than a statement.
+   */
+  address: FoodAddress | null;
   fulfilment?: FulfilmentMode;
   onChange?: (value: FulfilmentMode) => void;
+  /**
+   * Where the tap goes — the address screen, on every surface that shows this.
+   *
+   * Without it the row is a statement rather than a control, and the second
+   * line below says so instead of inviting a tap that nothing answers.
+   */
   onPress?: () => void;
 }) {
   const { colors, space, radius } = useTheme();
@@ -170,7 +188,7 @@ export function RoomTargetRow({
     <Pressable
       onPress={onPress}
       accessibilityRole={onPress ? 'button' : undefined}
-      accessibilityLabel={`Delivering to ${address.title}`}
+      accessibilityLabel={address ? `Delivering to ${address.title}` : 'Choose a delivery address'}
       style={[
         styles.targetRow,
         {
@@ -193,10 +211,14 @@ export function RoomTargetRow({
 
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text variant="title3" numberOfLines={1}>
-          {address.title}
+          {address ? address.title : 'Choose a delivery address'}
         </Text>
         <Text variant="caption" color="tertiary" numberOfLines={1}>
-          {address.detail}
+          {address
+            ? address.detail
+            : onPress
+              ? 'Tap to pick where your food goes'
+              : 'No delivery address yet'}
         </Text>
       </View>
 

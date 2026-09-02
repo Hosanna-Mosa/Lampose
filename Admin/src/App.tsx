@@ -21,8 +21,13 @@ import { ScrapeJobsPage } from './pages/ScrapeJobsPage';
 import { ScrapedLeadsPage } from './pages/ScrapedLeadsPage';
 import { ProductsPage } from './pages/ProductsPage';
 import { FoodRestaurantsPage } from './pages/FoodRestaurantsPage';
+import { FoodOrdersPage } from './pages/FoodOrdersPage';
+import { DriversPage } from './pages/DriversPage';
+import { ZonesPage } from './pages/ZonesPage';
+import { SupportPage } from './pages/SupportPage';
 import { insightsService } from './api/services/insightsService';
 import { permissionService } from './api/services/permissionService';
+import { foodOrderService } from './api/services/foodOrderService';
 import { visibleGroupsFor } from './components/layout/Sidebar';
 import type { UserEntity } from './api/types';
 import { useFetch } from './lib/useFetch';
@@ -45,6 +50,10 @@ const VALID_TABS = [
   'scraper-leads',
   'products',
   'food-restaurants',
+  'food-orders',
+  'drivers',
+  'zones',
+  'support',
 ] as const;
 
 type Tab = (typeof VALID_TABS)[number];
@@ -74,11 +83,14 @@ const SUPER_ADMIN_TABS = new Set<Tab>([
 const tabAllowedFor = (tab: Tab, role?: UserEntity['role']): boolean =>
   visibleGroupsFor(role).some((group) => group.items.some((item) => item.id === tab));
 
-/* A Food Admin has no Dashboard in their nav, so sending them there on a
-   refused tab would strand them on a page their sidebar cannot navigate back
-   to. They land on their own queue instead. */
-const homeTabFor = (role?: UserEntity['role']): Tab =>
-  role === 'Food Admin' ? 'food-restaurants' : 'dashboard';
+/* A narrow role has no Dashboard in its nav, so sending one there on a refused
+   tab would strand them on a page their sidebar cannot navigate back to. Each
+   lands on its own queue instead. */
+const homeTabFor = (role?: UserEntity['role']): Tab => {
+  if (role === 'Food Admin') return 'food-restaurants';
+  if (role === 'Support') return 'support';
+  return 'dashboard';
+};
 
 const readTabFromHash = (): Tab => {
   const hash = window.location.hash.replace('#', '');
@@ -125,13 +137,14 @@ const AppContent: React.FC = () => {
   // The header filter is per-page; clear it when the page changes.
   useEffect(() => setSearch(''), [activeTab]);
 
-  /* A Food Admin's nav has no Dashboard, so the default landing tab moves to
+  /* A narrow role's nav has no Dashboard, so the default landing tab moves to
      the one page they do have. Only on first load — it must not fight a tab
-     they have chosen. */
+     they have chosen. `homeTabFor` is the single source of that mapping, so a
+     role added there lands correctly here without a second edit. */
   useEffect(() => {
-    if (isAuthenticated && user?.role === 'Food Admin' && activeTab === 'dashboard') {
-      setActiveTab('food-restaurants');
-    }
+    if (!isAuthenticated || activeTab !== 'dashboard') return;
+    const home = homeTabFor(user?.role);
+    if (home !== 'dashboard') setActiveTab(home);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, user?.role]);
 
@@ -141,6 +154,24 @@ const AppContent: React.FC = () => {
   // administrator has to act on, not the size of the audit trail.
   const openPermissions = useFetch(
     () => permissionService.getPermissions({ status: 'pending' }),
+    [isAuthenticated, activeTab]
+  );
+
+  /* The food-order badge: orders that need a person, not the size of the day's
+     trade. Read on the same terms as the permissions badge above — refetched
+     when the page changes rather than on a timer of its own, because this
+     console does not poll for record counts and a second mechanism beside the
+     one it has is how the two drift apart. The number is deduplicated
+     server-side, so an order that is both stuck and owed a refund is one.
+
+     This is ALSO the strip of counts the page itself draws above its queue,
+     handed down rather than fetched again. The page used to keep its own copy,
+     which meant a refund refreshed the strip and left the badge showing the
+     old number until somebody changed tab — two readings of one fact, one of
+     them stale, three feet apart on the same screen. One request, one number,
+     and `reload` is the same function both of them refresh with. */
+  const foodOrderCounts = useFetch(
+    () => foodOrderService.counts(),
     [isAuthenticated, activeTab]
   );
 
@@ -159,6 +190,9 @@ const AppContent: React.FC = () => {
       users: stats.data.admins.total,
     }),
     ...(openPermissions.data && { permissions: openPermissions.data.length }),
+    ...(foodOrderCounts.data && {
+      'food-orders': foodOrderCounts.data.needsHuman,
+    }),
   };
 
   const renderPage = () => {
@@ -196,6 +230,34 @@ const AppContent: React.FC = () => {
       case 'food-restaurants':
         return tabAllowedFor('food-restaurants', user?.role) ? (
           <FoodRestaurantsPage search={search} />
+        ) : (
+          <Dashboard setActiveTab={setActiveTab as (t: string) => void} />
+        );
+      case 'food-orders':
+        return tabAllowedFor('food-orders', user?.role) ? (
+          <FoodOrdersPage
+            search={search}
+            counts={foodOrderCounts.data}
+            reloadCounts={foodOrderCounts.reload}
+          />
+        ) : (
+          <Dashboard setActiveTab={setActiveTab as (t: string) => void} />
+        );
+      case 'drivers':
+        return tabAllowedFor('drivers', user?.role) ? (
+          <DriversPage search={search} />
+        ) : (
+          <Dashboard setActiveTab={setActiveTab as (t: string) => void} />
+        );
+      case 'zones':
+        return tabAllowedFor('zones', user?.role) ? (
+          <ZonesPage search={search} />
+        ) : (
+          <Dashboard setActiveTab={setActiveTab as (t: string) => void} />
+        );
+      case 'support':
+        return tabAllowedFor('support', user?.role) ? (
+          <SupportPage search={search} />
         ) : (
           <Dashboard setActiveTab={setActiveTab as (t: string) => void} />
         );

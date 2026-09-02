@@ -1,6 +1,8 @@
 import { api, unwrap, type ApiEnvelope } from './client';
 import { endpoints } from './endpoints';
-import type { BackendOtpChallenge, BackendPartner, BackendPartnerSession } from './types';
+import type {
+  BackendOtpChallenge, BackendPartner, BackendPartnerSession, PartnerAddress,
+} from './types';
 
 /**
  * Register, log in, and the profile behind them.
@@ -92,6 +94,26 @@ export type UpdateMeInput = {
   name?: string;
   email?: string;
   businessName?: string;
+  /**
+   * The owner's own address. `null` clears it; a partial object edits what is
+   * already there rather than replacing it, so changing a landmark cannot
+   * blank the pincode.
+   *
+   * Sent as `{lat, lng}` because that is what a device's location API returns;
+   * the server stores `[lng, lat]` and hands it back that way.
+   */
+  address?: {
+    kind?: PartnerAddress['kind'];
+    label?: string;
+    line1?: string;
+    line2?: string;
+    landmark?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+    instructions?: string;
+    location?: { lat: number; lng: number } | null;
+  } | null;
 };
 
 /**

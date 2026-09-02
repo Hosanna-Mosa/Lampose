@@ -25,8 +25,19 @@ const adminSchema = new mongoose.Schema(
       /* 'Food Admin' works the food-partner approval queue and nothing else.
          A role rather than a flag because the console already gates its nav
          and its pages on `role`, and a second mechanism beside that one is how
-         the two drift apart. See foodAdmin.routes.js for what it unlocks. */
-      enum: ['Super Admin', 'Admin', 'Editor', 'Viewer', 'Food Admin'],
+         the two drift apart. See foodAdmin.routes.js for what it unlocks.
+
+         'Support' answers support threads from all three apps and does
+         nothing else — see supportAdmin.routes.js. It is a seventh role rather
+         than a reuse of 'Food Admin' because support spans the stay side too,
+         and because the alternative readings are both wrong in opposite
+         directions: giving restaurant approvers the safety queue, or giving
+         support staff the power to put a rider on the road.
+
+         Adding a value to this enum is additive — every existing account keeps
+         the role it has, and every role that could read a page yesterday still
+         can. */
+      enum: ['Super Admin', 'Admin', 'Editor', 'Viewer', 'Food Admin', 'Support'],
       default: 'Admin',
     },
     status: {

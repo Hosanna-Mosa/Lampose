@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Screen, TopHeader, Text, Button, Input, Card, Toast } from '@/components/ui';
+import { Screen, TopHeader, Text, Button, Input, Card, Toast, Icon } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { ApiError, fetchMe } from '@/services';
+import { LocationRefused, locateMe } from '@/services/location/locateMe';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 
@@ -42,6 +43,17 @@ export default function EditProfileScreen() {
   const [name, setName] = useState(partner?.name ?? '');
   const [email, setEmail] = useState(partner?.email ?? '');
   const [businessName, setBusinessName] = useState(partner?.businessName ?? '');
+  /* The OWNER's own address — not a property's, which lives on the property
+     and is edited on the Property screen. Optional: nothing about trading
+     depends on it, and an owner who declines it is not blocked. */
+  const [line1, setLine1] = useState(partner?.address?.line1 ?? '');
+  const [landmark, setLandmark] = useState(partner?.address?.landmark ?? '');
+  const [city, setCity] = useState(partner?.address?.city ?? '');
+  const [pincode, setPincode] = useState(partner?.address?.pincode ?? '');
+  /* The pin, kept apart from the words: a fix always yields coordinates, and
+     reverse geocoding is the half that can name nothing. */
+  const [pin, setPin] = useState<{ lat: number; lng: number } | undefined>(undefined);
+  const [locating, setLocating] = useState(false);
   const [emailTouched, setEmailTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone: 'error' | 'success' } | null>(null);
@@ -62,12 +74,48 @@ export default function EditProfileScreen() {
         setName(fresh.name ?? '');
         setEmail(fresh.email ?? '');
         setBusinessName(fresh.businessName ?? '');
+        setLine1(fresh.address?.line1 ?? '');
+        setLandmark(fresh.address?.landmark ?? '');
+        setCity(fresh.address?.city ?? '');
+        setPincode(fresh.address?.pincode ?? '');
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const useMyLocation = async () => {
+    setToast(null);
+    setLocating(true);
+    try {
+      const found = await locateMe();
+      setPin(found.location);
+      /* Only fills what is still empty — an owner correcting one line does not
+         want the rest rewritten by the road their phone is on. */
+      const fill = (current: string, next: string) => (current.trim() ? current : next);
+      setLine1((v) => fill(v, found.fields.line1));
+      setLandmark((v) => fill(v, found.fields.landmark));
+      setCity((v) => fill(v, found.fields.city));
+      setPincode((v) => fill(v, found.fields.pincode));
+      setToast({
+        message: found.namedNothing
+          ? 'Pin saved, but we could not name this spot — type the address.'
+          : 'Filled from your location. Check it before saving.',
+        tone: found.namedNothing ? 'error' : 'success',
+      });
+    } catch (err) {
+      setToast({
+        message:
+          err instanceof LocationRefused
+            ? err.message
+            : 'We could not get your location.',
+        tone: 'error',
+      });
+    } finally {
+      setLocating(false);
+    }
+  };
 
   const trimmedName = name.trim();
   const trimmedEmail = email.trim();
@@ -82,7 +130,12 @@ export default function EditProfileScreen() {
   const dirty =
     trimmedName !== (partner?.name ?? '')
     || trimmedEmail !== (partner?.email ?? '')
-    || businessName.trim() !== (partner?.businessName ?? '');
+    || businessName.trim() !== (partner?.businessName ?? '')
+    || line1.trim() !== (partner?.address?.line1 ?? '')
+    || landmark.trim() !== (partner?.address?.landmark ?? '')
+    || city.trim() !== (partner?.address?.city ?? '')
+    || pincode.trim() !== (partner?.address?.pincode ?? '')
+    || pin !== undefined;
 
   const canSave = trimmedName.length > 0 && !emailError && !saving;
 
@@ -106,6 +159,28 @@ export default function EditProfileScreen() {
         name: trimmedName,
         email: trimmedEmail,
         businessName: businessName.trim(),
+        /*
+         * Only when there is a first line, and `null` when it has been emptied.
+         *
+         * An address whose street is blank is one the server refuses, so
+         * sending a landmark on its own would block a Save over a field the
+         * owner deliberately left alone. Clearing the first line is how an
+         * address is removed — the same gesture as clearing a business name.
+         */
+        address: line1.trim()
+          ? {
+              kind: 'home' as const,
+              line1: line1.trim(),
+              landmark: landmark.trim(),
+              city: city.trim(),
+              pincode: pincode.trim(),
+              /* Omitted when the crosshair was not used, so saving a renamed
+                 landmark cannot drop a pin captured earlier. */
+              ...(pin ? { location: pin } : null),
+            }
+          : partner?.address
+            ? null
+            : undefined,
       });
       router.back();
     } catch (err) {
@@ -176,6 +251,62 @@ export default function EditProfileScreen() {
         containerStyle={styles.field}
       />
 
+      {/* Where the OWNER is. A property's address is on the property; this is
+          for correspondence, and it is what a payout or a dispute is checked
+          against. Optional throughout — an owner who skips it still trades. */}
+      {/* Above the address fields rather than beside one: it fills several. */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Use my current location"
+        accessibilityState={{ busy: locating, disabled: locating }}
+        disabled={locating}
+        onPress={useMyLocation}
+        style={[styles.locate, { borderColor: c.accent, backgroundColor: c.accentTint }]}
+      >
+        <Icon name="crosshair" size={18} color={c.accent} />
+        <Text variant="label" style={{ color: c.accent, fontFamily: fonts.semibold }}>
+          {locating ? 'Finding you…' : 'Use my current location'}
+        </Text>
+      </Pressable>
+      <Input
+        label="Your address"
+        optional
+        value={line1}
+        onChangeText={setLine1}
+        placeholder="12-3-45, Danavaipeta"
+        containerStyle={styles.field}
+      />
+
+      <Input
+        label="Landmark"
+        optional
+        value={landmark}
+        onChangeText={setLandmark}
+        placeholder="Near the temple"
+        containerStyle={styles.field}
+      />
+
+      <Input
+        label="City"
+        optional
+        value={city}
+        onChangeText={setCity}
+        placeholder="Rajahmundry"
+        autoCapitalize="words"
+        containerStyle={styles.field}
+      />
+
+      <Input
+        label="Pincode"
+        optional
+        value={pincode}
+        onChangeText={setPincode}
+        placeholder="533103"
+        keyboardType="number-pad"
+        maxLength={6}
+        containerStyle={styles.field}
+      />
+
       {/* Read-only, with the reason attached rather than a dead grey box. */}
       <Card style={styles.lockedCard}>
         <Text variant="caption" color="textTertiary">
@@ -195,6 +326,16 @@ export default function EditProfileScreen() {
 }
 
 const styles = StyleSheet.create({
+  locate: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderRadius: 12,
+    height: 48,
+    marginBottom: 18,
+  },
   field: { marginBottom: 18 },
   lockedCard: { padding: 14, gap: 4 },
   lockedValue: { fontFamily: fonts.bold, fontSize: 15, lineHeight: 20 },

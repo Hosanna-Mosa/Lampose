@@ -23,6 +23,10 @@ const { startExpiryWorker, stopExpiryWorker, setExpiryHandler } = require('./src
 const { startSlotReminderWorker, stopSlotReminderWorker } = require('./src/modules/visits/slotReminder.worker');
 const { notifyExpired } = require('./src/modules/notifications/stayRequest.notifier');
 const { logSmsStatus } = require('./src/infrastructure/sms/sms');
+const { attachRealtime, realtimeProblem } = require('./src/infrastructure/realtime/realtime');
+const {
+  sweepStalledDispatch, reconcileDeliveries, stopAllDispatch,
+} = require('./src/modules/drivers/foodDispatch.service');
 const { routeMap } = require('./routes');
 const createApp = require('./app');
 
@@ -189,6 +193,13 @@ const banner = () => {
   console.log(`   request log   ${config.log.enabled ? `on${config.log.bodies ? ' (with redacted bodies)' : ''}` : 'off'}`);
   console.log(`   body limit    ${config.bodyLimit}`);
 
+  /* The delivery flow is the one feature that needs a push rather than an
+     answer, and it is the one that degrades most visibly when the socket is
+     missing — a rider's fifteen-second offer arrives on a poll instead. Worth
+     a banner line of its own so nobody debugs "offers are slow" from scratch. */
+  const socketProblem = realtimeProblem();
+  console.log(`   realtime      ${socketProblem ? `OFF — ${socketProblem} (dispatch falls back to polling)` : 'on (socket.io, same port)'}`);
+
   console.log('\n🛣️  API v1  — onboard.lampose.com, admin console');
   map.v1.forEach(({ path, description }) => {
     console.log(`   ${path.padEnd(26)} ${description}`);
@@ -277,6 +288,62 @@ const startServer = async () => {
     if (config.isProduction) reportFirstAdmin();
   });
 
+  /*
+   * The socket server rides on the HTTP server above — one port, one process.
+   *
+   * Attached BEFORE the banner would have printed it, which is why it is here
+   * rather than inside the listen callback: `realtimeProblem()` has to have an
+   * answer by the time the banner reads it. The origin check is handed the
+   * same predicate the CORS middleware uses, because an allowlist maintained
+   * in two places is an allowlist that disagrees with itself.
+   */
+  attachRealtime(server, {
+    corsOrigin: (origin, callback) => callback(null, isOriginAllowed(origin)),
+  });
+
+  /*
+   * The delivery flow's two janitors.
+   *
+   * `sweepStalledDispatch` picks up orders whose offer cascade died — a
+   * restart, or an exception mid-offer. `reconcileDeliveries` puts right the
+   * states nothing else can: a rider flagged busy on an order that is over, and
+   * an accepted-but-uncollected order whose rider has gone dark.
+   *
+   * On a TIMER, not once at boot. A cascade that dies at 8pm from an
+   * unexpected exception is exactly the case a boot-time sweep cannot help
+   * with, and it is the case where a diner is actually waiting. Two minutes is
+   * chosen against the cost of being wrong in each direction: a stalled order
+   * waits at most two minutes longer than it should, and the two queries are
+   * on indexed fields that match nothing in the ordinary case.
+   *
+   * The first run is delayed so the database connection has landed — a sweep
+   * that runs before Mongo is up does nothing at all.
+   */
+  const SWEEP_EVERY_MS = 2 * 60 * 1000;
+  const runSweeps = () => {
+    sweepStalledDispatch()
+      .then((resumed) => {
+        if (resumed) console.log(`🛵 [dispatch] resumed ${resumed} order(s) left mid-search`);
+      })
+      .catch((error) => console.error('[dispatch] resume sweep failed:', error.message));
+
+    reconcileDeliveries()
+      .then(({ freed, reDispatched, stuck }) => {
+        if (freed || reDispatched || stuck) {
+          console.log(
+            `🛵 [dispatch] reconciled: ${freed} rider(s) freed, ${reDispatched} order(s) `
+            + `re-dispatched, ${stuck} still in a bag too long`,
+          );
+        }
+      })
+      .catch((error) => console.error('[dispatch] reconcile failed:', error.message));
+  };
+
+  const firstSweep = setTimeout(runSweeps, 20000);
+  if (firstSweep.unref) firstSweep.unref();
+  const sweepTimer = setInterval(runSweeps, SWEEP_EVERY_MS);
+  if (sweepTimer.unref) sweepTimer.unref();
+
   /* Load balancers hold connections open; without this a slow client can keep
      a shutting-down process alive past the platform's kill timeout. */
   server.keepAliveTimeout = 65000;
@@ -313,6 +380,11 @@ const startServer = async () => {
        would write to a connection `closeConnections` is about to drop. */
     stopExpiryWorker();
     stopSlotReminderWorker();
+    /* Same reason, and one more: a dispatch timer that fires mid-shutdown
+       would offer an order to a rider this process can no longer hear the
+       answer from. The orders themselves are picked up by the resume sweep on
+       the next boot. */
+    stopAllDispatch();
     server.close(async () => {
       await closeConnections();
       clearTimeout(forceExit);

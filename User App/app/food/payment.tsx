@@ -13,13 +13,21 @@ import { useTheme } from '@/context/ThemeContext';
 import { findWindow, focusWindow } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
+import { useActionBarInset } from '@/hooks/useActionBarInset';
 
 type Method = { id: string; label: string; detail: string; disabled?: boolean };
 
-const UPI_APPS: readonly Method[] = [
-  { id: 'gpay', label: 'GPay', detail: 'Installed on this phone' },
-  { id: 'phonepe', label: 'PhonePe', detail: 'Installed on this phone' },
-  { id: 'upiid', label: 'Pay to a UPI ID', detail: 'rahul@okhdfcbank · saved' },
+/**
+ * One online method, not four.
+ *
+ * The gateway's own sheet is what actually lists GPay, PhonePe, a UPI ID, cards
+ * and netbanking — and it lists the ones this handset can really use, which is
+ * something this screen cannot know. Offering a chooser here and then opening a
+ * second chooser is two decisions for one payment, and the first one is a
+ * guess: "GPay · installed on this phone" was never checked against the phone.
+ */
+const ONLINE: readonly Method[] = [
+  { id: 'online', label: 'UPI, card or netbanking', detail: 'Pay securely through Razorpay' },
 ];
 
 /**
@@ -37,6 +45,9 @@ export default function PaymentScreen() {
   const { findKitchen } = useFoodCatalogue();
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
+  /* Nothing on a handset that reports a real inset; the shortfall on one
+     that reports none, so the action clears the navigation bar. */
+  const actionInset = useActionBarInset();
   const router = useRouter();
   const {
     kitchenId,
@@ -44,18 +55,30 @@ export default function PaymentScreen() {
     count,
     itemTotal,
     deliveryFee,
-    taxes,
-    discount,
+    packagingCharge,
     toPay,
-    coupon,
     fulfilment,
     address,
-    slot,
     placeOrder,
+    startPayment,
   } = useFood();
 
   const [now] = useState(() => new Date());
-  const [method, setMethod] = useState<string>('gpay');
+  const [method, setMethod] = useState<string>('online');
+
+  /* A DELIVERY needs somewhere to go. A pickup does not — the diner collects
+     it — so the gate is scoped to the mode rather than applied blanket. */
+  const needsAddress = fulfilment !== 'pickup' && !address;
+  /*
+    And somewhere we actually reach.
+
+    `serviceable` is false only when `zones/check` came back and SAID so. An
+    address with no pin, or one whose check has not answered yet, is still true
+    and still payable — an unanswered check is not a refusal, and blocking on
+    one would turn a slow network into a lost order. Only a definite no stops
+    the button, and then it says which address it means.
+  */
+  const unserviceable = fulfilment !== 'pickup' && address?.serviceable === false;
   const [state, setState] = useState<'idle' | 'paying' | 'failed'>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -77,33 +100,52 @@ export default function PaymentScreen() {
     );
   }
 
+  /* Cash is offered for delivery as well as pickup, because the backend
+     supports it and the rider's app tells them what to collect. What the
+     restaurant will actually accept is the restaurant's decision, and the
+     server refuses with `COD_UNAVAILABLE` in its own words if this kitchen
+     does not take it — which is better than hiding the option and leaving a
+     student with no way to pay at all when the gateway is down. */
   const others: readonly Method[] = [
-    { id: 'card', label: 'HDFC debit card', detail: '•••• 4412 · expires 09/28' },
-    { id: 'wallet', label: 'LAMPOSE wallet', detail: `Balance ${formatRupees(64)} · add ${formatRupees(Math.max(0, toPay - 64))} to use`, disabled: toPay > 64 },
     {
       id: 'cash',
-      label: 'Cash at the counter',
-      detail: fulfilment === 'pickup' ? 'Keep exact change ready' : 'Pickup orders only',
-      disabled: fulfilment !== 'pickup',
+      label: fulfilment === 'pickup' ? 'Cash at the counter' : 'Cash on delivery',
+      detail: fulfilment === 'pickup' ? 'Keep exact change ready' : 'Pay the rider at your door',
     },
   ];
 
+  /*
+    The same terms the cart printed, from the same source, because this
+    is the screen where the number stops being a preview: the button under it
+    moves money. Items, the kitchen's packing charge and delivery are what
+    `foodCustomerOrder.controller.js` adds into `grandTotal`, and there is
+    nothing else in it — no tax, and no coupon, which is why the invented 5%
+    row and the discount line that used to sit here are gone.
+  */
   const bill: BillLine[] = [
     { id: 'items', label: `Item total · ${count} ${count === 1 ? 'item' : 'items'}`, amount: itemTotal },
+    ...(packagingCharge ? [{ id: 'packaging', label: 'Packaging by the kitchen', amount: packagingCharge }] : []),
     fulfilment === 'pickup'
       ? { id: 'pickup', label: 'Pickup at the counter', amount: 0, amountLabel: 'Free' }
-      : { id: 'delivery', label: `Delivery to ${address.title}`, amount: deliveryFee },
-    ...(taxes ? [{ id: 'taxes', label: 'Taxes and charges', amount: taxes }] : []),
-    ...(coupon ? [{ id: 'coupon', label: coupon.code, amount: discount, discount: true }] : []),
+      : { id: 'delivery', label: address ? `Delivery to ${address.title}` : 'Delivery', amount: deliveryFee },
   ];
 
   /*
-   * The order is created by the server, which prices it from the menu and
-   * rings the kitchen. There is still no UPI round trip — every order is
-   * placed as cash on delivery, because claiming otherwise would write a
-   * payment status no money backs. Wiring a gateway in means taking its
-   * result and passing `paymentMode: 'online'`; the shape here does not
-   * change.
+   * The order is created by the SERVER, which prices it from the menu rows.
+   * What happens next depends on how it is being paid for, and the server says
+   * which — `nextStep` — rather than this screen inferring it:
+   *
+   *   cod     the kitchen is rung and a rider is sent for immediately. The
+   *           student lands on the tracking screen.
+   *   online  the order is HELD. Nobody is told and nobody is sent until a
+   *           verified signature says the money arrived. The student lands on
+   *           Razorpay's checkout, rendered by the backend inside the app's own
+   *           WebView — see `app/pay/checkout.tsx`, which the visit flow
+   *           already uses for the same reason.
+   *
+   * That ordering is the whole point. A kitchen that started cooking on an
+   * unpaid order would be cooking on a promise, and the student who backed out
+   * of the UPI screen is not coming back.
    *
    * A refusal is shown in the SERVER'S words. It knows things this screen
    * cannot — a dish sold out while the cart sat open, the kitchen closed at
@@ -114,8 +156,28 @@ export default function PaymentScreen() {
     setState('paying');
     setError(null);
     try {
-      const order = await placeOrder(new Date());
-      router.replace(foodHref.order(order.id, true));
+      const isCash = method === 'cash';
+      const { order, nextStep } = await placeOrder(new Date(), isCash ? 'cod' : 'online');
+
+      if (nextStep === 'track') {
+        router.replace(foodHref.order(order.id, true));
+        return;
+      }
+
+      /* The order exists and is held. Opening the gateway is a second request,
+         and a failure HERE is not a failed order — it is an order waiting to be
+         paid for, which the tracking screen can resume. So the student is sent
+         there either way and told what happened. */
+      const intent = await startPayment(order.id);
+      if (!intent.checkoutToken) {
+        setError('Online payment is not available right now. Please choose cash instead.');
+        setState('failed');
+        return;
+      }
+      router.replace({
+        pathname: '/pay/checkout',
+        params: { foodToken: intent.checkoutToken, orderNumber: order.id },
+      });
     } catch (err) {
       setError((err as Error)?.message || 'We could not reach the kitchen. Please try again.');
       setState('failed');
@@ -137,7 +199,7 @@ export default function PaymentScreen() {
       >
         <View style={{ gap: space[2] }}>
           <Text variant="eyebrow" color="tertiary">
-            Pay by UPI
+            Pay now
           </Text>
           <View
             style={[
@@ -145,13 +207,13 @@ export default function PaymentScreen() {
               { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, paddingHorizontal: space[3] },
             ]}
           >
-            {UPI_APPS.map((entry, index) => (
+            {ONLINE.map((entry, index) => (
               <MethodRow
                 key={entry.id}
                 method={entry}
                 selected={method === entry.id}
                 onSelect={() => setMethod(entry.id)}
-                last={index === UPI_APPS.length - 1}
+                last={index === ONLINE.length - 1}
               />
             ))}
           </View>
@@ -179,19 +241,52 @@ export default function PaymentScreen() {
           </View>
         </View>
 
-        <BillBreakdown lines={bill} total={toPay} totalLabel="To pay" />
+        <BillBreakdown
+          lines={bill}
+          total={toPay}
+          totalLabel="To pay"
+          /* Only ever set in the one case where this total is knowingly
+             incomplete — the kitchen's packing charge has not reached the
+             device — because the alternative is a confident figure that the
+             order will exceed by an amount nobody was shown. */
+          footnote={
+            packagingCharge === null
+              ? 'This kitchen has not sent its packing charge yet, so the total is not final. The kitchen prices the order when you place it.'
+              : undefined
+          }
+        />
 
         <FoodNotice
           tone="good"
           title="We never see your UPI PIN"
-          body={`Approving happens inside your bank's app. ${slot ? `The kitchen cooks to ${slot}.` : 'The kitchen starts as soon as the payment clears.'}`}
+          body="Approving happens inside your bank's app. The kitchen starts as soon as the payment clears."
         />
 
-        {state === 'failed' ? (
+        {/*
+          ── The refusal, in the SERVER'S words ─────────────────────────────
+
+          This used to be one hardcoded sentence — "Your bank declined the
+          request", under a warning that money may have left the account —
+          shown for every failure there is. A kitchen that closed at 11pm, a
+          dish that sold out while the cart sat open, an order under the
+          minimum and a delivery with no address all landed on it, and the one
+          sentence that said what to do about any of them was thrown away
+          without ever reaching a screen.
+
+          There is also no bank in this. Nothing on this screen moves money:
+          placing the order writes a row, and opening the payment mints a
+          checkout link. The debit itself happens inside the gateway's own
+          page, on `app/pay/checkout`, which owns what to say when a payment
+          really does fail — and which replaces this screen rather than
+          returning to it. So a failure HERE is always a failure before any
+          money was asked for, and it says so instead of hinting at a
+          disappearing ₹122 that has not moved.
+        */}
+        {state === 'failed' && error ? (
           <FoodNotice
             tone="problem"
-            title="Your bank declined the request"
-            body={`The cart is untouched and ${kitchen.name} has not started cooking. If ${formatRupees(toPay)} left your account, failed UPI debits return in 3–5 working days to the same account.`}
+            title="We could not do that"
+            body={`${error} Nothing has been charged and your cart is untouched.`}
           />
         ) : null}
       </ScrollView>
@@ -204,7 +299,7 @@ export default function PaymentScreen() {
             borderTopColor: colors.border,
             paddingHorizontal: layout.gutter,
             paddingTop: space[3],
-            paddingBottom: space[6],
+            paddingBottom: space[6] + actionInset,
             gap: space[2],
           },
         ]}
@@ -212,18 +307,59 @@ export default function PaymentScreen() {
         <View style={styles.footerLine}>
           <Text variant="caption" color="tertiary" style={{ flex: 1 }} numberOfLines={1}>
             {count} {count === 1 ? 'item' : 'items'} · {fulfilment === 'pickup' ? 'pickup' : 'delivery'}
-            {coupon ? ` · ${coupon.code}` : ''}
           </Text>
           <Text variant="priceLg">{formatRupees(toPay)}</Text>
         </View>
 
+        {/*
+          The CTA carries the amount AND says which of the two things it does.
+          "Pay ₹122" over a cash order is a lie the student finds out about at
+          the door, and "Place the order" over an online one hides that a
+          checkout is about to open.
+        */}
+        {/*
+          THE GATE. A delivery with no address — or with one the service zones
+          say we do not reach — cannot be placed, and this is the last screen
+          that can say so: after this the order is written and a rider is sent
+          for it. Reachable only via the address picker in the normal flow, so
+          this is a backstop rather than the primary ask: a deep link, a
+          restored navigation state, or an address deleted in another tab all
+          land here with nothing chosen.
+
+          Disabled AND explained. This app never leaves a dead control without a
+          sentence — an unexplained grey button is the one somebody taps four
+          times before giving up.
+        */}
         <Button
-          label={`Pay ${formatRupees(toPay)} with ${UPI_APPS.find((entry) => entry.id === method)?.label ?? 'UPI'}`}
+          label={
+            method === 'cash'
+              ? `Place the order · pay ${formatRupees(toPay)} on ${fulfilment === 'pickup' ? 'pickup' : 'delivery'}`
+              : `Pay ${formatRupees(toPay)}`
+          }
           loading={state === 'paying'}
-          loadingLabel="Waiting for your bank"
+          loadingLabel={method === 'cash' ? 'Sending to the kitchen' : 'Opening your payment'}
           fullWidth
+          disabled={needsAddress || unserviceable}
           onPress={pay}
         />
+
+        {/* Both dead states lead back to the same screen, because both are
+            fixed by choosing a different address. The wording is what differs:
+            one is a question nobody has answered, the other is an answer we
+            cannot deliver to. */}
+        {needsAddress || unserviceable ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push(foodHref.address)}
+            style={{ paddingVertical: space[1] }}
+          >
+            <Text variant="caption" style={{ color: colors.brand, textAlign: 'center' }}>
+              {needsAddress
+                ? 'Choose a delivery address first'
+                : `${address?.unserviceableNote || 'We are not delivering there right now.'} Choose another address.`}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );

@@ -15,16 +15,44 @@ function buildSuccessResponse<T>(data: T, status: number = 200, message?: string
   };
 }
 
+/** The rejection the response interceptor builds, read without trusting it. */
+const asApiError = (error: unknown): Partial<ApiError> =>
+  (error !== null && typeof error === 'object' ? (error as Partial<ApiError>) : {});
+
+/**
+ * The server's own refusal code, when the body carried one.
+ *
+ * `axiosInstance` puts the whole response body on `ApiError.data` but sets
+ * `ApiError.code` from AXIOS's code ('ERR_BAD_REQUEST', 'NETWORK_ERROR'),
+ * which says how the call failed and not why it was refused. The body's code
+ * is the answer to "why", so it wins where there is one.
+ */
+const codeOf = (failure: Partial<ApiError>): string | undefined => {
+  const body: unknown = failure.data;
+  if (body !== null && typeof body === 'object') {
+    const sent = (body as { code?: unknown }).code;
+    if (typeof sent === 'string' && sent) return sent;
+  }
+  return failure.code;
+};
+
 /**
  * Helper to construct error ApiResponse envelope without crashing the caller.
  * A failed request surfaces the real reason — the UI renders an error state
  * rather than substituting placeholder data.
+ *
+ * The reason is the code as well as the sentence. Dropping it used to leave
+ * every caller that needs to tell one refusal from another parsing English or
+ * bypassing this file with its own `validateStatus`; the field is optional, so
+ * nothing that only ever reads `message` notices it is there.
  */
-function buildErrorResponse<T>(error: ApiError | any, defaultMessage: string): ApiResponse<T> {
+function buildErrorResponse<T>(error: unknown, defaultMessage: string): ApiResponse<T> {
+  const failure = asApiError(error);
   return {
     data: null as unknown as T,
-    status: error?.status || 500,
-    message: error?.message || defaultMessage,
+    status: failure.status || 500,
+    message: failure.message || defaultMessage,
+    code: codeOf(failure),
     success: false,
     timestamp: new Date().toISOString(),
   };
@@ -39,7 +67,7 @@ export const api = {
     try {
       const response: AxiosResponse<T> = await axiosInstance.get(url, { params, ...options });
       return buildSuccessResponse(response.data, response.status);
-    } catch (error: any) {
+    } catch (error) {
       return buildErrorResponse<T>(error, `Failed to GET ${url}`);
     }
   },
@@ -48,7 +76,7 @@ export const api = {
     try {
       const response: AxiosResponse<T> = await axiosInstance.post(url, data, options);
       return buildSuccessResponse(response.data, response.status, 'Created successfully');
-    } catch (error: any) {
+    } catch (error) {
       return buildErrorResponse<T>(error, `Failed to POST ${url}`);
     }
   },
@@ -57,7 +85,7 @@ export const api = {
     try {
       const response: AxiosResponse<T> = await axiosInstance.put(url, data, options);
       return buildSuccessResponse(response.data, response.status, 'Updated successfully');
-    } catch (error: any) {
+    } catch (error) {
       return buildErrorResponse<T>(error, `Failed to PUT ${url}`);
     }
   },
@@ -66,7 +94,7 @@ export const api = {
     try {
       const response: AxiosResponse<T> = await axiosInstance.patch(url, data, options);
       return buildSuccessResponse(response.data, response.status, 'Patched successfully');
-    } catch (error: any) {
+    } catch (error) {
       return buildErrorResponse<T>(error, `Failed to PATCH ${url}`);
     }
   },
@@ -75,7 +103,7 @@ export const api = {
     try {
       const response: AxiosResponse<T> = await axiosInstance.delete(url, options);
       return buildSuccessResponse(response.data, response.status, 'Deleted successfully');
-    } catch (error: any) {
+    } catch (error) {
       return buildErrorResponse<T>(error, `Failed to DELETE ${url}`);
     }
   },
@@ -97,7 +125,7 @@ export const api = {
         },
       });
       return buildSuccessResponse(response.data, response.status, 'File uploaded successfully');
-    } catch (error: any) {
+    } catch (error) {
       return buildErrorResponse<T>(error, `Failed to upload file to ${url}`);
     }
   },

@@ -7,6 +7,7 @@ import type { Dish } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 
 import { AddControl } from './AddControl';
+import { FavouriteHeart } from './FavouriteHeart';
 import { DietMark, FoodPhoto } from './FoodMarks';
 
 export type DishRowProps = {
@@ -25,6 +26,14 @@ export type DishRowProps = {
   /** Sold out, or the kitchen is shut — the row stays, the control explains. */
   disabled?: boolean;
   reason?: string;
+  /**
+   * Show the favourite heart.
+   *
+   * Opt-in rather than always-on: this row is also used inside the cart and on
+   * the favourites screen itself, where a heart is either meaningless or
+   * duplicated by the row's own remove control.
+   */
+  favouritable?: boolean;
 };
 
 /**
@@ -45,6 +54,7 @@ export function DishRow({
   onPress,
   disabled,
   reason,
+  favouritable = false,
 }: DishRowProps) {
   const { colors, space, radius } = useTheme();
 
@@ -52,12 +62,32 @@ export function DishRow({
   const soldOutReason = dish.soldOut ? 'Sold out' : reason;
   const ink = soldOut ? colors.textTertiary : colors.textPrimary;
 
+  /* The diet mark stays first and the name keeps `flex: 1`, so the scan axis
+     the header describes is unchanged — the heart is appended after the name
+     rather than inserted into the run of it. */
+  /*
+   * The heart sits on the TITLE line, not beside the Add control.
+   *
+   * Two reasons. It belongs with the identity of the dish rather than with the
+   * transaction, and a student scanning a menu reads the title line — putting
+   * it next to Add would also put a one-tap save a few pixels from a one-tap
+   * purchase, and the mis-tap there costs money.
+   *
+   * A sold-out dish still gets one: "I want this when it is back" is exactly
+   * what a favourite is for, and it is the only useful thing left to do on
+   * that row.
+   */
+  const heart = favouritable ? (
+    <FavouriteHeart kind="dish" id={dish.id} label={dish.name} size={16} />
+  ) : null;
+
   const title = (
     <View style={[styles.titleRow, { gap: space[1] + 2 }]}>
       <DietMark diet={dish.diet} size={13} />
       <Text variant="title3" numberOfLines={1} style={{ flex: 1, color: ink }}>
         {dish.name}
       </Text>
+      {heart}
     </View>
   );
 
