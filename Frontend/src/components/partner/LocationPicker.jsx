@@ -133,22 +133,31 @@ export default function LocationPicker({ lat, lng, search, onSearch, onPlace }) 
 
     const google = window.google;
     if (google?.maps?.places && searchEl.current) {
-      const auto = new google.maps.places.Autocomplete(searchEl.current, {
-        types: ['geocode', 'establishment'],
-      });
-      auto.addListener('place_changed', () => {
-        const picked = auto.getPlace();
-        const point = picked?.geometry?.location;
-        if (!point) return;
-
-        const pLat = point.lat();
-        const pLng = point.lng();
-        instance.setView([pLat, pLng], 17);
-        pin.setLatLng([pLat, pLng]);
-        latest.current.onPlace({
-          lat: pLat.toFixed(6), lng: pLng.toFixed(6), ...addressFromPlace(picked),
+      /* An invalid or restricted key does not stop this script from loading —
+         Google still defines `google.maps.places`, and only logs a console
+         error when the Autocomplete constructor actually runs. Caught here so
+         that failure costs the search box, not the whole map: the pin and the
+         drag/click placement above are already live by this point. */
+      try {
+        const auto = new google.maps.places.Autocomplete(searchEl.current, {
+          types: ['geocode', 'establishment'],
         });
-      });
+        auto.addListener('place_changed', () => {
+          const picked = auto.getPlace();
+          const point = picked?.geometry?.location;
+          if (!point) return;
+
+          const pLat = point.lat();
+          const pLng = point.lng();
+          instance.setView([pLat, pLng], 17);
+          pin.setLatLng([pLat, pLng]);
+          latest.current.onPlace({
+            lat: pLat.toFixed(6), lng: pLng.toFixed(6), ...addressFromPlace(picked),
+          });
+        });
+      } catch (err) {
+        console.warn('[LocationPicker] Places autocomplete unavailable:', err);
+      }
     }
 
     return () => {

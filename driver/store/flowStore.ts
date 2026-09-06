@@ -45,8 +45,6 @@ type FlowState = {
   toggleSwitch: (key: string) => void;
 };
 
-/** The rider's countdown, matching `OFFER_SECONDS` on the server. */
-export const REQUEST_SECONDS = 15;
 /** Five, and every one of them is reachable — see `STAGES`. */
 export const TOTAL_STAGES = 5;
 

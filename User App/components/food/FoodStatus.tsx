@@ -216,24 +216,57 @@ export function FoodTimeline({
   );
 }
 
-/** Which timeline step an order status is standing on. */
+/**
+ * Which timeline step an order status is standing on.
+ *
+ * Only a fallback for a row with no `statusHistory` at all — see
+ * `buildTimeline`'s own comment — and for a pickup order that fallback is a
+ * single ladder, because pickup only ever has one track: the kitchen's.
+ *
+ * A delivery order still has two tracks — `status` and `dispatch` run beside
+ * each other on the server, not one inside the other — but they no longer
+ * advance in an unpredictable order the way they used to. Dispatch now only
+ * starts once the kitchen has accepted (see `foodDispatch.service.js`'s own
+ * header), so a rider can never be confirmed before `statusFloor` has already
+ * reached "Preparing". `Math.max` is kept anyway rather than assumed away:
+ * it costs nothing, and it is what stops a `rider` field left over from some
+ * future retry path from ever dragging the index backward.
+ */
 export function timelineIndex(order: FoodOrder): number {
-  switch (order.status) {
-    case 'placed':
-      return 0;
-    case 'confirmed':
-      return 1;
-    case 'preparing':
-      return 2;
-    case 'ready':
-    case 'onTheWay':
-      return 3;
-    case 'delivered':
-    case 'pickedUp':
-      return 4;
-    default:
-      return 0;
+  if (order.fulfilment === 'pickup') {
+    switch (order.status) {
+      case 'placed':
+        return 0;
+      /* `confirmed` no longer has a step of its own — see `buildTimeline` —
+         so it stands on the same step `preparing` does. */
+      case 'confirmed':
+      case 'preparing':
+        return 1;
+      case 'ready':
+        return 2; // "Ready at the counter"
+      case 'pickedUp':
+        return 3; // its last step
+      default:
+        return 0;
+    }
   }
+
+  const statusFloor = (() => {
+    switch (order.status) {
+      case 'confirmed':
+      case 'preparing':
+      case 'ready':
+        return 1; // "Preparing" — now BEFORE "Driver confirmed", see above
+      case 'onTheWay':
+        return 4;
+      case 'delivered':
+        return 5;
+      default:
+        return 0;
+    }
+  })();
+  const riderFloor = order.rider ? 2 : 0; // "Driver confirmed"
+  return Math.max(statusFloor, riderFloor);
 }
 
 /* ------------------------------------------------------------------ *

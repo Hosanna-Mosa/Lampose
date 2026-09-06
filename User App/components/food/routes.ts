@@ -31,4 +31,10 @@ export const foodHref = {
   payment: '/food/payment' as const,
   preferences: '/food/preferences' as const,
   favourites: '/food/favourites' as const,
+  /** The module's own alerts door — order-status changes, not visit-request
+   *  replies. Reached from the header's bell while Food is open. */
+  notifications: '/food/notifications' as const,
+  /** The module's own profile door. Reached from the header's profile icon
+   *  while Food is open. */
+  profile: '/food/profile' as const,
 };

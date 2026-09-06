@@ -10,18 +10,36 @@
    The account number is shown as its last four digits and never in full — the
    server does not send more than that on this route, which is the real
    protection; the masking here just matches it.
+
+   ## The logo and cover banner are editable here too
+
+   Onboarding was the only place either could ever be set — a restaurant that
+   skipped picking one, or whose partner just wants a better photo later, had
+   no way back to it; `updateMe` already accepted both fields on the server
+   (`EDITABLE_FIELDS` in `foodPartner.controller.js`), nothing on this screen
+   used it. `ImagePick` is reused from onboarding's own form, with its
+   "Sample" shortcut turned off — that button fills a stock photo for an
+   account that is not live yet, and this restaurant already is.
    ══════════════════════════════════════════════════════════════════════════ */
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
 import { Image, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 
-import { Block, Field, Note, NumberField, SwitchRow, TextField } from "@/components/form";
+import { Block, Field, ImagePick, Note, NumberField, SwitchRow, TextField } from "@/components/form";
 import { Btn, Card, Chip, ConfirmSheet, DataRow, Icon, Stepper, Text, TopBar } from "@/components/ui";
 import { rupees } from "@/lib/money";
 import { getMe, updateMe, type ServerRestaurant } from "@/services/foodPartner";
 import { listTickets } from "@/services/support";
-import { usePartnerStore } from "@/store/partnerStore";
+import { uploadOne } from "@/services/uploads";
+import { usePartnerStore, type Attachment } from "@/store/partnerStore";
 import { colors, layout, radius, space } from "@/theme";
+
+/** A server image with a real URL, as the `uri` an `<ImagePick>` preview
+    needs — `isUploaded` then reads it back as already-uploaded, so re-saving
+    without touching it costs no re-upload. Null when there is none, which
+    `ImagePick` reads correctly as "nothing chosen yet". */
+const attachmentOf = (image?: { url?: string; publicId?: string } | null): Attachment | null =>
+  image?.url ? { name: "image.jpg", uri: image.url, url: image.url, publicId: image.publicId } : null;
 
 export default function DashProfile() {
   const session = usePartnerStore((s) => s.session);
@@ -38,7 +56,18 @@ export default function DashProfile() {
   const [supportUnread, setSupportUnread] = useState(0);
 
   /* The editable subset, held locally while it is being typed in. */
-  const [draft, setDraft] = useState({
+  const [draft, setDraft] = useState<{
+    description: string;
+    contactNumber: string;
+    avgPreparationTime: number;
+    deliveryRadiusKm: number;
+    minOrderValue: string;
+    packagingCharge: string;
+    acceptsOnlinePayment: boolean;
+    acceptsCod: boolean;
+    logoImage: Attachment | null;
+    coverBannerImage: Attachment | null;
+  }>({
     description: "",
     contactNumber: "",
     avgPreparationTime: 30,
@@ -47,6 +76,8 @@ export default function DashProfile() {
     packagingCharge: "",
     acceptsOnlinePayment: true,
     acceptsCod: true,
+    logoImage: null,
+    coverBannerImage: null,
   });
 
   const load = useCallback(async () => {
@@ -72,6 +103,8 @@ export default function DashProfile() {
         packagingCharge: r.packagingCharge != null ? String(r.packagingCharge) : "",
         acceptsOnlinePayment: r.acceptsOnlinePayment ?? true,
         acceptsCod: r.acceptsCod ?? true,
+        logoImage: attachmentOf(r.logoImage),
+        coverBannerImage: attachmentOf(r.coverBannerImage),
       });
     } catch (err) {
       setError((err as Error)?.message || "We could not load your details.");
@@ -104,6 +137,17 @@ export default function DashProfile() {
     setError("");
     setSaved("");
     try {
+      /* Uploaded one at a time, not in parallel — see `services/uploads.ts`'s
+         own reasoning: this is a phone-camera photograph on a kitchen's own
+         connection, and two at once is how both time out together. Each call
+         is a no-op when the attachment already carries an `https` url, which
+         is exactly the case where the partner picked neither image this time
+         — see `attachmentOf`. */
+      const logo = draft.logoImage ? await uploadOne(draft.logoImage, "logo", session.token) : null;
+      const cover = draft.coverBannerImage
+        ? await uploadOne(draft.coverBannerImage, "cover", session.token)
+        : null;
+
       const updated = await updateMe(session.token, {
         description: draft.description.trim(),
         contactNumber: `+91${draft.contactNumber}`,
@@ -113,8 +157,20 @@ export default function DashProfile() {
         packagingCharge: Number(draft.packagingCharge) || 0,
         acceptsOnlinePayment: draft.acceptsOnlinePayment,
         acceptsCod: draft.acceptsCod,
+        /* An empty pair is how `readImage` on the server reads "cleared" —
+           the same shape a Remove tap already leaves `draft` in. */
+        logoImage: logo ? { url: logo.url, publicId: logo.publicId } : { url: "", publicId: "" },
+        coverBannerImage: cover ? { url: cover.url, publicId: cover.publicId } : { url: "", publicId: "" },
       });
       setMe(updated);
+      /* Re-derived from what the server actually persisted, not from `logo`/
+         `cover` directly — the single source of truth is the same one `load`
+         reads from, so a second save in the same visit re-uploads nothing. */
+      setDraft((d) => ({
+        ...d,
+        logoImage: attachmentOf(updated.logoImage),
+        coverBannerImage: attachmentOf(updated.coverBannerImage),
+      }));
       setSaved("Saved.");
     } catch (err) {
       setError((err as Error)?.message || "That did not save.");
@@ -172,6 +228,21 @@ export default function DashProfile() {
 
         {/* ── Editable ─────────────────────────────────────────────────── */}
         <Block glyph="store" title="How you appear">
+          <ImagePick
+            label="Logo"
+            desc="Square. Shown on your card in the listing."
+            value={draft.logoImage}
+            onChange={(v) => setDraft((d) => ({ ...d, logoImage: v }))}
+            allowSample={false}
+          />
+          <ImagePick
+            label="Cover banner"
+            desc="Wide. Sits across the top of your restaurant page."
+            aspect="wide"
+            value={draft.coverBannerImage}
+            onChange={(v) => setDraft((d) => ({ ...d, coverBannerImage: v }))}
+            allowSample={false}
+          />
           <Field label="Tagline" hint="The one line a diner reads under your name">
             <TextField
               value={draft.description}

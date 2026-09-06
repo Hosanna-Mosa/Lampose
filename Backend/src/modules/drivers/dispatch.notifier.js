@@ -48,6 +48,11 @@ const ORDER_CHANNEL = 'food-orders';
 
 const rupees = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
 const km = (metres) => `${(Math.max(0, Number(metres) || 0) / 1000).toFixed(1)} km`;
+/* IST: where the riders and the kitchens both are. Same convention as
+   `inventory.service.js`'s `bookedAtLabel`. */
+const clockLabel = (date) => new Date(date).toLocaleTimeString('en-IN', {
+  hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata',
+});
 
 /**
  * Send to every handset an account has registered, and never throw.
@@ -93,31 +98,38 @@ const customerTokens = async (customerId) => {
 };
 
 /**
- * "There is a job for you, and it expires."
+ * "There is a job for you, and here is when it is worth showing up."
  *
- * The body carries the two numbers a rider decides on — what it pays and how
- * far the pickup is — because that decision often happens on the lock screen
- * without the app ever coming to the front. A notification that said only "new
- * order" would force an unlock to learn something that fits in eight words.
+ * The body used to say "tap within 15s" — true when exactly one rider held
+ * an offer at a time, false now that everyone within range is notified
+ * together and the winner is whoever accepts first, whenever that is. What
+ * a rider actually needs on a lock screen is the same fact the app's own
+ * offer screen leads with: when the food will be ready, so somebody two
+ * minutes away can decide to leave later and somebody near the edge of the
+ * radius knows to leave now.
  */
-async function notifyDriverOfOffer(driverId, { order, distanceMeters, expiresInSeconds }) {
+async function notifyDriverOfOffer(driverId, { order, distanceMeters, readyAt }) {
   const tokens = await driverTokens(driverId);
   return ring(tokens, {
     title: `New delivery · ${rupees(order.delivery?.earnings || 0)}`,
-    body: `${km(distanceMeters)} to pickup · tap within ${expiresInSeconds}s`,
+    body: readyAt
+      ? `${km(distanceMeters)} to pickup · ready by ${clockLabel(readyAt)}`
+      : `${km(distanceMeters)} to pickup`,
     data: {
       kind: 'delivery_offer',
       orderNumber: order.orderNumber,
-      expiresInSeconds,
     },
     sound: 'default',
     channelId: OFFER_CHANNEL,
     priority: 'high',
-    /* Expo drops a notification whose TTL passed before delivery. Matching it
-       to the offer window means a phone that comes back online two minutes
-       later does not buzz about a job that is long gone — which is the thing
-       that teaches a rider to stop trusting the alerts. */
-    ttl: expiresInSeconds,
+    /*
+     * No more countdown to match a TTL against — this offer stays valid
+     * until somebody takes it, not for a fixed number of seconds. Capped at
+     * two hours rather than left unbounded: Expo still needs a real number,
+     * and an order genuinely still searching two hours on is a case for a
+     * person, not a queued push arriving into a shift that has moved on.
+     */
+    ttl: 2 * 60 * 60,
   }, 'offer');
 }
 
@@ -126,12 +138,14 @@ async function notifyDriverOfferClosed(driverId, orderNumber, reason) {
   const tokens = await driverTokens(driverId);
   return ring(tokens, {
     title: 'Offer closed',
-    body: reason === 'timeout'
-      ? 'The delivery was passed to another rider.'
-      : 'That delivery is no longer available.',
+    body: reason === 'taken'
+      ? 'Another rider already took this one.'
+      : reason === 'timeout'
+        ? 'The delivery was passed to another rider.'
+        : 'That delivery is no longer available.',
     data: { kind: 'delivery_offer_closed', orderNumber },
     /* No sound. Nothing is being asked of the rider, and a noise for every
-       expired offer is how an app ends up muted. */
+       closed offer is how an app ends up muted. */
     channelId: JOB_CHANNEL,
     priority: 'default',
   }, 'offer-closed');

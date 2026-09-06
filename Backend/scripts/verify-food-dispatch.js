@@ -2,16 +2,24 @@
    The delivery loop: diner → kitchen → RIDER → diner.
 
    `verify-food-order-loop.js` walks the two-app half of this (a diner orders,
-   a kitchen cooks). This one walks the part that involves a third: the rider
-   who is found, offered the job, and carries it.
+   a kitchen cooks). This one walks the part that involves a third: the
+   riders who are found, offered the job together, and one of whom carries it.
 
      User App        POST /food-partners/orders           (cash, so it goes
                                                            straight out)
-     backend         →  a rider shortlist, nearest first
-                     →  ONE offer at a time
+     Food-Partner    PATCH /me/orders/:n/status           (accept, with a
+                                                           prep-time quote —
+                                                           THIS starts the
+                                                           search now, not
+                                                           placement; see
+                                                           `foodDispatch
+                                                           .service.js`'s own
+                                                           header)
+     backend         →  every rider within reach of that quote, broadcast
+                        together, not one at a time
      Driver app      GET  /drivers/me/offer               (the poll fallback)
                      POST /drivers/orders/:n/accept
-     Food-Partner    PATCH /me/orders/:n/status           (accept → ready)
+     Food-Partner    PATCH /me/orders/:n/status           (preparing → ready)
      Driver app      PATCH /drivers/me/location           (where they are now)
                      PATCH /drivers/orders/:n/status      (picked_up, delivered)
      User App        GET  /food-partners/orders/:n        (a rider, a position
@@ -20,7 +28,15 @@
 
    It also checks the things that would be silent rather than loud:
 
-     · a rider who was NOT offered the order cannot accept it
+     · the search does NOT start the instant an order is placed — only once
+       the kitchen has accepted it
+     · everyone within the prep-time radius is offered together, not just
+       the nearest one — and a rider well outside it is not offered at all
+     · the moment one rider accepts, everyone else still holding that offer
+       is told it is gone, and their own row is stamped `superseded` rather
+       than left looking live
+     · a rider's own decline stays `declined` even after somebody else
+       accepts — one outcome must never overwrite another rider's
      · two riders cannot both get it
      · the hand-over codes are actually checked
      · a rider cannot mark `picked_up` before the kitchen says `ready`
@@ -90,6 +106,23 @@ const check = (name, ok, extra = '') => results.push([ok, name, extra]);
   let diner = null;
 
   try {
+    /* ── The maths, checked fast and without a single real timer ─────────── */
+
+    check(
+      'a short or missing quote still searches at least 2km',
+      dispatch._radiusFromMinutes(0) === 2000 && dispatch._radiusFromMinutes(2) === 2000,
+      `${dispatch._radiusFromMinutes(0)}m, ${dispatch._radiusFromMinutes(2)}m`,
+    );
+    check(
+      'a 30-minute quote searches 10km, at the planning speed',
+      dispatch._radiusFromMinutes(30) === (30 * dispatch.PLANNING_SPEED_KMH * 1000) / 60,
+      `${dispatch._radiusFromMinutes(30)}m`,
+    );
+    check(
+      'no quote at all means no ready time to show anybody',
+      dispatch._readyAtFor({ promisedMinutes: 0, statusHistory: [] }) === null,
+    );
+
     /* ── The fixtures ──────────────────────────────────────────────────── */
 
     const restaurant = await FoodRestaurant.findOne({
@@ -117,10 +150,12 @@ const check = (name, ok, extra = '') => results.push([ok, name, extra]);
     const dinerToken = signCustomerToken(diner);
     const partnerToken = signFoodPartnerToken(restaurant);
 
-    /* Two riders, both approved and online. The near one sits on the
-       restaurant's own pin; the far one is ~1.3km north, which keeps it inside
-       the first search ring so BOTH are candidates and the ordering can be
-       checked. */
+    /* Three riders. `near` sits on the restaurant's own pin, `mid` is ~1.1km
+       out — inside BOTH a 20-minute quote's ~6.7km radius and the bare 2km
+       floor an order with no quote at all still searches, so it can stand in
+       for "a second in-range rider" in either scenario below. `far` is ~28km
+       out — outside even the wider radius, the rider used to prove somebody
+       NOT in range is never offered at all. */
     const makeRider = async (suffix, latOffset) => {
       const rider = await Driver.create({
         driverId: `DR-VER${stamp}${suffix}`,
@@ -139,9 +174,10 @@ const check = (name, ok, extra = '') => results.push([ok, name, extra]);
     };
 
     const near = await makeRider('1', 0);
-    const far = await makeRider('2', 0.012);
+    const mid = await makeRider('2', 0.01);
+    const far = await makeRider('3', 0.25);
 
-    /* ── 1. A cash order goes out for a rider immediately ───────────────── */
+    /* ── 1. A cash order is placed — and goes nowhere yet ────────────────── */
 
     const placed = await call('POST', '/api/v2/food-partners/orders', {
       restaurantId: restaurant.restaurantId,
@@ -163,37 +199,70 @@ const check = (name, ok, extra = '') => results.push([ok, name, extra]);
     check('a delivery PIN was minted for the diner', !!placed.json?.data?.deliveryOtp);
     check('the pickup code is NOT sent to the diner', !placed.json?.data?.pickupCode);
 
-    /* Dispatch is fired without being awaited, so give the first offer a
-       moment to land. Everything after this reads the database, not a timer. */
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    const beforeAccept = await FoodOrder.findOne({ orderNumber }).lean();
+    check(
+      'the search does not start before the kitchen accepts',
+      beforeAccept.dispatch.state === 'idle',
+      beforeAccept.dispatch.state,
+    );
+
+    /* ── 2. The kitchen accepts with a 20-minute quote ───────────────────── */
+
+    const accepted = await call(
+      'PATCH', `/api/v2/food-partners/me/orders/${orderNumber}/status`,
+      { status: 'accepted', promisedMinutes: 20 }, partnerToken,
+    );
+    check('the kitchen can move it to "accepted"', accepted.status === 200, `HTTP ${accepted.status}`);
+
+    /* The broadcast is fired without being awaited, so give it a moment to
+       land. Everything after this reads the database or polls, not a timer. */
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     const searching = await FoodOrder.findOne({ orderNumber }).lean();
     check('the order entered the rider search', searching.dispatch.state === 'searching', searching.dispatch.state);
-    check('both riders were shortlisted', searching.dispatch.candidateCount >= 2, `${searching.dispatch.candidateCount}`);
+    check(
+      'both riders in range were shortlisted',
+      searching.dispatch.candidateCount >= 2,
+      `${searching.dispatch.candidateCount}`,
+    );
+    check(
+      'the radius came from the 20-minute quote',
+      searching.dispatch.radiusMeters === dispatch._radiusFromMinutes(20),
+      `${searching.dispatch.radiusMeters}m`,
+    );
 
-    /* ── 2. The NEAREST rider is offered first, and only them ───────────── */
+    /* ── 3. Everyone in range holds the offer at once — not just nearest ── */
 
     const nearOffer = await call('GET', '/api/v2/drivers/me/offer', undefined, near.token);
+    const midOffer = await call('GET', '/api/v2/drivers/me/offer', undefined, mid.token);
     const farOffer = await call('GET', '/api/v2/drivers/me/offer', undefined, far.token);
 
-    check('the nearest rider holds the offer', nearOffer.json?.data?.orderNumber === orderNumber);
-    check('the farther rider holds nothing yet', farOffer.json?.data === null);
+    check('the near rider holds the offer', nearOffer.json?.data?.orderNumber === orderNumber);
+    check('the mid-distance rider holds it too — this is a broadcast', midOffer.json?.data?.orderNumber === orderNumber);
+    check('the rider outside the quote radius holds nothing', farOffer.json?.data === null);
     check(
-      'the offer hides the diner\'s phone number before accepting',
+      "the offer hides the diner's phone number before accepting",
       nearOffer.json?.data?.customerPhone === '',
     );
+    check(
+      'the offer shows the FULL delivery address before accepting',
+      nearOffer.json?.data?.drop?.address === 'Room 204 · Sunrise Hostel · Gate 2',
+      nearOffer.json?.data?.drop?.address,
+    );
     check('the offer carries what the rider is paid', (nearOffer.json?.data?.earnings || 0) > 0, `₹${nearOffer.json?.data?.earnings}`);
+    check('the offer names when the food will be ready', !!nearOffer.json?.data?.readyAt, nearOffer.json?.data?.readyAt);
+    check('the offer has no fifteen-second countdown any more', nearOffer.json?.data?.expiresInSeconds === undefined);
 
-    /* ── 3. A rider who was not offered it cannot take it ───────────────── */
+    /* ── 4. A rider who was never in range cannot take it ────────────────── */
 
     const poach = await call('POST', `/api/v2/drivers/orders/${orderNumber}/accept`, {}, far.token);
-    check('a rider who was not offered the order cannot accept it', poach.status === 409, `HTTP ${poach.status} ${poach.json?.code}`);
+    check('a rider who was never offered the order cannot accept it', poach.status === 409, `HTTP ${poach.status} ${poach.json?.code}`);
 
-    /* ── 4. The offered rider accepts ───────────────────────────────────── */
+    /* ── 5. One of the offered riders accepts ────────────────────────────── */
 
     const accept = await call('POST', `/api/v2/drivers/orders/${orderNumber}/accept`, {}, near.token);
     check('the offered rider can accept', accept.status === 200, `HTTP ${accept.status} ${accept.json?.code || ''}`);
-    check('accepting reveals the diner\'s number', !!accept.json?.data?.customerPhone);
+    check("accepting reveals the diner's number", !!accept.json?.data?.customerPhone);
     check('accepting reveals the pickup code', !!accept.json?.data?.pickupCode);
 
     const assigned = await FoodOrder.findOne({ orderNumber }).lean();
@@ -203,6 +272,14 @@ const check = (name, ok, extra = '') => results.push([ok, name, extra]);
     const busyRider = await Driver.findOne({ driverId: near.rider.driverId }).lean();
     check('the rider is marked unavailable', busyRider.isAvailable === false);
     check('the rider is marked as on this order', busyRider.currentOrderNumber === orderNumber);
+
+    /* ── 6. Everybody else still holding the offer is told it is gone ───── */
+
+    const midRow = (assigned.dispatch.offers || []).find((o) => o.driverId === mid.rider.driverId);
+    check("the rider who did not win is stamped superseded, not left offered", midRow?.outcome === 'superseded', midRow?.outcome);
+
+    const midAfter = await call('GET', '/api/v2/drivers/me/offer', undefined, mid.token);
+    check('polling now shows nothing for the rider who did not win', midAfter.json?.data === null);
 
     /* ── The live position, which is what the diner's map draws ────────── */
 
@@ -232,38 +309,38 @@ const check = (name, ok, extra = '') => results.push([ok, name, extra]);
       { $set: { locationUpdatedAt: new Date() } },
     );
 
-    /* ── 5. Nobody else can take it now ─────────────────────────────────── */
+    /* ── 7. Nobody else can take it now ──────────────────────────────────── */
 
     const second = await call('POST', `/api/v2/drivers/orders/${orderNumber}/accept`, {}, far.token);
     check('a second rider cannot take an assigned order', second.status === 409, second.json?.code);
 
-    /* ── 6. Going offline mid-delivery is refused ───────────────────────── */
+    /* ── 8. Going offline mid-delivery is refused ───────────────────────── */
 
     const offline = await call('POST', '/api/v2/drivers/me/duty', { online: false }, near.token);
     check('a rider carrying an order cannot go offline', offline.status === 409, offline.json?.code);
 
-    /* ── 7. The rider cannot collect before the kitchen is ready ────────── */
+    /* ── 9. The rider cannot collect before the kitchen is ready ─────────── */
 
     const early = await call('PATCH', `/api/v2/drivers/orders/${orderNumber}/status`, {
       status: 'picked_up', code: assigned.pickupCode,
     }, near.token);
     check('a rider cannot collect food that is not ready', early.status === 409, early.json?.code);
 
-    /* ── 8. The kitchen cooks it ────────────────────────────────────────── */
+    /* ── 10. The kitchen keeps cooking it — it already accepted, in step 2 ── */
 
-    for (const step of ['accepted', 'preparing', 'ready']) {
+    for (const step of ['preparing', 'ready']) {
       // eslint-disable-next-line no-await-in-loop
-      const moved = await call(
+      const moved_ = await call(
         'PATCH', `/api/v2/food-partners/me/orders/${orderNumber}/status`,
         { status: step }, partnerToken,
       );
-      check(`the kitchen can move it to "${step}"`, moved.status === 200, `HTTP ${moved.status}`);
+      check(`the kitchen can move it to "${step}"`, moved_.status === 200, `HTTP ${moved_.status}`);
       if (step === 'ready') {
-        check('the kitchen sees which rider is coming', moved.json?.data?.rider?.name === near.rider.name);
+        check('the kitchen sees which rider is coming', moved_.json?.data?.rider?.name === near.rider.name);
       }
     }
 
-    /* ── 9. Both hand-overs are gated on the other party's code ─────────── */
+    /* ── 11. Both hand-overs are gated on the other party's code ─────────── */
 
     const wrongPickup = await call('PATCH', `/api/v2/drivers/orders/${orderNumber}/status`, {
       status: 'picked_up', code: '0000' === assigned.pickupCode ? '1111' : '0000',
@@ -285,7 +362,7 @@ const check = (name, ok, extra = '') => results.push([ok, name, extra]);
     }, near.token);
     check('the right delivery PIN completes it', delivered.status === 200, `HTTP ${delivered.status}`);
 
-    /* ── 10. Everything that has to be true afterwards ──────────────────── */
+    /* ── 12. Everything that has to be true afterwards ───────────────────── */
 
     const done = await FoodOrder.findOne({ orderNumber }).lean();
     check('the order is delivered', done.status === 'delivered');
@@ -325,7 +402,7 @@ const check = (name, ok, extra = '') => results.push([ok, name, extra]);
       'nothing to follow once it is done',
     );
 
-    /* ── 11. An unpaid online order sends nobody ────────────────────────── */
+    /* ── 13. An unpaid online order sends nobody ─────────────────────────── */
 
     const online = await call('POST', '/api/v2/food-partners/orders', {
       restaurantId: restaurant.restaurantId,
@@ -351,9 +428,11 @@ const check = (name, ok, extra = '') => results.push([ok, name, extra]);
       check('an online order is accepted', false, `HTTP ${online.status} ${online.json?.code}`);
     }
 
-    /* ── 12. A declined offer moves to the next rider ───────────────────── */
+    /* ── 14. A rider's own decline survives somebody else's accept ───────── */
 
     await Driver.updateOne({ driverId: near.rider.driverId }, { $set: { isAvailable: true } });
+    await Driver.updateOne({ driverId: mid.rider.driverId }, { $set: { isAvailable: true } });
+
     const second_ = await call('POST', '/api/v2/food-partners/orders', {
       restaurantId: restaurant.restaurantId,
       lines: [{ productId: menu[0].productId, quantity: 1 }],
@@ -365,18 +444,47 @@ const check = (name, ok, extra = '') => results.push([ok, name, extra]);
     if (second_.status === 201) {
       const n2 = second_.json.data.orderNumber;
       madeOrders.push(n2);
-      await new Promise((resolve) => setTimeout(resolve, 400));
 
-      const declined = await call('POST', `/api/v2/drivers/orders/${n2}/decline`, { reason: 'Too far' }, near.token);
+      /* Same gate as order 1 — nothing goes out until the kitchen accepts.
+         No quote this time, on purpose: `readyAtFor` and the radius floor
+         both have to behave with nothing to work from. */
+      await call(
+        'PATCH', `/api/v2/food-partners/me/orders/${n2}/status`,
+        { status: 'accepted' }, partnerToken,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      const noQuoteRow = await FoodOrder.findOne({ orderNumber: n2 }).lean();
+      check(
+        'with no quote, the radius still floors at 2km',
+        noQuoteRow.dispatch.radiusMeters === 2000,
+        `${noQuoteRow.dispatch.radiusMeters}m`,
+      );
+
+      const midOffer2 = await call('GET', '/api/v2/drivers/me/offer', undefined, mid.token);
+      check('the mid rider holds this second offer too', midOffer2.json?.data?.orderNumber === n2);
+      check('with no quote, there is no ready time to show', midOffer2.json?.data?.readyAt === null);
+
+      const declined = await call('POST', `/api/v2/drivers/orders/${n2}/decline`, { reason: 'Too far' }, mid.token);
       check('a rider can decline', declined.status === 200, `HTTP ${declined.status}`);
 
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      const nextOffer = await call('GET', '/api/v2/drivers/me/offer', undefined, far.token);
-      check('a decline passes the order straight to the next rider', nextOffer.json?.data?.orderNumber === n2);
-
-      const after = await FoodOrder.findOne({ orderNumber: n2 }).lean();
-      const declinedRow = (after.dispatch.offers || []).find((o) => o.driverId === near.rider.driverId);
+      const afterDecline = await FoodOrder.findOne({ orderNumber: n2 }).lean();
+      const declinedRow = (afterDecline.dispatch.offers || []).find((o) => o.driverId === mid.rider.driverId);
       check('the decline is recorded with its reason', declinedRow?.outcome === 'declined' && declinedRow?.reason === 'Too far');
+
+      const nearStillOpen = await call('GET', '/api/v2/drivers/me/offer', undefined, near.token);
+      check('the OTHER rider can still see and take it after one declines', nearStillOpen.json?.data?.orderNumber === n2);
+
+      const secondAccept = await call('POST', `/api/v2/drivers/orders/${n2}/accept`, {}, near.token);
+      check('the rider who did not decline can accept', secondAccept.status === 200, `HTTP ${secondAccept.status}`);
+
+      const afterAccept = await FoodOrder.findOne({ orderNumber: n2 }).lean();
+      const stillDeclined = (afterAccept.dispatch.offers || []).find((o) => o.driverId === mid.rider.driverId);
+      check(
+        "one rider's decline is not overwritten by another rider's accept",
+        stillDeclined?.outcome === 'declined',
+        stillDeclined?.outcome,
+      );
     }
   } catch (error) {
     check('the run completed', false, error.message);

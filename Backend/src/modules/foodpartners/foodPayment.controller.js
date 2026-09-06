@@ -119,17 +119,13 @@ async function confirmPayment(order, { paymentId, amountPaise }) {
   console.log(`${BADGE} [Paid] ${order.orderNumber} · ₹${order.grandTotal} · ${paymentId}`);
 
   /* Only NOW does the kitchen learn about it. Everything before this point was
-     a diner filling a form. */
+     a diner filling a form. Dispatch does not start here any more, either —
+     see `eligibleForDispatch`'s own note on why an unpaid order was never
+     sent a rider, and `setOrderStatus` in `foodOrder.controller.js` for
+     where that now happens: the kitchen accepting with a prep-time quote,
+     which for an online order cannot come before this payment has verified,
+     since the restaurant is not even told about an unpaid one. */
   const alert = await notifyRestaurantOfOrder(order.toObject());
-
-  /* And only now does a rider get sent — see `eligibleForDispatch`, which
-     refuses an unpaid online order for exactly this reason. Required late so
-     the food module does not take a hard dependency on the driver module at
-     load time; the two are separate features and one must be removable. */
-  // eslint-disable-next-line global-require
-  const dispatch = require('../drivers/foodDispatch.service');
-  dispatch.startDispatch(order.orderNumber, { reason: 'payment verified' })
-    .catch((error) => console.error(`${BADGE} dispatch failed for ${order.orderNumber}: ${error.message}`));
 
   return { alreadyPaid: false, notified: alert.sent > 0 };
 }

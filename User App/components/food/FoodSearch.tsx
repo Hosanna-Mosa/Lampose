@@ -9,7 +9,6 @@ import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 import type { Dish } from '@/types/food';
-import { clockLabel, findWindow, minutesUntilOpen } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 
 import { DishRow } from './DishRow';
@@ -17,7 +16,6 @@ import { KitchenCard } from './KitchenCard';
 import { foodHref } from './routes';
 import { FoodEmptyState } from './FoodStates';
 import { FoodSectionHeader } from './FoodNotices';
-import { MealWindowToken } from './MealWindowRail';
 import { RatingPill } from './FoodMarks';
 
 const SUGGESTIONS = ['Thali under ₹100', 'Filter coffee', 'Biryani', 'Egg dishes', 'Maggi', 'Paratha'];
@@ -25,17 +23,12 @@ const SUGGESTIONS = ['Thali under ₹100', 'Filter coffee', 'Biryani', 'Egg dish
 type PriceBand = 'any' | 'under80' | 'under150';
 
 /**
- * Search — inside the window, and it says so.
- *
- * Everything here is already scoped to the meal window, so the window token
- * sits in the header rather than appearing as a filter. Offering "window" as a
- * filter would let a student build a query that contradicts the rail two
- * screens back, and then wonder why a dish they can see cannot be added.
+ * Search — everything near you, all the time.
  *
  * Dishes come before kitchens because students type food, not brands. Nobody
  * has ever opened this screen and typed "Bawarchi".
  */
-export function FoodSearch({ now }: { now: Date }) {
+export function FoodSearch() {
   const { dishes: allDishes, findKitchen, kitchensFor, kitchens, kitchenOpen } = useFoodCatalogue();
 
   /* Walking times exist only when the feed was asked with the student's
@@ -46,34 +39,19 @@ export function FoodSearch({ now }: { now: Date }) {
   const { colors, space, layout, radius } = useTheme();
   const router = useRouter();
   const { locality } = useAppState();
-  const { preferences, qtyOf, add, setQty, lines, browseWindow: windowId } = useFood();
+  const { preferences, qtyOf, add, setQty, lines } = useFood();
 
   const [query, setQuery] = useState('');
   const [price, setPrice] = useState<PriceBand>('any');
   const [nearbyOnly, setNearbyOnly] = useState(false);
   const [recent, setRecent] = useState<readonly string[]>(['biryani', 'filter coffee']);
 
-  const activeWindow = findWindow(windowId);
   const areaLabel = locality?.name ?? 'your area';
   const term = query.trim().toLowerCase();
 
-  /*
-   * Is the window we are browsing actually happening right now?
-   *
-   * This screen used to ignore it. It filtered dishes on `windows.includes`
-   * alone and then drew a live Add control, while `dish/[id].tsx` refuses
-   * unless the window is ALSO open and the dish is not sold out — so a student
-   * could add a dish here, open it, and be told "Not cooking right now" about
-   * the thing already in their cart. The dish screen was right; this screen
-   * was the bug, and the fix is to ask the same question rather than a weaker
-   * one.
-   */
-  const windowOpen = minutesUntilOpen(activeWindow, now) === 0;
-
   /**
    * The single rule for whether a dish can be ordered, matching
-   * `dish/[id].tsx` exactly: in this window, the window is open, the kitchen
-   * is open for it, and it is not sold out.
+   * `dish/[id].tsx` exactly: the kitchen is open and the dish is not sold out.
    *
    * A closed result is NOT hidden. It keeps its place with the control
    * explaining itself, because a search that silently drops half its matches
@@ -83,18 +61,14 @@ export function FoodSearch({ now }: { now: Date }) {
     const kitchen = findKitchen(dish.kitchenId);
     if (!kitchen) return { orderable: false, reason: 'Unavailable' };
     if (dish.soldOut) return { orderable: false, reason: 'Sold out' };
-    if (!windowOpen) {
-      return { orderable: false, reason: `From ${clockLabel(activeWindow.startMinute)}` };
-    }
-    if (!kitchenOpen(kitchen, windowId)) return { orderable: false, reason: 'Kitchen closed' };
+    if (!kitchenOpen(kitchen)) return { orderable: false, reason: 'Kitchen closed' };
     return { orderable: true, reason: undefined };
   };
 
   const ceiling = price === 'under80' ? 80 : price === 'under150' ? 150 : Number.POSITIVE_INFINITY;
 
   const results = useMemo(() => {
-    const inWindow = allDishes.filter((dish) => dish.windows.includes(windowId));
-    return inWindow
+    return allDishes
       .filter((dish) => {
         const kitchen = findKitchen(dish.kitchenId);
         if (!kitchen) return false;
@@ -110,17 +84,28 @@ export function FoodSearch({ now }: { now: Date }) {
         );
       })
       .sort((a, b) => a.price - b.price);
-  }, [windowId, term, ceiling, nearbyOnly, preferences.vegOnly]);
+  }, [allDishes, term, ceiling, nearbyOnly, preferences.vegOnly]);
 
   const matchingKitchens = useMemo(() => {
     if (!term) return [];
-    return kitchensFor(windowId).filter(
+    return kitchensFor().filter(
       (kitchen) => kitchen.name.toLowerCase().includes(term) || kitchen.cuisine.toLowerCase().includes(term),
     );
-  }, [term, windowId]);
+  }, [term, kitchensFor]);
 
   const activeFilters =
     (price !== 'any' ? 1 : 0) + (haveDistances && nearbyOnly ? 1 : 0) + (preferences.vegOnly ? 1 : 0);
+  /**
+   * Whether there is anything on THIS row for the summary chip to clear.
+   *
+   * `activeFilters` also counts `preferences.vegOnly` — a standing dietary
+   * preference set on Home or the preferences screen, not a control this row
+   * offers. Counting it in the number is honest (it genuinely is narrowing
+   * what's shown), but the chip must not claim to reset it: this screen has
+   * no veg-only toggle to put back, so a tap here can only ever clear price
+   * and the nearby toggle.
+   */
+  const rowFiltersActive = price !== 'any' || (haveDistances && nearbyOnly);
 
   const setDishQty = (dish: Dish, next: number) => {
     const existing = lines.find((line) => line.dishId === dish.id);
@@ -129,12 +114,12 @@ export function FoodSearch({ now }: { now: Date }) {
       return;
     }
     /* The disabled control is the first guard and this is the second. A row
-       rendered a moment before the window closed still has a live handler, and
-       the cart is the one place that must never end up holding food nobody is
-       cooking. Removing an existing line is always allowed — that is how
-       somebody gets uncookable food back OUT. */
+       rendered a moment before the kitchen closed still has a live handler,
+       and the cart is the one place that must never end up holding food
+       nobody is cooking. Removing an existing line is always allowed — that
+       is how somebody gets uncookable food back OUT. */
     if (next > 0 && !orderState(dish).orderable) return;
-    if (next > 0) add(dish, { window: windowId });
+    if (next > 0) add(dish);
   };
 
   const remember = () => {
@@ -150,13 +135,6 @@ export function FoodSearch({ now }: { now: Date }) {
       contentContainerStyle={{ paddingTop: space[2], paddingBottom: space[8], gap: space[3] }}
     >
       <View style={{ paddingHorizontal: layout.gutter, gap: space[3] }}>
-        <View style={styles.scopeRow}>
-          <MealWindowToken window={activeWindow} now={now} />
-          <Text variant="caption" color="tertiary" style={{ flex: 1 }} numberOfLines={2}>
-            Searching what is cooking now, until {clockLabel(activeWindow.endMinute)}.
-          </Text>
-        </View>
-
         <SearchField
           value={query}
           onChangeText={setQuery}
@@ -175,7 +153,18 @@ export function FoodSearch({ now }: { now: Date }) {
           <Chip
             label={activeFilters ? `Filters ${activeFilters}` : 'Filters'}
             selected={activeFilters > 0}
-            onPress={() => setPrice(price === 'any' ? 'under150' : 'any')}
+            /*
+             * This used to double as the "Under ₹150" toggle — tapping it set
+             * `price` directly, so every tap both changed a filter it never
+             * displayed as changed AND counted itself into the number it was
+             * showing, climbing by one on every press. It only ever clears
+             * what this row itself set.
+             */
+            disabled={!rowFiltersActive}
+            onPress={() => {
+              setPrice('any');
+              setNearbyOnly(false);
+            }}
           />
           <Chip label={`Under ${formatRupees(80)}`} selected={price === 'under80'} onPress={() => setPrice(price === 'under80' ? 'any' : 'under80')} />
           <Chip label={`Under ${formatRupees(150)}`} selected={price === 'under150'} onPress={() => setPrice(price === 'under150' ? 'any' : 'under150')} />
@@ -191,8 +180,8 @@ export function FoodSearch({ now }: { now: Date }) {
           title={term ? `Nothing matches “${query.trim()}” near ${areaLabel}` : 'Nothing matches those filters'}
           body={
             term
-              ? 'No kitchen around your PG cooks this in this window. Tell us what you want and we take it to the kitchens signing up nearby.'
-              : `Loosen the price filter to see what the ${activeWindow.label.toLowerCase()} window has.`
+              ? 'No kitchen around your PG cooks this. Tell us what you want and we take it to the kitchens signing up nearby.'
+              : 'Loosen the price filter to see what is near you.'
           }
           primaryLabel={term ? `Request ${query.trim()}` : 'Clear filters'}
           onPrimary={() => {
@@ -206,7 +195,7 @@ export function FoodSearch({ now }: { now: Date }) {
         <>
           <View style={{ paddingHorizontal: layout.gutter }}>
             <FoodSectionHeader
-              title={term ? 'Dishes' : 'Everything cooking now'}
+              title={term ? 'Dishes' : 'Everything near you'}
               trailing={`${results.length} · cheapest first`}
             />
           </View>
@@ -339,7 +328,6 @@ export function FoodSearch({ now }: { now: Date }) {
 }
 
 const styles = StyleSheet.create({
-  scopeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   kitchenRow: { flexDirection: 'row', alignItems: 'center' },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap' },
 });

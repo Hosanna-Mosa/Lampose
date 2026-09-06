@@ -509,12 +509,22 @@ export function ImagePick({
   value,
   onChange,
   aspect = "square",
+  allowSample = true,
 }: {
   label: string;
   desc?: string;
   value: Attachment | null;
   onChange: (next: Attachment | null) => void;
   aspect?: "square" | "wide";
+  /**
+   * The "Sample" shortcut fills a stock photo in one tap — built for
+   * onboarding, where the account is not live yet and dummy data is exactly
+   * what a demo or a QA pass wants. A screen editing an ALREADY-APPROVED
+   * restaurant's real public image must not offer it: a partner reaching for
+   * "Choose" and tapping the wrong button next to it would put a stock photo
+   * in front of real diners.
+   */
+  allowSample?: boolean;
 }) {
   const pick = async () => {
     try {
@@ -579,18 +589,20 @@ export function ImagePick({
                 <Icon name="image" size={14} color={colors.textPrimary} />
                 <Text variant="title3">Choose</Text>
               </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() =>
-                  onChange({ name: `${label}.jpg`, uri: SAMPLE_JPEG, mimeType: "image/jpeg", size: 160 })
-                }
-                style={styles.dropBtn}
-              >
-                <Icon name="sparkle" size={14} color={colors.brandInk} />
-                <Text variant="title3" color="brand">
-                  Sample
-                </Text>
-              </Pressable>
+              {allowSample && (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() =>
+                    onChange({ name: `${label}.jpg`, uri: SAMPLE_JPEG, mimeType: "image/jpeg", size: 160 })
+                  }
+                  style={styles.dropBtn}
+                >
+                  <Icon name="sparkle" size={14} color={colors.brandInk} />
+                  <Text variant="title3" color="brand">
+                    Sample
+                  </Text>
+                </Pressable>
+              )}
             </View>
           )}
         </View>

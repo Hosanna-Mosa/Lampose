@@ -29,9 +29,9 @@ export type DishRowProps = {
   /**
    * Show the favourite heart.
    *
-   * Opt-in rather than always-on: this row is also used inside the cart and on
-   * the favourites screen itself, where a heart is either meaningless or
-   * duplicated by the row's own remove control.
+   * Opt-in rather than always-on: this row is also used inside the cart,
+   * where a heart is meaningless — removing a line there is what taking the
+   * quantity to zero already does.
    */
   favouritable?: boolean;
 };

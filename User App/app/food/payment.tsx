@@ -10,7 +10,6 @@ import { BillBreakdown, FoodEmptyState, FoodNotice, type BillLine } from '@/comp
 import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
-import { findWindow, focusWindow } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 import { useActionBarInset } from '@/hooks/useActionBarInset';
@@ -51,7 +50,6 @@ export default function PaymentScreen() {
   const router = useRouter();
   const {
     kitchenId,
-    window,
     count,
     itemTotal,
     deliveryFee,
@@ -63,7 +61,6 @@ export default function PaymentScreen() {
     startPayment,
   } = useFood();
 
-  const [now] = useState(() => new Date());
   const [method, setMethod] = useState<string>('online');
 
   /* A DELIVERY needs somewhere to go. A pickup does not — the diner collects
@@ -83,7 +80,6 @@ export default function PaymentScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const kitchen = kitchenId ? findKitchen(kitchenId) : undefined;
-  const activeWindow = findWindow(window ?? focusWindow(now).id);
 
   if (!kitchen || count === 0) {
     return (
@@ -189,7 +185,7 @@ export default function PaymentScreen() {
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader
         title="Payment"
-        subtitle={`${kitchen.name} · ${activeWindow.label} · ${fulfilment === 'pickup' ? 'pickup' : 'delivery'}`}
+        subtitle={`${kitchen.name} · ${fulfilment === 'pickup' ? 'pickup' : 'delivery'}`}
         onBack={() => router.back()}
       />
 

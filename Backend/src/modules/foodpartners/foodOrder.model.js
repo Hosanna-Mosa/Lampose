@@ -129,8 +129,23 @@ const REFUND_CHANNELS = ['', 'razorpay', 'manual'];
  */
 const DISPATCH_STATES = ['idle', 'searching', 'assigned', 'unassigned'];
 
-/** How an offer ended. Recorded per rider so a pattern is visible later. */
-const OFFER_OUTCOMES = ['offered', 'accepted', 'declined', 'timeout', 'cancelled'];
+/**
+ * How an offer ended. Recorded per rider so a pattern is visible later.
+ *
+ * `timeout` is a fossil now — dispatch broadcasts to everyone in range at
+ * once rather than offering one rider a fifteen-second turn, so nothing
+ * individually times out any more. Left in the enum rather than removed: an
+ * order placed before the broadcast rewrite may still carry rows written
+ * with it, and a schema that can no longer represent its own history is
+ * worse than one carrying an outcome nothing writes any more.
+ *
+ * `superseded` is the new one: this rider's offer was still open when
+ * somebody else accepted the order. Different from `cancelled` (the ORDER
+ * stopped needing a rider at all) and from `declined` (THIS rider said no) —
+ * neither is true here, and folding this into either would misreport why an
+ * order that got delivered fine shows up against this rider's record.
+ */
+const OFFER_OUTCOMES = ['offered', 'accepted', 'declined', 'timeout', 'cancelled', 'superseded'];
 
 const ALPHABET = '0123456789';
 
@@ -430,6 +445,13 @@ const foodOrderSchema = new mongoose.Schema(
          when the kitchen marks the order ready, and this is the ceiling that
          stops an order retrying forever against an empty city. */
       attempts: { type: Number, default: 0, min: 0 },
+      /* How far the broadcast currently reaches, in metres — the kitchen's
+         prep-time quote converted to a distance, then grown each time nobody
+         nearby has taken it and there is still time before the food is
+         ready. Stored rather than only held in memory so a widen step never
+         shrinks after a restart: the next one always adds to this number,
+         never recomputes from scratch. */
+      radiusMeters: { type: Number, default: 0, min: 0 },
       offers: { type: [offerSchema], default: [] },
       /* Why the last sweep ended without a rider, in words an operator can
          read. Empty while a search is live. */
@@ -727,11 +749,15 @@ const refundRecordOf = (order) => {
 /**
  * The order as the RIDER is allowed to see it.
  *
- * An offer has to carry enough to decide in fifteen seconds — what it pays,
- * where it is, how far — and nothing that is not needed to decide. Notably
- * absent: the diner's phone number and the exact door. A rider who has not
- * accepted yet has no business holding a stranger's address, and both appear
- * the moment they do accept (`revealed: true` below).
+ * An offer has to carry enough to decide — what it pays, where it is, how
+ * far, and now where it is actually GOING, since a broadcast can mean
+ * several riders judging the same trip against their own route rather than
+ * one rider taking whatever the dispatcher decided was nearest. Still
+ * notably absent: the diner's name, their phone number and the pickup
+ * hand-over code. A rider who has not accepted yet has no business holding a
+ * stranger's contact details, and all three appear the moment they do accept
+ * (`revealed: true` below) — the drop ADDRESS is the one exception, visible
+ * from the first offer.
  *
  * Written here rather than in the controller because three call sites need the
  * same shape — the socket offer, the poll fallback and the active-job read —
@@ -785,14 +811,22 @@ const riderView = (order, { revealed = false, distanceMeters = null, restaurant 
     },
     drop: {
       location: doc.dropLocation ? doc.dropLocation.coordinates : null,
-      /* The address is a landmark until they accept, and the full line after.
-         Splitting on the first separator is crude and deliberately so — it
-         degrades to "the whole thing" for an address with no separator, which
-         is a rider seeing slightly more than needed rather than a rider seeing
-         nothing and being unable to judge the trip. */
-      address: revealed
-        ? (doc.deliveryAddress || '')
-        : String(doc.deliveryAddress || '').split('·')[0].trim(),
+      /*
+       * The FULL address, whether or not the offer has been accepted.
+       *
+       * This used to be a landmark-only fragment pre-accept — the text
+       * before the first `·` — which for this app's own "Room 204 · Sunrise
+       * Hostel · Gate 2" convention meant showing the ROOM NUMBER and
+       * hiding the hostel and gate, backwards from what a rider actually
+       * needs to judge a trip before taking it. A room number identifies a
+       * person; a hostel name identifies a place, and a rider deciding
+       * whether a delivery is worth taking — more of them, at once, now
+       * that dispatch broadcasts rather than offering one at a time — needs
+       * the place, not a fragment chosen for being first alphabetically in
+       * the string. Nothing about the diner's IDENTITY is here regardless:
+       * `customerName` and `customerPhone` below still wait for accept.
+       */
+      address: doc.deliveryAddress || '',
     },
     /* Only after accepting. See above. */
     customerName: revealed ? (doc.customerName || '') : '',

@@ -21,7 +21,6 @@ import {
 import { foodHref } from '@/components/food/routes';
 import { TIMELINE_STEP, useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
-import { findWindow } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 
@@ -254,7 +253,6 @@ export default function OrderScreen() {
   }
 
   const kitchen = findKitchen(order.kitchenId);
-  const activeWindow = findWindow(order.window);
 
   /*
     Offered only where the SERVER will actually take it.
@@ -356,7 +354,7 @@ export default function OrderScreen() {
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader
         title={`Order ${order.id}`}
-        subtitle={`${order.kitchenName} · ${activeWindow.label}`}
+        subtitle={order.kitchenName}
         onBack={() => (placed ? router.replace('/home') : router.back())}
       />
 
@@ -414,10 +412,15 @@ export default function OrderScreen() {
           Three states, and they are deliberately worded as three different
           things rather than one spinner:
 
-            searching    riders are being asked, one at a time, nearest first.
-            unassigned   everybody nearby said no. NOT a failure — the kitchen
-                         is still cooking and the server tries again the moment
-                         the food is ready, which is what this says.
+            searching    every rider who could reach the kitchen before the
+                         food is ready has been asked, all at once — not one
+                         at a time, since the dispatcher moved to a broadcast
+                         (see `foodDispatch.service.js`'s own header).
+            unassigned   nobody in range has taken it yet. NOT a failure —
+                         the kitchen is still cooking and the server reaches
+                         further and tries again as the ready time nears and
+                         once the food is actually ready, which is what this
+                         says.
             assigned     somebody is carrying it, with a number to call.
 
           A "delivery partner not found" message on an order that is about to
@@ -428,7 +431,7 @@ export default function OrderScreen() {
           <FoodNotice
             tone="info"
             title="Finding you a delivery partner"
-            body="We are asking the riders nearest to the kitchen, one at a time. This usually takes under a minute."
+            body="We are asking every rider near the kitchen who can make it in time, all at once. This usually takes under a minute."
           />
         ) : null}
 

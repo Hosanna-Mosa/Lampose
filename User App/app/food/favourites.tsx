@@ -1,10 +1,10 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Icon, SegmentedControl, Text } from '@/components/ui';
+import { SegmentedControl, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
 import {
   DishRow,
@@ -18,7 +18,6 @@ import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { Dish } from '@/types/food';
-import { clockLabel, findWindow, minutesUntilOpen } from '@/types/food';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 
 const TABS = ['Dishes', 'Kitchens'] as const;
@@ -26,10 +25,10 @@ const TABS = ['Dishes', 'Kitchens'] as const;
 /**
  * Favourites.
  *
- * A closed favourite keeps its place in the list, desaturated, with the time it
- * comes back instead of an Add button. Sorting the shut ones to the bottom or
- * dropping them would make the list reorder itself four times a day, and a list
- * that reorders itself is a list you cannot learn.
+ * A closed favourite keeps its place in the list, desaturated, instead of an
+ * Add button. Sorting the shut ones to the bottom or dropping them would make
+ * the list reorder itself as kitchens open and close through the day, and a
+ * list that reorders itself is a list you cannot learn.
  */
 export default function FavouritesScreen() {
   const { findDish, findKitchen, kitchenOpen } = useFoodCatalogue();
@@ -43,21 +42,15 @@ export default function FavouritesScreen() {
     favouritesUnavailable,
     favouritesLoading,
     refreshFavourites,
-    toggleFavouriteDish,
-    toggleFavouriteKitchen,
     qtyOf,
     add,
     setQty,
     lines,
-    browseWindow,
     preferences,
   } = useFood();
 
   const [tab, setTab] = useState<(typeof TABS)[number]>('Dishes');
-  const [now] = useState(() => new Date());
 
-  const windowId = browseWindow;
-  const activeWindow = findWindow(windowId);
   const areaLabel = locality?.name ?? 'your area';
 
   /*
@@ -73,7 +66,10 @@ export default function FavouritesScreen() {
   const dishes = favouriteDishList;
   const kitchens = favouriteKitchenList;
 
-  const openNow = dishes.filter((dish) => dish.windows.includes(windowId)).length;
+  const openNow = dishes.filter((dish) => {
+    const kitchen = findKitchen(dish.kitchenId);
+    return kitchen && kitchenOpen(kitchen);
+  }).length;
 
   const setDishQty = (dish: Dish, next: number) => {
     const existing = lines.find((line) => line.dishId === dish.id);
@@ -81,7 +77,7 @@ export default function FavouritesScreen() {
       setQty(existing.key, next);
       return;
     }
-    if (next > 0) add(dish, { window: windowId, spice: preferences.spice });
+    if (next > 0) add(dish, { spice: preferences.spice });
   };
 
   /* A network read, so loading is a state this screen did not used to have.
@@ -107,7 +103,7 @@ export default function FavouritesScreen() {
         <FoodEmptyState
           glyph="heart"
           title="Nothing saved yet"
-          body={`Tap the heart on a dish and it lands here, with the time it is cooked. ${activeWindow.label} is running now.`}
+          body="Tap the heart on a dish or a kitchen and it lands here."
           primaryLabel="Browse what is cooking"
           onPrimary={() => router.back()}
         />
@@ -154,32 +150,25 @@ export default function FavouritesScreen() {
           <View style={{ paddingHorizontal: layout.gutter, gap: space[2] }}>
             {dishes.map((dish) => {
               const kitchen = findKitchen(dish.kitchenId);
-              const available = dish.windows.includes(windowId) && minutesUntilOpen(activeWindow, now) === 0;
-              const returnsAt = clockLabel(findWindow(dish.windows[0]).startMinute);
+              const available = !!kitchen && kitchenOpen(kitchen) && !dish.soldOut;
               return (
-                <View key={dish.id} style={styles.favouriteRow}>
-                  <View style={{ flex: 1 }}>
-                    <DishRow
-                      dish={dish}
-                      layout="feed"
-                      meta={`${kitchen?.name ?? ''} · ${available ? 'cooking now' : `back at ${returnsAt}`}`}
-                      qty={qtyOf(dish.id)}
-                      onQtyChange={(next) => setDishQty(dish, next)}
-                      onPress={() => router.push(foodHref.dish(dish.id))}
-                      disabled={!available}
-                      reason={!available ? returnsAt : undefined}
-                    />
-                  </View>
-                  <Pressable
-                    onPress={() => toggleFavouriteDish(dish.id)}
-                    hitSlop={10}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove ${dish.name} from favourites`}
-                    style={styles.heart}
-                  >
-                    <Icon name="heart" size={20} color={colors.danger.ink} fill={colors.danger.ink} />
-                  </Pressable>
-                </View>
+                <DishRow
+                  key={dish.id}
+                  dish={dish}
+                  layout="feed"
+                  meta={`${kitchen?.name ?? ''} · ${available ? 'cooking now' : 'kitchen closed'}`}
+                  qty={qtyOf(dish.id)}
+                  onQtyChange={(next) => setDishQty(dish, next)}
+                  onPress={() => router.push(foodHref.dish(dish.id))}
+                  disabled={!available}
+                  reason={!available ? 'Closed' : undefined}
+                  /* The card's OWN heart — the same one every other dish feed in
+                     the app uses (FoodSearch, the kitchen menu). This screen used
+                     to draw a second heart as a sibling beside the card instead,
+                     which put it outside the card's border, floating on the page
+                     background rather than reading as part of the row. */
+                  favouritable
+                />
               );
             })}
           </View>
@@ -188,35 +177,21 @@ export default function FavouritesScreen() {
             <FoodSectionHeader title="Saved kitchens" trailing={`${kitchens.length}`} />
             {kitchens.map((kitchen) =>
               kitchen ? (
-                <View key={kitchen.id} style={styles.favouriteRow}>
-                  <View style={{ flex: 1 }}>
-                    <KitchenCard
-                      kitchen={kitchen}
-                      locality={areaLabel}
-                      window={activeWindow}
-                      now={now}
-                      open={kitchenOpen(kitchen, windowId) && minutesUntilOpen(activeWindow, now) === 0}
-                      reopensAt={clockLabel(findWindow(kitchen.windows[0]).startMinute)}
-                      onPress={() => router.push(foodHref.kitchen(kitchen.id))}
-                    />
-                  </View>
-                  <Pressable
-                    onPress={() => toggleFavouriteKitchen(kitchen.id)}
-                    hitSlop={10}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove ${kitchen.name} from favourites`}
-                    style={styles.heart}
-                  >
-                    <Icon name="heart" size={20} color={colors.danger.ink} fill={colors.danger.ink} />
-                  </Pressable>
-                </View>
+                <KitchenCard
+                  key={kitchen.id}
+                  kitchen={kitchen}
+                  locality={areaLabel}
+                  open={kitchenOpen(kitchen)}
+                  onPress={() => router.push(foodHref.kitchen(kitchen.id))}
+                  favouritable
+                />
               ) : null,
             )}
           </View>
         )}
 
         <Text variant="caption" color="tertiary" style={{ paddingHorizontal: layout.gutter }}>
-          Favourites stay in the list when their window is closed, greyed, with the time they return.
+          Favourites stay in the list when their kitchen is closed, greyed out.
         </Text>
       </ScrollView>
     </View>
@@ -225,6 +200,4 @@ export default function FavouritesScreen() {
 
 const styles = StyleSheet.create({
   statusRow: { flexDirection: 'row', alignItems: 'center', borderWidth: StyleSheet.hairlineWidth },
-  favouriteRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  heart: { paddingTop: 12 },
 });

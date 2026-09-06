@@ -541,7 +541,6 @@ const listOrders = async (req, res, next) => {
      * question a working list answers is "who has been waiting longest", and
      * newest-first buries the student whose refund has been owed since Tuesday
      * under everybody who ordered lunch today.
-     */
      *
      * Both directions come off `{ placedAt: -1 }`, which exists for this line.
      * Before it did, the console's OWN first screen — no filter, newest first —

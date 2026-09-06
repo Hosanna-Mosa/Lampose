@@ -90,9 +90,7 @@ export async function fetchKitchen(restaurantId: string): Promise<KitchenWithMen
  * One dish.
  *
  * The detail route returns the dish plus a summary of its kitchen, which is
- * what lets the screen print a name at the top without a second request. The
- * dish's meal windows come from that kitchen's opening hours, for the same
- * reason they do everywhere else: a dish is orderable when its kitchen trades.
+ * what lets the screen print a name at the top without a second request.
  */
 export async function fetchDish(productId: string): Promise<{ dish: Dish; kitchen: Kitchen } | null> {
   const res = await api.get<DishResponse>(endpoints.foodDish(productId));
@@ -102,5 +100,5 @@ export async function fetchDish(productId: string): Promise<{ dish: Dish; kitche
   if (!rawDish?.productId || !rawKitchen?.restaurantId) return null;
 
   const kitchen = toKitchen(rawKitchen);
-  return { dish: toDish(rawDish, kitchen.id, kitchen.windows), kitchen };
+  return { dish: toDish(rawDish, kitchen.id), kitchen };
 }

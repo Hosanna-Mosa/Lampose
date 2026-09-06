@@ -14,32 +14,17 @@
  * rather than a comfortable 4.3, and a feed asked for without coordinates
  * shows no walking time rather than a made-up eight minutes.
  *
- * ## Meal windows are DERIVED, not stored
+ * ## "Open right now" is the server's answer, and only the server's
  *
- * The app slices its day into five windows; the backend stores opening hours
- * as `{ day, openTime, closeTime }` rows, which is what a restaurant actually
- * told us. `windowsFrom` intersects the two, so "which kitchens are open for
- * dinner" is answered from real trading hours instead of a tag somebody set.
- * A kitchen open 11:00–23:00 lands in lunch, snacks and dinner without anyone
- * having to say so.
- *
- * ## "Open right now" is NOT derived, and must not be
- *
- * The derivation above answers which windows a kitchen cooks. It cannot answer
- * whether the counter is taking orders this minute, and it must not try: the
- * partner has a switch (`openState`) that overrides the whole schedule, and the
- * hours are per weekday while `windowsFrom` deliberately ignores the day. Both
- * of those are known only to the server, which sends its own answer as
- * `isCurrentlyOpen`. It is carried across untouched — see `FoodKitchen`.
+ * Whether the counter is taking orders this minute is not something this file
+ * derives from the opening-hours rows — it used to, against a fixed set of
+ * meal windows, and a kitchen open through a gap between two of them could
+ * read as closed despite genuinely broad hours. The partner also has a switch
+ * (`openState`) that overrides the whole schedule, and the hours are per
+ * weekday, both of which only the server can weigh. So it sends its own
+ * answer as `isCurrentlyOpen`, carried across untouched — see `FoodKitchen`.
  */
-import {
-  MEAL_WINDOWS,
-  type Diet,
-  type Dish,
-  type Kitchen,
-  type MealWindow,
-  type MealWindowId,
-} from '@/types/food';
+import { type Diet, type Dish, type Kitchen } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 
 /* ------------------------------------------------------------------ *
@@ -123,52 +108,6 @@ const url = (image: BackendFoodImage | undefined): string | undefined => {
      photo is a case every food layout already handles properly. */
   return value && /^https?:\/\//.test(value) ? value : undefined;
 };
-
-const minutesOf = (hhmm?: string): number | null => {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm ?? '').trim());
-  if (!match) return null;
-  const h = Number(match[1]);
-  const m = Number(match[2]);
-  if (h > 23 || m > 59) return null;
-  return h * 60 + m;
-};
-
-/** Does a trading slot overlap a meal window? Both may wrap past midnight. */
-function slotCoversWindow(open: number, close: number, window: MealWindow): boolean {
-  /* Expand each range into one or two non-wrapping spans, then test for any
-     overlap. Doing it this way rather than with modular arithmetic is what
-     keeps the late-night window (23:00–02:00) correct against a kitchen that
-     trades 18:00–01:00 — both wrap, and the naive comparison says no. */
-  const spans = (from: number, to: number): [number, number][] =>
-    to > from ? [[from, to]] : [[from, 24 * 60], [0, to]];
-
-  const slot = spans(open, close);
-  const win = spans(window.startMinute, window.endMinute);
-
-  return slot.some(([a1, a2]) => win.some(([b1, b2]) => a1 < b2 && b1 < a2));
-}
-
-/**
- * The meal windows a kitchen's real opening hours cover.
- *
- * Empty when the kitchen recorded no hours — which the UI reads as "no window
- * fits", and is the truth. Inventing all five would put a closed kitchen at
- * the top of the breakfast feed.
- */
-export function windowsFrom(hours: readonly BackendOpeningHour[] | undefined): MealWindowId[] {
-  if (!hours?.length) return [];
-
-  const covered = new Set<MealWindowId>();
-  for (const row of hours) {
-    const open = minutesOf(row.openTime);
-    const close = minutesOf(row.closeTime);
-    if (open === null || close === null) continue;
-    for (const window of MEAL_WINDOWS) {
-      if (slotCoversWindow(open, close, window)) covered.add(window.id);
-    }
-  }
-  return MEAL_WINDOWS.filter((w) => covered.has(w.id)).map((w) => w.id);
-}
 
 /**
  * Walking minutes from the distance the geo query measured.
@@ -361,7 +300,6 @@ export function toKitchen(raw: BackendKitchen, sections: readonly string[] = [])
     walkMinutes: walkMinutesFrom(raw.distanceKm) ?? 0,
     rating,
     ratingCount,
-    windows: windowsFrom(raw.openingHours),
     /* What the checkout charges when no waiver applies. The rule beside it is
        what lets a screen say so honestly. */
     deliveryFee: delivery.amount,
@@ -425,7 +363,7 @@ export function splitOptions(
   return { ...(variant ? { variantName: variant.label } : null), addOnNames };
 }
 
-export function toDish(raw: BackendDish, kitchenId: string, windows: readonly MealWindowId[]): Dish {
+export function toDish(raw: BackendDish, kitchenId: string): Dish {
   const full = num(raw.price) ?? 0;
   const offer = num(raw.discountedPrice ?? undefined);
   /* What one of this dish costs before any option — the offer price when the
@@ -478,9 +416,8 @@ export function toDish(raw: BackendDish, kitchenId: string, windows: readonly Me
     price: base,
     diet: dietOf(raw.isVeg),
     section: raw.category?.trim() || 'Menu',
-    /* A dish is orderable whenever its kitchen is trading. The backend has no
-       per-dish window and the app must not invent one. */
-    windows,
+    /* A dish is orderable whenever its kitchen is trading — there is no
+       per-dish availability window on the server, only `isAvailable`. */
     ...(portions.length || addOns.length ? { addOns: [...portions, ...addOns] } : null),
     ...(serves !== undefined ? { serves: `Serves ${serves}` } : null),
     ...(rating !== undefined && rating > 0 ? { rating } : null),
@@ -522,7 +459,7 @@ export function toKitchenWithMenu(payload: {
   const dishes = groups.flatMap((group) =>
     (group.items ?? [])
       .filter((item) => item?.productId)
-      .map((item) => toDish(item, kitchen.id, kitchen.windows)),
+      .map((item) => toDish(item, kitchen.id)),
   );
 
   return { kitchen, dishes };

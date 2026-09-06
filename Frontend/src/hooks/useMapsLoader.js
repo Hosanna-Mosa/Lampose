@@ -25,18 +25,24 @@ const settle = () => {
   waiting.splice(0).forEach(notify => notify());
 };
 
-const injectScript = (src, onLoad) => {
+const injectScript = (src, onLoad, onError) => {
   const script = document.createElement('script');
   script.src = src;
   script.async = true;
   script.addEventListener('load', onLoad);
+  if (onError) script.addEventListener('error', onError);
   document.head.appendChild(script);
 };
 
 /**
  * Returns true once both libraries are on the page.
  * Without a Google key only the autocomplete is lost — the map still draws,
- * so the caller is told it is ready either way.
+ * so the caller is told it is ready either way. A key that IS set but fails
+ * to load — blocked by an ad-blocker, no network, a key Google rejects
+ * outright — degrades the same way: the `error` listener below counts it as
+ * settled rather than leaving the map waiting on a script that is never
+ * coming, which used to hang the picker on "Loading the map…" forever even
+ * though Leaflet had already drawn a perfectly usable one.
  */
 export function useMapsLoader(apiKey) {
   const [loaded, setLoaded] = useState(ready());
@@ -63,9 +69,15 @@ export function useMapsLoader(apiKey) {
       });
 
       if (apiKey) {
+        const fallToTyped = () => {
+          console.warn('[useMapsLoader] Google Maps failed to load — search falls back to typed address only.');
+          googleReady = true;
+          settle();
+        };
         injectScript(
           `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`,
           () => { googleReady = true; settle(); },
+          fallToTyped,
         );
       } else {
         /* No key configured: the address fields are typed by hand and the pin

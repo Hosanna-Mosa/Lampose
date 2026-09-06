@@ -259,11 +259,50 @@ const setOrderStatus = async (req, res, next) => {
       notifier.notifyCustomerOfRejection(order).catch(() => {});
     }
 
-    /* The second chance for an order nobody took — see the header. Not
-       awaited: a sweep takes up to two minutes of offering, and a cook who has
-       just tapped "Ready" is standing at the pass waiting for the button to
-       come back. */
-    if (next_ === 'ready' && order.dispatch.state === 'unassigned') {
+    /*
+     * The search starts HERE now, not at placement.
+     *
+     * The kitchen has just accepted and, on this same request, quoted how
+     * long the food takes — `order.promisedMinutes`, set above. That is the
+     * one number `foodDispatch.service.js` converts straight into a search
+     * radius: every rider who could plausibly reach this restaurant before
+     * the food is ready is broadcast the offer at once, not just the
+     * nearest one — see that file's own header for why. `eligibleForDispatch`
+     * still refuses a pickup order and an unpaid online one on its own, so
+     * this is safe to call unconditionally on every accept — the same
+     * pattern the "ready" retry below already uses. Not awaited: a broadcast
+     * can still take a moment to resolve, and a cook who has just tapped
+     * Accept is waiting for the button to come back, not for a rider to be
+     * found.
+     */
+    if (next_ === 'accepted') {
+      dispatch.startDispatch(order.orderNumber, { reason: 'accepted' })
+        .catch((err) => logError('dispatching a newly accepted order', err));
+    }
+
+    /*
+     * The second chance for an order nobody has taken YET — see the header.
+     *
+     * `searching` is included alongside `unassigned` on purpose, and it is
+     * the common case now, not the rare one: broadcast dispatch has no
+     * per-rider timeout any more, so a round where every notified rider
+     * simply never answers — ignored it, phone was face-down, decided
+     * against it without tapping Decline — leaves the order sitting at
+     * `searching` forever. Nothing else was watching for that: the two
+     * scheduled widen checks are the only other thing that reaches further,
+     * and both can already have run and found nobody new by the time the
+     * kitchen taps Ready. Excluding `searching` here would mean an order
+     * whose first broadcast simply went unanswered could never be retried at
+     * all — not "slower than it should be", genuinely stuck, with nothing
+     * left to move it. `startDispatch` itself still refuses safely if a
+     * rider was assigned in the meantime (`eligibleForDispatch`) and never
+     * shrinks the radius it has already reached, so calling it again here
+     * costs nothing when the order was already in good shape. Not awaited:
+     * a broadcast can still take a moment to resolve, and a cook who has
+     * just tapped "Ready" is standing at the pass waiting for the button to
+     * come back.
+     */
+    if (next_ === 'ready' && ['searching', 'unassigned'].includes(order.dispatch.state)) {
       dispatch.startDispatch(order.orderNumber, { reason: 'food is ready' })
         .catch((err) => logError('re-dispatching a ready order', err));
     }

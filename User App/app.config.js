@@ -68,6 +68,15 @@ export default {
       infoPlist: {
         UIBackgroundModes: ['remote-notification'],
       },
+      /* `react-native-maps` on iOS ships Apple Maps by default; this is what
+         switches `DeliveryMap`'s `PROVIDER_GOOGLE` map over to real Google
+         tiles there too, so both platforms show the same map. Blank if the
+         env var is unset — the native module still boots, the map just has
+         no imagery to draw and falls back to the same "waiting" caption an
+         unset key already produces on Android. */
+      config: {
+        googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY,
+      },
     },
     android: {
       package: 'com.lampose.user',
@@ -80,6 +89,16 @@ export default {
         'POST_NOTIFICATIONS',
         'RECEIVE_BOOT_COMPLETED',
       ],
+      /* Android has no built-in maps renderer the way iOS does, so
+         `react-native-maps` cannot draw anything at all here without this —
+         not "a plain map instead of Google's", nothing. The manifest bakes
+         this in at build time; changing `.env` needs a fresh native build; a
+         JS-only reload will not pick it up. */
+      config: {
+        googleMaps: {
+          apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY,
+        },
+      },
     },
     notification: {
       icon: './assets/images/icon.jpeg',

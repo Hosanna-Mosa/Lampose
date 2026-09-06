@@ -1,145 +1,22 @@
 /**
  * The Food module's domain.
  *
- * ## The clock outranks everything
+ * ## Open or closed is the restaurant's own answer
  *
- * A stay listing is available or it is not. A dish is available *for the next
- * two hours*, and a kitchen that is the best in Gachibowli is worth nothing at
- * 4 pm if it only cooks lunch and dinner. So the meal window is not a filter
- * sitting on top of the catalogue — it is the axis the catalogue is indexed by,
- * and every food surface states which window it is showing before it shows
- * anything.
- *
- * That is why the rail rolls rather than resets: at 11:52 pm the student is
- * looking at late night, and the window they will use next is breakfast, so
- * both have to be on screen. A rail pinned to breakfast-first would put the
- * only two relevant windows at opposite ends of it.
+ * This used to slice the day into five fixed meal windows — breakfast, lunch,
+ * snacks, dinner, late night — and index the whole catalogue by them: which
+ * kitchens showed up, which dishes could be added, even whether "open now" was
+ * true all depended on which of the five the clock was sitting in, INCLUDING
+ * the gaps between them, where nothing was in any window and a kitchen with
+ * broad real hours could still read as closed. That whole axis is gone.
+ * Everything the catalogue shows now, it shows all the time; whether a kitchen
+ * is open is exactly what the server says it is — see `openNowOf` in
+ * `services/adapters/food.adapter.ts`.
  */
-
-/* ------------------------------------------------------------------ *
- * Meal windows
- * ------------------------------------------------------------------ */
-
-export type MealWindowId = 'breakfast' | 'lunch' | 'snacks' | 'dinner' | 'lateNight';
-
-export type MealWindow = {
-  id: MealWindowId;
-  label: string;
-  /**
-   * Minutes from midnight.
-   *
-   * `end` may be numerically SMALLER than `start` — late night runs 11 pm to
-   * 2 am and crosses midnight, which is exactly the window a hostel uses most.
-   * Every comparison below has to handle that; `containsMinute` is the only
-   * place allowed to know how.
-   */
-  startMinute: number;
-  endMinute: number;
-  /** What the rail prints under the name. Short, because the cell is 1/4 wide. */
-  hours: string;
-};
-
-/** Order matters: this is the sequence the rail rolls through. */
-export const MEAL_WINDOWS: readonly MealWindow[] = [
-  { id: 'breakfast', label: 'Breakfast', startMinute: 7 * 60, endMinute: 10 * 60, hours: '7–10' },
-  { id: 'lunch', label: 'Lunch', startMinute: 12 * 60, endMinute: 15 * 60 + 30, hours: '12–3:30' },
-  { id: 'snacks', label: 'Snacks', startMinute: 16 * 60, endMinute: 19 * 60, hours: '4–7' },
-  { id: 'dinner', label: 'Dinner', startMinute: 19 * 60 + 30, endMinute: 23 * 60, hours: '7:30–11' },
-  { id: 'lateNight', label: 'Late night', startMinute: 23 * 60, endMinute: 2 * 60, hours: '11–2' },
-];
-
-export function findWindow(id: MealWindowId): MealWindow {
-  const found = MEAL_WINDOWS.find((window) => window.id === id);
-  // The id type makes this unreachable; the fallback is here so a bad value
-  // arriving from persisted state degrades to lunch rather than crashing a feed.
-  return found ?? MEAL_WINDOWS[1];
-}
 
 /** Minutes from midnight for a Date, in the device's own timezone. */
 export function minuteOfDay(now: Date): number {
   return now.getHours() * 60 + now.getMinutes();
-}
-
-/** The one place that knows a window may wrap past midnight. */
-export function containsMinute(window: MealWindow, minute: number): boolean {
-  return window.endMinute > window.startMinute
-    ? minute >= window.startMinute && minute < window.endMinute
-    : minute >= window.startMinute || minute < window.endMinute;
-}
-
-/** The window being cooked right now, or null in the gap between two. */
-export function openWindow(now: Date): MealWindow | null {
-  const minute = minuteOfDay(now);
-  return MEAL_WINDOWS.find((window) => containsMinute(window, minute)) ?? null;
-}
-
-/** How many minutes until a window opens — 0 if it is already open. */
-export function minutesUntilOpen(window: MealWindow, now: Date): number {
-  const minute = minuteOfDay(now);
-  if (containsMinute(window, minute)) return 0;
-  const delta = window.startMinute - minute;
-  return delta >= 0 ? delta : delta + 1440;
-}
-
-/** How many minutes until the open window closes. Null when it is not open. */
-export function minutesUntilClose(window: MealWindow, now: Date): number | null {
-  const minute = minuteOfDay(now);
-  if (!containsMinute(window, minute)) return null;
-  const delta = window.endMinute - minute;
-  return delta >= 0 ? delta : delta + 1440;
-}
-
-/**
- * The window the app should be showing.
- *
- * Between windows this is the NEXT one, not the last one — a student opening
- * the app at 10:40 am is deciding about lunch, and a screen full of struck-out
- * breakfast is a screen with nothing on it.
- */
-export function focusWindow(now: Date): MealWindow {
-  const open = openWindow(now);
-  if (open) return open;
-  const minute = minuteOfDay(now);
-  let best = MEAL_WINDOWS[0];
-  let bestWait = Number.POSITIVE_INFINITY;
-  for (const window of MEAL_WINDOWS) {
-    const wait = window.startMinute - minute >= 0 ? window.startMinute - minute : window.startMinute - minute + 1440;
-    if (wait < bestWait) {
-      bestWait = wait;
-      best = window;
-    }
-  }
-  return best;
-}
-
-export type RailToken = {
-  window: MealWindow;
-  state: 'past' | 'current' | 'upcoming';
-  /** Current AND actually cooking. Between windows the current token is not. */
-  openNow: boolean;
-};
-
-/**
- * The four tokens the rail draws, rolled so the focus window is always on it
- * and at least one upcoming window follows it.
- *
- * The focus sits at position `min(index, 2)`, which is what makes 11:52 pm
- * render Snacks · Dinner · **Late night** · Breakfast rather than pushing
- * breakfast — the next window anyone will actually use — off the end.
- */
-export function railFor(now: Date, focusId?: MealWindowId): RailToken[] {
-  const focus = focusId ? findWindow(focusId) : focusWindow(now);
-  const total = MEAL_WINDOWS.length;
-  const focusIndex = MEAL_WINDOWS.findIndex((window) => window.id === focus.id);
-  const offset = Math.min(focusIndex, 2);
-  const start = (focusIndex - offset + total) % total;
-  const open = openWindow(now);
-
-  return Array.from({ length: 4 }, (_, slot) => {
-    const window = MEAL_WINDOWS[(start + slot) % total];
-    const state: RailToken['state'] = slot === offset ? 'current' : slot < offset ? 'past' : 'upcoming';
-    return { window, state, openNow: state === 'current' && open?.id === window.id };
-  });
 }
 
 /** "7:30 pm", "12 pm" — the app's only clock formatter for food. */
@@ -215,8 +92,6 @@ export type Kitchen = {
   walkMinutes: number;
   rating: number;
   ratingCount: number;
-  /** Which windows this kitchen cooks. Everything else is a closed preview. */
-  windows: readonly MealWindowId[];
   deliveryFee: number;
   minOrder: number;
   /** Counter-ready time, in minutes from the order. Delivery adds travel. */
@@ -247,7 +122,6 @@ export type Dish = {
   price: number;
   diet: Diet;
   section: string;
-  windows: readonly MealWindowId[];
   addOns?: readonly AddOn[];
   /** "Serves 1, about 350 g" — the honest portion line. */
   serves?: string;
@@ -318,7 +192,6 @@ export type FoodOrder = {
   kitchenName: string;
   status: FoodOrderStatus;
   fulfilment: Fulfilment;
-  window: MealWindowId;
   lines: readonly OrderLine[];
   itemTotal: number;
   deliveryFee: number;

@@ -1,8 +1,8 @@
 import { router } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
-import { Animated, Easing, Linking, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { Linking, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Avatar, Btn, Chip, Icon, Notice, Sheet, TestLocation, Text, Toast, TopBar } from "@/components/ui";
+import { Avatar, Btn, Chip, Icon, MapPanel, Notice, PulseRing, Sheet, Text, Toast, TopBar } from "@/components/ui";
 import { STAGES, STATUS, STATUS_ONLINE_IDLE } from "@/constants/lampose";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
 import { useSheet } from "@/hooks/useSheet";
@@ -10,58 +10,10 @@ import { LOCATION_HEARTBEAT_MS, selectStage, useDriverStore } from "@/store/driv
 import { useFlowStore } from "@/store/flowStore";
 import { colors, elevation, layout, radius, space, tone as resolveTone, type ToneName } from "@/theme";
 
-/** Expanding ring used by the status dot and the "waiting for orders" radar. */
-export function PulseRing({
-  size,
-  color,
-  delay = 0,
-  duration = 2400,
-  style,
-}: {
-  size: number;
-  color: string;
-  delay?: number;
-  duration?: number;
-  style?: object;
-}) {
-  const v = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.delay(delay),
-        Animated.timing(v, {
-          toValue: 1,
-          duration,
-          easing: Easing.out(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(v, { toValue: 0, duration: 0, useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [v, delay, duration]);
-
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={[
-        {
-          position: "absolute",
-          width: size,
-          height: size,
-          borderRadius: radius.pill,
-          borderWidth: 1.5,
-          borderColor: color,
-          opacity: v.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0] }),
-          transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.6, 2.6] }) }],
-        },
-        style,
-      ]}
-    />
-  );
-}
+/* `PulseRing` now lives in `components/ui/MapPanel.tsx` — Home's map needs
+   the same expanding-ring idea pinned to a coordinate, not just floating in
+   plain layout, so both versions live beside each other where the second
+   one's doc comment can explain why they are not one component. */
 
 /** "6h 24m" from a count of minutes. Zero reads as "0m", not as blank. */
 export function formatOnline(minutes: number): string {
@@ -113,7 +65,7 @@ export default function HomeScreen() {
     than five minutes old — so the app has to be reporting while the rider is
     waiting for work, not only once they have some.
   */
-  const { location, heading, permissionDenied, setSimulated } = useDriverLocation();
+  const { location, heading, permissionDenied } = useDriverLocation();
 
   /* Read, never depended on — the compass fires several times a second on a
      moving scooter, and listing it below would re-run this effect that often:
@@ -140,11 +92,6 @@ export default function HomeScreen() {
     );
     return () => clearInterval(beat);
   }, [online, location, pushLocation]);
-
-  /* A simulated position, for testing on an emulator — see `TestLocation`.
-     It is fed through `setSimulated`, so it reaches the server down the same
-     effect above as a real fix and there is no test-only path to keep working. */
-  const [simulated, setSimulatedCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
     fetchEarnings().catch(() => {});
@@ -362,14 +309,29 @@ export default function HomeScreen() {
             {status.sub}
           </Text>
 
+          {/*
+            The old radar — two expanding rings around a plain dot — is still
+            here in spirit: `MapPanel` in solo mode (no `pickup`/`drop`) draws
+            the same double pulse, now pinned to the rider's REAL position
+            rather than the centre of an empty canvas. It is deliberately
+            compact and locked (no pan, no zoom, no controls) — a live
+            snapshot of where the rider actually is, not the full navigation
+            map the active-job screen gives them once there is somewhere to
+            go.
+          */}
           {searching && (
-            <View style={styles.radar}>
-              <View style={styles.radarCore} />
-              <PulseRing size={120} color={colors.brand} style={styles.radarRing} />
-              <PulseRing size={120} color={colors.brand} delay={1200} style={styles.radarRing} />
-              <Text variant="label" color="brand" style={styles.radarLabel}>
-                Waiting for orders…
-              </Text>
+            <View style={styles.mapWrap}>
+              <MapPanel
+                height={170}
+                me={location ? [location.lng, location.lat] : null}
+                heading={heading}
+              />
+              <View style={styles.mapCaption} pointerEvents="none">
+                <View style={styles.mapCaptionDot} />
+                <Text variant="label" color="brand">
+                  Waiting for orders…
+                </Text>
+              </View>
             </View>
           )}
 
@@ -532,26 +494,6 @@ export default function HomeScreen() {
             style={{ flex: 1 }}
           />
         </View>
-
-        {/* Development only, and it renders nothing otherwise. Last on the
-            screen because it is a tool, not part of a shift. */}
-        <TestLocation
-          active={simulated}
-          onUse={(coords) => {
-            setSimulatedCoords(coords);
-            setSimulated(coords);
-            say(
-              online
-                ? `Reporting ${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)} to the dispatcher.`
-                : "Saved. Go online and the dispatcher will see you here.",
-            );
-          }}
-          onClear={() => {
-            setSimulatedCoords(null);
-            setSimulated(null);
-            say("Back to the handset's own GPS.");
-          }}
-        />
       </ScrollView>
 
       <Toast message={toast} top={insets.top + space[2]} />
@@ -576,24 +518,26 @@ const styles = StyleSheet.create({
   dotWrap: { width: 9, height: 9, alignItems: "center", justifyContent: "center" },
   dot: { width: 9, height: 9, borderRadius: radius.pill },
 
-  radar: {
+  mapWrap: {
     marginTop: space[4],
-    height: 76,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.brandOnDark,
-    alignItems: "center",
-    justifyContent: "center",
+    borderRadius: radius.card,
+    overflow: "hidden",
+    position: "relative",
   },
-  radarCore: {
+  mapCaption: {
     position: "absolute",
-    top: 24,
-    width: 9,
-    height: 9,
+    bottom: space[2],
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.surface,
     borderRadius: radius.pill,
-    backgroundColor: colors.brand,
+    paddingHorizontal: space[3],
+    paddingVertical: 6,
+    ...elevation.card,
   },
-  radarRing: { top: -32 },
-  radarLabel: { position: "absolute", bottom: 2 },
+  mapCaptionDot: { width: 6, height: 6, borderRadius: radius.pill, backgroundColor: colors.brand },
   onlineFor: { textAlign: "center", marginTop: space[2] },
 
   activeCard: {
