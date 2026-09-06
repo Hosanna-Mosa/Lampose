@@ -12,7 +12,6 @@ import {
   FoodMenuSkeleton,
   FoodNotice,
   FulfilmentToggle,
-  MealWindowToken,
   RatingPill,
   DishRow,
   VegOnlyToggle,
@@ -22,7 +21,7 @@ import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { Dish } from '@/types/food';
-import { clockLabel, findWindow, minutesUntilOpen, readyLabel } from '@/types/food';
+import { readyLabel } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 
@@ -34,9 +33,9 @@ import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
  * changes every price under it — not scrolling past a slow-loading picture of
  * a counter.
  *
- * A CLOSED kitchen keeps its whole menu, greyed, with the time it opens and a
- * reminder button. Hiding the menu would make the commonest question here
- * ("is this the place with the ₹95 thali?") unanswerable at 4 pm.
+ * A CLOSED kitchen keeps its whole menu, greyed. Hiding the menu would make
+ * the commonest question here ("is this the place with the ₹95 thali?")
+ * unanswerable whenever the kitchen happens not to be open.
  */
 export default function KitchenScreen() {
   const { findKitchen, kitchenOpen, menuFor, loading, loadingMenus, error, refetch } = useFoodCatalogue();
@@ -56,7 +55,6 @@ export default function KitchenScreen() {
     address,
     preferences,
     setPreferences,
-    browseWindow,
   } = useFood();
 
   const [now] = useState(() => new Date());
@@ -65,14 +63,12 @@ export default function KitchenScreen() {
 
   const kitchen = id ? findKitchen(id) : undefined;
 
-  const windowId = browseWindow;
-  const activeWindow = findWindow(windowId);
-  const open = kitchen ? kitchenOpen(kitchen, windowId) && minutesUntilOpen(activeWindow, now) === 0 : false;
+  const open = kitchen ? kitchenOpen(kitchen) : false;
 
   /* `menuFor` is rebuilt whenever dishes arrive, so it belongs in here beside
      the kitchen: without it this menu is whatever had loaded on the render the
      screen opened on. */
-  const menu = useMemo(() => (kitchen ? menuFor(kitchen, windowId) : []), [menuFor, kitchen, windowId]);
+  const menu = useMemo(() => (kitchen ? menuFor(kitchen) : []), [menuFor, kitchen]);
   const visible = useMemo(
     () => (preferences.vegOnly ? menu.filter((dish) => dish.diet === 'veg') : menu),
     [menu, preferences.vegOnly],
@@ -123,9 +119,6 @@ export default function KitchenScreen() {
     );
   }
 
-  const nextOpen = findWindow(kitchen.windows[0]);
-  const opensIn = minutesUntilOpen(nextOpen, now);
-
   /*
    * The number the header's phone button dials.
    *
@@ -164,7 +157,7 @@ export default function KitchenScreen() {
       setQty(existing.key, next);
       return;
     }
-    if (next > 0) add(dish, { window: windowId, spice: preferences.spice });
+    if (next > 0) add(dish, { spice: preferences.spice });
   };
 
   const shown = section ? visible.filter((dish) => dish.section === section) : visible;
@@ -196,11 +189,8 @@ export default function KitchenScreen() {
                 backgroundColor: open ? colors.brand : colors.textTertiary,
               }}
             />
-            <Text variant="bodyStrong" style={{ color: open ? colors.brandInk : colors.textSecondary }}>
+            <Text variant="bodyStrong" style={{ flex: 1, color: open ? colors.brandInk : colors.textSecondary }}>
               {open ? 'Open now' : 'Closed now'}
-            </Text>
-            <Text variant="caption" color="tertiary" style={{ flex: 1 }} numberOfLines={1}>
-              · {kitchen.windows.map((entry) => findWindow(entry).label).join(', ')}
             </Text>
             <RatingPill rating={kitchen.rating} count={kitchen.ratingCount} showCount />
           </View>
@@ -229,18 +219,13 @@ export default function KitchenScreen() {
             <Text variant="numMeta" color="tertiary" style={{ flex: 1 }}>
               Minimum {formatRupees(kitchen.minOrder)} for delivery{address ? ` to ${address.title}` : ''}
             </Text>
-            <MealWindowToken window={activeWindow} now={now} />
           </View>
 
           {!open ? (
             <FoodNotice
               tone="deadline"
-              title={`Opens at ${clockLabel(nextOpen.startMinute)}`}
-              body={
-                opensIn < 300
-                  ? `In about ${Math.round(opensIn / 60) || 1} ${opensIn < 90 ? 'hour' : 'hours'}. Read the menu now — ordering opens with the window.`
-                  : 'Read the menu now. Ordering opens with the window.'
-              }
+              title="Closed right now"
+              body="Read the menu now — ordering opens the moment the kitchen does."
             />
           ) : null}
 
@@ -294,7 +279,7 @@ export default function KitchenScreen() {
         {shown.length === 0 ? (
           <FoodEmptyState
             title="Nothing veg on this menu today"
-            body={`${kitchen.name} is cooking ${menu.length} dishes in this window, none of them veg. Turning veg-only off shows all of them.`}
+            body={`${kitchen.name} cooks ${menu.length} dishes, none of them veg. Turning veg-only off shows all of them.`}
             primaryLabel="Show everything"
             onPrimary={() => setPreferences({ vegOnly: false })}
           />
@@ -341,7 +326,7 @@ export default function KitchenScreen() {
                           onQtyChange={(next) => setDishQty(dish, next)}
                           onPress={() => router.push(foodHref.dish(dish.id))}
                           disabled={!open}
-                          reason={!open ? clockLabel(nextOpen.startMinute) : undefined}
+                          reason={!open ? 'Closed' : undefined}
                           favouritable
                         />
                       </View>
@@ -374,7 +359,7 @@ export default function KitchenScreen() {
           <DockedCartBar
             count={count}
             total={itemTotal}
-            context={`${activeWindow.label}${fulfilment === 'pickup' ? ' · pickup' : address ? ` · ${address.title}` : ''}`}
+            context={fulfilment === 'pickup' ? 'pickup' : address ? address.title : 'no address yet'}
             onPress={() => router.push(foodHref.cart)}
           />
         </View>

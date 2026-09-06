@@ -5,13 +5,9 @@
  * — the module has its own screens, not its own design system. A dish card and a
  * listing card are different objects; a dish card and a listing card that use
  * different greens are a bug.
- *
- * The one thing Food adds to the vocabulary is the meal window, and it earns
- * that: nothing in the stay side of the app expires at 3:30 pm.
  */
 
 export { DietMark, FoodPhoto, RatingPill, VegOnlyToggle, type FoodPhotoProps } from './FoodMarks';
-export { MealWindowRail, MealWindowToken, WindowStatusLine } from './MealWindowRail';
 export { AddControl, type AddControlProps } from './AddControl';
 export { KitchenCard, type KitchenCardProps } from './KitchenCard';
 export { DishRow, DishTile, type DishRowProps } from './DishRow';

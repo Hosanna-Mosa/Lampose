@@ -10,7 +10,7 @@ import { AddControl, DietMark, FoodEmptyState, FoodNotice, FoodPhoto, RatingPill
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { SpiceLevel } from '@/types/food';
-import { SPICE_LABEL, clockLabel, findWindow, minutesUntilOpen } from '@/types/food';
+import { SPICE_LABEL } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 import { useActionBarInset } from '@/hooks/useActionBarInset';
@@ -32,7 +32,7 @@ const SPICES: readonly SpiceLevel[] = ['mild', 'medium', 'hot'];
  * whose dish silently vanished cannot.
  */
 export default function DishScreen() {
-  const { findDish, findKitchen } = useFoodCatalogue();
+  const { findDish, findKitchen, kitchenOpen } = useFoodCatalogue();
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   /* Nothing on a handset that reports a real inset; the shortfall on one
@@ -40,9 +40,8 @@ export default function DishScreen() {
   const actionInset = useActionBarInset();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { add, qtyOf, preferences, browseWindow } = useFood();
+  const { add, qtyOf, preferences } = useFood();
 
-  const [now] = useState(() => new Date());
   const dish = id ? findDish(id) : undefined;
   const kitchen = dish ? findKitchen(dish.kitchenId) : undefined;
 
@@ -57,7 +56,7 @@ export default function DishScreen() {
         <StandardHeader title="Dish" onBack={() => router.back()} />
         <FoodEmptyState
           title="This dish is off the menu"
-          body="Kitchens change what they cook between windows. The rest of this kitchen's menu is still here."
+          body="It may have been delisted. The rest of this kitchen's menu is still here."
           primaryLabel="Back"
           onPrimary={() => router.back()}
         />
@@ -65,11 +64,8 @@ export default function DishScreen() {
     );
   }
 
-  const windowId = browseWindow;
-  const activeWindow = findWindow(windowId);
-  const inWindow = dish.windows.includes(windowId);
-  const windowOpen = minutesUntilOpen(activeWindow, now) === 0;
-  const orderable = inWindow && windowOpen && !dish.soldOut;
+  const open = kitchenOpen(kitchen);
+  const orderable = open && !dish.soldOut;
 
   const addOns = dish.addOns ?? [];
   const addOnTotal = addOns
@@ -84,7 +80,7 @@ export default function DishScreen() {
   const inCart = qtyOf(dish.id);
 
   const commit = () => {
-    add(dish, { qty, addOnIds, spice, window: windowId });
+    add(dish, { qty, addOnIds, spice });
     router.back();
   };
 
@@ -130,23 +126,17 @@ export default function DishScreen() {
         </View>
 
         {/* Availability, before any choice is offered */}
-        {!inWindow ? (
-          <FoodNotice
-            tone="info"
-            title={`Cooked in the ${dish.windows.map((entry) => findWindow(entry).label.toLowerCase()).join(' and ')} window`}
-            body={`Not on the ${activeWindow.label.toLowerCase()} menu. It comes back at ${clockLabel(findWindow(dish.windows[0]).startMinute)}.`}
-          />
-        ) : dish.soldOut ? (
+        {dish.soldOut ? (
           <FoodNotice
             tone="deadline"
-            title="Sold out for this window"
-            body="The kitchen has run out. It is cooked fresh each window, so it is back at the next one."
+            title="Sold out"
+            body="The kitchen has run out. Check back later."
           />
-        ) : !windowOpen ? (
+        ) : !open ? (
           <FoodNotice
             tone="info"
-            title={`${activeWindow.label} opens at ${clockLabel(activeWindow.startMinute)}`}
-            body="Set your choices now — the cart holds them until the window opens."
+            title="Kitchen closed right now"
+            body="Set your choices now — the cart holds them until the kitchen reopens."
           />
         ) : null}
 
@@ -298,7 +288,7 @@ export default function DishScreen() {
           onChange={(next) => setLocalQty(Math.max(1, next))}
           size="lg"
           disabled={!orderable}
-          reason={dish.soldOut ? 'Sold out' : !inWindow ? 'Another window' : 'Opens later'}
+          reason={dish.soldOut ? 'Sold out' : 'Kitchen closed'}
           accessibilityLabel={dish.name}
         />
 

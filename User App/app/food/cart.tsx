@@ -13,13 +13,11 @@ import {
   FoodEmptyState,
   FoodPhoto,
   FoodNotice,
-  MealWindowToken,
   type BillLine,
 } from '@/components/food';
 import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
-import { clockLabel, findWindow, focusWindow, minutesUntilClose } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 import { useActionBarInset } from '@/hooks/useActionBarInset';
@@ -27,14 +25,11 @@ import { useActionBarInset } from '@/hooks/useActionBarInset';
 /**
  * The cart.
  *
- * Two things here are not decoration. The window deadline, because a cart built
- * at 3:10 pm is a lunch order that stops existing at 3:30 — and a student who
- * only finds that out at the payment screen has lost the order and the twenty
- * minutes. And the bill, expanded, because nobody should have to tap to find
- * out what the delivery fee is.
+ * The bill is expanded rather than tucked behind a tap, because nobody should
+ * have to hunt for what the delivery fee is.
  */
 export default function CartScreen() {
-  const { findKitchen } = useFoodCatalogue();
+  const { findKitchen, kitchenOpen } = useFoodCatalogue();
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   /* Nothing on a handset that reports a real inset; the shortfall on one
@@ -46,7 +41,6 @@ export default function CartScreen() {
     setQty,
     clear,
     kitchenId,
-    window,
     itemTotal,
     deliveryFee,
     packagingCharge,
@@ -56,13 +50,9 @@ export default function CartScreen() {
     count,
   } = useFood();
 
-  const [now] = useState(() => new Date());
   const [confirmingClear, setConfirmingClear] = useState(false);
 
   const kitchen = kitchenId ? findKitchen(kitchenId) : undefined;
-  const windowId = window ?? focusWindow(now).id;
-  const activeWindow = findWindow(windowId);
-  const closesIn = minutesUntilClose(activeWindow, now);
 
   if (count === 0 || !kitchen) {
     return (
@@ -72,12 +62,8 @@ export default function CartScreen() {
         <FoodEmptyState
           glyph="food"
           title="Your cart is empty"
-          body={
-            closesIn === null
-              ? `${activeWindow.label} opens at ${clockLabel(activeWindow.startMinute)}. Browse now and the cart holds what you pick.`
-              : `${activeWindow.label} runs until ${clockLabel(activeWindow.endMinute)} and kitchens near you are cooking.`
-          }
-          primaryLabel={`Browse ${activeWindow.label.toLowerCase()}`}
+          body="Kitchens near you are cooking. Add a dish to get started."
+          primaryLabel="Browse the menu"
           onPrimary={() => router.back()}
         />
       </View>
@@ -119,7 +105,7 @@ export default function CartScreen() {
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader
         title="Cart"
-        subtitle={`${kitchen.name} · ${activeWindow.label}`}
+        subtitle={kitchen.name}
         onBack={() => router.back()}
         actionLabel="Clear"
         onAction={() => setConfirmingClear(true)}
@@ -129,12 +115,9 @@ export default function CartScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ padding: layout.gutter, paddingBottom: space[8] * 2, gap: space[3] }}
       >
-        <View style={styles.scopeRow}>
-          <MealWindowToken window={activeWindow} now={now} />
-          <Text variant="caption" color="tertiary" style={{ flex: 1 }}>
-            {kitchen.cuisine} · {kitchen.walkMinutes} min walk
-          </Text>
-        </View>
+        <Text variant="caption" color="tertiary">
+          {kitchen.cuisine} · {kitchen.walkMinutes} min walk
+        </Text>
 
         {/* The lines */}
         <View
@@ -203,11 +186,11 @@ export default function CartScreen() {
           </Text>
         </Pressable>
 
-        {closesIn !== null && closesIn <= 45 ? (
+        {!kitchenOpen(kitchen) ? (
           <FoodNotice
             tone="deadline"
-            title={`${activeWindow.label} orders close at ${clockLabel(activeWindow.endMinute)}`}
-            body={`Place this within ${closesIn} minutes or it moves to the next window and re-prices.`}
+            title={`${kitchen.name} is closed right now`}
+            body="The order stays in your cart — placing it will need the kitchen to be open."
           />
         ) : null}
 
@@ -352,7 +335,6 @@ export default function CartScreen() {
 }
 
 const styles = StyleSheet.create({
-  scopeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   group: { borderWidth: StyleSheet.hairlineWidth },
   line: { flexDirection: 'row', alignItems: 'center' },
   lineTitle: { flexDirection: 'row', alignItems: 'center', gap: 6 },

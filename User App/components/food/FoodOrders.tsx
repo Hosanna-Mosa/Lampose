@@ -179,7 +179,7 @@ export function FoodOrders({ onHome }: { onHome: () => void }) {
          a render ago, so nothing here should be refused. Counted rather than
          ignored anyway: the one thing this reorder must never do again is drop
          a line without saying so. */
-      if (add(dish, { qty: line.qty, window: order.window, addOnIds, ...(spice ? { spice } : null) }) === 'conflict') {
+      if (add(dish, { qty: line.qty, addOnIds, ...(spice ? { spice } : null) }) === 'conflict') {
         refused.push(line.name);
         continue;
       }
@@ -258,12 +258,18 @@ export function FoodOrders({ onHome }: { onHome: () => void }) {
         <View style={{ paddingHorizontal: layout.gutter }}>
           <ActiveOrderCard
             order={liveOrder}
+            /* Same three-way split the tracking screen uses, and for the same
+               reason: "the kitchen is cooking" is not true yet at `placed` —
+               dispatch does not even start looking for a rider until the
+               kitchen accepts, so a `placed` order has not been touched. */
             headline={
               liveOrder.status === 'ready'
                 ? liveOrder.fulfilment === 'pickup'
                   ? 'Waiting at the counter'
                   : 'Leaving the kitchen'
-                : 'The kitchen is cooking'
+                : liveOrder.status === 'placed'
+                  ? 'Sent to the kitchen'
+                  : 'The kitchen is cooking'
             }
             detail={
               liveOrder.fulfilment === 'pickup'

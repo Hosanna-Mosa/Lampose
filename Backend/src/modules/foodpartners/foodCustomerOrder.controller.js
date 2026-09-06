@@ -305,20 +305,12 @@ const placeOrder = async (req, res, next) => {
       });
     }
 
-    /* Cash: ring the kitchen, and send for a rider. */
+    /* Cash: ring the kitchen. Dispatch does NOT start here any more — the
+       kitchen has to accept and quote a prep time first, so a rider is only
+       ever found against a real ready-time estimate rather than the instant
+       the order lands. See `setOrderStatus` in `foodOrder.controller.js`,
+       where accepting is what now calls `dispatch.startDispatch`. */
     const alert = await notifyRestaurantOfOrder(order.toObject());
-
-    /* Required late so the food module does not take a load-time dependency on
-       the driver module — they are separate features and one must be
-       removable. Deliberately not awaited: finding a rider takes up to two
-       minutes of offering and the diner's confirmation screen must not wait
-       for it. Its own failures are logged inside. */
-    // eslint-disable-next-line global-require
-    const dispatch = require('../drivers/foodDispatch.service');
-    if (!isPickup) {
-      dispatch.startDispatch(order.orderNumber, { reason: 'cash order placed' })
-        .catch((err) => console.error(`${BADGE} dispatch failed for ${order.orderNumber}: ${err.message}`));
-    }
 
     return res.status(201).json({
       success: true,

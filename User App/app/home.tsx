@@ -18,6 +18,7 @@ import {
 } from '@/components/discovery';
 import { BookingRow, BookingSegments, ProfileGroup, ProfileRow } from '@/components/lifecycle';
 import { FoodComingSoon, FoodModule } from '@/components/food';
+import { foodHref } from '@/components/food/routes';
 import { useAppEnv, useFoodMode, usePreviewControls } from '@/hooks/useAppEnv';
 import { BUILT_AS, CAN_OVERRIDE_ENV, setAppEnv, type AppEnv } from '@/services/runtimeEnv';
 import { emptyStates } from '@/constants/copy';
@@ -101,6 +102,13 @@ const APP_ENV_OPTIONS: readonly { id: AppEnv; label: string; note: string }[] = 
  * in the caution set so it reads as a door to another module rather than a
  * fourth peer screen. Profile is now the person icon in the header — the same
  * demotion Alerts went through when Saved was promoted here.
+ *
+ * The header icons themselves now pivot too, once Food is open: the bell
+ * opens `foodHref.notifications` instead of `/notifications`, and the person
+ * icon opens `foodHref.profile` instead of the stay Profile tab — see the
+ * `ExploreHeader` usage below. Nothing about the icons changes shape; only
+ * what they open does, which is the same "same control, different
+ * destination" idea `TabBar`'s own doc comment describes for the bottom bar.
  */
 const TABS: readonly TabItem[] = [
   { id: 'explore', label: 'Home', icon: 'home' },
@@ -148,7 +156,7 @@ export default function Home() {
   const { reservedBottom } = usePendingRequest();
   /* The bottom bar belongs to this screen, so while Food is open this screen is
      the one that has to know which of the module's screens is showing. */
-  const { foodTab, setFoodTab, liveOrder } = useFood();
+  const { foodTab, setFoodTab, liveOrder, foodUnread } = useFood();
 
   const [tab, setTab] = useState('explore');
   const [undo, setUndo] = useState<SavedEntry | null>(null);
@@ -470,12 +478,23 @@ export default function Home() {
         locality={locality?.name ?? 'Choose an area'}
         city={locality ? locality.city : undefined}
         onPressLocality={() => router.push('/(entry)/locality')}
-        // Alerts is not a tab — the pivot promoted Saved into the tab bar. The
-        // bell keeps it one tap from the feed, and it is also a Profile row.
-        onPressAlerts={() => router.push('/notifications')}
-        alertCount={unread}
-        // Profile lost its tab to Food; the header is now its one door.
-        onPressProfile={() => setTab('profile')}
+        /*
+         * Same two icons, repointed while Food is open — the header pivots
+         * exactly the way the bottom bar already does, just without a swap
+         * animation of its own: nothing here is a set of tabs to cross-fade,
+         * only two destinations that quietly change what they open.
+         *
+         * Alerts is not a tab either side of the pivot — the stay pivot
+         * promoted Saved into the tab bar and this one has no tab to give it.
+         * The bell keeps it one tap from the feed on both sides.
+         */
+        onPressAlerts={() =>
+          router.push(inFoodModule ? foodHref.notifications : '/notifications')
+        }
+        alertCount={inFoodModule ? foodUnread : unread}
+        // Profile lost its tab to Food; the header is its one door on both
+        // sides, and which profile it opens follows the same pivot.
+        onPressProfile={() => (inFoodModule ? router.push(foodHref.profile) : setTab('profile'))}
       />
 
       {/* Persistent, and it always states the age of what is on screen — a
@@ -786,7 +805,6 @@ export default function Home() {
                 checkout, because the moment somebody wants to FIX an address
                 is rarely the moment they are ordering. */}
             <ProfileRow label="Your addresses" onPress={() => router.push('/addresses')} />
-            <ProfileRow label="Where we deliver" onPress={() => router.push('/food/delivery-area')} />
             <ProfileRow label="Saved places" value={String(saved.length)} onPress={() => setTab('saved')} />
             <ProfileRow label="Past stays" onPress={() => router.push('/bookings/history')} />
             <ProfileRow

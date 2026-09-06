@@ -77,18 +77,14 @@ const readFavourites = (envelope: FavouritesEnvelope): FoodFavourites => {
   const kitchens = Array.isArray(envelope?.kitchens) ? envelope.kitchens : [];
 
   return {
-    /*
-     * Each dish is adapted THROUGH its own kitchen, exactly as
-     * `toKitchenWithMenu` does it — the kitchen supplies both the id a dish
-     * hangs off and the meal windows it inherits. Doing it any other way here
-     * would be a second derivation of "which windows is this dish in", and the
-     * two would drift.
-     */
+    /* Each dish is adapted THROUGH its own kitchen, exactly as
+       `toKitchenWithMenu` does it — the kitchen supplies the id a dish hangs
+       off. */
     dishes: dishes
       .map((row) => {
         if (!row?.restaurant) return null;
         const kitchen = toKitchen(row.restaurant as never);
-        return toDish(row as never, kitchen.id, kitchen.windows);
+        return toDish(row as never, kitchen.id);
       })
       .filter((dish): dish is Dish => Boolean(dish && dish.id && dish.kitchenId)),
     kitchens: kitchens

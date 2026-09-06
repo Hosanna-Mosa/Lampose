@@ -1,36 +1,64 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   Finding a rider for one order, one rider at a time.
+   Finding a rider for one order — broadcast to everyone who can make it in
+   time, not one at a time.
 
    This is the piece the whole delivery flow turns on:
 
-     the diner pays  →  START HERE  →  a rider accepts  →  three apps update
+     the kitchen accepts, with a prep-time quote  →  START HERE  →
+     a rider accepts  →  three apps update
 
-   ## One at a time, nearest first — not a broadcast
+   ## The search starts at Accept
 
-   The obvious design is to shout the order at every rider nearby and let the
-   fastest tap win. It is also the wrong one, and both of its failures are
-   worse than they look:
+   The kitchen has to accept and quote how long the food takes before any
+   rider is searched for at all — see `setOrderStatus` in
+   `foodOrder.controller.js`, where accepting is the one thing that calls
+   `startDispatch` now. `order.promisedMinutes`, set on that same request, is
+   the number everything below is built around: it is converted straight into
+   a search radius, and later into the "ready by" time shown to every rider
+   who is offered the job. `eligibleForDispatch` and its callers are what
+   enforce nothing starts any earlier than that.
 
-     · Every rider but one is interrupted for nothing. Do that forty times a
-       shift and riders stop looking at offers, which is the failure that
-       cannot be undone by fixing the code later.
-     · The winner is whoever tapped fastest, not whoever is nearest. A rider
-       4km away with a fast thumb beats one outside the door, and the diner
-       waits an extra fifteen minutes for a race they did not know they
-       entered.
+   ## Everyone who can make it in time, not the nearest one
 
-   So the shortlist is sorted by distance and offered in order: rider one gets
-   fifteen seconds alone, then rider two, and so on. The cost is that a
-   shortlist of eight takes two minutes to exhaust; the benefit is that the
-   nearest rider who wants the job always gets it.
+   An earlier version of this file offered the order to one rider at a time,
+   nearest first, each with a private fifteen-second turn — because with no
+   ready-time to reason against, offering to everyone at once meant every
+   rider but the fastest thumb was interrupted for nothing, and "nearest"
+   lost to "quickest to tap."
 
-   ## Fifteen seconds, plus one
+   That reasoning stops applying once the kitchen has quoted a real prep
+   time. If the food is not ready for another 25 minutes, a rider 2 minutes
+   away and a rider 22 minutes away are both genuinely useful — "nearest" is
+   no longer the thing that matters, "can get there before the food does"
+   is — and there is no reason to make the farther one wait for the nearer
+   one to be asked first and possibly decline. So the search radius IS the
+   prep-time quote (converted to a distance at `PLANNING_SPEED_KMH`), every
+   rider inside it is offered the job in the same instant, and whoever
+   accepts first gets it — the exact same atomic claim `acceptOffer` already
+   used when there was only ever one holder to race against.
 
-   `OFFER_MS` is 16000 against a 15-second countdown in the app. The extra
-   second is the round trip: a rider who taps Accept on the last tick has to
-   have their request arrive before the server has already moved on, or the
-   app says "accepted" and the server says "too late" — which is the single
-   most infuriating bug a rider app can have.
+   ## Nobody's offer has a personal countdown any more
+
+   The old fifteen-second window existed because only one rider held the
+   offer and the next one was waiting on them. With everyone notified
+   together, an offer just stays open until the order is taken, declined, or
+   its own lifecycle ends — a rider close by has no reason to be rushed by a
+   clock that was only ever there to move a queue that no longer exists.
+   What replaces the countdown is the ready time itself, sent with the offer
+   (`readyAt`, in `broadcastOffers`) — the fact a rider actually needs to
+   decide when to leave.
+
+   ## Nobody in range yet? The radius grows, twice, before Ready takes over
+
+   `scheduleWidening` books up to two future checks — around the halfway
+   point of the prep window, and again five minutes before it ends — each of
+   which asks the same radius question again, wider. Growing rather than
+   restarting: `dispatch.radiusMeters` is stored on the order specifically so
+   a widen step always adds to the distance already searched, never forgets
+   it. The kitchen marking the order `ready` remains the backstop underneath
+   all of this exactly as before — see the `'food is ready'` retry in
+   `foodOrder.controller.js` — for the case where widening twice still was
+   not enough.
 
    ## The timer is an optimisation. The database is the truth.
 
@@ -38,26 +66,30 @@
    dispatch correct:
 
      · Accepting is one atomic `findOneAndUpdate` whose filter requires the
-       order to still be searching and still have no rider. Two riders tapping
-       at once means one wins and the other is told the job is gone, with or
-       without a session in memory.
+       order to still be searching, still have no rider, and still carry an
+       `offered` row for the accepting driver. Two riders tapping at once
+       means one wins and the other is told the job is gone, with or without
+       a session in memory.
      · The live offer is also written to the order document, so
        `currentOfferFor()` — the poll the Driver app falls back on when its
        socket is down — reads the database rather than this map.
 
-   What the map buys is the cascade: without it, a rider who ignores an offer
-   would hold it until something else happened. A restart therefore loses the
-   cascade timers, not the orders — `sweepStalledDispatch()` is the backstop
-   that picks those up, and it is why that function exists.
+   What the map buys is the widen SCHEDULE: without it, a widen step that was
+   booked would simply never fire after a restart. `sweepStalledDispatch()`
+   is the backstop that notices a `searching` order with no timers in this
+   process and re-books them — the one thing a restart actually costs is losing
+   track of exactly which of the two widen checks already ran, which self-heals
+   the next time one fires from a freshly recomputed "how long is left."
 
    ## Single process, and honestly so
 
    The map is per-process. Run two instances behind a load balancer and each
-   would run its own cascade for orders it created — offering the same order
-   to two riders in parallel. The atomic accept means only one can win, so
-   this is a wasted offer rather than a double assignment, but it is still
-   wrong. Moving the sessions into Redis is the fix, and it is deliberately
-   not done here: this backend runs as one process today (see
+   would run its own widen schedule for orders it created, and could
+   independently broadcast to the same newly-in-range rider twice. The
+   atomic accept still means only one instance's rider can ever WIN the
+   order, so this is a duplicate offer rather than a double assignment, but
+   it is still wrong. Moving the sessions into Redis is the fix, and it is
+   deliberately not done here: this backend runs as one process today (see
    `deploy/VPS.md`), and a distributed lock nobody needs yet is a distributed
    lock nobody is testing.
    ══════════════════════════════════════════════════════════════════════════ */
@@ -66,7 +98,7 @@ const mongoose = require('mongoose');
 const FoodOrder = require('../foodpartners/foodOrder.model');
 const FoodRestaurant = require('../foodpartners/foodRestaurant.model');
 const Driver = require('./driver.model');
-const { findCandidates, dutyCount } = require('./driverMatch.service');
+const { findCandidatesWithinRadius, dutyCount } = require('./driverMatch.service');
 const realtime = require('../../infrastructure/realtime/realtime');
 const notifier = require('./dispatch.notifier');
 
@@ -74,18 +106,16 @@ const { riderView } = FoodOrder;
 
 const BADGE = '🛵 [dispatch]';
 
-/** The rider's countdown, and the one extra second. See the header. */
-const OFFER_SECONDS = 15;
-const OFFER_MS = (OFFER_SECONDS + 1) * 1000;
-
 /**
  * How many full sweeps one order gets.
  *
- * A sweep that finds nobody is retried when the kitchen marks the order ready
- * — by which time up to twenty minutes have passed and the riders on the road
- * are different people. Three is enough to cover "everybody was busy at 8pm"
- * and few enough that an order in a city with no riders stops asking rather
- * than looping until somebody notices.
+ * A sweep that finds nobody at all — the radius comes back empty even before
+ * any widening — is retried when the kitchen marks the order ready, by which
+ * time the riders on the road are different people. Three is enough to cover
+ * "everybody was busy at 8pm" and few enough that an order in a city with no
+ * riders stops asking rather than looping until somebody notices. Widening an
+ * existing broadcast (see `widen`) does not count against this — it is the
+ * same sweep reaching further, not a new one.
  */
 const MAX_SWEEPS = 3;
 
@@ -107,12 +137,70 @@ const riderEarningsFor = (order) => Math.max(
   Math.round((Number(order.deliveryFee) || 0) * RIDER_SHARE),
 );
 
-/* orderNumber -> { timer, driverId, candidates, index } */
+/* ── Turning a prep-time quote into a distance ────────────────────────────
+   `PLANNING_SPEED_KMH` is a rough planning number, not a routed ETA — this
+   app has no directions API and the delivery map shown to a diner is
+   deliberately straight-line distance for the same reason (see its own
+   header). It is used for two related but separate things: how far out to
+   search (`radiusFromMinutes`), and the minutes shown to a rider alongside
+   an offer (`riderEtaMinutes`) — the same number, read two ways, so a rider
+   is never told an ETA that disagrees with why they were in range to begin
+   with. */
+
+/** A scooter crossing ordinary city traffic — lights, turns, the lot. */
+const PLANNING_SPEED_KMH = 20;
+/** Metres per minute at the planning speed — the one conversion everything
+ *  below is built from. */
+const METRES_PER_MINUTE = (PLANNING_SPEED_KMH * 1000) / 60;
+
+/** Never search narrower than this, even for a very short or absent quote —
+ *  the immediate neighbourhood is always worth asking. */
+const MIN_RADIUS_METERS = 2000;
+/** How far a widen step reaches beyond whatever was already searched. */
+const WIDEN_STEP_METERS = 10 * METRES_PER_MINUTE;
+/** Neither scheduled widen check runs closer to now than this — booking one
+ *  for eleven seconds out is not worth the moving part. */
+const MIN_CHECKPOINT_MS = 60 * 1000;
+/** How long before the food should be ready the SECOND widen check runs. */
+const FINAL_CHECKPOINT_LEAD_MS = 5 * 60 * 1000;
+/** The two fallback checkpoints when the kitchen gave no quote at all, so
+ *  there is no ready time to schedule against. */
+const NO_QUOTE_CHECKPOINTS_MS = [3 * 60 * 1000, 8 * 60 * 1000];
+
+const radiusFromMinutes = (minutes) => {
+  const m = Number(minutes) || 0;
+  return Math.max(MIN_RADIUS_METERS, m * METRES_PER_MINUTE);
+};
+
+const riderEtaMinutes = (distanceMeters) => (Number(distanceMeters) || 0) / METRES_PER_MINUTE;
+
+/**
+ * When the food will be ready, or null when there is nothing to compute it
+ * from.
+ *
+ * Read from `statusHistory`'s own `accepted` event rather than kept as a
+ * separate field — see `buildTimeline` on the client for the same lookup
+ * against the same event, so the two sides of one order agree about when it
+ * was accepted. Null covers both an order not yet accepted and one accepted
+ * without a prep-time quote; either way there is no ready time to show
+ * anybody, and callers treat the two identically.
+ */
+function readyAtFor(order) {
+  if (!order.promisedMinutes) return null;
+  const acceptedEvent = (order.statusHistory || []).find((event) => event.status === 'accepted');
+  if (!acceptedEvent || !acceptedEvent.at) return null;
+  const acceptedAt = new Date(acceptedEvent.at);
+  if (Number.isNaN(acceptedAt.getTime())) return null;
+  return new Date(acceptedAt.getTime() + order.promisedMinutes * 60000);
+}
+
+/* orderNumber -> { timers: NodeJS.Timeout[] } — see the header on why this
+   holding nothing but timers is enough for the map to be a pure optimisation. */
 const sessions = new Map();
 
 const clearSession = (orderNumber) => {
   const session = sessions.get(orderNumber);
-  if (session && session.timer) clearTimeout(session.timer);
+  if (session) for (const timer of session.timers) clearTimeout(timer);
   sessions.delete(orderNumber);
 };
 
@@ -143,8 +231,11 @@ const dispatchUpdate = (order, extra = {}) => ({
  * Four refusals, and each one is a real order that must NOT go out:
  *   · a pickup order — nobody is carrying it
  *   · an online order that has not been paid — no rider is sent for food
- *     nobody has paid for, which is also why `payment/verify` is what starts
- *     the search rather than `POST /orders`
+ *     nobody has paid for. In practice this can no longer even trigger: the
+ *     restaurant is never shown an unpaid online order to accept, and Accept
+ *     is the only thing that calls `startDispatch` now — kept as a guard
+ *     anyway, since a refusal that can never fire is cheaper than one that
+ *     silently stops being true
  *   · a rejected or cancelled order
  *   · an order that already has a rider
  */
@@ -175,22 +266,150 @@ const pickupPointOf = async (order) => {
   return Array.isArray(pair) && pair.length === 2 ? pair : null;
 };
 
+/* ── The broadcast ────────────────────────────────────────────────────────*/
+
+/**
+ * Write and send one offer round to a list of candidates.
+ *
+ * Shared by `startDispatch`'s first round and every `widen` step after it —
+ * the two differ only in WHICH candidates they have to offer, never in how
+ * an offer is recorded or delivered. Every row is written to the order
+ * BEFORE anything is sent, so the poll fallback (`currentOfferFor`) and the
+ * sockets going out a moment later can never disagree about who holds one.
+ */
+async function broadcastOffers(order, candidates) {
+  const offeredAt = new Date();
+  for (const candidate of candidates) {
+    order.dispatch.offers.push({
+      driverId: candidate.driverId,
+      distanceMeters: candidate.distanceMeters,
+      offeredAt,
+      outcome: 'offered',
+    });
+  }
+  await order.save();
+
+  console.log(
+    `${BADGE} ${order.orderNumber} → broadcasting to ${candidates.length}: `
+    + candidates.map((c) => `${c.driverId}(${c.distanceMeters}m)`).join(', '),
+  );
+
+  const readyAt = readyAtFor(order);
+  for (const candidate of candidates) {
+    const offer = {
+      ...riderView(order, { revealed: false, distanceMeters: candidate.distanceMeters }),
+      etaMinutes: Math.round(riderEtaMinutes(candidate.distanceMeters)),
+      readyAt: readyAt ? readyAt.toISOString() : null,
+    };
+    realtime.toDriver(candidate.driverId, 'delivery_offer', offer);
+    notifier.notifyDriverOfOffer(candidate.driverId, {
+      order, distanceMeters: candidate.distanceMeters, readyAt,
+    }).catch(() => {});
+  }
+}
+
+/**
+ * Book the next widen check, if one is still worth booking.
+ *
+ * Recomputes from CURRENT time every time it is called — by `startDispatch`
+ * after the first broadcast, by `widen` after each step, and by
+ * `sweepStalledDispatch` after a restart — rather than working off fixed
+ * checkpoints set once. That is what makes restart recovery simple: there is
+ * no schedule to have "lost half of," only a question ("is there still a
+ * sensible moment to check again before Ready?") that can be asked fresh at
+ * any time and keeps answering itself correctly as the window runs out.
+ */
+function scheduleWidening(order, session) {
+  const readyAt = readyAtFor(order);
+  const delays = [];
+
+  if (readyAt) {
+    const remainingMs = readyAt.getTime() - Date.now();
+    const halfway = remainingMs / 2;
+    const final = remainingMs - FINAL_CHECKPOINT_LEAD_MS;
+    if (halfway > MIN_CHECKPOINT_MS) delays.push(halfway);
+    if (final > MIN_CHECKPOINT_MS && Math.abs(final - halfway) > MIN_CHECKPOINT_MS) delays.push(final);
+  } else {
+    /* No quote to schedule against — two fixed fallback checks. The kitchen
+       marking the order `ready` is still the ultimate backstop either way. */
+    delays.push(...NO_QUOTE_CHECKPOINTS_MS);
+  }
+
+  for (const delay of delays) {
+    const timer = setTimeout(() => {
+      widen(order.orderNumber).catch((error) => {
+        console.error(`${BADGE} ${order.orderNumber} widen failed: ${error.message}`);
+      });
+    }, delay);
+    session.timers.push(timer);
+  }
+}
+
+/**
+ * Reach further, because nobody in range has taken it yet.
+ *
+ * Re-reads the order first — the whole point of a widen step is that time
+ * has passed, and the order may already be assigned, cancelled, or rejected
+ * by the time this fires. Excludes every driverId this order has EVER
+ * offered, whatever the outcome: a wider radius must never re-offer someone
+ * who already declined, is still holding an earlier offer, or lost the job
+ * to somebody else — asking twice is how a rider comes to believe declining
+ * does nothing.
+ */
+async function widen(orderNumber) {
+  const order = await FoodOrder.findOne({ orderNumber });
+  if (!order || order.dispatch.state !== 'searching') return;
+
+  const pickup = await pickupPointOf(order);
+  if (!pickup) return;
+
+  const alreadyAsked = (order.dispatch.offers || []).map((offer) => offer.driverId);
+  const currentRadius = order.dispatch.radiusMeters || radiusFromMinutes(order.promisedMinutes);
+  const widerRadius = currentRadius + WIDEN_STEP_METERS;
+
+  const found = await findCandidatesWithinRadius({
+    pickup, radiusMeters: widerRadius, exclude: alreadyAsked,
+  });
+
+  order.dispatch.radiusMeters = widerRadius;
+
+  if (found.length) {
+    console.log(
+      `${BADGE} ${orderNumber} widened to ${(widerRadius / 1000).toFixed(1)}km — `
+      + `${found.length} newly-in-range rider(s)`,
+    );
+    await broadcastOffers(order, found);
+  } else {
+    await order.save();
+  }
+
+  const session = sessions.get(orderNumber) || { timers: [] };
+  sessions.set(orderNumber, session);
+  scheduleWidening(order, session);
+}
+
 /* ── Starting a search ────────────────────────────────────────────────────*/
 
 /**
- * Begin looking for a rider.
+ * Begin looking for a rider — or reach further, if one is already running.
  *
- * Called from three places, all of which mean "this order is now ready to be
- * carried": a cash order being placed, an online order's payment verifying,
- * and the kitchen marking a previously unassigned order ready.
+ * Called from four places: the kitchen accepting an order, the kitchen
+ * marking a still-unassigned-or-still-searching order ready (see
+ * `foodOrder.controller.js`'s own comment on why `searching` counts too — a
+ * broadcast with no per-rider timeout can sit there with nobody having
+ * answered at all), a rider releasing a job back, and the restart backstop.
+ * Re-entering while a search is already `searching` is normal now rather
+ * than refused — see `widen`, which is the usual reason it happens — so
+ * this only ever refuses an order that genuinely should not be searched at
+ * all.
  *
  * Resolves to a small report rather than throwing. Every caller is midway
- * through a request that has already succeeded — the order IS placed, the
- * payment IS verified — and a dispatcher that threw would undo a write that
+ * through a request that has already succeeded — the order WAS accepted, the
+ * rider WAS released — and a dispatcher that threw would undo a write that
  * was correct. So a failure here is a logged reason and an order in the
  * `unassigned` state, which is a state the product knows how to show.
  */
-async function startDispatch(orderNumber, { reason = 'placed' } = {}) {
+async function startDispatch(orderNumber, { reason = 'accepted' } = {}) {
   const number = String(orderNumber || '').trim().toUpperCase();
   if (!number) return { started: false, reason: 'no order number' };
 
@@ -221,31 +440,40 @@ async function startDispatch(orderNumber, { reason = 'placed' } = {}) {
       return { started: false, reason: 'sweep limit reached' };
     }
 
-    /* A search already running for this order is left alone. Two cascades on
-       one order would offer it to two riders at once — the atomic accept means
-       only one could win, but the other rider is interrupted for nothing,
-       which is the exact cost this whole file is arranged to avoid. */
-    if (order.dispatch.state === 'searching' && sessions.has(number)) {
-      return { started: false, reason: 'a search is already running' };
-    }
-
     const pickup = await pickupPointOf(order);
     if (!pickup) {
       await failSweep(order, 'the restaurant has not dropped a map pin, so nobody can be sent');
       return { started: false, reason: 'restaurant has no location' };
     }
 
-    /* Riders who have already said no to THIS order are not asked again. The
-       list is read off the order rather than held in the session, so it
-       survives a restart mid-sweep. */
-    const alreadyAsked = (order.dispatch.offers || [])
-      .filter((offer) => ['declined', 'timeout'].includes(offer.outcome))
-      .map((offer) => offer.driverId);
+    /* Every rider this order has EVER offered, whatever the outcome — a
+       fresh sweep must not re-offer somebody who already declined, is still
+       holding an offer from an earlier round, or lost the job to somebody
+       else. Read off the order rather than held in the session, so it
+       survives a restart mid-broadcast. */
+    const alreadyAsked = (order.dispatch.offers || []).map((offer) => offer.driverId);
+    /*
+     * Never narrower than whatever this order has already searched.
+     *
+     * A fresh top-level call — the kitchen accepting, a rider releasing the
+     * job back, the "food is ready" retry — used to recompute the radius
+     * from `promisedMinutes` alone, which SHRINKS it back down whenever a
+     * `widen` step had already grown it past that. A rider found only
+     * because the search had widened to 10km, who then accepted and dropped
+     * the job, would otherwise make the retry search 6.7km again — throwing
+     * away ground a widen step had already paid for, on the exact order that
+     * most needs the wider net (it has already failed or been given back
+     * once). `dispatch.radiusMeters` is the highest-water mark; this can
+     * only ever match or exceed it.
+     */
+    const radiusMeters = Math.max(radiusFromMinutes(order.promisedMinutes), order.dispatch.radiusMeters || 0);
 
-    const candidates = await findCandidates({ pickup, exclude: alreadyAsked });
+    const candidates = await findCandidatesWithinRadius({
+      pickup, radiusMeters, exclude: alreadyAsked,
+    });
 
     order.dispatch.attempts += 1;
-    order.dispatch.candidateCount = candidates.length;
+    order.dispatch.radiusMeters = radiusMeters;
     order.dispatch.startedAt = new Date();
     order.dispatch.failureReason = '';
     order.delivery.earnings = riderEarningsFor(order);
@@ -262,22 +490,32 @@ async function startDispatch(orderNumber, { reason = 'placed' } = {}) {
     }
 
     order.dispatch.state = 'searching';
+    order.dispatch.candidateCount = candidates.length;
     await order.save();
 
     console.log(
       `${BADGE} ${number} searching (${reason}) · sweep ${order.dispatch.attempts}/${MAX_SWEEPS} · `
-      + `${candidates.length} candidate(s), nearest ${candidates[0].distanceMeters}m`,
+      + `${candidates.length} candidate(s) within ${(radiusMeters / 1000).toFixed(1)}km`,
     );
 
     /* The diner is told the search began. This is the "finding you a rider"
-       state on the tracking screen, and it must appear before the first offer
-       goes out or the screen sits on "order placed" for fifteen seconds. */
+       state on the tracking screen, and it must appear before any offer goes
+       out or the screen sits on "order placed" until the first one lands. */
     realtime.toOrderParties(order, 'dispatch_update', dispatchUpdate(order, {
       candidateCount: candidates.length,
     }));
 
-    sessions.set(number, { candidates, index: 0, timer: null, driverId: null });
-    await offerNext(number);
+    /* A round already running for this order (a widen mid-flight) gets its
+       pending timers cleared before a fresh one is booked below — this call
+       is starting the search over from a clean radius, not adding to a
+       schedule that is still ticking. */
+    clearSession(number);
+    const session = { timers: [] };
+    sessions.set(number, session);
+
+    await broadcastOffers(order, candidates);
+    scheduleWidening(order, session);
+
     return { started: true, candidates: candidates.length };
   } catch (error) {
     console.error(`${BADGE} ${number} could not start: ${error.message}`);
@@ -305,116 +543,6 @@ async function failSweep(order, why) {
   notifier.notifyCustomerNoRider(order).catch(() => {});
 }
 
-/* ── The cascade ──────────────────────────────────────────────────────────*/
-
-/**
- * Offer the order to the next candidate who is still worth offering to.
- *
- * Re-reads the order and each candidate before offering, because the list was
- * built up to two minutes ago: an order may have been cancelled, and a rider
- * may have gone offline or taken a different job. Skipping them here costs one
- * query; not skipping them costs a full sixteen-second timeout each.
- */
-async function offerNext(orderNumber) {
-  const session = sessions.get(orderNumber);
-  if (!session) return;
-
-  if (session.timer) {
-    clearTimeout(session.timer);
-    session.timer = null;
-  }
-
-  const order = await FoodOrder.findOne({ orderNumber });
-  if (!order || order.dispatch.state !== 'searching') {
-    /* Accepted, cancelled or rejected while the cascade was mid-flight. */
-    clearSession(orderNumber);
-    return;
-  }
-
-  /* Walk forward past anybody who is no longer offerable. */
-  let candidate = null;
-  while (session.index < session.candidates.length) {
-    const next = session.candidates[session.index];
-    // eslint-disable-next-line no-await-in-loop -- one check per skipped rider,
-    // and the loop almost always runs once. Batching would read every
-    // candidate on every offer, which is more work, not less.
-    const driver = await Driver.findOne({ driverId: next.driverId })
-      .select('driverId name phone vehicle isOnline isAvailable status').lean();
-
-    const usable = driver
-      && driver.status === 'approved'
-      && driver.isOnline
-      && driver.isAvailable;
-
-    if (usable) { candidate = { ...next, driver }; break; }
-
-    console.log(`${BADGE} ${orderNumber} skipping ${next.driverId} — no longer free`);
-    session.index += 1;
-  }
-
-  if (!candidate) {
-    await failSweep(order, 'every rider nearby declined or went offline');
-    return;
-  }
-
-  session.driverId = candidate.driverId;
-
-  /* Written to the order BEFORE it is emitted, so the poll fallback and the
-     socket cannot disagree about who currently holds the offer. */
-  order.dispatch.offers.push({
-    driverId: candidate.driverId,
-    distanceMeters: candidate.distanceMeters,
-    offeredAt: new Date(),
-    outcome: 'offered',
-  });
-  await order.save();
-
-  console.log(
-    `${BADGE} ${orderNumber} → ${candidate.driverId} `
-    + `(#${session.index + 1}/${session.candidates.length}, ${candidate.distanceMeters}m, `
-    + `₹${order.delivery.earnings})`,
-  );
-
-  const offer = {
-    ...riderView(order, { revealed: false, distanceMeters: candidate.distanceMeters }),
-    expiresInSeconds: OFFER_SECONDS,
-    offerIndex: session.index + 1,
-    offerCount: session.candidates.length,
-  };
-
-  realtime.toDriver(candidate.driverId, 'delivery_offer', offer);
-  notifier.notifyDriverOfOffer(candidate.driverId, {
-    order,
-    distanceMeters: candidate.distanceMeters,
-    expiresInSeconds: OFFER_SECONDS,
-  }).catch(() => {});
-
-  session.timer = setTimeout(() => {
-    /* The callback is async and nothing awaits it — a rejected promise here
-       must not take the process down, so it catches its own. */
-    expireOffer(orderNumber, candidate.driverId).catch((error) => {
-      console.error(`${BADGE} ${orderNumber} timeout handling failed: ${error.message}`);
-    });
-  }, OFFER_MS);
-}
-
-/** Nobody tapped. Close the offer and move to the next rider. */
-async function expireOffer(orderNumber, driverId) {
-  const session = sessions.get(orderNumber);
-  /* The session is gone when the rider accepted a half-tick before the timer
-     fired. Doing nothing is correct — the accept already cleared the cascade. */
-  if (!session || session.driverId !== driverId) return;
-
-  console.log(`${BADGE} ${orderNumber} · ${driverId} did not answer in ${OFFER_SECONDS}s`);
-
-  await recordOutcome(orderNumber, driverId, 'timeout', 'No response');
-  realtime.toDriver(driverId, 'delivery_offer_closed', { orderNumber, reason: 'timeout' });
-  notifier.notifyDriverOfferClosed(driverId, orderNumber, 'timeout').catch(() => {});
-
-  session.index += 1;
-  await offerNext(orderNumber);
-}
-
 /** Stamp how one rider's offer ended, without disturbing the others. */
 async function recordOutcome(orderNumber, driverId, outcome, reason = '') {
   await FoodOrder.updateOne(
@@ -435,10 +563,10 @@ async function recordOutcome(orderNumber, driverId, outcome, reason = '') {
  * A rider takes the job.
  *
  * The claim is ONE atomic update, and its filter is the whole of the race
- * protection: the order must still be searching, must still have no rider, and
- * must still be one this rider was actually offered. Two riders tapping in the
- * same tick means Mongo applies one update and matches nothing for the other,
- * who is told the job is gone — which is true.
+ * protection: the order must still be searching, must still have no rider,
+ * and must still carry an `offered` row for this rider. Whoever's accept
+ * reaches Mongo first wins — the same rule whether two riders tap within a
+ * millisecond of each other or one accepts an hour after the other declined.
  *
  * Note what is NOT in the filter: the session map. A rider whose accept
  * arrives after a restart wiped the sessions still gets the job, because the
@@ -496,9 +624,10 @@ async function acceptOffer(orderNumber, driver) {
   );
 
   if (!claimed) {
-    /* Told apart so the app can say something true. "Somebody else took it" and
-       "your fifteen seconds ran out" feel very different to a rider, and one
-       message for both is how they come to believe the button is broken. */
+    /* Told apart so the app can say something true. "Somebody else took it"
+       and "that order was cancelled" feel very different to a rider, and
+       one message for both is how they come to believe the button is
+       broken. */
     const current = await FoodOrder.findOne({ orderNumber: number })
       .select('orderNumber dispatch.state delivery.driverId status').lean();
 
@@ -509,7 +638,7 @@ async function acceptOffer(orderNumber, driver) {
     if (['cancelled', 'rejected'].includes(current.status)) {
       return { ok: false, code: 'ORDER_CLOSED', message: 'That order was cancelled.' };
     }
-    return { ok: false, code: 'OFFER_EXPIRED', message: 'That offer has expired.' };
+    return { ok: false, code: 'OFFER_EXPIRED', message: 'That offer is no longer open.' };
   }
 
   /* Distance is copied from the offer that was accepted rather than
@@ -519,8 +648,24 @@ async function acceptOffer(orderNumber, driver) {
     .pop();
   if (accepted) {
     claimed.delivery.acceptedFromMeters = accepted.distanceMeters || 0;
-    await claimed.save();
   }
+
+  /* Everybody else still holding this offer is told it is gone — a broadcast
+     rewards being first, but it must not leave the other N-1 riders staring
+     at a live-looking offer for an order that already has somebody. */
+  const others = (claimed.dispatch.offers || [])
+    .filter((offer) => offer.driverId !== driver.driverId && offer.outcome === 'offered')
+    .map((offer) => offer.driverId);
+
+  if (others.length) {
+    for (const offer of claimed.dispatch.offers) {
+      if (others.includes(offer.driverId) && offer.outcome === 'offered') {
+        offer.outcome = 'superseded';
+        offer.respondedAt = now;
+      }
+    }
+  }
+  await claimed.save();
 
   /* The rider is now busy. Two fields on `app_drivers`, set together: the
      availability flag the matcher reads and the order number the app reads. */
@@ -536,6 +681,11 @@ async function acceptOffer(orderNumber, driver) {
     + `(${claimed.delivery.acceptedFromMeters}m away, ₹${claimed.delivery.earnings})`,
   );
 
+  for (const otherId of others) {
+    realtime.toDriver(otherId, 'delivery_offer_closed', { orderNumber: number, reason: 'taken' });
+    notifier.notifyDriverOfferClosed(otherId, number, 'taken').catch(() => {});
+  }
+
   /* Everybody who is watching, in one call — the diner sees a rider, the
      kitchen sees who is coming, the rider sees their own job. */
   realtime.toOrderParties(claimed, 'dispatch_update', dispatchUpdate(claimed));
@@ -547,34 +697,21 @@ async function acceptOffer(orderNumber, driver) {
 /**
  * A rider says no.
  *
- * Moves to the next candidate immediately rather than waiting out the timer —
- * the whole point of an explicit decline is that it gives the next rider those
- * fifteen seconds back.
+ * Just a record now, not a handoff — there is no "next in line" to advance
+ * to, because everyone who was ever going to be asked in this round was
+ * already asked at the same time. What a decline actually does is make sure
+ * a later widen step, or the next full sweep, does not offer this rider the
+ * same order again.
  */
 async function declineOffer(orderNumber, driverId, reason = '') {
   const number = String(orderNumber || '').trim().toUpperCase();
-  const session = sessions.get(number);
 
   await recordOutcome(number, driverId, 'declined', reason);
   realtime.toDriver(driverId, 'delivery_offer_closed', { orderNumber: number, reason: 'declined' });
 
-  if (!session || session.driverId !== driverId) {
-    /* Declining an offer that already moved on. Recorded above — a rider who
-       consistently declines is worth seeing in the data either way — and then
-       ignored, because advancing a cascade that is now on somebody else would
-       skip an innocent rider. */
-    return { ok: true, advanced: false };
-  }
-
   console.log(`${BADGE} ${number} declined by ${driverId}${reason ? ` — ${reason}` : ''}`);
 
-  if (session.timer) {
-    clearTimeout(session.timer);
-    session.timer = null;
-  }
-  session.index += 1;
-  await offerNext(number);
-  return { ok: true, advanced: true };
+  return { ok: true };
 }
 
 /* ── Ending a search from outside ─────────────────────────────────────────*/
@@ -583,22 +720,32 @@ async function declineOffer(orderNumber, driverId, reason = '') {
  * The order stopped being deliverable — cancelled by the diner, rejected by
  * the kitchen.
  *
- * The rider currently holding the offer is told explicitly. Without this their
- * screen counts down to zero on an order that no longer exists and they tap
- * Accept into a refusal, which reads as the app being broken rather than as
- * the order being gone.
+ * Every rider currently holding an open offer is told explicitly — with a
+ * broadcast that can mean several people, not the one it used to. Without
+ * this their screens keep showing a live "New delivery" card for an order
+ * that no longer exists, and a rider who taps Accept into a refusal reads it
+ * as the app being broken rather than as the order being gone.
  */
 async function cancelDispatch(orderNumber, reason = 'The order was cancelled') {
   const number = String(orderNumber || '').trim().toUpperCase();
-  const session = sessions.get(number);
 
-  if (session && session.driverId) {
-    realtime.toDriver(session.driverId, 'delivery_offer_closed', {
-      orderNumber: number, reason: 'cancelled',
-    });
-    notifier.notifyDriverOfferClosed(session.driverId, number, 'cancelled').catch(() => {});
-    await recordOutcome(number, session.driverId, 'cancelled', reason);
+  const order = await FoodOrder.findOne({ orderNumber: number });
+  if (order) {
+    const stillOpen = order.dispatch.offers.filter((offer) => offer.outcome === 'offered');
+    if (stillOpen.length) {
+      const now = new Date();
+      for (const offer of stillOpen) {
+        offer.outcome = 'cancelled';
+        offer.respondedAt = now;
+      }
+      await order.save();
+      for (const offer of stillOpen) {
+        realtime.toDriver(offer.driverId, 'delivery_offer_closed', { orderNumber: number, reason: 'cancelled' });
+        notifier.notifyDriverOfferClosed(offer.driverId, number, 'cancelled').catch(() => {});
+      }
+    }
   }
+
   clearSession(number);
 
   await FoodOrder.updateOne(
@@ -636,8 +783,8 @@ async function releaseRider(orderNumber, driverId, reason = 'The rider could not
     status: order.status, at: new Date(), by: 'rider', note: `Released: ${reason}`.slice(0, 200),
   });
   /* The release is recorded against the accepted offer so a retry excludes
-     them — `startDispatch` reads declined and timed-out offers, so the outcome
-     is rewritten to `declined` rather than left as `accepted`. */
+     them — `startDispatch` reads every past offer regardless of outcome, so
+     the outcome is rewritten to `declined` rather than left as `accepted`. */
   await order.save();
   await recordOutcomeForce(number, driverId, 'declined', reason);
 
@@ -649,7 +796,7 @@ async function releaseRider(orderNumber, driverId, reason = 'The rider could not
   console.warn(`${BADGE} ${number} released by ${driverId} — ${reason}`);
   realtime.toOrderParties(order, 'dispatch_update', dispatchUpdate(order, { failureReason: reason }));
 
-  /* Straight back out to the next rider. The food is cooked or cooking and
+  /* Straight back out to a fresh broadcast. The food is cooked or cooking and
      every minute here is a cold meal. */
   const restarted = await startDispatch(number, { reason: 'rider released' });
   return { ok: true, restarted: restarted.started };
@@ -680,8 +827,9 @@ async function recordOutcomeForce(orderNumber, driverId, outcome, reason) {
  * map on purpose: those are the exact circumstances in which the map may be
  * from a different process or a previous boot.
  *
- * The expiry is recomputed from `offeredAt`, so an offer whose timer died with
- * a restart reads as expired rather than as live forever.
+ * No expiry to recompute any more — an offer is either still `offered` in the
+ * database or it is not, and there is no countdown for a restart to have
+ * silently outlived.
  */
 async function currentOfferFor(driverId) {
   if (mongoose.connection.readyState !== 1) return null;
@@ -698,55 +846,43 @@ async function currentOfferFor(driverId) {
     .pop();
   if (!offer) return null;
 
-  const elapsed = Date.now() - new Date(offer.offeredAt).getTime();
-  const remaining = Math.ceil((OFFER_MS - elapsed) / 1000);
-  if (remaining <= 0) return null;
-
+  const readyAt = readyAtFor(order);
   return {
     ...riderView(order, { revealed: false, distanceMeters: offer.distanceMeters }),
-    expiresInSeconds: remaining,
+    etaMinutes: Math.round(riderEtaMinutes(offer.distanceMeters)),
+    readyAt: readyAt ? readyAt.toISOString() : null,
   };
 }
 
 /**
- * Pick up orders whose cascade died with a restart.
+ * Re-arm the widen schedule for orders whose timers this process lost.
  *
- * A `searching` order whose newest offer is older than the offer window has a
- * rider nobody is waiting on and a timer that no longer exists. Left alone it
- * would sit there until a human noticed. This is the backstop the header
- * promises, and it is why losing the session map on a deploy is survivable
- * rather than an outage.
+ * A `searching` order with no session in THIS process is one of two things:
+ * a restart wiped its widen timers, or another process is handling it (see
+ * the header on running more than one). Either way, booking a fresh
+ * schedule for it here is safe — `scheduleWidening` only ever asks "is there
+ * still a sensible moment to check again before Ready," recomputed from
+ * whatever time is left, so it cannot double-book a step that already ran
+ * elsewhere; the worst case is one extra widen check on a process that was
+ * never actually behind, which costs one query.
  *
- * Cheap by construction: `dispatch.state` is indexed and almost every order is
- * `idle` or `assigned`, so the index this scans is nearly empty.
+ * Cheap by construction: `dispatch.state` is indexed and almost every order
+ * is `idle` or `assigned`, so the index this scans is nearly empty.
  */
 async function sweepStalledDispatch() {
   if (mongoose.connection.readyState !== 1) return 0;
 
-  const cutoff = new Date(Date.now() - OFFER_MS);
   const stalled = await FoodOrder.find({ 'dispatch.state': 'searching' })
-    .select('orderNumber dispatch.offers').limit(50).lean();
+    .select('orderNumber promisedMinutes statusHistory').limit(50).lean();
 
   let resumed = 0;
   for (const row of stalled) {
     if (sessions.has(row.orderNumber)) continue;
-    const last = (row.dispatch.offers || []).slice(-1)[0];
-    if (last && new Date(last.offeredAt) > cutoff) continue;
 
-    console.warn(`${BADGE} ${row.orderNumber} was left mid-search — resuming`);
-    if (last && last.outcome === 'offered') {
-      // eslint-disable-next-line no-await-in-loop
-      await recordOutcome(row.orderNumber, last.driverId, 'timeout', 'Server restarted mid-offer');
-    }
-    /* Reset to `unassigned` first so `startDispatch`'s "already searching"
-       guard does not refuse the very order it is meant to rescue. */
-    // eslint-disable-next-line no-await-in-loop
-    await FoodOrder.updateOne(
-      { orderNumber: row.orderNumber },
-      { $set: { 'dispatch.state': 'unassigned' } },
-    );
-    // eslint-disable-next-line no-await-in-loop
-    await startDispatch(row.orderNumber, { reason: 'resumed after restart' });
+    console.warn(`${BADGE} ${row.orderNumber} has no widen schedule in this process — rebooking`);
+    const session = { timers: [] };
+    sessions.set(row.orderNumber, session);
+    scheduleWidening(row, session);
     resumed += 1;
   }
   return resumed;
@@ -884,7 +1020,6 @@ const stopAllDispatch = () => {
 };
 
 module.exports = {
-  OFFER_SECONDS,
   MAX_SWEEPS,
   RIDER_SHARE,
   RIDER_MINIMUM,
@@ -899,7 +1034,11 @@ module.exports = {
   sweepStalledDispatch,
   reconcileDeliveries,
   stopAllDispatch,
-  /* Exported for the verification script, which drives the cascade without
-     waiting sixteen real seconds for each offer. */
+  /* Exported for the verification script, so it can assert a broadcast
+     actually reached every candidate without waiting real minutes for a
+     widen timer to fire. */
   _sessions: sessions,
+  _radiusFromMinutes: radiusFromMinutes,
+  _readyAtFor: readyAtFor,
+  PLANNING_SPEED_KMH,
 };

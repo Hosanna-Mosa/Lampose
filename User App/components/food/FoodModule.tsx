@@ -1,11 +1,10 @@
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { useFood } from '@/context/FoodContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useTheme } from '@/context/ThemeContext';
-import { findWindow } from '@/types/food';
 
 import { CartSwitchSheet } from './CartSwitchSheet';
 import { foodHref } from './routes';
@@ -25,13 +24,10 @@ import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
  * The three do NOT get a control of their own at the top of the screen. While
  * Food is open the app's one bottom bar becomes the food bar — Home, Search,
  * Orders, and the raised Explore disc back to the stay side — so the module is
- * navigated exactly the way the rest of the app is, with the thumb, and the
- * top of the screen is left for the meal window, which is the thing that
- * actually changes what is on it.
+ * navigated exactly the way the rest of the app is, with the thumb.
  *
  * The clock is read ONCE, here, and passed down. Every child that needs to know
- * whether lunch is open reads the same `now`, so a feed cannot disagree with
- * the cart bar sitting under it about what time it is.
+ * whether a kitchen is open reads the same `now`.
  */
 export function FoodModule() {
   const { findKitchen } = useFoodCatalogue();
@@ -40,8 +36,6 @@ export function FoodModule() {
   const {
     count,
     itemTotal,
-    window,
-    browseWindow,
     foodTab,
     setFoodTab,
     address,
@@ -68,14 +62,6 @@ export function FoodModule() {
     return () => clearInterval(timer);
   }, []);
 
-  /*
-   * The bar names the CART's window, not the one being browsed.
-   *
-   * A student can read the dinner menu at 2 pm with a lunch cart already built;
-   * renaming that cart "Dinner" because they looked ahead would be a lie about
-   * what is going to be cooked.
-   */
-  const cartWindow = findWindow(window ?? browseWindow);
   const kitchen = kitchenId ? findKitchen(kitchenId) : undefined;
 
   /*
@@ -93,22 +79,16 @@ export function FoodModule() {
     return () => releaseBottom('foodCart');
   }, [count, releaseBottom]);
 
-  const cartContext = useMemo(
-    () =>
-      [
-        cartWindow.label,
-        fulfilment === 'pickup' ? `pickup · ${kitchen?.name ?? 'counter'}` : (address?.title ?? 'no address yet'),
-      ].join(' · '),
-    [cartWindow.label, fulfilment, kitchen?.name, address?.title],
-  );
+  const cartContext =
+    fulfilment === 'pickup' ? `pickup · ${kitchen?.name ?? 'counter'}` : (address?.title ?? 'no address yet');
 
   return (
     <View style={styles.host}>
       <View style={styles.body}>
         {foodTab === 'home' ? (
-          <FoodHome now={now} onSearch={() => setFoodTab('search')} />
+          <FoodHome onSearch={() => setFoodTab('search')} />
         ) : foodTab === 'search' ? (
-          <FoodSearch now={now} />
+          <FoodSearch />
         ) : (
           <FoodOrders onHome={() => setFoodTab('home')} />
         )}

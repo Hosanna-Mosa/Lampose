@@ -231,10 +231,11 @@ export async function startFoodPayment(orderNumber: string): Promise<PaymentInte
 /**
  * Hand the signature back for checking.
  *
- * This is the call that rings the kitchen and starts the rider search — see
- * `foodPayment.controller.js`. Nothing before it has told anybody the order
- * exists, which is deliberate: a kitchen cooking on an unpaid order is cooking
- * on a promise.
+ * This is the call that rings the kitchen — see `foodPayment.controller.js`.
+ * Nothing before it has told anybody the order exists, which is deliberate: a
+ * kitchen cooking on an unpaid order is cooking on a promise. The rider
+ * search itself waits further still, for the kitchen to accept and quote a
+ * prep time.
  *
  * Idempotent. Razorpay's webhook routinely beats the app back, and a diner
  * whose payment already landed must not be shown a failure for also telling us

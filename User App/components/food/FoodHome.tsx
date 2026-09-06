@@ -6,7 +6,6 @@ import { Icon, Text } from '@/components/ui';
 import { useAppState } from '@/context/AppStateContext';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
-import { clockLabel, findWindow, minutesUntilClose, minutesUntilOpen } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 
 import { DishTile } from './DishRow';
@@ -15,7 +14,6 @@ import { FoodEmptyState, FoodFeedSkeleton } from './FoodStates';
 import { FoodNotice, FoodSectionHeader, OfferStrip } from './FoodNotices';
 import { RoomTargetRow } from './Fulfilment';
 import { KitchenCard } from './KitchenCard';
-import { MealWindowRail, WindowStatusLine } from './MealWindowRail';
 import { VegOnlyToggle } from './FoodMarks';
 import { ActiveOrderCard } from './FoodStatus';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
@@ -25,17 +23,15 @@ import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
  *
  * The reading order is the order a hungry student actually decides in:
  *
- *   1. which window am I in, and how long is it open
- *   2. where is this going — my room, or am I walking
- *   3. who is cooking right now
- *   4. what is cheap
+ *   1. where is this going — my room, or am I walking
+ *   2. who is cooking right now
+ *   3. what is cheap
  *
  * Nothing above the fold is a recommendation. A carousel of "chef's picks" is
  * what an app shows when it does not know where you live; this one does, so it
- * leads with the two facts that are true only for this student — their window
- * and their room.
+ * leads with the one fact that is true only for this student — their room.
  */
-export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void }) {
+export function FoodHome({ onSearch }: { onSearch: () => void }) {
   const {
     dishesFor,
     findKitchen,
@@ -56,30 +52,23 @@ export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void })
     setFulfilment,
     preferences,
     setPreferences,
-    browseWindow: windowId,
-    setBrowseWindow: onWindowChange,
   } = useFood();
 
   const [dismissedOffer, setDismissedOffer] = useState(false);
 
-  // Resolved on every render rather than stored, so a feed left open across
-  // 3:30 pm re-reads the clock instead of holding yesterday's answer.
-  const activeWindow = findWindow(windowId);
-  const closesIn = minutesUntilClose(activeWindow, now);
-  const opensIn = minutesUntilOpen(activeWindow, now);
   const areaLabel = locality?.name ?? 'your area';
 
-  /* Both of these depend on the catalogue as well as on the window: the
-     helpers are rebuilt whenever rows arrive, so leaving them out of the
-     dependencies froze the feed at whatever was loaded on the first render —
-     which, on a cold start, is nothing at all. */
-  const kitchens = useMemo(() => kitchensFor(windowId), [kitchensFor, windowId]);
-  const openKitchens = kitchens.filter((kitchen) => kitchenOpen(kitchen, windowId));
+  /* Both of these depend on the catalogue: the helpers are rebuilt whenever
+     rows arrive, so leaving them out of the dependencies froze the feed at
+     whatever was loaded on the first render — which, on a cold start, is
+     nothing at all. */
+  const kitchens = useMemo(() => kitchensFor(), [kitchensFor]);
+  const openKitchens = kitchens.filter((kitchen) => kitchenOpen(kitchen));
 
   const dishes = useMemo(() => {
-    const inWindow = dishesFor(windowId);
-    return preferences.vegOnly ? inWindow.filter((dish) => dish.diet === 'veg') : inWindow;
-  }, [dishesFor, windowId, preferences.vegOnly]);
+    const all = dishesFor();
+    return preferences.vegOnly ? all.filter((dish) => dish.diet === 'veg') : all;
+  }, [dishesFor, preferences.vegOnly]);
 
   /*
    * Three quiet screens that are not the same screen.
@@ -116,7 +105,7 @@ export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void })
     );
   }
 
-  const unfiltered = dishesFor(windowId).length;
+  const unfiltered = dishesFor().length;
   const cheap = dishes.filter((dish) => dish.price <= 100 && !dish.soldOut).slice(0, 6);
   const popular = [...dishes]
     .filter((dish) => dish.ordersInBlock)
@@ -131,15 +120,7 @@ export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void })
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingTop: space[2], paddingBottom: space[8], gap: space[4] }}
     >
-      {/* 1 — the clock */}
-      <View style={{ gap: space[2] }}>
-        <MealWindowRail now={now} value={windowId} onChange={onWindowChange} />
-        <View style={{ paddingHorizontal: layout.gutter }}>
-          <WindowStatusLine window={activeWindow} now={now} kitchenCount={openKitchens.length} />
-        </View>
-      </View>
-
-      {/* 2 — where it goes. Above the feed, because it changes every price on it. */}
+      {/* 1 — where it goes. Above the feed, because it changes every price on it. */}
       <View style={{ paddingHorizontal: layout.gutter, gap: space[2] }}>
         {/* The row says "tap to pick where your food goes", so it goes there.
             The address screen is also where a diner with an address already
@@ -168,7 +149,7 @@ export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void })
         >
           <Icon name="search" size={20} color={colors.textTertiary} />
           <Text variant="body" color="tertiary" style={{ flex: 1 }} numberOfLines={1}>
-            {`Search ${activeWindow.label.toLowerCase()} near ${areaLabel}`}
+            {`Search dishes, kitchens near ${areaLabel}`}
           </Text>
           <Icon name="chevronRight" size={16} color={colors.textTertiary} />
         </Pressable>
@@ -204,29 +185,6 @@ export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void })
         </View>
       ) : null}
 
-      {/* The window's own state, when it is not simply open */}
-      {closesIn === null ? (
-        <View style={{ paddingHorizontal: layout.gutter }}>
-          <FoodNotice
-            tone="info"
-            title={`${activeWindow.label} opens at ${clockLabel(activeWindow.startMinute)}`}
-            body={
-              opensIn < 240
-                ? `In about ${opensIn} minutes. Browse now and order the moment it opens — the cart survives the wait.`
-                : 'Browse the menu now. Ordering opens with the window.'
-            }
-          />
-        </View>
-      ) : closesIn <= 30 ? (
-        <View style={{ paddingHorizontal: layout.gutter }}>
-          <FoodNotice
-            tone="deadline"
-            title={`${activeWindow.label} closes at ${clockLabel(activeWindow.endMinute)}`}
-            body={`Place an order in the next ${closesIn} minutes or it moves to the next window.`}
-          />
-        </View>
-      ) : null}
-
       {/* A refresh that did not get through, over rows that did. The kitchens
           below are still worth reading; whether they are cooking and what they
           charge may have moved since, and that is worth one line and a retry
@@ -248,13 +206,13 @@ export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void })
         <View style={{ paddingHorizontal: layout.gutter }}>
           <OfferStrip
             headline="₹20 off"
-            body={`Student price on any ${activeWindow.label.toLowerCase()} over ${formatRupees(99)}, from every kitchen near you.`}
+            body={`Student price on any order over ${formatRupees(99)}, from every kitchen near you.`}
             onDismiss={() => setDismissedOffer(true)}
           />
         </View>
       ) : null}
 
-      {/* 3 — who is cooking */}
+      {/* 2 — who is cooking */}
       <View style={{ gap: space[2] }}>
         <View style={{ paddingHorizontal: layout.gutter }}>
           <FoodSectionHeader
@@ -264,27 +222,20 @@ export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void })
         </View>
 
         <View style={{ paddingHorizontal: layout.gutter, gap: space[2] }}>
-          {kitchens.map((kitchen) => {
-            const open = kitchenOpen(kitchen, windowId) && closesIn !== null;
-            const nextWindow = kitchen.windows[0];
-            return (
-              <KitchenCard
-                key={kitchen.id}
-                kitchen={kitchen}
-                locality={areaLabel}
-                window={activeWindow}
-                now={now}
-                open={open}
-                reopensAt={open ? undefined : clockLabel(findWindow(nextWindow).startMinute)}
-                onPress={() => openKitchen(kitchen.id)}
-                favouritable
-              />
-            );
-          })}
+          {kitchens.map((kitchen) => (
+            <KitchenCard
+              key={kitchen.id}
+              kitchen={kitchen}
+              locality={areaLabel}
+              open={kitchenOpen(kitchen)}
+              onPress={() => openKitchen(kitchen.id)}
+              favouritable
+            />
+          ))}
         </View>
       </View>
 
-      {/* 4 — what is cheap. A rail, because this is browsing rather than deciding. */}
+      {/* 3 — what is cheap. A rail, because this is browsing rather than deciding. */}
       {cheap.length ? (
         <View style={{ gap: space[2] }}>
           <View style={{ paddingHorizontal: layout.gutter }}>
@@ -333,10 +284,9 @@ export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void })
       ) : null}
 
       {/*
-        An empty dish rail has three causes and only one of them is the veg
-        filter. Blaming the filter for a menu that has not arrived sends a
-        student to turn off a setting that was never the problem, and blaming
-        it on a window nobody cooks sends them nowhere at all.
+        An empty dish rail has two causes and only one of them is the veg
+        filter. Blaming the filter for a menu that has not arrived yet sends a
+        student to turn off a setting that was never the problem.
       */}
       {dishes.length === 0 ? (
         loadingMenus ? (
@@ -349,19 +299,17 @@ export function FoodHome({ now, onSearch }: { now: Date; onSearch: () => void })
           </View>
         ) : preferences.vegOnly && unfiltered > 0 ? (
           <FoodEmptyState
-            title={`No veg ${activeWindow.label.toLowerCase()} near you`}
-            body={`Every kitchen cooking this window is non-veg today. Turning veg-only off shows ${unfiltered} dishes.`}
+            title="No veg dishes near you"
+            body={`Every dish near you is non-veg today. Turning veg-only off shows ${unfiltered} dishes.`}
             primaryLabel="Show everything"
             onPrimary={() => setPreferences({ vegOnly: false })}
-            secondaryLabel="Try another window"
-            onSecondary={() => onWindowChange('dinner')}
           />
         ) : (
           <FoodEmptyState
-            title={`No ${activeWindow.label.toLowerCase()} on any menu near you`}
-            body={`${kitchens.length} ${kitchens.length === 1 ? 'kitchen is' : 'kitchens are'} listed near ${areaLabel} and none of them cooks this window. Another window is usually busier.`}
-            primaryLabel="Try another window"
-            onPrimary={() => onWindowChange('dinner')}
+            title="Nothing on any menu near you"
+            body={`${kitchens.length} ${kitchens.length === 1 ? 'kitchen is' : 'kitchens are'} listed near ${areaLabel}, and none of them has a dish listed yet.`}
+            primaryLabel="Check again"
+            onPrimary={refetch}
           />
         )
       ) : null}

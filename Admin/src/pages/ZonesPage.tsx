@@ -30,7 +30,7 @@
    the Arctic Ocean and every address in the city quietly stops being
    serviceable.
 
-   ## The map needs a key, and there is no fallback in this file
+   ## The map needs a key, and there is no fallback CREDENTIAL in this file
 
    `VITE_GOOGLE_MAPS_API_KEY`. Project-X carries a hardcoded key as a fallback;
    copying somebody's API credential into a second product is not something to
@@ -38,6 +38,14 @@
    no key the page still lists, edits, toggles and deletes zones, and the
    drawing panel says exactly what to add and where — coordinates can still be
    typed by hand, which is the same data by a slower road.
+
+   There IS a fallback for the map itself, though, and it covers two different
+   failures the same way: `mapUsable` is false both when `MAPS_KEY` is empty
+   and when `useJsApiLoader`'s `loadError` fires — a key that is set but
+   revoked, over quota, or restricted to a different origin. Both drop to the
+   identical type-the-coordinates path; only the sentence explaining why
+   differs, since "add a key" and "fix the one you have" are different chores
+   for whoever reads it.
    ══════════════════════════════════════════════════════════════════════════ */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -260,10 +268,17 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
      panning it. */
   const framed = useRef(false);
 
-  const { isLoaded } = useJsApiLoader({
+  /* `loadError` is what actually needs the fallback: a MISSING key is caught
+     by `!MAPS_KEY` below before this hook is even asked to do anything, but a
+     key that is present and wrong — revoked, over quota, restricted to a
+     different origin — fails here instead, and without checking it every
+     `!isLoaded` branch spins forever rather than dropping to the same
+     type-the-coordinates path a missing key already gets. */
+  const { isLoaded, loadError } = useJsApiLoader({
     id: 'lampose-zone-map',
     googleMapsApiKey: MAPS_KEY,
   });
+  const mapUsable = !!MAPS_KEY && !loadError;
 
   const zones = useFetch(() => zoneService.getZones({ search: search || undefined }), [search]);
   const rows = zones.data ?? [];
@@ -500,20 +515,34 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
         }
       />
 
-      {!MAPS_KEY && (
+      {!mapUsable && (
         <Card padded>
           <div className="flex items-start gap-3">
             <KeyRound className="size-4 text-warn shrink-0 mt-0.5" />
             <div className="min-w-0">
-              <p className="text-body font-medium text-ink">No Google Maps key is set</p>
+              <p className="text-body font-medium text-ink">
+                {MAPS_KEY ? 'The Google Maps key failed to load' : 'No Google Maps key is set'}
+              </p>
               <p className="text-body text-ink-2 mt-1">
+                {MAPS_KEY ? (
+                  <>
+                    Google rejected it, or it could not be reached — check that it is valid, that
+                    the Maps JavaScript API is enabled for it, and that any referrer restriction
+                    covers this origin.{' '}
+                  </>
+                ) : null}
                 Everything on this page works except the map itself — you can still create, edit,
-                switch off and delete zones by typing coordinates. To draw by clicking, add{' '}
-                <code className="font-mono text-label bg-surface-inset px-1 py-0.5 rounded">
-                  VITE_GOOGLE_MAPS_API_KEY=…
-                </code>{' '}
-                to <code className="font-mono text-label">Admin/.env</code> and restart the dev
-                server.
+                switch off and delete zones by typing coordinates.
+                {!MAPS_KEY && (
+                  <>
+                    {' '}To draw by clicking, add{' '}
+                    <code className="font-mono text-label bg-surface-inset px-1 py-0.5 rounded">
+                      VITE_GOOGLE_MAPS_API_KEY=…
+                    </code>{' '}
+                    to <code className="font-mono text-label">Admin/.env</code> and restart the dev
+                    server.
+                  </>
+                )}
               </p>
             </div>
           </div>
@@ -662,11 +691,13 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
             </p>
           </div>
           <div className="h-[420px] bg-surface-inset relative">
-            {!MAPS_KEY ? (
+            {!mapUsable ? (
               <div className="absolute inset-0 grid place-items-center text-center px-6">
                 <div>
                   <MapIcon className="size-6 text-ink-3 mx-auto mb-2" />
-                  <p className="text-body text-ink-3">The map needs a Google Maps key.</p>
+                  <p className="text-body text-ink-3">
+                    {MAPS_KEY ? 'The Google Maps key failed to load.' : 'The map needs a Google Maps key.'}
+                  </p>
                 </div>
               </div>
             ) : !isLoaded ? (
@@ -931,11 +962,13 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
 
           {/* ── The drawing surface ────────────────────────────────── */}
           <div className="rounded-control border border-line overflow-hidden min-h-[420px] bg-surface-inset relative">
-            {!MAPS_KEY ? (
+            {!mapUsable ? (
               <div className="absolute inset-0 grid place-items-center text-center px-6">
                 <div>
                   <KeyRound className="size-6 text-ink-3 mx-auto mb-2" />
-                  <p className="text-body text-ink-2">No Google Maps key.</p>
+                  <p className="text-body text-ink-2">
+                    {MAPS_KEY ? 'The Google Maps key failed to load.' : 'No Google Maps key.'}
+                  </p>
                   <p className="text-label text-ink-3 mt-1">
                     Type the coordinates on the left — the zone saves exactly the same either way.
                   </p>
@@ -1018,7 +1051,7 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
               </GoogleMap>
             )}
 
-            {MAPS_KEY && isLoaded && (
+            {mapUsable && isLoaded && (
               <div className="absolute bottom-3 left-3 right-3 rounded-control bg-surface/95 backdrop-blur-sm border border-line px-3 py-2">
                 <p className="text-label text-ink-2 flex items-center gap-1.5">
                   <MapPin className="size-3.5 text-brand shrink-0" />

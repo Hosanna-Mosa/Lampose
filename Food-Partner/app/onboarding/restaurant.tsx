@@ -231,16 +231,16 @@ A code was sent to +91 {data.phone}.
               <View style={{ flexDirection: "row", gap: space[2] }}>
                 <TextField
                   value={data.otp}
-                  onChangeText={(v) => set("otp", v.replace(/\D/g, "").slice(0, 4))}
-                  placeholder="––––"
+                  onChangeText={(v) => set("otp", v.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="––––––"
                   keyboardType="number-pad"
-                  maxLength={4}
+                  maxLength={6}
                   style={{ flex: 1 }}
                 />
                 <Btn
                   label="Verify"
                   variant="accent"
-                  disabled={data.otp.length < 4}
+                  disabled={data.otp.length < 6}
                   loading={otpBusy}
                   onPress={verifyOtp}
                   style={{ width: 110 }}

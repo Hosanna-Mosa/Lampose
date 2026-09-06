@@ -1,6 +1,8 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, LayoutChangeEvent, StyleSheet, View, useWindowDimensions } from 'react-native';
-import Svg, { Circle, Line, Path, Polygon } from 'react-native-svg';
+import { Animated, Easing, StyleSheet, View } from 'react-native';
+import MapView, { AnimatedRegion, Marker, MarkerAnimated, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import Svg, { Circle, Path } from 'react-native-svg';
+import { Bike } from 'lucide-react-native';
 
 import { Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
@@ -47,64 +49,69 @@ function readableAge(at?: string | null): string {
   return `${Math.round(seconds / 60)} min ago`;
 }
 
-/**
- * Longitude/latitude onto the view box, and the scale it worked out.
- *
- * An equirectangular projection with the longitude squeezed by cos(latitude).
- * Over the two or three kilometres a food delivery covers, the error against a
- * proper projection is millimetres on screen — and getting the cos() wrong is
- * the mistake that actually shows: without it, everything at 17°N is stretched
- * about 5% sideways and a straight road looks bent.
- *
- * The scale is uniform on both axes on purpose. A projection that stretched to
- * fill the box would put the markers in the right ORDER and the wrong shape,
- * and the scale bar underneath would then be a lie.
- */
-function project(points: LngLat[], width: number, height: number, pad: number) {
-  const usableW = Math.max(1, width - pad * 2);
-  const usableH = Math.max(1, height - pad * 2);
+/** `[lng, lat]` — this file's order, GeoJSON's and MongoDB's — to what
+    `react-native-maps` wants. The one place the pair is flipped. */
+const toLatLng = ([lng, lat]: LngLat) => ({ latitude: lat, longitude: lng });
 
-  const lat0 = points.reduce((sum, p) => sum + p[1], 0) / points.length;
-  const kx = Math.cos((lat0 * Math.PI) / 180);
+/* ------------------------------------------------------------------ *
+ * Markers — small, fixed-size canvases rather than the whole map, since
+ * `react-native-maps` places each one at its own coordinate rather than at
+ * a hand-projected pixel.
+ * ------------------------------------------------------------------ */
 
-  const xs = points.map((p) => p[0] * kx);
-  const ys = points.map((p) => -p[1]);
-
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-
-  /* A floor on the span, so two points a few metres apart do not zoom to a
-     scale where GPS jitter looks like the rider crossing the screen. ~0.004°
-     is roughly 400m. */
-  const spanX = Math.max(maxX - minX, 0.004);
-  const spanY = Math.max(maxY - minY, 0.004);
-  const scale = Math.min(usableW / spanX, usableH / spanY);
-
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-
-  const to = (p: LngLat) => ({
-    x: width / 2 + (p[0] * kx - cx) * scale,
-    y: height / 2 + (-p[1] - cy) * scale,
-  });
-
-  /* Degrees-of-longitude per pixel, converted to metres — what the scale bar
-     is drawn from. 111,320 m is one degree of latitude; the cos() is already
-     baked into `scale`. */
-  const metresPerPixel = 111320 / scale;
-
-  return { to, metresPerPixel };
+/** A teardrop pin whose tip sits on the coordinate — `anchor={{x:0.5,y:1}}`
+    on the `Marker` puts it there. */
+function PinIcon({ fill, stroke }: { fill: string; stroke: string }) {
+  const r = 6.5;
+  const w = r * 2 + 5;
+  const h = r * 2.6 + 5;
+  const d = [
+    `M ${w / 2} ${h - 2}`,
+    `L ${w / 2 - r} ${h - 2 - r * 1.6}`,
+    `A ${r} ${r} 0 1 1 ${w / 2 + r} ${h - 2 - r * 1.6}`,
+    'Z',
+  ].join(' ');
+  return (
+    <Svg width={w} height={h}>
+      <Path d={d} fill={fill} stroke={stroke} strokeWidth={1.5} />
+    </Svg>
+  );
 }
 
-/** The scale bar picks a round distance that fills a third of the width. */
-const NICE_STEPS = [50, 100, 200, 250, 500, 1000, 2000, 5000];
+/** The restaurant: a ring, filled once the food has left it. */
+function RingIcon({ filled, fill, stroke }: { filled: boolean; fill: string; stroke: string }) {
+  const size = 20;
+  return (
+    <Svg width={size} height={size}>
+      <Circle cx={size / 2} cy={size / 2} r={7} fill={filled ? stroke : fill} stroke={stroke} strokeWidth={2.5} />
+    </Svg>
+  );
+}
 
-function scaleBar(metresPerPixel: number, width: number) {
-  const target = (width / 3) * metresPerPixel;
-  const metres = NICE_STEPS.find((step) => step >= target) ?? NICE_STEPS[NICE_STEPS.length - 1];
-  return { metres, pixels: metres / metresPerPixel };
+/**
+ * The rider: a plain circular badge with a bike glyph inside — the same
+ * shape Swiggy and Zomato mark a live rider with, rather than the arrow this
+ * used to draw.
+ *
+ * It does not rotate. The old chevron turned to face the rider's compass
+ * heading, which meant a phone with no compass drew a GUESSED heading — the
+ * bearing toward wherever the rider happened to be walking, a number with no
+ * claim to be true the moment they turned down a side street. Neither app it
+ * is modelled on rotates its badge either: which way the rider is actually
+ * heading is read off the badge MOVING that way, smoothly, not off the glyph
+ * spinning to face it. See `riderRegion` below for the half of this that
+ * makes the movement itself true.
+ */
+function RiderIcon({ badge, glyph, ring }: { badge: string; glyph: string; ring: string }) {
+  const size = 34;
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
+        <Circle cx={size / 2} cy={size / 2} r={size / 2 - 2} fill={badge} stroke={ring} strokeWidth={2} />
+      </Svg>
+      <Bike size={16} color={glyph} strokeWidth={2.4} />
+    </View>
+  );
 }
 
 /* ------------------------------------------------------------------ *
@@ -118,7 +125,12 @@ export type DeliveryMapProps = {
   drop?: LngLat | null;
   /** The rider, now. Null when the fix is too old to draw — see the caption. */
   rider?: LngLat | null;
-  /** Degrees from north, for the marker's rotation. Null on a phone with no compass. */
+  /**
+   * Degrees from north. Accepted, but no longer used to rotate the marker —
+   * see `RiderIcon`'s own comment for why. Kept in the type rather than
+   * removed so the caller (`app/food/order/[id].tsx`) does not need to stop
+   * passing what the server already sends it.
+   */
   heading?: number | null;
   /** When the rider's fix was taken, so the caption can say how old it is. */
   riderAt?: string | null;
@@ -130,23 +142,18 @@ export type DeliveryMapProps = {
 /**
  * Where your rider is.
  *
- * ## This is a relative map, and it says so
+ * ## This now draws a real map
  *
- * There are no street tiles. Every marker is at its TRUE position relative to
- * the others, drawn at one uniform scale with a scale bar to read it against,
- * and the distance under it is a real haversine — but there are no roads and
- * the dashed line between two points is a straight line, not a route.
+ * It used to be a hand-projected relative map — every marker at its true
+ * position but on a plain grid, honestly labelled as not street tiles,
+ * because street tiles meant a native module, a Google Maps key and a
+ * development build. All three are now in place (see `app.config.js` and
+ * `.env.example`), so this is that promised upgrade: the projection is gone,
+ * the props are exactly the same.
  *
- * That is a deliberate trade rather than a stub. Street tiles mean either a
- * native module (`react-native-maps`: a config plugin, a Google Maps key, and
- * a development build, so the screen stops rendering in Expo Go) or a WebView
- * full of remote tiles that cannot use the app's own colours. What a student
- * waiting for food actually asks is "how far away are they and are they moving
- * towards me", and that is answerable at this fidelity — honestly, offline,
- * and in the app's own type and palette.
- *
- * If tiles are wanted later, this component is the seam: the projection and
- * the markers go, the props stay.
+ * The line between two points is still a STRAIGHT line, not a road-following
+ * route — only the canvas underneath changed, not the geometry drawn on top.
+ * Real turn-by-turn routing is a separate decision, same as it was before.
  *
  * ## A missing position is drawn, not hidden
  *
@@ -155,29 +162,39 @@ export type DeliveryMapProps = {
  * says the rider cannot be seen. A marker left sitting where it was reads as a
  * rider who has stopped, which is a different and more alarming thing than a
  * phone that lost signal.
+ *
+ * ## The rider's marker glides, and looks like one
+ *
+ * Two more things changed after this actually reached a device: the marker
+ * used to be an abstract chevron and it used to SNAP to each new fix rather
+ * than move to it. It is now a plain circular bike badge — the same shape
+ * Swiggy and Zomato mark a rider with — and it glides between the polled
+ * positions via `riderRegion`, an `AnimatedRegion` (see its own comment for
+ * why that mechanism, specifically, is what makes smooth marker movement
+ * possible on this library). It does not rotate to face a heading any more;
+ * see `RiderIcon` for why that was a guess worth dropping rather than a fact
+ * worth keeping.
  */
 export function DeliveryMap({
   restaurant,
   drop,
   rider,
-  heading,
   riderAt,
   pickedUp = false,
   height = 200,
 }: DeliveryMapProps) {
   const { colors, space, radius } = useTheme();
-  const dimensions = useWindowDimensions();
-  /* A first guess so the very first frame is not zero-width; `onLayout`
-     corrects it before anybody sees it. The gutter is 16 each side. */
-  const [width, setWidth] = React.useState(dimensions.width - 32);
-
-  const onLayout = (event: LayoutChangeEvent) => {
-    const next = event.nativeEvent.layout.width;
-    if (next > 0 && Math.abs(next - width) > 1) setWidth(next);
-  };
+  const mapRef = useRef<MapView>(null);
 
   /* The rider's own marker pulses; nothing else does. One moving thing on a
-     still map is unambiguous about which of the three dots is the person. */
+     still map is unambiguous about which of the three dots is the person.
+
+     JS-driven, not native: `useNativeDriver: true` updates the view directly
+     on the native UI thread and never goes back through a React commit — and
+     a React commit is exactly what `react-native-maps` on Android watches
+     for to know a custom marker's content needs re-rasterising. Driven here
+     instead, every tick is a real prop change for `tracksViewChanges` below
+     to actually have something to react to. */
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (!rider) return;
@@ -186,35 +203,106 @@ export function DeliveryMap({
         toValue: 1,
         duration: 2200,
         easing: Easing.out(Easing.ease),
-        useNativeDriver: true,
+        useNativeDriver: false,
       }),
     );
     loop.start();
     return () => loop.stop();
   }, [pulse, rider]);
 
+  /*
+   * The rider's marker glides between fixes instead of jumping — the same
+   * thing Swiggy and Zomato do, and the half of "real-time" a plain
+   * `coordinate` prop cannot give: `Marker` snaps the INSTANT its coordinate
+   * changes, and the tracking screen polls every five to eight seconds (see
+   * `app/food/order/[id].tsx`), so a plain marker would sit still and then
+   * teleport, over and over.
+   *
+   * `AnimatedRegion` is what `react-native-maps` gives a `Marker.Animated`
+   * (`MarkerAnimated` below) to smoothly reposition the marker's EXISTING
+   * bitmap between two coordinates — a different mechanism from, and not
+   * subject to the same Android quirks as, animating what is drawn INSIDE a
+   * marker (which the pulse ring above still has to work around). Created
+   * once, lazily, from the first fix this map ever sees — never rebuilt, so
+   * every later fix animates the same object rather than starting a fresh
+   * one at the old position.
+   */
+  const riderRegion = useRef<AnimatedRegion | null>(null);
+  if (rider && !riderRegion.current) {
+    riderRegion.current = new AnimatedRegion({
+      latitude: rider[1],
+      longitude: rider[0],
+      latitudeDelta: 0,
+      longitudeDelta: 0,
+    });
+  }
+
+  useEffect(() => {
+    if (!rider || !riderRegion.current) return;
+    /* Slightly under the five-second poll floor, so one glide finishes
+       before the next fix arrives instead of still being mid-flight when it
+       does — two overlapping tweens is what makes a smoothly moving marker
+       look like it is stuttering instead. */
+    riderRegion.current
+      .timing({
+        latitude: rider[1],
+        longitude: rider[0],
+        latitudeDelta: 0,
+        longitudeDelta: 0,
+        duration: 4500,
+        useNativeDriver: false,
+        /* react-native-maps' own `.d.ts` demands a `toValue` here, but its
+           actual implementation (`AnimatedRegion.js`) only ever reads
+           latitude/longitude/latitudeDelta/longitudeDelta off this object —
+           `toValue` is derived per field internally and whatever is passed
+           here is overwritten and never read. The type is simply wrong;
+           this satisfies it without pretending the number means anything. */
+        toValue: 0,
+      })
+      .start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rider?.[0], rider?.[1]]);
+
   const points = [restaurant, rider, drop].filter(Boolean) as LngLat[];
 
-  /* Nothing to draw. Rendering an empty grid would be decoration pretending to
+  /*
+   * Frame the camera to whatever is on screen, the same job the old
+   * projection's bounding box did. Keyed on the points' own values rather
+   * than firing on every render, so a diner who has panned off to check a
+   * nearby street is not yanked back by an unrelated re-render — only an
+   * actual move of the restaurant, the door or the rider re-fits it.
+   *
+   * Called unconditionally, THEN guarded inside — this used to be declared
+   * after the `points.length < 2` early return below, which is a real "fewer
+   * hooks than expected" crash waiting for the one order shape that flips
+   * that guard between renders: no `dropLocation` (ordered without location
+   * access), tracked live while a rider's position was still being sent, and
+   * then delivered — a delivered order stops broadcasting one at all, so
+   * `points` drops from 2 down to 1 on the exact render after "Delivered"
+   * lands, and this hook would have silently stopped being called. React
+   * does not allow a component to call a different NUMBER of hooks between
+   * renders, whichever reason it has.
+   */
+  const fitKey = points.map((p) => p.join(',')).join('|');
+  useEffect(() => {
+    if (points.length < 2) return;
+    mapRef.current?.fitToCoordinates(points.map(toLatLng), {
+      edgePadding: { top: 40, right: 36, bottom: 40, left: 36 },
+      animated: true,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitKey]);
+
+  /* Nothing to draw. Rendering an empty map would be decoration pretending to
      be information — the caller shows its own line instead. */
   if (points.length < 2) return null;
-
-  const PAD = 34;
-  const { to, metresPerPixel } = project(points, width, height, PAD);
-  const bar = scaleBar(metresPerPixel, width);
 
   const target = pickedUp ? drop : restaurant;
   const legMetres = rider && target ? metresBetween(rider, target) : null;
   const age = readableAge(riderAt);
 
-  const pRestaurant = restaurant ? to(restaurant) : null;
-  const pDrop = drop ? to(drop) : null;
-  const pRider = rider ? to(rider) : null;
-  const pTarget = pickedUp ? pDrop : pRestaurant;
-
   return (
     <View
-      onLayout={onLayout}
       style={{
         borderRadius: radius.card,
         backgroundColor: colors.surfaceSunken,
@@ -224,28 +312,26 @@ export function DeliveryMap({
       }}
     >
       <View style={{ height }}>
-        <Svg width={width} height={height}>
-          {/* The grid is a scale reference, not a decoration: its squares are
-              the scale bar's unit, so a rider crossing one has covered that
-              distance. It is drawn at the subtle border colour so it reads as
-              paper rather than as content. */}
-          <GridLines
-            width={width}
-            height={height}
-            step={bar.pixels}
-            stroke={colors.borderSubtle}
-          />
-
+        <MapView
+          ref={mapRef}
+          style={StyleSheet.absoluteFill}
+          provider={PROVIDER_GOOGLE}
+          initialRegion={{
+            ...toLatLng(points[0]),
+            latitudeDelta: 0.02,
+            longitudeDelta: 0.02,
+          }}
+          rotateEnabled={false}
+          pitchEnabled={false}
+          toolbarEnabled={false}
+        >
           {/* The whole journey, faint: restaurant to door. It is the thing the
               order is, and it stays visible on both legs so the rider's
               progress reads against something fixed. */}
-          {pRestaurant && pDrop ? (
-            <Line
-              x1={pRestaurant.x}
-              y1={pRestaurant.y}
-              x2={pDrop.x}
-              y2={pDrop.y}
-              stroke={colors.border}
+          {restaurant && drop ? (
+            <Polyline
+              coordinates={[toLatLng(restaurant), toLatLng(drop)]}
+              strokeColor={colors.border}
               strokeWidth={1.5}
             />
           ) : null}
@@ -253,93 +339,72 @@ export function DeliveryMap({
           {/* The leg being travelled right now, in brand green and dashed.
               Dashed because it is a straight line and NOT a route — a solid
               line reads as "this is the road they will take". */}
-          {pRider && pTarget ? (
-            <Line
-              x1={pRider.x}
-              y1={pRider.y}
-              x2={pTarget.x}
-              y2={pTarget.y}
-              stroke={colors.brand}
+          {rider && target ? (
+            <Polyline
+              coordinates={[toLatLng(rider), toLatLng(target)]}
+              strokeColor={colors.brand}
               strokeWidth={2.5}
-              strokeDasharray="6 5"
-              strokeLinecap="round"
+              lineDashPattern={[6, 5]}
             />
           ) : null}
 
           {/* The restaurant: a ring, filled once the food has left it. */}
-          {pRestaurant ? (
-            <>
-              <Circle
-                cx={pRestaurant.x}
-                cy={pRestaurant.y}
-                r={7}
-                fill={pickedUp ? colors.brand : colors.surface}
-                stroke={colors.brand}
-                strokeWidth={2.5}
+          {restaurant ? (
+            <Marker coordinate={toLatLng(restaurant)} anchor={{ x: 0.5, y: 0.5 }}>
+              <RingIcon filled={pickedUp} fill={colors.surface} stroke={colors.brand} />
+            </Marker>
+          ) : null}
+
+          {/* The door: a solid pin, and the only teardrop marker on the map so
+              it is distinguishable from the restaurant without relying on
+              colour. */}
+          {drop ? (
+            <Marker coordinate={toLatLng(drop)} anchor={{ x: 0.5, y: 1 }}>
+              <PinIcon fill={colors.graphite} stroke={colors.surface} />
+            </Marker>
+          ) : null}
+
+          {/* The rider: a bike badge that glides to each new fix rather than
+              jumping to it — see `riderRegion`. The pulse rides in a sibling
+              `MarkerAnimated` at the same coordinate, so its own Animated
+              loop does not force the badge's marker to keep re-snapshotting,
+              and shares `riderRegion` so the two move together as one thing
+              rather than the ring lagging behind or racing ahead of it. */}
+          {rider && riderRegion.current ? (
+            <MarkerAnimated coordinate={riderRegion.current} anchor={{ x: 0.5, y: 0.5 }} zIndex={2}>
+              <RiderIcon badge={colors.brand} glyph={colors.onBrand} ring={colors.surface} />
+            </MarkerAnimated>
+          ) : null}
+          {rider && riderRegion.current ? (
+            <MarkerAnimated
+              coordinate={riderRegion.current}
+              anchor={{ x: 0.5, y: 0.5 }}
+              zIndex={1}
+              tracksViewChanges
+            >
+              <Animated.View
+                pointerEvents="none"
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 22,
+                  borderWidth: 1.5,
+                  borderColor: colors.brand,
+                  opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.4, 0] }),
+                  transform: [
+                    { scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1.6] }) },
+                  ],
+                }}
               />
-            </>
+            </MarkerAnimated>
           ) : null}
-
-          {/* The door: a solid pin, and the only square marker on the map so it
-              is distinguishable from the restaurant without relying on colour. */}
-          {pDrop ? (
-            <Path
-              d={pinPath(pDrop.x, pDrop.y)}
-              fill={colors.graphite}
-              stroke={colors.surface}
-              strokeWidth={1.5}
-            />
-          ) : null}
-
-          {/* The rider: a chevron pointing the way they are actually facing.
-              Falls back to pointing at the target when the phone has no
-              compass, which is a better guess than always pointing north. */}
-          {pRider ? (
-            <Polygon
-              points="0,-9 7,8 0,4 -7,8"
-              fill={colors.brand}
-              stroke={colors.onBrand}
-              strokeWidth={1.5}
-              strokeLinejoin="round"
-              transform={`translate(${pRider.x} ${pRider.y}) rotate(${
-                Number.isFinite(heading as number)
-                  ? (heading as number)
-                  : pTarget
-                    ? bearingOnScreen(pRider, pTarget)
-                    : 0
-              })`}
-            />
-          ) : null}
-        </Svg>
-
-        {/* The pulse rides above the SVG rather than inside it — Animated
-            cannot drive an Svg attribute without the reanimated bridge, and a
-            plain View ring costs nothing and behaves identically. */}
-        {pRider ? (
-          <Animated.View
-            pointerEvents="none"
-            style={{
-              position: 'absolute',
-              left: pRider.x - 22,
-              top: pRider.y - 22,
-              width: 44,
-              height: 44,
-              borderRadius: 22,
-              borderWidth: 1.5,
-              borderColor: colors.brand,
-              opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.4, 0] }),
-              transform: [
-                { scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1.6] }) },
-              ],
-            }}
-          />
-        ) : null}
+        </MapView>
       </View>
 
       {/* ── The readout ───────────────────────────────────────────────────
-          Distance, then the scale, then the age of the fix. The age is the
-          part that stops this being a map that quietly lies: a marker is only
-          worth reading if you know how old it is. */}
+          Distance, then the age of the fix. The age is the part that stops
+          this being a map that quietly lies: a marker is only worth reading
+          if you know how old it is. */}
       <View
         style={{
           flexDirection: 'row',
@@ -365,84 +430,12 @@ export function DeliveryMap({
           </Text>
         </View>
 
-        <View style={{ alignItems: 'flex-end', gap: 3 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[1] }}>
-            <View style={{ width: bar.pixels, height: 2, backgroundColor: colors.textTertiary }} />
-            <Text variant="numMeta" style={{ color: colors.textTertiary }}>
-              {readableDistance(bar.metres)}
-            </Text>
-          </View>
-          <Text variant="numMeta" style={{ color: colors.textTertiary }}>
-            {rider ? (age ? `updated ${age}` : 'live') : 'signal lost'}
-          </Text>
-        </View>
-      </View>
-
-      {/* Said once, quietly, and never repeated in the copy above. A student
-          who expects Google Maps needs to know in one glance why this does not
-          look like it — and not be told again every time they open it. */}
-      <View
-        style={{
-          paddingHorizontal: space[3],
-          paddingBottom: space[2],
-          backgroundColor: colors.surface,
-        }}
-      >
         <Text variant="numMeta" style={{ color: colors.textTertiary }}>
-          Straight-line distance · positions are to scale, streets are not shown
+          {rider ? (age ? `updated ${age}` : 'live') : 'signal lost'}
         </Text>
       </View>
     </View>
   );
-}
-
-/* ------------------------------------------------------------------ *
- * Pieces
- * ------------------------------------------------------------------ */
-
-function GridLines({
-  width,
-  height,
-  step,
-  stroke,
-}: {
-  width: number;
-  height: number;
-  step: number;
-  stroke: string;
-}) {
-  /* A floor on the spacing: a scale bar that came out at 12px would draw a
-     hundred lines and read as a solid grey block. */
-  const gap = Math.max(28, step);
-  const cols = Math.ceil(width / gap) + 1;
-  const rows = Math.ceil(height / gap) + 1;
-
-  return (
-    <>
-      {Array.from({ length: rows }, (_, i) => (
-        <Line key={`h${i}`} x1={0} y1={i * gap} x2={width} y2={i * gap} stroke={stroke} strokeWidth={1} />
-      ))}
-      {Array.from({ length: cols }, (_, i) => (
-        <Line key={`v${i}`} x1={i * gap} y1={0} x2={i * gap} y2={height} stroke={stroke} strokeWidth={1} />
-      ))}
-    </>
-  );
-}
-
-/** A teardrop pin whose POINT sits on the coordinate, not its centre. */
-function pinPath(x: number, y: number): string {
-  const r = 6.5;
-  return [
-    `M ${x} ${y}`,
-    `L ${x - r} ${y - r * 1.6}`,
-    `A ${r} ${r} 0 1 1 ${x + r} ${y - r * 1.6}`,
-    'Z',
-  ].join(' ');
-}
-
-/** Screen-space bearing in degrees, for the no-compass fallback. */
-function bearingOnScreen(from: { x: number; y: number }, to: { x: number; y: number }): number {
-  return (Math.atan2(to.x - from.x, from.y - to.y) * 180) / Math.PI;
 }
 
 export default DeliveryMap;

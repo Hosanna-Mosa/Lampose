@@ -81,7 +81,18 @@ export type Job = {
   earnings: number;
   itemCount: number;
   lines: OrderLine[];
-  pickup: { location: [number, number] | null; distanceMeters: number | null };
+  pickup: {
+    location: [number, number] | null;
+    distanceMeters: number | null;
+    /**
+     * Minutes, from the same planning-speed estimate `foodDispatch.service.js`
+     * paces the offer itself against — see `riderEtaMinutes` there. Rough by
+     * construction (no directions API, straight-line distance), so it is
+     * shown as an approximation ("~4 min"), never a promise. Optional because
+     * an older server build sends no such field.
+     */
+    etaMinutes?: number;
+  };
   drop: { location: [number, number] | null; address: string };
   /** Empty until the offer is accepted — the server withholds both. */
   customerName: string;
@@ -90,14 +101,28 @@ export type Job = {
   pickupCode: string;
   placedAt?: string;
   promisedMinutes?: number;
+  /**
+   * ISO timestamp for when the food should be ready, or null when the
+   * kitchen never quoted a prep time. This is what a rider decides against
+   * now instead of a personal countdown — see `Offer`'s own comment on why
+   * there is no longer one to have.
+   */
+  readyAt?: string | null;
 };
 
-/** A job plus its countdown. Only ever one at a time — offers are sequential. */
-export type Offer = Job & {
-  expiresInSeconds: number;
-  /** Wall-clock deadline, so a re-render does not restart the clock. */
-  expiresAt: number;
-};
+/**
+ * A job that is currently being offered.
+ *
+ * No countdown on it any more. Dispatch used to hold one rider at a time and
+ * had to move the job on after fifteen seconds or nobody else got a turn —
+ * with every rider in range offered together instead (see
+ * `foodDispatch.service.js`'s own header), there is no queue for a timeout
+ * to protect, and a rider two minutes from the restaurant has no reason to
+ * be rushed by a clock that was only ever there for that queue. An offer now
+ * simply stays open until the order is taken, declined, or cancelled — what
+ * a rider actually needs to decide is `readyAt`, not a number of seconds.
+ */
+export type Offer = Job;
 
 export type EarningsSummary = {
   today: number;
@@ -527,7 +552,7 @@ type DriverState = {
   setOnline: (online: boolean) => Promise<void>;
   pushLocation: (lat: number, lng: number, heading?: number) => Promise<void>;
 
-  receiveOffer: (offer: Job & { expiresInSeconds: number }) => void;
+  receiveOffer: (offer: Job) => void;
   clearOffer: (orderNumber?: string) => void;
   pollOffer: () => Promise<void>;
   acceptOffer: () => Promise<Job>;
@@ -919,20 +944,15 @@ export const useDriverStore = create<DriverState>()(
        * One offer in, from either transport.
        *
        * Idempotent on the order number: the socket and the poll routinely both
-       * deliver the same offer, and re-setting it would restart the countdown a
-       * rider is already watching.
+       * deliver the same offer, and re-setting it would replay the alert sound
+       * for a rider already looking at it.
        */
       receiveOffer: (incoming) => {
         const existing = get().offer;
         if (existing && existing.orderNumber === incoming.orderNumber) return;
         if (get().currentJob) return; // already carrying something
 
-        set({
-          offer: {
-            ...incoming,
-            expiresAt: Date.now() + Math.max(1, incoming.expiresInSeconds) * 1000,
-          },
-        });
+        set({ offer: incoming });
 
         /*
           Ring, here, because this is the ONE place both transports arrive.
@@ -961,7 +981,7 @@ export const useDriverStore = create<DriverState>()(
         const { token, isOnline, currentJob, offer } = get();
         if (!token || !isOnline || currentJob || offer) return;
         try {
-          const res = await api<Envelope<Job & { expiresInSeconds: number }>>(
+          const res = await api<Envelope<Job>>(
             `${BASE}/me/offer`,
             { token, timeoutMs: 8000 },
           );
@@ -1277,7 +1297,7 @@ export const useDriverStore = create<DriverState>()(
 export function startOfferPump(): () => void {
   const store = useDriverStore;
 
-  const onOffer = (payload: Job & { expiresInSeconds: number }) => {
+  const onOffer = (payload: Job) => {
     if (payload?.orderNumber) store.getState().receiveOffer(payload);
   };
   const onOfferClosed = (payload: { orderNumber?: string }) => {
@@ -1415,4 +1435,49 @@ export const restaurantLabel = (job: Job | null): string =>
 export const pickupKm = (job: Job | null): number | null => {
   const metres = job?.pickup?.distanceMeters;
   return typeof metres === "number" ? Math.round(metres / 100) / 10 : null;
+};
+
+/** Minutes to the pickup, or null when the server sent no estimate. */
+export const pickupEtaMinutes = (job: Job | null): number | null => {
+  const minutes = job?.pickup?.etaMinutes;
+  return typeof minutes === "number" ? minutes : null;
+};
+
+/**
+ * Metres between two `[lng, lat]` points, haversine.
+ *
+ * Duplicated from `components/ui/MapPanel.tsx`'s `metresBetween` rather than
+ * imported from it: that file pulls in `react-native-maps` at module scope,
+ * and a screen that only needs one number should not load a map component to
+ * get it. The two must still agree — see that file's own note on why the
+ * customer app and this one each keep a copy of the same geometry.
+ */
+function metresBetween(a: readonly [number, number], b: readonly [number, number]): number {
+  const R = 6371000;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(b[1] - a[1]);
+  const dLng = toRad(b[0] - a[0]);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a[1])) * Math.cos(toRad(b[1])) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/**
+ * Kilometres from the kitchen to the door — the SECOND leg of the trip,
+ * measured the same straight-line way `pickupKm` measures the first.
+ *
+ * Computed here rather than sent by the server: `riderView` hands over both
+ * pins before an offer is even accepted (see its own note on why the full
+ * drop address is no longer withheld), so the rider app already has
+ * everything it needs to work the distance out itself, and a rider deciding
+ * whether a delivery is worth taking wants to see how far the DOOR is, not
+ * only how far the kitchen is. Null when either end has no pin — an order
+ * placed before delivery pins were required can still be missing one.
+ */
+export const dropKm = (job: Job | null): number | null => {
+  const pickup = job?.pickup?.location;
+  const drop = job?.drop?.location;
+  if (!pickup || !drop) return null;
+  return Math.round(metresBetween(pickup, drop) / 100) / 10;
 };

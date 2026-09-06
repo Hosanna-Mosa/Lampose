@@ -125,6 +125,27 @@ export const setSheetOpen = (open: boolean) => { sheetShowing = open; };
 export const isSheetOpen = () => sheetShowing;
 
 /**
+ * Orders the kitchen has already been shown the intimation for, and closed
+ * with its own "Okay" — not accepted, not rejected, just acknowledged.
+ *
+ * The sheet is a heads-up now, not a decision: accepting and rejecting both
+ * happen on the Orders tab, which already carries that whole exchange per
+ * card. Without this, an order closed here would still be `placed` the next
+ * time the sheet reloads — another order arriving, or the pump re-announcing
+ * — and would slide back up as if it had never been seen.
+ *
+ * Held here rather than in the sheet itself so it survives the sheet being
+ * torn down and rebuilt for the next arrival, and cleared with everything
+ * else when a session ends, so the next partner to sign in on this handset
+ * does not inherit somebody else's dismissed tickets.
+ */
+const acknowledged = new Set<string>();
+export const acknowledgeOrder = (orderNumber: string | null | undefined) => {
+  if (orderNumber) acknowledged.add(orderNumber);
+};
+export const isAcknowledged = (orderNumber: string) => acknowledged.has(orderNumber);
+
+/**
  * How many orders were waiting last time we looked.
  *
  * `null` means "we have not looked yet", which is deliberately different from
@@ -342,5 +363,6 @@ export function startOrderPump(token: string): () => void {
     lastWorking = null;
     arrivedOrderNumber = null;
     takenAway = [];
+    acknowledged.clear();
   };
 }

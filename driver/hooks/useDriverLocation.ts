@@ -1,5 +1,5 @@
 import * as Location from "expo-location";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { AppState } from "react-native";
 
 export type Coords = { lat: number; lng: number };
@@ -67,9 +67,6 @@ export function useDriverLocation() {
   const [heading, setHeading] = useState<number | null>(null);
   const [permissionDenied, setPermissionDenied] = useState(false);
 
-  // Manual override lets the dev simulator drive the marker.
-  const overrideRef = useRef<Coords | null>(null);
-
   useEffect(() => {
     let positionSub: Location.LocationSubscription | null = null;
     let headingSub: Location.LocationSubscription | null = null;
@@ -122,7 +119,6 @@ export function useDriverLocation() {
           positionSub = await Location.watchPositionAsync(
             { accuracy: Location.Accuracy.High, timeInterval: 2000, distanceInterval: 5 },
             (next) => {
-              if (overrideRef.current) return;
               setLocation({ lat: next.coords.latitude, lng: next.coords.longitude });
             },
           );
@@ -142,7 +138,6 @@ export function useDriverLocation() {
         if (headingSub || cancelled) return;
         try {
           headingSub = await Location.watchHeadingAsync((data) => {
-            if (overrideRef.current) return;
             const value = data.trueHeading >= 0 ? data.trueHeading : data.magHeading;
             if (typeof value === "number" && !Number.isNaN(value)) setHeading(value);
           });
@@ -181,14 +176,5 @@ export function useDriverLocation() {
     };
   }, []);
 
-  /** Used by the dev route simulator to take over the marker. */
-  const setSimulated = (coords: Coords | null, simulatedHeading?: number) => {
-    overrideRef.current = coords;
-    if (coords) {
-      setLocation(coords);
-      if (typeof simulatedHeading === "number") setHeading(simulatedHeading);
-    }
-  };
-
-  return { location, heading, permissionDenied, setSimulated };
+  return { location, heading, permissionDenied };
 }

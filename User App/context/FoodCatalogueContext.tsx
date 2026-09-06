@@ -1,11 +1,11 @@
 /**
  * The Food catalogue, from the database.
  *
- * This replaces `@/data/food`'s kitchen and dish fixtures. It exposes the SAME
- * five helpers those fixtures did — `findKitchen`, `findDish`, `kitchensFor`,
- * `dishesFor`, `kitchenOpen`, `menuFor` — with the same signatures and the
- * same ordering rules, so a screen switches over by changing one import line
- * rather than being rewritten around a promise.
+ * Six helpers cover everything a screen needs: `findKitchen`, `findDish`,
+ * `kitchensFor`, `dishesFor`, `kitchenOpen`, `menuFor`. None of them take a
+ * meal window any more — the catalogue used to be indexed by one, and a
+ * kitchen or a dish is now just shown or not shown, open or closed, with
+ * nothing about the time of day filtering it out first.
  *
  * ## Why a context and not a hook per screen
  *
@@ -45,7 +45,7 @@ import { fetchKitchen } from '@/services/api/food.api';
 import { openNowOf } from '@/services/adapters/food.adapter';
 import { useKitchens } from '@/services/hooks/useFood';
 import { queryKeys } from '@/services/hooks/keys';
-import { openWindow, type Dish, type Kitchen, type MealWindowId } from '@/types/food';
+import type { Dish, Kitchen } from '@/types/food';
 
 type FoodCatalogue = {
   kitchens: readonly Kitchen[];
@@ -66,10 +66,10 @@ type FoodCatalogue = {
 
   findKitchen: (id: string) => Kitchen | undefined;
   findDish: (id: string) => Dish | undefined;
-  kitchensFor: (window: MealWindowId) => Kitchen[];
-  dishesFor: (window: MealWindowId) => Dish[];
-  kitchenOpen: (kitchen: Kitchen, window: MealWindowId) => boolean;
-  menuFor: (kitchen: Kitchen, window: MealWindowId) => Dish[];
+  kitchensFor: () => Kitchen[];
+  dishesFor: () => Dish[];
+  kitchenOpen: (kitchen: Kitchen) => boolean;
+  menuFor: (kitchen: Kitchen) => Dish[];
 };
 
 const CatalogueContext = createContext<FoodCatalogue | null>(null);
@@ -121,64 +121,37 @@ export function FoodCatalogueProvider({ children }: { children: React.ReactNode 
   const findDish = useCallback((id: string) => dishes.find((dish) => dish.id === id), [dishes]);
 
   /*
-   * Is this kitchen cooking, for the window being asked about?
+   * Is this kitchen taking orders right now?
    *
-   * Two sources answer overlapping questions and neither replaces the other.
-   * The opening hours say which meal windows a kitchen COOKS, which is the
-   * only thing that can answer "who is doing dinner" at three in the
-   * afternoon. `openNow` is the server's answer about THIS MINUTE, and it is
-   * the only one that knows about the partner's own open/closed switch and
-   * about which weekday it is — the hours that reach the device carry a `day`
-   * this app deliberately does not read.
-   *
-   * So the server wins for the window that contains right now, and the hours
-   * answer for every other one. That split is not a compromise: the current
-   * window is the only one anything can be ordered in — every screen gates its
-   * add buttons on the window being live — so it is the only window where
-   * being wrong costs a diner an order the counter will refuse.
-   *
-   * A kitchen with no `openNow` at all is one whose row predates the field, or
-   * the mock catalogue. Those fall back to the hours, as before.
-   *
-   * The clock is read here rather than passed in because the signature this
-   * helper inherited from the fixtures has no room for a `now`, and every
-   * caller is already inside a render the module re-runs each minute. The only
-   * thing it decides is which window is the live one, so the two readings can
-   * disagree for one frame at a window boundary and for no longer.
+   * The server's own answer, and only the server's — it is the one party that
+   * knows about the partner's `openState` switch and about which weekday it
+   * actually is. This used to also weigh the app's own fixed meal windows,
+   * which meant a kitchen with broad real hours could still read as closed in
+   * the gap between two of them. There is no second opinion any more: no
+   * `openNow` at all (a row from before the field existed) reads as closed
+   * rather than guessed open.
    */
-  const kitchenOpen = useCallback((kitchen: Kitchen, window: MealWindowId) => {
-    const live = openNowOf(kitchen);
-    if (live !== undefined && openWindow(new Date())?.id === window) return live;
-    return kitchen.windows.includes(window);
-  }, []);
+  const kitchenOpen = useCallback((kitchen: Kitchen) => openNowOf(kitchen) ?? false, []);
 
-  /* Same ordering as the fixtures: open kitchens first, then by how far away
-     they are. With no pin every `walkMinutes` is 0 and the sort degrades to
-     the server's order, which is the newest first — honest, and stable. */
+  /* Open kitchens first, then by how far away they are. With no pin every
+     `walkMinutes` is 0 and the sort degrades to the server's order, which is
+     the newest first — honest, and stable. */
   const kitchensFor = useCallback(
-    (window: MealWindowId) =>
+    () =>
       [...kitchens].sort((a, b) => {
-        const openDelta = Number(kitchenOpen(b, window)) - Number(kitchenOpen(a, window));
+        const openDelta = Number(kitchenOpen(b)) - Number(kitchenOpen(a));
         return openDelta !== 0 ? openDelta : a.walkMinutes - b.walkMinutes;
       }),
     [kitchens, kitchenOpen],
   );
 
-  const dishesFor = useCallback(
-    (window: MealWindowId) =>
-      dishes.filter((dish) => dish.windows.includes(window)).sort((a, b) => a.price - b.price),
-    [dishes],
-  );
+  const dishesFor = useCallback(() => [...dishes].sort((a, b) => a.price - b.price), [dishes]);
 
-  /* A closed kitchen still shows a menu — the whole point of the closed state
-     is that it can be read now and ordered from later — so this falls back to
-     everything the kitchen cooks rather than returning nothing. */
+  /* Every dish this kitchen cooks, in the order it arranged its own menu. */
   const menuFor = useCallback(
-    (kitchen: Kitchen, window: MealWindowId) => {
+    (kitchen: Kitchen) => {
       const mine = dishes.filter((dish) => dish.kitchenId === kitchen.id);
-      const inWindow = mine.filter((dish) => dish.windows.includes(window));
-      const list = inWindow.length ? inWindow : mine;
-      return [...list].sort(
+      return [...mine].sort(
         (a, b) => kitchen.sections.indexOf(a.section) - kitchen.sections.indexOf(b.section),
       );
     },

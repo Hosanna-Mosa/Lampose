@@ -4,8 +4,7 @@ import { metaLine, walkLabel } from '@/services/adapters/food.adapter';
 
 import { Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
-import type { Kitchen, MealWindow } from '@/types/food';
-import { clockLabel, minutesUntilClose } from '@/types/food';
+import type { Kitchen } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 
 import { FoodPhoto, RatingPill } from './FoodMarks';
@@ -15,11 +14,7 @@ export type KitchenCardProps = {
   kitchen: Kitchen;
   /** The area the student picked on the entry screen — never the kitchen's. */
   locality: string;
-  window: MealWindow;
-  now: Date;
   open: boolean;
-  /** When closed, the window it next cooks — the card must say when to come back. */
-  reopensAt?: string;
   onPress: () => void;
   /**
    * Show the favourite heart.
@@ -34,29 +29,25 @@ export type KitchenCardProps = {
 /**
  * A kitchen in the feed.
  *
- * Closed kitchens are NOT hidden. At 4 pm most of a student's list is shut, and
- * a feed that drops them looks like a product with two kitchens in it rather
- * than a product with fourteen, three of which are cooking. So a closed kitchen
- * keeps its card, loses its colour, and gains the one fact that makes it worth
- * seeing: the time it opens.
+ * Closed kitchens are NOT hidden. At any hour some of a student's list may be
+ * shut, and a feed that drops them looks like a product with two kitchens in
+ * it rather than a product with fourteen, three of which are cooking. So a
+ * closed kitchen keeps its card, it just loses its colour.
  *
  * The fee row is always three facts in the same order — pickup, delivery,
  * minimum — because that is the row a student compares across cards, and a row
  * that reorders itself cannot be compared at all.
  */
 export function KitchenCard({
-  kitchen, locality, window, now, open, reopensAt, onPress, favouritable = false,
+  kitchen, locality, open, onPress, favouritable = false,
 }: KitchenCardProps) {
   const { colors, space, radius } = useTheme();
-
-  const closesIn = open ? minutesUntilClose(window, now) : null;
-  const closingSoon = closesIn !== null && closesIn <= 30;
 
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${kitchen.name}, ${kitchen.cuisine}, ${open ? 'open now' : `opens ${reopensAt ?? 'later'}`}`}
+      accessibilityLabel={`${kitchen.name}, ${kitchen.cuisine}, ${open ? 'open now' : 'closed'}`}
       style={({ pressed }) => [
         styles.card,
         {
@@ -95,7 +86,7 @@ export function KitchenCard({
               ]}
             >
               <Text variant="numMeta" color="secondary">
-                {reopensAt ? `Opens ${reopensAt}` : 'Closed'}
+                Closed
               </Text>
             </View>
           )}
@@ -105,35 +96,25 @@ export function KitchenCard({
           {metaLine(kitchen.cuisine, locality, walkLabel(kitchen))}
         </Text>
 
-        {open ? (
-          <View style={[styles.feeRow, { gap: space[2], marginTop: space[1] }]}>
-            <View
-              style={[
-                styles.feeChip,
-                { backgroundColor: colors.brandTint, borderRadius: radius.chip, paddingHorizontal: space[2] - 2 },
-              ]}
-            >
-              <Text variant="numMeta" style={{ color: colors.brandInk }}>
-                Free pickup
-              </Text>
-            </View>
-            <Text variant="numMeta" color="tertiary" numberOfLines={1} style={{ flex: 1 }}>
-              {kitchen.deliveryFee === 0 ? 'Free delivery' : `${formatRupees(kitchen.deliveryFee)} delivery`} · min{' '}
-              {formatRupees(kitchen.minOrder)}
+        {/* The fee facts are true of the kitchen whether or not it is open
+            right now, so they print either way — a closed kitchen is still
+            worth comparing against an open one on price. */}
+        <View style={[styles.feeRow, { gap: space[2], marginTop: space[1] }]}>
+          <View
+            style={[
+              styles.feeChip,
+              { backgroundColor: colors.brandTint, borderRadius: radius.chip, paddingHorizontal: space[2] - 2 },
+            ]}
+          >
+            <Text variant="numMeta" style={{ color: colors.brandInk }}>
+              Free pickup
             </Text>
           </View>
-        ) : (
-          <Text variant="numMeta" color="tertiary" numberOfLines={1} style={{ marginTop: space[1] }}>
-            Cooks {kitchen.windows.length === 1 ? 'one window' : `${kitchen.windows.length} windows`} · min{' '}
+          <Text variant="numMeta" color="tertiary" numberOfLines={1} style={{ flex: 1 }}>
+            {kitchen.deliveryFee === 0 ? 'Free delivery' : `${formatRupees(kitchen.deliveryFee)} delivery`} · min{' '}
             {formatRupees(kitchen.minOrder)}
           </Text>
-        )}
-
-        {closingSoon ? (
-          <Text variant="numMeta" style={{ color: colors.warning.ink, marginTop: space[1] }}>
-            Closing at {clockLabel(window.endMinute)} · {closesIn} min left
-          </Text>
-        ) : null}
+        </View>
       </View>
     </Pressable>
   );

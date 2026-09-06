@@ -1,34 +1,42 @@
 import { router } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { StatCard } from "@/app/(tabs)/index";
-import { Bar, Btn, Chip, Icon, Notice, Text, TopBar } from "@/components/ui";
-import { pickupKm, restaurantLabel, useDriverStore } from "@/store/driverStore";
-import { useFlowStore, REQUEST_SECONDS } from "@/store/flowStore";
-import { colors, layout, radius, space, tone as resolveTone } from "@/theme";
+import { Btn, Notice, Text, TopBar } from "@/components/ui";
+import { dropKm, pickupEtaMinutes, pickupKm, restaurantLabel, useDriverStore } from "@/store/driverStore";
+import { useFlowStore } from "@/store/flowStore";
+import { colors, layout, radius, space } from "@/theme";
 
 /**
- * Fifteen seconds, two numbers, one dominant action.
+ * One offer, two numbers, one dominant action — and no countdown any more.
  *
- * The offer on this screen is REAL: it came from the dispatcher over the
- * socket (or the poll fallback), it is being held for this rider alone, and
- * when the clock runs out the server passes it to the next rider whether or
- * not this screen is still open. So the countdown is derived from the
- * deadline the store recorded — `expiresAt` — rather than counted down from
- * fifteen. A rider who opens the app four seconds into an offer sees eleven,
- * which is the truth; a fresh fifteen would be a promise the server will not
- * keep.
+ * Dispatch used to hold one rider at a time and this screen's whole shape
+ * came from that: a fifteen-second clock, an "expiring" colour flip, an
+ * expired card. All of that assumed there was a queue behind this rider that
+ * a timeout existed to protect. There is not, now — every rider within
+ * reach of the kitchen's prep-time quote is offered the same job together,
+ * and whoever accepts first gets it (see `foodDispatch.service.js`'s own
+ * header). Rushing THIS rider with a clock made sense when the next one was
+ * waiting their turn; it does not when the next one is looking at the exact
+ * same offer right now.
  *
- * The countdown and its bar both flip to the danger tone under 11 seconds, and
- * the eyebrow changes wording at the same moment, so the urgency is not
- * carried by the colour alone.
+ * What replaces the countdown is `readyAt` — the fact a rider actually needs
+ * to decide when to leave, not a number of seconds they need to decide
+ * before.
  *
  * ## What is NOT shown before accepting
  *
  * The diner's name, their phone number and the full door address. The server
  * withholds all three from an offer and sends them on acceptance — a rider who
- * has not taken the job has no business holding a stranger's address, and
- * fifteen seconds of it on a screen is fifteen seconds too many.
+ * has not taken the job has no business holding a stranger's address.
+ *
+ * ## "This offer is gone" is still possible, just not on a clock
+ *
+ * Somebody else can still win the race, decline can still close it, and the
+ * order can still be cancelled out from under it. Those arrive as `offer`
+ * turning null (the effect below sends the rider back when that happens) or
+ * as the server's own refusal the moment Accept is actually tapped — see
+ * `onAccept`'s catch. Neither needs a local "expired" state to represent.
  */
 export default function RequestScreen() {
   const say = useFlowStore((s) => s.say);
@@ -37,23 +45,11 @@ export default function RequestScreen() {
   const declineOffer = useDriverStore((s) => s.declineOffer);
   const busy = useDriverStore((s) => s.busy);
 
-  /* Seconds left, recomputed from the deadline on every tick rather than
-     decremented — a screen that was backgrounded for five seconds comes back
-     with the right number instead of five seconds of credit it never had. */
-  const [left, setLeft] = useState(() => secondsLeft(offer?.expiresAt));
-
-  useEffect(() => {
-    setLeft(secondsLeft(offer?.expiresAt));
-    if (!offer) return;
-    const timer = setInterval(() => setLeft(secondsLeft(offer.expiresAt)), 250);
-    return () => clearInterval(timer);
-  }, [offer]);
-
   /*
     The offer being cleared from under this screen is the ORDINARY case: the
-    server passed it on, or the diner cancelled. Going back rather than showing
-    an "expired" card avoids stranding a rider on a dead screen with the next
-    offer already arriving.
+    order was taken, declined away, or cancelled. Going back rather than
+    showing a dead-end card avoids stranding a rider on a screen with the
+    next offer already arriving.
 
     `leaving` is what keeps this from fighting the two handlers below. Accepting
     clears the offer AND navigates, and without the guard this effect would fire
@@ -76,11 +72,10 @@ export default function RequestScreen() {
     );
   }
 
-  const expired = left <= 0;
-  const urgent = left < 11;
-  const toneName = expired || urgent ? "danger" : "success";
-  const t = resolveTone(toneName);
   const km = pickupKm(offer);
+  const etaMin = pickupEtaMinutes(offer);
+  const tripKm = dropKm(offer);
+  const readyBy = readyByLabel(offer.readyAt);
 
   const onAccept = async () => {
     leaving.current = true;
@@ -89,9 +84,9 @@ export default function RequestScreen() {
       say(`Order accepted · ${job.orderNumber}`);
       router.replace("/active");
     } catch (err) {
-      /* The server's own words. "Another rider took this one" and "that offer
-         has expired" feel very different to a rider, and one message for both
-         is how they come to believe the button is broken. */
+      /* The server's own words. "Another rider took this one" and "that
+         order was cancelled" feel very different to a rider, and one
+         message for both is how they come to believe the button is broken. */
       const payload = (err as { payload?: { message?: string } } | null)?.payload;
       say(payload?.message || (err as Error)?.message || "That one got away.");
       router.replace("/");
@@ -110,24 +105,7 @@ export default function RequestScreen() {
 
   return (
     <View style={styles.root}>
-      {/*
-        The countdown IS the header here. Pinning it is not consistency for
-        its own sake: this screen is a fifteen-second decision, and a rider who
-        has scrolled down to read the drop address must still be able to see
-        how long is left without scrolling back up.
-      */}
-      <TopBar
-        title={expired ? "Expired" : urgent ? "Request expiring" : "New delivery request"}
-        subtitle={offer.orderNumber}
-        right={<Chip label={`${left}s`} tone={toneName} glyph={expired ? "close" : "clock"} />}
-      />
-      <Bar
-        pct={Math.round((left / REQUEST_SECONDS) * 100)}
-        tone={t.base}
-        height={4}
-        track={colors.surface}
-        style={styles.countdownBar}
-      />
+      <TopBar title="New delivery request" subtitle={offer.orderNumber} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* ── The two numbers that matter ──────────────────────────────── */}
@@ -142,15 +120,15 @@ export default function RequestScreen() {
           </View>
           <View style={[styles.figureCell, { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.border }]}>
             <Text variant="eyebrow" color="tertiary">
-              Time left
+              Ready by
             </Text>
             <Text
               variant="codeHero"
               adjustsFontSizeToFit
               numberOfLines={1}
-              style={{ marginTop: space[1], color: t.ink }}
+              style={{ marginTop: space[1] }}
             >
-              {left}s
+              {readyBy}
             </Text>
           </View>
         </View>
@@ -166,34 +144,44 @@ export default function RequestScreen() {
             <View style={{ flex: 1, minWidth: 0, gap: space[5] }}>
               <View style={{ gap: 2 }}>
                 <Text variant="eyebrow" color="tertiary">
-                  {km === null ? "Pick up" : `Pick up · ${km} km away`}
+                  {pickupEyebrow(km, etaMin)}
                 </Text>
                 {/* The restaurant's NAME, through the one selector that knows
                     to fall back. This heading used to render the raw
                     `restaurantId` — FP-9C4A21B8 — on the single screen in the
-                    app with a fifteen-second decision attached to it, so the
-                    one fact a rider needs to judge an offer, which shutter in
-                    the market they would be riding to, was the one fact it did
+                    app with a decision attached to it, so the one fact a
+                    rider needs to judge an offer, which shutter in the
+                    market they would be riding to, was the one fact it did
                     not give them. */}
                 <Text variant="display2" numberOfLines={2}>
                   {restaurantLabel(offer)}
                 </Text>
+                {/* The kitchen's own address, not just its name — a rider who
+                    has never collected from this one before is otherwise
+                    told WHO to ride to but not WHERE, and finds out only
+                    once they are already close enough for the map to fill
+                    in the gap. Omitted rather than a placeholder when the
+                    restaurant profile never recorded one. */}
+                {offer.restaurant?.address ? (
+                  <Text variant="caption" color="tertiary" numberOfLines={2}>
+                    {offer.restaurant.address}
+                  </Text>
+                ) : null}
                 <Text variant="caption" color="tertiary">
                   {offer.itemCount} item{offer.itemCount === 1 ? "" : "s"} to collect
                 </Text>
               </View>
               <View style={{ gap: 2 }}>
                 <Text variant="eyebrow" color="tertiary">
-                  Drop
+                  {dropEyebrow(tripKm)}
                 </Text>
+                {/* The full address, not a fragment — the server sends it in
+                    full before the job is even accepted now, so a rider can
+                    judge a delivery against their own route, not just its
+                    distance from the kitchen. Only the diner's NAME and
+                    PHONE number still wait for accept. */}
                 <Text variant="display2" numberOfLines={2}>
                   {offer.drop.address || "Nearby"}
-                </Text>
-                {/* Said out loud rather than left as a surprise. The server
-                    withholds the door until the job is taken, and a rider who
-                    is not told that reads the short line as a bad address. */}
-                <Text variant="caption" color="tertiary">
-                  Exact address after you accept
                 </Text>
               </View>
             </View>
@@ -202,7 +190,10 @@ export default function RequestScreen() {
 
         {/* ── Trip facts ───────────────────────────────────────────────── */}
         <View style={styles.statGrid}>
-          <StatCard label="To pickup" value={km === null ? "—" : `${km} km`} />
+          <StatCard
+            label="To pickup"
+            value={km === null ? "—" : etaMin === null ? `${km} km` : `${km} km · ~${etaMin} min`}
+          />
           <StatCard label="Items" value={String(offer.itemCount)} />
           <StatCard
             label={offer.collectAmount > 0 ? "Collect" : "Payment"}
@@ -235,55 +226,65 @@ export default function RequestScreen() {
         )}
 
         {/* ── Decision ─────────────────────────────────────────────────── */}
-        {!expired && (
-          <View style={{ gap: space[2] }}>
-            <Btn
-              label={busy ? "Accepting…" : `Accept · ₹${offer.earnings}`}
-              large
-              glyph="check"
-              disabled={busy}
-              onPress={onAccept}
-            />
-            <Btn label="Decline" variant="ghost" disabled={busy} onPress={onDecline} />
-          </View>
-        )}
-
-        {expired && (
-          <View style={{ gap: space[3] }}>
-            <View style={styles.expiredCard}>
-              <View style={styles.expiredMark}>
-                <Icon name="close" size={22} color={colors.danger.on} strokeWidth={2} />
-              </View>
-              <Text variant="display2">Request expired</Text>
-              <Text variant="caption" color="secondary" style={{ textAlign: "center" }}>
-                It went to another partner. Missing requests lowers your acceptance rate.
-              </Text>
-            </View>
-            <Btn label="Back to searching" glyph="refresh" onPress={() => router.replace("/")} />
-          </View>
-        )}
+        <View style={{ gap: space[2] }}>
+          <Btn
+            label={busy ? "Accepting…" : `Accept · ₹${offer.earnings}`}
+            large
+            glyph="check"
+            disabled={busy}
+            onPress={onAccept}
+          />
+          <Btn label="Decline" variant="ghost" disabled={busy} onPress={onDecline} />
+        </View>
       </ScrollView>
     </View>
   );
 }
 
 /**
- * Whole seconds left against a wall-clock deadline.
- *
- * Clamped at zero rather than allowed to go negative: the server has already
- * moved on by then, and a screen counting down past zero is a screen promising
- * something that cannot happen.
+ * "8:45 PM", in the rider's own device time — never a UTC string, never a
+ * guess. "—" when the kitchen gave no quote at all: there is genuinely
+ * nothing to show, and a placeholder time would read as a real one.
  */
-function secondsLeft(expiresAt?: number): number {
-  if (!expiresAt) return 0;
-  return Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+function readyByLabel(readyAt?: string | null): string {
+  if (!readyAt) return "—";
+  const date = new Date(readyAt);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+/**
+ * "Pick up · 1.3 km · ~4 min away" — and every shorter version of it an
+ * older server, or one that never measured either number, can still send.
+ *
+ * `~` on the minutes and never on the kilometres: distance is measured
+ * (straight-line, but real), while the minutes are `foodDispatch.service.js`'s
+ * own planning estimate — the same number the offer itself was paced
+ * against, not a routed ETA. Marking it a guess here is the same honesty
+ * rule the delivery map already applies to distance shown to a diner.
+ */
+function pickupEyebrow(km: number | null, etaMin: number | null): string {
+  if (km === null && etaMin === null) return "Pick up";
+  if (km === null) return `Pick up · ~${etaMin} min away`;
+  if (etaMin === null) return `Pick up · ${km} km away`;
+  return `Pick up · ${km} km · ~${etaMin} min away`;
+}
+
+/**
+ * "Drop · 2.3 km" — the kitchen-to-door leg, alongside the pickup leg above
+ * it. No `~` here: unlike the pickup ETA this is not `foodDispatch.service.js`'s
+ * planning estimate, it is the same measured straight-line distance
+ * `pickupKm` already shows without one. Just "Drop" when either pin is
+ * missing — an older order, or one placed before a delivery pin was
+ * required — same honesty rule as `pickupEyebrow`.
+ */
+function dropEyebrow(km: number | null): string {
+  return km === null ? "Drop" : `Drop · ${km} km`;
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { paddingHorizontal: layout.gutter, paddingTop: space[4], paddingBottom: space[6], gap: space[4] },
-
-  countdownBar: { borderRadius: 0 },
 
   figures: {
     flexDirection: "row",
@@ -314,23 +315,4 @@ const styles = StyleSheet.create({
   railDot: { width: 10, height: 10, borderRadius: radius.pill, backgroundColor: colors.graphite },
 
   statGrid: { flexDirection: "row", gap: space[2] },
-
-  expiredCard: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.danger.border,
-    backgroundColor: colors.danger.tint,
-    borderRadius: radius.card,
-    padding: space[5],
-    alignItems: "center",
-    gap: space[2],
-  },
-  expiredMark: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.pill,
-    backgroundColor: colors.danger.base,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: space[1],
-  },
 });

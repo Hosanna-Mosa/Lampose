@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 
-import type { Dish, Kitchen, MealWindowId } from '@/types/food';
 import { fetchDish, fetchKitchen, fetchKitchens, type KitchenQuery } from '@/services/api/food.api';
 import { ApiError } from '@/services/api/client';
 import { queryKeys } from './keys';
@@ -74,23 +73,3 @@ export function useDish(productId: string | null | undefined) {
   });
 }
 
-/* ------------------------------------------------------------------ *
- * Window filtering
- * ------------------------------------------------------------------ */
-
-/**
- * The kitchens that cook in a given meal window.
- *
- * Applied on the device rather than sent to the server, because the
- * collection stores trading hours and has no column for the app's five
- * windows — the mapping between the two lives in `food.adapter.ts`. A kitchen
- * that recorded no opening hours matches no window, which is the truth rather
- * than a reason to show it everywhere.
- */
-export function kitchensInWindow(kitchens: readonly Kitchen[], window: MealWindowId): Kitchen[] {
-  return kitchens.filter((kitchen) => kitchen.windows.includes(window));
-}
-
-export function dishesInWindow(dishes: readonly Dish[], window: MealWindowId): Dish[] {
-  return dishes.filter((dish) => dish.windows.includes(window));
-}

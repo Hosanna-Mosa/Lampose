@@ -18,12 +18,11 @@ import type {
   FoodOrder,
   FoodPreferences,
   Fulfilment,
-  MealWindowId,
   SpiceLevel,
   FoodOrderStatus,
   Kitchen,
 } from '@/types/food';
-import { clockLabel, focusWindow, minuteOfDay } from '@/types/food';
+import { clockLabel, minuteOfDay } from '@/types/food';
 import { useAuth } from '@/context/AuthContext';
 import { useFoodFavourites } from '@/services/hooks/useFoodFavourites';
 import { checkZone } from '@/services/api/zones.api';
@@ -49,13 +48,6 @@ import { addressLine, addressTitle, fetchAddresses, type SavedAddress } from '@/
  * whichever one finished first. So a dish from a second kitchen does not merge:
  * it parks in `pendingAdd` and the screen asks, because silently clearing a
  * cart is how a student loses the thali they configured three taps ago.
- *
- * ## The window is stamped, not read
- *
- * A cart records the window it was started in. Reading the live clock instead
- * would let a cart built at 3:25 pm silently become a snacks order at 3:31 —
- * with different kitchens open and different prices — while the student was
- * still choosing a payment method.
  *
  * ## The bill shows the SERVER'S arithmetic, and only that
  *
@@ -101,8 +93,6 @@ export type PendingAdd = {
   qty: number;
   addOnIds: readonly string[];
   spice: SpiceLevel;
-  /** Carried through the "clear your cart?" answer, so the switch keeps it. */
-  window?: MealWindowId;
 };
 
 export type AddResult = 'added' | 'conflict';
@@ -117,25 +107,12 @@ export type AddResult = 'added' | 'conflict';
 export type FoodTab = 'home' | 'search' | 'orders';
 
 export type FoodContextValue = {
-  /**
-   * The window being BROWSED.
-   *
-   * Not the same thing as the cart's window, and it lives here rather than in
-   * the tab's own state because the pushed screens need it: a student reading
-   * the dinner menu at 2 pm taps a kitchen, and that kitchen screen has to open
-   * on dinner too. A route param would work for one hop and break on the next.
-   */
-  browseWindow: MealWindowId;
-  setBrowseWindow: (id: MealWindowId) => void;
-
   /** Home / Search / Orders — the bottom bar's three stay-side-shaped tabs. */
   foodTab: FoodTab;
   setFoodTab: (tab: FoodTab) => void;
 
   /* — cart — */
   kitchenId: string | null;
-  /** The window the cart was STAMPED with, or null while it is empty. */
-  window: MealWindowId | null;
   lines: readonly DetailedLine[];
   count: number;
   itemTotal: number;
@@ -179,7 +156,7 @@ export type FoodContextValue = {
   /** Re-read the book — the picker calls this on returning from the editor. */
   refreshAddresses: () => Promise<void>;
 
-  add: (dish: Dish, options?: { qty?: number; addOnIds?: readonly string[]; spice?: SpiceLevel; window?: MealWindowId }) => AddResult;
+  add: (dish: Dish, options?: { qty?: number; addOnIds?: readonly string[]; spice?: SpiceLevel }) => AddResult;
   setQty: (key: string, qty: number) => void;
   clear: () => void;
   /** Total quantity of a dish in the cart, whatever options were chosen. */
@@ -214,10 +191,12 @@ export type FoodContextValue = {
    * rather than paraphrasing.
    */
   /**
-   * @param mode how it is being paid for. `cod` sends the order to the kitchen
-   *   and starts the rider search immediately; `online` HOLDS it — nobody is
-   *   told and nobody is sent until a verified signature says the money
-   *   arrived. The screen picks this from the method the student chose.
+   * @param mode how it is being paid for. `cod` sends the order to the
+   *   kitchen straight away; `online` HOLDS it — nobody is told until a
+   *   verified signature says the money arrived. Either way, no rider is
+   *   searched for yet: that now waits for the kitchen to accept and quote a
+   *   prep time, see `foodDispatch.service.js`'s own header. The screen
+   *   picks the mode from the method the student chose.
    */
   placeOrder: (now?: Date, mode?: 'online' | 'cod') => Promise<{ order: FoodOrder; nextStep: 'track' | 'payment' }>;
   /**
@@ -242,6 +221,20 @@ export type FoodContextValue = {
    */
   startPayment: (id: string) => Promise<PaymentIntent>;
   cancelOrder: (id: string, reason: string) => Promise<void>;
+
+  /*
+   * — order-status notifications —
+   *
+   * There is no server-side feed for this: nothing in the food schema is an
+   * "event" the way a visit-request reply is. What every order already carries
+   * is its own `timeline`, so a notification IS a newly-reached timeline step,
+   * counted client-side against a locally-remembered watermark. See
+   * `FOOD_NOTIFS_SEEN_KEY` below for why that is honest rather than a hack.
+   */
+  /** Reached timeline steps, across every order, that have not been seen. */
+  foodUnread: number;
+  /** Call when the food notifications screen opens — clears `foodUnread`. */
+  markFoodNotificationsSeen: () => void;
 
   /* — preferences — */
   preferences: FoodPreferences;
@@ -288,6 +281,20 @@ const FoodContext = createContext<FoodContextValue | null>(null);
  */
 const FOOD_PREFERENCES_KEY = '@lampose/food-preferences';
 
+/**
+ * The watermark behind `foodUnread`.
+ *
+ * One number per order: how many of its timeline steps were already reached
+ * the last time the notifications screen was opened. Reading it back and
+ * comparing against the order's CURRENT count of reached steps is what tells
+ * the bell "two things happened since you last looked" without a server ever
+ * having to flag anything as read — there is nothing on `food_orders` for a
+ * client to write that would mean that, and there does not need to be: this
+ * is exactly the same "read is a watermark" idea `/notifications` uses,
+ * moved local because the events here are derived, not fetched.
+ */
+const FOOD_NOTIFS_SEEN_KEY = '@lampose/food-notifications-seen';
+
 const DEFAULT_PREFERENCES: FoodPreferences = {
   diet: 'veg',
   vegOnly: false,
@@ -333,10 +340,8 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   /* The catalogue is the data source; this context is the cart and the
      order history built on top of it, which is why it nests inside. */
   const { findDish, findKitchen } = useFoodCatalogue();
-  const [browseWindow, setBrowseWindow] = useState<MealWindowId>(() => focusWindow(new Date()).id);
   const [foodTab, setFoodTab] = useState<FoodTab>('home');
   const [kitchenId, setKitchenId] = useState<string | null>(null);
-  const [window, setWindow] = useState<MealWindowId | null>(null);
   const [rawLines, setRawLines] = useState<CartLine[]>([]);
   const [fulfilment, setFulfilmentState] = useState<Fulfilment>('delivery');
   /*
@@ -614,9 +619,8 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
 
   /* — cart actions — */
 
-  const commitAdd = useCallback((dish: Dish, next: PendingAdd, windowId?: MealWindowId) => {
+  const commitAdd = useCallback((dish: Dish, next: PendingAdd) => {
     setKitchenId(dish.kitchenId);
-    setWindow((current) => current ?? windowId ?? null);
     setRawLines((current) => {
       const key = lineKey(next.dish.id, next.addOnIds, next.spice);
       const existing = current.find((line) => line.key === key);
@@ -637,7 +641,6 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
         qty: options?.qty ?? 1,
         addOnIds: options?.addOnIds ?? [],
         spice: options?.spice ?? preferences.spice,
-        window: options?.window,
       };
 
       if (kitchenId && kitchenId !== dish.kitchenId && rawLines.length > 0) {
@@ -645,7 +648,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
         return 'conflict';
       }
 
-      commitAdd(dish, next, options?.window);
+      commitAdd(dish, next);
       return 'added';
     },
     [kitchenId, rawLines.length, preferences.spice, commitAdd],
@@ -655,10 +658,9 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     if (!pendingAdd) return;
     setRawLines([]);
     setKitchenId(pendingAdd.dish.kitchenId);
-    setWindow(null);
     // Straight into the same commit path, so a switched cart is built exactly
     // the way a first one is.
-    commitAdd(pendingAdd.dish, pendingAdd, pendingAdd.window);
+    commitAdd(pendingAdd.dish, pendingAdd);
     setPendingAdd(null);
   }, [pendingAdd, commitAdd]);
 
@@ -674,7 +676,6 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   const clear = useCallback(() => {
     setRawLines([]);
     setKitchenId(null);
-    setWindow(null);
   }, []);
 
   const qtyOf = useCallback(
@@ -852,6 +853,50 @@ function buildTimeline(
       : undefined;
 
   /*
+   * The kitchen's own accept is no longer a step a diner watches for.
+   *
+   * There used to be a "Confirmed by the kitchen" row between this one and
+   * Preparing — accurate, but a checkpoint nobody needed: a diner cannot do
+   * anything with "the kitchen has seen it" that they could not already do
+   * with "the kitchen is cooking it". So `accepted` now feeds THIS step
+   * instead of one of its own — Preparing ticks the moment the kitchen takes
+   * the order, whether or not it has visibly started, which is the same
+   * merge Food-Partner's own new-order sheet made on the restaurant's side
+   * (see its comment on why the accept/reject decision moved off that
+   * screen). `accepted` is checked first because it is the earlier of the
+   * two events when both exist.
+   */
+  const preparingStep = {
+    ...step(TIMELINE_STEP.preparing, 'accepted', 'preparing'),
+    ...(readyBy ? { note: readyBy } : null),
+  };
+
+  /*
+   * "Driver confirmed" has no `statusHistory` event of its own — the search
+   * for a rider runs on `dispatch`, a track beside `status` rather than
+   * inside it, see the server's own comment on `foodOrder.model.js`.
+   * `rider.assignedAt` is the one timestamp the server does keep for it,
+   * written the moment a rider accepts, so it is read directly rather than
+   * through `firstAt`/`step`, which only know how to look inside
+   * `statusHistory`.
+   *
+   * This step sits AFTER Preparing, not before — the reverse of an earlier
+   * version of this file, from when dispatch started the instant an order was
+   * placed or paid for, in parallel with the kitchen's own decision. It no
+   * longer does: `foodOrder.controller.js`'s `setOrderStatus` only calls
+   * `dispatch.startDispatch` once the kitchen has accepted and quoted a prep
+   * time (see `foodDispatch.service.js`'s own header for why), so a rider can
+   * never be confirmed before that has happened. Putting this step first
+   * would now be showing an order that already happened, backwards.
+   */
+  const driverConfirmedStep = (() => {
+    const iso = row.rider?.assignedAt;
+    const when = iso ? new Date(iso) : null;
+    const at = when && !Number.isNaN(when.getTime()) ? clockLabel(minuteOfDay(when)) : undefined;
+    return { label: 'Driver confirmed', ...(at ? { at } : null), done: !!row.rider };
+  })();
+
+  /*
    * An order with NO history at all falls back to inferring from `status`.
    *
    * `statusHistory` has not always existed, and a row written before it did
@@ -862,35 +907,56 @@ function buildTimeline(
    *
    * Leaving `done` UNSET (rather than false) is what hands the decision back
    * to `FoodTimeline`, which falls back to `currentIndex` — the old behaviour,
-   * kept for exactly the rows that have nothing better available.
+   * kept for exactly the rows that have nothing better available. The two
+   * fulfilment modes now differ in LENGTH as well as in their labels — a
+   * pickup order never has a rider to confirm or to hand it to — so
+   * `timelineIndex` branches on `order.fulfilment` to match.
    */
   if (!history.length) {
+    return isPickup
+      ? [
+          { label: 'Order placed', at: placedFallback },
+          { label: TIMELINE_STEP.preparing },
+          { label: 'Ready at the counter' },
+          { label: 'Picked up' },
+        ]
+      : [
+          { label: 'Order placed', at: placedFallback },
+          { label: TIMELINE_STEP.preparing },
+          { label: 'Driver confirmed' },
+          { label: 'Picked up' },
+          { label: 'On the way' },
+          { label: 'Delivered' },
+        ];
+  }
+
+  if (isPickup) {
     return [
-      { label: 'Order placed', at: placedFallback },
-      { label: 'Confirmed by the kitchen' },
-      { label: TIMELINE_STEP.preparing },
-      isPickup ? { label: 'Ready at the counter' } : { label: 'On the way' },
-      isPickup ? { label: 'Picked up' } : { label: 'Delivered' },
+      /* `placedAt` is on every order, so this one falls back to it rather than
+         to nothing — an order with no history at all is still an order that
+         was placed, and a first step with no tick would read as broken. */
+      { label: 'Order placed', at: firstAt('placed') ?? placedFallback, done: true },
+      preparingStep,
+      step('Ready at the counter', 'ready'),
+      step('Picked up', 'picked_up'),
     ];
   }
 
   return [
-    /* `placedAt` is on every order, so this one falls back to it rather than
-       to nothing — an order with no history at all is still an order that was
-       placed, and a first step with no tick would read as broken. */
-    {
-      label: 'Order placed',
-      at: firstAt('placed') ?? placedFallback,
-      done: true,
-    },
-    step('Confirmed by the kitchen', 'accepted'),
-    { ...step(TIMELINE_STEP.preparing, 'preparing'), ...(readyBy ? { note: readyBy } : null) },
-    isPickup
-      ? step('Ready at the counter', 'ready')
-      : /* For a delivery, "on the way" is the RIDER having it — `ready` only
-           means it is sitting on the pass. */
-      step('On the way', 'picked_up'),
-    isPickup ? step('Picked up', 'picked_up') : step('Delivered', 'delivered'),
+    { label: 'Order placed', at: firstAt('placed') ?? placedFallback, done: true },
+    preparingStep,
+    driverConfirmedStep,
+    /*
+     * Both ticked off the SAME `picked_up` event: it is the only signal there
+     * is between a rider standing at the pass and that rider already moving,
+     * and pretending otherwise would be inventing a second event nobody
+     * recorded. `Delivered` is left as the one step still open for the whole
+     * of the ride, which is the truth of it — nothing distinguishes "just
+     * picked up" from "on the way" except time passing.
+     */
+    step('Picked up', 'picked_up'),
+    step('On the way', 'picked_up'),
+    step('Delivered', 'delivered'),
   ];
 }
 
@@ -956,7 +1022,6 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
     kitchenName,
     status: appStatus(row.status, isPickup),
     fulfilment: isPickup ? 'pickup' : 'delivery',
-    window: focusWindow(placed).id,
     lines: (row.lines ?? []).map((line) => ({
       dishId: line.productId,
       name: line.variantName ? `${line.productName} · ${line.variantName}` : line.productName,
@@ -1389,14 +1454,66 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
   const toggleFavouriteDish = favourites.toggleDish;
   const toggleFavouriteKitchen = favourites.toggleKitchen;
 
+  /* — order-status notifications — */
+
+  /** Reached steps on one order, counted the same way for both directions:
+   *  how many were seen, and how many there are right now. */
+  const doneStepCount = (order: FoodOrder): number =>
+    (order.timeline ?? []).filter((step) => step.done).length;
+
+  const [seenCounts, setSeenCounts] = useState<Record<string, number>>({});
+
+  /* Read once, on launch. There is no write-back effect mirroring this one —
+     unlike preferences, nothing here is ever set except by
+     `markFoodNotificationsSeen`, which writes to disk itself the moment it
+     changes anything, so there is no second writer for an early hydration to
+     race against. */
+  useEffect(() => {
+    let active = true;
+    AsyncStorage.getItem(FOOD_NOTIFS_SEEN_KEY)
+      .then((stored) => {
+        if (!active || !stored) return;
+        const parsed = JSON.parse(stored) as unknown;
+        if (parsed && typeof parsed === 'object') {
+          setSeenCounts(parsed as Record<string, number>);
+        }
+      })
+      .catch(() => {
+        /* A corrupt or unreadable watermark just means everything counts as
+           unseen once more — the worst case is a bell that over-reports by
+           one launch, never one that hides a real status change. */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const foodUnread = useMemo(
+    () =>
+      orders.reduce(
+        (sum, order) => sum + Math.max(0, doneStepCount(order) - (seenCounts[order.id] ?? 0)),
+        0,
+      ),
+    [orders, seenCounts],
+  );
+
+  const markFoodNotificationsSeen = useCallback(() => {
+    setSeenCounts((current) => {
+      const next = { ...current };
+      for (const order of orders) next[order.id] = doneStepCount(order);
+      void AsyncStorage.setItem(FOOD_NOTIFS_SEEN_KEY, JSON.stringify(next)).catch(() => {
+        /* Not persisted this time — the bell may over-count again next
+           launch, which is the same safe-side failure as above. */
+      });
+      return next;
+    });
+  }, [orders]);
+
   const value = useMemo<FoodContextValue>(
     () => ({
-      browseWindow,
-      setBrowseWindow,
       foodTab,
       setFoodTab,
       kitchenId,
-      window,
       lines,
       count,
       itemTotal,
@@ -1424,6 +1541,8 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       refreshOrder,
       startPayment,
       cancelOrder,
+      foodUnread,
+      markFoodNotificationsSeen,
       preferences,
       setPreferences,
       favouriteDishes,
@@ -1439,10 +1558,8 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       refreshFavourites: favourites.refetch,
     }),
     [
-      browseWindow,
       foodTab,
       kitchenId,
-      window,
       lines,
       count,
       itemTotal,
@@ -1468,6 +1585,8 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       refreshOrder,
       startPayment,
       cancelOrder,
+      foodUnread,
+      markFoodNotificationsSeen,
       preferences,
       setPreferences,
       favouriteDishes,
