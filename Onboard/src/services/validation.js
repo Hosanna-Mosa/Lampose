@@ -130,6 +130,7 @@ export const FIELD_ANCHORS = {
   'documents.pan': 'hotelDocuments',
   'documents.premises': 'hotelDocuments',
   'categoryDetails.mealsProvided': 'mealsProvided',
+  'categoryDetails.hostelType': 'hostelType',
   'categoryDetails.wardenContact': 'wardenContact',
   'categoryDetails.totalBeds': 'totalBeds',
   'categoryDetails.washroomsCount': 'washroomsCount',
