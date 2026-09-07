@@ -36,7 +36,11 @@ export default function Pitch() {
 
   const signedIn = !!session?.token && status === "approved";
   const inFlight = !signedIn && status !== "none" && status !== "draft";
-  const hasDraft = !inFlight && !!data.restaurantName.trim();
+  /* `!inFlight` alone is not "still a draft" — it is also true once approved,
+     because approval never clears the onboarding `data` that carried the
+     draft. Missing `!signedIn` here showed "is live" and "is half finished"
+     for the same restaurant on the same screen at once. */
+  const hasDraft = !signedIn && !inFlight && !!data.restaurantName.trim();
 
   const start = () => router.push("/onboarding/restaurant");
 

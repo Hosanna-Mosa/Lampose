@@ -261,7 +261,27 @@ A code was sent to +91 {data.phone}.
               </Pressable>
             </View>
           ) : (
-            <Note tone="ok">Verified — +91 {data.phone}</Note>
+            <View style={{ gap: space[2] }}>
+              <Note tone="ok">Verified — +91 {data.phone}</Note>
+              {/* The proof behind this note is a 30-minute token — see
+                  `foodPartnerAuth.middleware.js`'s PHONE_TOKEN_TTL — and this
+                  form easily takes longer than that to finish. Without a way
+                  back here, a proof that aged out mid-form only ever surfaced
+                  at step 5's final submit, as a dead end: "Verified" still
+                  showed here with nothing to press. */}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  patch({ otpSent: false, otpVerified: false, otp: "" });
+                  setOtpError("");
+                }}
+                style={{ minHeight: touch.min, justifyContent: "center" }}
+              >
+                <Text variant="bodyStrong" color="brand">
+                  Verification expired? Request a new code
+                </Text>
+              </Pressable>
+            </View>
           )}
         </Field>
 

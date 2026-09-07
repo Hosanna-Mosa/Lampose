@@ -41,12 +41,27 @@ export default function StepMenu() {
   const items = data.menuCategories.flatMap((c) => c.items);
   const noPhoto = items.filter((i) => !i.productImage).length;
 
+  /**
+   * A `data:` URI — what "Use a sample" hands back, see `sampleFor` in
+   * `components/form` — never touches the network, and React Native's
+   * `fetch` cannot read that scheme at all: it throws the same generic
+   * "Network request failed" a real dropped connection would, which is what
+   * sent us looking here rather than at a parsing bug. Decode it directly and
+   * reserve `fetch()` for what it is actually for — a real picked file's
+   * `file://`/`content://` cache path.
+   */
+  const readAttachmentText = async (uri: string): Promise<string> => {
+    const dataUri = /^data:[^,]*,(.*)$/s.exec(uri);
+    if (dataUri) return decodeURIComponent(dataUri[1]);
+    const res = await fetch(uri);
+    return res.text();
+  };
+
   const readSheet = async (file: typeof data.menuFile) => {
     patch({ menuFile: file, menuValid: false, menuError: "", menuRows: [] });
     if (!file) return;
     try {
-      const res = await fetch(file.uri);
-      const text = await res.text();
+      const text = await readAttachmentText(file.uri);
       patch({ menuRows: readMenuSheet(text), menuValid: true });
     } catch (err) {
       patch({ menuError: (err as Error)?.message || "Unable to read the uploaded menu sheet." });

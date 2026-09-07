@@ -384,12 +384,23 @@ const SAMPLE_CSV =
   "Starters,Paneer Tikka,220,Char-grilled cottage cheese,Veg,yes\n" +
   "Main Course,Chicken Biryani,320,Dum-cooked with long grain rice,Non-Veg,yes\n";
 
+/** Below 1 KB, `(size / 1024).toFixed(0)` rounds every small file — the CSV
+ * sample among them, at ~160 bytes — down to a misleading "0 KB". */
+const formatFileSize = (size: number): string => (size < 1024 ? `${size} B` : `${(size / 1024).toFixed(0)} KB`);
+
 const sampleFor = (label: string, kind: PickKind): Attachment => {
   const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, "_");
   if (kind === "sheet") {
+    /* URI-encoded rather than base64: `menu.tsx`'s reader decodes this with
+       `decodeURIComponent`, a plain ECMAScript builtin that exists on Hermes
+       and JSC alike. `btoa` does not — it is a Web API, and on a Hermes
+       runtime with no polyfill `globalThis.btoa?.(...)` silently falls
+       through to `""`, so the "sample" CSV would have been empty (there is
+       your "0 KB") even before the read tried, and failed, to `fetch()` a
+       data: URI at all — see the comment in `menu.tsx`. */
     return {
       name: `${slug}_sample.csv`,
-      uri: `data:text/csv;base64,${globalThis.btoa?.(SAMPLE_CSV) ?? ""}`,
+      uri: `data:text/csv,${encodeURIComponent(SAMPLE_CSV)}`,
       mimeType: "text/csv",
       size: SAMPLE_CSV.length,
     };
@@ -461,7 +472,7 @@ export function FilePick({
           </Text>
           {!!value.size && (
             <Text variant="numMeta" color="tertiary">
-              {(value.size / 1024).toFixed(0)} KB
+              {formatFileSize(value.size)}
             </Text>
           )}
         </View>
