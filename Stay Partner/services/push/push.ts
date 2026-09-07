@@ -138,7 +138,61 @@ async function ensureChannel(): Promise<void> {
  * variant: no caller has anything useful to do with an exception here, and one
  * that escaped would take down whatever screen triggered sign-in.
  */
+/**
+ * Make this device able to SHOW a notification. Nothing to do with push.
+ *
+ * ## Why this is separate from `getPushToken`
+ *
+ * Two different capabilities were tangled into one function. Receiving a PUSH
+ * needs a real device, a dev build and an EAS project id. Showing a LOCAL
+ * notification needs none of those — only the Android channel and the runtime
+ * permission — and `services/alertSound.ts` depends on exactly that as its
+ * fallback when `expo-audio` is not in the build.
+ *
+ * `getPushToken` returned early on `!pushAvailable()`, BEFORE creating the
+ * channel and BEFORE asking for permission. So in Expo Go — which is how this
+ * app is started every day (`expo start --offline`, no prebuild) — the alert
+ * had no audio module AND no permission AND no channel. Both halves of "make a
+ * noise" were disabled at once, and the owner heard nothing at all.
+ *
+ * Returns whether a notification can now be shown. Never throws.
+ */
+export async function ensureLocalAlerts(): Promise<boolean> {
+  try {
+    /* The channel first: Android shows nothing without one, and it carries the
+       MAX importance and the vibration pattern that make the alert audible on
+       a locked handset. Idempotent, so it is safe on every call. */
+    await ensureChannel();
+
+    const existing = await Notifications.getPermissionsAsync();
+    if (existing.status === 'granted') return true;
+
+    /* Asked once, at sign-in, and never again from here. Re-prompting after a
+       refusal does nothing on iOS anyway — the OS only shows the dialog once
+       — and re-asking on every launch is how an app teaches somebody to
+       reflexively decline. */
+    const asked = await Notifications.requestPermissionsAsync();
+    if (asked.status !== 'granted') {
+      logInfo('[push] permission not granted — the app works, the phone just will not buzz');
+      return false;
+    }
+    return true;
+  } catch (error) {
+    logInfo('[push] could not set up local alerts:', (error as Error).message);
+    return false;
+  }
+}
+
 export async function getPushToken(): Promise<string | null> {
+  /*
+   * Unconditionally, and BEFORE the availability check.
+   *
+   * A phone that cannot receive a push can still ring for a request that
+   * arrived over the poll — see `ensureLocalAlerts`. Gating this behind
+   * `pushAvailable()` is what left Expo Go silent.
+   */
+  const canShow = await ensureLocalAlerts();
+
   const available = pushAvailable();
   if (!available.ok) {
     logInfo(`[push] not available — ${available.message}`);
@@ -146,24 +200,7 @@ export async function getPushToken(): Promise<string | null> {
   }
 
   try {
-    await ensureChannel();
-
-    const existing = await Notifications.getPermissionsAsync();
-    let status = existing.status;
-
-    /* Asked once, at sign-in, and never again from here. Re-prompting after a
-       refusal does nothing on iOS anyway — the OS only shows the dialog once
-       — and re-asking on every launch is how an app teaches somebody to
-       reflexively decline. */
-    if (status !== 'granted') {
-      const asked = await Notifications.requestPermissionsAsync();
-      status = asked.status;
-    }
-
-    if (status !== 'granted') {
-      logInfo('[push] permission not granted — the app works, the phone just will not buzz');
-      return null;
-    }
+    if (!canShow) return null;
 
     const { data } = await Notifications.getExpoPushTokenAsync({ projectId });
     return data || null;

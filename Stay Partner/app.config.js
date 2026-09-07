@@ -104,6 +104,13 @@ export default {
             'Lampose Partner uses your location once, when you tap it, to fill in your address.',
         },
       ],
+      /* Registers the native audio session. The stay-request doorbell is
+         played in the foreground by the app itself rather than by a
+         notification, because a push needs a registered device token and
+         there is none in Expo Go, on a simulator, on a refused permission,
+         or before the first successful registration. See
+         `services/alertSound.ts`. */
+      'expo-audio',
       'expo-web-browser',
       [
         'expo-notifications',

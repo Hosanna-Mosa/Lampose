@@ -116,16 +116,21 @@ export {
  * same session the REST calls carry, delivering a support reply the moment it
  * is written instead of on the next fetch. It is an optimisation and nothing
  * on any screen depends on it; `support.socket.ts` explains why support is
- * the one place in this app that earns one.
+ * the app's own connection to earn — and, on the same file now, why a stay
+ * request's countdown and a booking's owner-driven status reuse it rather
+ * than opening a second one.
  */
 export {
   connectSupportSocket,
   disconnectSupportSocket,
   onSupportEvent,
+  onStayRequestEvent,
+  onBookingEvent,
   referenceOf,
   watchTicket,
   SUPPORT_SOCKET_ORIGIN,
   type SupportSocketEvent,
+  type StayEvent,
 } from './support.socket';
 
 export type {

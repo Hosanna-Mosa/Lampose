@@ -214,6 +214,29 @@ export type PropertyImage = { url: string; publicId: string };
  * reason: the client would otherwise set `Content-Type: application/json` and
  * strip the boundary `fetch` needs to write itself.
  */
+/**
+ * Take one listing off, or put it back on.
+ *
+ * Per PROPERTY. `toggleShareTypesAvailabilityApi` in domain.api.ts is the
+ * dashboard's switch and is partner-wide — it pauses every listing this owner
+ * has. This one flips `isAvailable` on just this property's room types, which
+ * is what `requestableOptions` reads to answer OWNER_PAUSED.
+ *
+ * Occupied beds are untouched: pausing is not emptying.
+ */
+export async function setPropertyAvailability(
+  id: string,
+  isAvailable: boolean,
+  signal?: AbortSignal,
+): Promise<{ propertyId: string; isAvailable: boolean; roomTypes: number }> {
+  const res = await api.patch<ApiEnvelope<{ propertyId: string; isAvailable: boolean; roomTypes: number }>>(
+    endpoints.partnerPropertyAvailability(id),
+    { isAvailable },
+    { signal },
+  );
+  return unwrap(res);
+}
+
 export async function uploadPropertyImages(
   images: { uri: string; name?: string; mimeType?: string }[],
   signal?: AbortSignal,

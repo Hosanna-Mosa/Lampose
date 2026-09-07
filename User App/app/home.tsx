@@ -27,8 +27,10 @@ import { useAuth } from '@/context/AuthContext';
 import { useFood, type FoodTab } from '@/context/FoodContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useTheme, type ThemePreference } from '@/context/ThemeContext';
-import { allBookings, segmentOf, type BookingSegment } from '@/data/bookings';
-import { useListingMeta, useListings, useMyCoupon, useNotifications, useSaved } from '@/services';
+import { fromRealBooking, segmentOf, type BookingSegment } from '@/data/bookings';
+import {
+  useBookings, useListingMeta, useListings, useMyCoupon, useNotifications, useSaved,
+} from '@/services';
 import { BACKEND_CATEGORIES } from '@/services/adapters/listing.adapter';
 import { genderMeta, isGone } from '@/types/listing';
 import { activeFilterCount, applyQuery, EMPTY_QUERY, type SearchQuery } from '@/types/filters';
@@ -183,6 +185,18 @@ export default function Home() {
   const FOOD_MODE = useFoodMode();
   const previewControls = usePreviewControls();
   const [segment, setSegment] = useState<BookingSegment>('active');
+  /*
+   * The real thing — `GET /customers/bookings`, mapped through
+   * `fromRealBooking` into the shape this tab's cards already know how to
+   * draw. Only fetched once the tab is actually on screen (`status ===
+   * 'signedIn' && tab === 'bookings'`), matching how every other section of
+   * this component gates its own fetch.
+   */
+  const bookingsQuery = useBookings(status === 'signedIn' && tab === 'bookings');
+  const realBookings = useMemo(
+    () => bookingsQuery.bookings.map((b) => fromRealBooking(b)),
+    [bookingsQuery.bookings],
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -905,7 +919,27 @@ export default function Home() {
         <ScrollView contentContainerStyle={{ flexGrow: 1, padding: layout.gutter, gap: space[3] }}>
           <BookingSegments value={segment} onChange={setSegment} />
           {(() => {
-            const shown = allBookings().filter((booking) => segmentOf(booking.status) === segment);
+            /*
+             * A confirmed request has no `PartnerBooking` row yet by
+             * definition — `fromRealBooking` never produces a `requests`
+             * segment, and the tab has nowhere else to read one from. See
+             * `request/waiting.tsx` for where a request in flight is
+             * actually tracked; a unified list here is a real gap this does
+             * not close. Shown as the ordinary empty state rather than
+             * hidden, so the segment is not simply dead.
+             */
+            if (bookingsQuery.loading && segment !== 'requests') {
+              return (
+                <View style={{ paddingTop: space[8], alignItems: 'center' }}>
+                  <ActivityIndicator />
+                </View>
+              );
+            }
+
+            const shown = segment === 'requests'
+              ? []
+              : realBookings.filter((booking) => segmentOf(booking.status) === segment);
+
             if (shown.length === 0) {
               return (
                 <StateTemplate
@@ -921,7 +955,7 @@ export default function Home() {
               <BookingRow
                 key={booking.id}
                 booking={booking}
-                onPress={() => router.push(`/bookings/${booking.id}` as never)}
+                onPress={() => router.push(`/bookings/${booking.realId ?? booking.id}` as never)}
               />
             ));
           })()}

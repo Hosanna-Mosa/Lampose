@@ -176,7 +176,21 @@ export default function PropertyEditScreen() {
         categoryDetails: form.categoryDetails,
       });
       setForm(toFormState(updated));
-      setToast({ message: 'Saved.', tone: 'success' });
+      /*
+       * Straight back to the card that sent us here.
+       *
+       * A toast on a form that stays open reads as "not saved yet" — the
+       * button is live again, every field still says what was typed, and the
+       * only evidence anything happened is a strip that fades. Every other
+       * edit screen in this app (`customer/[id]`, `earnings/add-method`)
+       * answers a successful save by leaving, and `settings/property` reloads
+       * on focus, so the owner lands on their listing showing the new values.
+       *
+       * `canGoBack` because this screen is reachable by deep link too, and
+       * `back()` with nothing behind it is a dead button.
+       */
+      if (router.canGoBack()) router.back();
+      else router.replace('/settings/property');
     } catch (err) {
       setToast({
         message: err instanceof ApiError ? err.displayMessage : 'We could not save that. Please try again.',

@@ -100,8 +100,12 @@ export function ActionBar({
           />
           <Text variant="caption" color="tertiary" style={[styles.centred, { marginTop: space[2] }]}>
             {booking.status === 'CHECKED_IN'
-              ? `You need to give ${booking.noticePeriodDays} days' notice.`
-              : 'Anything you have paid is refunded according to the terms above.'}
+              ? (booking.noticePeriodDays != null
+                ? `You need to give ${booking.noticePeriodDays} days' notice.`
+                : 'Talk to the owner about moving out — Lampose is not part of that arrangement.')
+              : (booking.rent != null
+                ? 'Anything you have paid is refunded according to the terms above.'
+                : 'The bed goes back on the market straight away. Anything paid the owner directly is between the two of you.')}
           </Text>
         </View>
       ) : null}

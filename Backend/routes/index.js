@@ -60,6 +60,7 @@ const v1VerificationRoutes = require('../src/modules/verification/verification.r
 const v1PermissionRoutes = require('../src/modules/permissions/permission.routes');
 const v1AnalyticsRoutes = require('../src/modules/analytics/analytics.routes');
 const v1VisitRequestAdminRoutes = require('../src/modules/visits/visitRequest.admin.routes');
+const v1PartnerPayoutAdminRoutes = require('../src/modules/partners/partnerPayout.admin.routes');
 const v1ScriperUserAdminRoutes = require('../src/modules/scraper/scriperUser.admin.routes');
 const v1ScraperJobAdminRoutes = require('../src/modules/scraper/scraperJob.admin.routes');
 const v1ScraperLeadAdminRoutes = require('../src/modules/scraper/scraperLead.admin.routes');
@@ -80,12 +81,13 @@ const v2UserRoutes = require('../src/modules/users/user.routes');
 const v2ScraperRoutes = require('../src/modules/scraper/scraper.routes');
 const v2CustomerRoutes = require('../src/modules/customers/customer.routes');
 const v2SupportRoutes = require('../src/modules/support/ticket.routes');
-/* The SAME module, built three times — one router per audience, each behind
-   its own guard. See the header of ticket.routes.js for why this is three
-   routers rather than one guard that understands three token types. */
+/* The SAME module, built four times — one router per audience, each behind
+   its own guard. See the header of ticket.routes.js for why this is four
+   routers rather than one guard that understands four token types. */
 const {
   driverSupportRouter: v2DriverSupportRoutes,
   restaurantSupportRouter: v2RestaurantSupportRoutes,
+  partnerSupportRouter: v2PartnerSupportRoutes,
 } = v2SupportRoutes;
 const v2PartnerRoutes = require('../src/modules/partners/partner.routes');
 const v2FoodPartnerRoutes = require('../src/modules/foodpartners/foodPartner.routes');
@@ -104,6 +106,7 @@ const V1_GROUPS = [
   ['/whatsapp', v1VerificationRoutes, 'Twilio inbound webhook'],
   ['/permissions', v1PermissionRoutes, 'employee edit/delete permission requests'],
   ['/admin/visit-requests', v1VisitRequestAdminRoutes, 'Super Admin CRUD — visitrequests collection'],
+  ['/admin/partner-payouts', v1PartnerPayoutAdminRoutes, 'Super Admin — Stay Partner payout queue, RazorpayX dispatch'],
   ['/admin/scriper-users', v1ScriperUserAdminRoutes, 'Super Admin CRUD — leads panel accounts (scriper_users)'],
   ['/admin/scriper-jobs', v1ScraperJobAdminRoutes, 'Super Admin CRUD — scrape job history (scriper_jobs)'],
   ['/admin/scriper-leads', v1ScraperLeadAdminRoutes, 'Super Admin CRUD — scraped leads (scriper_leads)'],
@@ -165,6 +168,13 @@ const V2_GROUPS = [
      partnerAuth.middleware.js. Their properties and their customers' visit
      requests are scoped by the phone number they proved, which is the same
      number the onboarding flow already recorded on the property. */
+  /* The owner's support threads — same module as the diner's, driver's and
+     kitchen's, different guard, and the one audience that ALSO reads tickets
+     it did not file: a student's ticket about one of this owner's properties
+     shows up here too — see `ticket.controller.js`'s `ownedBy` and
+     `resolveLinkedPartner`. Before the general /partners mount, for the same
+     ordering reason /food-partners/support and /drivers/support are. */
+  ['/partners/support', v2PartnerSupportRoutes, 'Stay Partner app: support tickets, including guest tickets about their properties'],
   ['/partners', v2PartnerRoutes, 'Stay Partner app: owner accounts, their properties and visit requests'],
   /* Restaurants, in `food_restaurants` + `food_products` + `food_orders`. A
      FIFTH identity system — see foodPartnerAuth.middleware.js, which refuses
@@ -217,6 +227,7 @@ const LEGACY_ALIASES = [
   ['/whatsapp', v1VerificationRoutes, false],
   ['/permissions', v1PermissionRoutes, false],
   ['/admin/visit-requests', v1VisitRequestAdminRoutes, false],
+  ['/admin/partner-payouts', v1PartnerPayoutAdminRoutes, false],
   ['/admin/scriper-users', v1ScriperUserAdminRoutes, false],
   ['/admin/scriper-jobs', v1ScraperJobAdminRoutes, false],
   ['/admin/scriper-leads', v1ScraperLeadAdminRoutes, false],

@@ -94,7 +94,39 @@ const ownedBy = (who) => {
       ],
     };
   }
+  if (who.kind === 'partner') {
+    /*
+     * Two different reasons an owner is a party to a ticket: they filed it
+     * themselves, or a student named their property on one. Both belong on
+     * the same list — an inbox split into two screens is an inbox an owner
+     * has to check twice — and `viewerContextFor` below is what tells the two
+     * apart again when a ROW is rendered, because each needs its own read
+     * watermark and its own definition of "written by me".
+     */
+    return {
+      $or: [
+        { 'requester.kind': 'partner', 'requester.id': who.id },
+        { linkedPartnerId: who.id },
+      ],
+    };
+  }
   return { 'requester.kind': who.kind, 'requester.id': who.id };
+};
+
+/**
+ * How THIS requester should read a ticket that might not be theirs.
+ *
+ * The only case that is not the default: a partner looking at a ticket a
+ * student filed, which `ownedBy` above lets them see but which does not carry
+ * `requester.kind: 'partner'` — the requester is still the student. Passed
+ * straight into `toPublicSummary`/`toPublicDetail`, which is where the
+ * watermark and the "written by me" test actually branch on it.
+ */
+const viewerContextFor = (who, ticket) => {
+  if (who && who.kind === 'partner' && (!ticket.requester || ticket.requester.kind !== 'partner')) {
+    return { viewerKind: 'partner-linked' };
+  }
+  return {};
 };
 
 const dbDown = (res) => res.status(503).json({
@@ -166,11 +198,12 @@ const listTickets = async (req, res, next) => {
        sent it — and hiding it here would make the app look like it had been
        thrown away. What the two kinds do NOT share is the queue that reads
        them, and that is enforced on the staff side, not by omission here. */
-    const tickets = await Ticket.find(ownedBy(requesterOf(req)))
+    const who = requesterOf(req);
+    const tickets = await Ticket.find(ownedBy(who))
       .sort({ lastActivityAt: -1 })
       .limit(LIST_LIMIT);
 
-    const data = tickets.map((ticket) => ticket.toPublicSummary());
+    const data = tickets.map((ticket) => ticket.toPublicSummary(viewerContextFor(who, ticket)));
 
     return res.json({
       success: true,
@@ -190,15 +223,56 @@ const getTicket = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
 
+    const who = requesterOf(req);
     const ticket = await Ticket.findOne({
       reference: String(req.params.reference || '').toUpperCase(),
-      ...ownedBy(requesterOf(req)),
+      ...ownedBy(who),
     });
     if (!ticket) return notFound(res);
 
-    return res.json({ success: true, data: ticket.toPublicDetail() });
+    return res.json({ success: true, data: ticket.toPublicDetail(viewerContextFor(who, ticket)) });
   } catch (error) {
     return next(error);
+  }
+};
+
+/**
+ * The property owner a `property` ticket should also reach, or null.
+ *
+ * Resolved exactly the way `stayRequest.service.js` resolves one for a stay
+ * request — off the PROPERTY document, never off anything the client sent —
+ * because a client-supplied owner id would let a student's ticket claim to be
+ * about any owner's property regardless of `listingId`. Silent on every
+ * failure (no such property, no verified owner, a lookup error): a student
+ * filing about a property Lampose cannot resolve an owner for still gets a
+ * ticket, it simply reaches admin only, exactly like a platform one.
+ */
+const resolveLinkedPartner = async (listingId) => {
+  if (!listingId) return null;
+  try {
+    // eslint-disable-next-line global-require
+    const Property = require('../properties/property.model');
+    // eslint-disable-next-line global-require
+    const Partner = require('../partners/partner.model');
+    // eslint-disable-next-line global-require
+    const { toE164 } = require('../../infrastructure/twilio/twilio');
+
+    const property = await Property.findById(listingId).select('ownerMobile name').lean();
+    if (!property) return null;
+
+    const ownerMobile = toE164(property.ownerMobile);
+    const ownerKey = ownerMobile && Partner.phoneKey(ownerMobile);
+    if (!ownerKey) return null;
+
+    const owner = await Partner.findOne({ phoneDigits: ownerKey, phoneVerifiedAt: { $ne: null } })
+      .select('partnerId name')
+      .lean();
+    if (!owner) return null;
+
+    return { partnerId: owner.partnerId, partnerName: owner.name || '', propertyName: property.name || '' };
+  } catch (error) {
+    console.error('[support] could not resolve a property\'s owner for a ticket:', error.message);
+    return null;
   }
 };
 
@@ -235,6 +309,21 @@ const createTicket = async (req, res, next) => {
       return badInput(res, `Please keep this under ${BODY_MAX_CHARS} characters.`);
     }
 
+    /*
+     * "About the platform, or about this property?"
+     *
+     * The app asks that first, before any of the finer-grained categories —
+     * see `support.audiences.js` for the full list. Only `property` (the
+     * diner's category for exactly this) can ever carry a linked owner; every
+     * other category, on every audience, leaves `linkedPartnerId` null and
+     * the ticket reaches admin alone, which is what "about the platform"
+     * means in practice.
+     */
+    let linked = null;
+    if (who.kind === 'customer' && String(category) === 'property' && listingId) {
+      linked = await resolveLinkedPartner(listingId);
+    }
+
     const ticket = new Ticket({
       kind: 'ticket',
       /* From the SESSION, never the body. A requester a client could name is a
@@ -246,7 +335,9 @@ const createTicket = async (req, res, next) => {
       category: String(category),
       listingId: listingId ? String(listingId) : null,
       orderNumber: orderNumber ? String(orderNumber).trim().toUpperCase().slice(0, 24) : null,
-      placeLabel: placeLabel ? String(placeLabel).slice(0, 120) : '',
+      /* The property's own name, where nobody typed one — the same "fill only
+         what is empty" rule the address forms use. */
+      placeLabel: placeLabel ? String(placeLabel).slice(0, 120) : (linked && linked.propertyName) || '',
       subject: subjectFrom(text),
       status: 'open',
       messages: [{ author: 'customer', body: text, at: new Date() }],
@@ -256,6 +347,8 @@ const createTicket = async (req, res, next) => {
          own, and `unread` ignores those — but it is set for the same reason
          it is set on a report below, where it is not harmless. */
       customerReadAt: new Date(),
+      linkedPartnerId: linked ? linked.partnerId : null,
+      linkedPartnerName: linked ? linked.partnerName : '',
     });
 
     await saveWithReference(ticket, 'ticket');
@@ -397,9 +490,10 @@ const replyToTicket = async (req, res, next) => {
       return badInput(res, `Please keep this under ${BODY_MAX_CHARS} characters.`);
     }
 
+    const who = requesterOf(req);
     const ticket = await Ticket.findOne({
       reference: String(req.params.reference || '').toUpperCase(),
-      ...ownedBy(requesterOf(req)),
+      ...ownedBy(who),
     });
     if (!ticket) return notFound(res);
 
@@ -418,19 +512,28 @@ const replyToTicket = async (req, res, next) => {
       });
     }
 
+    /* `partner` only for the one case that is not the requester's own voice —
+       see the note on the schema field. Everybody else, on every audience,
+       keeps the generic `customer` tag their own messages have always used. */
+    const linked = viewerContextFor(who, ticket).viewerKind === 'partner-linked';
+    const authorTag = linked ? 'partner' : 'customer';
+
     const now = new Date();
-    ticket.messages.push({ author: 'customer', body: text, at: now });
+    ticket.messages.push({ author: authorTag, body: text, at: now });
     ticket.lastActivityAt = now;
 
     /* The queue asked something and it has now been answered, so it goes back
-       into the pile. A resolved ticket that the student replies to is reopened
-       for the same reason — they are telling us it was not resolved. */
+       into the pile. A resolved ticket that the requester (or, on a linked
+       one, the property owner) replies to is reopened for the same reason —
+       new information has arrived and it is worth another look. */
     if (ticket.status === 'awaiting_customer' || ticket.status === 'resolved') {
       ticket.status = 'open';
     }
 
-    /* They have just written in it, so by definition they have read it. */
-    ticket.customerReadAt = now;
+    /* They have just written in it, so by definition they have read it —
+       whichever of the two watermarks is theirs. */
+    if (linked) ticket.partnerReadAt = now;
+    else ticket.customerReadAt = now;
 
     await ticket.save();
 
@@ -440,15 +543,15 @@ const replyToTicket = async (req, res, next) => {
        mechanism. */
     notifier.messageAdded(ticket, ticket.messages[ticket.messages.length - 1]);
 
-    return res.status(201).json({ success: true, data: ticket.toPublicDetail() });
+    return res.status(201).json({ success: true, data: ticket.toPublicDetail(viewerContextFor(who, ticket)) });
   } catch (error) {
     return next(error);
   }
 };
 
 // @route   POST /api/v2/support/tickets/:reference/read
-// @desc    Move this customer's read watermark on one thread
-// @access  Customer session (owner of the ticket only)
+// @desc    Move this requester's (or linked partner's) read watermark on one thread
+// @access  Any signed-in requester who is a party to the ticket
 const markTicketRead = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
@@ -461,16 +564,19 @@ const markTicketRead = async (req, res, next) => {
      * a retry or a React Query refetch would then clear an unread mark nobody
      * ever looked at.
      */
+    const who = requesterOf(req);
     const ticket = await Ticket.findOne({
       reference: String(req.params.reference || '').toUpperCase(),
-      ...ownedBy(requesterOf(req)),
+      ...ownedBy(who),
     });
     if (!ticket) return notFound(res);
 
-    ticket.customerReadAt = new Date();
+    const context = viewerContextFor(who, ticket);
+    if (context.viewerKind === 'partner-linked') ticket.partnerReadAt = new Date();
+    else ticket.customerReadAt = new Date();
     await ticket.save();
 
-    return res.json({ success: true, data: ticket.toPublicSummary() });
+    return res.json({ success: true, data: ticket.toPublicSummary(context) });
   } catch (error) {
     return next(error);
   }

@@ -295,6 +295,160 @@ const createPaymentLink = async ({
   return json;
 };
 
+/* ══════════════════════════════════════════════════════════════════════════
+   RazorpayX — the OUT half. Money leaving, to a Stay Partner owner.
+
+   A different product from everything above (which only ever takes the ₹199
+   IN), on its own credentials (`config.razorpayx`, not `config.razorpay`) and
+   its own three-step shape RazorpayX itself requires: a CONTACT (the person),
+   a FUND ACCOUNT (where their money goes — one bank account or UPI id), then
+   a PAYOUT against that fund account. The business logic that decides HOW
+   MUCH and WHOM lives in `partners/payout.service.js`; this is only the HTTP.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const CONTACTS_URL = 'https://api.razorpay.com/v1/contacts';
+const FUND_ACCOUNTS_URL = 'https://api.razorpay.com/v1/fund_accounts';
+const PAYOUTS_URL = 'https://api.razorpay.com/v1/payouts';
+
+const isPayoutConfigured = () => config.razorpayx.configured;
+
+const payoutAuthHeader = () => `Basic ${Buffer
+  .from(`${config.razorpayx.keyId}:${config.razorpayx.keySecret}`)
+  .toString('base64')}`;
+
+const payoutNotConfiguredError = () => {
+  const error = new Error('Payouts are not configured on this server.');
+  error.code = 'RAZORPAYX_NOT_CONFIGURED';
+  return error;
+};
+
+/** Turn a non-2xx RazorpayX response into the same shaped error every other
+    call in this file throws. */
+const asError = async (response, fallback, code) => {
+  const body = await response.json().catch(() => ({}));
+  const message = body?.error?.description || fallback;
+  const error = new Error(message);
+  error.code = code;
+  error.status = response.status;
+  return error;
+};
+
+/**
+ * A contact for an owner — RazorpayX's record of WHO is being paid.
+ *
+ * `reference_id` is this owner's `partnerId`, so a contact already made for
+ * them is findable rather than re-created; RazorpayX itself does not
+ * de-duplicate on it, so `payout.service.js` is what actually reuses one
+ * (`PartnerPayout` rows already carry the contact/fund-account ids of the
+ * owner's last successful payout — see the model).
+ *
+ * @param {{ name: string, phone: string, referenceId: string }} input
+ */
+const createContact = async ({ name, phone, referenceId }) => {
+  if (!isPayoutConfigured()) throw payoutNotConfiguredError();
+
+  const response = await fetch(CONTACTS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: payoutAuthHeader() },
+    body: JSON.stringify({
+      name: String(name || 'Lampose partner').slice(0, 120),
+      contact: String(phone || '').replace(/\D/g, '').slice(-10),
+      type: 'vendor',
+      reference_id: String(referenceId).slice(0, 40),
+    }),
+  });
+
+  if (!response.ok) throw await asError(response, 'RazorpayX refused the contact.', 'RAZORPAYX_CONTACT_FAILED');
+  return response.json();
+};
+
+/**
+ * Where a contact's money goes — one bank account or one UPI id.
+ *
+ * @param {{ contactId: string, method: 'bank_account' | 'vpa',
+ *           bankAccount?: { name: string, ifsc: string, accountNumber: string },
+ *           vpa?: string }} input
+ */
+const createFundAccount = async ({ contactId, method, bankAccount, vpa }) => {
+  if (!isPayoutConfigured()) throw payoutNotConfiguredError();
+
+  const body = { contact_id: contactId, account_type: method };
+  if (method === 'bank_account') {
+    body.bank_account = {
+      name: bankAccount?.name || '',
+      ifsc: bankAccount?.ifsc || '',
+      account_number: bankAccount?.accountNumber || '',
+    };
+  } else if (method === 'vpa') {
+    body.vpa = { address: vpa || '' };
+  } else {
+    const error = new Error('A payout method is either a bank account or a UPI id.');
+    error.code = 'BAD_PAYOUT_METHOD';
+    throw error;
+  }
+
+  const response = await fetch(FUND_ACCOUNTS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: payoutAuthHeader() },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw await asError(response, 'RazorpayX refused the fund account.', 'RAZORPAYX_FUND_ACCOUNT_FAILED');
+  }
+  return response.json();
+};
+
+/**
+ * Move the money. The one call that actually debits the RazorpayX account.
+ *
+ * `mode: 'IMPS'` — settles in minutes, on any bank account, at a small fixed
+ * fee RazorpayX charges Lampose rather than the owner. `queue_if_low_balance`
+ * is true so a payout made while the virtual account is thin queues rather
+ * than failing outright; `payout.service.js` still records what RazorpayX
+ * answered either way.
+ *
+ * `referenceId` MUST be unique per payout attempt — it is what makes a
+ * retried call land on the SAME payout at RazorpayX rather than paying twice,
+ * which is why `payout.service.js` derives it from the `PartnerPayout` row's
+ * own id rather than generating one per call.
+ *
+ * @param {{ fundAccountId: string, amountPaise: number, referenceId: string,
+ *           narration?: string }} input
+ */
+const createPayout = async ({
+  fundAccountId, amountPaise, referenceId, narration,
+}) => {
+  if (!isPayoutConfigured()) throw payoutNotConfiguredError();
+
+  const response = await fetch(PAYOUTS_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: payoutAuthHeader(),
+      /* RazorpayX's own idempotency header, on the reference id — a retried
+         call with the same reference returns the first payout rather than
+         moving money twice. */
+      'X-Payout-Idempotency': String(referenceId).slice(0, 40),
+    },
+    body: JSON.stringify({
+      account_number: config.razorpayx.accountNumber,
+      fund_account_id: fundAccountId,
+      amount: amountPaise,
+      currency: 'INR',
+      mode: 'IMPS',
+      purpose: 'payout',
+      queue_if_low_balance: true,
+      reference_id: String(referenceId).slice(0, 40),
+      narration: String(narration || 'Lampose payout').slice(0, 30),
+    }),
+  });
+
+  if (!response.ok) throw await asError(response, 'RazorpayX refused the payout.', 'RAZORPAYX_PAYOUT_FAILED');
+  return response.json();
+};
+
 module.exports = {
   isConfigured, createOrder, refundPayment, createPaymentLink, verifySignature, verifyWebhook,
+  isPayoutConfigured, createContact, createFundAccount, createPayout,
 };

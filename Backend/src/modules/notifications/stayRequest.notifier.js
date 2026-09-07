@@ -79,6 +79,46 @@ const pushTo = async (Model, accountQuery, message) => {
   }
 };
 
+/**
+ * The live half of a push — the same fact, delivered instantly to a socket
+ * that is already open rather than woken from asleep.
+ *
+ * Never awaited by a caller and never allowed to throw into one: exactly the
+ * contract `push.js` and `pushTo` above already keep. A room with nobody in
+ * it is simply a no-op inside `realtime.emit`, so this costs nothing when the
+ * app is backgrounded or the socket layer itself is not attached.
+ */
+const emitLive = (kind, id, event, data) => {
+  if (!id) return;
+  try {
+    // eslint-disable-next-line global-require
+    const realtime = require('../../infrastructure/realtime/realtime');
+    if (kind === 'customer') realtime.toCustomer(id, event, data);
+    else if (kind === 'partner') realtime.toPartner(id, event, data);
+  } catch (error) {
+    console.error('[notify] realtime emit failed:', error.message);
+  }
+};
+
+/**
+ * The owner's public id, from their proven phone digits.
+ *
+ * Every function in this file already has `phoneDigits` — it is what
+ * `partner_notifications` and the push lookup are keyed on — but the socket
+ * room is addressed by `partnerId` (what `signPartnerToken` puts in `sub`,
+ * see `realtime.js`). This is the one extra read that bridges the two, spent
+ * only when there is a live line to actually use it on.
+ */
+const partnerIdFor = async (phoneDigits) => {
+  if (!phoneDigits) return null;
+  try {
+    const account = await Partner().findOne({ phoneDigits }).select('partnerId').lean();
+    return (account && account.partnerId) || null;
+  } catch {
+    return null;
+  }
+};
+
 /** An owner's inbox row. Students have no collection — see the header. */
 const ownerInboxRow = async (
   partnerPhoneDigits,
@@ -153,6 +193,11 @@ const notifyOwnerOfNewRequest = async (request) => {
     { $set: { notifiedAt: new Date() } },
   ).catch(() => {});
 
+  /* Live, ahead of the push — see the header on `emitLive`. An owner with the
+     app open on the dashboard hears `IncomingRequestAlert` ring off this,
+     never off a push their own foregrounded app would not have shown them. */
+  emitLive('partner', await partnerIdFor(key), 'stay_request_new', payloadFor(request, 'request.created'));
+
   return pushTo(Partner(), { phoneDigits: key }, {
     title: 'New stay request',
     /* The room type and the deadline are in the body because an owner
@@ -179,6 +224,8 @@ const notifyStudentAccepted = async (request) => {
   const tokenDue = request.payment?.required && request.payment.status !== 'paid';
   const amount = (request.payment?.amountPaise || 0) / 100;
 
+  emitLive('customer', request.customerId, 'stay_request_updated', payloadFor(request, 'request.accepted'));
+
   return pushTo(Customer(), { customerId: request.customerId }, {
     title: tokenDue ? 'The owner said yes — one step left' : 'Your request was accepted',
     body: tokenDue
@@ -198,6 +245,13 @@ const notifyStudentAccepted = async (request) => {
 const notifyStudentDeclined = async (request) => {
   const taken = request.decisionReason === 'INVENTORY_TAKEN';
   say(`[notify] ${taken ? 'inventory taken' : 'declined'} → student ${request.customerId}`);
+
+  emitLive(
+    'customer',
+    request.customerId,
+    'stay_request_updated',
+    payloadFor(request, taken ? 'request.inventoryTaken' : 'request.declined'),
+  );
 
   return pushTo(Customer(), { customerId: request.customerId }, {
     title: taken ? 'That room was just taken' : 'Your request was declined',
@@ -226,6 +280,15 @@ const notifyStudentBookingCancelled = async (booking) => {
   if (!booking || !booking.customerId) return null;
   say(`[notify] booking cancelled → student ${booking.customerId} (${booking.propertyName})`);
 
+  const data = {
+    kind: 'booking.cancelled',
+    bookingId: String(booking._id),
+    requestId: booking.requestId || null,
+    listingId: booking.propertyId,
+    status: 'cancelled',
+  };
+  emitLive('customer', booking.customerId, 'booking_updated', data);
+
   return pushTo(Customer(), { customerId: booking.customerId }, {
     title: 'Your booking was cancelled',
     /* Names the property and says the money position in the same breath.
@@ -233,19 +296,74 @@ const notifyStudentBookingCancelled = async (booking) => {
        question this sentence already answers. */
     body: `${booking.propertyName} cancelled your booking for ${booking.checkInDate || 'your move-in date'}.`
       + ' Anything you paid is refunded. You can find another place in the app.',
-    data: {
-      kind: 'booking.cancelled',
-      bookingId: String(booking._id),
-      requestId: booking.requestId || null,
-      listingId: booking.propertyId,
-      status: 'cancelled',
-    },
+    data,
+  });
+};
+
+/**
+ * The owner marked them in at the door.
+ *
+ * Everything past acceptance used to reach the student nowhere but a poll of
+ * `GET /customers/bookings` — the gap `customerBooking.controller.js` names
+ * as the one it closed for reads, and this is the matching notification for
+ * the two steps of that record an owner can move without the student ever
+ * having opened the app to notice. A check-in is also the other half of
+ * `confirmMoveIn`'s ordering: the student is refused a self-confirm until
+ * `movedInByOwnerAt` is set, and telling them the instant it is is what makes
+ * "you can confirm now" arrive rather than have to be discovered by refresh.
+ */
+const notifyStudentCheckedIn = async (booking) => {
+  if (!booking || !booking.customerId) return null;
+  say(`[notify] checked in → student ${booking.customerId} (${booking.propertyName})`);
+
+  const data = {
+    kind: 'booking.checkedIn',
+    bookingId: String(booking._id),
+    requestId: booking.requestId || null,
+    listingId: booking.propertyId,
+    status: booking.status,
+  };
+  emitLive('customer', booking.customerId, 'booking_updated', data);
+
+  return pushTo(Customer(), { customerId: booking.customerId }, {
+    title: "You're checked in",
+    body: `${booking.propertyName} marked you checked in.`
+      + (booking.movedInByStudentAt ? '' : ' Confirm your move-in in the app.'),
+    data,
+  });
+};
+
+/**
+ * The owner marked them out — the stay is over, on this booking.
+ *
+ * Deliberately plain rather than alarming: unlike a cancellation this is the
+ * ordinary end of a stay the student agreed to, so the notification says what
+ * happened rather than apologising for it.
+ */
+const notifyStudentCheckedOut = async (booking) => {
+  if (!booking || !booking.customerId) return null;
+  say(`[notify] checked out → student ${booking.customerId} (${booking.propertyName})`);
+
+  const data = {
+    kind: 'booking.checkedOut',
+    bookingId: String(booking._id),
+    requestId: booking.requestId || null,
+    listingId: booking.propertyId,
+    status: booking.status,
+  };
+  emitLive('customer', booking.customerId, 'booking_updated', data);
+
+  return pushTo(Customer(), { customerId: booking.customerId }, {
+    title: "You're checked out",
+    body: `${booking.propertyName} marked your stay complete. We hope it went well — you can leave a review in the app.`,
+    data,
   });
 };
 
 /** Nobody answered. */
 const notifyStudentExpired = async (request) => {
   say(`[notify] expired → student ${request.customerId} (${request.propertyName})`);
+  emitLive('customer', request.customerId, 'stay_request_updated', payloadFor(request, 'request.expired'));
   return pushTo(Customer(), { customerId: request.customerId }, {
     title: 'Your request expired',
     /* Not "they ignored you". An owner who missed a three-minute window was
@@ -271,10 +389,49 @@ const notifyOwnerOfWithdrawal = async (request) => {
 
   say(`[notify] withdrawn → owner ${key}`);
 
+  emitLive('partner', await partnerIdFor(key), 'stay_request_updated', payloadFor(request, 'request.cancelled'));
+
   return pushTo(Partner(), { phoneDigits: key }, {
     title: 'Request cancelled',
     body: `${who} cancelled their request for ${request.propertyName}.`,
     data: payloadFor(request, 'request.cancelled'),
+  });
+};
+
+/**
+ * The student cancelled a booking that was already confirmed.
+ *
+ * The mirror of `notifyStudentBookingCancelled` — same fact, opposite
+ * direction. Keyed on `partnerPhoneDigits`, which is stored on every booking
+ * already (it is how every owner-side query scopes to begin with), so this
+ * needs no extra lookup the way the request-stage notifiers do to reach a
+ * `partnerId` for the socket room.
+ */
+const notifyOwnerOfBookingCancelledByStudent = async (booking) => {
+  if (!booking || !booking.partnerPhoneDigits) return null;
+  say(`[notify] booking cancelled by student → owner ${booking.partnerPhoneDigits} (${booking.propertyName})`);
+
+  const key = booking.partnerPhoneDigits;
+
+  await ownerInboxRow(key, {
+    title: 'Booking cancelled',
+    message: `${booking.guestName || 'A student'} cancelled their booking for ${booking.propertyName}`
+      + `${booking.checkInDate ? ` (${booking.checkInDate})` : ''}.`,
+  });
+
+  const data = {
+    kind: 'booking.cancelled',
+    bookingId: String(booking._id),
+    requestId: booking.requestId || null,
+    listingId: booking.propertyId,
+    status: 'cancelled',
+  };
+  emitLive('partner', await partnerIdFor(key), 'booking_updated', data);
+
+  return pushTo(Partner(), { phoneDigits: key }, {
+    title: 'Booking cancelled',
+    body: `${booking.guestName || 'A student'} cancelled their booking for ${booking.propertyName}. The bed is free again.`,
+    data,
   });
 };
 
@@ -365,7 +522,10 @@ module.exports = {
   notifyStudentAccepted,
   notifyStudentDeclined,
   notifyStudentBookingCancelled,
+  notifyStudentCheckedIn,
+  notifyStudentCheckedOut,
   notifyStudentExpired,
   notifyOwnerOfWithdrawal,
+  notifyOwnerOfBookingCancelledByStudent,
   notifyExpired,
 };

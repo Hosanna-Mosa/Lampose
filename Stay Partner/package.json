@@ -30,6 +30,7 @@
     "babel-plugin-react-compiler": "^19.0.0-beta-e993439-20250117",
     "babel-preset-expo": "~54.0.0",
     "expo": "~54.0.27",
+    "expo-audio": "~1.1.1",
     "expo-blur": "~15.0.8",
     "expo-constants": "~18.0.11",
     "expo-device": "~8.0.10",
@@ -59,6 +60,7 @@
     "react-native-svg": "15.12.1",
     "react-native-web": "^0.21.0",
     "react-native-worklets": "0.5.1",
+    "socket.io-client": "^4.8.3",
     "typescript": "~5.9.2",
     "zod": "^3.24.1",
     "zod-validation-error": "^3.4.0"

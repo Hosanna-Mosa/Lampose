@@ -151,6 +151,7 @@ const makeSupportRouter = ({ kind, guard, pick }) => {
 const { requireCustomer } = require('../customers/customerAuth.middleware');
 const { requireDriverForSupport } = require('../drivers/driverAuth.middleware');
 const { requireFoodPartner } = require('../foodpartners/foodPartnerAuth.middleware');
+const { requirePartner } = require('../partners/partnerAuth.middleware');
 
 const customerSupportRouter = makeSupportRouter({
   kind: 'customer',
@@ -204,6 +205,26 @@ const restaurantSupportRouter = makeSupportRouter({
   } : null),
 });
 
+/*
+ * The Stay Partner owner's support router.
+ *
+ * `requirePartner` — the same guard `partner.routes.js` puts on every other
+ * owner route — rather than a widened one, matching this file's own rule.
+ * It carries this owner's own tickets (payouts, KYC uploads, listings) AND,
+ * because `ownedBy` in `ticket.controller.js` treats `linkedPartnerId` as a
+ * second kind of ownership, every ticket a student filed under `property`
+ * about one of this owner's listings — see `resolveLinkedPartner`.
+ */
+const partnerSupportRouter = makeSupportRouter({
+  kind: 'partner',
+  guard: requirePartner,
+  pick: (req) => (req.partner ? {
+    id: req.partner.partnerId,
+    name: req.partner.name || '',
+    phone: req.partner.phone || '',
+  } : null),
+});
+
 /* The diner's router is the default export, because `/api/v2/support` is the
    mount that existed first and `routes/index.js` already requires this file by
    name for it. The other two are named. */
@@ -211,4 +232,5 @@ module.exports = customerSupportRouter;
 module.exports.customerSupportRouter = customerSupportRouter;
 module.exports.driverSupportRouter = driverSupportRouter;
 module.exports.restaurantSupportRouter = restaurantSupportRouter;
+module.exports.partnerSupportRouter = partnerSupportRouter;
 module.exports.makeSupportRouter = makeSupportRouter;

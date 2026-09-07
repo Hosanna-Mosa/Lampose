@@ -71,6 +71,10 @@ export const endpoints = {
      writes. Read-only from here; every state change on it is an owner action. */
   bookings: `${V2}/customers/bookings`,
   booking: (id: string) => `${V2}/customers/bookings/${encodeURIComponent(id)}`,
+  /** The student's own Cancel button — only while the stay is still `upcoming`. */
+  bookingCancel: (id: string) => `${V2}/customers/bookings/${encodeURIComponent(id)}/cancel`,
+  /** "Rate your stay" — offered once a booking reaches `completed`. */
+  bookingReview: (id: string) => `${V2}/customers/bookings/${encodeURIComponent(id)}/review`,
   stayRequests: `${V2}/customers/stay-requests`,
   /* The visit-request routes, shared with the website. The token steps live
      there rather than under /customers because a request made from either
@@ -80,6 +84,10 @@ export const endpoints = {
   stayRequestWithdraw: (id: string) =>
     `${V2}/customers/stay-requests/${encodeURIComponent(id)}/withdraw`,
   /* The student's half of moving in — the owner confirms first. */
+  /* DEVELOPMENT ONLY — 404s unless the server has DEV_ALLOW_MARK_PAID on,
+     which it refuses in production. */
+  visitRequestDevMarkPaid: (id: string) =>
+    `${V2}/visit-requests/${encodeURIComponent(id)}/payment/dev-mark-paid`,
   stayRequestMovedIn: (id: string) =>
     `${V2}/customers/stay-requests/${encodeURIComponent(id)}/moved-in`,
 

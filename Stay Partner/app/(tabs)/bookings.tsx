@@ -12,8 +12,10 @@ import {
 } from '@/components/ui';
 import { formatINR, formatStayRange } from '@/lib/format';
 import { type Booking, payoutOf } from '@/lib/bookings';
+import { toBooking } from '@/lib/bookings';
 import { fetchBookings } from '@/services/api/domain.api';
 import { ApiError } from '@/services/api/client';
+import { onBookingEvent } from '@/services/realtimeSocket';
 import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
@@ -28,67 +30,13 @@ const OUTCOMES: { key: Outcome; label: string }[] = [
   { key: 'cancelled', label: 'Cancelled' },
 ];
 
-const STATUS_MAP: Record<string, Booking['status']> = {
-  in_house: 'inHouse',
-  arriving: 'confirmed',
-  departing: 'inHouse',
-  upcoming: 'confirmed',
-  completed: 'completed',
-  cancelled: 'cancelled',
-};
-
-/**
- * A stored booking, in the shape the cards render.
- *
- * Every field here now comes off the record. The first version of this mapper
- * filled the gaps with plausible-looking constants — `gross: b.totalAmount ||
- * 8000`, `checkInCode: '1234'`, `payment: 'paid'`, `checkOutBy: '11:00 AM'` —
- * and each of those is a claim about somebody's money or their guest.
- * `|| 8000` is the worst of them: a booking with no amount recorded rendered
- * as ₹8,000, and `0 || 8000` is 8000, so a genuinely free stay did too.
- *
- * `payment` is DERIVED rather than asserted, because the schema stores
- * `paidAmount` and `totalAmount` and the answer is arithmetic on the two.
- * `checkInCode` is simply absent — the schema has no such column, and a card
- * showing a made-up code is a guest turned away at the door.
- */
-function mapBackendBookingToUI(b: any): Booking {
-  const checkIn = new Date(b.checkInDate);
-  const checkOut = new Date(b.checkOutDate);
-
-  const total = Number(b.totalAmount ?? 0);
-  const paid = Number(b.paidAmount ?? 0);
-
-  /* Dates are stored as strings and may be unparseable on an old row. One
-     millisecond of guarding beats an "Invalid Date" on every card. */
-  const validSpan = !Number.isNaN(checkIn.getTime()) && !Number.isNaN(checkOut.getTime());
-  const nights = validSpan
-    ? Math.max(1, Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000))
-    : 1;
-
-  return {
-    id: String(b.id ?? b._id ?? ''),
-    guest: b.guestName ?? '',
-    roomType: b.shareType || b.roomNumber || '',
-    checkIn,
-    checkOut,
-    /* The schema records one guest per booking — no headcount column — so the
-       label states what is known rather than inventing a party size. */
-    guests: b.roomNumber ? `Room ${b.roomNumber}` : '',
-    nights,
-    status: STATUS_MAP[b.status] ?? 'confirmed',
-    /*
-     * Derived from the two amounts the schema actually stores.
-     *
-     * `PaymentStatus` has no `partial` member, so a part-paid booking reads as
-     * `pending` — which is the honest side to err on: money is still owed. It
-     * is deliberately not rounded up to `paid`, because a card saying "paid"
-     * on a booking with a balance outstanding is how an owner stops chasing it.
-     */
-    payment: total > 0 && paid >= total ? 'paid' : 'pending',
-    gross: total,
-  };
-}
+/* The mapping lives in `lib/bookings.ts` now — this screen, the detail screen
+   and the four action screens behind it all read one `toBooking`, so a field
+   only one of them mapped (the entry PIN and the move-in stamps were the
+   detail screen's alone) cannot go missing on the others again. */
+/* Wrapped rather than passed straight to `.map`, which would hand the array
+   INDEX to `toBooking`'s second parameter as the fallback id. */
+const mapBackendBookingToUI = (raw: any): Booking => toBooking(raw);
 
 export default function BookingsTab() {
   const router = useRouter();
@@ -125,6 +73,13 @@ export default function BookingsTab() {
   useEffect(() => {
     loadBookings();
   }, [loadBookings]);
+
+  /* The live half — a student cancelling from their own app must not wait
+     for this owner to pull to refresh to find out. This screen fetches by
+     hand rather than through react-query, so the socket event triggers the
+     same reload the pull-to-refresh gesture does rather than an invalidated
+     cache key. */
+  useEffect(() => onBookingEvent(() => { loadBookings(); }), [loadBookings]);
 
   const upcomingList = useMemo(
     () => allBookings.filter((b) => b.status === 'inHouse' || b.status === 'confirmed'),

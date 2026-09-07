@@ -169,11 +169,38 @@ const visitRequestSchema = new mongoose.Schema(
          change to the platform token must not reprice a request already
          made. */
       amountPaise: { type: Number, default: null },
+      /*
+       * HOW it was settled, which is not the same question as whether it was.
+       *
+       * `online` is the only mode that can carry a verified signature, and the
+       * only one that means money moved.
+       *
+       * `dev` means a developer pressed "mark payment as done" — available
+       * only while `DEV_ALLOW_MARK_PAID` is on, never in production, and it
+       * leaves `orderId` and `paymentId` null. That pair (mode + a null
+       * paymentId) is what keeps a bypassed request FINDABLE rather than
+       * indistinguishable from a real payment: `{'payment.mode': 'dev'}` is
+       * the query that lists every one, and none of them should survive into
+       * anything that counts revenue.
+       */
+      mode: { type: String, enum: ['online', 'dev'], default: 'online' },
       /* Razorpay's ids. `orderId` is ours to create, `paymentId` is theirs. */
       orderId: { type: String, default: null },
       paymentId: { type: String, default: null },
-      /* Set only after the HMAC over `orderId|paymentId` verified against our
-         own secret. Its presence IS the proof — never a client's word. */
+      /*
+       * When the token was SETTLED. Read with `mode`, never alone.
+       *
+       * It used to be true that this was set only after the HMAC over
+       * `orderId|paymentId` verified against our own secret, and that its
+       * presence WAS the proof. The development bypass breaks that on its own:
+       * it settles a visit with no payment behind it and stamps this too,
+       * because everything downstream keys off it.
+       *
+       * So the proof is now the PAIR: `verifiedAt` set AND `mode: 'online'`.
+       * Anything asking "was this really paid" must say so — a query on this
+       * field alone counts dev-bypassed rows as verified payments. Reverts to
+       * the stronger statement when `DEV_ALLOW_MARK_PAID` and its route go.
+       */
       verifiedAt: { type: Date, default: null },
       /* When the owner accepted plus the window. Past it, a request stops
          holding the layout. */
@@ -451,6 +478,14 @@ visitRequestSchema.methods.toPublic = function toPublic() {
         return {
           required: true,
           status: this.payment.status,
+          /* `dev` means the token was waived by the bypass, not paid. Sent so
+             a screen never has to render "paid" over a payment that did not
+             happen. */
+          mode: this.payment.mode || 'online',
+          /* DEVELOPMENT ONLY. Whether this server has DEV_ALLOW_MARK_PAID on.
+             It is a server flag, so the app cannot infer it, and a button that
+             might 404 is worse than no button. Always false in production. */
+          devMarkPaidAllowed: Boolean(config.razorpay.devAllowMarkPaid),
           amountPaise: amount,
           representativePaise: representative,
           feePaise: Math.max(0, amount - representative),
@@ -461,7 +496,9 @@ visitRequestSchema.methods.toPublic = function toPublic() {
           paidAt: this.payment.verifiedAt ? this.payment.verifiedAt.toISOString() : null,
         };
       })()
-      : { required: false, status: 'not_required', amountPaise: null, dueBy: null, paidAt: null },
+      : {
+        required: false, status: 'not_required', mode: 'online', devMarkPaidAllowed: false, amountPaise: null, dueBy: null, paidAt: null,
+      },
 
     /* Where the paid visit has got to: waiting for a slot, scheduled, or
        being arranged by the team. `teamNotified` is false when WhatsApp

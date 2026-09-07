@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Screen,
   Text,
@@ -14,6 +15,7 @@ import {
 import { markRequestsRead } from '@/services/api/portfolio.api';
 import type { BackendPartnerRequest } from '@/services/api/types';
 import { formatCountdown, secondsLeft, useStayRequests } from '@/services/hooks/useStayRequests';
+import { queryKeys } from '@/services/hooks/keys';
 import { useColors } from '@/hooks/useColors';
 import { formatINR } from '@/lib/format';
 
@@ -118,20 +120,31 @@ export default function RequestsInbox() {
   const c = useColors();
   const [tab, setTab] = useState<Tab>('pending');
 
+  const queryClient = useQueryClient();
   const { groups, unread, isPending, error, clockOffset } = useStayRequests();
 
   /*
    * The badge clears when the list is actually looked at.
    *
    * Its own call rather than a side effect of the GET, so a background
-   * refetch or a retry cannot clear a count nobody read. Fired once per
-   * mount — not on every poll, which would clear the badge for a request that
-   * arrived while the owner was on another screen.
+   * refetch or a retry cannot clear a count nobody read.
+   *
+   * On FOCUS rather than on mount. It was once-per-mount while this screen was
+   * pushed from the dashboard and thrown away on the way back — as a tab it
+   * mounts once and then stays mounted underneath the others forever, so a
+   * mount effect would clear the badge the first time and never again. Every
+   * request arriving after that would keep a count the owner had already read.
+   *
+   * Still not on every poll: a request that lands while the owner is on
+   * another tab has to keep its badge until they come and look.
    */
-  useEffect(() => {
-    if (unread > 0) markRequestsRead().catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mount, deliberately
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      if (unread > 0) markRequestsRead().catch(() => {});
+      queryClient.invalidateQueries({ queryKey: queryKeys.requests });
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- `unread` is read, not depended on: re-running per count change would fire this mid-poll
+    }, []),
+  );
 
   const labels = useMemo<Record<Tab, string>>(() => ({
     /* The count is on the tab because it is the reason to press it. */
@@ -149,11 +162,11 @@ export default function RequestsInbox() {
       contentStyle={styles.stack}
       stickyHeader={(
         <>
-          {/* The design draws no back affordance here — it assumes you arrive
-              from a tab. This screen is pushed from the dashboard, so it gets
-              the same inline chevron every other pushed screen uses. */}
+          {/* No back affordance, which is what the design always assumed: this
+              is a tab root now, and there is nothing behind it to go back to.
+              It used to carry the inline chevron every pushed screen has,
+              because it was reached from the dashboard. */}
           <View style={styles.headerRow}>
-            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
             <IconButton
               name="plus"
               label="Add customer"
@@ -214,8 +227,9 @@ const styles = StyleSheet.create({
     height: 44,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginLeft: -10,
+    /* One button now the back chevron is gone, and it belongs on the right
+       where it already was — `space-between` would push it to the left edge. */
+    justifyContent: 'flex-end',
     marginRight: -10,
     marginBottom: -4,
   },

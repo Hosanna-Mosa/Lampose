@@ -62,6 +62,10 @@ export type CustomerBooking = {
   movedInByOwnerAt: string | null;
   movedInByStudentAt: string | null;
   address: string | null;
+  /** Always false unless `status` is `completed` — see `bookingReview` below. */
+  reviewed: boolean;
+  /** Set only when `status` is `cancelled` — who ended it. */
+  cancelledBy: 'student' | 'owner' | null;
   createdAt: string;
 };
 
@@ -72,6 +76,54 @@ export async function fetchBookings(signal?: AbortSignal): Promise<CustomerBooki
 
 export async function fetchBooking(id: string, signal?: AbortSignal): Promise<CustomerBooking> {
   const res = await api.get<ApiEnvelope<CustomerBooking>>(endpoints.booking(id), { signal });
+  return unwrap(res);
+}
+
+/**
+ * Pull out of a booking before it starts.
+ *
+ * Refused by the server once the owner has checked the student in
+ * (`NOT_CANCELLABLE`) — cancelling a stay somebody is already living in is a
+ * different, harder conversation (a refund, a partial night) than this
+ * button. Idempotent: cancelling an already-cancelled booking comes back
+ * `success: true` with the same row rather than an error.
+ */
+export async function cancelBooking(
+  id: string,
+  input: { reason?: string; note?: string } = {},
+  signal?: AbortSignal,
+): Promise<CustomerBooking> {
+  const res = await api.post<ApiEnvelope<CustomerBooking>>(
+    endpoints.bookingCancel(id),
+    { reason: input.reason, note: input.note },
+    { signal },
+  );
+  return unwrap(res);
+}
+
+export type BookingReview = {
+  id: string;
+  rating: number;
+  comment: string;
+  bookingId: string;
+};
+
+/**
+ * "Rate your stay" — refused with `NOT_COMPLETED` before checkout, and
+ * `ALREADY_REVIEWED` on a second attempt. One review per booking, enforced by
+ * the server's own unique index, not just by this app's own memory of having
+ * shown the prompt.
+ */
+export async function createBookingReview(
+  id: string,
+  input: { rating: number; comment: string },
+  signal?: AbortSignal,
+): Promise<BookingReview> {
+  const res = await api.post<ApiEnvelope<BookingReview>>(
+    endpoints.bookingReview(id),
+    { rating: input.rating, comment: input.comment },
+    { signal },
+  );
   return unwrap(res);
 }
 

@@ -17,7 +17,10 @@ const { phoneKey } = Partner;
 const {
   releaseBed, shareTypeIdForBooking, OCCUPYING,
 } = require('../inventory/inventory.service');
-const { notifyStudentBookingCancelled } = require('../notifications/stayRequest.notifier');
+const payoutService = require('./payout.service');
+const {
+  notifyStudentBookingCancelled, notifyStudentCheckedIn, notifyStudentCheckedOut,
+} = require('../notifications/stayRequest.notifier');
 
 /* ══════════════════════════════════════════════════════════════════════════
    Freeing a bed.
@@ -48,10 +51,10 @@ const { notifyStudentBookingCancelled } = require('../notifications/stayRequest.
  * when somebody else already had. A null means DO NOT release — that is the
  * whole idempotency guarantee.
  */
-const freeBookingBed = async (bookingId, partnerKeyDigits, nextStatus) => {
+const freeBookingBed = async (bookingId, partnerKeyDigits, nextStatus, extra = {}) => {
   const booking = await PartnerBooking.findOneAndUpdate(
     { _id: bookingId, partnerPhoneDigits: partnerKeyDigits, status: { $in: OCCUPYING } },
-    { status: nextStatus },
+    { status: nextStatus, ...extra },
     { new: true },
   ).lean();
 
@@ -161,6 +164,18 @@ const checkInBooking = async (req, res, next) => {
       booking.status = 'in_house';
     }
 
+    /*
+     * Tell the student.
+     *
+     * This used to reach nobody — a check-in only ever showed up the next
+     * time `GET /customers/bookings` happened to be polled. Fire-and-forget,
+     * like every other notification here: the owner's tap must not wait on a
+     * push, and a push that fails must not fail the check-in.
+     */
+    notifyStudentCheckedIn(booking).catch((error) => {
+      console.error('[booking] checked in but the student was not notified:', error.message);
+    });
+
     return res.json({ success: true, data: { ...booking, id: String(booking._id) } });
   } catch (error) {
     return next(error);
@@ -181,6 +196,14 @@ const checkOutBooking = async (req, res, next) => {
       if (existing) return res.json({ success: true, data: { ...existing, id: String(existing._id) } });
       return res.status(404).json({ success: false, message: 'Booking not found' });
     }
+
+    /* Same shape as check-in: the owner's action, told to the student it
+       actually happened to. See notifyStudentCheckedOut for why this is also
+       where a review gets suggested. */
+    notifyStudentCheckedOut(booking).catch((error) => {
+      console.error('[booking] checked out but the student was not notified:', error.message);
+    });
+
     return res.json({ success: true, data: { ...booking, id: String(booking._id) } });
   } catch (error) {
     return next(error);
@@ -192,7 +215,19 @@ const cancelBooking = async (req, res, next) => {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
     const key = getDigits(req.partner);
     const { id } = req.params;
-    const booking = await freeBookingBed(id, key, 'cancelled');
+
+    /* Recorded with the same guarded write that moves the status, so a reason
+       can never be stamped on a booking this call did not actually cancel.
+       Both are optional: an older build of the app sends neither. */
+    const reason = String((req.body || {}).reason || '').trim().slice(0, 120) || null;
+    const note = String((req.body || {}).note || '').trim().slice(0, 500) || null;
+
+    const booking = await freeBookingBed(id, key, 'cancelled', {
+      cancelReason: reason,
+      cancelNote: note,
+      cancelledAt: new Date(),
+      cancelledBy: 'owner',
+    });
     if (!booking) {
       const existing = await PartnerBooking.findOne({ _id: id, partnerPhoneDigits: key }).lean();
       /* Already cancelled. Idempotent for the owner, and deliberately silent —
@@ -260,6 +295,11 @@ const getEarningsSummary = async (req, res, next) => {
 
     const pendingPayout = payouts.find((p) => p.status === 'pending' || p.status === 'processing') || null;
 
+    /* What the "Request payout" button would actually move right now — the
+       sum of completed bookings nothing has claimed yet. See
+       `payout.service.js`. */
+    const availableBalance = await payoutService.availableBalance(key);
+
     return res.json({
       success: true,
       data: {
@@ -267,12 +307,32 @@ const getEarningsSummary = async (req, res, next) => {
         weekEarnings: `₹${weekAmount.toLocaleString('en-IN')}`,
         todayAmount,
         weekAmount,
+        availableBalance,
         pendingPayout: pendingPayout ? { ...pendingPayout, id: String(pendingPayout._id) } : null,
         payoutsCount: payouts.length,
         paymentMethodsCount: paymentMethods.length,
       },
     });
   } catch (error) {
+    return next(error);
+  }
+};
+
+/**
+ * "Request payout" — the owner's own button.
+ *
+ * @route POST /api/v2/partners/payouts/request
+ */
+const requestPayout = async (req, res, next) => {
+  try {
+    if (mongoose.connection.readyState !== 1) return dbDown(res);
+
+    const payout = await payoutService.requestPayout(req.partner);
+    return res.status(201).json({ success: true, data: { ...payout.toObject(), id: String(payout._id) } });
+  } catch (error) {
+    if (error instanceof payoutService.PayoutError) {
+      return res.status(error.status).json({ success: false, code: error.code, message: error.message });
+    }
     return next(error);
   }
 };
@@ -376,20 +436,53 @@ const getComplaintById = async (req, res, next) => {
   }
 };
 
+/**
+ * Log a complaint — about a property this owner actually owns.
+ *
+ * Used to default a missing `propertyId`/`propertyName` to `'prop_1'` /
+ * `'Sea View Villa'` — placeholders from before this had a form in front of
+ * it, and precisely the wrong failure mode for a form that DID get one: a
+ * typo or a stale client silently filed the complaint against a fake
+ * property instead of refusing. `propertyId` is now required and checked
+ * against this partner's own phone number, the same ownership test
+ * `propertyEdit.controller.js`'s `findOwnedProperty` runs — never trusted
+ * from the body, and `propertyName` is read off the property record rather
+ * than whatever the client sent alongside it.
+ */
 const createComplaint = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
     const key = getDigits(req.partner);
-    const { propertyId, propertyName, title, category, priority, description } = req.body;
+    const { propertyId, title, category, priority, description } = req.body || {};
+
+    if (!mongoose.isValidObjectId(propertyId)) {
+      return res.status(400).json({
+        success: false, code: 'BAD_INPUT', message: 'Choose which property this is about.',
+      });
+    }
+    if (!String(title || '').trim() || !String(description || '').trim()) {
+      return res.status(400).json({
+        success: false, code: 'BAD_INPUT', message: 'Add a title and a description.',
+      });
+    }
+
+    // eslint-disable-next-line global-require
+    const Property = require('../properties/property.model');
+    const property = await Property.findById(propertyId).select('name ownerMobile').lean();
+    /* Same 404 whether the id is nobody's or somebody else's — a complaint
+       screen must not become a way to discover which ids exist. */
+    if (!property || phoneKey(property.ownerMobile) !== key) {
+      return res.status(404).json({ success: false, message: 'Property not found' });
+    }
 
     const created = await PartnerComplaint.create({
       partnerPhoneDigits: key,
-      propertyId: propertyId || 'prop_1',
-      propertyName: propertyName || 'Sea View Villa',
-      title,
+      propertyId: String(property._id),
+      propertyName: property.name,
+      title: String(title).trim().slice(0, 200),
       category: category || 'Maintenance',
       priority: priority || 'medium',
-      description,
+      description: String(description).trim().slice(0, 2000),
       status: 'open',
     });
 
@@ -633,6 +726,7 @@ module.exports = {
   getEarningsSummary,
   getPayouts,
   getPayoutById,
+  requestPayout,
   getPaymentMethods,
   addPaymentMethod,
   deletePaymentMethod,

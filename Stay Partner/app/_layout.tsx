@@ -19,7 +19,9 @@ import { JetBrainsMono_500Medium } from '@expo-google-fonts/jetbrains-mono';
 import { Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { IncomingRequestAlert } from '@/components/IncomingRequestAlert';
 import { usePushRouting } from '@/services/push/usePushRouting';
+import { setupQueryFocus } from '@/services/queryFocus';
 
 // Hold the native splash until the fonts resolve, so the branded splash below
 // never renders in a fallback face.
@@ -32,6 +34,17 @@ SplashScreen.preventAutoHideAsync();
 const MIN_SPLASH_MS = 1100;
 
 const queryClient = new QueryClient();
+
+/*
+ * Wired at module scope, before the first render.
+ *
+ * `refetchOnWindowFocus` is set on every query in this app and did nothing:
+ * react-query reads `document.visibilityState`, which does not exist on a
+ * phone. See `services/queryFocus.ts` — without it the only thing that
+ * refetched was a screen mounting, so a new request appeared when the owner
+ * changed tabs and not when it arrived.
+ */
+setupQueryFocus();
 
 /**
  * The gate.
@@ -119,15 +132,37 @@ function RootLayoutNav() {
   if (status === 'loading') return <SplashView />;
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      {/* Both groups are declared, and both exist as routes: each has a
-          `_layout.tsx`. Naming a group without one is what produced
-          "No route named "(auth)" exists in nested children" — expo-router
-          flattens a group with no layout into `(auth)/login` and friends, so
-          there is no `(auth)` to name. */}
-      <Stack.Screen name="(auth)" />
-      <Stack.Screen name="(tabs)" />
-    </Stack>
+    <>
+      <Stack screenOptions={{ headerShown: false }}>
+        {/* Both groups are declared, and both exist as routes: each has a
+            `_layout.tsx`. Naming a group without one is what produced
+            "No route named "(auth)" exists in nested children" — expo-router
+            flattens a group with no layout into `(auth)/login` and friends, so
+            there is no `(auth)` to name. */}
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(tabs)" />
+      </Stack>
+
+      {/*
+        A request arriving, rung and popped up wherever the owner is.
+
+        A native `Modal` inside this component, not a route and not an
+        absolutely-positioned overlay: the navigator draws through
+        `react-native-screens`, and a native screen can paint over a JS sibling
+        whatever the tree order says. A `Modal` gets its own OS window above
+        all of it. Position in this tree therefore does not matter — what
+        matters is that it is mounted exactly once, and this is the only place
+        that is true.
+
+        A route would be wrong for a different reason: a request can land while
+        somebody is halfway through a form, and pushing a screen at them would
+        put it in their history and take their back button away.
+
+        Below `usePushRouting`, which owns the other half: the phone that was
+        asleep.
+      */}
+      <IncomingRequestAlert />
+    </>
   );
 }
 

@@ -86,19 +86,26 @@ let io = null;
 
 const BADGE = '🔌 [realtime]';
 
-/* The five token types this process issues. Only three of them have any
-   business on a socket: a rider, a diner and a kitchen. Staff tokens verify
-   against the same secret and are deliberately not listed. */
+/* The six token types this process issues. Four of them have business on a
+   socket: a rider, a diner, a kitchen and — as of the stay side gaining a
+   live line — a Stay Partner owner. Staff tokens verify against the same
+   secret and are deliberately not listed. */
 const ROOM_OF_TYPE = {
   driver: (claims) => `driver:${claims.sub}`,
   customer: (claims) => `customer:${claims.sub}`,
   foodpartner: (claims) => `restaurant:${claims.sub}`,
+  /* `claims.sub` on a partner token is `partner.partnerId` — see
+     `signPartnerToken` in partnerAuth.middleware.js — which is what makes
+     this the same id `stayRequest.notifier.js` and `support.notifier.js`
+     address when they emit to an owner. */
+  partner: (claims) => `partner:${claims.sub}`,
 };
 
 const KIND_OF_TYPE = {
   driver: 'driver',
   customer: 'customer',
   foodpartner: 'restaurant',
+  partner: 'partner',
 };
 
 /** Rooms, spelled in one place so an emitter and a joiner cannot disagree. */
@@ -106,6 +113,7 @@ const rooms = {
   driver: (driverId) => `driver:${driverId}`,
   customer: (customerId) => `customer:${customerId}`,
   restaurant: (restaurantId) => `restaurant:${restaurantId}`,
+  partner: (partnerId) => `partner:${partnerId}`,
   order: (orderNumber) => `order:${orderNumber}`,
 
   /*
@@ -327,7 +335,7 @@ const attachRealtime = (httpServer, { corsOrigin } = {}) => {
         // eslint-disable-next-line global-require
         const Ticket = require('../../modules/support/ticket.model');
         const ticket = await Ticket.findOne({ reference })
-          .select('reference requester.kind requester.id customerId')
+          .select('reference requester.kind requester.id customerId linkedPartnerId')
           .lean();
 
         const requester = (ticket && ticket.requester) || {};
@@ -335,6 +343,16 @@ const attachRealtime = (httpServer, { corsOrigin } = {}) => {
           (requester.kind === who.kind && requester.id === who.id)
           /* Legacy diner rows: `customerId` and no `requester`. */
           || (who.kind === 'customer' && ticket.customerId === who.id)
+          /*
+           * The property's owner, on a ticket a STUDENT filed.
+           *
+           * `linkedPartnerId` is stamped at creation only when the student
+           * said this was about a property whose owner could be resolved —
+           * see `createTicket`. A partner is a party to that thread the same
+           * way an admin is a party to every thread: not because they wrote
+           * it, but because it names them.
+           */
+          || (who.kind === 'partner' && ticket.linkedPartnerId === who.id)
         );
 
         if (!mine) {
@@ -440,6 +458,7 @@ const toSupport = (event, data) => emit(SUPPORT_ROOM, event, data);
 const toDriver = (driverId, event, data) => emit(rooms.driver(driverId), event, data);
 const toCustomer = (customerId, event, data) => emit(rooms.customer(customerId), event, data);
 const toRestaurant = (restaurantId, event, data) => emit(rooms.restaurant(restaurantId), event, data);
+const toPartner = (partnerId, event, data) => emit(rooms.partner(partnerId), event, data);
 const toOrder = (orderNumber, event, data) => emit(rooms.order(orderNumber), event, data);
 
 /**
@@ -470,6 +489,7 @@ module.exports = {
   toDriver,
   toCustomer,
   toRestaurant,
+  toPartner,
   toOrder,
   toOrderParties,
 };

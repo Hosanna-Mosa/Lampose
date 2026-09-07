@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { addPushListeners, getInitialPush, isFoodPush, type PushPayload } from './push';
+import { addPushListeners, getInitialPush, isBookingPush, isFoodPush, type PushPayload } from './push';
 
 /**
  * What happens when a notification arrives, and when one is tapped.
@@ -50,6 +50,24 @@ export function usePushRouting() {
         return;
       }
 
+      /* The booking half — a check-in, a check-out or a cancellation the
+         OWNER just made. Not the request screen: the request has been
+         terminal since it was accepted, and none of these three change it.
+         A checkout goes straight to the review prompt, since that is the one
+         actionable thing the notification is telling them they can now do;
+         the other two land on the booking itself, in the fixture-id shape
+         `app/bookings/[id].tsx` still reads — see the note there on
+         `realBookingId` for why that screen's real actions (cancel, review)
+         work from a fixture-shaped route. */
+      if (isBookingPush(payload)) {
+        if (payload.kind === 'booking.checkedOut' && payload.bookingId) {
+          router.push(`/bookings/review?id=${payload.bookingId}` as never);
+        } else if (payload.listingId) {
+          router.push(`/bookings/bkg-${payload.listingId}` as never);
+        }
+        return;
+      }
+
       router.push({
         pathname: '/confirm/[id]',
         params: { id: payload.listingId ?? '', requestId: payload.requestId ?? '' },
@@ -66,6 +84,11 @@ export function usePushRouting() {
          every eight seconds while an order is live, so it has already redrawn
          by the time this fires. */
       if (isFoodPush(payload)) return;
+      if (isBookingPush(payload)) {
+        queryClient.invalidateQueries({ queryKey: ['bookings'] });
+        if (payload.bookingId) queryClient.invalidateQueries({ queryKey: ['bookings', payload.bookingId] });
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ['stay-requests', payload.requestId] });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     };

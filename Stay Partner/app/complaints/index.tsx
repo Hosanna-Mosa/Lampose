@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Screen, Text, Button, IconButton, Badge, EmptyState } from '@/components/ui';
+import { Screen, Text, TextButton, Button, IconButton, Badge, EmptyState } from '@/components/ui';
 import { statusLabel, type Complaint } from '@/lib/complaints';
 import { relativeTime } from '@/lib/notifications';
 import { fetchComplaintsApi, updateComplaintStatusApi } from '@/services/api/domain.api';
@@ -53,9 +53,12 @@ export default function ComplaintsScreen() {
             <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
           </View>
 
-          <Text variant="screenTitle" style={styles.title}>
-            Complaints
-          </Text>
+          <View style={styles.headRow}>
+            <Text variant="screenTitle" style={styles.title}>
+              Complaints
+            </Text>
+            <TextButton label="+ New" onPress={() => router.push('/complaints/new')} />
+          </View>
         </>
       }
     >
@@ -142,6 +145,7 @@ function ComplaintCard({ complaint, onResolved }: { complaint: Complaint; onReso
 const styles = StyleSheet.create({
   stack: { gap: 12 },
   backRow: { height: 44, justifyContent: 'center', marginLeft: -10, marginBottom: -6 },
+  headRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
   title: { marginBottom: 4 },
 
   card: { borderWidth: 1, borderRadius: radius.card, padding: 14, gap: 8 },

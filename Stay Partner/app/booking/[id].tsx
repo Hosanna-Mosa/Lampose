@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Screen,
@@ -15,10 +14,9 @@ import {
 } from '@/components/ui';
 import { formatDayDate, formatINR, initials, isSameDay } from '@/lib/format';
 import { type Booking, payoutOf } from '@/lib/bookings';
-import { fetchBookingById } from '@/services/api/domain.api';
+import { useBooking } from '@/services/hooks/useBookings';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
-import { logWarn } from '@/lib/log';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -27,78 +25,40 @@ export default function BookingDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
 
-  const [booking, setBooking] = useState<Booking | null>(null);
-  const [loading, setLoading] = useState(true);
+  /*
+   * One hook, one mapping.
+   *
+   * This screen used to fetch and map inline while the four screens BEHIND it
+   * (check-in, active stay, checkout, cancel) read the fixture array in
+   * `lib/bookings.ts` instead — which is why every one of them said "Booking
+   * not found" and the Cancel button appeared to do nothing. They all share
+   * `useBooking` now, and the mapping lives once in `toBooking`.
+   */
+  const { booking, notFound, isPending } = useBooking(id);
 
-  useEffect(() => {
-    if (!id) return;
-    fetchBookingById(id)
-      .then((b) => {
-        if (b) {
-          const checkIn = new Date(b.checkInDate || Date.now());
-          const checkOut = new Date(b.checkOutDate || Date.now() + 86400000);
-          const statusMap: Record<string, any> = {
-            in_house: 'inHouse',
-            arriving: 'confirmed',
-            departing: 'inHouse',
-            upcoming: 'confirmed',
-            completed: 'completed',
-            cancelled: 'cancelled',
-          };
-          setBooking({
-            id: b.id || b._id || id,
-            guest: b.guestName || 'Guest',
-            roomType: b.shareType || b.roomNumber || 'Standard Room',
-            checkIn,
-            checkOut,
-            guests: '1 guest',
-            nights: Math.max(1, Math.round((checkOut.getTime() - checkIn.getTime()) / (1000 * 3600 * 24))),
-            status: statusMap[b.status] || 'inHouse',
-            /*
-             * Derived, not asserted.
-             *
-             * This said `payment: 'paid'` and `gross: b.totalAmount || 8000`,
-             * so a booking with no money against it rendered as "Paid" with a
-             * ₹7,520 payout — an invented ₹8,000 minus the platform fee. On a
-             * payout screen that is the worst possible default: an owner
-             * reading a figure they are owed that nobody agreed to.
-             *
-             * Nothing is charged anywhere in this flow yet, so a
-             * request-sourced booking is honestly ₹0 and unpaid.
-             */
-            payment: (b.totalAmount || 0) > 0 && (b.paidAmount || 0) >= (b.totalAmount || 0)
-              ? 'paid'
-              : 'pending',
-            gross: b.totalAmount || 0,
-            /* The server's PIN. This was hardcoded `'1234'` — every booking
-               showed the same code, and none of them matched what the student
-               was holding. */
-            checkInCode: b.entryPin || undefined,
-            movedInByOwnerAt: b.movedInByOwnerAt ? new Date(b.movedInByOwnerAt) : undefined,
-            movedInByStudentAt: b.movedInByStudentAt ? new Date(b.movedInByStudentAt) : undefined,
-            checkOutBy: '11:00 AM',
-          });
-        }
-      })
-      .catch((err) => logWarn('Error fetching booking detail:', err))
-      .finally(() => setLoading(false));
-  }, [id]);
+  if (isPending && !booking) {
+    return (
+      <Screen scroll={false} padX={22} background="bg">
+        <View style={styles.loading}>
+          <ActivityIndicator color={c.accent} />
+        </View>
+      </Screen>
+    );
+  }
 
-  if (!loading && !booking) {
+  if (!booking) {
     return (
       <Screen scroll={false} padX={22} background="bg">
         <EmptyState
           icon="search"
           title="Booking not found"
-          body="It may have been cancelled."
+          body={notFound ? 'It may have been cancelled.' : 'We could not load this booking.'}
           actionLabel="Back to bookings"
           onAction={() => router.back()}
         />
       </Screen>
     );
   }
-
-  if (!booking) return null;
 
   // A finished stay offers no action, so it gets no footer bar at all.
   const hasAction = booking.status !== 'completed' && booking.status !== 'cancelled';
@@ -237,6 +197,24 @@ function PrimaryAction({ booking }: { booking: Booking }) {
     );
   }
 
+  /*
+   * Half-way through moving in.
+   *
+   * The owner has marked them in and the student has not confirmed yet, so
+   * the row is still `upcoming` and "Start check-in" would send them back
+   * through a PIN they have already checked. This is the state
+   * `booking/checked-in` exists for.
+   */
+  if (booking.movedInByOwnerAt && !booking.movedInByStudentAt) {
+    return (
+      <Button
+        label="Waiting for guest to confirm"
+        variant="secondary"
+        onPress={() => router.push({ pathname: '/booking/checked-in', params: { id: booking.id } })}
+      />
+    );
+  }
+
   const arrivesToday = isSameDay(booking.checkIn, now);
   const arrived = arrivesToday || booking.checkIn < now;
 
@@ -258,6 +236,7 @@ function PrimaryAction({ booking }: { booking: Booking }) {
 }
 
 const styles = StyleSheet.create({
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   /* Large and tabular: read out loud, at a door, from arm's length. */
   pin: { fontFamily: fonts.bold, fontSize: 30, lineHeight: 38, letterSpacing: 1.5, marginVertical: 4 },
   stack: { gap: 14 },
