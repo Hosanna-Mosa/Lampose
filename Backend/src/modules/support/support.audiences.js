@@ -70,6 +70,20 @@ const DRIVER_CATEGORIES = ['payout', 'earnings', 'order', 'account', 'app', 'saf
 const RESTAURANT_CATEGORIES = ['settlement', 'order', 'menu', 'rider', 'account', 'app', 'other'];
 
 /**
+ * The Stay Partner owner's own six — what THEY may open a ticket about.
+ *
+ * A separate list from the diner's, for the same reason the rider's and the
+ * kitchen's are: an owner's worst day is a payout that did not land or a
+ * guest KYC upload that failed, not a deposit dispute — that one arrives the
+ * other way round, as a ticket a STUDENT filed under `property`, which this
+ * audience never files and instead reads because it names them (see
+ * `linkedPartnerId` on the ticket model). `guest` is deliberately narrow:
+ * a problem with one guest's booking, account or documents, as opposed to
+ * `listing`, which is the property record itself.
+ */
+const PARTNER_CATEGORIES = ['payout', 'booking', 'guest', 'listing', 'account', 'app', 'other'];
+
+/**
  * The three audiences.
  *
  * `label` is what the admin queue shows on a row — the person working the
@@ -96,6 +110,12 @@ const AUDIENCES = {
     categories: RESTAURANT_CATEGORIES,
     reports: false,
   },
+  partner: {
+    kind: 'partner',
+    label: 'Owner',
+    categories: PARTNER_CATEGORIES,
+    reports: false,
+  },
 };
 
 const REQUESTER_KINDS = Object.keys(AUDIENCES);
@@ -111,7 +131,9 @@ const REQUESTER_KINDS = Object.keys(AUDIENCES);
  * offered.
  */
 const ALL_CATEGORIES = Array.from(
-  new Set([...CUSTOMER_CATEGORIES, ...DRIVER_CATEGORIES, ...RESTAURANT_CATEGORIES]),
+  new Set([
+    ...CUSTOMER_CATEGORIES, ...DRIVER_CATEGORIES, ...RESTAURANT_CATEGORIES, ...PARTNER_CATEGORIES,
+  ]),
 );
 
 /** The audience record for a kind, or null. */
@@ -133,6 +155,7 @@ module.exports = {
   CUSTOMER_CATEGORIES,
   DRIVER_CATEGORIES,
   RESTAURANT_CATEGORIES,
+  PARTNER_CATEGORIES,
   audienceOf,
   allowsCategory,
   allowsReports,

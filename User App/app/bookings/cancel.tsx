@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -6,33 +6,56 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Icon, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
-import { cancellationPolicy, cancellationReasons } from '@/data/bookings';
+import { cancellationReasons } from '@/data/bookings';
 import { useTheme } from '@/context/ThemeContext';
-import { formatRupees } from '@/utils/money';
-import { useDepositMark } from '@/components/ui/DepositMark';
+import { ApiError, useBooking } from '@/services';
+import { cancelBooking } from '@/services/api/bookings.api';
 
 /**
- * Screen 56 — cancelling.
+ * Cancelling a real booking, for real — `POST /customers/bookings/:id/cancel`.
  *
- * **Policy before reason.** The cost of cancelling is on screen before the
- * student is asked anything. A reason picker shown first reads as a survey
- * standing between someone and their money, and it produces garbage data
- * besides — people pick whatever clears the screen fastest.
+ * This used to end at `router.replace('/bookings/cancelled')` with nothing
+ * sent anywhere, drawing a refund breakdown (a LAMPOSE fee, a UPI refund
+ * destination, an arrival date) that has no backend behind it: rent on a stay
+ * is paid to the owner directly, never held by Lampose, so there is no refund
+ * to compute here. That block is gone; what is real is the reason — kept,
+ * because it was already a good question — and the button, which now
+ * actually cancels the booking the id in the URL names.
  *
- * So the order is: what you paid → what is kept and why → what comes back and
- * when → then, optionally, why you are leaving. The reason is genuinely
- * skippable; the confirm button never depends on it.
- *
- * The non-refundable fee is named on this screen rather than in the
- * confirmation, so nobody can say they were not told before they tapped.
+ * Refused by the server once the owner has already checked the student in
+ * (`NOT_CANCELLABLE`) — see the note on `cancelBooking` in
+ * `customerBooking.controller.js`.
  */
 export default function CancelBooking() {
   const { colors, space, layout, mode, radius, touch } = useTheme();
   const insets = useSafeAreaInsets();
-  const depositMark = useDepositMark();
   const router = useRouter();
+  const { id } = useLocalSearchParams<{ id: string }>();
+
+  const { booking, loading: loadingBooking } = useBooking(id);
 
   const [reasonId, setReasonId] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!id) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const reasonLabel = cancellationReasons.find((r) => r.id === reasonId)?.label;
+      await cancelBooking(id, { reason: reasonLabel });
+      router.replace('/bookings/cancelled');
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'NOT_CANCELLABLE') {
+        setError('This booking can no longer be cancelled from the app — it has already started or ended.');
+      } else {
+        setError(err instanceof ApiError ? err.displayMessage : 'Could not cancel this booking. Please try again.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
@@ -46,7 +69,6 @@ export default function CancelBooking() {
       <ScrollView
         contentContainerStyle={{ padding: layout.gutter, gap: space[6], paddingBottom: space[8] }}
       >
-        {/* The money, first and unprompted. */}
         <View
           style={{
             backgroundColor: colors.surface,
@@ -54,53 +76,23 @@ export default function CancelBooking() {
             borderWidth: StyleSheet.hairlineWidth,
             borderRadius: radius.card,
             padding: space[4],
-            gap: space[3],
+            gap: space[2],
           }}
         >
-          <Text variant="title3">Your money</Text>
-
-          <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.borderSubtle }} />
-
-          <View style={[styles.lineRow, { gap: space[4] }]}>
-            <Text variant="body" style={styles.flex}>
-              You paid
+          <Text variant="title3">
+            {loadingBooking ? 'Your booking' : booking?.propertyName ?? 'Your booking'}
+          </Text>
+          <Text variant="body" color="secondary">
+            The bed goes back on the market straight away, and the owner is told right away too.
+            You would have to request it again.
+          </Text>
+          {booking?.paidAmount ? (
+            <Text variant="caption" color="tertiary">
+              Anything you paid the owner directly is between the two of you — Lampose has not held it.
             </Text>
-            <Text variant="priceSm">{formatRupees(cancellationPolicy.paid)}</Text>
-          </View>
-
-          {cancellationPolicy.lines.map((line) => (
-            <View key={line.label} style={[styles.lineRow, { gap: space[4] }]}>
-              <View style={styles.flex}>
-                <Text variant="body">{line.label} kept</Text>
-                <Text variant="numMeta" color="tertiary">
-                  {line.detail}
-                </Text>
-              </View>
-              <Text variant="priceSm" color="secondary">
-                −{formatRupees(line.amount)}
-              </Text>
-            </View>
-          ))}
-
-          <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border }} />
-
-          <View style={[styles.lineRow, { gap: space[4] }]}>
-            <View style={styles.flex}>
-              <Text variant="bodyStrong">Coming back</Text>
-              <Text variant="numMeta" color="tertiary">
-                {cancellationPolicy.destination} · by {cancellationPolicy.arrivesByLabel}
-              </Text>
-            </View>
-            <Text
-              variant="priceLg"
-              style={depositMark}
-            >
-              {formatRupees(cancellationPolicy.returning)}
-            </Text>
-          </View>
+          ) : null}
         </View>
 
-        {/* Only now. And skippable. */}
         <View style={{ gap: space[3] }}>
           <View style={[styles.headRow, { gap: space[3] }]}>
             <Text variant="title3">Why are you leaving?</Text>
@@ -144,16 +136,21 @@ export default function CancelBooking() {
           </View>
         </View>
 
+        {error ? (
+          <Text variant="caption" color="danger">
+            {error}
+          </Text>
+        ) : null}
+
         <View style={{ gap: space[2] }}>
           <Button
             label="Cancel this booking"
             variant="destructive"
             fullWidth
-            onPress={() => router.replace('/bookings/cancelled')}
+            loading={submitting}
+            disabled={!id || submitting}
+            onPress={submit}
           />
-          <Text variant="caption" color="tertiary" style={styles.centred}>
-            The bed goes back on the market straight away. You would have to request it again.
-          </Text>
           <View style={{ marginTop: space[2] }}>
             <Button label="Keep my booking" variant="ghost" fullWidth onPress={() => router.back()} />
           </View>
@@ -164,7 +161,6 @@ export default function CancelBooking() {
 }
 
 const styles = StyleSheet.create({
-  lineRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
   headRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
   reason: {
     flexDirection: 'row',
@@ -172,5 +168,4 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   flex: { flex: 1 },
-  centred: { textAlign: 'center' },
 });

@@ -36,7 +36,9 @@ const {
 const {
   createRequest, getRequest, listRequests, withdrawRequest, confirmMovedIn,
 } = require('../visits/stayRequest.controller');
-const { listBookings, getBooking } = require('./customerBooking.controller');
+const {
+  listBookings, getBooking, cancelBooking, createReview,
+} = require('./customerBooking.controller');
 const {
   registerCustomerDevice, unregisterCustomerDevice,
 } = require('../notifications/device.controller');
@@ -189,6 +191,21 @@ router.post(
    reached nobody. See `customerBooking.controller.js`. */
 router.get('/bookings', requireLamposeDb, requireCustomer, listBookings);
 router.get('/bookings/:id', requireLamposeDb, requireCustomer, getBooking);
+/* The student's own Cancel button — only while the stay is still `upcoming`.
+   Counted per customer for the same reason `withdrawByCustomer` is above:
+   ordinary use is one tap, and a script working through a list of ids should
+   not be able to hand a bed back to the pool repeatedly. */
+router.post(
+  '/bookings/:id/cancel',
+  requireLamposeDb, requireCustomer, withdrawByCustomer, cancelBooking,
+);
+/* "Rate your stay" — offered once a booking reaches `completed`. Limited per
+   customer for the same reason as everything else on this router; a genuine
+   review is a once-per-stay action, not something anybody sends repeatedly. */
+router.post(
+  '/bookings/:id/review',
+  requireLamposeDb, requireCustomer, withdrawByCustomer, createReview,
+);
 
 /* ── This device ─────────────────────────────────────────────────────────
    Where to reach them when the app is closed, which is the case the whole

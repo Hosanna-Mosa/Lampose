@@ -36,7 +36,8 @@ const {
   MAX_KYC_IMAGES,
 } = require('./addCustomer.controller');
 const {
-  getMyPropertyById, updateMyProperty, uploadPropertyImages, MAX_PROPERTY_IMAGES,
+  getMyPropertyById, updateMyProperty, setMyPropertyAvailability,
+  uploadPropertyImages, MAX_PROPERTY_IMAGES,
 } = require('./propertyEdit.controller');
 
 /* Held in memory and streamed straight to Cloudinary — nothing identity-
@@ -109,6 +110,7 @@ const {
   getEarningsSummary,
   getPayouts,
   getPayoutById,
+  requestPayout,
   getPaymentMethods,
   addPaymentMethod,
   deletePaymentMethod,
@@ -159,6 +161,11 @@ router.get('/properties', requireLamposeDb, requirePartner, getMyProperties);
    surface's employee-gated edit, and why an edit here has no review step. */
 router.get('/properties/:id', requireLamposeDb, requirePartner, getMyPropertyById);
 router.patch('/properties/:id', requireLamposeDb, requirePartner, updateMyProperty);
+
+/* Pausing ONE listing. The dashboard switch below is partner-wide — every
+   property at once — which left an owner with more than one no way to take a
+   single listing off. See `setMyPropertyAvailability`. */
+router.patch('/properties/:id/availability', requireLamposeDb, requirePartner, setMyPropertyAvailability);
 
 /* Refer a CUSTOMER, not another owner — a second, separate growth loop from
    /referrals below, sharing only the points wallet. Every code is minted off
@@ -245,6 +252,12 @@ router.delete('/bookings/:id', requireLamposeDb, requirePartner, deleteBooking);
 /* Earnings & Payouts */
 router.get('/earnings', requireLamposeDb, requirePartner, getEarningsSummary);
 router.get('/payouts', requireLamposeDb, requirePartner, getPayouts);
+/* Before /payouts/:id — Express matches routes in order, and a literal
+   segment has to be tried before the param that would otherwise swallow it. */
+const payoutRequestLimit = rateLimit({
+  name: 'partner-payout-request', windowMs: 60 * 60 * 1000, max: 6, keyOf: partnerKey,
+});
+router.post('/payouts/request', requireLamposeDb, requirePartner, payoutRequestLimit, requestPayout);
 router.get('/payouts/:id', requireLamposeDb, requirePartner, getPayoutById);
 router.get('/payment-methods', requireLamposeDb, requirePartner, getPaymentMethods);
 router.post('/payment-methods', requireLamposeDb, requirePartner, addPaymentMethod);

@@ -100,7 +100,18 @@ const messageSchema = new mongoose.Schema(
      * those are worth very different amounts on the 21st when the pump is
      * still not fitted.
      */
-    author: { type: String, enum: ['customer', 'support', 'system'], required: true },
+    /*
+     * `partner` is a fourth kind of speaker, and a narrower one than the other
+     * three: it is never the requester's own tag (an owner's OWN ticket keeps
+     * using `customer` for their messages, exactly like a rider's or a
+     * restaurant's — see the header of `support.audiences.js` on why that word
+     * means "the requester", not literally a diner). It is used only when a
+     * property's owner replies on a ticket a STUDENT filed — see
+     * `linkedPartnerId` below — so the thread can show "Property owner" as a
+     * bubble distinct from Lampose support without that reply being mistaken
+     * for either side's own voice.
+     */
+    author: { type: String, enum: ['customer', 'support', 'system', 'partner'], required: true },
 
     /* A named human on the support side. "LAMPOSE Support" answers nobody, so
        the queue is expected to fill this in. Empty for customer and system. */
@@ -200,6 +211,38 @@ const ticketSchema = new mongoose.Schema(
        edited or removed and the complaint still has to say what was asked. */
     listingId: { type: String, default: null, index: true },
     placeLabel: { type: String, default: '', trim: true },
+
+    /*
+     * The property's owner, when a STUDENT said this was about a property.
+     *
+     * Stamped once, at creation, by `createTicket` resolving `listingId` to
+     * its `Property.ownerMobile` and that number to a verified `app_partners`
+     * account — never taken from the request body, for the same reason
+     * `ownerMobile` is never taken from one when a stay request is created
+     * (`stayRequest.service.js`). A ticket the student filed under `platform`
+     * categories (a payment, the app itself) leaves this null, and that null
+     * is the whole mechanism behind "platform issues go to admin only, not
+     * the owner" — nothing routes to a property because nothing said this was
+     * about one.
+     *
+     * `linkedPartnerId` is the partner's PUBLIC id (`partnerId`), matching
+     * `requester.id` on every other audience and what `realtime.js` addresses
+     * a partner socket by. `linkedPartnerName` is denormalised for the same
+     * reason `customerName` is: an admin reading a two-year-old thread should
+     * not need a second lookup into a collection the owner may have left.
+     */
+    linkedPartnerId: { type: String, default: null, index: true },
+    linkedPartnerName: { type: String, default: '', trim: true },
+
+    /*
+     * When the LINKED owner last opened this thread — a second watermark,
+     * because they are not the requester and `customerReadAt` already belongs
+     * to whoever is. Read only when `linkedPartnerId` is set; see
+     * `viewerContextFor` in ticket.controller.js for how a mixed list (an
+     * owner's own tickets alongside guests' tickets about their properties)
+     * picks the right one per row.
+     */
+    partnerReadAt: { type: Date, default: null },
 
     /* The first line of the first message, trimmed to a headline. Stored
        rather than derived on read so the list query can project it without
@@ -307,6 +350,11 @@ ticketSchema.index({ kind: 1, status: 1, lastActivityAt: 1 });
 /* The console's default view: one audience's open work, oldest first. The
    person answering riders this morning is filtering to riders. */
 ticketSchema.index({ 'requester.kind': 1, status: 1, lastActivityAt: 1 });
+
+/* An owner's inbox of guest tickets about their properties — the query
+   `ownedBy` runs for a `partner` requester alongside their own filed
+   tickets. */
+ticketSchema.index({ linkedPartnerId: 1, lastActivityAt: -1 });
 
 /**
  * Exactly one of `category` / `reason`, matching `kind`.
@@ -431,12 +479,26 @@ const makeReference = (kind) => {
  * last time they opened it. Without the author test, filing a ticket would
  * immediately mark it unread to the person who had just typed it.
  */
-ticketSchema.methods.toPublicSummary = function toPublicSummary() {
+/**
+ * `viewerKind: 'partner-linked'` is the one non-default case: a property
+ * owner reading a ticket a STUDENT filed, rather than either their own
+ * ticket or the console. It swaps two things and nothing else — see the
+ * fields' own comments for why each exists:
+ *
+ *   watermark   `partnerReadAt` instead of `customerReadAt`
+ *   unread      "not written by the owner themselves" instead of
+ *               "not written by the requester" (an owner reading their OWN
+ *               reply back must not see it marked unread to them)
+ */
+ticketSchema.methods.toPublicSummary = function toPublicSummary({ viewerKind } = {}) {
+  const linked = viewerKind === 'partner-linked';
   const last = this.messages.length ? this.messages[this.messages.length - 1] : null;
-  const watermark = this.customerReadAt ? this.customerReadAt.getTime() : 0;
+  const watermarkField = linked ? this.partnerReadAt : this.customerReadAt;
+  const watermark = watermarkField ? watermarkField.getTime() : 0;
+  const notMine = linked ? 'partner' : 'customer';
 
   const unread = this.messages.some(
-    (message) => message.author !== 'customer' && new Date(message.at).getTime() > watermark,
+    (message) => message.author !== notMine && new Date(message.at).getTime() > watermark,
   );
 
   return {
@@ -454,6 +516,11 @@ ticketSchema.methods.toPublicSummary = function toPublicSummary() {
     messageCount: this.messages.length,
     lastActivityAt: this.lastActivityAt,
     createdAt: this.createdAt,
+    /* Present on every summary, empty where nothing linked it. An owner's own
+       list needs this to tell "mine" from "a guest's, about one of my
+       properties" apart at a glance. */
+    linkedPartnerId: this.linkedPartnerId || null,
+    linkedPartnerName: this.linkedPartnerName || '',
     /* The last thing said, for the row's preview line. Trimmed here rather
        than in the app so the wire carries a preview, not a 4000-character
        body the list will never show. */
@@ -462,9 +529,9 @@ ticketSchema.methods.toPublicSummary = function toPublicSummary() {
 };
 
 /** The thread. Everything the summary has, plus the messages themselves. */
-ticketSchema.methods.toPublicDetail = function toPublicDetail() {
+ticketSchema.methods.toPublicDetail = function toPublicDetail(opts) {
   return {
-    ...this.toPublicSummary(),
+    ...this.toPublicSummary(opts),
     evidenceRequired: this.evidenceRequired,
     messages: this.messages.map((message) => ({
       id: String(message._id),
@@ -524,12 +591,20 @@ ticketSchema.methods.toAdminSummary = function toAdminSummary() {
     assignedToId: this.assignedToId || null,
     assignedToName: this.assignedToName || '',
 
+    /* Who else is a party to this thread — see the field's own comment.
+       Present so the console can show "Property owner: Ramesh (linked)" on a
+       student's ticket without a second lookup, and so it can tell a
+       platform-only ticket (both null) from a property one at a glance. */
+    linkedPartnerId: this.linkedPartnerId || null,
+    linkedPartnerName: this.linkedPartnerName || '',
+
     unread,
     messageCount: this.messages.length,
     lastMessageAuthor: last ? last.author : null,
     lastMessagePreview: last ? String(last.body).slice(0, 160) : '',
     lastActivityAt: this.lastActivityAt,
     customerReadAt: this.customerReadAt,
+    partnerReadAt: this.partnerReadAt,
     supportReadAt: this.supportReadAt,
     createdAt: this.createdAt,
   };

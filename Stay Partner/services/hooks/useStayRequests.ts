@@ -11,6 +11,7 @@ import {
 } from '@/services/api/portfolio.api';
 import type { BackendPartnerRequest } from '@/services/api/types';
 import { useAuth } from '@/context/AuthContext';
+import { onStayRequestEvent } from '@/services/realtimeSocket';
 import { queryKeys } from './keys';
 
 /**
@@ -37,6 +38,37 @@ import { queryKeys } from './keys';
  */
 
 const POLL_MS = 4000;
+
+/*
+ * How often the list checks when NOTHING is waiting.
+ *
+ * It used to stop entirely, on the reasoning that an owner looking at last
+ * month's history has nothing to refresh. That was right while this hook was
+ * only ever mounted by a screen somebody was already reading — and wrong the
+ * moment `IncomingRequestAlert` mounted it at the root, because "nothing is
+ * pending" is precisely the state a NEW request has to be discovered from. A
+ * hook that stops polling when the inbox is empty cannot notice the inbox
+ * filling up, and the alert would only ever fire for a request that was
+ * already there when the app was opened.
+ *
+ * Push covers this on a build that has it. This is the floor for the ones that
+ * do not — Expo Go, a refused permission, a simulator, an owner who has not
+ * registered a handset yet — which is the same gap the alert tone exists for.
+ *
+ * Five seconds, not twenty-five. The first version of this reasoned that
+ * nothing is on a clock yet so the idle rate could be lazy — but the clock
+ * starts the moment the request lands, and the owner is not told until the
+ * next poll. Twenty-five seconds is fourteen per cent of their window gone
+ * before they know anything, and it read as "the popup only appears when I
+ * switch tabs" (a screen mounting refetched immediately; sitting still did
+ * not).
+ *
+ * The cost is one request every five seconds per signed-in app, and only
+ * while the app is FOREGROUNDED — `services/queryFocus.ts` wires AppState to
+ * react-query's focus manager, so this stops entirely in a pocket and fires
+ * once on the way back.
+ */
+const IDLE_POLL_MS = 5000;
 
 /** How far this device's clock is from the server's. */
 function useClockOffset() {
@@ -83,19 +115,38 @@ export type RequestGroups = {
 export function useStayRequests() {
   const enabled = useReady();
   const { offset, apply } = useClockOffset();
+  const queryClient = useQueryClient();
+
+  /*
+   * The live half. A socket event does not carry enough to patch the cache
+   * directly — `payloadFor` on the backend is deliberately thin, sized for a
+   * push notification, not a full row — so this just pulls the four-second
+   * poll's NEXT tick forward to now rather than trying to merge a partial
+   * shape into it. `IncomingRequestAlert` rings off `groups.pending`
+   * reactively, so a fresher list is all a new request needs to be noticed
+   * instantly instead of up to four seconds late.
+   */
+  useEffect(() => {
+    if (!enabled) return undefined;
+    return onStayRequestEvent(() => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.requests });
+    });
+  }, [enabled, queryClient]);
 
   const query = useQuery({
     queryKey: queryKeys.requests,
     queryFn: ({ signal }) => fetchMyRequests(signal),
     enabled,
     /*
-     * Polled only while something is actually waiting. An owner sitting on a
-     * history list of last month's requests has nothing to refresh, and
-     * polling it would be a query every four seconds forever.
+     * Two rates, never off. Four seconds is for a deadline that is actually
+     * running; an owner sitting on last month's history does not need that and
+     * polling it every four seconds forever is what the second rate avoids.
      */
     refetchInterval: (q) => {
       const anyPending = (q.state.data?.requests ?? []).some((r) => r.status === 'pending_owner');
-      return anyPending ? POLL_MS : false;
+      /* Four seconds while a deadline is running, a slow heartbeat otherwise —
+         never off. See IDLE_POLL_MS. */
+      return anyPending ? POLL_MS : IDLE_POLL_MS;
     },
     refetchOnWindowFocus: true,
     refetchOnMount: 'always',

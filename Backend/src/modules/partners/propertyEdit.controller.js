@@ -64,6 +64,7 @@ const Property = require('../properties/property.model');
 const Partner = require('./partner.model');
 const PropertyEditLog = require('./propertyEditLog.model');
 const { formatListing } = require('../listings/listing.formatter');
+const { syncShareTypes } = require('../inventory/inventory.service');
 
 const { phoneKey } = Partner;
 
@@ -262,6 +263,28 @@ const updateMyProperty = async (req, res, next) => {
 
     await property.save();
 
+    /*
+     * Bed counts become claimable rows — the same line every other write to
+     * this collection ends with (property.controller, properties.routes.v1,
+     * the WhatsApp verification handler).
+     *
+     * This route was the one that did not, and it is the ONLY route an owner
+     * can reach: the layout counts on `settings/property-edit` write
+     * `categoryDetails.sharingRooms`/`sharingBeds`, and without this call
+     * `partner_share_types` kept whatever capacity it was seeded with. An
+     * owner correcting "2 BHK" from one flat to two saved successfully, saw
+     * the new number on their own listing, and the catalogue went on
+     * answering `NO_BEDS_FREE` from a row that still said one bed — so the
+     * second flat could never be booked.
+     *
+     * `syncShareTypes` moves availability by the DELTA rather than resetting
+     * it, so re-syncing here cannot free a bed somebody is already in. It is
+     * awaited but never fatal: it swallows its own errors and returns what it
+     * did, and a save the owner is waiting on must not fail because a
+     * counter could not be written.
+     */
+    await syncShareTypes(property);
+
     console.log(`   ✏️  [Partner Property Edit] "${property.name}" (${property._id}) updated by partner ${req.partner.partnerId}`);
 
     /* Best-effort. The write to `properties` already succeeded and is the
@@ -286,6 +309,94 @@ const updateMyProperty = async (req, res, next) => {
       return res.status(400).json({ success: false, code: 'VALIDATION_ERROR', message: messages.join(', ') });
     }
     return next(err);
+  }
+};
+
+// @route   PATCH /api/v2/partners/properties/:id/availability
+// @desc    Take ONE of this owner's listings off, or put it back on
+// @access  Partner session (owner of the property only)
+/**
+ * Availability, per property.
+ *
+ * ## What this fills in
+ *
+ * There was exactly one availability control in the app and it was
+ * partner-WIDE: the dashboard switch calls
+ * `PATCH /partners/share-types/availability`, which sets `acceptingBookings`
+ * on the partner and then `updateMany`s EVERY share type this owner has, in
+ * every property. An owner with three listings could not take one of them off
+ * — the switch was all of them or none — and once off, the only way back was
+ * the same all-or-nothing switch.
+ *
+ * (`app/share-types/index.tsx` LOOKS per-room, but its save collapses the
+ * whole draft to `draftVisibleCount > 0` and calls that same global endpoint,
+ * so its individual switches never reached the server. That is a separate
+ * bug; this route is the thing it should have been calling.)
+ *
+ * ## Availability is the share types', not the property's
+ *
+ * `properties.status` is deliberately untouched here. That field is the leads
+ * panel's own lifecycle flag ("is this listing live at all"), and the stay
+ * flow already refuses a request when it is anything but `active` — an owner
+ * pausing bookings for a fortnight must not silently retire their listing.
+ * What moves is `partner_share_types.isAvailable`, which is precisely what
+ * `requestableOptions` reads to answer `OWNER_PAUSED`.
+ *
+ * ## Capacity is never touched
+ *
+ * `availableBeds` is left exactly as it is. Pausing is not the same as
+ * emptying: the beds that are occupied stay occupied, and switching back on
+ * must not invent free ones or forget taken ones. This flips one boolean.
+ *
+ * ## A property with no counts cannot be paused, and says so
+ *
+ * No share-type rows means nobody ever recorded bed counts, so the listing is
+ * already unrequestable (`NO_INVENTORY_RECORDED`) and there is nothing to
+ * flip. Reported as a 409 naming the cause rather than a silent success that
+ * changes nothing.
+ */
+const setMyPropertyAvailability = async (req, res, next) => {
+  try {
+    if (mongoose.connection.readyState !== 1) return dbDown(res);
+
+    const property = await findOwnedProperty(req.partner, req.params.id);
+    if (!property) return notFound(res);
+
+    const { isAvailable } = req.body || {};
+    if (typeof isAvailable !== 'boolean') {
+      return badInput(res, 'Send isAvailable as true or false.');
+    }
+
+    const { PartnerShareType } = require('./partnerDomains.model');
+    const propertyId = String(property._id);
+
+    const result = await PartnerShareType.updateMany(
+      { propertyId },
+      { $set: { isAvailable } },
+    );
+
+    if (!result.matchedCount) {
+      return res.status(409).json({
+        success: false,
+        code: 'NO_INVENTORY_RECORDED',
+        message: 'This listing has no room counts recorded yet, so there is nothing to switch '
+          + 'on or off. Add how many rooms of each type it has first.',
+      });
+    }
+
+    console.log(`   ${isAvailable ? '🟢' : '🔴'} [Partner Availability] "${property.name}" (${propertyId}) `
+      + `${isAvailable ? 'accepting' : 'paused'} by partner ${req.partner.partnerId} `
+      + `— ${result.matchedCount} room type(s)`);
+
+    return res.json({
+      success: true,
+      message: isAvailable
+        ? 'This listing is taking bookings again.'
+        : 'This listing is paused. Existing bookings are unaffected.',
+      data: { propertyId, isAvailable, roomTypes: result.matchedCount },
+    });
+  } catch (error) {
+    return next(error);
   }
 };
 
@@ -355,6 +466,7 @@ const uploadPropertyImages = async (req, res, next) => {
 module.exports = {
   getMyPropertyById,
   updateMyProperty,
+  setMyPropertyAvailability,
   uploadPropertyImages,
   MAX_PROPERTY_IMAGES,
 };

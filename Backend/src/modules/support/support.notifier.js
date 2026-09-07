@@ -55,10 +55,22 @@ const requesterRoom = (ticket) => {
 
   if (requester.kind === 'driver') return realtime.rooms.driver(id);
   if (requester.kind === 'restaurant') return realtime.rooms.restaurant(id);
+  if (requester.kind === 'partner') return realtime.rooms.partner(id);
   /* `customer`, and also every legacy row — nothing but a diner could have
      written one without a `requester`. */
   return realtime.rooms.customer(id);
 };
+
+/**
+ * The SECOND party's room, where there is one — a property owner reading a
+ * ticket a student filed. `requesterRoom` above answers "who filed this";
+ * this answers "who else names them", and the two are never the same room on
+ * one ticket, so both firing costs nothing extra (socket.io does not
+ * double-deliver to one socket that happens to be in both anyway).
+ */
+const linkedRoom = (ticket) => (
+  ticket && ticket.linkedPartnerId ? realtime.rooms.partner(ticket.linkedPartnerId) : null
+);
 
 /** The compact shape every support event carries, so a list row can redraw. */
 const rowOf = (ticket) => {
@@ -102,6 +114,9 @@ const ticketOpened = (ticket) => {
 
     const room = requesterRoom(ticket);
     if (room) realtime.toRoom(room, 'support_ticket_updated', payload);
+
+    const linked = linkedRoom(ticket);
+    if (linked) realtime.toRoom(linked, 'support_ticket_updated', payload);
   } catch {
     /* See the header: a notifier never fails a write. */
   }
@@ -129,6 +144,9 @@ const messageAdded = (ticket, message) => {
 
     const room = requesterRoom(ticket);
     if (room) realtime.toRoom(room, 'support_message', payload);
+
+    const linked = linkedRoom(ticket);
+    if (linked) realtime.toRoom(linked, 'support_message', payload);
   } catch {
     /* As above. */
   }
@@ -152,9 +170,14 @@ const ticketUpdated = (ticket) => {
 
     const room = requesterRoom(ticket);
     if (room) realtime.toRoom(room, 'support_ticket_updated', payload);
+
+    const linked = linkedRoom(ticket);
+    if (linked) realtime.toRoom(linked, 'support_ticket_updated', payload);
   } catch {
     /* As above. */
   }
 };
 
-module.exports = { ticketOpened, messageAdded, ticketUpdated, requesterRoom };
+module.exports = {
+  ticketOpened, messageAdded, ticketUpdated, requesterRoom, linkedRoom,
+};

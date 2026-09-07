@@ -27,8 +27,8 @@ const BASE = '/v1/admin/support';
  * Shapes
  * ------------------------------------------------------------------ */
 
-/** Which app a thread came from. The same three words the socket layer uses. */
-export type RequesterKind = 'customer' | 'driver' | 'restaurant';
+/** Which app a thread came from. The same four words the socket layer uses. */
+export type RequesterKind = 'customer' | 'driver' | 'restaurant' | 'partner';
 
 export type TicketStatus = 'open' | 'awaiting_customer' | 'resolved' | 'closed';
 export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent';
@@ -39,8 +39,13 @@ export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent';
  * It records what HAPPENED rather than what anyone said, and the thread draws
  * it as a rule rather than a bubble — giving a process event the shape of
  * speech lets it be mistaken for a person's promise.
+ *
+ * `partner` is the property owner's voice on a ticket a STUDENT filed — see
+ * `linkedPartnerId`/`linkedPartnerName` on `SupportRow` below. It is never the
+ * tag on an owner's OWN ticket (those use `customer`, the generic
+ * "requester" tag every non-diner audience's own messages carry).
  */
-export type MessageAuthor = 'customer' | 'support' | 'system';
+export type MessageAuthor = 'customer' | 'support' | 'system' | 'partner';
 
 export interface SupportMessage {
   id: string;
@@ -72,6 +77,14 @@ export interface SupportRow {
   orderNumber: string | null;
   evidenceRequired: boolean;
   requester: SupportRequester;
+  /* Set only on a `property` ticket a student filed, where an owner could be
+     resolved for the listing named — see `resolveLinkedPartner` on the
+     backend. Null on every platform-category ticket and on every ticket an
+     owner filed about their own account; that null is the whole mechanism
+     that keeps a platform issue (a payment, the app) from ever reaching an
+     owner. */
+  linkedPartnerId: string | null;
+  linkedPartnerName: string;
   assignedToId: string | null;
   assignedToName: string;
   /** Something the REQUESTER said that support has not read. */
@@ -125,7 +138,7 @@ const str = (value: unknown, fallback = ''): string => (
 
 const normalizeMessage = (raw: any): SupportMessage => ({
   id: str(raw?.id),
-  author: (['customer', 'support', 'system'].includes(raw?.author)
+  author: (['customer', 'support', 'system', 'partner'].includes(raw?.author)
     ? raw.author : 'system') as MessageAuthor,
   authorName: str(raw?.authorName),
   body: str(raw?.body),
@@ -148,7 +161,7 @@ const normalizeRow = (raw: any): SupportRow => ({
   orderNumber: raw?.orderNumber ?? null,
   evidenceRequired: !!raw?.evidenceRequired,
   requester: {
-    kind: (['customer', 'driver', 'restaurant'].includes(raw?.requester?.kind)
+    kind: (['customer', 'driver', 'restaurant', 'partner'].includes(raw?.requester?.kind)
       ? raw.requester.kind : 'customer') as RequesterKind,
     id: str(raw?.requester?.id),
     /* A thread with no name on it is still a thread somebody has to answer, so
@@ -156,6 +169,8 @@ const normalizeRow = (raw: any): SupportRow => ({
     name: str(raw?.requester?.name) || 'Unnamed',
     phone: str(raw?.requester?.phone),
   },
+  linkedPartnerId: raw?.linkedPartnerId ?? null,
+  linkedPartnerName: str(raw?.linkedPartnerName),
   assignedToId: raw?.assignedToId ?? null,
   assignedToName: str(raw?.assignedToName),
   unread: !!raw?.unread,

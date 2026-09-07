@@ -186,3 +186,81 @@ export function payoutOf(b: Booking): number {
 export function getBooking(id: string | undefined): Booking | undefined {
   return ALL.find((b) => b.id === id);
 }
+
+const STATUS_MAP: Record<string, Booking['status']> = {
+  in_house: 'inHouse',
+  arriving: 'confirmed',
+  departing: 'inHouse',
+  upcoming: 'confirmed',
+  completed: 'completed',
+  cancelled: 'cancelled',
+};
+
+/**
+ * One `partner_bookings` row, as the screens want it.
+ *
+ * ## Why this is here and not inlined
+ *
+ * There were three of these: one in the bookings tab, one in the booking
+ * detail screen, and — for the check-in, active-stay, checkout and cancel
+ * screens — no mapper at all, because those four called `getBooking()` above
+ * and read the FIXTURES. A real booking id matches nothing in that array, so
+ * every one of them rendered "Booking not found": the cancel button appeared
+ * to do nothing, and check-in had no screen after it.
+ *
+ * So the fixtures are no longer the source for anything with an id from the
+ * server, and this is the single mapping every screen shares. The two that
+ * already had their own were not identical — only the detail screen carried
+ * `entryPin` and the move-in stamps — which is exactly the drift one mapper
+ * prevents.
+ *
+ * ## Nothing is invented
+ *
+ * A field the schema does not carry is left undefined rather than defaulted.
+ * `payment` is DERIVED from the two amounts because that is arithmetic, not a
+ * guess; `gross` is `0` when nothing is recorded, because ₹0 is the honest
+ * figure for a booking nobody has charged for.
+ */
+export function toBooking(raw: any, fallbackId?: string): Booking {
+  const checkIn = new Date(raw?.checkInDate ?? NaN);
+  const checkOut = new Date(raw?.checkOutDate ?? NaN);
+
+  /* Dates are stored as strings and may be unparseable on an old row, and
+     `checkOutDate` is legitimately '' on a stay with no agreed end. One
+     millisecond of guarding beats "Invalid Date" on every screen. */
+  const validIn = !Number.isNaN(checkIn.getTime());
+  const validOut = !Number.isNaN(checkOut.getTime());
+  const startsAt = validIn ? checkIn : new Date();
+  const endsAt = validOut ? checkOut : new Date(startsAt.getTime() + 86_400_000);
+
+  const total = Number(raw?.totalAmount ?? 0);
+  const paid = Number(raw?.paidAmount ?? 0);
+
+  return {
+    id: String(raw?.id ?? raw?._id ?? fallbackId ?? ''),
+    guest: raw?.guestName || 'Guest',
+    roomType: raw?.shareType || raw?.roomNumber || '',
+    checkIn: startsAt,
+    checkOut: endsAt,
+    /* The schema records no headcount, so the label states what is known
+       rather than inventing a party size. */
+    guests: raw?.guestsLabel || (raw?.roomNumber ? `Room ${raw.roomNumber}` : '1 guest'),
+    nights: Math.max(1, Math.round((endsAt.getTime() - startsAt.getTime()) / 86_400_000)),
+    status: STATUS_MAP[raw?.status] ?? 'confirmed',
+    /*
+     * `PaymentStatus` has no `partial` member, so a part-paid booking reads as
+     * `pending` — the honest side to err on: money is still owed. A card
+     * saying "paid" with a balance outstanding is how an owner stops chasing.
+     */
+    payment: total > 0 && paid >= total ? 'paid' : 'pending',
+    gross: total,
+    /* The server's PIN — `LV-548005`. Absent on a manual walk-in, which has no
+       request behind it and therefore no code. Never generated here: it is
+       COMPARED with what the student shows, so an invented one is worse than
+       none. */
+    checkInCode: raw?.entryPin || undefined,
+    movedInByOwnerAt: raw?.movedInByOwnerAt ? new Date(raw.movedInByOwnerAt) : undefined,
+    movedInByStudentAt: raw?.movedInByStudentAt ? new Date(raw.movedInByStudentAt) : undefined,
+    checkOutBy: '11:00 AM',
+  };
+}

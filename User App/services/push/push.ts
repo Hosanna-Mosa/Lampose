@@ -76,6 +76,13 @@ export type PushPayload = {
     | 'request.inventoryTaken'
     | 'request.expired'
     | 'request.cancelled'
+    /* The BOOKING half — everything an owner does after a request is
+       confirmed, which is a separate record and keeps changing after the
+       request has gone terminal. See `notifyStudentCheckedIn` and its
+       siblings in `stayRequest.notifier.js`. */
+    | 'booking.checkedIn'
+    | 'booking.checkedOut'
+    | 'booking.cancelled'
     /* Everything the food flow sends — placed, a rider assigned, collected,
        delivered. One kind rather than four, because they all open the same
        screen and the SERVER's status decides what it draws. */
@@ -83,6 +90,10 @@ export type PushPayload = {
   /** Stay flow only. */
   requestId?: string;
   listingId?: string;
+  /** The booking kinds only — the id `bookingId` names on `PartnerBooking`,
+      never the same as `requestId` (which the request stays keyed on even
+      after it is terminal). */
+  bookingId?: string;
   /** Food flow only. */
   orderNumber?: string;
   status?: string;
@@ -94,6 +105,10 @@ export type PushPayload = {
 export const isFoodPush = (payload?: PushPayload | null): boolean =>
   !!payload && payload.kind === 'food_order' && !!payload.orderNumber;
 
+/** True for the three booking-lifecycle kinds — see `PushPayload.kind`. */
+export const isBookingPush = (payload?: PushPayload | null): boolean =>
+  !!payload && (payload.kind === 'booking.checkedIn' || payload.kind === 'booking.checkedOut' || payload.kind === 'booking.cancelled');
+
 /**
  * Is this one of ours at all.
  *
@@ -104,7 +119,7 @@ export const isFoodPush = (payload?: PushPayload | null): boolean =>
  * and the cold one kept throwing food away.
  */
 const isOurs = (payload?: PushPayload | null): boolean =>
-  !!(payload?.requestId || payload?.orderNumber);
+  !!(payload?.requestId || payload?.orderNumber || payload?.bookingId);
 
 export type PushAvailability =
   | { ok: true }

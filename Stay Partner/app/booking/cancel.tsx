@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Screen,
@@ -10,10 +10,11 @@ import {
   Chip,
   ChipRow,
   Input,
+  Toast,
   EmptyState,
 } from '@/components/ui';
-import { getBooking } from '@/lib/bookings';
-import { cancelBookingApi } from '@/services/api/domain.api';
+import { useBooking, useBookingActions } from '@/services/hooks/useBookings';
+import { ApiError } from '@/services/api/client';
 import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
@@ -22,26 +23,93 @@ const REASONS = ['Property unavailable', 'Maintenance issue', 'Guest request', '
 
 const HOURS_48 = 48 * 60 * 60 * 1000;
 
+/**
+ * Calling off a confirmed booking.
+ *
+ * ## Why this screen looked broken
+ *
+ * It read `getBooking(id)` — the fixture array in `lib/bookings.ts`, whose ids
+ * are `LB-1182` and friends. A real booking id matched nothing, so tapping
+ * "Cancel booking" on the detail screen navigated here and landed on "Booking
+ * not found": from the outside, a button that did nothing. It reads the server
+ * now, through the same hook every other booking screen uses.
+ *
+ * ## And why it would have lied even when it worked
+ *
+ * The old handler was `await cancelBookingApi(id).catch(() => {})` followed
+ * unconditionally by `router.replace('/bookings')`. A cancellation refused by
+ * the server, or one that never left the handset, looked exactly like one that
+ * succeeded. An owner who believes a booking is cancelled and finds the guest
+ * at the door has been lied to by the app, so the failure is now shown and the
+ * screen stays put.
+ *
+ * ## The second ask
+ *
+ * Cancelling is irreversible, it hands the bed back, and it sends the student
+ * a notification saying their room is gone. The reason chips are not a
+ * confirmation — they are a form, and people fill forms in without deciding.
+ * So the destructive button asks once more, natively, and only the second tap
+ * calls the server.
+ */
 export default function CancelBookingScreen() {
   const c = useColors();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const booking = getBooking(id);
+
+  const { booking, notFound, isPending } = useBooking(id);
+  const { cancel } = useBookingActions(id);
 
   const [reason, setReason] = useState<string | null>(null);
   const [note, setNote] = useState('');
-  const [cancelling, setCancelling] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
 
-  const handleCancel = async () => {
+  const commit = () => {
     if (!reason || !id) return;
-    setCancelling(true);
-    try {
-      await cancelBookingApi(id).catch(() => {});
-    } finally {
-      setCancelling(false);
-      router.replace('/bookings');
-    }
+    setFailure(null);
+    cancel.mutate(
+      { reason, note: note.trim() || undefined },
+      {
+        onSuccess: () => {
+          /* `replace`, not `back`: the detail screen underneath is showing a
+             booking that no longer exists in that state, and returning to it
+             would offer Start check-in on a cancelled stay. */
+          router.replace('/bookings');
+        },
+        onError: (err) => {
+          setFailure(
+            err instanceof ApiError
+              ? err.displayMessage
+              : 'We could not cancel that booking. Nothing has changed.',
+          );
+        },
+      },
+    );
   };
+
+  /* The second ask. Native, because this is the one dialog in the flow that
+     must not look like part of the form it is guarding. */
+  const confirm = () => {
+    if (!reason || !booking) return;
+    Alert.alert(
+      'Cancel this booking?',
+      `${booking.guest}'s booking will be cancelled and they will be told straight away. `
+      + 'The bed goes back on your availability. This cannot be undone.',
+      [
+        { text: 'Keep booking', style: 'cancel' },
+        { text: 'Cancel booking', style: 'destructive', onPress: commit },
+      ],
+    );
+  };
+
+  if (isPending && !booking) {
+    return (
+      <Screen scroll={false} padX={22} background="bg">
+        <View style={styles.loading}>
+          <ActivityIndicator color={c.accent} />
+        </View>
+      </Screen>
+    );
+  }
 
   if (!booking) {
     return (
@@ -49,6 +117,7 @@ export default function CancelBookingScreen() {
         <EmptyState
           icon="search"
           title="Booking not found"
+          body={notFound ? 'It may already have been cancelled.' : 'We could not load this booking.'}
           actionLabel="Back"
           onAction={() => router.back()}
         />
@@ -63,24 +132,26 @@ export default function CancelBookingScreen() {
   return (
     <Screen
       padX={22}
-            contentStyle={styles.fill}
-            footer={
-              <View style={styles.actions}>
-                <Button
-                  label="Go back"
-                  variant="secondary"
-                  onPress={() => router.back()}
-                  style={styles.action}
-                />
-                <Button
-                  label="Cancel booking"
-                  variant="destructive"
-                  onPress={handleCancel}
-                  disabled={!reason || cancelling}
-                  style={styles.action}
-                />
-              </View>
-            }
+      contentStyle={styles.fill}
+      footer={
+        <View style={styles.actions}>
+          <Button
+            label="Go back"
+            variant="secondary"
+            onPress={() => router.back()}
+            disabled={cancel.isPending}
+            style={styles.action}
+          />
+          <Button
+            label={cancel.isPending ? 'Cancelling…' : 'Cancel booking'}
+            variant="destructive"
+            onPress={confirm}
+            loading={cancel.isPending}
+            disabled={!reason || cancel.isPending}
+            style={styles.action}
+          />
+        </View>
+      }
       stickyHeader={
         <>
           <View style={styles.backRow}>
@@ -93,6 +164,13 @@ export default function CancelBookingScreen() {
         </>
       }
     >
+      {/* The server's own words. "Already cancelled" and "you are offline" need
+          different things from an owner. */}
+      {failure ? <Toast message={failure} tone="error" onDismiss={() => setFailure(null)} /> : null}
+
+      <Text variant="bodySm" color="textSecondary" style={styles.who}>
+        {booking.guest} · {booking.roomType || 'Room not set'}
+      </Text>
 
       <View style={[styles.warning, { backgroundColor: c.warningTint }]}>
         <Icon name="alert-circle" size={16} color={c.warningOnTint} strokeWidth={2} />
@@ -135,8 +213,10 @@ export default function CancelBookingScreen() {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   backRow: { height: 44, justifyContent: 'center', marginLeft: -10, marginBottom: 4 },
-  title: { marginBottom: 14 },
+  title: { marginBottom: 6 },
+  who: { marginBottom: 14 },
   warning: {
     flexDirection: 'row',
     alignItems: 'flex-start',

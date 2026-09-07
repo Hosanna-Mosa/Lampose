@@ -100,6 +100,10 @@ export const endpoints = {
   partnerInvites: `${V2}/partners/invites`,
 
   /** Property photographs to Cloudinary. Returns the secure URLs to save onto `images`. */
+  /* Pausing ONE listing, unlike `partnerShareTypesAvailability` below, which
+     is partner-wide and takes every property off at once. */
+  partnerPropertyAvailability: (id: string) =>
+    `${V2}/partners/properties/${encodeURIComponent(id)}/availability`,
   partnerPropertyImageUpload: `${V2}/partners/uploads/property-images`,
 
   /**
@@ -162,11 +166,28 @@ export const endpoints = {
   partnerEarnings: `${V2}/partners/earnings`,
   partnerPayouts: `${V2}/partners/payouts`,
   partnerPayout: (id: string) => `${V2}/partners/payouts/${encodeURIComponent(id)}`,
+  /** The owner's own "Request payout" button — see payout.api.ts. */
+  partnerPayoutRequest: `${V2}/partners/payouts/request`,
   partnerPaymentMethods: `${V2}/partners/payment-methods`,
   partnerPaymentMethod: (id: string) => `${V2}/partners/payment-methods/${encodeURIComponent(id)}`,
 
   partnerComplaints: `${V2}/partners/complaints`,
   partnerComplaint: (id: string) => `${V2}/partners/complaints/${encodeURIComponent(id)}`,
+
+  /**
+   * Support tickets — the owner's own, AND a guest's ticket about one of
+   * their properties (see `linkedPartnerId` on the backend's ticket model).
+   * Same shape as the User App's `/customers/support/*` group, just mounted
+   * under this app's own guard — see `support.api.ts`.
+   */
+  partnerSupportCategories: `${V2}/partners/support/categories`,
+  partnerSupportTickets: `${V2}/partners/support/tickets`,
+  partnerSupportTicket: (reference: string) =>
+    `${V2}/partners/support/tickets/${encodeURIComponent(reference)}`,
+  partnerSupportTicketMessages: (reference: string) =>
+    `${V2}/partners/support/tickets/${encodeURIComponent(reference)}/messages`,
+  partnerSupportTicketRead: (reference: string) =>
+    `${V2}/partners/support/tickets/${encodeURIComponent(reference)}/read`,
 
   partnerNotifications: `${V2}/partners/notifications`,
   partnerNotificationRead: (id: string) => `${V2}/partners/notifications/${encodeURIComponent(id)}/read`,
@@ -192,43 +213,21 @@ export const endpoints = {
 } as const;
 
 /**
- * The screens that still read `lib/` fixtures, and what each is waiting on.
+ * What is still fixture-backed, and why.
  *
- * Kept here rather than in a document because this is the file somebody opens
- * when they go looking for the endpoint — and the honest answer for most of
- * this app is that the endpoint does not exist yet, and why.
+ * This used to be a much longer list — bookings, earnings, payouts, reviews,
+ * staff, complaints and support all read a `lib/` fixture in memory. All of
+ * that is wired to `partnerDomains.model.js` collections now, support
+ * included (`support.api.ts`, mounted at `/partners/support`).
  *
- * The backend's registered models are Admin, AppCustomer, AppPartner,
- * PermissionRequest, Product, Property, User, ScrapeJob, ScrapedLead,
- * SupportTicket, VerificationRequest and VisitRequest. Everything below needs a
- * collection that is not in that list.
- *
- *   bookings, check-in, checkout, active stay   no Booking model. Needs the
- *     tenancy domain: who marks arrival and departure, and what a stay IS as
- *     a record distinct from the visit request that led to it.
- *
- *   earnings, payouts, bank methods             no Payment or Payout model,
- *     and an open product question: the User App tells students "pay the owner
- *     directly, we only remind you", which means Lampose may never hold the
- *     money it would be paying out.
- *
- *   reviews                                      no Review model. Reviews were
- *     removed from the User App entirely, so there is no source for them.
- *
- *   staff, invites                               no Staff model, and it needs
- *     a permission story: a manager who can accept a request but not move
- *     money is a different token, not a flag.
- *
- *   complaints, disputes                         `SupportTicket` exists and is
- *     customer-scoped. The owner's side of a dispute is a real extension of
- *     it rather than a new collection — the nearest thing to shippable here.
- *
- *   referrals, pricing rules, share types        no model, and no agreed rules.
+ * `payouts` is real data with one real gap: `partner_payouts` rows are
+ * created by `POST /partners/payouts/request` and read back honestly, but
+ * nothing yet MOVES money — there is no RazorpayX integration behind them.
+ * A requested payout sits `pending` until that is wired; see
+ * `Backend/src/modules/partners/payout.service.js`.
  */
 export const FIXTURE_BACKED_SCREENS = [
-  'bookings', 'booking/*', 'earnings/*', 'payouts',
-  'reviews', 'staff/*', 'referrals/*', 'complaints', 'support/dispute',
-  'inventory/*', 'share-types',
+  'inventory/*',
 ] as const;
 
 export default endpoints;

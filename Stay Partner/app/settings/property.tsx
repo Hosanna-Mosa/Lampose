@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { Alert, StyleSheet, View } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
 import {
   Screen,
   TopHeader,
@@ -12,8 +12,10 @@ import {
   EmptyState,
   ErrorState,
   Skeleton,
+  Switch,
 } from '@/components/ui';
 import { ApiError, fetchMyProperties, type BackendListing } from '@/services';
+import { setPropertyAvailability } from '@/services/api/portfolio.api';
 import { formatDateLong, formatINR } from '@/lib/format';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
@@ -85,8 +87,46 @@ export default function PropertyDetailsScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
+  /*
+   * Refetched every time the screen comes back into focus.
+   *
+   * "Edit details" pushes `settings/property-edit`, which `back()`s here on a
+   * successful save. A plain mount effect would leave this card showing the
+   * rent, photos and amenities the owner has just changed — the same reason
+   * `customers.tsx` reloads on focus rather than on mount.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load]),
+  );
+
+  /*
+   * Pausing or resuming ONE listing.
+   *
+   * Optimistic, then reconciled: the switch moves under the thumb and the
+   * list is reloaded from the server afterwards, so what is finally on screen
+   * is the server's answer rather than the tap's. A failure puts the switch
+   * back and says why — a toggle that silently stayed where you left it while
+   * the server disagreed is how an owner comes to believe a listing is off.
+   */
+  const toggleAvailability = useCallback(async (id: string, next: boolean) => {
+    setProperties((prev) => prev && prev.map((p) => (
+      (p.id ?? p._id) === id ? { ...p, isAvailable: next } : p
+    )));
+    try {
+      await setPropertyAvailability(id, next);
+    } catch (err) {
+      setProperties((prev) => prev && prev.map((p) => (
+        (p.id ?? p._id) === id ? { ...p, isAvailable: !next } : p
+      )));
+      Alert.alert(
+        'Could not change that',
+        err instanceof ApiError ? err.displayMessage : 'Please try again.',
+      );
+    } finally {
+      load();
+    }
   }, [load]);
 
   return (
@@ -119,6 +159,7 @@ export default function PropertyDetailsScreen() {
                 key={id ?? p.name}
                 property={p}
                 onEdit={id ? () => router.push({ pathname: '/settings/property-edit', params: { id } }) : undefined}
+                onAvailability={id ? (next) => toggleAvailability(id, next) : undefined}
               />
             );
           })}
@@ -136,13 +177,21 @@ export default function PropertyDetailsScreen() {
 function PropertyCard({
   property,
   onEdit,
+  onAvailability,
 }: {
   property: BackendListing & Record<string, any>;
   onEdit?: () => void;
+  onAvailability?: (next: boolean) => void;
 }) {
   const c = useColors();
 
   const verified = property.isVerified === true;
+  /* `null` is a third state, not a falsy `false`: no room counts were ever
+     recorded, so this listing is unrequestable for a reason a switch cannot
+     fix. See `getMyProperties`. */
+  const availability: boolean | null = typeof property.isAvailable === 'boolean'
+    ? property.isAvailable
+    : null;
   const amenities: string[] = Array.isArray(property.amenities)
     ? property.amenities.map((a: any) => (typeof a === 'string' ? a : a?.label ?? a?.name)).filter(Boolean)
     : [];
@@ -158,6 +207,50 @@ function PropertyCard({
           tone={verified ? 'success' : 'warning'}
         />
       </View>
+
+      {/*
+        Taking this listing off, and putting it back on.
+
+        Per PROPERTY. The dashboard's switch is partner-wide — it pauses every
+        listing this owner has at once — so an owner with more than one had no
+        way to pause a single listing, and once paused, the same all-or-nothing
+        switch was the only way back.
+
+        Immediate, with no save button: this is a state you flip, not a field
+        you edit, and burying it in the edit form would mean three taps and a
+        save to answer "we are full this month".
+      */}
+      {onAvailability && availability !== null ? (
+        <View style={[styles.availRow, { backgroundColor: c.bg, borderColor: c.borderCard }]}>
+          <View style={styles.availText}>
+            <Text variant="bodySm" style={{ color: c.textPrimary, fontFamily: fonts.semibold }}>
+              {availability ? 'Taking bookings' : 'Paused'}
+            </Text>
+            <Text variant="caption" color="textTertiary" style={styles.availHint}>
+              {availability
+                ? 'Students can request a room here.'
+                : 'Hidden from new requests. Bookings you already have are unaffected.'}
+            </Text>
+          </View>
+          <Switch
+            value={availability}
+            onChange={onAvailability}
+            accessibilityLabel={`${property.name} is ${availability ? 'taking bookings' : 'paused'}`}
+          />
+        </View>
+      ) : onAvailability ? (
+        <View style={[styles.availRow, { backgroundColor: c.bg, borderColor: c.borderCard }]}>
+          <View style={styles.availText}>
+            <Text variant="bodySm" style={{ color: c.textPrimary, fontFamily: fonts.semibold }}>
+              No room counts yet
+            </Text>
+            <Text variant="caption" color="textTertiary" style={styles.availHint}>
+              Add how many rooms of each type this has, in Edit details, before it can take
+              requests.
+            </Text>
+          </View>
+        </View>
+      ) : null}
 
       {onEdit ? (
         <Button label="Edit details" onPress={onEdit} variant="secondary" size="sm" fullWidth={false} />
@@ -239,6 +332,17 @@ const styles = StyleSheet.create({
   stack: { gap: 12 },
   card: { padding: 14, gap: 14 },
   head: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+  availRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+  availText: { flex: 1, gap: 2 },
+  availHint: { lineHeight: 15 },
   name: { flex: 1, fontFamily: fonts.bold, fontSize: 16, lineHeight: 21 },
   block: { gap: 6 },
   body: { lineHeight: 20 },

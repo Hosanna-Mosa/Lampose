@@ -11,6 +11,7 @@ import {
   type CreateStayRequestInput,
 } from '@/services/api/stayRequests.api';
 import type { BackendStayRequest, StayRequestStatus } from '@/services/api/types';
+import { connectSupportSocket, onStayRequestEvent } from '@/services/support.socket';
 import { queryKeys } from './keys';
 
 /**
@@ -230,6 +231,23 @@ export function useStayRequest(listingId?: string | null): UseStayRequestResult 
       queryClient.invalidateQueries({ queryKey: queryKeys.stayRequest(requestId) });
     });
     return () => subscription.remove();
+  }, [requestId, queryClient]);
+
+  /*
+   * The live half. Three seconds is already fast for a human watching a
+   * countdown, but the owner's own app now rings a request the instant it
+   * lands (see `IncomingRequestAlert` in Stay Partner) and an accept can
+   * follow within the same second — this is what lets THIS screen catch up
+   * just as quickly rather than waiting out its own next tick. An optimisation
+   * only: the poll above is what this degrades to when the connection is not
+   * there. */
+  useEffect(() => {
+    if (!requestId) return undefined;
+    connectSupportSocket();
+    return onStayRequestEvent((event) => {
+      if (event.requestId && event.requestId !== requestId) return;
+      queryClient.invalidateQueries({ queryKey: queryKeys.stayRequest(requestId) });
+    });
   }, [requestId, queryClient]);
 
   /* ── The countdown ───────────────────────────────────────────────────

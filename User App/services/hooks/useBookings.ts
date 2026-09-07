@@ -1,10 +1,12 @@
-import { useQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
   fetchBooking,
   fetchBookings,
   type CustomerBooking,
 } from '@/services/api/bookings.api';
+import { connectSupportSocket, onBookingEvent } from '@/services/support.socket';
 import { queryKeys } from './keys';
 
 /**
@@ -24,6 +26,19 @@ import { queryKeys } from './keys';
  * foregrounding, which is exactly when the answer might have changed.
  */
 export function useBookings(enabled = true) {
+  const queryClient = useQueryClient();
+
+  /* The live half — see the note on `support.socket.ts`. A check-in or a
+     cancellation the owner just made must not wait for this student to
+     background and re-foreground the app before the list agrees with it. */
+  useEffect(() => {
+    if (!enabled) return undefined;
+    connectSupportSocket();
+    return onBookingEvent(() => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.bookings });
+    });
+  }, [enabled, queryClient]);
+
   const query = useQuery({
     queryKey: queryKeys.bookings,
     queryFn: ({ signal }) => fetchBookings(signal),
@@ -50,10 +65,22 @@ export function useBookings(enabled = true) {
  * can already see.
  */
 export function useBooking(id: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const enabled = Boolean(id);
+
+  useEffect(() => {
+    if (!enabled || !id) return undefined;
+    connectSupportSocket();
+    return onBookingEvent((event) => {
+      if (event.bookingId && event.bookingId !== id) return;
+      queryClient.invalidateQueries({ queryKey: queryKeys.booking(id) });
+    });
+  }, [enabled, id, queryClient]);
+
   const query = useQuery({
     queryKey: queryKeys.booking(id ?? ''),
     queryFn: ({ signal }) => fetchBooking(id as string, signal),
-    enabled: Boolean(id),
+    enabled,
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });

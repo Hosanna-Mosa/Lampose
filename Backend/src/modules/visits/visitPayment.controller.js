@@ -292,6 +292,100 @@ const verifyPayment = async (req, res, next) => {
   }
 };
 
+/**
+ * DEVELOPMENT ONLY — mark this visit's token paid, without a payment.
+ *
+ * ## What this is, and what it is not
+ *
+ * It is a bypass so the screens BEHIND the paywall — the slot picker, the
+ * address release, the owner's side — can be worked on while the real
+ * checkout is unavailable. It is not a payment method: no money is collected,
+ * nothing is owed afterwards, and nobody is expected to hand anything over.
+ * A row settled this way represents a waived token, not a received one.
+ *
+ * ## The fences
+ *
+ * Everything else in this file obeys one rule: a request is paid only when an
+ * HMAC over `orderId|paymentId` verified against a secret only this server
+ * holds. This settles a visit on nothing but a tap, so it is fenced four ways:
+ *
+ *   · `config.razorpay.devAllowMarkPaid` is false unless DEV_ALLOW_MARK_PAID
+ *     is explicitly `true`;
+ *   · env.js refuses that flag outright when NODE_ENV=production, so this
+ *     cannot be switched on where it would matter;
+ *   · off, this answers 404 rather than 403 — a disabled bypass should not
+ *     advertise that it exists;
+ *   · what it writes is DISTINGUISHABLE. `payment.mode: 'dev'` with a null
+ *     `orderId` and `paymentId` marks every bypassed row, so
+ *     `{'payment.mode': 'dev'}` lists them all and none can be mistaken for
+ *     revenue. A bypass indistinguishable from a real payment would be the
+ *     genuinely dangerous version of this.
+ *
+ * ## Why it goes through `markVisitPaid` anyway
+ *
+ * Because the point is to exercise the REST of the flow. The slot step, the
+ * address release, the notifications and the owner's view must behave exactly
+ * as they will when the money is real; a second implementation of "what
+ * happens next" would be the one that drifts and would test nothing.
+ *
+ * Remove: this function, its route, the `mode`/`devMarkPaidAllowed` fields,
+ * the app's button, and the environment variable.
+ *
+ * @route POST /api/v2/visit-requests/:id/payment/dev-mark-paid
+ */
+const devMarkPaid = async (req, res, next) => {
+  try {
+    if (!config.razorpay.devAllowMarkPaid) {
+      return fail(res, 404, 'NOT_FOUND', 'That route does not exist on this server.');
+    }
+    if (mongoose.connection.readyState !== 1) {
+      return fail(res, 503, 'DB_DISCONNECTED', 'The server is not connected to the database.');
+    }
+
+    const doc = await load(res, req.params.id);
+    if (!doc) return undefined;
+
+    /* The same preconditions the online path enforces, in the same order, so
+       the bypass cannot reach a state a real payment could not. */
+    if (!doc.payment?.required) {
+      return fail(res, 400, 'NO_PAYMENT_REQUIRED', 'This visit has nothing to pay for.');
+    }
+    if (doc.status !== 'confirmed') {
+      return fail(res, 409, 'NOT_CONFIRMED',
+        'The owner has not confirmed this visit yet, so there is nothing to pay for.');
+    }
+    if (doc.payment.status === 'paid') {
+      return res.json({ success: true, data: doc.toPublic() });
+    }
+    if (doc.payment.dueBy && doc.payment.dueBy.getTime() < Date.now()) {
+      if (doc.payment.status !== 'expired') {
+        doc.payment.status = 'expired';
+        await doc.save();
+      }
+      return fail(res, 410, 'CONFIRMATION_LAPSED',
+        'This confirmation has lapsed. Ask the owner again to arrange a visit.');
+    }
+
+    /* Stamped BEFORE `markVisitPaid`, which saves — so the mode lands in the
+       same write that settles it and there is never an instant where a row
+       reads as an online payment with no payment id. */
+    doc.payment.mode = 'dev';
+    doc.payment.orderId = null;
+    doc.payment.paymentId = null;
+
+    console.warn(
+      `🛠️  [DEV BYPASS] request ${doc._id} marked paid WITHOUT a payment `
+      + '(DEV_ALLOW_MARK_PAID is on). No money was collected.',
+    );
+
+    await markVisitPaid(doc, null);
+
+    return res.json({ success: true, data: doc.toPublic() });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 /*
  * The redirect a checkout page may bounce to.
  *
@@ -522,7 +616,7 @@ const recordPaymentFailure = async (req, res, next) => {
 
 module.exports = {
   createPaymentOrder, verifyPayment, needsToken,
-  ensurePaymentLink, markVisitPaid,
+  ensurePaymentLink, markVisitPaid, devMarkPaid,
   renderCheckout, paymentCallback, recordPaymentFailure,
   ASSISTED_PURPOSE,
 };

@@ -48,3 +48,8 @@ yarn-error.*
 *service_account*.json
 lampose-analytics*.json
 config/*.json
+
+# Backups written by scripts/delete-user-data.js before it deletes anything.
+# These are a full JSON copy of one person's name, phone, email and addresses —
+# exactly the data the script was run to remove. Never commit them.
+.deleted/

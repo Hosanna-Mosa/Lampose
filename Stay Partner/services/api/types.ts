@@ -98,6 +98,17 @@ export type BackendPartnerSession = {
  * lets an owner fill in.
  */
 export type BackendListing = {
+  /**
+   * Whether this listing is currently taking bookings, on `GET
+   * /partners/properties` only.
+   *
+   * True when ANY of its room types is still available. `null` means no bed
+   * counts were ever recorded, so it is neither on nor off — the card draws a
+   * note instead of a switch, because there is nothing to switch.
+   */
+  isAvailable?: boolean | null;
+  /** How many room types the switch would move. 0 when none are recorded. */
+  roomTypeCount?: number;
   id?: string;
   _id?: string;
   name?: string;

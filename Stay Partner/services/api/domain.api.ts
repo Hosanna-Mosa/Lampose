@@ -22,8 +22,19 @@ export async function checkOutBookingApi(id: string) {
   return unwrap(res);
 }
 
-export async function cancelBookingApi(id: string) {
-  const res = await api.post<ApiEnvelope<any>>(endpoints.partnerBookingCancel(id));
+/**
+ * Cancel a booking, with the reason the owner picked.
+ *
+ * The reason was collected by `booking/cancel.tsx` and then thrown away — the
+ * chips were required before the button enabled, and nothing was ever sent.
+ * It is stored against the booking now, so a support call about "why was I
+ * cancelled" has an answer.
+ */
+export async function cancelBookingApi(
+  id: string,
+  body?: { reason?: string; note?: string },
+) {
+  const res = await api.post<ApiEnvelope<any>>(endpoints.partnerBookingCancel(id), body);
   return unwrap(res);
 }
 
@@ -36,6 +47,22 @@ export async function fetchEarningsApi(signal?: AbortSignal) {
 export async function fetchPayoutsApi(signal?: AbortSignal) {
   const res = await api.get<ApiEnvelope<any[]>>(endpoints.partnerPayouts, { signal });
   return unwrap(res) || [];
+}
+
+/**
+ * "Request payout" — reserves whatever `earnings.availableBalance` says is
+ * owed (every `completed` booking not already claimed by an earlier payout)
+ * into a new `pending` `PartnerPayout` row against the owner's saved payment
+ * method. Refused with a clear message if there is no payment method saved
+ * yet, or nothing to pay out.
+ *
+ * Dispatching the money itself — over RazorpayX — is a separate, later step
+ * an administrator takes; see `Backend/src/modules/partners/payout.service.js`.
+ * This call only ever creates a `pending` row.
+ */
+export async function requestPayoutApi() {
+  const res = await api.post<ApiEnvelope<any>>(endpoints.partnerPayoutRequest);
+  return unwrap(res);
 }
 
 export async function fetchPayoutByIdApi(id: string, signal?: AbortSignal) {

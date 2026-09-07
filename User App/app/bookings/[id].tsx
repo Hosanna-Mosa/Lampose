@@ -11,8 +11,10 @@ import { DirectionsButton } from '@/components/discovery';
 import { ActionBar, StatusBlock } from '@/components/lifecycle';
 import { errorStates } from '@/constants/copy';
 import { useTheme } from '@/context/ThemeContext';
-import { addressVisible, findBooking, timelineSteps, type BookingSummary } from '@/data/bookings';
-import { confirmMovedIn, useStayRequest } from '@/services';
+import {
+  addressVisible, findBooking, fromRealBooking, longDateLabel, timelineSteps, type BookingSummary,
+} from '@/data/bookings';
+import { confirmMovedIn, useBooking, useStayRequest } from '@/services';
 import { formatRupees } from '@/utils/money';
 import type { BookingStatus } from '@/constants/tokens';
 import { useDepositMark } from '@/components/ui/DepositMark';
@@ -39,23 +41,41 @@ export default function BookingDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
 
-  const stored = useMemo(() => (id ? findBooking(id) : undefined), [id]);
-
   /*
-   * The real entry PIN, for a booking that came from an accepted request.
+   * Two id shapes reach this screen, and REAL is the primary one now.
    *
-   * Everything else on this screen is still local — the terms, the address,
-   * the timeline labels — because none of it has a server equivalent yet. The
-   * CODE does, and it is the one thing here that must not be invented: a
-   * student reads it out at a door to an owner holding the server's value.
+   *   a real booking id     the Mongo `_id` `GET /customers/bookings` hands
+   *                         back — what `home.tsx`'s Bookings tab and a
+   *                         push notification both link with. Fetched
+   *                         directly, no detour through a stay request.
    *
-   * The local booking id encodes the listing (`bkg-<listingId>`), which is
-   * what lets this screen find the request behind it without a lookup
-   * endpoint that does not exist yet.
+   *   `bkg-<listingId>`     the legacy shape `booked/[id].tsx` still mints
+   *                         at the moment of confirmation, kept working here
+   *                         as a fallback by resolving the stay request
+   *                         behind it — `stay.request.bookingId` is the real
+   *                         id, stamped server-side the moment the owner
+   *                         accepts (`acceptAndBook`).
+   *
+   * Either way, once a real booking resolves, `fromRealBooking` is what this
+   * whole template actually renders — the fixture lookup (`findBooking`)
+   * only fires as a fallback for ids that resolve to neither.
    */
-  const listingId = id?.startsWith('bkg-') ? id.slice(4) : null;
+  const isLegacyId = id?.startsWith('bkg-') ?? false;
+  const listingId = isLegacyId ? (id as string).slice(4) : null;
   const stay = useStayRequest(listingId);
-  const entryPin = stay.request?.entryPin ?? null;
+
+  const realBookingId = isLegacyId ? (stay.request?.bookingId ?? null) : (id ?? null);
+  const real = useBooking(realBookingId);
+
+  const fixture = useMemo(() => (id ? findBooking(id) : undefined), [id]);
+  const stored = real.booking ? fromRealBooking(real.booking) : fixture;
+
+  /* Still trying — a real fetch in flight, or (on the legacy path) the stay
+     request it depends on not yet hydrated. Neither is "not found" yet. */
+  const resolving = real.loading || (isLegacyId && (stay.isHydrating || (!stay.request && !fixture)));
+
+  const entryPin = real.booking?.entryPin ?? stay.request?.entryPin ?? null;
+  const canReview = real.booking?.status === 'completed' && real.booking?.reviewed === false;
 
   /*
    * Moving in, which takes both of them.
@@ -64,20 +84,38 @@ export default function BookingDetail() {
    * button unlocks only once they have. Before that it says what to do instead
    * of being greyed out for no stated reason: a disabled control with no
    * explanation is one people tap repeatedly.
+   *
+   * `stay.request.moveIn` only exists on the legacy path (it needs the stay
+   * request, which the real-id path never fetches) — a real booking carries
+   * the same two facts directly (`movedInByOwnerAt`/`movedInByStudentAt`),
+   * so this is built from whichever of the two actually resolved.
    */
-  const moveIn = stay.request?.moveIn;
+  const moveIn = real.booking
+    ? {
+      ownerConfirmedAt: real.booking.movedInByOwnerAt,
+      studentConfirmedAt: real.booking.movedInByStudentAt,
+      awaitingStudent: Boolean(real.booking.movedInByOwnerAt) && !real.booking.movedInByStudentAt,
+      complete: Boolean(real.booking.movedInByOwnerAt && real.booking.movedInByStudentAt),
+    }
+    : stay.request?.moveIn;
   const [confirming, setConfirming] = useState(false);
   const [moveInError, setMoveInError] = useState<string | null>(null);
 
+  /* `POST /customers/stay-requests/:id/moved-in` is keyed by the REQUEST id,
+     never the booking id — `CustomerBooking.requestId` is what carries it on
+     the real path; the legacy path already has the request itself. */
+  const confirmMoveInId = real.booking?.requestId ?? stay.request?.id ?? null;
+
   const onConfirmMovedIn = async () => {
-    if (!stay.request) return;
+    if (!confirmMoveInId) return;
     setConfirming(true);
     setMoveInError(null);
     try {
-      await confirmMovedIn(stay.request.id);
+      await confirmMovedIn(confirmMoveInId);
       /* Refetched rather than assumed — the booking is the server's, and this
          screen has just changed it. */
-      await stay.refresh();
+      if (real.booking) await real.refetch();
+      else await stay.refresh();
     } catch (error) {
       setMoveInError((error as { displayMessage?: string }).displayMessage
         ?? 'We could not confirm that. Try again in a moment.');
@@ -88,6 +126,18 @@ export default function BookingDetail() {
   /** Dev-only status override, so all thirteen are reachable without a server. */
   const [override, setOverride] = useState<BookingStatus | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
+
+  if (!stored && resolving) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <StandardHeader title="Booking" onBack={() => router.back()} />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <Text variant="body" color="tertiary">Loading…</Text>
+        </View>
+      </View>
+    );
+  }
 
   if (!stored) {
     return (
@@ -180,10 +230,30 @@ export default function BookingDetail() {
         >
           <Text variant="title3">Your terms</Text>
           <Term label="Sharing" value={booking.sharingLabel} />
-          <Term label="Rent" value={`${formatRupees(booking.rent)} /mo`} />
-          <Term label="Deposit" value={formatRupees(booking.deposit)} refundable />
+          {/*
+            Two money shapes, never both — see the note in `BookingList.tsx`.
+            A real booking (`booking.rent` unset) has no rent, deposit or
+            notice period to show: Lampose was never told one, because the
+            money moves between the student and the owner directly.
+          */}
+          {booking.rent != null ? (
+            <>
+              <Term label="Rent" value={`${formatRupees(booking.rent)} /mo`} />
+              <Term label="Deposit" value={formatRupees(booking.deposit ?? 0)} refundable />
+            </>
+          ) : booking.totalAmount != null ? (
+            <>
+              <Term label="Total amount" value={formatRupees(booking.totalAmount)} />
+              <Term label="Paid so far" value={formatRupees(booking.paidAmount ?? 0)} />
+            </>
+          ) : null}
           <Term label="Move-in date" value={booking.moveInLabel} />
-          <Term label="Notice period" value={`${booking.noticePeriodDays} days`} />
+          {booking.checkOutDate ? (
+            <Term label="Move-out date" value={longDateLabel(booking.checkOutDate)} />
+          ) : null}
+          {booking.noticePeriodDays != null ? (
+            <Term label="Notice period" value={`${booking.noticePeriodDays} days`} />
+          ) : null}
           {booking.lockInEndsLabel ? (
             <Term label="Lock-in ends" value={booking.lockInEndsLabel} />
           ) : null}
@@ -215,8 +285,8 @@ export default function BookingDetail() {
               </Text>
               <Text variant="caption" color="secondary">
                 {moveIn.awaitingStudent
-                  ? `${booking.ownerName} has marked you in. Confirm from your side and the stay begins.`
-                  : `Show your entry PIN to ${booking.ownerName} when you arrive. Once they mark you in, you confirm here.`}
+                  ? `${booking.ownerName ?? 'The owner'} has marked you in. Confirm from your side and the stay begins.`
+                  : `Show your entry PIN to ${booking.ownerName ?? 'the owner'} when you arrive. Once they mark you in, you confirm here.`}
               </Text>
             </View>
 
@@ -249,7 +319,7 @@ export default function BookingDetail() {
               You have moved in
             </Text>
             <Text variant="caption" style={{ color: colors.success.ink }}>
-              Both you and {booking.ownerName} confirmed it. Enjoy the room.
+              Both you and {booking.ownerName ?? 'the owner'} confirmed it. Enjoy the room.
             </Text>
           </View>
         ) : null}
@@ -273,10 +343,40 @@ export default function BookingDetail() {
             // Leaving a stay is notice; leaving a booking is cancellation.
             // They are different screens because they are different amounts of
             // someone's money.
-            router.push(booking.status === 'CHECKED_IN' ? '/bookings/notice' : '/bookings/cancel');
+            if (booking.status === 'CHECKED_IN') {
+              router.push('/bookings/notice');
+              return;
+            }
+            router.push(
+              (realBookingId ? `/bookings/cancel?id=${realBookingId}` : '/bookings/cancel') as never,
+            );
           }}
-          onSupport={() => {}}
+          onSupport={() => router.push('/support/new')}
         />
+
+        {/* "Rate your stay" — additive, and independent of the fixture status
+            above. Shown only once the REAL booking behind this one says the
+            stay is complete and unreviewed; see `real` above. */}
+        {canReview ? (
+          <View
+            style={{
+              backgroundColor: colors.surfaceSunken,
+              borderRadius: radius.card,
+              padding: space[4],
+              gap: space[3],
+            }}
+          >
+            <Text variant="title3">How was your stay?</Text>
+            <Text variant="body" color="secondary">
+              A quick review helps other students, and it reaches {booking.propertyName} directly.
+            </Text>
+            <Button
+              label="Rate your stay"
+              variant="secondary"
+              onPress={() => router.push(`/bookings/review?id=${realBookingId}` as never)}
+            />
+          </View>
+        ) : null}
 
         {previewControls ? (
           <View style={{ gap: space[2], paddingTop: space[4] }}>

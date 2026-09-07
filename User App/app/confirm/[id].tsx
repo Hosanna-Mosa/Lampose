@@ -1,7 +1,7 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, ConfirmModal, Dialog, Icon, Text } from '@/components/ui';
@@ -12,6 +12,9 @@ import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useTheme } from '@/context/ThemeContext';
 import { confirmationRewards } from '@/data/rewards';
 import { useListing, useStayRequest } from '@/services';
+/* DEVELOPMENT ONLY — remove with the dev bypass button below. */
+import { ApiError } from '@/services/api/client';
+import { devMarkVisitPaid } from '@/services/api/stayRequests.api';
 
 /**
  * The request, and the owner deciding — in three minutes.
@@ -245,6 +248,63 @@ export default function OwnerConfirmation() {
       params: { requestId: String(stay.request.id), returnTo: `/confirm/${String(id)}` },
     } as never);
   }, [stay.request?.id, router, id]);
+
+  /*
+   * DEVELOPMENT ONLY — mark the token paid without paying it.
+   *
+   * Not a payment option and deliberately not dressed as one: no money moves,
+   * nothing is collected, and nothing is owed afterwards. It exists so the
+   * screens behind the paywall can be worked on while Razorpay's checkout is
+   * unavailable, and it is labelled loudly enough that nobody could mistake it
+   * for something a real student should press.
+   *
+   * Drawn only when the SERVER says it is available
+   * (`payment.devMarkPaidAllowed`, which is `DEV_ALLOW_MARK_PAID` and is
+   * refused when NODE_ENV=production), so the whole branch disappears by
+   * itself when the flag comes off — no app change needed.
+   *
+   * It sits HERE, with the other hooks, and not beside `tokenAmount` where the
+   * copy it feeds lives: `tokenAmount` is declared past two early returns, so
+   * three hooks next to it run on some renders and not others — which is
+   * exactly the "rendered more hooks than during the previous render" crash.
+   *
+   * Delete this block, `devMarkVisitPaid`, its endpoint and the route when the
+   * online checkout is working.
+   */
+  const [devBusy, setDevBusy] = useState(false);
+  const [devError, setDevError] = useState<string | null>(null);
+
+  const devSkipPayment = useCallback(() => {
+    if (!stay.request?.id || devBusy) return;
+    Alert.alert(
+      'Mark payment as done?',
+      'Development bypass — no payment is taken and nothing is owed. The visit will behave '
+      + 'as though the ₹199 had been paid so the rest of the flow can be tested.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Mark as paid',
+          onPress: async () => {
+            setDevBusy(true);
+            setDevError(null);
+            try {
+              await devMarkVisitPaid(String(stay.request!.id));
+              await stay.refresh();
+            } catch (err) {
+              setDevError(
+                err instanceof ApiError
+                  ? err.displayMessage
+                  : 'We could not mark it paid. Please try again.',
+              );
+            } finally {
+              setDevBusy(false);
+            }
+          },
+        },
+      ],
+    );
+  }, [stay, devBusy]);
+
 
   /*
    * Coming back from checkout is not an answer either way.
@@ -496,7 +556,6 @@ export default function OwnerConfirmation() {
     stay.request?.payment?.required && stay.request.payment.status !== 'paid',
   );
   const tokenAmount = (stay.request?.payment?.amountPaise ?? 0) / 100;
-
   /* Said before the sheet opens, not by it. A student who picked a layout and
      waited for an owner should not meet the price for the first time as a
      payment request. */
@@ -523,9 +582,13 @@ export default function OwnerConfirmation() {
           tint: colors.danger.tint,
           ink: colors.danger.ink,
           /* Not "they turned you down". Availability is a fact about a
-             building on a given day. */
+             building on a given day — and, crucially, about ONE ROOM TYPE on
+             that day. The old copy ended there, which read as a verdict on the
+             whole property; the last sentence is what makes the button below
+             ("See other rooms here") make sense. */
           title: 'No availability right now',
-          body: 'What you asked for is not free at the moment. Nothing was charged, and nothing is owed.',
+          body: 'What you asked for is not free at the moment. Nothing was charged, and nothing is '
+            + 'owed — other rooms here may still be free, and you can ask again.',
         }
         : ranOut
           ? {
@@ -724,6 +787,28 @@ export default function OwnerConfirmation() {
               disabled={paying}
               fullWidth
             />
+            {/* DEVELOPMENT ONLY — see `devSkipPayment`. Server-gated, so it
+                vanishes with the flag rather than needing this edited back
+                out. Labelled so it cannot be mistaken for a payment option. */}
+            {tokenDue && stay.request?.payment?.devMarkPaidAllowed ? (
+              <>
+                <Button
+                  label={devBusy ? 'Marking as paid…' : '🛠 DEV: mark payment as done'}
+                  onPress={devSkipPayment}
+                  variant="secondary"
+                  disabled={paying || devBusy}
+                  fullWidth
+                />
+                <Text variant="numMeta" color="tertiary" style={styles.centred}>
+                  Development bypass — no payment is taken
+                </Text>
+              </>
+            ) : null}
+            {devError ? (
+              <Text variant="numMeta" color="danger" style={styles.centred}>
+                {devError}
+              </Text>
+            ) : null}
             {/* The caption under the button must not contradict the button.
                 With a payment due, it explains the figure instead. */}
             <Text variant="numMeta" color="tertiary" style={styles.centred}>
@@ -770,18 +855,38 @@ export default function OwnerConfirmation() {
           </View>
         ) : declined ? (
           <View style={{ gap: space[3] }}>
-            {/* The bed went to somebody else, so another room here may well
-                be free — back to the listing rather than out of it. */}
-            {bedTaken ? (
-              <Button
-                label="See other rooms here"
-                onPress={() => { clearPill(); router.replace(`/listing/${listing.id}` as never); }}
-                fullWidth
-              />
-            ) : null}
+            {/*
+              Back to the listing, on EVERY decline — not just when the bed went.
+              This used to be shown only for `INVENTORY_TAKEN`, on the reasoning
+              that a request the owner actually declined "could only come back
+              refused". That is not what a decline is.
+
+              An owner answers one request, for one room TYPE, on one day. They
+              are not rejecting the person, and the server agrees: the
+              "one live request per listing" gate in `createStayRequest` refuses
+              only a request that is still PENDING or already CONFIRMED — a
+              declined one blocks nothing, so a second request is accepted
+              normally.
+
+              The case that made this obvious: a student asked for a 1 BHK, was
+              declined, and was sent back to the home feed — while that same
+              property had eight 2 BHKs and twenty-four 3 BHKs free, and had
+              stopped offering 1 BHK at all. The one room they could not have
+              was the one they asked for, and the app pushed them off the
+              property entirely.
+
+              Back to the LISTING rather than re-sending: they should pick from
+              what is actually available now, not repeat the request that was
+              just turned down.
+            */}
+            <Button
+              label="See other rooms here"
+              onPress={() => { clearPill(); router.replace(`/listing/${listing.id}` as never); }}
+              fullWidth
+            />
             <Button
               label="Find another property"
-              variant={bedTaken ? 'secondary' : 'primary'}
+              variant="secondary"
               onPress={() => { clearPill(); router.replace('/home'); }}
               fullWidth
             />

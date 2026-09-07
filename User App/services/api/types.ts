@@ -411,6 +411,13 @@ export type BackendStayRequest = {
   payment?: {
     required: boolean;
     status: 'not_required' | 'pending' | 'paid' | 'failed' | 'expired';
+    /* HOW it was settled. `dev` means the development bypass waived it — no
+       money moved — rather than a verified Razorpay payment. */
+    mode?: 'online' | 'dev';
+    /* DEVELOPMENT ONLY. Whether this server has DEV_ALLOW_MARK_PAID on; always
+       false in production. A server flag, so the app cannot infer it, and a
+       button that might 404 is worse than no button. */
+    devMarkPaidAllowed?: boolean;
     amountPaise: number | null;
     representativePaise?: number | null;
     feePaise?: number | null;

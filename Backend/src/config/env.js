@@ -162,6 +162,29 @@ const config = {
     /* Optional. Set it and the webhook route verifies its own signature. */
     webhookSecret: String(process.env.RAZORPAY_WEBHOOK_SECRET || '').trim(),
 
+    /*
+     * DEVELOPMENT ONLY — mark a visit's ₹199 token paid without paying it.
+     *
+     * Not a product feature and not a payment method: a button that skips the
+     * gateway so the screens behind it can be worked on while the real
+     * checkout is unavailable. There is no cash, no collection, and nobody
+     * owes anything afterwards — the row simply says the token was waived for
+     * development.
+     *
+     * OFF unless explicitly `true`, and it can never be on in production —
+     * `NODE_ENV=production` refuses it outright here rather than trusting
+     * anybody to unset it. This is a deliberate hole in the one rule the
+     * payments obey ("paid only when an HMAC over `orderId|paymentId`
+     * verified against our own secret"), which is exactly why it is a flag
+     * and not a hardcoded button: a flag is switched off, and a hardcoded
+     * button is forgotten.
+     *
+     * A request settled this way is never indistinguishable from a real
+     * payment — `payment.mode: 'dev'` with a null `paymentId` marks every one.
+     */
+    devAllowMarkPaid: String(process.env.DEV_ALLOW_MARK_PAID || '').trim().toLowerCase() === 'true'
+      && String(process.env.NODE_ENV || '').trim() !== 'production',
+
     /* In PAISE, because that is the only unit Razorpay accepts and converting
        at the boundary is where rounding bugs get in. 19900 = ₹199, charged in
        one shot — there is no advance/balance split any more. */
@@ -203,6 +226,31 @@ const config = {
       if (!Number.isFinite(raw) || raw < 1 || raw > 48) return 2;
       return Math.round(raw);
     })(),
+  },
+
+  /*
+   * RazorpayX — moving money OUT, to a Stay Partner owner's bank account or
+   * UPI id. A separate product from `razorpay` above (which only ever takes
+   * the ₹199 IN), with its own credentials and its own dashboard, so it gets
+   * its own config block rather than being folded into that one.
+   *
+   * Absent keys are not fatal, on the same rule every other integration here
+   * follows: `PartnerPayout` rows can still be REQUESTED with this
+   * unconfigured (see `payout.service.js`) — they simply sit `pending`
+   * rather than being dispatched, which is an honest state rather than a
+   * silent no-op. `POST /admin/partner-payouts/:id/process` answers a named
+   * 503 until this is set.
+   */
+  razorpayx: {
+    keyId: String(process.env.RAZORPAYX_KEY_ID || '').trim(),
+    keySecret: String(process.env.RAZORPAYX_KEY_SECRET || '').trim(),
+    /* The RazorpayX virtual account payouts are drawn from — NOT the same
+       thing as a bank account number belonging to a partner. Found on the
+       RazorpayX dashboard. */
+    accountNumber: String(process.env.RAZORPAYX_ACCOUNT_NUMBER || '').trim(),
+    get configured() {
+      return Boolean(this.keyId && this.keySecret && this.accountNumber);
+    },
   },
 
   /* ── The stay-request flow ────────────────────────────────────────────
@@ -288,6 +336,19 @@ const configWarnings = [];
 if (!mongoUri) {
   configWarnings.push(
     'MONGO_URI is not set — v2 data routes answer 503 and v1 falls back to its in-memory store.',
+  );
+}
+
+/* Loud, because this one is a hole in the payment rule rather than a missing
+   integration: it is the difference between "the ₹199 was verified" and
+   "a developer tapped a button". Refused outright in production above. */
+if (String(process.env.DEV_ALLOW_MARK_PAID || '').trim().toLowerCase() === 'true') {
+  configWarnings.push(
+    String(process.env.NODE_ENV || '').trim() === 'production'
+      ? 'DEV_ALLOW_MARK_PAID is set but NODE_ENV=production — REFUSED. A visit can only be '
+        + 'settled by a verified Razorpay signature here.'
+      : '⚠️  DEV_ALLOW_MARK_PAID is ON — the ₹199 visit token can be marked paid WITHOUT a '
+        + 'payment. Development only. Unset it before anybody real uses this server.',
   );
 }
 

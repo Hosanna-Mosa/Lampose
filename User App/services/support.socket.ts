@@ -64,7 +64,21 @@ export type SupportSocketEvent = {
   ticket?: { reference?: string } | null;
 };
 
-type Listener = (event: SupportSocketEvent) => void;
+/*
+ * Untyped at the registry level, deliberately.
+ *
+ * The connection now carries two payload shapes on one socket — support's
+ * `SupportSocketEvent` and the stay side's `StayEvent` below — and `attach`/
+ * `detach` are a pure string-keyed registry that never reads a field off
+ * what passes through them. Typing this as `(event: SupportSocketEvent) =>
+ * void` was fine while only one shape existed; keeping it that way once a
+ * second one does would make every stay-side subscription an unsound cast
+ * instead of a plain function. Every PUBLIC function below (`onSupportEvent`,
+ * `watchTicket`, `onStayRequestEvent`, `onBookingEvent`) is still fully typed
+ * on its own payload — only the shared plumbing between them is not.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Listener = (event: any) => void;
 
 /** The two server-to-client names, listened for together everywhere. */
 const SUPPORT_EVENTS = ['support_message', 'support_ticket_updated'] as const;
@@ -283,6 +297,44 @@ export function onSupportEvent(handler: Listener): () => void {
   return () => {
     SUPPORT_EVENTS.forEach((event) => detach(event, handler));
   };
+}
+
+/* ------------------------------------------------------------------ *
+ * The stay side
+ * ------------------------------------------------------------------ *
+ *
+ * The same connection, the same `customer:<id>` room, two more event names.
+ * Support earned this socket first (see the header); a stay request's
+ * three-minute clock and a booking's owner-driven status both need the same
+ * thing a support reply does — a poll interval is the gap in which a
+ * student decides nothing happened yet. Nothing here is a second
+ * connection: `connectSupportSocket()` is still the one call that opens it,
+ * from whichever hook needs it first.
+ */
+
+export type StayEvent = {
+  kind?: string;
+  requestId?: string;
+  bookingId?: string;
+  listingId?: string;
+  status?: string;
+  expiresAt?: string | null;
+};
+
+/** A stay request was created, accepted, declined, expired or withdrawn. */
+export function onStayRequestEvent(handler: (event: StayEvent) => void): () => void {
+  attach('stay_request_new', handler);
+  attach('stay_request_updated', handler);
+  return () => {
+    detach('stay_request_new', handler);
+    detach('stay_request_updated', handler);
+  };
+}
+
+/** A booking this student holds was checked in, checked out or cancelled. */
+export function onBookingEvent(handler: (event: StayEvent) => void): () => void {
+  attach('booking_updated', handler);
+  return () => detach('booking_updated', handler);
 }
 
 /**

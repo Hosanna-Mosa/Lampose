@@ -246,12 +246,13 @@ export default function TodayTab() {
               inHouse={todayStats.inHouse}
               onPress={() => router.push('/bookings')}
             />
-            {/* No `onPress`: the Payouts tab it used to open is gone. The tile
-                stays as a read-only stat rather than being deleted — it is one
-                half of a two-up row, and removing it would leave Bookings as a
-                lone half-width card. A tile that looks tappable and goes
-                nowhere is the worse of the two options. */}
-            <EarningsMiniCard today={earningsData.today} week={earningsData.week} />
+            {/* `/earnings` is real again — `payout.service.js`, and this
+                tile's own `onPress`. */}
+            <EarningsMiniCard
+              today={earningsData.today}
+              week={earningsData.week}
+              onPress={() => router.push('/earnings' as never)}
+            />
           </View>
 
           <RequestsBanner
@@ -261,7 +262,9 @@ export default function TodayTab() {
             secondsToSoonest={requestGroups.pending.length
               ? Math.min(...requestGroups.pending.map((r) => secondsLeft(r, clockOffset.current)))
               : null}
-            onPress={() => router.push('/requests')}
+            /* `navigate`, not `push`: Requests is a sibling TAB now, so this
+               selects it rather than stacking a second copy on top of Today. */
+            onPress={() => router.navigate('/requests')}
           />
 
           <AddCustomerBanner onPress={() => router.push('/requests/add-customer')} />

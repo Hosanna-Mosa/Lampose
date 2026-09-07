@@ -1,46 +1,82 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { Screen, Text, IconButton, Icon, Badge, Divider, EmptyState } from '@/components/ui';
-import {
-  STATUS_TONE,
-  getTicket,
-  markTicketOpened,
-  sendMessage,
-  statusLabel,
-  subscribeTickets,
-  ticketTimeLabel,
-  type TicketMessage,
-} from '@/lib/support';
+import { useSupportActions, useSupportTicket } from '@/services/hooks/useSupport';
+import type { SupportMessage, SupportTicketStatus } from '@/services/api/support.api';
+import { watchSupportTicket } from '@/services/realtimeSocket';
+import { queryKeys } from '@/services/hooks/keys';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 
+const STATUS_TONE: Record<SupportTicketStatus, 'warning' | 'accent' | 'success' | 'neutral'> = {
+  open: 'warning',
+  awaiting_customer: 'accent',
+  resolved: 'success',
+  closed: 'neutral',
+};
+const STATUS_LABEL: Record<SupportTicketStatus, string> = {
+  open: 'Open',
+  awaiting_customer: 'Waiting on you',
+  resolved: 'Resolved',
+  closed: 'Closed',
+};
+
 /**
- * The only messaging surface in the design set. Everywhere else a "Message"
- * button sits inert for lack of a thread to open — this is the thread.
+ * The thread — the owner's own ticket, or a guest's ticket about one of
+ * their properties, whichever `id` (the reference) names. `useSupportTicket`
+ * does not need to be told which: `/partners/support/tickets/:reference`
+ * answers with a 404 for anything this owner is not a party to, exactly as
+ * the guarded read does everywhere else in this app.
  */
 export default function TicketThreadScreen() {
   const c = useColors();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const reference = id ?? '';
 
-  const [revision, setRevision] = useState(0);
-  useEffect(() => subscribeTickets(() => setRevision((r) => r + 1)), []);
+  const { data: thread, isLoading, isError } = useSupportTicket(reference);
+  const { reply, markRead } = useSupportActions();
+  const queryClient = useQueryClient();
 
-  // Arriving at the thread is what "read" means.
-  useEffect(() => {
-    if (id) markTicketOpened(id);
-  }, [id]);
-
-  const ticket = getTicket(id);
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<ScrollView>(null);
+  const markedRef = useRef<string | null>(null);
+
+  /* Arriving at the thread is what "read" means — once per reference, not on
+     every refetch. */
+  useEffect(() => {
+    if (!reference || !thread || markedRef.current === reference) return;
+    markedRef.current = reference;
+    markRead.mutate(reference);
+  }, [reference, thread, markRead]);
+
+  /* The live half — an open thread appends the other side's reply the
+     instant it lands, rather than on the next 30-second poll. `reply`'s own
+     `onSuccess` already refreshes the cache for OUR sends; this is what
+     covers the other side's — a student's message, or a system status
+     change. */
+  useEffect(() => {
+    if (!reference) return undefined;
+    return watchSupportTicket(reference, () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.supportTicket(reference) });
+    });
+  }, [reference, queryClient]);
 
   useEffect(() => {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
-  }, [ticket?.messages.length]);
+  }, [thread?.messages.length]);
 
-  if (!ticket) {
+  if (isLoading) {
+    return (
+      <Screen scroll={false} padX={20} background="bg">
+        <EmptyState icon="clock" title="Loading" body="Fetching this thread…" />
+      </Screen>
+    );
+  }
+
+  if (isError || !thread) {
     return (
       <Screen scroll={false} padX={20} background="bg">
         <EmptyState
@@ -53,58 +89,79 @@ export default function TicketThreadScreen() {
     );
   }
 
-  const send = () => {
-    if (!draft.trim()) return;
-    sendMessage(ticket.id, draft);
+  /* On a ticket a GUEST filed about a property (`linkedPartnerId` set), this
+     owner's own words are tagged `partner`; on the owner's own ticket their
+     words are tagged `customer`, the generic tag every non-diner audience's
+     own messages carry. Whichever it is, that is "mine". */
+  const mine: SupportMessage['author'] = thread.linkedPartnerId ? 'partner' : 'customer';
+
+  const send = async () => {
+    const body = draft.trim();
+    if (!body) return;
     setDraft('');
-    requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    try {
+      await reply.mutateAsync({ reference, body });
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    } catch {
+      setDraft(body);
+    }
   };
 
   return (
     <Screen
       scroll={false}
-            padX={20}
-            contentStyle={styles.fill}
-            key={revision}
-            footer={
-              <View style={styles.composer}>
-                <View style={[styles.inputPill, { borderColor: c.border }]}>
-                  <TextInput
-                    value={draft}
-                    onChangeText={setDraft}
-                    placeholder="Type a message…"
-                    placeholderTextColor={c.textTertiary}
-                    multiline
-                    style={[styles.input, { color: c.textPrimary }]}
-                  />
-                </View>
-                <Pressable
-                  onPress={send}
-                  disabled={!draft.trim()}
-                  accessibilityRole="button"
-                  accessibilityLabel="Send message"
-                  style={({ pressed }) => [
-                    styles.sendButton,
-                    { backgroundColor: draft.trim() ? c.accent : c.borderSubtle, opacity: pressed ? 0.8 : 1 },
-                  ]}
-                >
-                  <Icon name="send" size={17} color={draft.trim() ? c.white : c.textTertiary} strokeWidth={2} />
-                </Pressable>
-              </View>
-            }
-      stickyHeader={
-        <>
-          <View style={styles.backRow}>
-            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+      padX={20}
+      contentStyle={styles.fill}
+      footer={
+        <View style={styles.composer}>
+          <View style={[styles.inputPill, { borderColor: c.border }]}>
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="Type a message…"
+              placeholderTextColor={c.textTertiary}
+              multiline
+              editable={thread.status !== 'closed'}
+              style={[styles.input, { color: c.textPrimary }]}
+            />
           </View>
-        </>
+          <Pressable
+            onPress={send}
+            disabled={!draft.trim() || thread.status === 'closed' || reply.isPending}
+            accessibilityRole="button"
+            accessibilityLabel="Send message"
+            style={({ pressed }) => [
+              styles.sendButton,
+              { backgroundColor: draft.trim() ? c.accent : c.borderSubtle, opacity: pressed ? 0.8 : 1 },
+            ]}
+          >
+            <Icon name="send" size={17} color={draft.trim() ? c.white : c.textTertiary} strokeWidth={2} />
+          </Pressable>
+        </View>
+      }
+      stickyHeader={
+        <View style={styles.backRow}>
+          <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+        </View>
       }
     >
-
       <Text style={styles.subject} numberOfLines={2}>
-        {ticket.subject}
+        {thread.subject}
       </Text>
-      <Badge label={statusLabel(ticket.status)} tone={STATUS_TONE[ticket.status]} style={styles.badge} />
+      <View style={styles.badgeRow}>
+        <Badge label={STATUS_LABEL[thread.status]} tone={STATUS_TONE[thread.status]} />
+        {thread.linkedPartnerId && (
+          <Badge
+            label={thread.placeLabel ? `About ${thread.placeLabel}` : 'Guest issue'}
+            tone="neutral"
+          />
+        )}
+      </View>
+      {thread.status === 'closed' && (
+        <Text variant="caption" color="textTertiary" style={styles.closedNote}>
+          This one is closed. Raise a new ticket if it comes up again.
+        </Text>
+      )}
       <Divider style={styles.divider} />
 
       <ScrollView
@@ -114,34 +171,60 @@ export default function TicketThreadScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {ticket.messages.map((m) => (
-          <Bubble key={m.id} message={m} />
+        {thread.messages.map((m) => (
+          <Bubble key={m.id} message={m} mine={mine} />
         ))}
       </ScrollView>
     </Screen>
   );
 }
 
-function Bubble({ message }: { message: TicketMessage }) {
+function Bubble({
+  message,
+  mine,
+}: {
+  message: SupportMessage;
+  mine: SupportMessage['author'];
+}) {
   const c = useColors();
-  const fromOwner = message.from === 'owner';
+
+  if (message.author === 'system') {
+    return (
+      <View style={styles.systemRow}>
+        <Text variant="badge" color="textTertiary" style={styles.systemText}>
+          {message.body}
+        </Text>
+      </View>
+    );
+  }
+
+  const isMine = message.author === mine;
+  const senderLabel = isMine
+    ? 'You'
+    : message.author === 'support'
+      ? (message.authorName || 'Support')
+      : message.author === 'partner'
+        ? (message.authorName || 'Property owner')
+        : (message.authorName || 'Guest');
 
   return (
-    <View style={[styles.bubbleGroup, { alignItems: fromOwner ? 'flex-end' : 'flex-start' }]}>
+    <View style={[styles.bubbleGroup, { alignItems: isMine ? 'flex-end' : 'flex-start' }]}>
       <View
         style={[
           styles.bubble,
-          fromOwner
+          isMine
             ? [styles.bubbleOwner, { backgroundColor: c.accent }]
             : [styles.bubbleSupport, { backgroundColor: c.surfaceSunken }],
         ]}
       >
-        <Text style={[styles.bubbleText, { color: fromOwner ? c.white : c.textPrimary }]}>
-          {message.text}
+        <Text style={[styles.bubbleText, { color: isMine ? c.white : c.textPrimary }]}>
+          {message.body}
         </Text>
       </View>
       <Text variant="badge" color="textTertiary" style={styles.bubbleMeta}>
-        {fromOwner ? 'You' : 'Support'} · {ticketTimeLabel(message.sentAt)}
+        {senderLabel} · {new Date(message.at).toLocaleString(undefined, {
+          day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+        })}
       </Text>
     </View>
   );
@@ -151,10 +234,13 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   backRow: { height: 44, justifyContent: 'center', marginLeft: -10, marginTop: 2 },
   subject: { fontFamily: fonts.extrabold, fontSize: 16, lineHeight: 22, marginBottom: 6 },
-  badge: { marginBottom: 14 },
+  badgeRow: { flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap' },
+  closedNote: { marginTop: -8, marginBottom: 10 },
   divider: { marginBottom: 4 },
 
   messages: { paddingVertical: 14, gap: 12 },
+  systemRow: { paddingVertical: 4, alignItems: 'center' },
+  systemText: { textAlign: 'center' },
   bubbleGroup: { gap: 4 },
   bubble: { maxWidth: '80%', borderRadius: 14, paddingVertical: 10, paddingHorizontal: 14 },
   bubbleOwner: { borderBottomRightRadius: 4 },

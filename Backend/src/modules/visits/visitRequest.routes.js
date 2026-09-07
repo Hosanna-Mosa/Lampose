@@ -21,7 +21,7 @@ const {
 } = require('./visitRequest.controller');
 const {
   createPaymentOrder, verifyPayment, renderCheckout, paymentCallback,
-  recordPaymentFailure,
+  recordPaymentFailure, devMarkPaid,
 } = require('./visitPayment.controller');
 const { setSlot } = require('./assistedSlot.controller');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
@@ -58,6 +58,10 @@ router.get('/:id', requireLamposeDb, statusLimit, getVisitRequest);
    a verified payment AND a fixed slot rather than behind knowing an id. */
 router.post('/:id/payment/order', requireLamposeDb, statusLimit, createPaymentOrder);
 router.post('/:id/payment/verify', requireLamposeDb, statusLimit, verifyPayment);
+/* DEVELOPMENT ONLY — marks the token paid with no payment behind it. 404s
+   unless DEV_ALLOW_MARK_PAID is on, and env.js refuses that flag when
+   NODE_ENV=production. See `devMarkPaid`. */
+router.post('/:id/payment/dev-mark-paid', requireLamposeDb, statusLimit, devMarkPaid);
 
 /* The mobile app renders this in its own WebView rather than carrying a
    native Razorpay SDK. It renders the same checkout, verifies here where the

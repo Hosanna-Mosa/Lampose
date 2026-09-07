@@ -175,6 +175,30 @@ export async function confirmMovedIn(
    decided server-side; this file posts a choice and reads back the result.
    ══════════════════════════════════════════════════════════════════════════ */
 
+/**
+ * DEVELOPMENT ONLY — mark the ₹199 token paid without paying it.
+ *
+ * A bypass, not a payment method: nothing is collected and nothing is owed.
+ * It exists so the flow behind the paywall (slot picker, address release, the
+ * owner's side) can be exercised while the real checkout is unavailable.
+ *
+ * The server only offers it when `DEV_ALLOW_MARK_PAID` is on, which it refuses
+ * when NODE_ENV=production, and answers 404 otherwise — so the button is drawn
+ * from `payment.devMarkPaidAllowed` rather than assumed.
+ *
+ * Delete this, its endpoint, and the button when the real checkout works.
+ */
+export async function devMarkVisitPaid(
+  id: string,
+  signal?: AbortSignal,
+): Promise<BackendStayRequest> {
+  const envelope = await apiRequest<ApiEnvelope<BackendStayRequest>>(
+    endpoints.visitRequestDevMarkPaid(id),
+    { method: 'POST', signal },
+  );
+  return unwrap(envelope);
+}
+
 /** The visit's slot, once the payment has verified. The address comes back
     with the response. */
 export async function setVisitSlot(

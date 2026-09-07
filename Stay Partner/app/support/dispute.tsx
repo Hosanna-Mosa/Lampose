@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
@@ -11,68 +11,80 @@ import {
   ChipRow,
   Input,
   Select,
-  EvidenceGrid,
 } from '@/components/ui';
-import { ALL_BOOKINGS, type Booking } from '@/lib/bookings';
-import { createTicket, DISPUTE_REASONS, type DisputeReason } from '@/lib/support';
+import { fetchBookings } from '@/services/api/domain.api';
+import { toBooking, type Booking } from '@/lib/bookings';
+import { useSupportActions } from '@/services/hooks/useSupport';
+import { ApiError } from '@/services/api/client';
 import { radius } from '@/constants/layout';
 import { useColors } from '@/hooks/useColors';
 
-/** "#LB-1182 · Arjun Kapoor" — same linked-booking label as New ticket. */
+const DISPUTE_REASONS = ['Guest damage', 'False review', 'Booking manipulation', 'Other'] as const;
+type DisputeReason = (typeof DISPUTE_REASONS)[number];
+
+/** "#LB-1182 · Arjun Kapoor". */
 function bookingLabel(b: Booking): string {
   return `#${b.id} · ${b.guest}`;
 }
 
 /**
- * Structurally this is New ticket's twin — same info banner, chips, linked
- * booking, description, evidence shape. What differs: the reason chips are
- * dispute-specific, the linked booking is required (the design shows no
- * "(optional)" annotation here, unlike New ticket), and there's no separate
- * disputes list anywhere in the design set — a submitted dispute files as a
- * support ticket under category "Dispute", so it surfaces on the real
- * Support list rather than vanishing into nothing.
+ * A dispute — for real. This was `New ticket`'s twin in name only: it posted
+ * to `createTicket` in `lib/support.ts`, a fake that appended to an
+ * in-memory array and reset on every restart, and nothing in the app ever
+ * linked to this screen either — the "Get help" button on an active booking
+ * sent a `topic: 'guest'` param that nothing read. Both are fixed here: this
+ * now files a REAL ticket (`category: 'guest'` — see `support.audiences.js`),
+ * and `booking/active.tsx` opens this screen directly instead of dropping
+ * that param on the floor.
  */
 export default function RaiseDisputeScreen() {
   const c = useColors();
   const router = useRouter();
+  const { create } = useSupportActions();
 
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [reason, setReason] = useState<DisputeReason | null>(null);
   const [bookingLabelValue, setBookingLabelValue] = useState<string | null>(null);
   const [description, setDescription] = useState('');
-  // Fake evidence, same as New ticket — add/remove is real, no camera/picker is.
-  const [evidenceCount, setEvidenceCount] = useState(0);
 
-  const bookingOptions = ALL_BOOKINGS.map(bookingLabel);
-  const linkedBooking = ALL_BOOKINGS.find((b) => bookingLabel(b) === bookingLabelValue);
+  useEffect(() => {
+    fetchBookings()
+      .then((raw) => setBookings((raw || []).map((b: any) => toBooking(b))))
+      .catch(() => setBookings([]));
+  }, []);
 
-  const canSubmit = Boolean(reason) && Boolean(linkedBooking) && description.trim().length > 0;
+  const bookingOptions = bookings.map(bookingLabel);
+  const linkedBooking = bookings.find((b) => bookingLabel(b) === bookingLabelValue);
 
-  const submit = () => {
+  const canSubmit = Boolean(reason) && Boolean(linkedBooking) && description.trim().length > 0 && !create.isPending;
+
+  const submit = async () => {
     if (!reason || !linkedBooking || !canSubmit) return;
-    createTicket({
-      category: 'Dispute',
-      subject: reason,
-      description: description.trim(),
-      linkedBookingId: linkedBooking.id,
-      evidenceCount: evidenceCount || undefined,
-    });
-    router.replace('/support');
+    try {
+      const body = `${reason} — booking #${linkedBooking.id} (${linkedBooking.guest}, `
+        + `${linkedBooking.roomType}).\n\n${description.trim()}`;
+      const thread = await create.mutateAsync({
+        category: 'guest',
+        body,
+        placeLabel: linkedBooking.roomType,
+      });
+      router.replace(`/support/ticket?id=${thread.reference}`);
+    } catch {
+      /* create.error renders below. */
+    }
   };
 
   return (
     <Screen
       padX={22}
-            contentStyle={styles.fill}
-            footer={<Button label="Submit dispute" onPress={submit} disabled={!canSubmit} />}
+      contentStyle={styles.fill}
+      footer={<Button label="Submit dispute" onPress={submit} disabled={!canSubmit} loading={create.isPending} />}
       stickyHeader={
-        <>
-          <View style={styles.backRow}>
-            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-          </View>
-        </>
+        <View style={styles.backRow}>
+          <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+        </View>
       }
     >
-
       <Text variant="pageTitleSm" style={styles.title}>
         Raise a dispute
       </Text>
@@ -80,7 +92,8 @@ export default function RaiseDisputeScreen() {
       <View style={[styles.banner, { backgroundColor: c.accentTint }]}>
         <Icon name="info" size={16} color={c.accent} strokeWidth={2} style={styles.bannerIcon} />
         <Text variant="bodySm" color="accentInkDeep" style={styles.bannerText}>
-          Disputes are reviewed within 3–5 business days. Add as much evidence as you can.
+          This goes to Lampose support as a ticket, same as anything else you raise — you can
+          follow it from the Support tab.
         </Text>
       </View>
 
@@ -118,10 +131,11 @@ export default function RaiseDisputeScreen() {
         containerStyle={styles.field}
       />
 
-      <Text variant="label" style={styles.label}>
-        Evidence photos
-      </Text>
-      <EvidenceGrid count={evidenceCount} onChange={setEvidenceCount} />
+      {create.error ? (
+        <Text variant="bodySm" color="error" style={styles.field}>
+          {create.error instanceof ApiError ? create.error.displayMessage : 'Could not send that. Try again.'}
+        </Text>
+      ) : null}
     </Screen>
   );
 }

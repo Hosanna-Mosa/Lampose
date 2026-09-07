@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Screen,
@@ -11,7 +11,8 @@ import {
   type IconName,
 } from '@/components/ui';
 import { formatDayDate, initials, isSameDay } from '@/lib/format';
-import { getBooking, type Booking } from '@/lib/bookings';
+import { type Booking } from '@/lib/bookings';
+import { useBooking } from '@/services/hooks/useBookings';
 import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
@@ -35,7 +36,20 @@ export default function ActiveStayScreen() {
   const c = useColors();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const booking = getBooking(id);
+  /* Was `getBooking(id)` — the fixture array — so a real id landed on "Stay
+     not found" and the only screen an owner sees during a stay was
+     unreachable. See `services/hooks/useBookings.ts`. */
+  const { booking, notFound, isPending } = useBooking(id);
+
+  if (isPending && !booking) {
+    return (
+      <Screen scroll={false} padX={22} background="bg">
+        <View style={styles.loading}>
+          <ActivityIndicator color={c.accent} />
+        </View>
+      </Screen>
+    );
+  }
 
   if (!booking) {
     return (
@@ -43,6 +57,7 @@ export default function ActiveStayScreen() {
         <EmptyState
           icon="search"
           title="Stay not found"
+          body={notFound ? 'It may have been cancelled.' : 'We could not load this stay.'}
           actionLabel="Back"
           onAction={() => router.back()}
         />
@@ -112,15 +127,24 @@ export default function ActiveStayScreen() {
           <View style={[styles.trackFill, { width: `${ratio * 100}%`, backgroundColor: c.accent }]} />
         </View>
         <Text style={[styles.checkoutLine, { color: c.accentInk }]}>
-          Checkout {formatDayDate(booking.checkOut)} · {booking.checkOutBy}
+          Checkout {formatDayDate(booking.checkOut)}{booking.checkOutBy ? ` · ${booking.checkOutBy}` : ''}
         </Text>
       </View>
 
       <View style={styles.shortcuts}>
+        {/*
+          "Message guest" implies in-app messaging with the guest, which does
+          not exist — there is no guest-facing thread on the other end. This
+          used to push `/support` with a `topic: 'guest'` param nothing ever
+          read; it now opens the real place a guest issue actually goes
+          (`support.audiences.js`'s `guest` category), which is at least
+          honest about what happens next even though the label still
+          overpromises a DM this does not open.
+        */}
         <Shortcut
           icon="message"
-          label="Message guest"
-          onPress={() => router.push({ pathname: '/support', params: { topic: 'guest' } })}
+          label="Report an issue"
+          onPress={() => router.push('/support/dispute')}
         />
         <Shortcut icon="suitcase" label="Checkout" onPress={openCheckout} />
       </View>
@@ -162,6 +186,7 @@ function Shortcut({
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   backRow: { height: 44, justifyContent: 'center', marginLeft: -10, marginBottom: 6 },
   guestRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
   avatar: {

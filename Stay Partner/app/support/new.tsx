@@ -9,57 +9,53 @@ import {
   Chip,
   ChipRow,
   Input,
-  Select,
-  EvidenceGrid,
 } from '@/components/ui';
-import { ALL_BOOKINGS, type Booking } from '@/lib/bookings';
-import { createTicket, TICKET_CATEGORIES, type TicketCategory } from '@/lib/support';
+import { useSupportActions, useSupportCategories } from '@/services/hooks/useSupport';
+import { ApiError } from '@/services/api/client';
 
-/** "#LB-1182 · Arjun Kapoor" — the exact format the design shows for a linked booking. */
-function bookingLabel(b: Booking): string {
-  return `#${b.id} · ${b.guest}`;
-}
-
+/**
+ * A ticket about the owner's OWN side of the product — payouts, a listing, a
+ * guest's account, the app itself. Categories are fetched rather than
+ * hardcoded (`GET /partners/support/categories`), so this screen can never
+ * offer a word the server refuses — see `support.audiences.js`.
+ *
+ * A guest's ticket about a PROPERTY never starts here — that is the student's
+ * "What's this about?" question in the User App, and it reaches this owner
+ * already in their inbox (`/support`) the moment the student sends it. This
+ * screen is one-sided on purpose: an owner cannot open a ticket as though a
+ * guest had filed it.
+ */
 export default function NewTicketScreen() {
   const router = useRouter();
+  const { data: categories } = useSupportCategories();
+  const { create } = useSupportActions();
 
-  const [category, setCategory] = useState<TicketCategory | null>(null);
-  const [bookingLabelValue, setBookingLabelValue] = useState<string | null>(null);
+  const [category, setCategory] = useState<string | null>(null);
   const [description, setDescription] = useState('');
-  // Fake evidence — no real picker exists to wire up and verify here; see the
-  // build record. The count is what's real: add and remove genuinely happen.
-  const [evidenceCount, setEvidenceCount] = useState(0);
 
-  const bookingOptions = ALL_BOOKINGS.map(bookingLabel);
-  const linkedBooking = ALL_BOOKINGS.find((b) => bookingLabel(b) === bookingLabelValue);
+  const canSubmit = Boolean(category) && description.trim().length > 0 && !create.isPending;
 
-  const canSubmit = Boolean(category) && description.trim().length > 0;
-
-  const submit = () => {
+  const submit = async () => {
     if (!category || !canSubmit) return;
-    createTicket({
-      category,
-      description: description.trim(),
-      linkedBookingId: linkedBooking?.id,
-      evidenceCount: evidenceCount || undefined,
-    });
-    router.replace('/support');
+    try {
+      const thread = await create.mutateAsync({ category, body: description.trim() });
+      router.replace(`/support/ticket?id=${thread.reference}`);
+    } catch {
+      /* create.error renders below; the tap simply does nothing further. */
+    }
   };
 
   return (
     <Screen
       padX={22}
-            contentStyle={styles.fill}
-            footer={<Button label="Submit ticket" onPress={submit} disabled={!canSubmit} />}
+      contentStyle={styles.fill}
+      footer={<Button label="Submit ticket" onPress={submit} disabled={!canSubmit} loading={create.isPending} />}
       stickyHeader={
-        <>
-          <View style={styles.backRow}>
-            <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-          </View>
-        </>
+        <View style={styles.backRow}>
+          <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+        </View>
       }
     >
-
       <Text variant="pageTitleSm" style={styles.title}>
         New support ticket
       </Text>
@@ -68,7 +64,7 @@ export default function NewTicketScreen() {
         Category
       </Text>
       <ChipRow style={styles.field}>
-        {TICKET_CATEGORIES.map((cat) => (
+        {(categories?.categories ?? []).map((cat) => (
           <Chip
             key={cat}
             label={cat}
@@ -77,17 +73,6 @@ export default function NewTicketScreen() {
           />
         ))}
       </ChipRow>
-
-      <View style={styles.field}>
-        <Select
-          label="Linked booking"
-          optional
-          options={bookingOptions}
-          value={bookingLabelValue}
-          onChange={setBookingLabelValue}
-          placeholder="Select a booking"
-        />
-      </View>
 
       <Input
         label="Description"
@@ -99,13 +84,11 @@ export default function NewTicketScreen() {
         containerStyle={styles.field}
       />
 
-      <Text variant="label" style={styles.label}>
-        Attach evidence
-        <Text variant="badge" color="textTertiary">
-          {'  '}Optional
+      {create.error && (
+        <Text variant="caption" color="error" style={styles.error}>
+          {create.error instanceof ApiError ? create.error.displayMessage : 'Could not send that. Try again.'}
         </Text>
-      </Text>
-      <EvidenceGrid count={evidenceCount} onChange={setEvidenceCount} />
+      )}
     </Screen>
   );
 }
@@ -116,4 +99,5 @@ const styles = StyleSheet.create({
   title: { marginBottom: 18 },
   label: { marginBottom: 8 },
   field: { marginBottom: 16 },
+  error: { marginTop: -6, marginBottom: 10 },
 });

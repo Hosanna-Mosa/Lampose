@@ -43,6 +43,7 @@ import {
   CheckCircle2,
   CircleSlash,
   Clock,
+  Home,
   Inbox,
   Phone,
   RefreshCw,
@@ -105,12 +106,14 @@ const AUDIENCE_ICON: Record<RequesterKind, typeof User> = {
   customer: User,
   driver: Bike,
   restaurant: UtensilsCrossed,
+  partner: Home,
 };
 
 const AUDIENCE_LABEL: Record<RequesterKind, string> = {
   customer: 'Diner',
   driver: 'Rider',
   restaurant: 'Restaurant',
+  partner: 'Owner',
 };
 
 const STATUS_TONE: Record<TicketStatus, BadgeTone> = {
@@ -484,7 +487,7 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
           is decoration. */}
       {counts && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-          {(['customer', 'driver', 'restaurant'] as RequesterKind[]).map((k) => (
+          {(['customer', 'driver', 'restaurant', 'partner'] as RequesterKind[]).map((k) => (
             <button
               key={k}
               type="button"
@@ -623,6 +626,21 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
                         {STATUS_LABEL[thread.status]}
                       </Badge>
                     </div>
+                    {/* "About the platform, or about this property?" — what the
+                        student answered when they opened this. Set means the
+                        owner named here can also read and reply to this
+                        thread from Stay Partner; unset means this reached
+                        admin alone, which is what a platform-category ticket
+                        (a payment, the app itself) always does. */}
+                    {thread.linkedPartnerId ? (
+                      <p className="mt-1 inline-flex items-center gap-1 text-micro text-warn">
+                        <Home className="h-3 w-3" aria-hidden />
+                        About a property — also visible to{' '}
+                        {thread.linkedPartnerName || 'its owner'} in Stay Partner
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-micro text-ink-3">About the Lampose platform — admin only</p>
+                    )}
                     <p className="mt-1 text-body text-ink-2">
                       {thread.subject}
                     </p>
@@ -701,6 +719,18 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
                   }
 
                   const ours = message.author === 'support';
+                  /* The one third voice: the property's owner, replying on a
+                     ticket the STUDENT filed (see `linkedPartnerId`). Neither
+                     "ours" nor the requester, so it gets its own name and its
+                     own side — left, like the requester's, since it is not
+                     Lampose speaking, but visually distinct so nobody reads it
+                     as the student's own words. */
+                  const fromPartner = message.author === 'partner';
+                  const senderName = ours
+                    ? (message.authorName || 'Support')
+                    : fromPartner
+                      ? (thread.linkedPartnerName || 'Property owner')
+                      : thread.requester.name;
                   return (
                     <div
                       key={message.id}
@@ -711,16 +741,21 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
                           'max-w-[80%] rounded-lg px-3 py-2',
                           ours
                             ? 'bg-brand text-white'
-                            : 'bg-surface-inset',
+                            : fromPartner
+                              ? 'bg-warn/10 border border-warn/30'
+                              : 'bg-surface-inset',
                         )}
                       >
+                        {fromPartner && (
+                          <p className="mb-0.5 text-micro font-medium text-warn">Property owner</p>
+                        )}
                         <p className="whitespace-pre-wrap text-body">{message.body}</p>
                         <p className={cx('mt-1 text-micro', ours ? 'opacity-70' : 'text-ink-3')}>
                           {/* A NAME, because "Lampose Support" answers nobody.
                               Somebody chasing a deposit for three weeks who
                               gets four replies signed the same way cannot tell
                               whether anyone is holding it. */}
-                          {ours ? (message.authorName || 'Support') : thread.requester.name}
+                          {senderName}
                           {' · '}
                           {clockTime(message.at)}
                         </p>

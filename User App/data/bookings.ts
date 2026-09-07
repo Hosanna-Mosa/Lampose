@@ -436,11 +436,19 @@ export const HOUSE_RULES_NOTE =
  * ------------------------------------------------------------------ */
 
 export type BookingSummary = Booking & {
-  /** Where the money is, for the terms block that never moves. */
-  rent: number;
-  deposit: number;
-  depositMonths: number;
-  noticePeriodDays: number;
+  /*
+   * Where the money is, for the terms block — and now OPTIONAL, because a
+   * REAL booking (see `fromRealBooking` below) has none of these. Lampose
+   * never holds rent or a deposit; a student pays the owner directly, and a
+   * monthly figure, a deposit and a notice period are terms of that private
+   * arrangement, not something this app was ever told. Every fixture in this
+   * file still sets all four, so the design-preview screens (`booking.tsx`
+   * and friends) are unaffected — only the real path leaves them unset.
+   */
+  rent?: number;
+  deposit?: number;
+  depositMonths?: number;
+  noticePeriodDays?: number;
   lockInEndsLabel?: string;
   /** Set once the stay has started. */
   roomLabel?: string;
@@ -448,6 +456,25 @@ export type BookingSummary = Booking & {
   monthsStayed?: number;
   /** Set on terminal states so the timeline can say what happened. */
   endedLabel?: string;
+
+  /*
+   * The REAL money, for a booking that came from `fromRealBooking`.
+   *
+   * `totalAmount`/`paidAmount` are what `PartnerBooking` actually carries —
+   * the whole stay's figure and what has been paid against it so far, never
+   * a monthly rent. Left unset on every fixture, which is what tells
+   * `BookingRow` and the Terms block which of the two money shapes to draw.
+   */
+  totalAmount?: number;
+  paidAmount?: number;
+  /** `YYYY-MM-DD`, real bookings only. Empty on an open-ended stay. */
+  checkOutDate?: string;
+  /** Whether this booking already has a review — `completed` real bookings
+      only. Drives the "Rate your stay" prompt. */
+  reviewed?: boolean;
+  /** The Mongo id behind this row, when it is real — what Cancel and Rate
+      actually act on. Unset on every fixture. */
+  realId?: string;
 
   /**
    * The exact address, and what it takes to see it.
@@ -642,4 +669,79 @@ const SEGMENT_OF: Record<BookingStatus, BookingSegment> = {
 
 export function segmentOf(status: BookingStatus): BookingSegment {
   return SEGMENT_OF[status];
+}
+
+/* ------------------------------------------------------------------ *
+ * The real thing
+ * ------------------------------------------------------------------ *
+ *
+ * `CustomerBooking` (`services/api/bookings.api.ts`) is what the server
+ * actually sends back for `GET /customers/bookings`. This is the one place
+ * that turns one into the `BookingSummary` shape every screen in this file
+ * already knows how to draw — so `home.tsx`'s Bookings tab and
+ * `bookings/[id].tsx`'s detail template can read a REAL booking without
+ * either of them having to learn a second shape.
+ *
+ * ## Only five of the thirteen statuses are reachable from here
+ *
+ * `PartnerBooking.status` has six values and none of them is a PENDING
+ * state — a booking, by definition, only exists once a request has already
+ * been accepted. So this never produces `REQUESTED`, `ACCEPTED`,
+ * `PAYMENT_PENDING`, `PAYMENT_FAILED`, `REJECTED`, `EXPIRED` or `DISPUTED` —
+ * those describe the REQUEST, which `useStayRequest` already renders on its
+ * own screen. `arriving`/`departing` are in the backend's OCCUPYING list but
+ * nothing currently transitions a booking into either, so they fall back to
+ * the state either side of them rather than going unhandled.
+ */
+const REAL_STATUS: Record<string, BookingStatus> = {
+  upcoming: 'CONFIRMED',
+  arriving: 'CONFIRMED',
+  in_house: 'CHECKED_IN',
+  departing: 'CHECKED_IN',
+  completed: 'COMPLETED',
+  // `cancelled` is resolved separately below — it is the one status that
+  // needs a second fact (who cancelled) to pick a fixture value.
+};
+
+/** "5 September 2026" from `2026-09-05`. Empty input stays empty. */
+export function longDateLabel(isoDate?: string | null): string {
+  if (!isoDate) return '';
+  const [y, m, d] = isoDate.split('-').map(Number);
+  if (!y || !m || !d) return isoDate;
+  const MONTHS = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ];
+  return `${d} ${MONTHS[m - 1]} ${y}`;
+}
+
+/** The adapter. */
+export function fromRealBooking(
+  real: import('@/services/api/bookings.api').CustomerBooking,
+): BookingSummary {
+  const status: BookingStatus = real.status === 'cancelled'
+    ? (real.cancelledBy === 'student' ? 'CANCELLED_BY_CUSTOMER' : 'CANCELLED_BY_OWNER')
+    : (REAL_STATUS[real.status] ?? 'CONFIRMED');
+
+  return {
+    id: real.id,
+    realId: real.id,
+    /* Short and readable, matching the fixtures' `LAM-####` shape — this is
+       never sent anywhere, only shown. */
+    reference: `LAM-${real.id.slice(-6).toUpperCase()}`,
+    status,
+    propertyName: real.propertyName,
+    sharingLabel: real.shareType || 'Sharing',
+    moveInLabel: longDateLabel(real.checkInDate) || 'Not set',
+    verificationCode: real.entryPin ?? undefined,
+    codeValidLabel: real.entryPin ? 'Valid on your move-in day' : undefined,
+    address: real.address ?? undefined,
+    totalAmount: real.totalAmount,
+    paidAmount: real.paidAmount,
+    checkOutDate: real.checkOutDate ?? undefined,
+    reviewed: real.reviewed,
+    endedLabel: status === 'COMPLETED' && real.checkOutDate
+      ? `Stayed until ${longDateLabel(real.checkOutDate)}`
+      : undefined,
+  };
 }

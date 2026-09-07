@@ -57,15 +57,29 @@ export function BookingRow({ booking, onPress }: BookingRowProps) {
       {/* The chip without its clock — the row below carries the deadline. */}
       <BookingStatusChip status={booking.status} size="sm" timerSuppressed />
 
-      <View style={[styles.money, { gap: space[3] }]}>
-        <Text variant="priceSm">{formatRupees(booking.rent)} /mo</Text>
-        <Text
-          variant="numMeta"
-          style={depositMark}
-        >
-          + {formatRupees(booking.deposit)} deposit
-        </Text>
-      </View>
+      {/*
+        Two money shapes, never both: `rent`/`deposit` on a design fixture,
+        `totalAmount`/`paidAmount` on a REAL booking (see `fromRealBooking`
+        in `data/bookings.ts`) — Lampose never holds a monthly rent or a
+        deposit, so a real row has no "/mo" figure to show at all.
+      */}
+      {booking.rent != null ? (
+        <View style={[styles.money, { gap: space[3] }]}>
+          <Text variant="priceSm">{formatRupees(booking.rent)} /mo</Text>
+          <Text variant="numMeta" style={depositMark}>
+            + {formatRupees(booking.deposit ?? 0)} deposit
+          </Text>
+        </View>
+      ) : booking.totalAmount != null ? (
+        <View style={[styles.money, { gap: space[3] }]}>
+          <Text variant="priceSm">{formatRupees(booking.totalAmount)}</Text>
+          {booking.paidAmount ? (
+            <Text variant="numMeta" color="secondary">
+              {formatRupees(booking.paidAmount)} paid
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
 
       <Text variant="numMeta" color="tertiary">
         {booking.endedLabel ??

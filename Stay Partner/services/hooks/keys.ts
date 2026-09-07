@@ -22,6 +22,15 @@ export const queryKeys = {
   myProperties: ['partner', 'properties'] as const,
   requests: ['partner', 'requests'] as const,
   request: (id: string) => ['partner', 'requests', id] as const,
+  bookings: ['partner', 'bookings'] as const,
+  booking: (id: string) => ['partner', 'bookings', id] as const,
+
+  supportTickets: ['partner', 'support', 'tickets'] as const,
+  supportTicket: (reference: string) => ['partner', 'support', 'tickets', reference] as const,
+  supportCategories: ['partner', 'support', 'categories'] as const,
+
+  earnings: ['partner', 'earnings'] as const,
+  payouts: ['partner', 'payouts'] as const,
 
   listings: ['listings'] as const,
   listingList: (filters: {

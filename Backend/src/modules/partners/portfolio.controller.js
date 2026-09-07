@@ -93,8 +93,46 @@ const getMyProperties = async (req, res, next) => {
     /* The same formatter the public feed uses. An owner looking at their own
        listing should see exactly what a student sees — that is the only way
        "the photos are wrong" or "the rent is stale" is ever noticed. */
+    /*
+     * Live availability, folded on.
+     *
+     * `formatListing` is synchronous and pure — it reads one document and
+     * nothing else — so it cannot know whether the owner has this listing
+     * paused: that lives on `partner_share_types.isAvailable`, in another
+     * collection. The public feed solves the same problem the same way (see
+     * `withAvailability` in listing.controller.js), and the owner needs it for
+     * exactly one reason: the toggle on their own property card has to show
+     * which way it is currently set.
+     *
+     * `null` where the listing has no share-type rows at all — nobody ever
+     * recorded bed counts, so it is neither on nor off, and the card says so
+     * rather than drawing a switch that cannot do anything.
+     */
+    const { PartnerShareType } = require('./partnerDomains.model');
+    const rows = await PartnerShareType
+      .find({ propertyId: { $in: owned.map((p) => String(p._id)) } })
+      .select('propertyId isAvailable')
+      .lean();
+
+    const byProperty = new Map();
+    rows.forEach((row) => {
+      const list = byProperty.get(row.propertyId) || [];
+      list.push(row.isAvailable !== false);
+      byProperty.set(row.propertyId, list);
+    });
+
     const data = owned
-      .map((property) => formatListing(property))
+      .map((property) => {
+        const flags = byProperty.get(String(property._id));
+        return {
+          ...formatListing(property),
+          /* True when ANY room type is still taking bookings — the same rule
+             `getSummary` uses for the dashboard switch, so the two cannot
+             disagree about one property. */
+          isAvailable: flags && flags.length ? flags.some(Boolean) : null,
+          roomTypeCount: flags ? flags.length : 0,
+        };
+      })
       .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
     return res.json({ success: true, count: data.length, data });

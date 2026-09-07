@@ -110,6 +110,43 @@ const partnerBookingSchema = new mongoose.Schema(
     movedInByOwnerAt: { type: Date, default: null },
     movedInByStudentAt: { type: Date, default: null },
 
+    /*
+     * Why a cancelled booking was cancelled, as the owner said it.
+     *
+     * The Stay Partner app has always REQUIRED a reason before enabling its
+     * Cancel button — "Property unavailable", "Maintenance issue", "Guest
+     * request", "Other" — and then sent nothing, so the picker was decoration
+     * and every cancellation looked identical afterwards. Stored because the
+     * support call that follows one ("why was I cancelled?") has to have an
+     * answer, and because a property cancelling for "Maintenance issue" four
+     * times in a month is a thing worth being able to see.
+     *
+     * Free text on `cancelNote`, untrusted and capped by the controller. Both
+     * stay null on every booking that ends any other way.
+     */
+    cancelReason: { type: String, default: null },
+    cancelNote: { type: String, default: null },
+    cancelledAt: { type: Date, default: null },
+    /*
+     * WHO cancelled — the owner, from the Stay Partner app, or the student,
+     * from their own Cancel button. Declared here because this schema has no
+     * `strict: false`: a write to a field the schema does not know about is
+     * silently dropped by Mongoose rather than saved, which is exactly what
+     * was happening to `customerBooking.controller.js`'s
+     * `cancelledBy: 'student'` before this field existed. The User App's
+     * cancelled-bookings row (`CANCELLED_BY_CUSTOMER` vs `CANCELLED_BY_OWNER`
+     * in `data/bookings.ts`'s `fromRealBooking`) is what actually reads it.
+     */
+    cancelledBy: { type: String, enum: ['student', 'owner', null], default: null },
+
+    /* Set once this booking's `paidAmount` has been reserved into a payout
+       request — see `payout.service.js`'s `availableBalancePaise`. A
+       `completed` booking with this null is money an owner can still request;
+       one with this set is already spoken for, whichever of `pending`,
+       `processing`, `completed` or `failed` that payout is currently in
+       (a `failed` payout releases its bookings back — see `processPayout`). */
+    payoutId: { type: String, default: null, index: true },
+
     /**
      * Identity, collected only on the manual path.
      *
@@ -156,9 +193,43 @@ const partnerPayoutSchema = new mongoose.Schema(
       enum: ['completed', 'processing', 'pending', 'failed'],
       default: 'completed',
     },
-    payoutDate: { type: String, required: true },
-    bankAccount: { type: String, required: true },
-    referenceId: { type: String, required: true },
+    /*
+     * `payoutDate`, `bankAccount` and `referenceId` used to be `required` —
+     * fine while nothing ever created a row, but a REQUESTED payout does not
+     * have any of the three yet: there is no date until it settles, and no
+     * gateway reference until RazorpayX accepts it. All three are filled in
+     * by `payout.service.js`'s `processPayout` once that happens; until then
+     * they read `null`, which is the honest "not yet" this status already
+     * has a word for (`pending`).
+     */
+    payoutDate: { type: String, default: null },
+    /* A masked label for display — "HDFC •••• 4821" or "ramesh@upi" — set at
+       REQUEST time from the payment method the owner chose, never the full
+       account number. See `payout.service.js`. */
+    bankAccount: { type: String, default: null },
+    /* RazorpayX's own payout id once dispatched. Distinct from `referenceId`
+       below it used to be the same field for: this is THEIRS, that is OURS —
+       see the note on `razorpayReferenceId`. */
+    referenceId: { type: String, default: null },
+    /* Ours — this row's own `_id`, sent to RazorpayX as `reference_id` and
+       `X-Payout-Idempotency` so a retried dispatch lands on the SAME payout
+       there rather than moving money twice. Stored so a retry can be built
+       from the row alone. */
+    razorpayReferenceId: { type: String, default: null },
+    /* RazorpayX's contact/fund-account ids, kept so a SECOND payout to the
+       same owner and method does not re-provision either — see
+       `payout.service.js`'s `ensureFundAccount`. */
+    razorpayContactId: { type: String, default: null },
+    razorpayFundAccountId: { type: String, default: null },
+    /* Why a `failed` row failed, in RazorpayX's own words — read by whoever
+       has to explain it to the owner. */
+    failureReason: { type: String, default: null },
+    /* The bookings this payout's amount was drawn from, so a second request
+       cannot double-count one that is already reserved here — see
+       `availableBalancePaise`. */
+    bookingIds: [{ type: String }],
+    requestedAt: { type: Date, default: null },
+    processedAt: { type: Date, default: null },
     breakdown: {
       rent: { type: Number, default: 0 },
       platformFee: { type: Number, default: 0 },
@@ -252,6 +323,29 @@ const partnerReviewSchema = new mongoose.Schema(
     author: { type: String, required: true },
     comment: { type: String, required: true },
     date: { type: String, required: true },
+
+    /*
+     * Which stay this is about, and who wrote it — the two fields that were
+     * missing when this collection had a reader (`getReviews`) and no writer
+     * at all. Every review now has to come from a real, completed booking:
+     *
+     *   `bookingId`    unique, so a student cannot leave two reviews for one
+     *                  stay by tapping the prompt twice, and so the app can
+     *                  ask `GET /customers/bookings/:id` "has this one been
+     *                  reviewed yet" without a second collection to join.
+     *   `customerId`   who to credit it to if it is ever edited or removed —
+     *                  never used for display, `author` is the name typed on
+     *                  the form (or the booking's guest name), for the same
+     *                  reason a booking keeps its own `guestName` rather than
+     *                  a live join to the account.
+     *
+     * Both are `default: null` rather than `required`: this schema predates
+     * them and nothing here backfills the collection.
+     */
+    bookingId: {
+      type: String, default: null, unique: true, sparse: true, index: true,
+    },
+    customerId: { type: String, default: null, index: true },
   },
   { timestamps: true }
 );
