@@ -391,15 +391,33 @@ export default function CategoryFieldsStep({ category, details = {}, onChangeDet
           {/* Hostel Type */}
           <div className="form-group">
             <label className="form-label">Hostel Type *</label>
+            {/*
+              * `value`'s `|| 'Boys Hostel'` is a DISPLAY fallback only — it
+              * makes the select show something rather than nothing before
+              * `categoryDetails.hostelType` is seeded, but it never writes
+              * that value back. App.jsx now seeds a real one on both the
+              * page's initial state and on `handleCategorySelect('PG_HOSTEL')`,
+              * so this should stay decorative in practice. The `id` and
+              * `FieldError` below are the fallback for the fallback: if
+              * `hostelType` is ever genuinely unset (a draft saved before
+              * that seeding existed, say), the required-field error on submit
+              * used to have nowhere to point — no `id` here to scroll to and
+              * no message printed — so it looked like the form was stuck on a
+              * field that was already filled in. See `FIELD_ANCHORS` in
+              * validation.js.
+              */}
             <select
+              id="hostelType"
               className="form-select"
               value={details.hostelType || 'Boys Hostel'}
               onChange={(e) => onChangeDetails('hostelType', e.target.value)}
+              style={{ borderColor: errorBorder(errors['categoryDetails.hostelType']) }}
             >
               <option value="Boys Hostel">Boys Hostel</option>
               <option value="Girls Hostel">Girls Hostel</option>
               <option value="Co-ed Hostel">Co-ed Hostel</option>
             </select>
+            <FieldError message={errors['categoryDetails.hostelType']} />
           </div>
 
           {/* Warden Contact */}
