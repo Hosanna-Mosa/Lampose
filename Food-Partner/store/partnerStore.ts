@@ -701,13 +701,29 @@ export const usePartnerStore = create<PartnerState>()(
         restaurantId: s.restaurantId,
         verificationNote: s.verificationNote,
         session: s.session,
+        /* Short-lived (30 min) and single-purpose, unlike `session` — but
+           still worth surviving an app close, or the applicant loses their
+           phone proof every time the JS process restarts between verifying
+           in step 1 and submitting in step 5. The rehydrate check below
+           covers the case where it really has expired by the time it comes
+           back. */
+        phoneProof: s.phoneProof,
       }),
       /* Hydrated on success AND on failure. A corrupt cache must never strand
          a partner on the splash screen with no way forward. */
       onRehydrateStorage: () => (state, error) => {
         if (error) console.warn("[partnerStore] rehydrate failed, starting fresh", error);
         usePartnerStore.setState({ hydrated: true });
-        void state;
+        /* `data.otpVerified` is a flag the form gates on; `phoneProof` is the
+           token that actually backs it. If the cached proof is gone or has
+           aged past its 30-minute life, the flag must not keep claiming the
+           number is verified — that dead-ends at step 5's "Submit and sign"
+           with a server refusal and no way back to step 1's send-code UI.
+           Clearing it here instead sends the applicant back to "Send code"
+           for real, on the one screen that already knows how to ask. */
+        if (state?.data?.otpVerified && !state.phoneProof) {
+          usePartnerStore.setState((s) => ({ data: { ...s.data, otpVerified: false, otpSent: false, otp: "" } }));
+        }
       },
     },
   ),

@@ -363,12 +363,14 @@ router.post('/webhook', async (req, res) => {
       return res.send(twiml.toString());
     }
 
-    // Load and parse Verification Team Numbers
-    const verifierNumbersStr = process.env.VERIFICATION_TEAM_NUMBERS || '';
-    const verifierNumbers = verifierNumbersStr
-      .split(',')
-      .map(num => num.trim())
-      .filter(Boolean);
+    /* Normalised to the same `whatsapp:+91…` shape `senderMobile` is already
+       in — see `getVerificationTeamNumbers`'s comment. A roster typed into
+       .env as plain `+91…` used to compare unequal to every inbound reply
+       forever, which is why a verifier's own "Accept" could be told it was
+       "not linked to this number": the number it was assigned under, below,
+       never matched the number it replied from. */
+    const { getVerificationTeamNumbers } = require('../../infrastructure/twilio/twilio');
+    const verifierNumbers = getVerificationTeamNumbers();
 
     const isSenderVerifier = verifierNumbers.includes(senderMobile);
 

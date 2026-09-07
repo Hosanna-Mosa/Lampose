@@ -293,11 +293,22 @@ type Envelope<T> = { success: boolean; data: T; message?: string };
 export const startPhoneOtp = (phone: string) =>
   api<Envelope<unknown>>(`${BASE}/auth/otp/start`, { method: "POST", body: { phone } });
 
-export const verifyPhoneOtp = (phone: string, code: string) =>
-  api<{ success: boolean; verificationToken: string }>(`${BASE}/auth/otp/verify`, {
-    method: "POST",
-    body: { phone, code },
-  });
+/**
+ * The backend answers `{ success, data: { verificationToken, ... } }` — the
+ * token is NESTED, same as `login` and `submitApplication` below. Read either
+ * shape rather than assuming which, so an older build that ever answered flat
+ * still works. Getting this wrong is silent: the caller still gets an object
+ * back, just one whose `verificationToken` is `undefined`, and every step
+ * after it (including the final submit) fails on a proof that was never
+ * there — see `contract.tsx`'s send().
+ */
+export const verifyPhoneOtp = async (phone: string, code: string) => {
+  const res = await api<Envelope<{ verificationToken: string }> & { verificationToken: string }>(
+    `${BASE}/auth/otp/verify`,
+    { method: "POST", body: { phone, code } },
+  );
+  return (res.data ?? res) as { verificationToken: string };
+};
 
 export type SubmitResult = { restaurantId: string; token: string; verificationStatus: string };
 

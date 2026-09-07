@@ -70,6 +70,30 @@ function formatWhatsAppNumber(phone) {
   return e164 ? `whatsapp:${e164}` : null;
 }
 
+/**
+ * `VERIFICATION_TEAM_NUMBERS`, parsed into the SAME `whatsapp:+91…` shape
+ * `senderMobile` arrives in on every inbound webhook.
+ *
+ * Reading the env var with a bare `.split(',').map(trim)` — as several call
+ * sites used to — is fine for a number that is only ever DIALLED (Twilio's
+ * SDK formats the `to` field itself). It is not fine for a number that is
+ * later compared for equality against an inbound `From`, because nothing
+ * else forces the env var itself to be typed in the `whatsapp:+91…` form.
+ * `assignedVerifierMobileE164 === senderMobile` staying false forever for a
+ * roster typed as plain `+91…` — while the actual WhatsApp send to that same
+ * number worked, because THAT path already ran it through
+ * `formatWhatsAppNumber` — was exactly this bug: see the comment on `toE164`.
+ * Deduped too, so one number typed twice does not get double odds in the
+ * random pick at the assignment site.
+ */
+function getVerificationTeamNumbers() {
+  const raw = String(process.env.VERIFICATION_TEAM_NUMBERS || '')
+    .split(',')
+    .map((n) => n.trim())
+    .filter(Boolean);
+  return [...new Set(raw.map(formatWhatsAppNumber).filter(Boolean))];
+}
+
 /* ── Full-data verification template helpers ────────────────────────────────
    The owner-approval template carries the whole submission (address, stay
    options with prices, mess, amenities). Two WhatsApp rules shape these:
@@ -830,6 +854,7 @@ module.exports = {
   sendTeamVerificationMessage,
   sendAdminMessage,
   formatWhatsAppNumber,
+  getVerificationTeamNumbers,
   toE164,
   isIndianMobile,
   maskPhone,

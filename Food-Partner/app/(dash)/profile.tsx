@@ -23,16 +23,32 @@
    ══════════════════════════════════════════════════════════════════════════ */
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
-import { Image, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 
-import { Block, Field, ImagePick, Note, NumberField, SwitchRow, TextField } from "@/components/form";
-import { Btn, Card, Chip, ConfirmSheet, DataRow, Icon, Stepper, Text, TopBar } from "@/components/ui";
+import { Block, Field, ImagePick, Note, NumberField, SwitchRow, TextField, TimeRange } from "@/components/form";
+import { Btn, Card, Chip, ChoiceChip, ConfirmSheet, DataRow, Icon, Stepper, Text, TopBar } from "@/components/ui";
+import { DAYS } from "@/constants/partner";
 import { rupees } from "@/lib/money";
 import { getMe, updateMe, type ServerRestaurant } from "@/services/foodPartner";
 import { listTickets } from "@/services/support";
 import { uploadOne } from "@/services/uploads";
-import { usePartnerStore, type Attachment } from "@/store/partnerStore";
-import { colors, layout, radius, space } from "@/theme";
+import { usePartnerStore, type Attachment, type Slot } from "@/store/partnerStore";
+import { colors, layout, radius, space, touch } from "@/theme";
+
+/** The server's flat `{day, openTime, closeTime}[]` — one row per slot, a day
+    repeated when a kitchen closes between meals — read into the shape the
+    onboarding editor already works in: which days are open, and each day's
+    own list of slots. `TimeRange`/`ChoiceChip` below are the same components
+    step 2 of onboarding uses, reused rather than re-invented, because a
+    partner should not have to relearn how to set hours the second time. */
+const hoursFromServer = (rows?: { day: string; openTime: string; closeTime: string }[]) => {
+  const slots: Record<string, Slot[]> = {};
+  for (const row of rows ?? []) {
+    (slots[row.day] ??= []).push({ open: row.openTime, close: row.closeTime });
+  }
+  const days = DAYS.filter((d) => slots[d]?.length);
+  return { days, activeDay: days[0] ?? "Monday", slots };
+};
 
 /** A server image with a real URL, as the `uri` an `<ImagePick>` preview
     needs — `isUploaded` then reads it back as already-uploaded, so re-saving
@@ -80,6 +96,14 @@ export default function DashProfile() {
     coverBannerImage: null,
   });
 
+  /* Kept apart from `draft` rather than folded in: it has its own shape
+     (days, an active day, a slot list per day) and its own conversion to and
+     from the server's flat rows — see `hoursFromServer` — where everything
+     else in `draft` maps one field to one field. */
+  const [hours, setHours] = useState<{ days: string[]; activeDay: string; slots: Record<string, Slot[]> }>(
+    hoursFromServer(),
+  );
+
   const load = useCallback(async () => {
     /* A missing session must END the loading state, never skip past it — the
        same bug fixed in `(dash)/orders.tsx`: `loading` starts `true`, so an
@@ -106,6 +130,7 @@ export default function DashProfile() {
         logoImage: attachmentOf(r.logoImage),
         coverBannerImage: attachmentOf(r.coverBannerImage),
       });
+      setHours(hoursFromServer(r.openingHours));
     } catch (err) {
       setError((err as Error)?.message || "We could not load your details.");
     } finally {
@@ -157,6 +182,12 @@ export default function DashProfile() {
         packagingCharge: Number(draft.packagingCharge) || 0,
         acceptsOnlinePayment: draft.acceptsOnlinePayment,
         acceptsCod: draft.acceptsCod,
+        /* Same flat shape onboarding's own step 2 sends — see
+           `buildApplicationPayload` — so the backend's `buildOpeningHours`
+           reads one row format regardless of which screen it came from. */
+        openingHours: hours.days.flatMap((day) =>
+          (hours.slots[day] || []).map((s) => ({ day, openTime: s.open, closeTime: s.close })),
+        ),
         /* An empty pair is how `readImage` on the server reads "cleared" —
            the same shape a Remove tap already leaves `draft` in. */
         logoImage: logo ? { url: logo.url, publicId: logo.publicId } : { url: "", publicId: "" },
@@ -171,6 +202,7 @@ export default function DashProfile() {
         logoImage: attachmentOf(updated.logoImage),
         coverBannerImage: attachmentOf(updated.coverBannerImage),
       }));
+      setHours(hoursFromServer(updated.openingHours));
       setSaved("Saved.");
     } catch (err) {
       setError((err as Error)?.message || "That did not save.");
@@ -184,6 +216,31 @@ export default function DashProfile() {
         .filter(Boolean)
         .join(", ")
     : "—";
+
+  const daySlots = hours.slots[hours.activeDay] ?? [];
+
+  /* Turning a day off drops its slots from what gets saved, but keeps them in
+     `hours.slots` — flip it back on before Save and the times typed in
+     earlier are still there rather than reset to a blank default. */
+  const toggleHoursDay = (day: string) =>
+    setHours((h) => {
+      const days = h.days.includes(day) ? h.days.filter((d) => d !== day) : [...h.days, day];
+      const activeDay = days.includes(h.activeDay) ? h.activeDay : days[0] ?? day;
+      const slots = h.slots[day]?.length ? h.slots : { ...h.slots, [day]: [{ open: "09:00", close: "22:00" }] };
+      return { days, activeDay, slots };
+    });
+
+  const setHoursSlots = (day: string, slots: Slot[]) =>
+    setHours((h) => ({ ...h, slots: { ...h.slots, [day]: slots } }));
+
+  const copyActiveDayEverywhere = () => {
+    const base = daySlots.length ? daySlots : [{ open: "09:00", close: "22:00" }];
+    setHours((h) => {
+      const slots: Record<string, Slot[]> = { ...h.slots };
+      for (const day of h.days) slots[day] = base.map((s) => ({ ...s }));
+      return { ...h, slots };
+    });
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -259,6 +316,73 @@ export default function DashProfile() {
               prefix="+91"
             />
           </Field>
+        </Block>
+
+        <Block glyph="clock" title="Opening hours">
+          <Field label="Days you are open">
+            <View style={styles.chipWrap}>
+              {DAYS.map((day) => (
+                <ChoiceChip
+                  key={day}
+                  label={day.slice(0, 3)}
+                  selected={hours.days.includes(day)}
+                  onPress={() => toggleHoursDay(day)}
+                />
+              ))}
+            </View>
+          </Field>
+
+          {hours.days.length > 0 ? (
+            <Field label="Opening & closing times" hint="Tap a day to edit its own hours.">
+              <View style={styles.chipWrap}>
+                {hours.days.map((day) => (
+                  <ChoiceChip
+                    key={day}
+                    label={day.slice(0, 3)}
+                    selected={hours.activeDay === day}
+                    onPress={() => setHours((h) => ({ ...h, activeDay: day }))}
+                  />
+                ))}
+              </View>
+
+              <View style={{ gap: space[2], marginTop: space[2] }}>
+                {daySlots.map((slot, i) => (
+                  <TimeRange
+                    key={`${hours.activeDay}-${i}`}
+                    slot={slot}
+                    onChange={(next) => setHoursSlots(hours.activeDay, daySlots.map((s, idx) => (idx === i ? next : s)))}
+                    onRemove={
+                      daySlots.length > 1
+                        ? () => setHoursSlots(hours.activeDay, daySlots.filter((_, idx) => idx !== i))
+                        : undefined
+                    }
+                  />
+                ))}
+              </View>
+
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setHoursSlots(hours.activeDay, [...daySlots, { open: "18:00", close: "23:00" }])}
+                style={styles.link}
+              >
+                <Icon name="plus" size={14} color={colors.brandInk} />
+                <Text variant="bodyStrong" color="brand">
+                  Add another slot for {hours.activeDay}
+                </Text>
+              </Pressable>
+
+              {hours.days.length > 1 && (
+                <Pressable accessibilityRole="button" onPress={copyActiveDayEverywhere} style={styles.link}>
+                  <Icon name="refresh" size={14} color={colors.brandInk} />
+                  <Text variant="bodyStrong" color="brand">
+                    Copy {hours.activeDay}&apos;s hours to every day
+                  </Text>
+                </Pressable>
+              )}
+            </Field>
+          ) : (
+            <Note tone="bad">No days are set — diners will not see this kitchen as open on a schedule.</Note>
+          )}
         </Block>
 
         <Block glyph="truck" title="Operations">
@@ -396,5 +520,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brandTint,
     alignItems: "center",
     justifyContent: "center",
+  },
+  chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: space[2] },
+  link: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space[1],
+    minHeight: touch.min,
+    borderRadius: radius.chip,
   },
 });

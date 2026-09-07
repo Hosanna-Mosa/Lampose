@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const Admin = require('./admin.model');
 const Property = require('../properties/property.model');
 const VerificationRequest = require('../verification/verificationRequest.model');
+const { getVerificationTeamNumbers } = require('../../infrastructure/twilio/twilio');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -301,12 +302,15 @@ router.get('/verifiers', async (req, res) => {
 
     const byNumber = new Map(rows.map((r) => [r._id, r]));
 
-    // The configured roster, so a verifier who hasn't been sent anything yet
-    // still appears — at zero, not simply missing.
-    const rosterNumbers = String(process.env.VERIFICATION_TEAM_NUMBERS || '')
-      .split(',')
-      .map((n) => n.trim())
-      .filter(Boolean);
+    /* The configured roster, so a verifier who hasn't been sent anything yet
+       still appears — at zero, not simply missing. Normalised the same way
+       `verification.routes.js` now assigns `assignedVerifierMobileE164` —
+       see `getVerificationTeamNumbers` — or a roster typed into .env without
+       the `whatsapp:+91…` shape would never match the aggregation's `_id`
+       and every configured verifier would show up twice: once as their real,
+       assigned rows, and again as a second, permanently-zero "roster" entry
+       that is actually the same person. */
+    const rosterNumbers = getVerificationTeamNumbers();
 
     for (const number of rosterNumbers) {
       if (!byNumber.has(number)) {

@@ -28,7 +28,7 @@
    time is slower on a good link and far more likely to finish on a poor one,
    which is the connection this app is actually used on.
    ══════════════════════════════════════════════════════════════════════════ */
-import { apiUpload } from "./api";
+import { api, apiUpload } from "./api";
 import type { Attachment, OnboardingData } from "@/store/partnerStore";
 
 const UPLOAD_PATH = "/api/v2/food-partners/uploads/images";
@@ -70,10 +70,20 @@ export async function uploadOne(
   let response: UploadResponse;
 
   if (file.uri.startsWith("data:")) {
-    const form = new FormData();
-    form.append("kind", kind);
-    form.append("images", file.uri);
-    response = await apiUpload<UploadResponse>(UPLOAD_PATH, form, { token });
+    /* The backend reads an inline image from a JSON body — `body.image`, a
+       plain string — not from a multipart field (see `collectSources` in
+       `foodUpload.controller.js`). Appending the data: uri to a `FormData`
+       the way this used to, below, sent it as an ordinary TEXT field named
+       "images": not a file multer would collect, and not the JSON array the
+       inline branch looks for either (one string, not `body.images` being an
+       array). The request left with something in it and arrived read as
+       carrying nothing — "No images were attached." — which is what a
+       sample-filled document or menu row was actually hitting. */
+    response = await api<UploadResponse>(UPLOAD_PATH, {
+      method: "POST",
+      token,
+      body: { kind, image: file.uri },
+    });
   } else {
     const form = new FormData();
     form.append("kind", kind);
