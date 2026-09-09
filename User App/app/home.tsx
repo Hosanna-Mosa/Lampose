@@ -460,6 +460,23 @@ export default function Home() {
    * bar collapses to the way out instead of offering three dead destinations.
    */
   const inFoodModule = tab === 'food' && FOOD_MODE === 'dev';
+  /* Only Food HOME puts artwork under the header. Search and Orders have an
+     ordinary page background, so the bar stays in flow there and this screen
+     behaves exactly as it always did. */
+  const inFoodHome = inFoodModule && foodTab === 'home';
+  /* True while the banner is still behind the bar. `FoodHome` reports it from
+     its own scroll offset, because only it knows how tall the artwork is —
+     the height comes from the image's ratio and the screen's width. Once the
+     feed has scrolled up under the bar, white-on-artwork ink would be white
+     on a pale list, so the bar goes back to being an ordinary opaque one. */
+  const [bannerUnderHeader, setBannerUnderHeader] = useState(true);
+  const headerOverlay = inFoodHome && bannerUnderHeader;
+
+  /* Leaving Food Home resets it, so coming back always starts over artwork
+     rather than inheriting whatever the last scroll position implied. */
+  useEffect(() => {
+    if (!inFoodHome) setBannerUnderHeader(true);
+  }, [inFoodHome]);
 
   const FOOD_TABS = useMemo<readonly TabItem[]>(
     () => [
@@ -484,32 +501,46 @@ export default function Home() {
     setTab(next);
   };
 
+  const header = (
+    <ExploreHeader
+      locality={locality?.name ?? 'Choose an area'}
+      city={locality ? locality.city : undefined}
+      onPressLocality={() => router.push('/(entry)/locality')}
+      /*
+       * Same two icons, repointed while Food is open — the header pivots
+       * exactly the way the bottom bar already does, just without a swap
+       * animation of its own: nothing here is a set of tabs to cross-fade,
+       * only two destinations that quietly change what they open.
+       *
+       * Alerts is not a tab either side of the pivot — the stay pivot
+       * promoted Saved into the tab bar and this one has no tab to give it.
+       * The bell keeps it one tap from the feed on both sides.
+       */
+      onPressAlerts={() =>
+        router.push(inFoodModule ? foodHref.notifications : '/notifications')
+      }
+      alertCount={inFoodModule ? foodUnread : unread}
+      // Profile lost its tab to Food; the header is its one door on both
+      // sides, and which profile it opens follows the same pivot.
+      onPressProfile={() => (inFoodModule ? router.push(foodHref.profile) : setTab('profile'))}
+      userName={user?.name}
+      variant={headerOverlay ? 'overlay' : 'surface'}
+    />
+  );
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      {/* White status-bar content while the bar sits on the banner: the four
+          banners run from a pale pink sky to a deep blue one, and the scrim
+          the overlay header draws covers the inset area too, so light is the
+          one choice that holds across all of them. */}
+      <StatusBar style={headerOverlay || mode === 'dark' ? 'light' : 'dark'} />
 
-      <ExploreHeader
-        locality={locality?.name ?? 'Choose an area'}
-        city={locality ? locality.city : undefined}
-        onPressLocality={() => router.push('/(entry)/locality')}
-        /*
-         * Same two icons, repointed while Food is open — the header pivots
-         * exactly the way the bottom bar already does, just without a swap
-         * animation of its own: nothing here is a set of tabs to cross-fade,
-         * only two destinations that quietly change what they open.
-         *
-         * Alerts is not a tab either side of the pivot — the stay pivot
-         * promoted Saved into the tab bar and this one has no tab to give it.
-         * The bell keeps it one tap from the feed on both sides.
-         */
-        onPressAlerts={() =>
-          router.push(inFoodModule ? foodHref.notifications : '/notifications')
-        }
-        alertCount={inFoodModule ? foodUnread : unread}
-        // Profile lost its tab to Food; the header is its one door on both
-        // sides, and which profile it opens follows the same pivot.
-        onPressProfile={() => (inFoodModule ? router.push(foodHref.profile) : setTab('profile'))}
-      />
+      {/* On Food Home the bar is PINNED over the artwork instead of sitting
+          above it — see `pinnedHeader` below, where it is rendered after the
+          content so it paints on top. Everywhere else it stays in flow and
+          nothing about this screen changes. */}
+      {inFoodHome ? null : header}
 
       {/* Persistent, and it always states the age of what is on screen — a
           stale rent is the dangerous case. The age is only claimed while the
@@ -765,7 +796,7 @@ export default function Home() {
            constants/food.ts and defaults to production — a missing env value
            must never leak the unfinished module. */
         FOOD_MODE === 'dev' ? (
-          <FoodModule />
+          <FoodModule onBannerUnderHeader={setBannerUnderHeader} />
         ) : (
           <FoodComingSoon onExplore={() => setTab('explore')} />
         )
@@ -974,6 +1005,21 @@ export default function Home() {
         </ScrollView>
       )}
 
+      {/* Rendered HERE, after the content, rather than up where the in-flow
+          header goes: it has to paint over the banner, and render order is
+          the one way to guarantee that on both platforms without leaning on
+          `zIndex`, which Android resolves through `elevation` and not always
+          the way the tree reads.
+
+          `box-none` so the artwork underneath still takes taps everywhere
+          the bar's own controls do not — the "Order Now" painted into the
+          picture sits directly under this. */}
+      {inFoodHome ? (
+        <View style={styles.pinnedHeader} pointerEvents="box-none">
+          {header}
+        </View>
+      ) : null}
+
       {/*
         One bar, two vocabularies. Inside the built module it carries the
         module's screens; on the "coming soon" build there are no screens to
@@ -1092,6 +1138,7 @@ export default function Home() {
 }
 
 const styles = StyleSheet.create({
+  pinnedHeader: { position: 'absolute', top: 0, left: 0, right: 0 },
   identity: { flexDirection: 'row', alignItems: 'center' },
   avatar: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
   couponCard: { padding: 16, gap: 2 },

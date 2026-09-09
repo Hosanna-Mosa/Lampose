@@ -81,6 +81,15 @@ export type Kitchen = {
   /** "South Indian, thali" — cuisine before anything subjective. */
   cuisine: string;
   /**
+   * The kitchen's own cuisine tags, unflattened — `["South Indian", "Street
+   * Food"]` rather than `cuisine`'s joined display string. Kept alongside it
+   * rather than replacing it: `cuisine` is a READING line, built to include
+   * the kitchen's own description when it has one; this is a FILTERING
+   * value, and a category rail built off the display string would break the
+   * moment a kitchen's description stopped being just its cuisines.
+   */
+  cuisineTypes: readonly string[];
+  /**
    * A street or landmark, NOT an area.
    *
    * The area is the student's own — whatever locality they picked on the entry
@@ -341,9 +350,34 @@ export type FoodAddress = {
 export type FoodPreferences = {
   diet: Diet;
   vegOnly: boolean;
+  /**
+   * The stricter half of veg mode: kitchens themselves are filtered to ones
+   * whose whole menu is veg, not only their dishes. Meaningless on its own —
+   * every reader that cares about it also checks `vegOnly`, which this is
+   * always set alongside — but kept as its own field rather than a third
+   * value folded into `vegOnly` so every existing "veg-only never hides a
+   * kitchen, only dishes" reader (the kitchen screen, search) keeps meaning
+   * exactly what it always meant without having to learn a new enum.
+   */
+  vegRestaurantsOnly: boolean;
   spice: SpiceLevel;
   allergens: readonly string[];
   defaultPickup: boolean;
 };
+
+/** The Food Home veg control's three states, derived from the two booleans
+ *  above rather than stored as a third one — see `vegRestaurantsOnly`. */
+export type VegMode = 'off' | 'items' | 'restaurants';
+
+export function vegModeOf(preferences: Pick<FoodPreferences, 'vegOnly' | 'vegRestaurantsOnly'>): VegMode {
+  /* `vegRestaurantsOnly` alone is not "restaurants" — it is meaningless
+     without `vegOnly`, and the Food preferences screen's own veg switch sets
+     only `vegOnly`, so a diner who had picked pure-veg kitchens on Home and
+     later flips that plain switch off must land on 'off', not silently stay
+     in restaurant mode with the item filter gone. */
+  if (preferences.vegOnly && preferences.vegRestaurantsOnly) return 'restaurants';
+  if (preferences.vegOnly) return 'items';
+  return 'off';
+}
 
 export const ALLERGENS = ['Peanut', 'Dairy', 'Gluten', 'Soy', 'Shellfish', 'Onion, garlic'] as const;

@@ -298,6 +298,7 @@ const FOOD_NOTIFS_SEEN_KEY = '@lampose/food-notifications-seen';
 const DEFAULT_PREFERENCES: FoodPreferences = {
   diet: 'veg',
   vegOnly: false,
+  vegRestaurantsOnly: false,
   spice: 'medium',
   /*
     EMPTY, and it has to be.
