@@ -160,16 +160,20 @@ const lightColors: ThemeColors = {
    * The "Dock" palette, adopted 20 Aug 2026. It replaces the cool-grey/green
    * scheme wholesale — this is a repaint of the system, not a tweak to it.
    *
-   * The supplied roles, verbatim:
-   *   GROUND  #EFEDE9   SURFACE #FFFFFF   INK     #1A1917
+   * The supplied roles:
+   *   GROUND  #FFFFFF   SURFACE #FFFFFF   INK     #1A1917
    *   ACCENT  #0E6E5C   CONFIRM #0E6E5C   CAUTION #A85A1E
    *
    * Two things changed in kind rather than in hue, and both cascade:
    *
-   * 1. The ground is WARM. #EFEDE9 is a paper/bone tone, not a grey, so every
-   *    neutral derived from it carries the same warmth — borders, sunken wells,
-   *    the whole secondary/tertiary text ramp. A cool grey dropped into this
-   *    palette reads as dirty, which is why none of the old neutrals survive.
+   * 1. The ground is WHITE, and the same white as a card. It was a warm
+   *    paper tone (#EFEDE9) when the palette was adopted, which is why every
+   *    neutral DERIVED from it is still warm — the borders, the sunken wells,
+   *    the whole secondary/tertiary text ramp. Those stay: a cool grey
+   *    dropped into this palette reads as dirty, and the warmth in the
+   *    neutrals is what keeps a white app from going clinical. What changed
+   *    is only the ground itself, and the consequence is that separation is
+   *    now the border's job rather than the fill's — see `bg`.
    *
    * 2. The accent is DARK ENOUGH TO CARRY WHITE. #0E6E5C measures 6.25:1
    *    against white, so `onBrand` is finally plain #FFFFFF and a primary
@@ -201,6 +205,24 @@ const lightColors: ThemeColors = {
    * newly fail. `textPrimary`/`textSecondary`/`textTertiary` and every
    * accent/semantic colour are untouched.
    */
+  /*
+   * Pure white, same as `surface`.
+   *
+   * It used to be a warm greige (#EFEDE9) so that a white card would lift off
+   * the page without needing a border. That is no longer the trade being
+   * made: the ground and the card are now the SAME white, and a card is told
+   * apart by its hairline border and its shadow rather than by its fill.
+   *
+   * The thing to know when adding a surface: `surface` on `bg` is now
+   * invisible on its own. Anything that has to read as a distinct card needs
+   * `colors.border` or an elevation — the two are load-bearing now, where
+   * before they were reinforcement. Every card component in the app already
+   * sets one; a new one that sets neither will simply not be seen.
+   *
+   * Contrast only improved. Every ink below was measured against the old,
+   * darker ground, so each one gains a little against white — the ratios in
+   * the comments are the FLOOR now, not the value.
+   */
   bg: '#FFFFFF',
   surface: '#FFFFFF',
   // A card sitting on another card — a hairline border carries the
@@ -209,9 +231,10 @@ const lightColors: ThemeColors = {
   // Inset wells: skeletons, disabled fields, image placeholders, sold-out rows.
   surfaceSunken: '#F0F0F0',
 
-  // INK, supplied. 15.1:1 on the ground, 17.6:1 on a card.
+  // INK, supplied. 17.6:1 — ground and card are the same white now, so the
+  // two figures this used to carry have collapsed into one.
   textPrimary: '#1A1917',
-  // 7.8:1 on a card, 6.7:1 on the ground.
+  // 7.8:1, likewise on both.
   textSecondary: '#55524C',
   /*
    * Tertiary is the token that has to clear THREE grounds, not one: it sets

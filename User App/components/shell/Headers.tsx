@@ -19,7 +19,11 @@ import { useTheme } from '@/context/ThemeContext';
 import { withAlpha } from '@/utils/color';
 
 /** Content height, above the status bar inset. */
-const HEADER_HEIGHT = 56;
+/** The bar's own height, above the safe-area inset. Exported because a screen
+ *  that draws artwork UNDER a pinned header has to leave room for it, and the
+ *  only alternative is measuring on layout — a frame of the search field
+ *  sitting on the locality line before it corrects itself. */
+export const HEADER_HEIGHT = 56;
 
 /* ------------------------------------------------------------------ *
  * (a) Explore — locality selector + bell
@@ -38,6 +42,33 @@ export type ExploreHeaderProps = {
    * demotion Alerts went through when Saved took its tab.
    */
   onPressProfile?: () => void;
+  /**
+   * The signed-in diner's name, shown as an initial in place of a generic
+   * person glyph — the way Gmail, Slack and most accounts-first apps mark
+   * "this is you" rather than "this is a person icon". Only the first
+   * character is drawn; the rest of the name is not this control's job.
+   * Missing or blank falls back to the plain glyph rather than an empty or
+   * "?" circle, which is the ordinary case for an account that has not
+   * finished onboarding yet.
+   */
+  userName?: string;
+  /**
+   * How the bar is painted.
+   *
+   * `surface` is the bar as every stay screen has always had it — its own
+   * background, its own hairline, theme ink. `overlay` paints nothing and
+   * switches the ink to white, for the one case where the bar sits ON
+   * artwork: Food Home, whose banner now runs to the top of the screen with
+   * this floating over it.
+   *
+   * Overlay carries its OWN scrim rather than leaving that to the caller.
+   * The four banners behind it run from a bright pink sky to a dark blue
+   * one, so neither white nor dark ink is safe on its own; the gradient is
+   * what makes one choice work on all of them. A caller that wanted to
+   * supply the scrim would have to know the bar's height, which only the
+   * bar knows.
+   */
+  variant?: 'surface' | 'overlay';
 };
 
 /**
@@ -55,9 +86,13 @@ export function ExploreHeader({
   onPressAlerts,
   alertCount,
   onPressProfile,
+  userName,
+  variant = 'surface',
 }: ExploreHeaderProps) {
-  const { colors, space, layout, mode, setPreference } = useTheme();
+  const { colors, space, layout, touch, radius, mode, setPreference } = useTheme();
   const insets = useSafeAreaInsets();
+
+  const initial = userName?.trim().charAt(0).toUpperCase() || null;
 
   /*
    * The appearance toggle.
@@ -83,18 +118,37 @@ export function ExploreHeader({
    */
   const nextMode = mode === 'dark' ? 'light' : 'dark';
 
+  /* Over artwork every mark goes white — icons, both lines of the locality,
+     the initial. The scrim below is what makes that a safe single choice
+     across four banners that do not agree on a background brightness. */
+  const over = variant === 'overlay';
+  const ink = over ? '#FFFFFF' : undefined;
+
   return (
     <View
       style={[
-        styles.bar,
+        over ? null : styles.bar,
         {
           paddingTop: insets.top,
-          backgroundColor: colors.surface,
-          borderBottomColor: colors.borderSubtle,
+          backgroundColor: over ? 'transparent' : colors.surface,
+          borderBottomColor: over ? undefined : colors.borderSubtle,
           paddingHorizontal: layout.gutter,
         },
       ]}
     >
+      {over ? (
+        /* Top-weighted and fading out by the bar's own bottom edge, so it
+           darkens what is behind the WORDS and stops before it becomes a
+           band lying across the picture. */
+        <LinearGradient
+          colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0.28)', 'rgba(0,0,0,0)']}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+      ) : null}
+
       <View style={styles.content}>
         <Pressable
           onPress={onPressLocality}
@@ -102,15 +156,23 @@ export function ExploreHeader({
           accessibilityLabel={`Looking in ${locality}${city ? `, ${city}` : ''}. Change location.`}
           style={[styles.flex, { gap: 1, marginRight: space[3] }]}
         >
-          <Text variant="caption" color="tertiary">
+          <Text
+            variant="caption"
+            color={over ? undefined : 'tertiary'}
+            style={over ? { color: ink, opacity: 0.88 } : undefined}
+          >
             Looking in
           </Text>
           <View style={[styles.row, { gap: space[1] }]}>
-            <Text variant="title3" numberOfLines={1} style={{ flexShrink: 1 }}>
+            <Text
+              variant="title3"
+              numberOfLines={1}
+              style={over ? { flexShrink: 1, color: ink } : { flexShrink: 1 }}
+            >
               {locality}
               {city ? `, ${city}` : ''}
             </Text>
-            <Icon name="chevronRight" size={16} color={colors.textSecondary} />
+            <Icon name="chevronRight" size={16} color={over ? ink : colors.textSecondary} />
           </View>
         </Pressable>
 
@@ -119,6 +181,7 @@ export function ExploreHeader({
           <IconButton
             name={mode === 'dark' ? 'sun' : 'moon'}
             size={20}
+            ink={ink}
             onPress={() => setPreference(nextMode)}
             accessibilityLabel={`Switch to ${nextMode} theme`}
           />
@@ -132,6 +195,7 @@ export function ExploreHeader({
             <IconButton
               name="bell"
               size={20}
+              ink={ink}
               onPress={onPressAlerts}
               accessibilityLabel="Notifications"
             />
@@ -142,7 +206,45 @@ export function ExploreHeader({
             ) : null}
           </View>
           {onPressProfile ? (
-            <IconButton name="sharing" onPress={onPressProfile} accessibilityLabel="Your profile" />
+            initial ? (
+              <Pressable
+                onPress={onPressProfile}
+                accessibilityRole="button"
+                accessibilityLabel="Your profile"
+                style={{ width: touch.min, height: touch.min, alignItems: 'center', justifyContent: 'center' }}
+              >
+                <View
+                  style={{
+                    width: touch.iconButtonVisual,
+                    height: touch.iconButtonVisual,
+                    borderRadius: radius.pill,
+                    /* Translucent white over artwork rather than the sunken
+                       surface token — that token is near-black in dark mode
+                       and would sit on the banner as a hole. */
+                    backgroundColor: over ? 'rgba(255,255,255,0.22)' : colors.surfaceSunken,
+                    borderWidth: over ? StyleSheet.hairlineWidth : 0,
+                    borderColor: over ? 'rgba(255,255,255,0.5)' : undefined,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Text
+                    variant="label"
+                    color={over ? undefined : 'secondary'}
+                    style={over ? { color: ink } : undefined}
+                  >
+                    {initial}
+                  </Text>
+                </View>
+              </Pressable>
+            ) : (
+              <IconButton
+                name="sharing"
+                ink={ink}
+                onPress={onPressProfile}
+                accessibilityLabel="Your profile"
+              />
+            )
           ) : null}
         </View>
       </View>

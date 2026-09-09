@@ -81,7 +81,11 @@ export default function FoodProfileScreen() {
             value={String(favouriteCount)}
             onPress={() => router.push(foodHref.favourites)}
           />
-          <ProfileRow label="Delivery addresses" onPress={() => router.push('/addresses')} />
+          <ProfileRow
+            label="Delivery addresses"
+            value={String(addressChoices.length)}
+            onPress={() => router.push('/addresses')}
+          />
           <ProfileRow
             label="Where we deliver"
             onPress={() => router.push('/food/delivery-area')}

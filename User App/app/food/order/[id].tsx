@@ -58,9 +58,12 @@ function asSentence(text: string): string {
  * cancelled by the diner, or refused by the kitchen — what happened and what
  * became of the money are, in that order.
  *
- * Cancel never disappears. Once the server will no longer accept one, it stays
- * on screen, disabled, saying why — a button that vanishes reads as a bug, and
- * the student goes to support to ask where it went.
+ * Cancel is offered only where the server will actually take it — while the
+ * order sits at `placed` or `confirmed`, before the kitchen has started
+ * cooking. Once that window closes the button itself is gone rather than
+ * left on screen disabled; the caption underneath still says why and what to
+ * do instead, so the answer to "where did it go" is on the same screen the
+ * question is asked from.
  */
 export default function OrderScreen() {
   const { findKitchen } = useFoodCatalogue();
@@ -833,7 +836,13 @@ export default function OrderScreen() {
           <ReceiptLine label="Payment" value={order.paymentLabel} last />
         </View>
 
-        {/* Cancel. Visible after it stops working, with the reason. */}
+        {/*
+          Cancel, only while the server will actually take it. Once the
+          window closes the button is gone rather than left on screen
+          disabled — `cancelHint` still says why, and what to do instead
+          (call the kitchen, call the rider), so nothing is lost by dropping
+          a control that could now only ever fail.
+        */}
         {cancelling ? (
           <View
             style={[
@@ -897,19 +906,17 @@ export default function OrderScreen() {
               }}
             />
           </View>
-        ) : (
+        ) : cancellable ? (
           <View style={{ gap: space[2] }}>
-            <Button
-              label="Cancel order"
-              variant={cancellable ? 'destructive' : 'secondary'}
-              fullWidth
-              disabled={!cancellable}
-              onPress={() => setCancelling(true)}
-            />
+            <Button label="Cancel order" variant="destructive" fullWidth onPress={() => setCancelling(true)} />
             <Text variant="caption" color="tertiary" style={styles.center}>
               {cancelHint}
             </Text>
           </View>
+        ) : (
+          <Text variant="caption" color="tertiary" style={styles.center}>
+            {cancelHint}
+          </Text>
         )}
 
         <View style={[styles.actions, { gap: space[2] }]}>

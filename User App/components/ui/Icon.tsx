@@ -49,6 +49,7 @@ import {
   type LucideProps,
   Moon,
   Sun,
+  Zap,
 } from 'lucide-react-native';
 
 import { useTheme } from '@/context/ThemeContext';
@@ -253,6 +254,10 @@ const LUCIDE_GLYPHS = {
   star: Star,
   commute: Car,
   retry: RotateCcw,
+  /* The "Quick" badge on a Food Home grid card — a real derived fact (a
+     short `prepMinutes`), not a promise, so it earns an icon of its own
+     rather than borrowing one that means something else. */
+  zap: Zap,
 
   // Batch 3 — the rest of the 22-icon amenity set. The six market-specific
   // glyphs it also needs are the custom ones above; these are the generic

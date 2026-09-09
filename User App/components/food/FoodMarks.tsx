@@ -34,11 +34,28 @@ import { DIET_LABEL } from '@/types/food';
  * mark that sometimes sits after the name breaks that in the only place it
  * matters.
  */
-export function DietMark({ diet, size = 14 }: { diet: Diet; size?: number }) {
+export function DietMark({
+  diet,
+  size = 14,
+  ink: inkOverride,
+}: {
+  diet: Diet;
+  size?: number;
+  /**
+   * Forces the mark's colour instead of the diet's own success/warning/danger
+   * ink. For the one legitimate exception to "colour confirms it": a mark
+   * drawn on a FILLED brand-green surface, where the real success green would
+   * sit green-on-green and all but disappear. Shape still carries the
+   * meaning there — this only ever overrides the confirming colour, never
+   * removes the shape underneath it.
+   */
+  ink?: string;
+}) {
   const { colors } = useTheme();
 
   const ink =
-    diet === 'veg' ? colors.success.base : diet === 'egg' ? colors.warning.base : colors.danger.base;
+    inkOverride ??
+    (diet === 'veg' ? colors.success.base : diet === 'egg' ? colors.warning.base : colors.danger.base);
   const inner = Math.round(size * 0.38);
 
   return (
@@ -247,8 +264,18 @@ export type FoodPhotoProps = {
   height: number;
   width?: number | `${number}%`;
   radius?: number;
-  /** The photo itself. Absent is the normal case, not the error case. */
-  uri?: string;
+  /**
+   * The photo itself. Absent is the normal case, not the error case.
+   *
+   * A STRING is a remote URL — the ordinary case, every dish and kitchen
+   * photograph the catalogue serves. A NUMBER is a bundled asset from
+   * `require()`, which React Native resolves to an asset id rather than a
+   * URL: the cuisine rail's curated artwork ships that way, because a fixed
+   * set of sixteen category images has no business being fetched over the
+   * network on every cold start. Wrapping a number in `{ uri }` silently
+   * fails to load, which is why the source is chosen by type below.
+   */
+  uri?: string | number;
   /** Small caption inside the well. Only shown while there is no photo. */
   label?: string;
   style?: ViewStyle;
@@ -301,7 +328,7 @@ export function FoodPhoto({ height, width = '100%', radius: r, uri, label, style
 
       {uri ? (
         <Image
-          source={{ uri }}
+          source={typeof uri === 'string' ? { uri } : uri}
           style={[StyleSheet.absoluteFill, muted ? styles.mutedPhoto : null]}
           contentFit="cover"
           /* Cached to disk because a student scrolls the same six kitchens
