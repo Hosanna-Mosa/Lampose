@@ -96,8 +96,11 @@ export default function LoginScreen() {
         autoFocus
       />
 
-      <View style={styles.spacer} />
-
+      {/* Right under the field, not pinned to the bottom of the screen — a
+          bottom-pinned button on a `scroll={false}` screen sits exactly
+          where the keyboard covers it the moment the field is focused,
+          since nothing here resizes for the keyboard. Sitting in the normal
+          flow means it's always above it, autofocus or not. */}
       <Button
         label={isSubmitting ? 'Sending code…' : 'Send code'}
         onPress={send}
@@ -105,6 +108,7 @@ export default function LoginScreen() {
         disabled={!complete}
         style={styles.cta}
       />
+
       <Text variant="badge" color="textCaption" center style={styles.legal}>
         By continuing you agree to the Partner Terms and Privacy Policy.
       </Text>
@@ -122,7 +126,6 @@ const styles = StyleSheet.create({
   },
   title: { marginBottom: 8 },
   subtitle: { lineHeight: 21, marginBottom: 28 },
-  spacer: { flex: 1 },
-  cta: { marginBottom: 14 },
+  cta: { marginTop: 28, marginBottom: 14 },
   legal: { lineHeight: 17 },
 });

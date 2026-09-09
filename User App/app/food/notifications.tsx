@@ -24,8 +24,8 @@
    ══════════════════════════════════════════════════════════════════════════ */
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Text } from '@/components/ui';
@@ -45,7 +45,13 @@ export default function FoodNotificationsScreen() {
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { orders, liveOrder, markFoodNotificationsSeen } = useFood();
+  const { orders, liveOrder, markFoodNotificationsSeen, refreshOrders } = useFood();
+
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    void refreshOrders().finally(() => setRefreshing(false));
+  }, [refreshOrders]);
 
   /* Opening this screen IS the read receipt — there is no separate "mark all
      read" tap to offer, because there is no per-row read state under it to
@@ -82,6 +88,9 @@ export default function FoodNotificationsScreen() {
       ) : (
         <ScrollView
           contentContainerStyle={{ paddingTop: space[2], paddingBottom: space[8], gap: space[4] }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand} />
+          }
         >
           {liveOrder ? (
             <View style={{ gap: space[2] }}>

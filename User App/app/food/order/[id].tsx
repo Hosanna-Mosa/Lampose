@@ -1,7 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Linking, ScrollView, StyleSheet, View } from 'react-native';
+import { Linking, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Icon, Text } from '@/components/ui';
@@ -77,6 +77,7 @@ export default function OrderScreen() {
   const [reason, setReason] = useState(CANCEL_REASONS[0]);
   const [paying, setPaying] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const order = orders.find((entry) => entry.id === id);
 
@@ -146,6 +147,14 @@ export default function OrderScreen() {
       setPaying(false);
     }
   }, [id, router, startPayment, refreshOrder]);
+
+  /* Pull-to-refresh, for the same read the timer below already does on its own
+     schedule — a manual tap should not have to wait out the poll interval. */
+  const onRefresh = useCallback(() => {
+    if (!id) return;
+    setRefreshing(true);
+    void refreshOrder(id).finally(() => setRefreshing(false));
+  }, [id, refreshOrder]);
 
   /*
     Re-read the order on a timer while it is moving.
@@ -364,6 +373,9 @@ export default function OrderScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ padding: layout.gutter, paddingBottom: space[8] * 2, gap: space[3] }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand} />
+        }
       >
         {placed && !awaitingPayment ? (
           <FoodNotice

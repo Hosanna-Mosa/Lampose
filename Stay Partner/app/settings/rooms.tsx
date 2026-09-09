@@ -58,6 +58,7 @@ export default function RoomsAndAmenitiesScreen() {
   const [rooms, setRooms] = useState<ShareType[] | null>(null);
   const [properties, setProperties] = useState<BackendListing[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -79,6 +80,15 @@ export default function RoomsAndAmenitiesScreen() {
     load();
   }, [load]);
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load]);
+
   /* Amenities are a property fact, so they are collected across the owner's
      properties and de-duplicated — an owner with two PGs should not read
      "Wi-Fi" twice. */
@@ -93,7 +103,12 @@ export default function RoomsAndAmenitiesScreen() {
   );
 
   return (
-    <Screen header={<TopHeader title="Rooms & amenities" showBack />} background="bg">
+    <Screen
+      header={<TopHeader title="Rooms & amenities" showBack />}
+      background="bg"
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
       {error ? (
         <ErrorState title="We could not load this" body={error} onRetry={load} />
       ) : rooms === null ? (

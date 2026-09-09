@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
   Screen,
@@ -11,11 +11,13 @@ import {
   DetailRow,
   EmptyState,
   ErrorState,
+  Icon,
   Skeleton,
   Switch,
 } from '@/components/ui';
+import { useAlert } from '@/components/ui/AppAlert';
 import { ApiError, fetchMyProperties, type BackendListing } from '@/services';
-import { setPropertyAvailability } from '@/services/api/portfolio.api';
+import { removeMyProperty, setPropertyAvailability } from '@/services/api/portfolio.api';
 import { formatDateLong, formatINR } from '@/lib/format';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
@@ -75,8 +77,11 @@ const listedOn = (value: unknown): string => {
 
 export default function PropertyDetailsScreen() {
   const router = useRouter();
+  const { alert, confirm } = useAlert();
   const [properties, setProperties] = useState<BackendListing[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -120,17 +125,70 @@ export default function PropertyDetailsScreen() {
       setProperties((prev) => prev && prev.map((p) => (
         (p.id ?? p._id) === id ? { ...p, isAvailable: !next } : p
       )));
-      Alert.alert(
-        'Could not change that',
-        err instanceof ApiError ? err.displayMessage : 'Please try again.',
-      );
+      void alert({
+        title: 'Could not change that',
+        message: err instanceof ApiError ? err.displayMessage : 'Please try again.',
+        tone: 'error',
+      });
     } finally {
       load();
     }
   }, [load]);
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load]);
+
+  /*
+   * Deleting a listing from Lampose.
+   *
+   * The server does the actual bookkeeping — this is soft, `partner_bookings`
+   * and payouts against it are untouched, and it is refused with a clear
+   * reason while a guest is currently staying/due or a student is waiting on
+   * an answer. What this does is ask, then act on what the server actually
+   * decided: the card is only dropped from the list once the request has
+   * succeeded, never optimistically — an owner acting on the wrong card here
+   * has no undo.
+   */
+  const removeProperty = useCallback(async (id: string, name: string) => {
+    const ok = await confirm({
+      title: `Delete "${dash(name)}"?`,
+      message: 'This takes it off Lampose for good — students will no longer find it, and it '
+        + 'stops taking requests. Past bookings, payouts and reviews are kept. This cannot be '
+        + 'undone from the app; message us if you need it back.',
+      confirmLabel: 'Delete listing',
+      cancelLabel: 'Keep it',
+      destructive: true,
+    });
+    if (!ok) return;
+
+    setRemovingId(id);
+    try {
+      await removeMyProperty(id);
+      setProperties((prev) => (prev ? prev.filter((p) => (p.id ?? p._id) !== id) : prev));
+    } catch (err) {
+      void alert({
+        title: 'Could not delete this listing',
+        message: err instanceof ApiError ? err.displayMessage : 'Please try again.',
+        tone: 'error',
+      });
+    } finally {
+      setRemovingId(null);
+    }
+  }, [alert, confirm]);
+
   return (
-    <Screen header={<TopHeader title="Property details" showBack />} background="bg">
+    <Screen
+      header={<TopHeader title="Property details" showBack />}
+      background="bg"
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
       {error ? (
         <ErrorState title="We could not load this" body={error} onRetry={load} />
       ) : properties === null ? (
@@ -160,6 +218,8 @@ export default function PropertyDetailsScreen() {
                 property={p}
                 onEdit={id ? () => router.push({ pathname: '/settings/property-edit', params: { id } }) : undefined}
                 onAvailability={id ? (next) => toggleAvailability(id, next) : undefined}
+                onRemove={id ? () => removeProperty(id, p.name ?? '') : undefined}
+                removing={id != null && id === removingId}
               />
             );
           })}
@@ -178,10 +238,14 @@ function PropertyCard({
   property,
   onEdit,
   onAvailability,
+  onRemove,
+  removing,
 }: {
   property: BackendListing & Record<string, any>;
   onEdit?: () => void;
   onAvailability?: (next: boolean) => void;
+  onRemove?: () => void;
+  removing?: boolean;
 }) {
   const c = useColors();
 
@@ -312,6 +376,28 @@ function PropertyCard({
           </View>
         </Block>
       ) : null}
+
+      {/*
+        Deleting the listing, not pausing it.
+        Bottom of the card and its own row — the same weight "Cancel
+        booking" gets on the booking detail screen, so a destructive action
+        always reads the same way in this app: a trash icon and a red link,
+        never a filled button somebody could tap by reflex.
+      */}
+      {onRemove ? (
+        <Pressable
+          onPress={onRemove}
+          disabled={removing}
+          accessibilityRole="button"
+          accessibilityLabel={`Delete ${dash(property.name)} from Lampose`}
+          style={({ pressed }) => [styles.remove, { opacity: pressed || removing ? 0.6 : 1 }]}
+        >
+          <Icon name="trash" size={14} color={c.error} strokeWidth={2} />
+          <Text variant="link" style={{ color: c.error }}>
+            {removing ? 'Deleting…' : 'Delete this listing'}
+          </Text>
+        </Pressable>
+      ) : null}
     </Card>
   );
 }
@@ -357,4 +443,5 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
   },
   note: { lineHeight: 18, marginTop: 4 },
+  remove: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44 },
 });

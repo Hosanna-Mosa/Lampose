@@ -193,13 +193,17 @@ export default function OtpScreen() {
         )}
       </View>
 
-      <View style={styles.spacer} />
-
+      {/* Right under the resend row, not pinned to the bottom of the
+          screen — see the same fix on `login.tsx`. A bottom-pinned button
+          on a `scroll={false}` screen sits exactly where the keyboard
+          covers it while the OTP field is focused, since nothing here
+          resizes for the keyboard. */}
       <Button
         label={isSubmitting ? 'Verifying…' : 'Verify'}
         onPress={verify}
         loading={isSubmitting}
         disabled={!complete || isSubmitting}
+        style={styles.cta}
       />
     </Screen>
   );
@@ -226,5 +230,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  spacer: { flex: 1 },
+  cta: { marginTop: 22 },
 });

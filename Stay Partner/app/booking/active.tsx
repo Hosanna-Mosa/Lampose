@@ -39,7 +39,7 @@ export default function ActiveStayScreen() {
   /* Was `getBooking(id)` — the fixture array — so a real id landed on "Stay
      not found" and the only screen an owner sees during a stay was
      unreachable. See `services/hooks/useBookings.ts`. */
-  const { booking, notFound, isPending } = useBooking(id);
+  const { booking, notFound, isPending, isRefetching, refetch } = useBooking(id);
 
   if (isPending && !booking) {
     return (
@@ -65,6 +65,38 @@ export default function ActiveStayScreen() {
     );
   }
 
+  /*
+   * Not for a bachelor room, PG/Hostel or Co-living, even reached directly.
+   *
+   * The three places that used to link here — `PrimaryAction` in
+   * `booking/[id].tsx`, `booking/checked-in.tsx`, and this screen's own
+   * fallback below — no longer offer the button that opens it for any of
+   * these categories. Bachelor's reason: `booking.checkOut` is a fallback
+   * value here, not a date anybody agreed to, since that tenancy is never
+   * given a length or a move-out day. PG/Hostel and Co-living's checkout
+   * dates are usually real, but the destination is withheld anyway — same
+   * "direct arrangement, nothing on Lampose's side to track" reasoning as
+   * the payout figure and owner-messaging already withheld on the booking
+   * screen. This is the guard for whatever reaches the route some third
+   * way — a stale notification, a saved deep link — rather than trusting
+   * that nothing ever will.
+   */
+  if (booking.category === 'BACHELOR' || booking.category === 'PG_HOSTEL' || booking.category === 'COLIVE') {
+    return (
+      <Screen scroll={false} padX={22} background="bg">
+        <EmptyState
+          icon="search"
+          title="Not available for this room"
+          body={booking.category === 'BACHELOR'
+            ? 'Bachelor stays have no fixed length, so there is no checkout to track here.'
+            : 'This stay is a direct arrangement with the guest, so there is nothing to track here.'}
+          actionLabel="Go back to home"
+          onAction={() => router.replace('/')}
+        />
+      </Screen>
+    );
+  }
+
   const { currentDay, totalDays, ratio } = stayProgress(booking);
   const departsToday = isSameDay(booking.checkOut, new Date());
 
@@ -79,6 +111,8 @@ export default function ActiveStayScreen() {
     <Screen
       padX={22}
             contentStyle={styles.container}
+            refreshing={isRefetching}
+            onRefresh={refetch}
             footer={
               departsToday ? (
                 <Button

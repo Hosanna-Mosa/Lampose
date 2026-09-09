@@ -21,15 +21,41 @@ export const SORT_LABEL: Record<SortKey, string> = {
 
 export type SearchQuery = {
   /**
-   * The one required field in the whole app. Never pre-selected from anything
-   * we inferred — showing a boy a girls-only hostel is not a bad
-   * recommendation, it is a wasted trip and a broken promise.
+   * Required on the categories where it is a real rule, and on those only.
+   * Never pre-selected from anything we inferred — showing a boy a girls-only
+   * hostel is not a bad recommendation, it is a wasted trip and a broken
+   * promise. See `filterSpecFor` for which categories ask it.
    */
   gender: Gender | null;
   categories: readonly StayCategory[];
   /** A ceiling, never a range. No student excludes a place for being too cheap. */
   rentCeiling: number | null;
+  /**
+   * The bed, unit or room type, by the owner's own label.
+   *
+   * The values are whatever the panel recorded for the listings currently on
+   * screen — "2 Sharing", "1 BHK", "Deluxe Double" — rather than a fixed set
+   * this app invented. What the control is CALLED changes by category, because
+   * the same field means a different thing in each: see `filterSpecFor`.
+   */
   sharing: readonly string[];
+  /**
+   * "Fully furnished", "Semi-furnished", "Unfurnished" — `details.furnishing`
+   * as the panel recorded it.
+   *
+   * Only asked where it is a decision. It is the first question about a whole
+   * unit and a non-question about a PG bed, which comes furnished by
+   * definition.
+   */
+  furnishing: readonly string[];
+  /**
+   * Meals included, or not asked.
+   *
+   * `null` is "does not matter" rather than "no" — the tri-state matters here,
+   * because a student who has not answered must still be shown places without
+   * a mess.
+   */
+  meals: boolean | null;
   amenities: readonly AmenityName[];
   sort: SortKey;
 };
@@ -39,6 +65,8 @@ export const EMPTY_QUERY: SearchQuery = {
   categories: [],
   rentCeiling: null,
   sharing: [],
+  furnishing: [],
+  meals: null,
   amenities: [],
   sort: 'recommended',
 };
@@ -49,8 +77,149 @@ export function activeFilterCount(query: SearchQuery): number {
     (query.categories.length ? 1 : 0) +
     (query.rentCeiling !== null ? 1 : 0) +
     (query.sharing.length ? 1 : 0) +
+    (query.furnishing.length ? 1 : 0) +
+    (query.meals !== null ? 1 : 0) +
     (query.amenities.length ? 1 : 0)
   );
+}
+
+/* ------------------------------------------------------------------ *
+ * What each category is actually filtered by
+ * ------------------------------------------------------------------ */
+
+/**
+ * The sheet asked every category the same five questions, and three of them
+ * were wrong for at least one category.
+ *
+ * A PG is a bed in a shared room, so "how many share it" and "are meals
+ * included" are the two questions that decide it. A bachelor unit is a whole
+ * place — nobody shares it, so "sharing" is meaningless, and "furnished or
+ * not" is the question a bed never has to ask. A hotel is sold by the night to
+ * whoever walks in, so a boys-or-girls rule is not a fact about it at all.
+ * Asking all five everywhere produced controls that filtered nothing and, in
+ * gender's case, a REQUIRED control that filtered nothing and blocked Apply
+ * until it was answered.
+ *
+ * So each category declares what it is filtered by. The values inside each
+ * control still come from the inventory on screen — see `facetsFor` — so this
+ * decides which questions are asked and the database decides what the answers
+ * may be.
+ */
+export type CategoryFilterSpec = {
+  /** Is gender a rule at this kind of place, and therefore required? */
+  gender: boolean;
+  /** The heading over the bed/unit/room control, or null to omit it. */
+  sharingLabel: string | null;
+  /** Whether furnishing is a question here. */
+  furnishing: boolean;
+  /** Whether meals are a question here. */
+  meals: boolean;
+  /** What the rent ceiling is a ceiling ON. */
+  rentLabel: string;
+};
+
+export function filterSpecFor(category: StayCategory | null): CategoryFilterSpec {
+  switch (category) {
+    case 'PG_HOSTEL':
+      return {
+        /* Every PG and hostel has a boys/girls/co-ed rule, and it is the one
+           filter that saves a wasted journey rather than a scroll. */
+        gender: true,
+        sharingLabel: 'How many share the room?',
+        /* A PG bed comes with a bed, a cupboard and a table. There is nothing
+           to choose. */
+        furnishing: false,
+        meals: true,
+        rentLabel: 'Monthly rent — up to',
+      };
+    case 'COLIVE':
+      return {
+        /* A co-live has house rules like a PG does — many are women-only. */
+        gender: true,
+        sharingLabel: 'Room or whole house?',
+        furnishing: true,
+        /* Some co-lives cater and most do not; it is worth asking and it is
+           not the deciding question a PG's mess is. */
+        meals: true,
+        rentLabel: 'Monthly rent — up to',
+      };
+    case 'BACHELOR':
+      return {
+        /* A whole unit is let to a tenant, not to a gender. The panel records
+           no `hostelType` for one, so this filtered nothing and blocked
+           Apply. */
+        gender: false,
+        sharingLabel: 'Which unit?',
+        /* The first question anybody asks about an empty flat, and the
+           difference between moving in with a mattress and moving in with a
+           van. */
+        furnishing: true,
+        meals: false,
+        rentLabel: 'Monthly rent — up to',
+      };
+    case 'HOTEL':
+      return {
+        gender: false,
+        sharingLabel: 'Which room?',
+        /* A hotel room is furnished. Saying so as a filter would be a control
+           with one answer. */
+        furnishing: false,
+        meals: false,
+        /* Hotels are quoted per night — see `perNight` on the listing — so a
+           "monthly rent" ceiling here would be a ceiling on the wrong number. */
+        rentLabel: 'Price per night — up to',
+      };
+    default:
+      return {
+        gender: true,
+        sharingLabel: 'Sharing',
+        furnishing: false,
+        meals: false,
+        rentLabel: 'Monthly rent — up to',
+      };
+  }
+}
+
+/**
+ * The values each control may offer, read off the listings on screen.
+ *
+ * This is what makes the sheet a filter over the CATALOGUE rather than over a
+ * list of words somebody typed into this file. The old sheet offered
+ * "1-sharing" … "4-sharing" and "Others" as constants; the panel records
+ * "2 Sharing", "Single Occupancy", "1 BHK" and "Deluxe Double", none of which
+ * match, so four of the five chips selected nothing and the fifth selected
+ * everything.
+ *
+ * Sorted so the row is stable between renders — an option list that reorders
+ * as the feed refetches is a control that moves under a thumb.
+ */
+export type Facets = {
+  sharing: readonly string[];
+  furnishing: readonly string[];
+  /** Whether any listing here states a meal plan at all. */
+  hasMeals: boolean;
+};
+
+export function facetsFor(inventory: readonly Listing[]): Facets {
+  const sharing = new Set<string>();
+  const furnishing = new Set<string>();
+  let hasMeals = false;
+
+  for (const listing of inventory) {
+    for (const option of listing.sharingOptions ?? []) {
+      if (option.label?.trim()) sharing.add(option.label.trim());
+    }
+    /* The single-option listings, whose one label lives here instead. */
+    if (listing.sharingLabel?.trim()) sharing.add(listing.sharingLabel.trim());
+    if (listing.furnishing?.trim()) furnishing.add(listing.furnishing.trim());
+    if (listing.meals?.included) hasMeals = true;
+  }
+
+  return {
+    sharing: [...sharing].sort((a, b) => a.localeCompare(b, 'en-IN')),
+    furnishing: [...furnishing].sort((a, b) => a.localeCompare(b, 'en-IN')),
+    hasMeals,
+  };
 }
 
 /* ------------------------------------------------------------------ *
@@ -69,7 +238,39 @@ export function matchesQuerySpec(listing: Listing, query: SearchQuery): boolean 
   }
   if (query.categories.length && !query.categories.includes(listing.category)) return false;
   if (query.rentCeiling !== null && listing.rent !== null && listing.rent > query.rentCeiling) return false;
-  if (query.sharing.length && !query.sharing.includes(listing.sharingLabel ?? '')) return false;
+
+  /*
+   * ANY of the listing's options may satisfy the filter, not just its headline
+   * one.
+   *
+   * This used to compare against `listing.sharingLabel` alone, which the
+   * adapter only sets when a listing offers exactly ONE option — so a place
+   * offering two-, three- and four-sharing had no label at all and was
+   * excluded by every sharing filter, including "2 Sharing", which it plainly
+   * had. A filter for a room type is a question about what the property
+   * OFFERS, and a property offering it should match.
+   */
+  if (query.sharing.length) {
+    const offered = [
+      ...(listing.sharingOptions ?? []).map((option) => option.label),
+      listing.sharingLabel,
+    ].filter((label): label is string => Boolean(label));
+    if (!offered.some((label) => query.sharing.includes(label))) return false;
+  }
+
+  /* An unrecorded furnishing is NOT excluded, for the same reason an
+     unrecorded gender is not: the panel does not require the field, and
+     hiding a listing because nobody filled it in is the app enforcing a rule
+     the owner never stated. A listing that HAS one and does not match is. */
+  if (query.furnishing.length && listing.furnishing && !query.furnishing.includes(listing.furnishing)) {
+    return false;
+  }
+
+  /* Only ever applied when the student answered it — `null` is "does not
+     matter", not "no". A listing with no meal plan recorded counts as not
+     included, which is the honest reading: we were not told there is one. */
+  if (query.meals !== null && Boolean(listing.meals?.included) !== query.meals) return false;
+
   if (query.amenities.length) {
     const present = new Set(
       (listing.amenities ?? []).filter((a) => a.state === 'present').map((a) => a.name),
@@ -103,7 +304,7 @@ export type IssueLevel = 'blocking' | 'advisory';
 
 export type FilterIssue = {
   /** Which control the message renders under. Never a banner at the top. */
-  field: 'gender' | 'rent' | 'deposit' | 'sharing' | 'combination';
+  field: 'gender' | 'rent' | 'deposit' | 'sharing' | 'furnishing' | 'meals' | 'combination';
   level: IssueLevel;
   message: string;
   /** A one-tap correction, where a correct value can be computed. */
@@ -121,10 +322,20 @@ export type FilterIssue = {
 export function validateQuery(
   query: SearchQuery,
   inventory: readonly Listing[],
+  /**
+   * Which category's sheet this is. Decides whether gender is asked at all —
+   * see `filterSpecFor`. Omitted, it keeps the old always-required behaviour,
+   * so a caller that has not been updated cannot silently lose the gate.
+   */
+  category: StayCategory | null = null,
 ): readonly FilterIssue[] {
   const issues: FilterIssue[] = [];
+  const spec = filterSpecFor(category);
 
-  if (!query.gender) {
+  /* Blocking only where the sheet actually asks it. A required control that a
+     category does not draw is a button that can never be enabled — which is
+     what a bachelor or hotel search used to hit. */
+  if (spec.gender && !query.gender) {
     issues.push({
       field: 'gender',
       level: 'blocking',
@@ -166,7 +377,7 @@ export function hasBlockingIssue(issues: readonly FilterIssue[]): boolean {
 
 export type Relaxation = {
   /** Which control this loosens, for tinting it in the query summary. */
-  field: 'rent' | 'deposit' | 'sharing' | 'amenities' | 'categories';
+  field: 'rent' | 'deposit' | 'sharing' | 'furnishing' | 'meals' | 'amenities' | 'categories';
   label: string;
   /** How many places this one change brings back. Never a guess. */
   count: number;
@@ -207,6 +418,8 @@ export function relaxationSuggestions(
   }
 
   if (query.sharing.length) consider('sharing', 'Any sharing type', { sharing: [] });
+  if (query.furnishing.length) consider('furnishing', 'Any furnishing', { furnishing: [] });
+  if (query.meals !== null) consider('meals', 'With or without meals', { meals: null });
   if (query.amenities.length) consider('amenities', 'Drop the amenity filters', { amenities: [] });
   if (query.categories.length) consider('categories', 'Show every kind of place', { categories: [] });
 

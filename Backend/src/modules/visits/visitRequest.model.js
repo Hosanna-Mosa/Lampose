@@ -77,6 +77,16 @@ const visitRequestSchema = new mongoose.Schema(
        same reason — it must survive the document it points at. */
     listingId: { type: String, required: true, index: true },
     propertyName: { type: String, required: true },
+    /*
+     * The property's category at the moment this request was made, mirrored
+     * rather than looked up — same reasoning as `propertyName` beside it,
+     * and the same field `PartnerBooking.category` carries for the booking
+     * this request may become. Lets the owner's app decide, without a
+     * second query, whether a confirmed bachelor request still has
+     * anything for "See the booking" to show — see `requests/[id].tsx`.
+     * '' on a row written before this field existed.
+     */
+    category: { type: String, default: '' },
     ownerName: { type: String, default: 'Property Owner' },
     ownerMobile: { type: String, required: true, index: true }, // E.164
 
@@ -165,9 +175,31 @@ const visitRequestSchema = new mongoose.Schema(
         enum: ['not_required', 'pending', 'paid', 'failed', 'expired'],
         default: 'not_required',
       },
+      /*
+       * WHY this request charges, which decides what the money buys.
+       *
+       *   assisted_visit   a fixed platform fee that buys a VIEWING with a
+       *                    Lampose representative. Paying it opens the slot
+       *                    picker; the address is released with the slot.
+       *   stay_booking     the stay total, which buys the STAY itself. There
+       *                    is no viewing and no slot — paying it finishes the
+       *                    booking.
+       *
+       * Frozen at creation from the category, like `required` above and for
+       * the same reason. `assisted_visit` is the default because every row
+       * written before hotels charged is one of those, and a null here would
+       * make legacy requests look like a kind that did not exist yet.
+       *
+       * See `paymentPurposeFor` in `shared/constants/categories.js`.
+       */
+      purpose: {
+        type: String,
+        enum: ['assisted_visit', 'stay_booking'],
+        default: 'assisted_visit',
+      },
       /* Paise. The only unit Razorpay accepts, and a snapshot — a later
-         change to the platform token must not reprice a request already
-         made. */
+         change to the platform token, or to the room's nightly rate, must not
+         reprice a request already made. */
       amountPaise: { type: Number, default: null },
       /*
        * HOW it was settled, which is not the same question as whether it was.
@@ -465,19 +497,41 @@ visitRequestSchema.methods.toPublic = function toPublic() {
      */
     payment: this.payment?.required
       ? (() => {
-        /* The two lines the price is explained with, everywhere it is shown
-           — "₹100 representative, ₹99 Lampose fee". Derived here, never
-           stored twice, so they always add up to the amount charged. The
-           amount falls back to the configured price so the button can name
-           the figure BEFORE an order exists. */
-        const amount = this.payment.amountPaise
-          || config.razorpay.assistedVisitAmountPaise;
-        const representative = Math.min(
-          config.razorpay.assistedRepresentativePaise, amount,
-        );
+        const purpose = this.payment.purpose || 'assisted_visit';
+        const isVisit = purpose === 'assisted_visit';
+
+        /*
+         * The amount, and the fallback that is only safe for one purpose.
+         *
+         * An assisted visit costs the configured platform fee, so falling
+         * back to it lets a button name the figure before an order exists.
+         * A STAY has no configured price — it is rate × nights, snapshotted
+         * onto the request when it was made — so the same fallback would quote
+         * ₹199 for a three-night hotel stay. There is nothing to fall back to
+         * and it must not pretend otherwise: a stay booking with no amount is
+         * `null`, and every reader treats that as "not priced yet" rather than
+         * as a price.
+         */
+        const amount = isVisit
+          ? (this.payment.amountPaise || config.razorpay.assistedVisitAmountPaise)
+          : (this.payment.amountPaise || null);
+
+        /* The two lines the fee is explained with — "₹100 representative,
+           ₹99 Lampose fee". Derived here, never stored twice, so they always
+           add up to the amount charged. A stay booking has no such split: the
+           whole figure is the room, and inventing a representative's share of
+           a hotel bill would be a line nobody owes. */
+        const representative = isVisit
+          ? Math.min(config.razorpay.assistedRepresentativePaise, amount || 0)
+          : null;
+
         return {
           required: true,
           status: this.payment.status,
+          /* What the money buys. The app branches its copy, its receipt and
+             where it goes next on this rather than on the category, so a
+             request keeps the meaning it was created with. */
+          purpose,
           /* `dev` means the token was waived by the bypass, not paid. Sent so
              a screen never has to render "paid" over a payment that did not
              happen. */
@@ -488,7 +542,7 @@ visitRequestSchema.methods.toPublic = function toPublic() {
           devMarkPaidAllowed: Boolean(config.razorpay.devAllowMarkPaid),
           amountPaise: amount,
           representativePaise: representative,
-          feePaise: Math.max(0, amount - representative),
+          feePaise: representative === null ? null : Math.max(0, (amount || 0) - representative),
           /* The shareable Razorpay link, so the app can open it rather than
              carrying a native SDK. Null until the owner accepts. */
           linkUrl: this.payment.linkUrl || null,
@@ -497,7 +551,7 @@ visitRequestSchema.methods.toPublic = function toPublic() {
         };
       })()
       : {
-        required: false, status: 'not_required', mode: 'online', devMarkPaidAllowed: false, amountPaise: null, dueBy: null, paidAt: null,
+        required: false, status: 'not_required', purpose: null, mode: 'online', devMarkPaidAllowed: false, amountPaise: null, representativePaise: null, feePaise: null, dueBy: null, paidAt: null,
       },
 
     /* Where the paid visit has got to: waiting for a slot, scheduled, or
@@ -527,6 +581,22 @@ visitRequestSchema.methods.toPublic = function toPublic() {
         duration: this.intent.duration || null,
         durationUnit: this.intent.durationUnit || null,
         joiningDate: this.intent.joiningDate || null,
+        /*
+         * The hotel fields, which the schema has always stored and this
+         * projection never sent.
+         *
+         * They are what lets a screen say "3 nights · 14 Sep to 17 Sep ·
+         * ₹1,200 a night" instead of a bare total. That mattered little while
+         * the only payment was a flat ₹199 fee; a guest being asked for the
+         * whole cost of a stay is owed the arithmetic behind it, and the app
+         * must not recompute it — the server's figure is the one being
+         * charged.
+         */
+        checkIn: this.intent.checkIn || null,
+        checkOut: this.intent.checkOut || null,
+        rateStructure: this.intent.rateStructure || null,
+        rateQuantity: this.intent.rateQuantity || null,
+        rateQuantityUnit: this.intent.rateQuantityUnit || null,
         flexibleJoin: this.intent.flexibleJoin === true,
         rateAmount: this.intent.rateAmount || null,
         rateUnit: this.intent.rateUnit || null,
@@ -619,6 +689,7 @@ visitRequestSchema.methods.toOwner = function toOwner() {
     channel: this.channel || 'web',
     listingId: this.listingId,
     propertyName: this.propertyName,
+    category: this.category || '',
     shareTypeId: this.shareTypeId || null,
 
     customer: {
@@ -660,6 +731,34 @@ visitRequestSchema.methods.toOwner = function toOwner() {
        cannot check anybody in. */
     entryPin: this.entryPin || null,
     entryPinIssuedAt: this.entryPinIssuedAt || null,
+
+    /*
+     * The ₹199 assisted visit — bachelor and co-live only, and only when
+     * `payment.required` is true.
+     *
+     * The owner accepted, a booking opened, and the bed is theirs — but for
+     * these two categories a Lampose representative still has to walk the
+     * student through the place before move-in, and until now the owner had
+     * no way to find out whether that had even been arranged. Nothing here
+     * lets the owner CHANGE the slot — the student picks it with the
+     * representative, on the same app or the same WhatsApp thread the
+     * payment came through — this is read-only visibility into a process
+     * that already existed without them.
+     */
+    payment: this.payment && this.payment.required
+      ? {
+        required: true,
+        status: this.payment.status || 'pending',
+        purpose: this.payment.purpose || 'assisted_visit',
+      }
+      : null,
+    lamposeVisit: this.payment && this.payment.required
+      ? {
+        status: this.lamposeVisit?.status || 'none',
+        date: this.lamposeVisit?.date || null,
+        time: this.lamposeVisit?.time || null,
+      }
+      : null,
 
     /* Same reasoning as the public shape — the owner's countdown must not
        depend on the owner's device clock either. */

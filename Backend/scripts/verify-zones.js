@@ -86,13 +86,16 @@ const square = (lng, lat, d) => [
       name: 'Zone Editor', email: `zones-${stamp}@lampose.test`,
       password: `Zones!${stamp}aA`, role: 'Admin', status: 'Active',
     });
-    token = jwt.sign({ id: admin._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    /* The real shape: { id, typ: 'admin', ver } — a hand-rolled { id } token
+       is now refused as LEGACY_TOKEN. See admins/adminToken.js. */
+    const { signAdminToken } = require('../src/modules/admins/adminToken');
+    token = signAdminToken(admin, { expiresIn: '1h' });
 
     viewer = await Admin.create({
       name: 'Zone Viewer', email: `zones-v-${stamp}@lampose.test`,
       password: `Zones!${stamp}aA`, role: 'Viewer', status: 'Active',
     });
-    viewerToken = jwt.sign({ id: viewer._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    viewerToken = signAdminToken(viewer, { expiresIn: '1h' });
 
     /* ── 1. Draw a polygon ───────────────────────────────────────────── */
     const poly = await call('POST', '/api/v1/admin/zones', {

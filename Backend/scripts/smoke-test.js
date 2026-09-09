@@ -127,12 +127,14 @@ const run = async () => {
     return '401 without a token';
   });
 
-  await check('GET /api/v2/scraper/stats', async () => {
+  await check('GET /api/v2/scraper/stats requires a token', async () => {
+    /* Every route on this router now needs the leads panel's own sign-in —
+       it used to answer any caller, the same hole /leads and /export had.
+       See scraper/scraper.routes.js. */
     const { response, body } = await get('/api/v2/scraper/stats');
     if (response.status === 503) return '503 DB_DISCONNECTED';
-    expect(response.status === 200, `expected 200, got ${response.status}`);
-    expect(typeof (body.data || {}).totalLeads === 'number', 'stats payload has no totalLeads');
-    return `${body.data.totalLeads} leads, ${body.data.totalJobs} jobs`;
+    expect(response.status === 401, `expected 401 without a token, got ${response.status}`);
+    return body.code || '401 without a token';
   });
 
   await check('GET /api/v2/users requires a token', async () => {
@@ -158,38 +160,45 @@ const run = async () => {
 
   /* ── v1 ──────────────────────────────────────────────────────────────── */
 
-  await check('GET /api/v1/properties (onboarding view)', async () => {
+  await check('GET /api/v1/properties (onboarding view) requires a signed-in caller', async () => {
     const { response, body } = await get('/api/v1/properties');
-    expect(response.status === 200, `expected 200, got ${response.status}`);
-    expect(Array.isArray(body.data), 'properties payload is not an array');
-    return `${body.count} listings (verified + pending)`;
+    expect(response.status === 401, `expected 401, got ${response.status}`);
+    return body.code || 'refused';
   });
 
-  await check('GET /api/properties resolves to v1, not v2', async () => {
+  await check('GET /api/properties resolves to the same (now-gated) v1 router', async () => {
     const legacy = await get('/api/properties');
     const v1 = await get('/api/v1/properties');
-    expect(legacy.response.status === 200, `expected 200, got ${legacy.response.status}`);
-    expect(legacy.body.count === v1.body.count,
-      `the unversioned alias returned ${legacy.body.count} rows and v1 returned ${v1.body.count} — they are not the same router`);
-    return `both ${v1.body.count} rows`;
+    expect(legacy.response.status === 401 && v1.response.status === 401,
+      `expected 401 on both, got ${legacy.response.status} / ${v1.response.status}`);
+    expect(legacy.body.code === v1.body.code,
+      `the unversioned alias refused with "${legacy.body.code}" and v1 with "${v1.body.code}" — they are not the same router`);
+    return `both refused the same way — ${v1.body.code}`;
   });
 
-  await check('GET /api/v1/permissions', async () => {
+  /* This smoke test is read-only by design — safe to point at a live
+     deployment — so it never mints credentials. These three routes used to
+     answer any caller; each now needs a signed-in onboarding employee or
+     console administrator (see iam/iam.middleware.js and
+     analytics/verifyAdminToken.middleware.js), which the fast health check
+     confirms by checking the REFUSAL rather than the data. */
+
+  await check('GET /api/v1/permissions requires a signed-in caller', async () => {
     const { response, body } = await get('/api/v1/permissions');
-    expect(response.status === 200 && body.success === true, `expected 200, got ${response.status}`);
-    return `${body.count} permission request(s)`;
+    expect(response.status === 401, `expected 401, got ${response.status}`);
+    return body.code || 'refused';
   });
 
-  await check('GET /api/v1/verifications', async () => {
+  await check('GET /api/v1/verifications requires a signed-in administrator', async () => {
     const { response, body } = await get('/api/v1/verifications');
-    expect(response.status === 200 && body.success === true, `expected 200, got ${response.status}`);
-    return `${body.count} verification request(s)`;
+    expect(response.status === 401, `expected 401, got ${response.status}`);
+    return body.code || 'refused';
   });
 
-  await check('GET /api/v1/admin/stats', async () => {
+  await check('GET /api/v1/admin/stats requires a signed-in administrator', async () => {
     const { response, body } = await get('/api/v1/admin/stats');
-    expect(response.status === 200 && body.success === true, `expected 200, got ${response.status}`);
-    return `${body.properties.total} properties, ${body.admins.total} admins`;
+    expect(response.status === 401, `expected 401, got ${response.status}`);
+    return body.code || 'refused';
   });
 
   /* ── Failure shapes ──────────────────────────────────────────────────── */

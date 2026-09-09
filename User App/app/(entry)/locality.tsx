@@ -1,16 +1,18 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, View } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Divider, SearchField, Text } from '@/components/ui';
+import { Button, Divider, Icon, SearchField, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
 import { CurrentLocationRow, LocalityRow } from '@/components/auth';
 import { useAppState } from '@/context/AppStateContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useListingMeta } from '@/services';
-import { matchesQuery, type Locality } from '@/types/auth';
+import { findMyLocality } from '@/services/location/resolveLocality';
+import { LocationRefused } from '@/services/location/useMyLocation';
+import { ALL_LOCALITIES, matchesQuery, type Locality } from '@/types/auth';
 
 /**
  * Where are you looking?
@@ -37,9 +39,33 @@ import { matchesQuery, type Locality } from '@/types/auth';
  * "sector 1" both find "HSR Layout Sector 1". The market aliases a student
  * actually uses — "triple it", "kphb" — need a person to record them and a
  * field to record them in; see `places.adapter.ts`.
+ *
+ * ## The location row takes a real fix
+ *
+ * It used to be `meta.guess` — the area with the most listings — captioned
+ * "most likely" and never touching the device. It runs `findMyLocality` now:
+ * one foreground fix, reverse-geocoded by the platform, matched against the
+ * areas the catalogue actually holds. What it can and cannot promise, and why
+ * it is a name match rather than a distance, is in `resolveLocality.ts`.
+ *
+ * The result is still SUGGESTED rather than applied. A geocoder that names
+ * the road a bus is on is a normal outcome, and a wrong read caught here costs
+ * a tap instead of a wasted search.
+ *
+ * ## "All locations" is an answer, not a skip
+ *
+ * Every row on this screen narrows the feed to one area, and there was no way
+ * to say "show me everything" — a student who does not know the city yet, or
+ * who is comparing two, had to pick an area and then find the "see all N in
+ * <city>" offer above the feed. The row at the top of the list sets the
+ * `ALL_LOCALITIES` sentinel, which the feed reads as "do not scope this".
+ *
+ * It is a sentinel rather than `null` because `app/index.tsx` treats a null
+ * locality as an unanswered question and redirects back here — see the note on
+ * `ALL_LOCALITIES` in `types/auth.ts`.
  */
 export default function LocalityPickerScreen() {
-  const { colors, space, layout, mode } = useTheme();
+  const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { locality: chosen, category, setLocality } = useAppState();
@@ -47,11 +73,38 @@ export default function LocalityPickerScreen() {
 
   const { meta, isPending, error, refetch, isFetching } = useListingMeta(category);
 
-  const localities = meta?.localities ?? [];
+  /*
+   * Only areas that have something in them.
+   *
+   * `toLocalities` counts within the chosen category, so an area holding four
+   * hotels and no PGs comes back at zero for a student who picked PG. Offering
+   * it is offering an empty feed — the exact failure this screen's own header
+   * note describes from when the rows were hardcoded. The count beside each
+   * row is what makes the filter safe to apply: a row that survives it is a
+   * row with a real number on it.
+   */
+  const localities = useMemo(
+    () => (meta?.localities ?? []).filter((locality) => locality.listingCount > 0),
+    [meta?.localities],
+  );
+
+  /*
+   * A–Z, always.
+   *
+   * The server returns them in whatever order the aggregation produced, which
+   * is neither alphabetical nor by size and is therefore not an order anybody
+   * can navigate. A list somebody is scanning for a name they already know is
+   * sorted by that name. `localeCompare` rather than `<` so accented and
+   * non-Latin names sort correctly rather than by code point.
+   */
+  const sorted = useMemo(
+    () => [...localities].sort((a, b) => a.name.localeCompare(b.name, 'en-IN')),
+    [localities],
+  );
 
   const results = useMemo(
-    () => localities.filter((locality) => matchesQuery(query, locality.name, locality.aliases)),
-    [localities, query],
+    () => sorted.filter((locality) => matchesQuery(query, locality.name, locality.aliases)),
+    [sorted, query],
   );
 
   const nearest = useMemo(() => {
@@ -84,6 +137,69 @@ export default function LocalityPickerScreen() {
      */
     router.dismissTo('/home');
   };
+
+  /* ------------------------------------------------------------------ *
+   * The current-location row — see the note on the component.
+   * ------------------------------------------------------------------ */
+
+  /* Across every area, for the All locations row. Summed from the same
+     per-category counts the rows show, so the total and its parts agree. */
+  const totalListings = useMemo(
+    () => localities.reduce((sum, locality) => sum + locality.listingCount, 0),
+    [localities],
+  );
+
+  const chosenIsAll = chosen?.id === ALL_LOCALITIES.id;
+
+  const [locating, setLocating] = useState(false);
+  /** What the row says under its label. Null means "not asked yet". */
+  const [fixNote, setFixNote] = useState<string | null>(null);
+  const [fixFailed, setFixFailed] = useState(false);
+  /** The area the fix resolved to, waiting for a second tap to apply it. */
+  const [fixMatch, setFixMatch] = useState<Locality | null>(null);
+
+  const locateAndSuggest = useCallback(async () => {
+    /* A second tap on a resolved row is the student accepting the answer.
+       Applying it on the first tap would let a bad geocode filter the whole
+       feed without anybody agreeing to it. */
+    if (fixMatch) {
+      void choose(fixMatch);
+      return;
+    }
+
+    setLocating(true);
+    setFixFailed(false);
+    try {
+      const match = await findMyLocality(localities);
+
+      if (match.kind === 'area') {
+        setFixMatch(match.locality);
+        setFixNote(`You look like you are in ${match.locality.name}. Tap again to use it.`);
+      } else if (match.kind === 'city') {
+        setFixMatch(match.locality);
+        setFixNote(
+          `We could not place your block, but we cover ${match.locality.city}. `
+          + `Tap again for ${match.locality.name}, or pick an area below.`,
+        );
+      } else {
+        setFixFailed(true);
+        setFixNote(
+          `We found you${match.placeLabel ? ` near ${match.placeLabel}` : ''}, `
+          + 'but we do not list anywhere there yet. Try All locations, or search below.',
+        );
+      }
+    } catch (caught) {
+      setFixFailed(true);
+      setFixNote(
+        caught instanceof LocationRefused
+          ? caught.message
+          : 'We could not get your location. Search for your area instead.',
+      );
+    } finally {
+      setLocating(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localities, fixMatch]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
@@ -150,17 +266,55 @@ export default function LocalityPickerScreen() {
               autoCorrect={false}
               autoCapitalize="words"
             />
-            {/* Above the list, stating its guess — a wrong read gets caught
-                here rather than silently filtering everything below it.
-                The guess is the busiest area rather than a GPS fix: nothing
-                in the collection carries coordinates to compare against one.
-                See `guessLocality`. */}
-            {meta?.guess ? (
-              <CurrentLocationRow
-                guessName={meta.guess.name}
-                onPress={() => choose(meta.guess as Locality)}
-              />
-            ) : null}
+            {/* Above the list, and it states what it found before it applies
+                it — a wrong read gets caught here rather than silently
+                filtering everything below it. */}
+            <CurrentLocationRow
+              loading={locating}
+              tone={fixFailed ? 'problem' : 'normal'}
+              subtitle={
+                fixNote
+                ?? 'We will find your area and suggest it — nothing is applied until you tap again.'
+              }
+              onPress={locateAndSuggest}
+            />
+
+            {/*
+              Everywhere, as a row rather than a hidden default.
+
+              It is drawn like a locality row rather than as a button because
+              it IS one of the answers to the question at the top of the
+              screen, and putting it in a different shape would read as an
+              escape from the question instead of an answer to it. It carries
+              the total, so the choice is made against a real number.
+            */}
+            <Pressable
+              onPress={() => choose(ALL_LOCALITIES)}
+              accessibilityRole="button"
+              accessibilityLabel={`All locations. ${totalListings} places across every area we cover.`}
+              style={({ pressed }) => [
+                styles.allRow,
+                {
+                  minHeight: 56,
+                  padding: space[3],
+                  gap: space[3],
+                  borderRadius: radius.chip,
+                  borderWidth: chosenIsAll ? 1.5 : StyleSheet.hairlineWidth,
+                  borderColor: chosenIsAll ? colors.brand : colors.border,
+                  backgroundColor: pressed ? colors.surfaceSunken : colors.surface,
+                },
+              ]}
+            >
+              <Icon name="search" size={20} color={colors.brandInk} />
+              <View style={styles.flex}>
+                <Text variant="bodyStrong">All locations</Text>
+                <Text variant="numMeta" color="tertiary">
+                  {totalListings} {totalListings === 1 ? 'place' : 'places'} across{' '}
+                  {localities.length} {localities.length === 1 ? 'area' : 'areas'}
+                </Text>
+              </View>
+              <Icon name="chevronRight" size={20} color={colors.textTertiary} />
+            </Pressable>
           </View>
 
           <ScrollView
@@ -169,13 +323,22 @@ export default function LocalityPickerScreen() {
               paddingBottom: space[8],
             }}
             keyboardShouldPersistTaps="handled"
+            refreshControl={
+              <RefreshControl
+                refreshing={isFetching && !isPending}
+                onRefresh={() => refetch()}
+                tintColor={colors.brand}
+              />
+            }
           >
             <Text variant="eyebrow" color="tertiary" style={{ paddingVertical: space[2] }}>
               {query.trim()
                 ? 'Matches'
                 : /* Named rather than "Popular in Hyderabad", which was true of
-                     the fixtures and of nowhere else. */
-                  `${localities.length} ${localities.length === 1 ? 'area' : 'areas'} with places listed`}
+                     the fixtures and of nowhere else. Every area in this list
+                     has at least one place in it — see the filter on
+                     `localities` — so the count is a promise the rows keep. */
+                  `${localities.length} ${localities.length === 1 ? 'area' : 'areas'} with places listed · A–Z`}
             </Text>
 
             {results.map((locality, index) => (
@@ -199,3 +362,8 @@ export default function LocalityPickerScreen() {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  allRow: { flexDirection: 'row', alignItems: 'center' },
+  flex: { flex: 1 },
+});

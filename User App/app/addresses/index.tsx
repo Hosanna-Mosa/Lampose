@@ -20,16 +20,18 @@
    one. Blocking the delete would be making somebody rearrange their list
    before they can tidy it, to protect an invariant the server already keeps.
    ══════════════════════════════════════════════════════════════════════════ */
+import { useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useState } from 'react';
-import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Text } from '@/components/ui';
+import { Button, Text, useAlert } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
+import { queryKeys } from '@/services';
 import {
   addressLine,
   addressTitle,
@@ -54,12 +56,31 @@ export default function AddressesScreen() {
   const router = useRouter();
   const { status } = useAuth();
   const isSignedIn = status === 'signedIn';
+  const client = useQueryClient();
+  const { confirm } = useAlert();
 
   const [addresses, setAddresses] = useState<SavedAddress[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+
+  /**
+   * One place to record a new book, in both the screen and the cache.
+   *
+   * The Profile row states how many addresses are saved and reads
+   * `queryKeys.addresses` for the number. This screen is the only thing that
+   * changes that number, so every call that returns a new book publishes it
+   * here — otherwise adding an address and going back to Profile shows the
+   * old count until something else happens to invalidate it.
+   */
+  const publish = useCallback(
+    (rows: SavedAddress[]) => {
+      setAddresses(rows);
+      client.setQueryData(queryKeys.addresses, rows);
+    },
+    [client],
+  );
 
   const load = useCallback(async () => {
     /* A signed-out reader gets a sentence, not a spinner. The book lives on
@@ -72,13 +93,13 @@ export default function AddressesScreen() {
     }
     setError('');
     try {
-      setAddresses(await fetchAddresses());
+      publish(await fetchAddresses());
     } catch (err) {
       setError((err as Error)?.message || 'We could not load your addresses.');
     } finally {
       setLoading(false);
     }
-  }, [isSignedIn]);
+  }, [isSignedIn, publish]);
 
   /* On focus rather than on mount: this screen is returned to from the form,
      and a list that still shows the old address after saving is the bug that
@@ -93,7 +114,7 @@ export default function AddressesScreen() {
     if (address.isDefault) return;
     setBusy(address.addressId);
     try {
-      setAddresses(await setDefaultAddress(address.addressId));
+      publish(await setDefaultAddress(address.addressId));
     } catch (err) {
       setError((err as Error)?.message || 'That did not save.');
     } finally {
@@ -101,28 +122,27 @@ export default function AddressesScreen() {
     }
   };
 
-  const confirmRemove = (address: SavedAddress) => {
-    Alert.alert(
-      'Remove this address?',
-      addressLine(address),
-      [
-        { text: 'Keep it', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            setBusy(address.addressId);
-            try {
-              setAddresses(await removeAddress(address.addressId));
-            } catch (err) {
-              setError((err as Error)?.message || 'That did not delete.');
-            } finally {
-              setBusy('');
-            }
-          },
-        },
-      ],
-    );
+  const confirmRemove = async (address: SavedAddress) => {
+    /* The app's own dialog, not the platform's — see `AppAlert`. It resolves
+       false on the cancel button, the scrim and the Android back button, so
+       "they did not confirm" is one branch rather than three callbacks. */
+    const ok = await confirm({
+      title: 'Remove this address?',
+      message: addressLine(address),
+      confirmLabel: 'Remove',
+      cancelLabel: 'Keep it',
+      destructive: true,
+    });
+    if (!ok) return;
+
+    setBusy(address.addressId);
+    try {
+      publish(await removeAddress(address.addressId));
+    } catch (err) {
+      setError((err as Error)?.message || 'That did not delete.');
+    } finally {
+      setBusy('');
+    }
   };
 
   return (
@@ -208,40 +228,56 @@ export default function AddressesScreen() {
                 </Text>
               )}
 
-              <View style={[styles.actions, { gap: space[2], marginTop: space[1] }]}>
-                {!address.isDefault && (
-                  <Pressable
-                    onPress={() => makeDefault(address)}
-                    disabled={!!busy}
-                    accessibilityRole="button"
-                  >
-                    <Text variant="bodyStrong" style={{ color: colors.brand }}>
-                      Make default
-                    </Text>
-                  </Pressable>
-                )}
-                <Pressable
-                  onPress={() =>
-                    router.push({
-                      pathname: '/addresses/edit',
-                      params: { addressId: address.addressId },
-                    })
-                  }
-                  accessibilityRole="button"
-                >
-                  <Text variant="bodyStrong" style={{ color: colors.brand }}>
-                    Edit
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => confirmRemove(address)}
+              {/*
+                Edit and Remove are BUTTONS now, not bare words.
+
+                They were two `Pressable`s wrapping a line of text, so the tap
+                target was exactly the height of an 11.5pt label — under 20pt,
+                against a platform minimum of 44 — and two of them sat side by
+                side with 8pt between. Missing "Edit" and hitting "Remove" was
+                a plausible tap, and one of those two is destructive.
+
+                Both are `sm` (44pt) and share the row equally, so neither can
+                be squeezed to a sliver by a long label. "Make default" stays
+                a text-weight action on its own line above them: it is not
+                destructive, it is not always present, and giving three
+                buttons equal weight would make the row read as a toolbar.
+              */}
+              {!address.isDefault && (
+                <Button
+                  label="Make this the default"
+                  variant="ghost"
+                  size="sm"
+                  fullWidth
                   disabled={!!busy}
-                  accessibilityRole="button"
-                >
-                  <Text variant="bodyStrong" style={{ color: colors.danger.ink }}>
-                    Remove
-                  </Text>
-                </Pressable>
+                  onPress={() => makeDefault(address)}
+                />
+              )}
+              <View style={[styles.actions, { gap: space[3], marginTop: space[1] }]}>
+                <View style={styles.flex}>
+                  <Button
+                    label="Edit"
+                    variant="secondary"
+                    size="sm"
+                    fullWidth
+                    onPress={() =>
+                      router.push({
+                        pathname: '/addresses/edit',
+                        params: { addressId: address.addressId },
+                      })
+                    }
+                  />
+                </View>
+                <View style={styles.flex}>
+                  <Button
+                    label="Remove"
+                    variant="destructive"
+                    size="sm"
+                    fullWidth
+                    disabled={!!busy}
+                    onPress={() => { void confirmRemove(address); }}
+                  />
+                </View>
               </View>
             </View>
           ))
@@ -263,4 +299,6 @@ const styles = StyleSheet.create({
   card: {},
   head: { flexDirection: 'row', alignItems: 'flex-start' },
   actions: { flexDirection: 'row', alignItems: 'center' },
+  /* Equal halves, so a long label cannot squeeze the other button. */
+  flex: { flex: 1 },
 });

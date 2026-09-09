@@ -34,8 +34,10 @@
     "verify:food-dispatch": "node scripts/verify-food-dispatch.js",
     "verify:driver-onboarding": "node scripts/verify-driver-onboarding.js",
     "verify:zones": "node scripts/verify-zones.js",
+    "verify:hotel-payout": "node scripts/verify-hotel-payout.js",
     "verify:addresses": "node scripts/verify-addresses.js",
     "verify:support": "node scripts/verify-support.js",
+    "verify:access": "node scripts/verify-access.js",
     "verify:food-favourites": "node scripts/verify-food-favourites.js"
   },
   "keywords": [

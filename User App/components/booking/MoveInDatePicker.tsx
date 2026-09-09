@@ -64,7 +64,7 @@ export function MoveInDatePicker({
   onChange,
   rent,
   earliestDay,
-  noticeDays = 2,
+  noticeDays = 0,
   flexible,
   onFlexibleChange,
 }: MoveInDatePickerProps) {
@@ -96,9 +96,14 @@ export function MoveInDatePicker({
     <View style={{ gap: space[4] }}>
       <View style={{ gap: space[1] }}>
         <Text variant="title3">When do you want to move in?</Text>
+        {/* The notice line only appears where there IS notice to give. At zero
+            it said "Owner needs 0 days' notice", which reads as a bug. Today
+            being pickable needs no explanation; a two-day floor would. */}
         <Text variant="caption" color="secondary">
-          Owner needs {noticeDays} days&apos; notice to get the bed ready. There is no move-out date — you
-          leave with 30 days&apos; notice whenever you want.
+          {noticeDays > 0
+            ? `Owner needs ${noticeDays} days' notice to get the bed ready. `
+            : 'You can move in from today — the owner confirms before anything is booked. '}
+          There is no move-out date — you leave with 30 days&apos; notice whenever you want.
         </Text>
       </View>
 

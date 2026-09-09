@@ -6,6 +6,17 @@ const VerificationRequest = require('./verificationRequest.model');
 const Property = require('../properties/property.model');
 const { syncShareTypes } = require('../inventory/inventory.service');
 const { getIsInMemory, getMemoryStore } = require('../../infrastructure/database/db');
+const { verifyAdminToken, requireAdminWith } = require('../iam/iam.middleware');
+const { verifyTwilioSignature } = require('../../shared/middleware/twilioSignature');
+
+/* Who may call what on this router:
+     GET  /review/:token   the owner, from the link in their WhatsApp — public,
+                           the token IS the credential
+     POST /webhook         Twilio, proven by X-Twilio-Signature
+     GET  /                any signed-in administrator
+     POST/PUT/DELETE       verifications.manage (Super Admin, Admin, Editor)
+   Until now all of these answered anybody. */
+const requireVerifier = requireAdminWith('verifications.manage');
 
 /* HTML-escape for the review page — every stored value passes through this. */
 const esc = (value) => String(value == null ? '' : value)
@@ -133,7 +144,7 @@ router.get('/review/:token', async (req, res) => {
  * @desc    Fetch all verification requests from MongoDB Atlas
  * @access  Public / Admin
  */
-router.get('/', async (req, res) => {
+router.get('/', verifyAdminToken, async (req, res) => {
   try {
     const { search, status, employeeEmail } = req.query;
     const query = {};
@@ -183,7 +194,7 @@ router.get('/', async (req, res) => {
  * @desc    Create a new verification request in MongoDB Atlas
  * @access  Public / Admin
  */
-router.post('/', async (req, res) => {
+router.post('/', requireVerifier, async (req, res) => {
   try {
     const { ownerMobileE164, status, lastError, attempts } = req.body;
 
@@ -226,7 +237,7 @@ router.post('/', async (req, res) => {
  * @desc    Update a verification request in MongoDB Atlas
  * @access  Public / Admin
  */
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireVerifier, async (req, res) => {
   try {
     const { id } = req.params;
     const { status, attempts, lastError, ownerMobileE164 } = req.body;
@@ -267,7 +278,7 @@ router.put('/:id', async (req, res) => {
  * @desc    Delete a verification request from MongoDB Atlas
  * @access  Public / Admin
  */
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireVerifier, async (req, res) => {
   try {
     const { id } = req.params;
     await VerificationRequest.findByIdAndDelete(id);
@@ -290,7 +301,7 @@ router.delete('/:id', async (req, res) => {
  * @route   POST /api/verifications/webhook
  * @desc    Incoming Twilio WhatsApp Webhook for 2-stage verification
  */
-router.post('/webhook', async (req, res) => {
+router.post('/webhook', verifyTwilioSignature, async (req, res) => {
   const timestamp = new Date().toLocaleTimeString();
   const { From, Body } = req.body;
 

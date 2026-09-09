@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import Animated, { FadeIn, FadeOut, ZoomIn } from 'react-native-reanimated';
 
 import { Button, Icon, Text } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
@@ -228,15 +227,28 @@ export function IncomingRequestAlert() {
          instead of the whole thing appearing a frame late. */
       visible={Boolean(request)}
       transparent
-      /* The animation is reanimated's, below. `none` here so the two do not
-         fight and produce a double fade. */
-      animationType="none"
+      /*
+       * The OS's own fade, not Reanimated's.
+       *
+       * This used to wrap the content in `Animated.View`s with `entering`/
+       * `exiting` — react-native-reanimated's layout animations inside RN's
+       * native `Modal` are a known crash source on Android/Fabric (the Modal
+       * tears down its own native surface at the same moment an `exiting`
+       * animation is mid-flight against shadow nodes on it — see
+       * software-mansion/react-native-reanimated#6908, #4422). That is
+       * exactly this app's combination (Reanimated 4, New Architecture, a
+       * native `Modal`), and this popup closes at the exact moment `request`
+       * flips to another value or to nothing — "Not now", "View request",
+       * and the next poll all do it. `animationType="fade"` gets the same
+       * fade with none of that risk.
+       */
+      animationType="fade"
       statusBarTranslucent
       /* Android's back button. Dismisses the popup rather than the app. */
       onRequestClose={close}
     >
       {request ? (
-        <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(140)} style={styles.root}>
+        <View style={styles.root}>
           {/* Tapping the scrim dismisses, same as "Not now". */}
           <Pressable
             style={[StyleSheet.absoluteFill, { backgroundColor: c.scrim }]}
@@ -245,8 +257,7 @@ export function IncomingRequestAlert() {
             accessibilityLabel="Dismiss"
           />
 
-          <Animated.View
-            entering={ZoomIn.duration(220).springify().damping(18)}
+          <View
             accessibilityViewIsModal
             accessibilityLiveRegion="assertive"
             style={[styles.card, shadow.sheet, { backgroundColor: c.surface }]}
@@ -295,8 +306,8 @@ export function IncomingRequestAlert() {
                 <Button label="View request" onPress={open} style={styles.flex} />
               </View>
             </View>
-          </Animated.View>
-        </Animated.View>
+          </View>
+        </View>
       ) : null}
     </Modal>
   );

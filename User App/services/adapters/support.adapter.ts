@@ -140,6 +140,32 @@ export function toTickets(tickets: readonly BackendTicket[], now: Date = new Dat
   return tickets.map((ticket) => toTicket(ticket, now));
 }
 
+/**
+ * What a support reply is signed.
+ *
+ * The server sends `authorName` — the name on the admin account that typed it
+ * — and the thread used to print it, so a student read a reply signed
+ * "Sunand". That is a real person's name on an internal account, and putting
+ * it in front of a customer does two things nobody asked for: it identifies a
+ * member of staff to a stranger, and it makes a thread look like it belongs to
+ * one individual, so a reply from a colleague the next morning reads as a
+ * different conversation.
+ *
+ * Every message from our side is signed "Support". The account that wrote it
+ * is still on the record server-side, which is where an audit needs it.
+ *
+ * The customer's own messages keep no name — the row draws them as "you" — and
+ * a `partner` reply keeps the name it came with, because that IS the owner and
+ * knowing which owner answered is the point of it.
+ */
+const SUPPORT_SIGNATURE = 'Support';
+
+function signatureFor(message: BackendTicketMessage): string | undefined {
+  if (message.author === 'support') return SUPPORT_SIGNATURE;
+  if (message.author === 'customer' || message.author === 'system') return undefined;
+  return message.authorName || undefined;
+}
+
 export function toTicketMessage(
   message: BackendTicketMessage,
   now: Date = new Date(),
@@ -149,7 +175,7 @@ export function toTicketMessage(
     /* 'customer' on the wire, 'you' on the screen. The server names the role;
        the app speaks to a person. */
     author: message.author === 'customer' ? 'you' : message.author,
-    authorName: message.authorName || undefined,
+    authorName: signatureFor(message),
     body: message.body,
     whenLabel: messageWhen(message.at, now),
     /* What makes the row a rule rather than a bubble. Derived from the author

@@ -237,6 +237,25 @@ export async function setPropertyAvailability(
   return unwrap(res);
 }
 
+/**
+ * Take a listing off Lampose for good.
+ *
+ * Soft on the server — `status: 'removed'`, the document itself is kept, and
+ * past bookings/payouts against it still resolve — see `removeMyProperty` on
+ * the backend for why. Refused with a 409 (`ACTIVE_BOOKINGS` /
+ * `PENDING_REQUESTS`) while a guest is currently staying or due, or a
+ * student is waiting on an answer; `ApiError.displayMessage` already carries
+ * the server's own sentence for either, so the caller does not need to
+ * special-case the code.
+ */
+export async function removeMyProperty(id: string, signal?: AbortSignal): Promise<{ propertyId: string; status: string }> {
+  const res = await api.delete<ApiEnvelope<{ propertyId: string; status: string }>>(
+    endpoints.partnerProperty(id),
+    { signal },
+  );
+  return unwrap(res);
+}
+
 export async function uploadPropertyImages(
   images: { uri: string; name?: string; mimeType?: string }[],
   signal?: AbortSignal,

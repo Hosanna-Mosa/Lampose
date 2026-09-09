@@ -3,7 +3,8 @@ import { Pressable, StyleSheet, TextInput, View, type TextInputProps, type ViewS
 
 import { Icon } from './Icon';
 import { Text } from './Text';
-import { typeScale, resolveFontFamily } from '@/constants/tokens';
+import { resolveFontFamily } from '@/constants/tokens';
+import { useTypeScale } from '@/context/TypographyContext';
 import { useTheme } from '@/context/ThemeContext';
 
 export type TextFieldProps = Omit<TextInputProps, 'style' | 'maxLength'> & {
@@ -47,6 +48,7 @@ export function TextField({
   value,
   ...rest
 }: TextFieldProps) {
+  const scale = useTypeScale();
   const { colors, space, radius, touch } = useTheme();
   const [focused, setFocused] = useState(false);
 
@@ -130,12 +132,13 @@ export function TextField({
             styles.input,
             {
               color: inert ? colors.textSecondary : colors.textPrimary,
-              fontFamily: resolveFontFamily('body', 400),
-              // From the scale, not a literal. TextInput cannot be wrapped in
-              // <Text>, so it is the one place that has to read the token by
-              // hand — and it was the one place a scale change silently missed,
-              // leaving a field's label smaller than the text typed into it.
-              fontSize: typeScale.bodyLg.size,
+              /* Family AND size from the SCOPED scale — a stay field is
+                 Manrope, a food field is Source Sans. `TextInput` cannot be
+                 wrapped in <Text>, so this is the one place that reads a token
+                 by hand, and the file's own history says it is the one place a
+                 scale change silently misses. */
+              fontFamily: resolveFontFamily(scale.bodyLg.face, scale.bodyLg.weight),
+              fontSize: scale.bodyLg.size,
               paddingVertical: multiline ? 0 : space[3],
               textAlignVertical: multiline ? 'top' : 'center',
             },
@@ -186,6 +189,7 @@ export type SearchFieldProps = Omit<TextInputProps, 'style'> & {
  * one field and four filters.
  */
 export function SearchField({ value, onClear, containerStyle, ...rest }: SearchFieldProps) {
+  const scale = useTypeScale();
   const { colors, space, radius, touch } = useTheme();
   const [focused, setFocused] = useState(false);
 
@@ -219,8 +223,8 @@ export function SearchField({ value, onClear, containerStyle, ...rest }: SearchF
           styles.input,
           {
             color: colors.textPrimary,
-            fontFamily: resolveFontFamily('body', 400),
-            fontSize: typeScale.body.size,
+            fontFamily: resolveFontFamily(scale.body.face, scale.body.weight),
+            fontSize: scale.body.size,
             paddingVertical: space[2],
           },
         ]}

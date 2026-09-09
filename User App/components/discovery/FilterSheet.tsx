@@ -6,12 +6,15 @@ import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
 import { Button, CeilingSlider, Chip, Icon, Radio, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
-import { CATEGORY_LABEL, CATEGORY_ORDER } from './CategoryTabs';
+import { CATEGORY_LABEL } from './CategoryTabs';
 import { AMENITY_LABEL } from './AmenityIcon';
+import type { StayCategory } from '@/constants/tokens';
 import { genderMeta, type AmenityName, type Gender, type Listing } from '@/types/listing';
 import {
   activeFilterCount,
   applyQuery,
+  facetsFor,
+  filterSpecFor,
   hasBlockingIssue,
   validateQuery,
   type FilterIssue,
@@ -30,10 +33,28 @@ import {
  * never as a modal, and it never clears a value the user typed. The message
  * slot is reserved in the layout, so nothing jumps when one appears.
  *
- * Only two things block Apply: gender, which is a hard rule at every property,
- * and a rent ceiling below the cheapest place in the area — an empty result we
- * can predict should never be reachable. Everything else is advisory, and the
- * button stays live.
+ * Only two things block Apply: gender — where the category actually has a rule
+ * about it — and a rent ceiling below the cheapest place in the area, an empty
+ * result we can predict that should never be reachable. Everything else is
+ * advisory, and the button stays live.
+ *
+ * ## The sheet belongs to ONE category, and asks that category's questions
+ *
+ * It used to ask all five questions of every category, including a "Kind of
+ * place" control that fought the tab row above the feed. Three of the five
+ * were wrong somewhere: sharing is meaningless for a whole bachelor unit,
+ * furnishing is a non-question for a PG bed, and gender is not a fact about a
+ * hotel — where, being REQUIRED, it blocked Apply until somebody answered a
+ * question about nothing.
+ *
+ * `filterSpecFor` decides which controls appear and what they are called;
+ * `facetsFor` fills them from the listings actually on screen. So the shape of
+ * the sheet is a decision in one place and its contents are the database's,
+ * and neither is a list of strings kept in this file.
+ *
+ * "Kind of place" is gone entirely. The tab row above the feed already answers
+ * it, the sheet is opened from within one tab, and a category chip in here
+ * could only contradict the tab it was opened from.
  */
 
 /** The debounce the real count request would use. */
@@ -57,18 +78,25 @@ const AMENITY_CHOICES: readonly AmenityName[] = [
  */
 const GENDER_CHOICES: readonly Gender[] = ['BOYS', 'GIRLS'];
 
-/** "Others" catches studios, whole units and anything an owner types freehand. */
-const SHARING_CHOICES = ['1-sharing', '2-sharing', '3-sharing', '4-sharing', 'Others'] as const;
+/* `SHARING_CHOICES` used to sit here: "1-sharing" … "4-sharing", "Others".
+   Not one of those strings appears in the collection — the panel records
+   "2 Sharing", "Single Occupancy", "1 BHK", "Deluxe Double" — so four of the
+   five chips matched nothing and the fifth matched nothing either. The options
+   come from `facetsFor(inventory)` now, which is the only way this control can
+   offer a value that will actually select something. */
 
 export type FilterSheetProps = {
   query: SearchQuery;
-  /** The inventory the count and the validation are computed against. */
+  /** The inventory the count, the options and the validation are computed
+      against — the listings currently on screen behind the sheet. */
   inventory: readonly Listing[];
+  /** Which tab this was opened from. Decides which controls are drawn. */
+  category: StayCategory | null;
   onApply: (query: SearchQuery) => void;
   onClose: () => void;
 };
 
-export function FilterSheet({ query, inventory, onApply, onClose }: FilterSheetProps) {
+export function FilterSheet({ query, inventory, category, onApply, onClose }: FilterSheetProps) {
   const { colors, space, radius, layout } = useTheme();
   const bottomInset = useBottomEdgeInset();
   const reduceMotion = useReduceMotion();
@@ -78,7 +106,16 @@ export function FilterSheet({ query, inventory, onApply, onClose }: FilterSheetP
   const [count, setCount] = useState(() => applyQuery(inventory, query).length);
   const [counting, setCounting] = useState(false);
 
-  const issues = useMemo(() => validateQuery(draft, inventory), [draft, inventory]);
+  const spec = filterSpecFor(category);
+  /* Derived from the inventory rather than held in state: the feed behind this
+     sheet can refetch while it is open, and an option list frozen at mount
+     would start offering room types that are no longer there. */
+  const facets = useMemo(() => facetsFor(inventory), [inventory]);
+
+  const issues = useMemo(
+    () => validateQuery(draft, inventory, category),
+    [draft, inventory, category],
+  );
   const blocked = hasBlockingIssue(issues);
 
   // Debounced, the way a real count request would be. While it is in flight the
@@ -93,6 +130,35 @@ export function FilterSheet({ query, inventory, onApply, onClose }: FilterSheetP
     return () => clearTimeout(timer);
   }, [draft, inventory]);
 
+  /*
+   * The rent track, scaled to what this category actually costs.
+   *
+   * It was a fixed 0–30,000 with 500-rupee steps and five presets, which is a
+   * sensible monthly ladder and a useless nightly one: a hotel at ₹1,200 a
+   * night sat in the first four percent of the slider, where no thumb can
+   * separate ₹800 from ₹1,500. The ceiling is read off the priciest listing on
+   * screen, rounded up to a round number, with a floor so a category with two
+   * cheap listings still gets a usable track.
+   */
+  const { rentMax, rentStep, rentPresets } = useMemo(() => {
+    const rents = inventory.map((l) => l.rent).filter((r): r is number => r !== null && r > 0);
+    const dearest = rents.length ? Math.max(...rents) : 0;
+
+    /* Round the top up to a step, so the highest listing is inside the track
+       rather than exactly on its end. */
+    const step = dearest > 20000 ? 1000 : dearest > 5000 ? 500 : 100;
+    const max = Math.max(step * 10, Math.ceil((dearest * 1.1) / step) * step);
+
+    /* Four marks along the track. Quarter points rather than remembered
+       figures, because the figures that mean something depend on the market
+       this category is in. */
+    const presets = [0.25, 0.5, 0.75, 1]
+      .map((fraction) => Math.round((max * fraction) / step) * step)
+      .filter((value, index, all) => value > 0 && all.indexOf(value) === index);
+
+    return { rentMax: max, rentStep: step, rentPresets: presets };
+  }, [inventory]);
+
   const patch = (next: Partial<SearchQuery>) => setDraft((current) => ({ ...current, ...next }));
 
   const toggle = <T,>(list: readonly T[], value: T): readonly T[] =>
@@ -104,6 +170,11 @@ export function FilterSheet({ query, inventory, onApply, onClose }: FilterSheetP
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <StandardHeader
         title="Filters"
+        /* Which category these filters belong to, said out loud. The sheet's
+           controls change by category, so a student who opens it from a
+           different tab and finds different questions should be able to see
+           why without going back to check. */
+        subtitle={category ? CATEGORY_LABEL[category] : undefined}
         onBack={onClose}
         actionLabel={activeFilterCount(draft) ? 'Clear all' : undefined}
         onAction={() => setDraft({ ...draft, ...clearedFilters })}
@@ -117,63 +188,114 @@ export function FilterSheet({ query, inventory, onApply, onClose }: FilterSheetP
           gap: space[6],
         }}
       >
-        {/* Gender first, because it is the only one that can block.
+        {/* Gender first, because it is the only one that can block — and only
+            where the category has a rule about it.
 
             Co-ed is not offered as a CHOICE, but co-ed places are not hidden:
             `matchesQuerySpec` already passes a COED listing through whichever
             of the two is picked. So the filter asks who the student is, and
             co-ed inventory reaches both of them. */}
-        <Group title="Who is this for?" required>
-          {GENDER_CHOICES.map((gender) => (
-            <Radio
-              key={gender}
-              label={genderMeta[gender].label}
-              selected={draft.gender === gender}
-              onSelect={() => patch({ gender })}
-            />
-          ))}
-          <IssueLine issue={issueFor('gender')} onFix={patch} />
-        </Group>
-
-        <Group title="Kind of place">
-          <View style={[styles.wrap, { gap: space[2] }]}>
-            {CATEGORY_ORDER.map((category) => (
-              <Chip
-                key={category}
-                label={CATEGORY_LABEL[category]}
-                selected={draft.categories.includes(category)}
-                onPress={() => patch({ categories: toggle(draft.categories, category) })}
+        {spec.gender ? (
+          <Group title="Who is this for?" required>
+            {GENDER_CHOICES.map((gender) => (
+              <Radio
+                key={gender}
+                label={genderMeta[gender].label}
+                selected={draft.gender === gender}
+                onSelect={() => patch({ gender })}
               />
             ))}
-          </View>
-        </Group>
+            <IssueLine issue={issueFor('gender')} onFix={patch} />
+          </Group>
+        ) : null}
 
-        <Group title="Monthly rent — up to">
+        {/* "Kind of place" used to sit here, offering all four categories
+            inside a sheet opened from one of them. The tab row above the feed
+            is where that question is asked and answered. */}
+
+        <Group title={spec.rentLabel}>
           <CeilingSlider
             label="Rent"
-            value={draft.rentCeiling ?? 30000}
+            value={draft.rentCeiling ?? rentMax}
             onChange={(value) => patch({ rentCeiling: value })}
             min={0}
-            max={30000}
-            step={500}
-            presets={[5000, 8000, 10000, 15000, 30000]}
+            /* The ceiling is scaled to what this category actually costs. A
+               fixed 0–30,000 put every hotel night in the leftmost eighth of
+               the track, where a 500-rupee step cannot be aimed at. */
+            max={rentMax}
+            step={rentStep}
+            presets={rentPresets}
             accent={colors.brand}
           />
           <IssueLine issue={issueFor('rent')} onFix={patch} />
         </Group>
 
-        <Group title="Sharing">
-          <View style={[styles.wrap, { gap: space[2] }]}>
-            {SHARING_CHOICES.map((sharing) => (
+        {/* The bed, the unit or the room — whichever this category sells, in
+            the owner's own words. Absent when the listings on screen offer no
+            choice at all: a control with one chip is not a filter. */}
+        {spec.sharingLabel && facets.sharing.length > 1 ? (
+          <Group title={spec.sharingLabel}>
+            <View style={[styles.wrap, { gap: space[2] }]}>
+              {facets.sharing.map((sharing) => (
+                <Chip
+                  key={sharing}
+                  label={sharing}
+                  selected={draft.sharing.includes(sharing)}
+                  onPress={() => patch({ sharing: toggle(draft.sharing, sharing) })}
+                />
+              ))}
+            </View>
+          </Group>
+        ) : null}
+
+        {/* Furnishing, on the categories where an empty room is a real
+            possibility. Same rule: only when the inventory offers a choice. */}
+        {spec.furnishing && facets.furnishing.length > 1 ? (
+          <Group title="Furnishing">
+            <View style={[styles.wrap, { gap: space[2] }]}>
+              {facets.furnishing.map((furnishing) => (
+                <Chip
+                  key={furnishing}
+                  label={furnishing}
+                  selected={draft.furnishing.includes(furnishing)}
+                  onPress={() => patch({ furnishing: toggle(draft.furnishing, furnishing) })}
+                />
+              ))}
+            </View>
+          </Group>
+        ) : null}
+
+        {/*
+          Meals — three states, not a switch.
+
+          "Any" is the resting state and it has to be reachable, because a
+          two-state control forces somebody who does not care into answering
+          anyway and then hides half the feed from them. `null` is Any.
+
+          Only drawn when at least one listing here states a meal plan; on a
+          feed where none do, "With meals" is a chip that empties the screen.
+        */}
+        {spec.meals && facets.hasMeals ? (
+          <Group title="Meals">
+            <View style={[styles.wrap, { gap: space[2] }]}>
               <Chip
-                key={sharing}
-                label={sharing}
-                selected={draft.sharing.includes(sharing)}
-                onPress={() => patch({ sharing: toggle(draft.sharing, sharing) })}
+                label="Any"
+                selected={draft.meals === null}
+                onPress={() => patch({ meals: null })}
               />
-            ))}
-          </View>
-        </Group>
+              <Chip
+                label="With meals"
+                selected={draft.meals === true}
+                onPress={() => patch({ meals: draft.meals === true ? null : true })}
+              />
+              <Chip
+                label="Without meals"
+                selected={draft.meals === false}
+                onPress={() => patch({ meals: draft.meals === false ? null : false })}
+              />
+            </View>
+          </Group>
+        ) : null}
 
         <Group title="Must have">
           <View style={[styles.wrap, { gap: space[2] }]}>
@@ -239,6 +361,8 @@ const clearedFilters: Partial<SearchQuery> = {
   categories: [],
   rentCeiling: null,
   sharing: [],
+  furnishing: [],
+  meals: null,
   amenities: [],
 };
 

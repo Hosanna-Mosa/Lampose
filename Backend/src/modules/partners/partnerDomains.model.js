@@ -30,6 +30,18 @@ const partnerBookingSchema = new mongoose.Schema(
 
     propertyId: { type: String, required: true, index: true },
     propertyName: { type: String, required: true },
+    /*
+     * The property's category AT THE TIME OF BOOKING, mirrored rather than
+     * looked up — the same reasoning as `propertyName` and `shareType` just
+     * above: an owner recategorising a live listing later must not silently
+     * relabel a booking already made under the old one. `forOwner()` spreads
+     * this straight through with no whitelist, which is what lets the app
+     * gate bachelor-only UI (no owner-messaging or cancel-via-app on a
+     * category Lampose does not manage post-move-in) without a second call.
+     * Optional and defaulted to '' — every booking written before this field
+     * existed reads as "unknown category" rather than failing validation.
+     */
+    category: { type: String, default: '' },
     guestName: { type: String, required: true },
     guestPhone: { type: String, required: true },
     guestEmail: { type: String, default: '' },
@@ -54,6 +66,50 @@ const partnerBookingSchema = new mongoose.Schema(
     totalAmount: { type: Number, required: true },
     paidAmount: { type: Number, required: true },
     notes: { type: String, default: '' },
+
+    /*
+     * ── Our commission, collected OFF the platform ────────────────────
+     *
+     * For PG/Hostel and Co-living only, and it is a NOTE rather than a
+     * transaction. No money passes through Lampose on those two categories —
+     * the student pays the owner directly — so there is nothing here to
+     * split, hold or pay out. What there is, is a phone call: once the owner
+     * has accepted and the student has moved in, somebody rings them and
+     * collects our percentage.
+     *
+     * This records that the call happened and what came of it, so the admin
+     * Monitor can show which confirmed bookings still owe us and nobody rings
+     * the same owner twice.
+     *
+     * ## Why the amount is typed by a person
+     *
+     * Everywhere money moves in this system, an amount from a client is
+     * refused and the server computes it — see `hotelSettlement.model.js`.
+     * The opposite is right here, and the difference is that nothing is
+     * PAID from this figure. It is a record of cash already collected, and
+     * there is no server-side number to check it against: Lampose is never
+     * told what rent the student and the owner actually agreed, so any
+     * "expected" figure would be a guess against the listing's asking price.
+     *
+     * The listed rent is shown beside it in the console as a reference. The
+     * typed number is the fact.
+     *
+     * A HOTEL booking never uses this. Its commission is deducted before the
+     * owner is ever paid — see `hotel_settlements`.
+     */
+    commission: {
+      collected: { type: Boolean, default: false },
+      /* Paise, like every other amount in this system. Rupees are display. */
+      amountPaise: { type: Number, default: null },
+      /* What was agreed, where somebody recorded it. Free-form on purpose:
+         these are negotiated per owner and there is no platform rate. */
+      percent: { type: Number, default: null },
+      collectedAt: { type: Date, default: null },
+      /* Which administrator recorded it. The fuller record — including what
+         it was before — is in `admin_audit_log`. */
+      collectedByAdminId: { type: String, default: null },
+      note: { type: String, default: '' },
+    },
 
     /* Free text as the owner typed it — "2 adults", "family of 4". The form
        asks for a description rather than a count, so storing a number here
@@ -224,6 +280,16 @@ const partnerPayoutSchema = new mongoose.Schema(
     /* Why a `failed` row failed, in RazorpayX's own words — read by whoever
        has to explain it to the owner. */
     failureReason: { type: String, default: null },
+
+    /* How many hotel settlements this payout covers, beside `bookingIds`.
+       An owner's payout can be part commission-owed and part hotel money, and
+       the two are counted differently — see `payout.service.js`. */
+    settlementCount: { type: Number, default: 0 },
+
+    /* Paid by a person making a bank transfer rather than by RazorpayX. The
+       normal case while `PAYOUTS_MANUAL` is on. */
+    paidManually: { type: Boolean, default: false },
+    paidByAdminName: { type: String, default: '' },
     /* The bookings this payout's amount was drawn from, so a second request
        cannot double-count one that is already reserved here — see
        `availableBalancePaise`. */
@@ -346,6 +412,20 @@ const partnerReviewSchema = new mongoose.Schema(
       type: String, default: null, unique: true, sparse: true, index: true,
     },
     customerId: { type: String, default: null, index: true },
+
+    /*
+     * The owner's answer, if they gave one.
+     *
+     * This used to live only in the Stay Partner screen's local state: the
+     * owner typed a reply, it appeared under the review, and it was gone on
+     * the next load. The student never saw it, because nothing ever saved it.
+     * One reply per review, replaceable — an owner correcting a typo should
+     * not need a second thread.
+     */
+    reply: {
+      text: { type: String, default: null },
+      at: { type: Date, default: null },
+    },
   },
   { timestamps: true }
 );

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { StyleSheet, View, type ViewStyle } from 'react-native';
+import { RefreshControl, StyleSheet, View, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Text } from './Text';
@@ -97,6 +97,18 @@ type ScreenProps = {
   tabBarSpacing?: boolean;
   background?: 'bg' | 'surface';
   contentStyle?: ViewStyle;
+  /**
+   * Pull-to-refresh, on the scrolling body.
+   *
+   * Both optional and both-or-neither: passing `onRefresh` without `refreshing`
+   * would leave the spinner unable to say when the reload actually finished,
+   * so nothing is wired unless the caller has a real boolean to report — a
+   * screen with no data to reload should not draw a control that does
+   * nothing. `scroll={false}` screens are not given one; a pull gesture on a
+   * fixed layout has nothing to release into.
+   */
+  refreshing?: boolean;
+  onRefresh?: () => void;
 };
 
 /**
@@ -115,6 +127,8 @@ export function Screen({
   tabBarSpacing = false,
   background = 'surface',
   contentStyle,
+  refreshing,
+  onRefresh,
 }: ScreenProps) {
   const c = useColors();
   const insets = useSafeAreaInsets();
@@ -194,6 +208,11 @@ export function Screen({
           }}
           bottomOffset={footer ? 90 : 20}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            onRefresh ? (
+              <RefreshControl refreshing={Boolean(refreshing)} onRefresh={onRefresh} tintColor={c.accent} colors={[c.accent]} />
+            ) : undefined
+          }
         >
           {body(false)}
         </KeyboardAwareScrollViewCompat>

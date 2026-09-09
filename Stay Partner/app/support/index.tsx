@@ -59,7 +59,7 @@ function timeLabel(iso: string): string {
 export default function SupportTicketsScreen() {
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>('all');
-  const { data, isLoading, isError } = useSupportTickets();
+  const { data, isLoading, isError, isRefetching, refetch } = useSupportTickets();
 
   const tickets = data?.tickets ?? [];
 
@@ -72,6 +72,8 @@ export default function SupportTicketsScreen() {
   return (
     <Screen
       contentStyle={styles.stack}
+      refreshing={isRefetching}
+      onRefresh={refetch}
       stickyHeader={
         <View style={styles.backRow}>
           <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />

@@ -1,4 +1,6 @@
 const mongoose = require('mongoose');
+const config = require('../../config/env');
+const { CATEGORIES } = require('../../shared/constants/categories');
 const Partner = require('./partner.model');
 const {
   PartnerBooking,
@@ -11,6 +13,23 @@ const {
   PartnerReferral,
   PartnerShareType,
 } = require('./partnerDomains.model');
+const { withStage } = require('./bookingStage.util');
+
+/**
+ * A booking as the OWNER'S app may see it.
+ *
+ * `entryPin` is removed and replaced with `hasEntryPin`. The owner's screen
+ * needs to know whether to ask for a code — a walk-in has none — but never
+ * needs the code itself: the server checks it (`checkInBooking`). Sending it
+ * down was what made the check theatre.
+ */
+const forOwner = (booking, now = new Date()) => {
+  if (!booking) return booking;
+  const { entryPin, ...rest } = booking;
+  const { withStage } = require('./bookingStage.util');
+  return { ...withStage(rest, now), hasEntryPin: Boolean(entryPin) };
+};
+
 
 const { phoneKey } = Partner;
 
@@ -102,8 +121,28 @@ const getBookings = async (req, res, next) => {
       filter.source = req.query.source;
     }
 
+    /*
+     * `?category=PG_HOSTEL` — the Bookings tab's category filter.
+     *
+     * `PartnerBooking.category` is a mirrored copy of the property's category
+     * AT THE TIME OF BOOKING (see the note on the field in
+     * `partnerDomains.model.js`), not a live join, so this reads whatever the
+     * booking itself was actually made under even if the listing was
+     * recategorised since. Whitelisted against the real enum for the same
+     * reason `source` is above — a query string is never trusted into a Mongo
+     * filter unchecked, partner scope or not. An unrecognised or missing
+     * value is simply not filtered, same as the other optional filters here.
+     */
+    if (CATEGORIES.includes(req.query.category)) {
+      filter.category = req.query.category;
+    }
+
     const bookings = await PartnerBooking.find(filter).sort({ createdAt: -1 }).lean();
-    const data = bookings.map((b) => ({ ...b, id: String(b._id) }));
+    /* `stage` beside `status`: what the CALENDAR says, next to what a person
+       last set. One clock for the whole page, so two rows in the same list
+       cannot straddle midnight and disagree — see `bookingStage.util.js`. */
+    const now = new Date();
+    const data = bookings.map((b) => forOwner(b, now));
     return res.json({ success: true, count: data.length, data });
   } catch (error) {
     return next(error);
@@ -118,7 +157,7 @@ const getBookingById = async (req, res, next) => {
     if (!booking) {
       return res.status(404).json({ success: false, message: 'Booking not found' });
     }
-    return res.json({ success: true, data: { ...booking, id: String(booking._id) } });
+    return res.json({ success: true, data: forOwner(booking) });
   } catch (error) {
     return next(error);
   }
@@ -136,24 +175,107 @@ const getBookingById = async (req, res, next) => {
  * owner says somebody arrived is a fact, and a second tap is not a second
  * arrival.
  */
+/*
+ * Digits only — what the owner's app actually collects and sends.
+ *
+ * `generateEntryPin` mints `LV-123456`; every screen that SHOWS the code
+ * (the student's confirmation, the request screen, this booking's own
+ * `checkInCode`) draws the six digits as the thing to read out, with
+ * `LV-123456` underneath as a secondary reference — and the Stay Partner
+ * check-in screen asks for exactly those six digits, in six boxes, with no
+ * way to type a letter into it. Comparing that against `normaliseCode(entryPin)`
+ * — which keeps the "LV" — meant `req.body.code` could never equal the
+ * stored PIN no matter what was typed: "985663" against "LV985663" is a
+ * mismatch every single time, so `BAD_PIN` was the only answer this route
+ * had ever been able to give a correct code. Stripping to digits on both
+ * sides is what makes "985663", "LV-985663" and "lv 985663" all compare
+ * equal, so whichever shape a caller sends verifies correctly.
+ */
+const digitsOnly = (value) => String(value || '').replace(/\D/g, '');
+
+/**
+ * Mark a guest as arrived.
+ *
+ * ## The PIN is checked HERE now
+ *
+ * It used to be checked on the owner's phone: the API sent the booking down
+ * with `entryPin` on it, the app compared what was typed against that, and
+ * then called this route with no body at all. The server never saw the code.
+ * Anyone holding the owner's handset — or a modified build — could stamp any
+ * booking as checked in with no guest present, and for a hotel that stamp is
+ * what releases the money.
+ *
+ * So the code travels up, is compared against the booking's own `entryPin`,
+ * and a mismatch is refused BEFORE anything is stamped. The owner's app no
+ * longer receives the PIN at all (see `forOwner`); the guest holds the only
+ * copy, which is what makes it a key rather than a label.
+ *
+ * ## Not before the check-in date
+ *
+ * Enforced here as well, not only greyed out in the app. The app's own date
+ * lock was a rule the server did not have — the one place it could be
+ * bypassed enforced it, the one place it could not did not. "Today" is
+ * India's today, like the booking's dates.
+ *
+ * ## Walk-ins have no PIN
+ *
+ * A booking the owner keyed in by hand never had a request accepted, so it
+ * has no `entryPin`. Those are stamped without a code, as before — the owner
+ * typed this guest in themselves and is the only proof there is.
+ */
 const checkInBooking = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
     const key = getDigits(req.partner);
     const { id } = req.params;
 
+    const current = await PartnerBooking.findOne({ _id: id, partnerPhoneDigits: key }).lean();
+    if (!current) return res.status(404).json({ success: false, message: 'Booking not found' });
+
+    /* Already stamped. Not an error — an owner tapping again should see the
+       same answer, not a failure — and no code is asked for a second time. */
+    if (current.movedInByOwnerAt) return res.json({ success: true, data: forOwner(current) });
+
+    if (current.status === 'cancelled' || current.status === 'completed') {
+      return res.status(409).json({
+        success: false, code: 'NOT_CHECKABLE', message: `This booking is ${current.status}.`,
+      });
+    }
+
+    const { todayInIndia } = require('./bookingStage.util');
+    if (current.checkInDate && todayInIndia() < String(current.checkInDate)) {
+      return res.status(409).json({
+        success: false,
+        code: 'TOO_EARLY',
+        message: `Check-in opens on ${current.checkInDate}. It cannot be done before then.`,
+        checkInDate: current.checkInDate,
+      });
+    }
+
+    if (current.entryPin) {
+      const typed = digitsOnly((req.body || {}).code);
+      if (!typed) {
+        return res.status(400).json({
+          success: false, code: 'CODE_REQUIRED', message: 'Enter the guest’s entry code.',
+        });
+      }
+      if (typed !== digitsOnly(current.entryPin)) {
+        return res.status(403).json({
+          success: false, code: 'BAD_PIN', message: 'That code does not match this booking.',
+        });
+      }
+    }
+
+    /* Verified. Now stamp — guarded on `movedInByOwnerAt: null` so two taps
+       racing produce one stamp. */
     const booking = await PartnerBooking.findOneAndUpdate(
       { _id: id, partnerPhoneDigits: key, movedInByOwnerAt: null },
       { $set: { movedInByOwnerAt: new Date() } },
       { new: true },
     ).lean();
-
     if (!booking) {
-      /* Already stamped, or not theirs. The first is not an error — an owner
-         tapping again should see the same answer, not a failure. */
-      const existing = await PartnerBooking.findOne({ _id: id, partnerPhoneDigits: key }).lean();
-      if (existing) return res.json({ success: true, data: { ...existing, id: String(existing._id) } });
-      return res.status(404).json({ success: false, message: 'Booking not found' });
+      const again = await PartnerBooking.findOne({ _id: id, partnerPhoneDigits: key }).lean();
+      return res.json({ success: true, data: forOwner(again || current) });
     }
 
     /* Only both sides together put somebody in house. The student has almost
@@ -176,7 +298,110 @@ const checkInBooking = async (req, res, next) => {
       console.error('[booking] checked in but the student was not notified:', error.message);
     });
 
-    return res.json({ success: true, data: { ...booking, id: String(booking._id) } });
+    /*
+     * A hotel guest arriving is what unlocks their hotel's money.
+     *
+     * The owner's share has been held on a Route transfer since the payment
+     * cleared, because a cancellation before check-in is refunded out of it.
+     * Once the guest is actually here that window has closed, so the
+     * settlement becomes releasable and an administrator may withdraw it.
+     *
+     * `markReleasable` only ever moves `held → releasable` and matches on
+     * `bookingId`, so this is safe to reach for on EVERY check-in: a PG,
+     * Co-living or Bachelor booking has no settlement row and the update
+     * matches nothing. There is no category test here for that reason — the
+     * absence of a row is the test, and it cannot drift from the rule that
+     * decides which categories get one.
+     *
+     * Fire-and-forget for the same reason the push is: an owner's tap must
+     * not wait on it, and a settlement that did not advance is repairable
+     * from the admin queue, where the booking will simply still read `held`.
+     */
+    require('../settlements/settlement.service')
+      .markReleasable(String(booking._id))
+      .catch((error) => {
+        console.error('[settlement] check-in did not release the hold:', error.message);
+      });
+
+    return res.json({ success: true, data: forOwner(booking) });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
+   DEVELOPMENT ONLY — force a move-in from the OWNER's own app, both halves
+   at once, without waiting for the check-in date.
+
+   ## What it exists for
+
+   `checkInBooking` above enforces a real calendar day — the Stay Partner
+   button reads "Check-in available 25 September" and the server refuses
+   `TOO_EARLY` even if a build lets the tap through. That is correct, and it
+   also means a booking made for next week cannot be walked through the rest
+   of the app — active stay, checkout, the hotel settlement chain — until
+   that day actually arrives.
+
+   The customer app already has this exact bypass (`devForceCheckIn` in
+   `customerBooking.controller.js`), reachable from the STUDENT's own
+   booking screen. This is the same power, reachable from the OWNER's,
+   because the "🛠 DEV: check in now" button on the Stay Partner booking
+   screen led to the PIN entry screen and then stopped there — the date gate
+   still refused the real `POST /bookings/:id/checkin` underneath it, so
+   typing the correct code never actually worked in a build being tested
+   ahead of the date. This skips straight to the answer that button was
+   promising.
+
+   ## What it is NOT
+
+   Not a way to check in early on a production server. Refused with a 404
+   unless `DEV_ALLOW_FORCE_CHECKIN` is on, which `env.js` refuses outright
+   under NODE_ENV=production — so this route does not exist on a real
+   deployment, exactly like the payment bypass beside it. Still scoped to
+   this partner's OWN booking; a development flag widens what an account may
+   do to its own data, never whose data it may touch.
+
+   Delete this function, its route and `DEV_ALLOW_FORCE_CHECKIN` when the
+   settlement flow no longer needs walking through by hand.
+   ══════════════════════════════════════════════════════════════════════════ */
+const devForceCheckInOwner = async (req, res, next) => {
+  try {
+    if (!config.razorpay.devAllowForceCheckIn) {
+      return res.status(404).json({
+        success: false, code: 'NOT_FOUND', message: 'That route does not exist on this server.',
+      });
+    }
+    if (mongoose.connection.readyState !== 1) return dbDown(res);
+
+    const key = getDigits(req.partner);
+    const booking = await PartnerBooking.findOne({ _id: req.params.id, partnerPhoneDigits: key });
+    if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
+
+    const now = new Date();
+    booking.movedInByOwnerAt = booking.movedInByOwnerAt || now;
+    booking.movedInByStudentAt = booking.movedInByStudentAt || now;
+    booking.status = 'in_house';
+    await booking.save();
+
+    console.warn(
+      `🛠️  [DEV BYPASS] booking ${booking._id} forced to in_house from the owner app without a `
+      + 'real check-in (DEV_ALLOW_FORCE_CHECKIN is on).',
+    );
+
+    /* The same two calls the real check-in makes — see the notes on both in
+       `checkInBooking` just above. A dev-forced check-in that left the
+       student unnotified or a hotel settlement stuck on `held` would not
+       actually exercise the thing this bypass exists to test. */
+    notifyStudentCheckedIn(booking).catch((error) => {
+      console.error('[booking] dev-forced check-in but the student was not notified:', error.message);
+    });
+    require('../settlements/settlement.service')
+      .markReleasable(String(booking._id))
+      .catch((error) => {
+        console.error('[settlement] dev-forced check-in did not release the hold:', error.message);
+      });
+
+    return res.json({ success: true, data: forOwner(booking.toObject()) });
   } catch (error) {
     return next(error);
   }
@@ -193,7 +418,7 @@ const checkOutBooking = async (req, res, next) => {
       /* Either it is not theirs, or it has already left occupancy. The second
          is not an error worth alarming an owner about — they tapped twice. */
       const existing = await PartnerBooking.findOne({ _id: id, partnerPhoneDigits: key }).lean();
-      if (existing) return res.json({ success: true, data: { ...existing, id: String(existing._id) } });
+      if (existing) return res.json({ success: true, data: forOwner(existing) });
       return res.status(404).json({ success: false, message: 'Booking not found' });
     }
 
@@ -204,7 +429,7 @@ const checkOutBooking = async (req, res, next) => {
       console.error('[booking] checked out but the student was not notified:', error.message);
     });
 
-    return res.json({ success: true, data: { ...booking, id: String(booking._id) } });
+    return res.json({ success: true, data: forOwner(booking) });
   } catch (error) {
     return next(error);
   }
@@ -232,7 +457,7 @@ const cancelBooking = async (req, res, next) => {
       const existing = await PartnerBooking.findOne({ _id: id, partnerPhoneDigits: key }).lean();
       /* Already cancelled. Idempotent for the owner, and deliberately silent —
          re-notifying on a repeat tap would tell the student twice. */
-      if (existing) return res.json({ success: true, data: { ...existing, id: String(existing._id) } });
+      if (existing) return res.json({ success: true, data: forOwner(existing) });
       return res.status(404).json({ success: false, message: 'Booking not found' });
     }
 
@@ -245,11 +470,24 @@ const cancelBooking = async (req, res, next) => {
      * the same reason the accept path is — the owner's response must not wait
      * on a push, and a push that fails must not fail the cancellation.
      */
-    notifyStudentBookingCancelled(booking).catch((error) => {
+    /*
+     * The guest's money comes back in full, and they are asked where to send
+     * it — they were not at a form when the owner pressed Cancel, so the
+     * notification below carries that request. Null for the free categories.
+     */
+    let refund = null;
+    try {
+      refund = await require('../settlements/refund.service')
+        .openForCancelledBooking({ booking, cancelledBy: 'owner', reason });
+    } catch (error) {
+      console.error('[booking] cancelled but the refund could not be opened:', error.message);
+    }
+
+    notifyStudentBookingCancelled(booking, refund).catch((error) => {
       console.error('[booking] cancelled but the student was not notified:', error.message);
     });
 
-    return res.json({ success: true, data: { ...booking, id: String(booking._id) } });
+    return res.json({ success: true, data: forOwner(booking) });
   } catch (error) {
     return next(error);
   }
@@ -295,10 +533,16 @@ const getEarningsSummary = async (req, res, next) => {
 
     const pendingPayout = payouts.find((p) => p.status === 'pending' || p.status === 'processing') || null;
 
-    /* What the "Request payout" button would actually move right now — the
-       sum of completed bookings nothing has claimed yet. See
+    /* What the "Request payout" button would actually move right now:
+       completed bookings nothing has claimed, plus the owner's share of hotel
+       settlements whose guest has already checked in. See
        `payout.service.js`. */
     const availableBalance = await payoutService.availableBalance(key);
+
+    /* Hotel money a guest has paid that is not requestable yet, because the
+       guest has not arrived. Shown separately rather than hidden — an owner
+       whose guest paid last night should see it exists. */
+    const heldBalance = await payoutService.heldBalance(key);
 
     return res.json({
       success: true,
@@ -308,6 +552,7 @@ const getEarningsSummary = async (req, res, next) => {
         todayAmount,
         weekAmount,
         availableBalance,
+        heldBalance,
         pendingPayout: pendingPayout ? { ...pendingPayout, id: String(pendingPayout._id) } : null,
         payoutsCount: payouts.length,
         paymentMethodsCount: paymentMethods.length,
@@ -361,36 +606,146 @@ const getPayoutById = async (req, res, next) => {
   }
 };
 
+/**
+ * The owner's saved payout accounts — MASKED.
+ *
+ * The full account number stays on the server. It is stored, because a payout
+ * has to be addressed to something and a person making the bank transfer needs
+ * it, but nothing on a phone does: every screen that shows a saved account
+ * shows `Bank •••• 4321`, and `toPayoutMethod` in the app only ever reads the
+ * last four.
+ *
+ * This used to return the whole document. Sending a full bank account number
+ * back over the wire to be displayed as four digits is a needless copy of it
+ * in a cache, a log and a screenshot — and the form that collects it promises
+ * the owner "we keep only the last four digits", which was not true of what
+ * this endpoint sent.
+ *
+ * `accountLast4` rather than a mangled `accountNumber`, so nothing downstream
+ * can mistake a masked value for a real one and try to pay it.
+ */
+/**
+ * The owner answers a review.
+ *
+ * Scoped to a review of THEIR property — the id alone is not enough, since a
+ * review id is guessable and an owner must not be able to sign somebody
+ * else's guest's review. Replaces any earlier reply rather than appending.
+ *
+ * @route POST /api/v2/partners/reviews/:id/reply
+ */
+const replyToReview = async (req, res, next) => {
+  try {
+    if (mongoose.connection.readyState !== 1) return dbDown(res);
+    const key = getDigits(req.partner);
+
+    const text = String((req.body || {}).text || '').trim().slice(0, 1000);
+    if (!text) {
+      return res.status(400).json({ success: false, code: 'EMPTY', message: 'Write a reply first.' });
+    }
+
+    const review = await PartnerReview.findOneAndUpdate(
+      { _id: req.params.id, partnerPhoneDigits: key },
+      { $set: { reply: { text, at: new Date() } } },
+      { new: true },
+    ).lean();
+    if (!review) {
+      return res.status(404).json({ success: false, code: 'NOT_FOUND', message: 'That review does not exist.' });
+    }
+
+    return res.json({ success: true, data: { ...review, id: String(review._id) } });
+  } catch (error) {
+    if (error.name === 'CastError') {
+      return res.status(404).json({ success: false, code: 'NOT_FOUND', message: 'That review does not exist.' });
+    }
+    return next(error);
+  }
+};
+
 const getPaymentMethods = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
     const key = getDigits(req.partner);
     const methods = await PartnerPaymentMethod.find({ partnerPhoneDigits: key }).lean();
-    const data = methods.map((m) => ({ ...m, id: String(m._id) }));
+
+    const data = methods.map((m) => {
+      const { accountNumber, ...rest } = m;
+      return {
+        ...rest,
+        id: String(m._id),
+        accountLast4: String(accountNumber || '').slice(-4),
+      };
+    });
+
     return res.json({ success: true, count: data.length, data });
   } catch (error) {
     return next(error);
   }
 };
 
+/* An IFSC is four letters, a zero, then six of either. The SAME rule
+   `payoutOnboarding.controller.js` applies — a bank account reaches RazorpayX
+   from both places and must not be accepted by one and refused by the other. */
+const IFSC_PATTERN = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+
+/**
+ * Save a bank account or a UPI id.
+ *
+ * ## Validated here, not only in the form
+ *
+ * These details are what a payout is addressed to. An account number with a
+ * typo is not refused by us and not refused by RazorpayX either — it is
+ * refused by a BANK, days later, after the owner has been told their money is
+ * on its way. So the shape is checked at the one boundary every client shares.
+ *
+ * ## `isPrimary` is not taken at face value
+ *
+ * The first method saved is always primary, whatever the body says: an
+ * account nothing can pay to is not a saved account. After that the flag is
+ * honoured, and promoting one demotes the rest in the same request.
+ */
 const addPaymentMethod = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
     const key = getDigits(req.partner);
-    const { type, accountName, accountNumber, ifsc, upiId, isPrimary } = req.body;
+    const body = req.body || {};
+    const type = body.type === 'upi' ? 'upi' : 'bank_account';
+
+    const fail = (code, message) => res.status(400).json({ success: false, code, message });
+
+    let fields;
+    if (type === 'upi') {
+      const upiId = String(body.upiId || '').trim().toLowerCase();
+      if (!/^[\w.\-]{2,64}@[a-z]{2,32}$/.test(upiId)) {
+        return fail('BAD_UPI', 'That does not look like a UPI id — it should be like name@bank.');
+      }
+      fields = { upiId, accountName: String(body.accountName || '').trim() };
+    } else {
+      const accountName = String(body.accountName || '').trim();
+      const accountNumber = String(body.accountNumber || '').replace(/\s/g, '');
+      const ifsc = String(body.ifsc || '').trim().toUpperCase();
+
+      if (!accountName) {
+        return fail('NO_NAME', 'We need the account holder’s name, exactly as the bank has it.');
+      }
+      if (!/^\d{6,20}$/.test(accountNumber)) {
+        return fail('BAD_ACCOUNT', 'That does not look like an account number.');
+      }
+      if (!IFSC_PATTERN.test(ifsc)) {
+        return fail('BAD_IFSC', 'That does not look like an IFSC — it should be like HDFC0001234.');
+      }
+      fields = { accountName, accountNumber, ifsc };
+    }
+
+    /* Nothing to defer to on the first one. */
+    const existing = await PartnerPaymentMethod.countDocuments({ partnerPhoneDigits: key });
+    const isPrimary = existing === 0 ? true : Boolean(body.isPrimary);
 
     if (isPrimary) {
       await PartnerPaymentMethod.updateMany({ partnerPhoneDigits: key }, { isPrimary: false });
     }
 
     const created = await PartnerPaymentMethod.create({
-      partnerPhoneDigits: key,
-      type,
-      accountName,
-      accountNumber,
-      ifsc,
-      upiId,
-      isPrimary: Boolean(isPrimary),
+      partnerPhoneDigits: key, type, ...fields, isPrimary,
     });
 
     return res.status(201).json({ success: true, data: { ...created.toObject(), id: String(created._id) } });
@@ -399,11 +754,74 @@ const addPaymentMethod = async (req, res, next) => {
   }
 };
 
+/**
+ * Make one saved method the primary one.
+ *
+ * The endpoint that did not exist, which is why the app's "Make default"
+ * button had nothing to call. Scoped to this owner's own rows on both the
+ * match and the demotion, so an id belonging to somebody else changes nothing.
+ */
+const setPrimaryPaymentMethod = async (req, res, next) => {
+  try {
+    if (mongoose.connection.readyState !== 1) return dbDown(res);
+    const key = getDigits(req.partner);
+
+    const method = await PartnerPaymentMethod.findOne({
+      _id: req.params.id, partnerPhoneDigits: key,
+    });
+    if (!method) {
+      return res.status(404).json({
+        success: false, code: 'NOT_FOUND', message: 'That payout method does not exist.',
+      });
+    }
+
+    await PartnerPaymentMethod.updateMany({ partnerPhoneDigits: key }, { isPrimary: false });
+    method.isPrimary = true;
+    await method.save();
+
+    return res.json({ success: true, data: { ...method.toObject(), id: String(method._id) } });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/**
+ * Remove a saved method.
+ *
+ * Deleting the primary one PROMOTES the survivor, the same rule the customer
+ * address book follows (`shared/utils/address.js`): something has to be
+ * primary or a payout has nowhere to land, and leaving that to the next screen
+ * means an owner can end up with accounts and no default.
+ *
+ * The last method may be deleted. Refusing that would trap an owner who typed
+ * the wrong number into an account they cannot correct — and `requestPayout`
+ * already refuses with `NO_PAYMENT_METHOD` when there are none.
+ */
 const deletePaymentMethod = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
     const key = getDigits(req.partner);
-    await PartnerPaymentMethod.deleteOne({ _id: req.params.id, partnerPhoneDigits: key });
+
+    const method = await PartnerPaymentMethod.findOne({
+      _id: req.params.id, partnerPhoneDigits: key,
+    }).lean();
+    if (!method) {
+      return res.status(404).json({
+        success: false, code: 'NOT_FOUND', message: 'That payout method does not exist.',
+      });
+    }
+
+    await PartnerPaymentMethod.deleteOne({ _id: method._id });
+
+    if (method.isPrimary) {
+      const survivor = await PartnerPaymentMethod.findOne({ partnerPhoneDigits: key })
+        .sort({ createdAt: 1 });
+      if (survivor) {
+        survivor.isPrimary = true;
+        await survivor.save();
+      }
+    }
+
     return res.json({ success: true, message: 'Payment method removed' });
   } catch (error) {
     return next(error);
@@ -621,13 +1039,16 @@ const getReviews = async (req, res, next) => {
     const reviews = await PartnerReview.find({ partnerPhoneDigits: key }).sort({ createdAt: -1 }).lean();
     const data = reviews.map((r) => ({ ...r, id: String(r._id) }));
 
-    const avgRating = data.length
-      ? (data.reduce((sum, r) => sum + r.rating, 0) / data.length).toFixed(1)
-      : '4.8';
+    /* Null, not '4.8'. An owner with no reviews has no average, and a number
+       invented for them was reaching the screen they open to find out what
+       guests think. */
+    const averageRating = data.length
+      ? Math.round((data.reduce((sum, r) => sum + r.rating, 0) / data.length) * 10) / 10
+      : null;
 
     return res.json({
       success: true,
-      averageRating: parseFloat(avgRating),
+      averageRating,
       count: data.length,
       data,
     });
@@ -706,12 +1127,77 @@ const updateShareTypeAvailability = async (req, res, next) => {
     req.partner.acceptingBookings = Boolean(isAvailable);
     await req.partner.save();
 
-    /* Best-effort sync of whatever real share-type documents this partner
-       already has, if any. Harmless no-op today (nothing in this codebase
-       creates one), and picks up real data the moment something does. */
-    await PartnerShareType.updateMany({ partnerPhoneDigits: key }, { isAvailable: Boolean(isAvailable) });
+    /*
+     * Only a PAUSE bulk-writes every room type. Going online must not.
+     *
+     * This route is the dashboard's single partner-wide switch — flipping it
+     * off is deliberately "stop sending me anyone, everywhere", so every
+     * `partner_share_types` row this owner has goes to `isAvailable: false`
+     * together. Flipping it ON used to do the mirror-image bulk write, which
+     * silently turned every room type back on — including ones the owner had
+     * individually paused from Share Types — the moment they went online.
+     * `updateOneShareTypeAvailability` is the one place a single row is
+     * switched now, so going online here only has to raise the partner flag
+     * and leave whatever each row was already set to alone.
+     */
+    if (!isAvailable) {
+      await PartnerShareType.updateMany({ partnerPhoneDigits: key }, { isAvailable: false });
+    }
 
     return res.json({ success: true, isAvailable: Boolean(isAvailable) });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// @route   PATCH /api/v2/partners/share-types/:shareTypeId/availability
+// @desc    Take ONE room type off, or put it back on — not the whole property
+// @access  Partner session (owner of the row only)
+/**
+ * Availability, per room type.
+ *
+ * `updateShareTypeAvailability` above is partner-wide and `setMyPropertyAvailability`
+ * (`propertyEdit.controller.js`) is per-property; neither can take a single
+ * sharing option off a property that still has others open. `app/share-types/index.tsx`
+ * draws a switch per row that looked like it already did this, but its Save
+ * only ever called the partner-wide route with a collapsed "is anything still
+ * on" boolean — so a room switched off there was never actually written, and
+ * a re-save with anything else left on could even switch it back on. This is
+ * the route that screen should have been calling.
+ *
+ * Scoped by `partnerPhoneDigits`, the same ownership check every other
+ * partner-scoped write in this file uses, so one owner cannot pause a room
+ * that belongs to another's listing by guessing its id.
+ */
+const updateOneShareTypeAvailability = async (req, res, next) => {
+  try {
+    if (mongoose.connection.readyState !== 1) return dbDown(res);
+    const key = getDigits(req.partner);
+    const { shareTypeId } = req.params;
+    const { isAvailable } = req.body;
+
+    if (typeof isAvailable !== 'boolean') {
+      return res.status(400).json({
+        success: false, code: 'VALIDATION_ERROR', message: 'Send isAvailable as true or false.',
+      });
+    }
+
+    const row = await PartnerShareType.findOneAndUpdate(
+      { shareTypeId, partnerPhoneDigits: key },
+      { $set: { isAvailable } },
+      { new: true },
+    );
+
+    if (!row) {
+      return res.status(404).json({
+        success: false, code: 'NOT_FOUND', message: 'That room type was not found on your account.',
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: { shareTypeId: row.shareTypeId, isAvailable: row.isAvailable },
+    });
   } catch (error) {
     return next(error);
   }
@@ -721,14 +1207,17 @@ module.exports = {
   getBookings,
   getBookingById,
   checkInBooking,
+  devForceCheckInOwner,
   checkOutBooking,
   cancelBooking,
   getEarningsSummary,
   getPayouts,
   getPayoutById,
   requestPayout,
+  replyToReview,
   getPaymentMethods,
   addPaymentMethod,
+  setPrimaryPaymentMethod,
   deletePaymentMethod,
   getComplaints,
   getComplaintById,
@@ -744,4 +1233,5 @@ module.exports = {
   withdrawReferral,
   getShareTypes,
   updateShareTypeAvailability,
+  updateOneShareTypeAvailability,
 };

@@ -75,6 +75,8 @@ export {
   fetchBooking,
   isMovedIn,
   isClosed,
+  /* DEVELOPMENT ONLY — see `bookings.api.ts`. */
+  devForceCheckIn,
   type CustomerBooking,
   type BookingStatus,
 } from './api/bookings.api';
@@ -173,11 +175,12 @@ export {
 } from './adapters/support.adapter';
 
 export { queryKeys } from './hooks/keys';
-export { useListing, useListingMeta, useListings, type ListingMeta } from './hooks/useListings';
+export { useListing, useListingMeta, useListingReviews, useListings, type ListingMeta } from './hooks/useListings';
 export { useStayRequest, isTerminalPhase, type StayPhase } from './hooks/useStayRequest';
 export { useBookings, useBooking } from './hooks/useBookings';
 export { useNotifications, type NotificationDay } from './hooks/useNotifications';
 export { useSaved } from './hooks/useSaved';
+export { useAddresses } from './hooks/useAddresses';
 export { useMyCoupon } from './hooks/useMyCoupon';
 export { useCreateSupportRequest, useTicket, useTickets } from './hooks/useTickets';
 export { useHealth } from './hooks/useHealth';

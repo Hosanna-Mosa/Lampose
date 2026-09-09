@@ -476,10 +476,26 @@ const createBooking = async (req, res, next) => {
     const total = Number(body.totalAmount);
     const paid = Number(body.paidAmount);
 
+    /* Same lookup, same reasoning, as the accepted-request path in
+       stayRequest.service.js — see the note there. A walk-in is typed in by
+       the owner from their own portfolio, so the id is almost always real;
+       a failed lookup still must not block logging the guest. */
+    let propertyCategory = '';
+    try {
+      const Property = require('../properties/property.model');
+      const { normaliseCategory } = require('../../shared/constants/categories');
+      const propertyId = String(body.propertyId || '').trim();
+      const property = propertyId ? await Property.findById(propertyId).select('category').lean() : null;
+      propertyCategory = normaliseCategory(property && property.category) || '';
+    } catch {
+      propertyCategory = '';
+    }
+
     const booking = await PartnerBooking.create({
       partnerPhoneDigits: key,
       propertyId: String(body.propertyId || '').trim() || 'unassigned',
       propertyName: String(body.propertyName || '').trim() || 'Unassigned property',
+      category: propertyCategory,
       guestName,
       guestPhone,
       guestEmail: String(body.guestEmail || '').trim().toLowerCase(),

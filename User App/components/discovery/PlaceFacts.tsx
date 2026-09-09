@@ -21,21 +21,38 @@ export type MealPlanCardProps = { plan: MealPlan };
 export function MealPlanCard({ plan }: MealPlanCardProps) {
   const { colors, space, radius } = useTheme();
 
+  /* Meals get the warm family — the same one "What guests say" carries
+     further down — rather than the plain surface every other card on this
+     screen used to share. A mess timetable is the one thing here with a
+     colour of its own in real life (a warm kitchen, not a grey office), so
+     it is the one card that gets to look like it. */
+  const included = plan.included;
+
   return (
     <View
       style={{
-        backgroundColor: colors.surface,
-        borderColor: colors.border,
-        borderWidth: StyleSheet.hairlineWidth,
+        backgroundColor: included ? colors.warning.tint : colors.surface,
+        borderColor: included ? colors.warning.border : colors.border,
+        borderWidth: included ? 1 : StyleSheet.hairlineWidth,
         borderRadius: radius.card,
         padding: space[4],
         gap: space[3],
       }}
     >
       <View style={[styles.row, { gap: space[3] }]}>
-        <Icon name="mess" size={24} color={colors.textPrimary} />
+        <View
+          style={[
+            styles.mealGlyph,
+            {
+              width: 36, height: 36, borderRadius: radius.chip,
+              backgroundColor: included ? colors.warning.base : colors.surfaceSunken,
+            },
+          ]}
+        >
+          <Icon name="mess" size={20} color={included ? colors.warning.on : colors.textTertiary} />
+        </View>
         <View style={styles.flex}>
-          <Text variant="title3">
+          <Text variant="title3" style={included ? { color: colors.warning.ink } : undefined}>
             {!plan.included
               ? 'No meals included'
               : plan.mealsPerDay === undefined
@@ -59,7 +76,12 @@ export function MealPlanCard({ plan }: MealPlanCardProps) {
           failed to load. */}
       {plan.slots.length ? (
         <>
-          <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.borderSubtle }} />
+          <View
+            style={{
+              height: StyleSheet.hairlineWidth,
+              backgroundColor: included ? colors.warning.border : colors.borderSubtle,
+            }}
+          />
 
           <View style={{ gap: space[2] }}>
             {plan.slots.map((slot) => (
@@ -67,7 +89,11 @@ export function MealPlanCard({ plan }: MealPlanCardProps) {
                 <Text variant="body" color={slot.window ? 'primary' : 'tertiary'}>
                   {slot.label}
                 </Text>
-                <Text variant={slot.window ? 'priceSm' : 'numMeta'} color={slot.window ? 'primary' : 'tertiary'}>
+                <Text
+                  variant={slot.window ? 'priceSm' : 'numMeta'}
+                  style={slot.window && included ? { color: colors.warning.ink } : undefined}
+                  color={!slot.window ? 'tertiary' : included ? undefined : 'primary'}
+                >
                   {slot.window ?? 'not served'}
                 </Text>
               </View>
@@ -136,6 +162,7 @@ export function HouseRulesRow({ rules }: HouseRulesRowProps) {
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
+  mealGlyph: { alignItems: 'center', justifyContent: 'center' },
   flex: { flex: 1 },
   slotRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
   ruleRow: { flexDirection: 'row', alignItems: 'flex-start' },

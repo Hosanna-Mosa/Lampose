@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { BottomSheet, Button, Chip, ChipRow, Input, Text } from '@/components/ui';
+import { useAlert } from '@/components/ui/AppAlert';
 import { useAnswerRequest, useStayRequest } from '@/services/hooks/useStayRequests';
 
 const REASONS = [
@@ -20,6 +21,7 @@ const REASONS = [
  */
 export default function RejectSheet() {
   const router = useRouter();
+  const { alert } = useAlert();
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const { request } = useStayRequest(id);
@@ -56,8 +58,15 @@ export default function RejectSheet() {
            or this owner accepted it on another device. The server names
            which, and closing the sheet puts them back on a detail screen that
            is already showing the real outcome. */
-        Alert.alert('Could not decline', (error as { displayMessage?: string }).displayMessage
-          ?? 'This request can no longer be changed.');
+        /* The app's own dialog — see `components/ui/AppAlert.tsx`. Not awaited:
+           the sheet closes underneath it either way, and the card outlives the
+           screen that raised it because the provider owns it, not this route. */
+        void alert({
+          title: 'Could not decline',
+          message: (error as { displayMessage?: string }).displayMessage
+            ?? 'This request can no longer be changed.',
+          tone: 'error',
+        });
         router.back();
       },
     });

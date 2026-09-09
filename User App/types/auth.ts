@@ -29,6 +29,36 @@ export type Locality = {
 };
 
 /**
+ * "All locations" — the answer that is not an area.
+ *
+ * A real `Locality` rather than `null`, and that is the whole design of it.
+ * `app/index.tsx` treats a null locality as "has not answered yet" and
+ * redirects straight back to the picker, so a student who chose to search
+ * everywhere would have been bounced into being asked again, forever. A
+ * sentinel is an ANSWER, and it survives the same round trip every other
+ * answer does.
+ *
+ * `city` is empty on purpose: it is what the feed reads to scope a query, and
+ * an empty one means "do not scope it".
+ *
+ * `listingCount` and `medianRent` are deliberately not filled in. Both are
+ * facts about one area and there is no honest figure for "everywhere" that
+ * this type could carry — the row that offers it says so in words instead.
+ */
+export const ALL_LOCALITIES: Locality = {
+  id: 'all',
+  name: 'All locations',
+  city: '',
+  listingCount: 0,
+  medianRent: null,
+};
+
+/** Whether this is the sentinel above rather than a real area. */
+export function isAllLocalities(locality: Locality | null | undefined): boolean {
+  return locality?.id === ALL_LOCALITIES.id;
+}
+
+/**
  * Matches a query against a name and its aliases.
  *
  * Autocorrect is off on these fields, so the misspellings have to be carried

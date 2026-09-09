@@ -2,8 +2,18 @@ import { api, unwrap, type ApiEnvelope } from './client';
 import { endpoints } from './endpoints';
 
 // ── Bookings ────────────────────────────────────────────────────────────────
-export async function fetchBookings(signal?: AbortSignal) {
-  const res = await api.get<ApiEnvelope<any[]>>(endpoints.partnerBookings, { signal });
+/**
+ * `category` asks the SERVER to filter, rather than fetching everything and
+ * narrowing it on the phone — the same real category enum the backend
+ * already validates requests against (`PG_HOSTEL` / `BACHELOR` / `HOTEL` /
+ * `COLIVE`), so a bad value here is simply ignored server-side rather than
+ * silently returning nothing.
+ */
+export async function fetchBookings(category?: string, signal?: AbortSignal) {
+  const path = category
+    ? `${endpoints.partnerBookings}?category=${encodeURIComponent(category)}`
+    : endpoints.partnerBookings;
+  const res = await api.get<ApiEnvelope<any[]>>(path, { signal });
   return unwrap(res) || [];
 }
 
@@ -12,8 +22,32 @@ export async function fetchBookingById(id: string, signal?: AbortSignal) {
   return unwrap(res);
 }
 
-export async function checkInBookingApi(id: string) {
-  const res = await api.post<ApiEnvelope<any>>(endpoints.partnerBookingCheckin(id));
+/**
+ * Mark a guest in.
+ *
+ * `code` is what the guest showed at the door. The SERVER compares it to the
+ * booking's entry PIN and refuses a mismatch (`BAD_PIN`) — the app no longer
+ * has the PIN to compare against, which is the point. A walk-in has no PIN
+ * and needs no code.
+ */
+export async function checkInBookingApi(id: string, code?: string) {
+  const res = await api.post<ApiEnvelope<any>>(
+    endpoints.partnerBookingCheckin(id),
+    code ? { code } : {},
+  );
+  return unwrap(res);
+}
+
+/**
+ * DEVELOPMENT ONLY — force both halves of a move-in without a real code or
+ * the check-in date having arrived.
+ *
+ * 404s unless the server has `DEV_ALLOW_FORCE_CHECKIN` on, which is refused
+ * outright under NODE_ENV=production — see `devForceCheckInOwner` on the
+ * backend. Drawn only behind `PREVIEW_CONTROLS` on this side.
+ */
+export async function devForceCheckInOwnerApi(id: string) {
+  const res = await api.post<ApiEnvelope<any>>(endpoints.partnerBookingDevForceCheckin(id));
   return unwrap(res);
 }
 
@@ -77,6 +111,17 @@ export async function fetchPaymentMethodsApi(signal?: AbortSignal) {
 
 export async function addPaymentMethodApi(data: any) {
   const res = await api.post<ApiEnvelope<any>>(endpoints.partnerPaymentMethods, data);
+  return unwrap(res);
+}
+
+/**
+ * Make one saved account the one payouts go to.
+ *
+ * Sends only the id. The server demotes the others in the same request, so
+ * two screens can never disagree about which account is primary.
+ */
+export async function setPrimaryPaymentMethodApi(id: string) {
+  const res = await api.patch<ApiEnvelope<any>>(endpoints.partnerPaymentMethodPrimary(id));
   return unwrap(res);
 }
 
@@ -153,11 +198,23 @@ export async function removeStaffApi(id: string) {
 }
 
 // ── Reviews ─────────────────────────────────────────────────────────────────
+/**
+ * Answer a review.
+ *
+ * Saved on the review itself and returned to every student who opens the
+ * listing — see `GET /listings/:id/reviews`. Replaces an earlier reply.
+ */
+export async function replyToReviewApi(id: string, text: string) {
+  const res = await api.post<ApiEnvelope<any>>(endpoints.partnerReviewReply(id), { text });
+  return unwrap(res);
+}
+
 export async function fetchReviewsApi(signal?: AbortSignal) {
   const res = await api.get<ApiEnvelope<any[]> & { averageRating?: number }>(endpoints.partnerReviews, { signal });
   return {
     reviews: unwrap(res) || [],
-    averageRating: res.averageRating ?? 4.8,
+    /* Null, not 4.8. No reviews means no average; the screen says so. */
+    averageRating: typeof res.averageRating === 'number' ? res.averageRating : null,
   };
 }
 
@@ -199,5 +256,20 @@ export async function fetchShareTypesApi(signal?: AbortSignal) {
 
 export async function toggleShareTypesAvailabilityApi(isAvailable: boolean) {
   const res = await api.patch<ApiEnvelope<any>>(endpoints.partnerShareTypesAvailability, { isAvailable });
+  return unwrap(res);
+}
+
+/**
+ * Take ONE room type off, or put it back on.
+ *
+ * Unlike `toggleShareTypesAvailabilityApi`, which is the partner-wide switch
+ * and moves every room type this owner has, this is what the per-row
+ * switches on the Share Types screen should be calling — see the note there.
+ */
+export async function setShareTypeAvailability(shareTypeId: string, isAvailable: boolean) {
+  const res = await api.patch<ApiEnvelope<{ shareTypeId: string; isAvailable: boolean }>>(
+    endpoints.partnerShareTypeAvailability(shareTypeId),
+    { isAvailable },
+  );
   return unwrap(res);
 }

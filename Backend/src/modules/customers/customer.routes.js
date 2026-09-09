@@ -38,12 +38,15 @@ const {
 } = require('../visits/stayRequest.controller');
 const {
   listBookings, getBooking, cancelBooking, createReview,
+  /* DEVELOPMENT ONLY — remove with the route below. */
+  devForceCheckIn, submitRefundDetails,
 } = require('./customerBooking.controller');
 const {
   registerCustomerDevice, unregisterCustomerDevice,
 } = require('../notifications/device.controller');
 const { getMyCoupon } = require('./foodCoupon.controller');
 const { requireCustomer } = require('./customerAuth.middleware');
+const { makeLogout } = require('../iam/session.controller');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const { rateLimit } = require('../../shared/middleware/rateLimit');
 
@@ -184,6 +187,19 @@ router.post(
   requireLamposeDb, requireCustomer, confirmMovedIn,
 );
 
+/*
+ * DEVELOPMENT ONLY — force both halves of a move-in.
+ *
+ * 404s unless the server has `DEV_ALLOW_FORCE_CHECKIN` on, which `env.js`
+ * refuses under NODE_ENV=production. Scoped to the caller's own booking like
+ * every other route in this file. See `devForceCheckIn` for why it exists and
+ * when to delete it.
+ */
+router.post(
+  '/bookings/:id/dev-force-checkin',
+  requireLamposeDb, requireCustomer, devForceCheckIn,
+);
+
 /* ── The student's own bookings ──────────────────────────────────────────
    Read-only, and the customer half of a row the owner writes. Everything the
    owner does after confirming — room assignment, check-in, check-out,
@@ -198,6 +214,12 @@ router.get('/bookings/:id', requireLamposeDb, requireCustomer, getBooking);
 router.post(
   '/bookings/:id/cancel',
   requireLamposeDb, requireCustomer, withdrawByCustomer, cancelBooking,
+);
+/* Where a refund should go — asked after an owner cancelled, or if the guest
+   skipped the field when cancelling. See `submitRefundDetails`. */
+router.post(
+  '/bookings/:id/refund-details',
+  requireLamposeDb, requireCustomer, withdrawByCustomer, submitRefundDetails,
 );
 /* "Rate your stay" — offered once a booking reaches `completed`. Limited per
    customer for the same reason as everything else on this router; a genuine
@@ -214,6 +236,10 @@ router.post(
    stops showing the previous account's alerts. */
 router.post('/devices', requireLamposeDb, requireCustomer, registerCustomerDevice);
 router.delete('/devices', requireLamposeDb, requireCustomer, unregisterCustomerDevice);
+
+/* Signing out, server-side: forget this handset, or — `everywhere: true` —
+   end every session of the account. See iam/session.controller.js. */
+router.post('/auth/logout', requireLamposeDb, requireCustomer, makeLogout('customer'));
 
 /* Set by `verify`, if a valid owner-invite code came in with it — see
    partners/customerReferral.controller.js. Null data, not a 404: not having

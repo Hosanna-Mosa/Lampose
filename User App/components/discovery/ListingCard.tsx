@@ -296,9 +296,14 @@ function Body({ listing, onToggleSave }: { listing: Listing; onToggleSave?: () =
             }
             style={({ pressed }) => [styles.saveTap, { opacity: pressed ? 0.6 : 1 }]}
           >
+            {/* 26, not 20. This is the only control on a feed card and it is
+                the one thing a scrolling student reaches for, so it is sized
+                to be found rather than to be tidy. `saveTap` below carries the
+                44pt target the finger actually needs; this is the mark the
+                eye needs. */}
             <Icon
               name="bookmark"
-              size={20}
+              size={26}
               color={listing.saved ? colors.brandInk : colors.textTertiary}
               fill={listing.saved ? colors.brandInk : 'none'}
             />
@@ -461,5 +466,7 @@ const styles = StyleSheet.create({
   save: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   dots: { left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 5 },
   titleRow: { flexDirection: 'row', alignItems: 'baseline' },
-  saveTap: { alignItems: 'center', justifyContent: 'center' },
+  /* A real target, not just whatever the glyph happens to occupy. 44pt is
+     the platform minimum and `hitSlop` on the Pressable widens it further. */
+  saveTap: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 });

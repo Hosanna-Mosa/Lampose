@@ -41,7 +41,11 @@ const TOKEN_TYPE = 'customer';
  * profile endpoints look up and what the device stores.
  */
 const signCustomerToken = (customer, { expiresIn } = {}) => jwt.sign(
-  { sub: customer.customerId, typ: TOKEN_TYPE, phone: customer.phone },
+  /* `ver` is the account's sessionVersion; a token behind it is refused. See
+     iam/session.controller.js — it is what "sign out everywhere" bumps. */
+  {
+    sub: customer.customerId, typ: TOKEN_TYPE, phone: customer.phone, ver: customer.sessionVersion || 0,
+  },
   config.auth.jwtSecret,
   /* Caller-chosen life, defaulting to the app's. The website passes a shorter
      one — see `auth.webJwtExpiresIn`. The claim set is identical either way,
@@ -100,6 +104,10 @@ async function requireCustomer(req, res, next) {
       });
     }
 
+    if ((decoded.ver || 0) !== (customer.sessionVersion || 0)) {
+      return deny(res, 'This session was signed out. Please sign in again.', 'SESSION_REVOKED');
+    }
+
     req.customer = customer;
     return next();
   } catch (error) {
@@ -136,7 +144,8 @@ async function attachCustomerIfPresent(req, res, next) {
     /* Blocked is checked here as well: the whole point of the database read on
        every request is that blocking takes effect now rather than when the
        token happens to expire. */
-    if (customer && customer.status !== 'blocked') req.customer = customer;
+    const revoked = customer && (decoded.ver || 0) !== (customer.sessionVersion || 0);
+    if (customer && customer.status !== 'blocked' && !revoked) req.customer = customer;
     return next();
   } catch (error) {
     /* Includes TokenExpiredError and JsonWebTokenError, both of which simply

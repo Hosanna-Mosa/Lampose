@@ -50,6 +50,18 @@ const adminSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    /* Revocation. The session token carries this as `ver`; the guard refuses
+       a token whose `ver` is behind. Bumped by a password change (below), by
+       a role or status change made from the console, and by "sign out
+       everywhere". See adminToken.js. */
+    sessionVersion: {
+      type: Number,
+      default: 0,
+    },
+    passwordChangedAt: {
+      type: Date,
+      default: null,
+    },
     lastLogin: {
       type: String,
       default: 'Never',
@@ -64,6 +76,12 @@ const adminSchema = new mongoose.Schema(
 adminSchema.pre('save', async function (next) {
   if (!this.isModified('password')) {
     return next();
+  }
+  /* A changed password ends every session that was opened with the old one.
+     Not on a brand-new account — there is nothing to revoke yet. */
+  if (!this.isNew) {
+    this.passwordChangedAt = new Date();
+    this.sessionVersion = (this.sessionVersion || 0) + 1;
   }
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);

@@ -30,14 +30,11 @@ const {
 
 const router = express.Router();
 
-/** Roles allowed to CHANGE the trading area. Reading is wider. */
-const DRAWING_ROLES = new Set(['Super Admin', 'Admin']);
+/* Changing the trading area is `zones.write` — Super Admin, Admin — from the
+   one permission table in iam/iam.roles.js. Reading is wider. */
+const { can } = require('../iam/iam.middleware');
 
-const requireZoneEditor = (req, res, next) => {
-  if (DRAWING_ROLES.has(req.admin?.role)) return next();
-  const message = 'Changing a service zone requires the Admin role.';
-  return res.status(403).json({ success: false, code: 'FORBIDDEN', message, error: message });
-};
+const requireZoneEditor = can('zones.write');
 
 router.use(verifyAdminToken);
 router.use(requireLamposeDb);

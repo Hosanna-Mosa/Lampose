@@ -1,10 +1,10 @@
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, InlineAlert, OtpInput, Text, type OtpState } from '@/components/ui';
+import { Button, InlineAlert, OtpInput, Text, useAlert, type OtpState } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { useAuth } from '@/context/AuthContext';
@@ -45,6 +45,7 @@ import { useTheme } from '@/context/ThemeContext';
  */
 export default function VerifyScreen() {
   const { colors, space, layout, mode } = useTheme();
+  const { alert } = useAlert();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -106,7 +107,9 @@ export default function VerifyScreen() {
          or not, it is worth telling somebody once, right where they typed
          it, and never again on every future launch. */
       if (result.referralMessage) {
-        Alert.alert('Referral code', result.referralMessage);
+        /* The app's own dialog. A referral outcome is good news or a shrug,
+           never an error, so it takes the neutral tone. */
+        void alert({ title: 'Referral code', message: result.referralMessage });
       }
 
       /*

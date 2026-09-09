@@ -214,6 +214,9 @@ export default function KitchenScreen() {
            moving this number silently sticks the wrong thing. */
         stickyHeaderIndices={[1]}
         contentContainerStyle={{ paddingBottom: space[8] * 2, gap: space[3] }}
+        refreshControl={
+          <RefreshControl refreshing={loading || loadingMenus} onRefresh={refetch} tintColor={colors.brand} />
+        }
       >
         {/* The identity block, in the reference's own order: who, then where,
             then how long, then whether they are cooking. The name repeats

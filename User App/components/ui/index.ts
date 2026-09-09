@@ -98,3 +98,18 @@ export {
   type ConfirmModalProps,
   type DialogProps,
 } from './Overlay';
+
+/**
+ * The app's own alert, in place of `Alert.alert`.
+ *
+ * `AlertProvider` is mounted once in `app/_layout.tsx`; every caller uses
+ * `useAlert()`. See the file for why the platform dialog is not used anywhere
+ * in this app.
+ */
+export {
+  AlertProvider,
+  useAlert,
+  type AlertOptions,
+  type AlertTone,
+  type ConfirmOptions,
+} from './AppAlert';

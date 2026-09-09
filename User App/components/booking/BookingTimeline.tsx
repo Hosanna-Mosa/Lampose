@@ -15,7 +15,27 @@ import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import type { TimelineStep, TimelineStepId } from '@/types/booking';
 
 /**
- * Requested → Accepted → Paid → Moved in.
+ * Requested → Accepted → Paid → Moved in — on the categories that take a
+ * payment. Requested → Accepted → Moved in on the ones that do not.
+ *
+ * ## Why the track is not fixed
+ *
+ * "Paid" was a permanent node, and for three of the four categories nothing
+ * ever lands on it: a PG, a co-live and a hotel request are free, the money
+ * moves between the student and the owner directly, and Lampose is never told.
+ * So a confirmed PG booking drew a step called "Paid" that was reached — the
+ * old `progressFor` sent `CONFIRMED` to index 2 regardless — telling somebody
+ * they had paid us for something they had not, on the screen they would open
+ * in a dispute about exactly that.
+ *
+ * A bachelor room DOES take a payment: ₹199 for the assisted visit, verified
+ * by the server. There the node is real and it belongs on the track.
+ *
+ * `showPaid` is passed in rather than derived from the status, because the
+ * status cannot answer it: `CONFIRMED` means the same thing on both tracks and
+ * only the CATEGORY knows whether money was involved.
+ *
+ * ## Failure
  *
  * When something fails, the line terminates at the node where it happened and
  * the remaining connectors become a dashed grey stub. The path is not erased:
@@ -26,7 +46,8 @@ import type { TimelineStep, TimelineStepId } from '@/types/booking';
  * takes a retry glyph and its connector stays live rather than dashing out.
  */
 
-const ORDER: readonly TimelineStepId[] = ['requested', 'accepted', 'paid', 'movedIn'];
+const PAID_ORDER: readonly TimelineStepId[] = ['requested', 'accepted', 'paid', 'movedIn'];
+const FREE_ORDER: readonly TimelineStepId[] = ['requested', 'accepted', 'movedIn'];
 
 const DEFAULT_LABELS: Record<TimelineStepId, string> = {
   requested: 'Requested',
@@ -35,42 +56,83 @@ const DEFAULT_LABELS: Record<TimelineStepId, string> = {
   movedIn: 'Moved in',
 };
 
-/** How far the happy path has got, and whether it stopped. */
-function progressFor(status: BookingStatus): { reached: number; stopped: boolean; retry: boolean } {
+/**
+ * How far the happy path has got, named rather than numbered.
+ *
+ * A stage rather than an index, because the two tracks have different lengths
+ * and an index computed against one is meaningless against the other. The
+ * caller turns the stage into a position in ITS order — and a stage the order
+ * does not contain falls back to the nearest earlier one, which is what puts a
+ * `CONFIRMED` free booking on "Accepted" instead of off the end of a
+ * three-node track.
+ */
+function progressFor(status: BookingStatus): {
+  stage: TimelineStepId;
+  stopped: boolean;
+  retry: boolean;
+} {
   switch (status) {
     case 'REQUESTED':
-      return { reached: 0, stopped: false, retry: false };
+      return { stage: 'requested', stopped: false, retry: false };
     case 'ACCEPTED':
     case 'PAYMENT_PENDING':
-      return { reached: 1, stopped: false, retry: false };
+      return { stage: 'accepted', stopped: false, retry: false };
     case 'PAYMENT_FAILED':
       // Recoverable, so the line stays live.
-      return { reached: 1, stopped: false, retry: true };
+      return { stage: 'accepted', stopped: false, retry: true };
     case 'CONFIRMED':
-      return { reached: 2, stopped: false, retry: false };
+      /* On a paying category this IS the paid step. On a free one there is no
+         such step and the fallback below lands it on "Accepted", which is the
+         truth: an owner said yes and no money moved. */
+      return { stage: 'paid', stopped: false, retry: false };
     case 'CHECKED_IN':
     case 'CHECKED_OUT':
     case 'COMPLETED':
-      return { reached: 3, stopped: false, retry: false };
+      return { stage: 'movedIn', stopped: false, retry: false };
     case 'REJECTED':
     case 'EXPIRED':
     case 'CANCELLED_BY_CUSTOMER':
     case 'CANCELLED_BY_OWNER':
-      return { reached: 0, stopped: true, retry: false };
+      return { stage: 'requested', stopped: true, retry: false };
     case 'DISPUTED':
-      return { reached: 3, stopped: true, retry: false };
+      return { stage: 'movedIn', stopped: true, retry: false };
   }
 }
 
 export type BookingTimelineProps = {
   status: BookingStatus;
   steps?: readonly TimelineStep[];
+  /**
+   * Does this category take a payment through Lampose?
+   *
+   * Bachelor rooms do — the ₹199 assisted visit. PG, co-live and hotel do not,
+   * and drawing them a "Paid" node states something untrue about their money.
+   * Defaults to false: a caller that has not been told the category must not
+   * assert a payment.
+   */
+  showPaid?: boolean;
 };
 
-export function BookingTimeline({ status, steps = [] }: BookingTimelineProps) {
+export function BookingTimeline({ status, steps = [], showPaid = false }: BookingTimelineProps) {
   const { colors, space } = useTheme();
   const reduceMotion = useReduceMotion();
-  const { reached, stopped, retry } = progressFor(status);
+  const order = showPaid ? PAID_ORDER : FREE_ORDER;
+  const { stage, stopped, retry } = progressFor(status);
+
+  /* The stage's position on THIS track. A stage the track omits — `paid` on a
+     free booking — steps back to the last one it does have, so progress is
+     never lost and never overstated. */
+  const reached = (() => {
+    const exact = order.indexOf(stage);
+    if (exact !== -1) return exact;
+    const fallback = PAID_ORDER.indexOf(stage);
+    for (let i = fallback - 1; i >= 0; i -= 1) {
+      const earlier = order.indexOf(PAID_ORDER[i]);
+      if (earlier !== -1) return earlier;
+    }
+    return 0;
+  })();
+
   const descriptor = bookingStatus[status];
 
   const previousReached = useRef(reached);
@@ -84,7 +146,7 @@ export function BookingTimeline({ status, steps = [] }: BookingTimelineProps) {
 
   const headline = stopped
     ? `${descriptor.label}${descriptor.actor ? ` ${descriptor.actor}` : ''}`
-    : DEFAULT_LABELS[ORDER[Math.min(reached, ORDER.length - 1)]];
+    : DEFAULT_LABELS[order[Math.min(reached, order.length - 1)]];
 
   const body = stopped
     ? status === 'EXPIRED'
@@ -99,10 +161,13 @@ export function BookingTimeline({ status, steps = [] }: BookingTimelineProps) {
   return (
     <View style={{ gap: space[3] }}>
       <View style={styles.track}>
-        {ORDER.map((id, index) => {
+        {order.map((id, index) => {
           const step = steps.find((candidate) => candidate.id === id);
           const done = index <= reached;
-          const isRetry = retry && index === 2;
+          /* The retry glyph belongs on the PAID node, wherever it sits — it
+             was pinned to index 2, which is "Moved in" on a three-node
+             track. */
+          const isRetry = retry && id === 'paid';
           return (
             <React.Fragment key={id}>
               {index > 0 ? (

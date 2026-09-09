@@ -34,7 +34,7 @@ import { useTheme } from '@/context/ThemeContext';
  * it shows a page and watches for the bounce.
  */
 export default function PaymentCheckout() {
-  const { colors, space, layout } = useTheme();
+  const { mode, colors, space, layout } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -142,7 +142,7 @@ export default function PaymentCheckout() {
   if (!requestId && !foodToken) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
-        <StatusBar style="auto" />
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <StandardHeader title="Payment" onBack={leave} />
         <View style={[styles.centre, { padding: layout.gutter, gap: space[3] }]}>
           <Text variant="title2" style={styles.centred}>
@@ -183,7 +183,7 @@ export default function PaymentCheckout() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
-      <StatusBar style="auto" />
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       {/*
         A real header with a way out.
 

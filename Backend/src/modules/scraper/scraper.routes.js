@@ -8,23 +8,30 @@ const router = express.Router();
 router.use(requireScriperStore);
 
 /*
- * `protect` is applied PER ROUTE below, not with a `router.use`.
+ * Every route on this router is behind the leads panel's sign-in.
  *
- * A blanket guard here also catches /export, which the dashboard opens with
- * window.open() — a plain browser navigation that cannot carry an
- * Authorization header — and the scrape lifecycle routes, which have their own
- * contract. Only the lead-management surface changes.
+ * It was not: the scrape lifecycle (/start, /status, /stop), the job history,
+ * the statistics and the export answered anybody, so an anonymous caller
+ * could start a Playwright job on this server or download every lead. Only
+ * the three lead-management routes checked a token.
  *
- * `protect` still honours REQUIRE_AUTH=false, which leaves req.user undefined
- * and every caller unscoped. That escape hatch is for a client that cannot
- * send a header, and it must not be on for this panel: the scoping in the
- * controller has nothing to scope to without a req.user.
+ * `protect` is still applied PER ROUTE rather than with `router.use`, so a
+ * route that must stay open can be seen to be open — none is, today.
+ *
+ * `/export` is the one the dashboard opens with window.open(), a plain
+ * browser navigation that cannot carry an Authorization header. It now
+ * carries the token as `?token=`, which `readToken` in authMiddleware.js
+ * accepts for exactly this case, and the panel's `getExportUrl` appends it.
+ *
+ * `protect` honours REQUIRE_AUTH=false, which leaves req.user undefined and
+ * every caller unscoped. That escape hatch is for a client that cannot send
+ * a header, and it must not be on for this panel.
  */
 
 // Scrape operations
-router.post('/start', scraperController.startScrape);
-router.get('/status/:jobId', scraperController.getStatus);
-router.post('/stop/:jobId', scraperController.stopScrape);
+router.post('/start', protect, scraperController.startScrape);
+router.get('/status/:jobId', protect, scraperController.getStatus);
+router.post('/stop/:jobId', protect, scraperController.stopScrape);
 
 /*
  * Leads & data management — the assignment boundary.
@@ -42,20 +49,12 @@ router.get('/leads', protect, scraperController.getLeads);
 router.post('/assign', protect, protectRole('ADMIN'), scraperController.assignLeads);
 router.patch('/leads/:id/status', protect, scraperController.updateLeadStatus);
 
-/* Left unauthenticated deliberately. The dashboard downloads this with
-   window.open(), a plain browser navigation that cannot carry an
-   Authorization header — putting `protect` here would break the export
-   button rather than secure it. Guarding it properly needs a signed
-   short-lived download URL, which is a change to the frontend too.
-
-   KNOWN GAP: because there is no caller, there is no employee to scope to,
-   so this one route still answers with every lead. It is the last way round
-   the assignment boundary and it wants the signed-URL fix. */
-router.get('/export', scraperController.exportLeads);
+/* Signed in via `?token=` — see the note above. */
+router.get('/export', protect, scraperController.exportLeads);
 
 // Job history, team & statistics
-router.get('/jobs', scraperController.getJobs);
-router.get('/stats', scraperController.getStats);
+router.get('/jobs', protect, scraperController.getJobs);
+router.get('/stats', protect, scraperController.getStats);
 /* The whole team's numbers — an admin view by definition. */
 router.get('/team-stats', protect, protectRole('ADMIN'), scraperController.getTeamStats);
 

@@ -7,6 +7,12 @@
  * request. Same in-memory + subscription shape as everything else here.
  */
 
+const listeners = new Set<() => void>();
+
+/* Declared before the cache below, because `setShareTypes` notifies and
+   `setShareTypes` is what populates it. */
+let accepting = true;
+
 export type ShareType = {
   id: string;
   label: string;
@@ -15,12 +21,37 @@ export type ShareType = {
   available: boolean;
 };
 
-export const SHARE_TYPES: ShareType[] = [
-  { id: 'ST-1', label: 'Single sharing', pricePerBed: '₹9,500/mo', available: true },
-  { id: 'ST-2', label: 'Double sharing', pricePerBed: '₹6,500/mo', available: true },
-  { id: 'ST-3', label: 'Triple sharing', pricePerBed: '₹5,200/mo', available: true },
-  { id: 'ST-4', label: '4 sharing', pricePerBed: '₹4,200/mo', available: false },
-];
+/**
+ * The owner's room types, as last read from the server.
+ *
+ * EMPTY until something calls `setShareTypes`. It used to hold four invented
+ * rows — Single/Double/Triple/4-sharing at made-up prices — which meant the
+ * dashboard told every owner they had four room types and the Share Types
+ * screen drew them before its own fetch returned. An owner with two rooms saw
+ * four; an owner with none saw four.
+ *
+ * It stays a module-level array rather than becoming React state because the
+ * "accepting bookings" rule below reads it synchronously from two screens: a
+ * property cannot go online with nothing bookable, and that check has to give
+ * the same answer wherever it is asked.
+ */
+export const SHARE_TYPES: ShareType[] = [];
+
+/**
+ * Replace the cache with what the server just sent.
+ *
+ * Mutates in place rather than reassigning, because every importer holds a
+ * reference to this exact array — reassigning would leave them all pointing at
+ * the old one.
+ */
+export function setShareTypes(rows: ShareType[]) {
+  SHARE_TYPES.length = 0;
+  SHARE_TYPES.push(...rows);
+  /* Nothing bookable means the property cannot be online, the same rule
+     `saveShareTypes` enforces after an edit. */
+  if (visibleCount() === 0) accepting = false;
+  listeners.forEach((fn) => fn());
+}
 
 export function visibleCount(): number {
   return SHARE_TYPES.filter((t) => t.available).length;
@@ -33,8 +64,6 @@ export function visibleCount(): number {
  * type: nothing else about "accepting bookings" makes sense with nothing
  * bookable.
  */
-let accepting = true;
-
 export function isAvailable(): boolean {
   return accepting;
 }
@@ -53,8 +82,6 @@ export function setAvailable(next: boolean): boolean {
 }
 
 // ── Mutation ──────────────────────────────────────────────────────────────
-
-const listeners = new Set<() => void>();
 
 export function subscribeShareTypes(fn: () => void): () => void {
   listeners.add(fn);

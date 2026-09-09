@@ -3,78 +3,90 @@ import { StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen, Text, Button, IconButton, Chip, ChipRow, Input, Select } from '@/components/ui';
 import { useMyProperties } from '@/services/hooks/usePortfolio';
-import { createComplaintApi } from '@/services/api/domain.api';
+import { useSupportActions } from '@/services/hooks/useSupport';
 import { ApiError } from '@/services/api/client';
 
-const CATEGORIES = ['Maintenance', 'Cleanliness', 'Noise', 'Payment', 'Guest conduct', 'Other'];
+/**
+ * Report a problem with a guest.
+ *
+ * ## This is a support ticket now
+ *
+ * It used to write to `partner_complaints`, a collection nothing but this app
+ * ever read: no admin page, no student view, no push. An owner reporting a
+ * guest who broke a window was writing a note to themselves.
+ *
+ * A complaint about a guest is a conversation with the Lampose team, so it is
+ * filed as one — a support ticket in the `guest` category, which lands in the
+ * console's queue beside every other ticket, gets a reply, and pushes that
+ * reply back to the owner. The "Complaints" tile on the dashboard counts
+ * these tickets.
+ *
+ * ## What is kept from the old form
+ *
+ * The property (the team needs to know which), a one-line summary, the
+ * details, and how urgent the owner thinks it is. Category chips went: every
+ * one of these is about a guest, and "what kind of guest problem" is better
+ * said in the summary than picked from a list of six.
+ */
 const PRIORITIES = [
   { id: 'low', label: 'Low' },
-  { id: 'medium', label: 'Medium' },
+  { id: 'medium', label: 'Normal' },
   { id: 'high', label: 'High' },
   { id: 'urgent', label: 'Urgent' },
 ] as const;
 
-/**
- * Log a complaint — about a property this owner actually owns.
- *
- * `createComplaintApi` has existed in `domain.api.ts` since the real
- * `complaints/index.tsx` (list + resolve) was built, with nothing calling it:
- * there was a place to READ complaints and no way to FILE one. This is that
- * form. The backend now requires and verifies `propertyId` against this
- * partner's own phone number — see `createComplaint` in
- * `partnerDomains.controller.js` — so the property picker below is not
- * decorative, it is the only way this can succeed.
- */
 export default function NewComplaintScreen() {
   const router = useRouter();
   const { properties } = useMyProperties();
+  const { create } = useSupportActions();
 
   const [propertyId, setPropertyId] = useState<string | null>(null);
-  const [category, setCategory] = useState<string>(CATEGORIES[0]);
   const [priority, setPriority] = useState<(typeof PRIORITIES)[number]['id']>('medium');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const propertyOptions = properties.map((p) => p.name || 'Unnamed property');
+  const propertyOptions = properties.map((p) => p.name).filter(Boolean) as string[];
   const selectedLabel = properties.find((p) => (p.id || p._id) === propertyId)?.name || null;
 
-  const canSubmit = Boolean(propertyId) && title.trim().length > 0 && description.trim().length > 0 && !submitting;
+  const canSubmit =
+    Boolean(propertyId) && title.trim().length > 0 && description.trim().length > 0 && !create.isPending;
 
   const submit = async () => {
-    if (!canSubmit) return;
-    setSubmitting(true);
+    if (!canSubmit || !propertyId) return;
     setError(null);
     try {
-      await createComplaintApi({
-        propertyId,
-        title: title.trim(),
-        category,
-        priority,
-        description: description.trim(),
-      });
-      router.replace('/complaints');
+      /*
+       * One body, shaped so the team reads it top-down: the summary first,
+       * then the urgency, then what happened. The server derives the ticket's
+       * subject from the first line, so the summary becomes the queue row.
+       */
+      const urgency = PRIORITIES.find((p) => p.id === priority)?.label ?? 'Normal';
+      const body = `${title.trim()}\n\nPriority: ${urgency}\nProperty: ${selectedLabel ?? propertyId}\n\n${description.trim()}`;
+      const thread = await create.mutateAsync({ category: 'guest', body, listingId: propertyId });
+      router.replace(`/support/ticket?id=${thread.reference}` as never);
     } catch (err) {
-      setError(err instanceof ApiError ? err.displayMessage : 'Could not send that. Try again.');
-    } finally {
-      setSubmitting(false);
+      setError(err instanceof ApiError ? err.displayMessage : 'Could not send this report. Please try again.');
     }
   };
 
   return (
     <Screen
       padX={22}
-      contentStyle={styles.fill}
-      footer={<Button label="Log complaint" onPress={submit} disabled={!canSubmit} loading={submitting} />}
-      stickyHeader={
+      contentStyle={styles.stack}
+      footer={<Button label="Send to Lampose" onPress={() => { void submit(); }} disabled={!canSubmit} loading={create.isPending} />}
+      stickyHeader={(
         <View style={styles.backRow}>
           <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
         </View>
-      }
+      )}
     >
       <Text variant="pageTitleSm" style={styles.title}>
-        New complaint
+        Report a guest problem
+      </Text>
+      <Text variant="body" color="textSecondary" style={styles.lede}>
+        This goes to the Lampose team as a support conversation. They will reply here, and you
+        will be notified.
       </Text>
 
       <View style={styles.field}>
@@ -82,65 +94,55 @@ export default function NewComplaintScreen() {
           label="Which property?"
           options={propertyOptions}
           value={selectedLabel}
-          onChange={(label) => {
-            const match = properties.find((p) => (p.name || 'Unnamed property') === label);
-            setPropertyId(match ? (match.id || match._id || null) : null);
+          onChange={(name) => {
+            const match = properties.find((p) => p.name === name);
+            setPropertyId(match ? String(match.id || match._id) : null);
           }}
-          placeholder="Select a property"
+          placeholder="Choose a property"
         />
       </View>
 
-      <Text variant="label" style={styles.label}>
-        Category
-      </Text>
-      <ChipRow style={styles.field}>
-        {CATEGORIES.map((cat) => (
-          <Chip key={cat} label={cat} selected={category === cat} onPress={() => setCategory(cat)} />
-        ))}
-      </ChipRow>
-
-      <Text variant="label" style={styles.label}>
-        Priority
-      </Text>
-      <ChipRow style={styles.field}>
-        {PRIORITIES.map((p) => (
-          <Chip key={p.id} label={p.label} selected={priority === p.id} onPress={() => setPriority(p.id)} />
-        ))}
-      </ChipRow>
+      <View style={styles.field}>
+        <Text variant="label" color="textSecondary" style={styles.label}>How urgent?</Text>
+        <ChipRow>
+          {PRIORITIES.map((p) => (
+            <Chip key={p.id} label={p.label} selected={priority === p.id} onPress={() => setPriority(p.id)} />
+          ))}
+        </ChipRow>
+      </View>
 
       <Input
-        label="Title"
+        label="In one line"
         value={title}
         onChangeText={setTitle}
-        placeholder="A short summary"
-        maxLength={200}
+        placeholder="e.g. Guest in room 4 has not paid this month"
         containerStyle={styles.field}
+        maxLength={140}
       />
 
       <Input
-        label="Description"
+        label="What happened?"
         value={description}
         onChangeText={setDescription}
-        placeholder="What happened, and what you need"
+        placeholder="Dates, room, what was said or done, anything you have tried."
         multiline
-        minHeight={100}
+        numberOfLines={5}
         containerStyle={styles.field}
       />
 
       {error ? (
-        <Text variant="caption" color="error" style={styles.error}>
-          {error}
-        </Text>
+        <Text variant="caption" color="errorInk" style={styles.error}>{error}</Text>
       ) : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1 },
-  backRow: { height: 44, justifyContent: 'center', marginLeft: -10, marginBottom: 2 },
-  title: { marginBottom: 18 },
-  label: { marginBottom: 8 },
+  stack: { gap: 0 },
+  backRow: { height: 44, justifyContent: 'center', marginLeft: -10, marginBottom: 4 },
+  title: { marginBottom: 6 },
+  lede: { marginBottom: 20 },
   field: { marginBottom: 16 },
-  error: { marginTop: -6, marginBottom: 10 },
+  label: { marginBottom: 8 },
+  error: { marginTop: 4 },
 });

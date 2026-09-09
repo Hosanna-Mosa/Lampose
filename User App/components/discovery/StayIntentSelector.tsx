@@ -122,25 +122,47 @@ export type StayIntentSelectorProps = {
 /**
  * The per-unit price for a stay rate and a sharing choice.
  *
- * The sharing's own rate wins when the server sent one. Falling back to the
- * listing-level rate is for listings that price by stay length only — never a
- * derivation, only a different source.
+ * The sharing's own price wins where the owner recorded one; the listing-level
+ * rate is the fallback for listings priced by stay length alone.
+ *
+ * ## It reads `pricePerPerson`, and that is the fix
+ *
+ * This used to read `sharing.ratePerUnit[rate.id]` — a field that does not
+ * exist on a `SharingOption` and never has. It is a leftover from the fixture
+ * shape in `data/listings.ts`; the adapter that turns a server listing into
+ * one of these writes `pricePerPerson` (see `toSharingOptions`). An undefined
+ * lookup falls through the `??`, so EVERY sharing option was priced at the
+ * listing's headline rate — Single, 2 Sharing and 3 Sharing all quoting the
+ * same ₹6,000, which is exactly the bug reported against this control.
+ *
+ * `pricePerPerson` is per person, per MONTH — the adapter says so and the
+ * onboarding panel stores it that way. So it is applied on the monthly track
+ * only. A per-sharing NIGHTLY figure exists for hotels alone (`rates`), and a
+ * PG quoting a daily rate has one number for the building; using a monthly
+ * figure there would misprice a short stay by a factor of thirty.
  */
 export function unitPrice(rate: StayRate, sharing: SharingOption | null): number {
-  return sharing?.ratePerUnit?.[rate.id] ?? rate.pricePerUnit;
+  if (rate.id === 'MONTHLY' && sharing?.pricePerPerson !== undefined) {
+    return sharing.pricePerPerson;
+  }
+  return rate.pricePerUnit;
 }
 
-/** Which sharing options this listing actually quotes at a given stay rate. */
+/**
+ * Which sharing options this listing offers at a given stay rate.
+ *
+ * Every option the listing carries, at every track it quotes. The previous
+ * version filtered on `ratePerUnit`, the same non-existent field as above, so
+ * the filter matched nothing and fell through to its own fallback on every
+ * call — it has never once narrowed this list. Returning them plainly is what
+ * it actually did, now said honestly: where a sharing has no price of its own
+ * `unitPrice` falls back to the listing rate rather than hiding the option.
+ */
 export function sharingAtRate(
   options: readonly SharingOption[] | undefined,
-  rate: StayRate | null,
+  _rate: StayRate | null,
 ): readonly SharingOption[] {
-  if (!options?.length) return [];
-  if (!rate) return options;
-  // A sharing with no price at this rate is not offered at this rate. It is
-  // withheld rather than shown at a number invented for it.
-  const priced = options.filter((option) => option.ratePerUnit?.[rate.id] !== undefined);
-  return priced.length ? priced : options;
+  return options?.length ? options : [];
 }
 
 /**
@@ -148,11 +170,38 @@ export function sharingAtRate(
  *
  * `hasSharing` is passed rather than inferred, because a listing with no
  * sharing choice must not be held behind a control it never rendered.
+ *
+ * ## The date is checked, not just counted
+ *
+ * `joinDate !== null` was the whole test, which is enough while the only way
+ * to set one is the calendar below — it cannot offer a past day. It is not
+ * enough for a date that ARRIVED here: a request re-sent from a notification,
+ * a screen left open across a night, or any future path that seeds an intent
+ * from something stored. A past joining date is not a slightly wrong request,
+ * it is one the owner cannot act on, and by the time anybody notices they have
+ * already been notified.
+ *
+ * So the gate asks the question the picker's bounds only imply.
  */
 export function stayIntentComplete(intent: StayIntent, hasSharing = false): boolean {
   if (intent.stayType === null || intent.units === null) return false;
-  if (intent.joinDate === null) return false;
+  if (intent.joinDate === null || !isFutureDay(intent.joinDate)) return false;
   return !hasSharing || intent.sharingId !== null;
+}
+
+/**
+ * Is this `YYYY-MM-DD` today or later, read in local time?
+ *
+ * Compared as strings against a locally-built today, which works because the
+ * format sorts lexicographically and both sides are built the same way.
+ * Parsing to a `Date` and comparing instants is what puts an evening in India
+ * on the wrong side of the line.
+ */
+export function isFutureDay(iso: string): boolean {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) && iso >= today;
 }
 
 /**
@@ -195,11 +244,19 @@ export function stayTotals(
 /**
  * How much warning an owner gets before somebody arrives.
  *
- * Two days. A bed has to be cleared, cleaned and often a mattress bought, and
- * an owner who agrees to tomorrow and then cannot deliver is a cancellation
- * that looks like the app's fault.
+ * Zero: today is a joining date a student may pick.
+ *
+ * It was two days, on the reasoning that a bed has to be cleared and cleaned
+ * and an owner who cannot deliver tomorrow is a cancellation that looks like
+ * the app's fault. That is a real risk and it is the owner's to take: a
+ * student standing at a station tonight is the case this product exists for,
+ * and the owner still ANSWERS every request — nothing here books a bed, it
+ * asks for one, and an owner who needs two days says so by declining. The
+ * matching server bound (`JOIN_MIN_DAYS` in stayIntent.util.js) moved with
+ * this; a picker that offers a day the server refuses is worse than either
+ * rule on its own.
  */
-const NOTICE_DAYS = 2;
+const NOTICE_DAYS = 0;
 
 /** How far ahead a date may be chosen. Beyond this the owner cannot commit. */
 const MONTHS_AHEAD = 2;
@@ -620,22 +677,30 @@ export function StayIntentSelector({
   const track = trackOf(value.stayType);
   const activeRate = tracks.find((entry) => entry.track === track)?.rate ?? null;
 
-  const typeOptions: readonly Option[] = tracks.map(({ track: id, rate }) => ({
+  /*
+   * No price on these two, and that is deliberate.
+   *
+   * Both used to carry one — the listing's headline rate on the stay type,
+   * and that rate times the count on the length. Neither survives the sharing
+   * choice below them: the moment a student picks Single or 3 Sharing the real
+   * per-person figure replaces it, so the number these quoted was the price of
+   * a bed nobody had chosen yet. Two figures that disagree on one screen is
+   * worse than one figure in the right place, and the right place is the
+   * sharing row (which prices the actual bed) and the action bar (which
+   * totals it).
+   */
+  const typeOptions: readonly Option[] = tracks.map(({ track: id }) => ({
     id,
     label: STAY_TRACK_LABEL[id],
-    price: `${formatRupees(rate.pricePerUnit)}/${rate.unit}`,
   }));
 
-  /* Short stay is 1–7 days; long stay is whatever months the owner quotes.
-     Both price the whole length rather than the unit, because that is the
-     number the second dropdown is being asked to decide between. */
+  /* Short stay is 1–7 days; long stay is whatever months the owner quotes. */
   const lengthOptions: readonly Option[] = useMemo(() => {
     if (!activeRate) return [];
     const counts = track === 'SHORT' ? SHORT_DAY_OPTIONS : activeRate.unitOptions;
     return counts.map((count) => ({
       id: String(count),
       label: `${count} ${activeRate.unit}${count === 1 ? '' : 's'}`,
-      price: formatRupees(activeRate.pricePerUnit * count),
     }));
   }, [activeRate, track]);
 
@@ -658,17 +723,53 @@ export function StayIntentSelector({
       id: option.id,
       label: option.label,
       price: `${formatRupees(unitPrice(activeRate, option))}/${activeRate.unit}`,
-      // Sold out is stated rather than hidden. A student who sees only two of
-      // the four sharing types assumes the place is small, not that the cheap
-      // bed went — and the cheap bed going is the thing that decides.
-      meta: option.bedsLeft === 0 ? 'Full' : `${option.bedsLeft} left`,
-      disabled: option.bedsLeft === 0,
+      /*
+       * Beds left, and the three states are not two.
+       *
+       * This read `option.bedsLeft` — the fixture field again, absent from
+       * every real listing — so the row rendered the string "undefined left"
+       * under every sharing type. The adapter's field is `availableBeds`, and
+       * it keeps `undefined` and `0` deliberately apart: undefined means
+       * nobody has recorded a count (true of every property onboarded before
+       * the field existed), zero means every bed is taken. Saying "Full"
+       * for an uncounted room turns a student away from a bed that is free.
+       *
+       * Sold out is stated rather than hidden. A student who sees only two of
+       * the four sharing types assumes the place is small, not that the cheap
+       * bed went — and the cheap bed going is the thing that decides.
+       */
+      meta: option.availableBeds === undefined
+        ? undefined
+        : option.availableBeds === 0
+          ? 'Full'
+          : `${option.availableBeds} left`,
+      /* The server's own verdict, which folds in the two states a bed count
+         cannot express on its own: the owner paused this room type, and no
+         inventory was ever recorded. */
+      disabled: option.requestable === false,
     }));
   }, [sharingChoices, activeRate]);
 
   return (
     <View style={{ gap: space[4] }}>
-      <Text variant="title2">Are you looking for</Text>
+      {/* The one block on this page where the student ANSWERS rather than
+          reads, so it wears the accent — the same signal the chosen fields
+          below it carry, and the button at the bottom that acts on them. */}
+      <View style={[styles.headingRow, { gap: space[2] }]}>
+        <View
+          style={[
+            styles.headingChip,
+            {
+              width: 30, height: 30, borderRadius: radius.chip, backgroundColor: colors.brandTint,
+            },
+          ]}
+        >
+          <Icon name="search" size={16} color={colors.brandInk} />
+        </View>
+        <Text variant="title2" style={{ color: colors.brandInk }}>
+          Are you looking for
+        </Text>
+      </View>
 
       {/* Side by side: two halves of one question, and putting them on one
           line is what makes the dependency between them legible. */}
@@ -805,6 +906,8 @@ const styles = StyleSheet.create({
    * own line under them.
    */
   row: { flexDirection: 'row', alignItems: 'stretch' },
+  headingRow: { flexDirection: 'row', alignItems: 'center' },
+  headingChip: { alignItems: 'center', justifyContent: 'center' },
   flex: { flex: 1 },
   field: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   chevronDown: { transform: [{ rotate: '90deg' }] },

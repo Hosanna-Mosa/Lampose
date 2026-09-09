@@ -4,7 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Text } from '@/components/ui';
+import { Button, DateField, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
 import { useTheme } from '@/context/ThemeContext';
 import { setVisitSlot } from '@/services/api/stayRequests.api';
@@ -35,6 +35,19 @@ import { ApiError } from '@/services/api/client';
  * nine days starting today, eight times between 9:00 and 20:00. The server
  * re-validates both — this screen offering only valid choices is a courtesy,
  * not the gate.
+ *
+ * ## Nine chips, and a calendar for everything else
+ *
+ * The nine days are a shortcut, not the range. `setVisitSlot` accepts anything
+ * from today to `MAX_DAYS_AHEAD` — thirty days — so a student moving in at the
+ * start of next month could not pick a date the server would have taken
+ * happily. The chips stay because "Today" and "Tomorrow" are most of the
+ * answers and a chip is one tap; the calendar carries the rest.
+ *
+ * Its bounds are the server's own, so a date this screen offers is a date the
+ * request will accept. The two numbers agreeing is the whole point: a picker
+ * that let somebody choose a day and then failed on submit would be worse than
+ * the nine chips it replaced.
  */
 
 /** The same eight times the WhatsApp list offers, as the backend stores them. */
@@ -48,6 +61,16 @@ const TIMES: readonly { value: string; label: string }[] = [
   { value: '18:30', label: '6:30 PM' },
   { value: '20:00', label: '8:00 PM' },
 ];
+
+/**
+ * How far ahead a visit may be booked.
+ *
+ * `MAX_DAYS_AHEAD` in `assistedSlot.controller.js`. Kept in step by hand,
+ * like the times above it — the server refuses anything past it with
+ * `DATE_TOO_FAR`, so being wrong here costs a rejected submit rather than a
+ * bad booking, but it should not be wrong.
+ */
+const MAX_DAYS_AHEAD = 30;
 
 /** Local date, not `toISOString()` — that hands back yesterday for most of an
     Indian evening. */
@@ -69,7 +92,7 @@ const dayOption = (offsetDays: number) => {
 };
 
 export default function VisitSlot() {
-  const { colors, space, layout, radius, touch } = useTheme();
+  const { mode, colors, space, layout, radius, touch } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -105,6 +128,32 @@ export default function VisitSlot() {
 
   const chosenDay = days.find((d) => d.value === date);
   const chosenTime = TIMES.find((t) => t.value === time);
+
+  /* The far edge of the window, and how to say it. Computed alongside `days`
+     so a screen left open across midnight keeps one consistent window rather
+     than a list from yesterday and a bound from today. */
+  const windowEnd = useMemo(() => isoDay(MAX_DAYS_AHEAD), []);
+  const prettyWindowEnd = useMemo(
+    () => new Date(`${windowEnd}T00:00:00`).toLocaleDateString('en-IN', {
+      day: 'numeric', month: 'short',
+    }),
+    [windowEnd],
+  );
+
+  /* The calendar shows a date only when the chips do not already own it —
+     otherwise tapping "Tomorrow" would fill the field underneath as well, and
+     the screen would look as though two controls had been answered. */
+  const pickedFromCalendar = Boolean(date) && !chosenDay;
+
+  /* A calendar day the chip row does not cover still needs its own label on
+     the button. */
+  const chosenDayLabel = chosenDay
+    ? chosenDay.label
+    : date
+      ? new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', {
+        weekday: 'short', day: 'numeric', month: 'short',
+      })
+      : null;
 
   const confirm = async () => {
     if (!requestId || !date || !time) return;
@@ -144,7 +193,7 @@ export default function VisitSlot() {
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.bg, paddingBottom: insets.bottom }]}>
-      <StatusBar style="auto" />
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       {/* No back arrow on purpose: the payment behind this is settled, and
           "back" from here has no honest meaning. The only way forward is a
           slot — or closing the app, which the reminder flow catches. */}
@@ -185,6 +234,33 @@ export default function VisitSlot() {
                 </Pressable>
               );
             })}
+          </View>
+
+          {/*
+            Any other day inside the window, from the OS calendar.
+
+            Below the chips rather than instead of them: the common answers are
+            in the next few days and a chip is one tap, but "the 14th" was
+            unreachable. `DateField` is the app's one date control — no second
+            calendar is drawn here — and its bounds are the server's, so it
+            cannot offer a day the submit would refuse.
+
+            Clearing the time on change matches the chips: a slot that has
+            passed on one day has not on another, and carrying a 9 AM selection
+            onto a day whose 9 AM is gone would send a slot nobody can keep.
+          */}
+          <View style={{ gap: space[2] }}>
+            <Text variant="caption" color="tertiary">
+              OR PICK ANOTHER DAY
+            </Text>
+            <DateField
+              value={pickedFromCalendar ? date : null}
+              onChange={(picked) => { setDate(picked); setTime(null); }}
+              placeholder={`Any day up to ${prettyWindowEnd}`}
+              minimumDate={days[0].value}
+              maximumDate={windowEnd}
+              accessibilityLabel="Pick a visit date"
+            />
           </View>
         </View>
 
@@ -240,8 +316,8 @@ export default function VisitSlot() {
           <Button
             label={busy
               ? 'Confirming your visit...'
-              : chosenDay && chosenTime
-                ? `Confirm · ${chosenDay.label}, ${chosenTime.label}`
+              : chosenDayLabel && chosenTime
+                ? `Confirm · ${chosenDayLabel}, ${chosenTime.label}`
                 : 'Pick a day and time'}
             disabled={!date || !time || busy}
             onPress={confirm}

@@ -1,5 +1,5 @@
 const express = require('express');
-const { getListings, getListingById, getListingMeta } = require('./listing.controller');
+const { getListings, getListingById, getListingReviews, getListingMeta } = require('./listing.controller');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 
 const router = express.Router();
@@ -15,6 +15,9 @@ router.get('/', requireLamposeDb, getListings);
    was never deployed rather than like it was shadowed. */
 router.get('/meta', requireLamposeDb, getListingMeta);
 
+/* Before `/:id` would also match — Express is first-match, and a literal
+   segment after the id is a different route. Public, like the listing. */
+router.get('/:id/reviews', requireLamposeDb, getListingReviews);
 router.get('/:id', requireLamposeDb, getListingById);
 
 module.exports = router;

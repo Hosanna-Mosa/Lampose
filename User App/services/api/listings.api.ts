@@ -97,6 +97,44 @@ export async function fetchListings(query: ListingQuery = {}): Promise<ListingsR
   };
 }
 
+/** One guest's review, with the owner's answer if they gave one. */
+export type ListingReview = {
+  id: string;
+  author: string;
+  rating: number;
+  comment: string;
+  /** `YYYY-MM-DD`, as the review was dated. */
+  date: string;
+  reply: { text: string; at: string | null } | null;
+};
+
+export type ListingReviews = {
+  /** Null when nobody has reviewed the place. Never invented. */
+  averageRating: number | null;
+  count: number;
+  reviews: ListingReview[];
+};
+
+/**
+ * What guests said about a listing.
+ *
+ * Reviews are written from a completed booking and the owner may answer each
+ * one; both halves come back here. The owner's reply used to live only in
+ * their own app's memory — the student it was written for never saw it.
+ */
+export async function fetchListingReviews(id: string, signal?: AbortSignal): Promise<ListingReviews> {
+  const res = await api.get<ApiEnvelope<ListingReview[]> & { averageRating?: number | null; count?: number }>(
+    endpoints.listingReviews(id),
+    { signal },
+  );
+  const reviews = unwrap(res) || [];
+  return {
+    averageRating: typeof res.averageRating === 'number' ? res.averageRating : null,
+    count: typeof res.count === 'number' ? res.count : reviews.length,
+    reviews,
+  };
+}
+
 export async function fetchListing(id: string, signal?: AbortSignal): Promise<Listing> {
   const envelope = await api.get<ApiEnvelope<BackendListing>>(endpoints.listing(id), { signal });
   return toListing(unwrap(envelope));

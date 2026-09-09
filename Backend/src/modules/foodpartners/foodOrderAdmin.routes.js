@@ -53,14 +53,13 @@ const { tagFoodPartnerRequest } = require('./foodPartner.log');
 
 const router = express.Router();
 
-/** Roles allowed to move a diner's money. Reading is wider. See the header. */
-const REFUNDING_ROLES = new Set(['Super Admin', 'Admin']);
+/* Moving a diner's money is `food.refund` — Super Admin, Admin — from the one
+   permission table in iam/iam.roles.js. Reading is wider. See the header. */
+const { can } = require('../iam/iam.middleware');
+const { rolesWith } = require('../iam/iam.roles');
 
-const requireRefunder = (req, res, next) => {
-  if (REFUNDING_ROLES.has(req.admin?.role)) return next();
-  const message = 'Refunding an order requires the Admin or Super Admin role.';
-  return res.status(403).json({ success: false, code: 'FORBIDDEN', message, error: message });
-};
+const REFUNDING_ROLES = new Set(rolesWith('food.refund'));
+const requireRefunder = can('food.refund');
 
 router.use(tagFoodPartnerRequest);
 router.use(verifyAdminToken);

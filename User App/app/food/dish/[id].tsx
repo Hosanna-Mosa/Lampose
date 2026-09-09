@@ -1,7 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Checkbox, Icon, Text } from '@/components/ui';
@@ -32,7 +32,7 @@ const SPICES: readonly SpiceLevel[] = ['mild', 'medium', 'hot'];
  * whose dish silently vanished cannot.
  */
 export default function DishScreen() {
-  const { findDish, findKitchen, kitchenOpen } = useFoodCatalogue();
+  const { findDish, findKitchen, kitchenOpen, loading, loadingMenus, refetch } = useFoodCatalogue();
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   /* Nothing on a handset that reports a real inset; the shortfall on one
@@ -92,6 +92,9 @@ export default function DishScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ padding: layout.gutter, paddingBottom: space[8] * 2, gap: space[4] }}
+        refreshControl={
+          <RefreshControl refreshing={loading || loadingMenus} onRefresh={refetch} tintColor={colors.brand} />
+        }
       >
         <FoodPhoto height={160} radius={radius.card} uri={dish.photo} label="photo coming from the kitchen" />
 

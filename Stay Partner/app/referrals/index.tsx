@@ -36,6 +36,7 @@ export default function ReferAndEarnScreen() {
   const router = useRouter();
   const [refInfo, setRefInfo] = useState<any>(null);
   const [invites, setInvites] = useState<any[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadReferrals = async () => {
     try {
@@ -54,6 +55,15 @@ export default function ReferAndEarnScreen() {
   useEffect(() => {
     loadReferrals();
   }, []);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await loadReferrals();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const referralCode = refInfo?.code || 'PAR-9600';
   const available = typeof refInfo?.points === 'number' ? refInfo.points : 0;
@@ -103,6 +113,8 @@ export default function ReferAndEarnScreen() {
   return (
     <Screen
       contentStyle={styles.stack}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
       stickyHeader={
         <>
           <View style={styles.backRow}>

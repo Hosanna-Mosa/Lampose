@@ -9,7 +9,11 @@
  * states people reach when something has gone wrong.
  */
 
-export { StatusBlock, summaryLineFor, type StatusBlockProps } from './StatusBlock';
+/* `StatusBlock` was here — the tinted card that opened the booking detail with
+   a sentence restating the status. It has been removed along with that card:
+   "Where this booking is" sits immediately below where it stood and answers
+   the same question with the same words plus a timeline, so the pair was one
+   question asked twice, pushing the terms below the fold. */
 export { ActionBar, type ActionBarProps } from './ActionBar';
 export { BookingRow, BookingSegments, type BookingRowProps } from './BookingList';
 
@@ -25,15 +29,12 @@ export { NoticeDatePicker, type NoticeDatePickerProps } from './NoticeDatePicker
 export { DepositEstimate, type DepositEstimateProps } from './DepositEstimate';
 export { RefundChaseNote, type RefundChaseNoteProps } from './RefundChaseNote';
 
-/**
- * After the stay. Each of these is built around one refusal:
- *
- *  · `PastStayCard`   — refuses to show only the past, because the question
- *    being asked is "what does it cost now"
- *  · `ReceiptRow`     — refuses to say "being prepared" without a date
- */
-export { PastStayCard, type PastStayCardProps } from './PastStayCard';
-export { ReceiptRow, type ReceiptRowProps } from './ReceiptRow';
+/* `PastStayCard` and `ReceiptRow` were here, behind the "Past stays" and
+   "Receipts & agreements" rows on the profile screen. Both rows and both
+   screens have been removed, and the two components went with them — a card
+   with no screen to draw it on is dead weight that the next reader has to
+   work out is dead. The booking detail is where a finished stay is read now,
+   and it carries its own terms. */
 
 /**
  * Support, alerts and the account.

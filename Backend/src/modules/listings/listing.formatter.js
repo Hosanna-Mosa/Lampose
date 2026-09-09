@@ -17,7 +17,7 @@ const {
    no month ladder for it — so that page asks for sharing alone. Named here so
    the browser does not have to re-derive the rule. */
 const {
-  DEFAULT_CATEGORY, SIMPLE_PATH_CATEGORIES, TOKEN_CATEGORIES, normaliseCategory,
+  DEFAULT_CATEGORY, SIMPLE_PATH_CATEGORIES, paymentPurposeFor, normaliseCategory,
 } = require('../../shared/constants/categories');
 const config = require('../../config/env');
 
@@ -145,19 +145,40 @@ const formatListing = (input) => {
     simpleSharingPath: SIMPLE_PATH_CATEGORIES.includes(normaliseCategory(doc.category)),
 
     /*
-     * Whether a confirmed visit here is paid for — the ₹199 assisted visit.
+     * Whether this property is paid for through Lampose, and what the money
+     * buys.
      *
-     * Exposed rather than inferred from `simpleSharingPath`. The two happen to
-     * cover the same categories today, and a page that guessed one from the
-     * other would start asking for money — or stop — the moment they diverge.
-     * The amount travels so a button can name the figure instead of hardcoding
-     * a number that lives in the server's config. (The field keeps its old
-     * `visitToken` name so no client parsing breaks; the ₹20 token itself is
-     * retired.)
+     * Exposed rather than inferred from `simpleSharingPath`. The two happened
+     * to cover the same categories once, and a page that guessed one from the
+     * other would start asking for money — or stop — the moment they diverged.
+     * They have now: a hotel charges and takes the stay-length path.
+     *
+     * `purpose` is what a client should branch on:
+     *
+     *   assisted_visit   a fixed fee that buys a VIEWING. `amountPaise` is the
+     *                    figure, so a button can name it before an order
+     *                    exists.
+     *   stay_booking     the stay total, which buys the STAY. `amountPaise` is
+     *                    NULL here on purpose — the price depends on the dates
+     *                    and the bed the guest has not chosen yet, and it is
+     *                    computed and frozen when the request is made. A
+     *                    number here would be a price for a stay nobody has
+     *                    described.
+     *
+     * (The field keeps its old `visitToken` name so no client parsing breaks;
+     * the ₹20 token itself is retired.)
      */
-    visitToken: TOKEN_CATEGORIES.includes(normaliseCategory(doc.category))
-      ? { required: true, amountPaise: config.razorpay.assistedVisitAmountPaise }
-      : { required: false, amountPaise: null },
+    visitToken: (() => {
+      const purpose = paymentPurposeFor(doc.category);
+      if (!purpose) return { required: false, purpose: null, amountPaise: null };
+      return {
+        required: true,
+        purpose,
+        amountPaise: purpose === 'assisted_visit'
+          ? config.razorpay.assistedVisitAmountPaise
+          : null,
+      };
+    })(),
 
     /* Meal facts, only where the panel recorded them. `foodIncluded` false is
        a real answer and is kept; absent stays absent, and the page shows no

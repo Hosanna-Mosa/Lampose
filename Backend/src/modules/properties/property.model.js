@@ -176,10 +176,21 @@ const propertySchema = new mongoose.Schema(
       default: 'pending'
     },
     // The leads panel's own lifecycle flag, independent of the WhatsApp
-    // verification the onboarding app runs.
+    // verification the onboarding app runs. 'removed' is written by the
+    // owner's own "Delete this listing" in the Stay Partner app — see
+    // `removeMyProperty` in `propertyEdit.controller.js` — and, like every
+    // other value here, is a soft flag: the document is never dropped, so a
+    // booking, payout or review made against this property before removal
+    // still resolves everything it points at.
     status: {
       type: String,
       default: 'active'
+    },
+    // Set once, by `removeMyProperty`, alongside `status: 'removed'`. Null
+    // for every property that has never been removed.
+    removedAt: {
+      type: Date,
+      default: null
     }
   },
   {

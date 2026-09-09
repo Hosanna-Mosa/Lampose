@@ -8,7 +8,7 @@ const crypto = require('crypto');
 const { sendVerificationMessage } = require('../../infrastructure/twilio/twilio');
 const { getIsInMemory, getMemoryStore } = require('../../infrastructure/database/db');
 const permissionStore = require('../permissions/permission.store');
-const { optionalAuth } = require('../../shared/middleware/authMiddleware');
+const { identifyStaffOrAdmin, adminNeeds, bindEmployeeEmail } = require('../iam/iam.middleware');
 
 /* Matches the partner edit surface, so a listing cannot hold more photos
    than either app is built to show. */
@@ -27,6 +27,22 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 } // 15MB limit
 });
+
+/*
+ * Every route here needs a verified caller: the onboarding app's employee (a
+ * v2 staff token, identified on writes by `x-employee-email` — now bound to
+ * the token's own address) or the admin console (an admin token). A request
+ * with neither is refused before any handler runs. This used to be the other
+ * way round: no header meant "the trusted console", so anybody who omitted
+ * the header could edit or delete any property.
+ *
+ * Reads are open to any signed-in employee or administrator — the listing
+ * grid is the first thing both apps show. Writes additionally need
+ * `properties.write` for a console caller (`adminNeeds` below); an employee
+ * is judged by the grant gate the route already has.
+ */
+router.use(identifyStaffOrAdmin, bindEmployeeEmail);
+const requireWriter = adminNeeds('properties.write');
 
 /**
  * Gate a destructive write behind an administrator's approval.
@@ -133,7 +149,7 @@ const findPendingInMemoryIndex = (id) => {
 
 // @route   POST /api/properties/upload-image
 // @desc    Upload single image to Cloudinary and return secure URL
-router.post('/upload-image', upload.single('image'), async (req, res) => {
+router.post('/upload-image', requireWriter, upload.single('image'), async (req, res) => {
   const timestamp = new Date().toLocaleTimeString();
   console.log(`\n☁️  [${timestamp}] [Cloudinary Upload] Single image upload initiated...`);
 
@@ -203,7 +219,7 @@ router.post('/upload-image', upload.single('image'), async (req, res) => {
 
 // @route   POST /api/properties/upload-images
 // @desc    Batch upload multiple images (up to 10) to Cloudinary and return array of secure URLs
-router.post('/upload-images', upload.array('images', 10), async (req, res) => {
+router.post('/upload-images', requireWriter, upload.array('images', 10), async (req, res) => {
   const timestamp = new Date().toLocaleTimeString();
   console.log(`\n☁️  [${timestamp}] [Cloudinary Batch Upload] Starting batch image processing...`);
 
@@ -459,7 +475,7 @@ router.get('/:id', async (req, res) => {
 
 // @route   POST /api/properties
 // @desc    Create a new property onboarding entry
-router.post('/', async (req, res) => {
+router.post('/', requireWriter, async (req, res) => {
   const timestamp = new Date().toLocaleTimeString();
   console.log(`\n📝 [${timestamp}] [API POST /properties] Onboarding new accommodation...`);
 
@@ -704,7 +720,7 @@ router.post('/', async (req, res) => {
    could claim it. `optionalAuth` decodes the bearer token the Onboard app
    already sends and looks the user up, so this is a real identity.
    ══════════════════════════════════════════════════════════════════════════ */
-router.put('/:id/images', optionalAuth, async (req, res) => {
+router.put('/:id/images', requireWriter, async (req, res) => {
   const { id } = req.params;
   const timestamp = new Date().toLocaleTimeString();
 
@@ -790,7 +806,7 @@ router.put('/:id/images', optionalAuth, async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireWriter, async (req, res) => {
   const timestamp = new Date().toLocaleTimeString();
   const { id } = req.params;
   console.log(`\n✏️  [${timestamp}] [API PUT /properties/${id}] Updating property...`);
@@ -848,7 +864,7 @@ router.put('/:id', async (req, res) => {
 
 // @route   DELETE /api/properties/:id
 // @desc    Delete a property
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireWriter, async (req, res) => {
   const timestamp = new Date().toLocaleTimeString();
   const { id } = req.params;
   console.log(`\n🗑️  [${timestamp}] [API DELETE /properties/${id}] Deleting property...`);

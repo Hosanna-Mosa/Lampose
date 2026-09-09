@@ -68,6 +68,8 @@ export const queryKeys = {
     ] as const,
 
   listing: (id: string) => ['listings', 'detail', id] as const,
+  /* Under the detail key, so invalidating a listing takes its reviews too. */
+  listingReviews: (id: string) => ['listings', 'detail', id, 'reviews'] as const,
   listingMeta: ['listings', 'meta'] as const,
 
   visitRequest: (id: string) => ['visit-requests', id] as const,
@@ -78,9 +80,23 @@ export const queryKeys = {
   /* One key for the list and the unread badge, so the number on the bell and
      the rows on the screen are the same fetch and cannot disagree. */
   notifications: ['notifications'] as const,
+  /* Which alerts THIS DEVICE has opened. Device state rather than server
+     state — see the note in `useNotifications` for why a per-alert read mark
+     cannot be a watermark.
+
+     Deliberately NOT under the `['notifications']` prefix. Marking one read
+     writes this key optimistically and then writes the disk in the
+     background; an invalidation of the server list that also swept this key
+     would re-read the disk mid-write and put the dot back. Separate prefixes
+     mean the two can never race. */
+  notificationsRead: ['notifications-read'] as const,
 
   /** The food-order discount a referral code may have unlocked. */
   myCoupon: ['myCoupon'] as const,
+
+  /* The delivery address book. One key, so the profile row's count and the
+     book screen itself are the same fetch. */
+  addresses: ['addresses'] as const,
 
   /* One key behind the Saved tab and every bookmark on every card, so a
      listing saved from the feed is already saved when the tab is opened. */

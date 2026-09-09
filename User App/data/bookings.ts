@@ -6,8 +6,6 @@ import type {
   CancellationReason,
   CostBreakdownData,
   NoticeTerms,
-  PastStay,
-  Receipt,
   RefundState,
   TimelineStep,
   Visit,
@@ -320,77 +318,10 @@ export const cancellationReasons: readonly CancellationReason[] = [
   { id: 'property', label: 'The place was not as described' },
 ];
 
-/* ------------------------------------------------------------------ *
- * After the stay
- * ------------------------------------------------------------------ */
-
-export const pastStays: readonly PastStay[] = [
-  {
-    bookingId: 'bkg-3711',
-    reference: 'LAM-3711',
-    propertyName: 'Bhavana Girls PG',
-    category: 'PG_HOSTEL',
-    periodLabel: 'Sep 2026 – Sep 2027',
-    monthsStayed: 12,
-    sharingLabel: 'Two sharing',
-    rentPaid: 8500,
-    depositOutcome: 'deposit returned in full',
-    // Today's numbers, which is the half that answers "can I go back".
-    currentRent: 9200,
-    currentAvailability: 'two-sharing has 1 bed free',
-    stillListed: true,
-    ownerStillRuns: true,
-    ownerName: 'Padma',
-  },
-  {
-    bookingId: 'bkg-3502',
-    reference: 'LAM-3502',
-    propertyName: 'Anand PG for Boys',
-    category: 'PG_HOSTEL',
-    periodLabel: 'Jan 2026 – Jun 2026',
-    monthsStayed: 5,
-    sharingLabel: 'Three sharing',
-    rentPaid: 6000,
-    depositOutcome: '₹1,200 kept for unpaid electricity',
-    stillListed: false,
-  },
-];
-
-export const receipts: readonly Receipt[] = [
-  {
-    id: 'rc-agreement',
-    kind: 'agreement',
-    title: 'Rental agreement',
-    meta: 'Signed 13 Aug 2026',
-    pageCount: 4,
-  },
-  {
-    id: 'rc-payment',
-    kind: 'payment',
-    title: 'Booking payment',
-    meta: '13 Aug 2026 · UPI · TXN 8841027',
-    amount: 26499,
-  },
-  {
-    id: 'rc-refund',
-    kind: 'refund',
-    title: 'Deposit refund',
-    meta: '19 Mar 2027 · UPI · RFD-4192-A',
-    amount: 16260,
-  },
-  {
-    id: 'rc-settlement',
-    kind: 'settlement',
-    title: 'Final settlement statement',
-    meta: 'Being prepared',
-    // States its own deadline. "Being prepared" with no date is the same as
-    // forgotten.
-    pendingUntilLabel: 'Ready within 3 working days of your last day',
-  },
-];
-
-export const RECEIPTS_RETENTION_NOTE =
-  'Every receipt stays here as long as your account does — you’ll need them for a rent-allowance claim or a landlord asking for a reference.';
+/* The "after the stay" fixtures — `pastStays`, `receipts` and
+   `RECEIPTS_RETENTION_NOTE` — lived here for the Past stays and
+   Receipts & agreements screens. Both screens have been removed, so the
+   fixtures went with them rather than being left as data nothing reads. */
 
 /* ------------------------------------------------------------------ *
  * Agreement

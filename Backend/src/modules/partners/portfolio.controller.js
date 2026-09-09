@@ -345,11 +345,26 @@ const getSummary = async (req, res, next) => {
     const counted = (status) => requests.filter((request) => request.status === status).length;
 
     const { PartnerBooking, PartnerPayout, PartnerComplaint } = require('./partnerDomains.model');
+    const { stageFor } = require('./bookingStage.util');
 
     const bookings = key ? await PartnerBooking.find({ partnerPhoneDigits: key }).lean() : [];
-    const inHouse = bookings.filter((b) => b.status === 'in_house').length;
-    const arrivals = bookings.filter((b) => b.status === 'arriving').length;
-    const departures = bookings.filter((b) => b.status === 'departing').length;
+
+    /*
+     * Counted on the DERIVED stage, not on the stored status.
+     *
+     * These two lines read `b.status === 'arriving'` and `'departing'` —
+     * values nothing in this codebase has ever written. Both tiles were
+     * therefore incapable of showing anything but zero, on the screen an owner
+     * opens to find out who is turning up today.
+     *
+     * `stageFor` answers it from the dates, which is where the answer actually
+     * lives. One `now` for all three, so the three figures cannot disagree.
+     */
+    const now = new Date();
+    const stages = bookings.map((b) => stageFor(b, now));
+    const inHouse = stages.filter((stage) => stage === 'in_house').length;
+    const arrivals = stages.filter((stage) => stage === 'arriving').length;
+    const departures = stages.filter((stage) => stage === 'departing').length;
 
     /*
      * Zero is an answer. `|| 9600` is not.
@@ -387,7 +402,22 @@ const getSummary = async (req, res, next) => {
       .filter((p) => new Date(p.payoutDate) >= startOfWeek)
       .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-    const complaints = key ? await PartnerComplaint.find({ partnerPhoneDigits: key, status: { $in: ['open', 'in_progress'] } }).lean() : [];
+    /*
+     * "Complaints" on the dashboard are the owner's OPEN guest reports —
+     * support tickets in the `guest` category, which is where a complaint
+     * about a guest now goes so the Lampose team actually sees it. The
+     * `partner_complaints` collection this used to count had no reader
+     * anywhere but the owner's own phone.
+     */
+    const Ticket = require('../support/ticket.model');
+    const complaints = partner.partnerId
+      ? await Ticket.find({
+        'requester.kind': 'partner',
+        'requester.id': String(partner.partnerId),
+        category: 'guest',
+        status: { $in: ['open', 'awaiting_customer'] },
+      }).select('_id').lean()
+      : [];
     /* Not derived from `PartnerShareType` — nothing in this codebase ever
        creates one of those documents (only `find`/`updateMany` exist), so
        deriving "accepting bookings" from it was always reading an empty

@@ -373,14 +373,39 @@ export function SegmentedControl<T extends string>({
               },
             ]}
           >
-            {/* Two overlaid labels rather than an animated fontWeight, which
-                React Native cannot interpolate — it snaps mid-transition. */}
+            {/*
+              Two overlaid labels rather than an animated fontWeight, which
+              React Native cannot interpolate — it snaps mid-transition.
+
+              BOTH COPIES MUST BE THE SAME SIZE, and the one IN FLOW must be
+              the heavier of the two. This is the same bug `CategoryTabs`
+              already carries a note about, and it produced the same symptom
+              here: the in-flow copy was `bodyLg` (12pt / 400) and the overlay
+              was `bodyStrong` (11.5pt / 600). The overlay is pinned
+              `left: 0, right: 0` to a box measured by the LIGHTER face, so at
+              600 the word is wider than the box holding it — it wrapped, and
+              the second line was clipped by the box's height. "Past" rendered
+              as "Pas".
+
+              `body` and `bodyStrong` are the same 11.5pt and differ only in
+              weight, so the 600 copy defines the widest box the pair can need
+              and the 400 copy always fits inside it. `numberOfLines={1}` is
+              the backstop: a label that somehow still overflows now
+              ellipsises, which is legible, instead of silently losing its
+              last character.
+            */}
             <View>
-              <Text variant="bodyLg" color={active ? 'primary' : 'secondary'} style={{ opacity: active ? 0 : 1 }}>
+              <Text
+                variant="bodyStrong"
+                numberOfLines={1}
+                style={{ opacity: active ? 1 : 0, color: colors.textPrimary }}
+              >
                 {option}
               </Text>
               <Text
-                variant="bodyStrong"
+                variant="body"
+                color={active ? 'primary' : 'secondary'}
+                numberOfLines={1}
                 style={{
                   position: 'absolute',
                   left: 0,
@@ -388,8 +413,7 @@ export function SegmentedControl<T extends string>({
                   top: 0,
                   bottom: 0,
                   textAlign: 'center',
-                  opacity: active ? 1 : 0,
-                  color: colors.textPrimary,
+                  opacity: active ? 0 : 1,
                 }}
               >
                 {option}
@@ -743,7 +767,7 @@ const styles = StyleSheet.create({
   },
   chipRemove: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
   segmented: { flexDirection: 'row' },
-  segment: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  segment: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
   stepButton: { alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   optionCard: { flexDirection: 'row', alignItems: 'center' },
   /* The mark and the tick at the top, the words at the bottom, so the labels

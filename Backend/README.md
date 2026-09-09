@@ -455,7 +455,7 @@ not try to make one verify another's tokens — what keeps them apart is the
 
 | | Collection | Login | `typ` |
 | --- | --- | --- | --- |
-| v1 admin console | `admins` | `/api/v1/admin/login` | — (not verified server-side) |
+| v1 admin console | `admins` | `/api/v1/admin/login` | `admin` (verified on every request — see below) |
 | v2 leads panel | `scriper_users` | `/api/v2/auth/login` | — (looked up by `userId`) |
 | User App | `app_customers` | `/api/v2/customers/auth/…` | `customer` |
 | Stay Partner | `app_partners` | `/api/v2/partners/auth/…` | `partner` |
@@ -467,7 +467,50 @@ has a password, for the reason `customer.model.js` sets out.
 
 The onboarding app authenticates its field agents against the **v2 leads**
 accounts (`/api/v2/auth/onboarding-login`), then identifies them on writes with
-the `x-employee-email` header, which the v1 permission gate reads.
+the `x-employee-email` header, which the v1 permission gate reads — and which
+is now **bound** to the token: it must equal the signed-in employee's own
+address, and a request with neither an employee token nor an admin token is
+refused (`src/modules/iam/iam.middleware.js`).
+
+### Access control (IAM)
+
+**One permission table.** `src/modules/iam/iam.roles.js` says which console
+role holds which capability (`money.release`, `support.answer`,
+`admins.manage`, …). Every admin router guards by capability through
+`can('…')` / `requireAdminWith('…')`, never by a role name, and the login and
+`GET /api/v1/admin/me` responses hand the console the same table's answer as
+`capabilities[]`, which is what the console shows and hides by. Add a power in
+one place.
+
+**The console's token is `{ id, typ: 'admin', ver }`** (`admins/adminToken.js`),
+default 12 hours (`ADMIN_SESSION_TTL`). `verifyAdminToken` checks, on every
+request, that the account exists, is Active, and that `ver` equals the
+account's `sessionVersion` — so a password change, a role or status change made
+by a Super Admin, or `POST /me/sign-out-everywhere` ends every open session on
+its next request. Tokens from before `typ` existed are refused with
+`LEGACY_TOKEN`; one sign-in is the whole migration.
+
+**Bootstrap, then the console.** `POST /api/v1/admin/register` creates the
+FIRST administrator only (a Super Admin, guarded by `V1_ADMIN_SECRET_KEY`) and
+answers `403 BOOTSTRAP_DONE` afterwards; `GET /bootstrap` tells the login page
+whether to offer it. Every later account is created from Administrators by a
+Super Admin, who can never change their own role or status, and can never
+demote, deactivate or delete the last active Super Admin. Logins are
+rate-limited per IP and per email.
+
+**The two stay-side app identities revoke the same way.** `app_customers` and
+`app_partners` carry `sessionVersion`, their tokens carry it as `ver`, the
+guards and the socket handshake compare the two, and `POST …/auth/logout
+{ everywhere: true }` bumps it (`iam/session.controller.js`).
+
+**The WhatsApp webhook proves its sender.** `POST /api/whatsapp/webhook`
+refuses any request without a valid `X-Twilio-Signature`
+(`shared/middleware/twilioSignature.js`); `ALLOW_UNSIGNED_WEBHOOKS=true` skips
+it for a laptop with no tunnel and is refused in production.
+
+`npm run verify:access` asserts all of it — every unauthenticated call is
+refused, every role is refused what the table denies, and a bumped session
+version kills a live token for all three identities.
 
 ## Every API call is logged
 

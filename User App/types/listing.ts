@@ -312,8 +312,19 @@ export type MessChoice =
  * Sharing
  * ------------------------------------------------------------------ */
 
-/** What the listing detail needs to know about the visit token. */
-export type VisitToken = { required: boolean; amountPaise?: number };
+/**
+ * Whether this property is paid for through Lampose, and what the money buys.
+ *
+ * `amountPaise` is present only for `assisted_visit`, which is a fixed fee a
+ * button can name before anything is chosen. A `stay_booking` is rate ×
+ * nights and has no price until the guest has picked a bed and dates, so it
+ * carries none — see `listing.formatter.js`.
+ */
+export type VisitToken = {
+  required: boolean;
+  purpose?: 'assisted_visit' | 'stay_booking' | null;
+  amountPaise?: number;
+};
 
 export type SharingOption = {
   id: string;

@@ -53,7 +53,11 @@ export default function MenuTab() {
   const c = useColors();
   const router = useRouter();
   const { partner, signOut } = useAuth();
-  const [propertyName, setPropertyName] = useState('Sea View Villa');
+  /* Null until the summary answers. This was seeded with 'Sea View Villa' —
+     the fixture property — so every owner opened Profile & Settings and saw
+     somebody else's listing named as theirs for as long as the request took,
+     and permanently if it failed. */
+  const [propertyName, setPropertyName] = useState<string | null>(null);
 
   useEffect(() => {
     fetchSummary()
@@ -104,12 +108,19 @@ export default function MenuTab() {
             <Text variant="h3" style={styles.profileName}>
               {partner?.name || 'Partner Account'}
             </Text>
-            <Text variant="caption" color="textSecondary">
-              {partner?.phone || '+91 97047 26252'}
-            </Text>
-            <Text variant="badge" color="accent" style={{ marginTop: 2 }}>
-              {propertyName}
-            </Text>
+            {/* No fallback number. This read '+91 97047 26252' — a real
+                developer's phone, baked in — so an owner whose profile had not
+                loaded was shown somebody else's number as their own. */}
+            {partner?.phone ? (
+              <Text variant="caption" color="textSecondary">
+                {partner.phone}
+              </Text>
+            ) : null}
+            {propertyName ? (
+              <Text variant="badge" color="accent" style={{ marginTop: 2 }}>
+                {propertyName}
+              </Text>
+            ) : null}
           </View>
         </View>
       </Card>

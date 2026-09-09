@@ -2,6 +2,23 @@ const express = require('express');
 const router = express.Router();
 const store = require('./permission.store');
 const { ACTIONS, STATUSES } = require('./permissionRequest.model');
+const {
+  verifyAdminToken, can, identifyStaffOrAdmin, adminNeeds, bindEmployeeEmail,
+} = require('../iam/iam.middleware');
+
+/* Who may call what on this router. Two identities share it: the onboarding
+   app's employee (a v2 staff token, `req.user`) and the admin console
+   (`req.admin`). Until now every route answered anybody — including the
+   approval itself, so an employee could grant their own request.
+
+     GET  /            employee: own requests only · console: everything
+     GET  /access      employee: own access only  · console: anybody's
+     POST /            employee: as themselves     · console: permissions.decide
+     PUT  /:id         console only, permissions.decide — `decidedBy` is the
+                       signed-in administrator, never the body
+     POST /:id/consume employee: own grant only    · console: permissions.decide
+     DELETE /:id       console only, permissions.decide */
+const requireDecider = [verifyAdminToken, can('permissions.decide')];
 
 // How long an approval stays spendable before the employee has to ask again.
 const GRANT_WINDOW_HOURS = Number(process.env.PERMISSION_GRANT_TTL_HOURS || 24);
@@ -22,10 +39,14 @@ const present = (doc) => {
  *          reads this; the audit trail is the point of the collection.
  * @access  Admin
  */
-router.get('/', async (req, res) => {
+router.get('/', identifyStaffOrAdmin, async (req, res) => {
   const timestamp = new Date().toLocaleTimeString();
   try {
-    const { status, action, employeeEmail, propertyId, search } = req.query;
+    const { status, action, propertyId, search } = req.query;
+    /* An employee sees their own request trail and nobody else's; the
+       console (req.admin, no employee identity) may filter by whichever
+       email the query names, exactly as before. */
+    const employeeEmail = req.user ? store.normalizeEmail(req.user.email) : req.query.employeeEmail;
 
     let items = await store.listRequests({
       status,
@@ -67,10 +88,12 @@ router.get('/', async (req, res) => {
  *          app calls this to decide whether Edit / Delete are live or locked.
  * @access  Employee
  */
-router.get('/access', async (req, res) => {
+router.get('/access', identifyStaffOrAdmin, bindEmployeeEmail, async (req, res) => {
   try {
     const propertyId = String(req.query.propertyId || '').trim();
-    const employeeEmail = store.normalizeEmail(req.query.employeeEmail || req.headers['x-employee-email']);
+    const employeeEmail = req.user
+      ? store.normalizeEmail(req.user.email)
+      : store.normalizeEmail(req.query.employeeEmail || req.headers['x-employee-email']);
 
     if (!propertyId || !employeeEmail) {
       return res.status(400).json({
@@ -117,11 +140,14 @@ router.get('/access', async (req, res) => {
  *          listing. Nothing is granted here — the record starts as pending.
  * @access  Employee
  */
-router.post('/', async (req, res) => {
+router.post('/', identifyStaffOrAdmin, bindEmployeeEmail, adminNeeds('permissions.decide'), async (req, res) => {
   const timestamp = new Date().toLocaleTimeString();
   try {
     const { propertyId, action, reason, property } = req.body;
-    const employeeEmail = store.normalizeEmail(req.body.employeeEmail || req.headers['x-employee-email']);
+    /* The request is filed as the signed-in employee, whatever the body says. */
+    const employeeEmail = req.user
+      ? store.normalizeEmail(req.user.email)
+      : store.normalizeEmail(req.body.employeeEmail || req.headers['x-employee-email']);
 
     if (!propertyId || !employeeEmail || !action) {
       return res.status(400).json({
@@ -202,10 +228,13 @@ router.post('/', async (req, res) => {
  *          pending. Granting opens a time-boxed window; everything else closes it.
  * @access  Admin
  */
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireDecider, async (req, res) => {
   const { id } = req.params;
   try {
-    const { status, decidedBy, expiresInHours } = req.body;
+    const { status, expiresInHours } = req.body;
+    /* The audit trail names the administrator who decided — from the verified
+       token, so the body cannot sign somebody else's name. */
+    const decidedBy = req.admin.email || req.admin.name || '';
 
     if (!status || !STATUSES.includes(status)) {
       return res.status(400).json({
@@ -264,12 +293,19 @@ router.put('/:id', async (req, res) => {
  *          approval buys exactly one edit or delete.
  * @access  Employee
  */
-router.post('/:id/consume', async (req, res) => {
+router.post('/:id/consume', identifyStaffOrAdmin, adminNeeds('permissions.decide'), async (req, res) => {
   const { id } = req.params;
   try {
     const existing = await store.findById(id);
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Permission request not found.' });
+    }
+
+    /* An employee may spend their own grant and nobody else's. */
+    if (req.user && store.normalizeEmail(existing.employeeEmail) !== store.normalizeEmail(req.user.email)) {
+      return res.status(403).json({
+        success: false, code: 'FORBIDDEN', message: 'That permission was granted to somebody else.',
+      });
     }
 
     if (!store.isActiveGrant(existing)) {
@@ -297,7 +333,7 @@ router.post('/:id/consume', async (req, res) => {
  * @desc    Remove a permission record from the audit trail.
  * @access  Admin
  */
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireDecider, async (req, res) => {
   const { id } = req.params;
   try {
     const deleted = await store.deleteRequest(id);

@@ -13,12 +13,14 @@ import {
   EmptyState,
 } from '@/components/ui';
 import { formatShortDate } from '@/lib/format';
-import { RATING_SUMMARY, REVIEWS, postReply, subscribeReviews, type Review } from '@/lib/reviews';
+import { type Review } from '@/lib/reviews';
 import { radius } from '@/constants/layout';
 import { fonts, type } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 
-import { fetchReviewsApi } from '@/services/api/domain.api';
+import { fetchReviewsApi, replyToReviewApi } from '@/services/api/domain.api';
+import { ApiError } from '@/services/api/client';
+import { fetchSummary } from '@/services/api/portfolio.api';
 import { logWarn } from '@/lib/log';
 
 const STARS = [5, 4, 3, 2, 1] as const;
@@ -31,10 +33,14 @@ function toneFor(name: string): 'accent' | 'success' | 'info' {
 
 export default function ReviewsListScreen() {
   const router = useRouter();
+  const [propertyName, setPropertyName] = useState<string | null>(null);
   const [reviews, setReviews] = useState<Review[]>([]);
-  const [avgRating, setAvgRating] = useState(4.8);
+  /* `null` until the server answers. Starting at 4.8 meant a brand-new owner
+     with no reviews at all was shown a 4.8 for as long as the request took. */
+  const [avgRating, setAvgRating] = useState<number | null>(null);
   const [replyingId, setReplyingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadReviews = async () => {
     try {
@@ -42,7 +48,10 @@ export default function ReviewsListScreen() {
       const mapped: Review[] = (res.reviews || []).map((r: any) => ({
         id: r.id || r._id,
         guestName: r.author || r.guestName || 'Guest',
-        roomType: r.propertyName || r.roomType || 'Deluxe Room',
+        /* Empty, not 'Deluxe Room'. A review of a room we cannot name is
+           still a real review; inventing a room type puts a guest's words
+           against a room that may not exist. */
+        roomType: r.propertyName || r.roomType || '',
         date: new Date(r.date || Date.now()),
         rating: r.rating || 5,
         text: r.comment || r.text || '',
@@ -51,7 +60,9 @@ export default function ReviewsListScreen() {
           : undefined,
       }));
       setReviews(mapped);
-      setAvgRating(res.averageRating || 4.8);
+      /* `?? null`, not `|| 4.8`: an average of 0 is a real answer, and there
+         is no honest number to invent when the server sends none. */
+      setAvgRating(typeof res.averageRating === 'number' ? res.averageRating : null);
     } catch (err) {
       logWarn('Failed to load reviews:', err);
     }
@@ -59,7 +70,25 @@ export default function ReviewsListScreen() {
 
   useEffect(() => {
     loadReviews();
+    /* For the reply byline — the same summary the dashboard and Profile read. */
+    fetchSummary()
+      .then((sum) => setPropertyName(sum?.propertyName ?? null))
+      .catch(() => { /* '(You)' alone is a fine byline. */ });
   }, []);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        loadReviews(),
+        fetchSummary()
+          .then((sum) => setPropertyName(sum?.propertyName ?? null))
+          .catch(() => { /* '(You)' alone is a fine byline. */ }),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const startReply = (id: string) => {
     setReplyingId(id);
@@ -69,20 +98,58 @@ export default function ReviewsListScreen() {
     setReplyingId(null);
     setDraft('');
   };
-  const postAndClose = (id: string) => {
-    if (!draft.trim()) return;
-    setReviews((prev) =>
-      prev.map((r) =>
-        r.id === id ? { ...r, reply: { author: 'Sea View Villa (You)', text: draft } } : r
-      )
-    );
-    setReplyingId(null);
-    setDraft('');
+  /*
+   * Who the reply is from, on the row that has just been posted.
+   *
+   * Hardcoded to 'Sea View Villa (You)' before — the fixture property — so an
+   * owner replying to a guest watched their answer appear under a business
+   * name that was not theirs.
+   *
+   * The property name comes from the summary the rest of the app already
+   * reads; '(You)' alone is the honest fallback when it has not arrived,
+   * because the one thing this label must convey is that the reply is theirs.
+   */
+  const replyAuthor = propertyName ? `${propertyName} (You)` : 'You';
+
+  /*
+   * SAVED now, and shown to the student.
+   *
+   * This used to write the reply into local state and nothing else: it
+   * appeared under the review, survived until the next load, and the guest it
+   * was written for never saw it. There was no endpoint. There is one now, and
+   * the row on screen is replaced with what the server actually stored.
+   */
+  const [replyError, setReplyError] = useState<string | null>(null);
+  const [posting, setPosting] = useState(false);
+
+  const postAndClose = async (id: string) => {
+    const text = draft.trim();
+    if (!text || posting) return;
+    setPosting(true);
+    setReplyError(null);
+    try {
+      const saved = await replyToReviewApi(id, text);
+      setReviews((prev) =>
+        prev.map((r) =>
+          r.id === id
+            ? { ...r, reply: { author: replyAuthor, text: saved?.reply?.text ?? text } }
+            : r
+        )
+      );
+      setReplyingId(null);
+      setDraft('');
+    } catch (err) {
+      setReplyError(err instanceof ApiError ? err.displayMessage : 'Could not post that reply. Try again.');
+    } finally {
+      setPosting(false);
+    }
   };
 
   return (
     <Screen
       contentStyle={styles.stack}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
       stickyHeader={
         <>
           <View style={styles.backRow}>
@@ -94,7 +161,12 @@ export default function ReviewsListScreen() {
       }
     >
 
-      <RatingSummary average={avgRating} count={reviews.length} />
+      <RatingSummary reviews={reviews} average={avgRating} />
+      {replyError ? (
+        <Text variant="caption" color="errorInk" style={{ marginTop: 8 }}>
+          {replyError}
+        </Text>
+      ) : null}
 
       {reviews.length > 0 ? (
         reviews.map((r) => (
@@ -106,7 +178,7 @@ export default function ReviewsListScreen() {
             onChangeDraft={setDraft}
             onReply={() => startReply(r.id)}
             onCancel={cancelReply}
-            onPost={() => postAndClose(r.id)}
+            onPost={() => { void postAndClose(r.id); }}
           />
         ))
       ) : (
@@ -121,17 +193,46 @@ export default function ReviewsListScreen() {
   );
 }
 
-function RatingSummary({ average = 4.8, count = 2 }: { average?: number; count?: number }) {
+/**
+ * The rating block, computed from the reviews on screen.
+ *
+ * The five bars used to be drawn from `RATING_SUMMARY.distribution` in
+ * `lib/reviews.ts` — a fixed 70/20/6/3/1 across 42 reviews. Every owner saw
+ * the same shape, including one with three reviews and one with none, on the
+ * screen they open to find out what guests actually think of them.
+ *
+ * `average` still comes from the SERVER, which counts every review ever left
+ * rather than the page currently loaded. The distribution is derived from what
+ * is on screen because there is no endpoint for it; when the two disagree the
+ * bars are the smaller truth, which is why the count under them says how many
+ * they are drawn from.
+ */
+function RatingSummary({ reviews, average }: { reviews: Review[]; average: number | null }) {
+  const count = reviews.length;
+
+  /* Percent of the loaded reviews at each star. Zero reviews draws five empty
+     tracks rather than a shape suggesting ratings nobody has left. */
+  const distribution = STARS.reduce((acc, star) => {
+    const n = reviews.filter((r) => Math.round(r.rating) === star).length;
+    acc[star] = count > 0 ? Math.round((n / count) * 100) : 0;
+    return acc;
+  }, {} as Record<number, number>);
+
+  /* The server's figure where there is one, else the mean of what is here. */
+  const shown = average ?? (count > 0
+    ? reviews.reduce((sum, r) => sum + (Number(r.rating) || 0), 0) / count
+    : 0);
+
   const c = useColors();
   return (
     <View style={[styles.summary, { borderColor: c.borderCard }]}>
       <View style={styles.summaryLeft}>
         <Text tabular style={styles.average}>
-          {average.toFixed(1)}
+          {count > 0 ? shown.toFixed(1) : '—'}
         </Text>
-        <StarRow rating={average} size={12} />
+        <StarRow rating={shown} size={12} />
         <Text variant="badge" color="textCaption" style={styles.count}>
-          {count} reviews
+          {count === 1 ? '1 review' : `${count} reviews`}
         </Text>
       </View>
 
@@ -145,7 +246,7 @@ function RatingSummary({ average = 4.8, count = 2 }: { average?: number; count?:
               <View
                 style={[
                   styles.distFill,
-                  { width: `${RATING_SUMMARY.distribution[star]}%`, backgroundColor: c.warning },
+                  { width: `${distribution[star] ?? 0}%`, backgroundColor: c.warning },
                 ]}
               />
             </View>

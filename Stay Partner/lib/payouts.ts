@@ -1,122 +1,94 @@
-import { getBooking, payoutOf, type Booking } from './bookings';
-
 /**
- * Transfers to the owner's bank.
+ * Display helpers for a saved payout account.
  *
- * A payout that batches recent stays derives its amount from those bookings, so
- * the detail screen's line items always sum to the headline. Older transfers
- * predate the booking records kept on device and carry a stated amount — real
- * apps don't hold every booking forever.
+ * ## What used to be here
+ *
+ * A `METHODS` array holding two invented bank accounts and a `PAYOUTS` array
+ * of four invented transfers, mutated in memory and lost on restart. Three
+ * live screens read them while a fourth listed the owner's real accounts from
+ * the API, so the list showed real database ids and the sheet acting on those
+ * ids looked them up in the fixture, where they did not exist. Every action on
+ * a saved account failed silently, and the referral cash-out screen offered a
+ * bank account that belonged to nobody.
+ *
+ * All of it is gone. `PartnerPaymentMethod` on the server is the only list of
+ * an owner's accounts, and `partner_payouts` the only record of a transfer.
+ * What is left here is formatting — it holds no state and fetches nothing.
  */
 
-export type PayoutStatus = 'processing' | 'completed' | 'failed';
-
-export type Payout = {
-  id: string;
-  reference: string;
-  method: string;
-  status: PayoutStatus;
-  initiatedAt: Date;
-  /** Only meaningful while processing. */
-  estArrival?: Date;
-  /** Bookings rolled into this transfer, if still on record. */
-  bookingIds: string[];
-  /** Used only when `bookingIds` is empty. */
-  statedAmount?: number;
-  /** Set when a transfer bounces. */
-  failureReason?: string;
-};
-
-function at(dayOffset: number): Date {
-  const d = new Date();
-  d.setDate(d.getDate() + dayOffset);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-// ── Methods ───────────────────────────────────────────────────────────────
-
+/**
+ * One saved account, as the screens use it.
+ *
+ * `last4` rather than a number: the full account number is typed once, sent
+ * to the server, and never returned to the app. There is nothing to mask
+ * because there is nothing here to mask.
+ */
 export type PayoutMethod = {
   id: string;
+  /** "HDFC Bank", or "UPI" for a VPA. */
   bankName: string;
   holderName: string;
-  /** Stored masked; the full number is only ever typed, never kept. */
   last4: string;
   ifsc: string;
+  /** UPI methods only. */
+  upiId?: string;
   isDefault: boolean;
 };
 
-export const METHODS: PayoutMethod[] = [
-  {
-    id: 'PM-1',
-    bankName: 'HDFC Bank',
-    holderName: 'Anjali Rao',
-    last4: '4821',
-    ifsc: 'HDFC0001234',
-    isDefault: true,
-  },
-  {
-    id: 'PM-2',
-    bankName: 'ICICI Bank',
-    holderName: 'Anjali Rao',
-    last4: '0093',
-    ifsc: 'ICIC0000456',
-    isDefault: false,
-  },
-];
-
-export function defaultMethod(): PayoutMethod | undefined {
-  return METHODS.find((m) => m.isDefault) ?? METHODS[0];
-}
-
-/** "•••• •••• •••• 4821" — the full number is never displayed after entry. */
+/** "•••• •••• •••• 4821", or the VPA itself, which is not a secret. */
 export function maskedNumber(m: PayoutMethod): string {
-  return `•••• •••• •••• ${m.last4}`;
+  if (m.upiId) return m.upiId;
+  return m.last4 ? `•••• •••• •••• ${m.last4}` : 'Account on file';
 }
 
-/** Short form for payout rows: "Bank •••• 4821". */
+/** Short form for a row or a picker: "Bank •••• 4821". */
 export function shortLabel(m: PayoutMethod | undefined): string {
-  return m ? `Bank •••• ${m.last4}` : 'No payout method';
-}
-
-const methodListeners = new Set<() => void>();
-
-export function subscribeMethods(fn: () => void): () => void {
-  methodListeners.add(fn);
-  return () => {
-    methodListeners.delete(fn);
-  };
-}
-
-function emitMethods() {
-  methodListeners.forEach((fn) => fn());
-}
-
-export function setDefaultMethod(id: string) {
-  METHODS.forEach((m) => {
-    m.isDefault = m.id === id;
-  });
-  emitMethods();
-}
-
-export function removeMethod(id: string) {
-  const i = METHODS.findIndex((m) => m.id === id);
-  if (i < 0) return;
-  const wasDefault = METHODS[i].isDefault;
-  METHODS.splice(i, 1);
-  // Something has to be the default, or payouts have nowhere to land.
-  if (wasDefault && METHODS.length > 0) METHODS[0].isDefault = true;
-  emitMethods();
-}
-
-export function getMethod(id: string | undefined): PayoutMethod | undefined {
-  return METHODS.find((m) => m.id === id);
+  if (!m) return 'No payout method';
+  if (m.upiId) return m.upiId;
+  return m.last4 ? `${m.bankName} •••• ${m.last4}` : m.bankName;
 }
 
 /**
- * IFSC → bank name. Real banking APIs resolve this from the first four
- * characters; this is a small stand-in covering the banks already seeded above
- * plus a few common ones, so the design's "derived, locked" field is genuine.
+ * Map one API row onto `PayoutMethod`.
+ *
+ * In one place because three screens read this list and the field names on
+ * the wire (`accountName`, `isPrimary`) are not the ones the UI uses. When
+ * they drifted before, a screen reader read "ending undefined" to somebody
+ * checking where their money goes.
+ *
+ * Nothing is invented for a missing field. An earlier version filled in
+ * 'XXXX4321' and 'HDFC0001234' as fallbacks, which is the worst possible
+ * default on a payouts screen: a plausible account that is not theirs.
+ * Missing stays visibly missing.
+ */
+export function toPayoutMethod(row: any): PayoutMethod {
+  /* `accountLast4` is what the server sends; the full number never leaves it.
+     The `accountNumber` fallback covers a response from an older build. */
+  const account = String(row?.accountLast4 || row?.accountNumber || '');
+  const upiId = row?.type === 'upi' ? String(row?.upiId || '') : '';
+  return {
+    id: String(row?.id || row?._id || ''),
+    bankName: row?.type === 'upi' ? 'UPI' : (row?.bankName || bankNameForIFSC(row?.ifsc) || 'Bank account'),
+    holderName: row?.accountName || '',
+    last4: account.slice(-4),
+    ifsc: row?.ifsc || '',
+    ...(upiId ? { upiId } : {}),
+    isDefault: Boolean(row?.isPrimary),
+  };
+}
+
+/**
+ * IFSC → bank name, for display only.
+ *
+ * This is a SHORT list and it is allowed to miss. It used to gate the Save
+ * button — `canSave` required a name back from it — which meant an owner
+ * banking anywhere outside these eight could not save an account at all:
+ * Bank of Baroda, Canara, Union, every co-operative and every regional rural
+ * bank were refused by the app while the server would have accepted them.
+ *
+ * So a miss now returns null and the form shows the code itself. Whether an
+ * IFSC is valid is decided by its SHAPE, which is a rule, not by this table,
+ * which is a convenience.
  */
 const IFSC_BANKS: Record<string, string> = {
   HDFC: 'HDFC Bank',
@@ -127,100 +99,31 @@ const IFSC_BANKS: Record<string, string> = {
   PUNB: 'Punjab National Bank',
   YESB: 'Yes Bank',
   IDFB: 'IDFC First Bank',
+  BARB: 'Bank of Baroda',
+  CNRB: 'Canara Bank',
+  UBIN: 'Union Bank of India',
+  IOBA: 'Indian Overseas Bank',
+  IDIB: 'Indian Bank',
+  CBIN: 'Central Bank of India',
+  MAHB: 'Bank of Maharashtra',
+  BKID: 'Bank of India',
+  INDB: 'IndusInd Bank',
+  FDRL: 'Federal Bank',
+  RATN: 'RBL Bank',
+  AUBL: 'AU Small Finance Bank',
 };
 
-const IFSC_PATTERN = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+/** The shape the SERVER enforces — four letters, a zero, then six of either. */
+export const IFSC_PATTERN = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 
-export function bankNameForIFSC(ifsc: string): string | null {
-  const code = ifsc.trim().toUpperCase();
+/** Whether an IFSC could be real. The only question the Save button asks. */
+export function isValidIFSC(ifsc: string): boolean {
+  return IFSC_PATTERN.test(String(ifsc || '').trim().toUpperCase());
+}
+
+/** The bank's name if we happen to know it, else null. Never a gate. */
+export function bankNameForIFSC(ifsc: string | undefined): string | null {
+  const code = String(ifsc || '').trim().toUpperCase();
   if (!IFSC_PATTERN.test(code)) return null;
   return IFSC_BANKS[code.slice(0, 4)] ?? null;
-}
-
-let nextMethodId = 100;
-
-export function addMethod(input: {
-  holderName: string;
-  accountNumber: string;
-  ifsc: string;
-}): PayoutMethod {
-  const bankName = bankNameForIFSC(input.ifsc) ?? 'Bank';
-  const method: PayoutMethod = {
-    id: `PM-${nextMethodId++}`,
-    bankName,
-    holderName: input.holderName,
-    last4: input.accountNumber.slice(-4),
-    ifsc: input.ifsc.toUpperCase(),
-    // The first saved method has nothing to defer to; later ones don't disturb
-    // whatever the owner already chose.
-    isDefault: METHODS.length === 0,
-  };
-  METHODS.push(method);
-  emitMethods();
-  return method;
-}
-
-
-
-export const PAYOUTS: Payout[] = [
-  {
-    id: 'PO-1',
-    reference: 'PYT-2608-4821X',
-    method: 'Bank •••• 4821',
-    status: 'processing',
-    initiatedAt: at(-2),
-    estArrival: at(0),
-    bookingIds: ['LB-1176', 'LB-1103'],
-  },
-  {
-    id: 'PO-2',
-    reference: 'PYT-2531-4821K',
-    method: 'Bank •••• 4821',
-    status: 'completed',
-    initiatedAt: at(-9),
-    bookingIds: ['LB-1054'],
-  },
-  {
-    id: 'PO-3',
-    reference: 'PYT-2489-4821B',
-    method: 'Bank •••• 4821',
-    status: 'completed',
-    initiatedAt: at(-16),
-    bookingIds: [],
-    statedAmount: 33_900,
-  },
-  {
-    id: 'PO-4',
-    reference: 'PYT-2442-4821R',
-    method: 'Bank •••• 4821',
-    status: 'failed',
-    initiatedAt: at(-23),
-    bookingIds: [],
-    statedAmount: 19_000,
-    failureReason: 'Bank rejected the transfer — account details could not be verified.',
-  },
-];
-
-/** Derived where the bookings are still on record, stated where they aren't. */
-export function payoutAmount(p: Payout): number {
-  if (p.bookingIds.length === 0) return p.statedAmount ?? 0;
-  return p.bookingIds.reduce((sum, id) => {
-    const b = getBooking(id);
-    return sum + (b ? payoutOf(b) : 0);
-  }, 0);
-}
-
-export function payoutBookings(p: Payout): Booking[] {
-  return p.bookingIds
-    .map(getBooking)
-    .filter((b): b is Booking => b !== undefined);
-}
-
-export function getPayout(id: string | undefined): Payout | undefined {
-  return PAYOUTS.find((p) => p.id === id);
-}
-
-/** Money that has actually landed — processing and failed transfers don't count yet. */
-export function totalPayouts(): number {
-  return PAYOUTS.filter((p) => p.status === 'completed').reduce((sum, p) => sum + payoutAmount(p), 0);
 }

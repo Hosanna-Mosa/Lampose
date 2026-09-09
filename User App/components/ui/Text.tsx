@@ -5,10 +5,10 @@ import { useTheme } from '@/context/ThemeContext';
 import {
   maxFontSizeMultiplier,
   resolveFontFamily,
-  typeScale,
   type ThemeColors,
   type TypeVariant,
 } from '@/constants/tokens';
+import { useTypeScale } from '@/context/TypographyContext';
 
 /**
  * The colour roles text is allowed to take.
@@ -79,7 +79,15 @@ export type TextProps = Omit<RNTextProps, 'style'> & {
  */
 export function Text({ variant = 'body', color = 'primary', style, ...rest }: TextProps) {
   const { colors } = useTheme();
-  const token = typeScale[variant];
+  /*
+   * Which scale, decided by where this sits in the tree.
+   *
+   * Stays gets one family and four sizes; food keeps the original three-family
+   * scale. Everything below reads `token` and does not care which it got —
+   * see `TypographyScope`.
+   */
+  const scale = useTypeScale();
+  const token = scale[variant];
 
   const resolved: TextStyle = {
     fontFamily: resolveFontFamily(token.face, token.weight),

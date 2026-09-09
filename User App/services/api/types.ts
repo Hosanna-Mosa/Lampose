@@ -155,7 +155,19 @@ export type BackendListing = {
    * same categories today, and a screen that guessed one from the other would
    * start asking for money — or stop — the moment they diverge.
    */
-  visitToken?: { required: boolean; amountPaise: number | null };
+  /**
+   * Whether this property is paid for through Lampose, and what for.
+   *
+   * `amountPaise` is only meaningful for `assisted_visit`, which is a fixed
+   * fee. A `stay_booking` costs rate × nights and cannot be priced until the
+   * guest has chosen a bed and dates, so the server sends null rather than a
+   * figure for a stay nobody has described yet.
+   */
+  visitToken?: {
+    required: boolean;
+    purpose?: 'assisted_visit' | 'stay_booking' | null;
+    amountPaise: number | null;
+  };
 
   /** True for categories priced by the bed: no stay type, no duration. */
   simpleSharingPath: boolean;
@@ -411,6 +423,20 @@ export type BackendStayRequest = {
   payment?: {
     required: boolean;
     status: 'not_required' | 'pending' | 'paid' | 'failed' | 'expired';
+    /**
+     * WHAT the money buys, frozen on the request when it was made.
+     *
+     *   assisted_visit   a fixed fee for a VIEWING with a Lampose
+     *                    representative. Paying it opens the slot picker, and
+     *                    the address is released with the slot.
+     *   stay_booking     the stay total, which buys the STAY. There is no
+     *                    viewing and no slot — paying it finishes the booking.
+     *
+     * Every screen branches its copy, its receipt and where it goes next on
+     * this rather than on the listing's category, so a request keeps the
+     * meaning it was created with even if the listing is re-categorised.
+     */
+    purpose?: 'assisted_visit' | 'stay_booking' | null;
     /* HOW it was settled. `dev` means the development bypass waived it — no
        money moved — rather than a verified Razorpay payment. */
     mode?: 'online' | 'dev';
@@ -419,6 +445,8 @@ export type BackendStayRequest = {
        button that might 404 is worse than no button. */
     devMarkPaidAllowed?: boolean;
     amountPaise: number | null;
+    /** The two explaining lines, and `null` on a stay — a hotel bill has no
+        representative's share and inventing one would be a line nobody owes. */
     representativePaise?: number | null;
     feePaise?: number | null;
     /** ISO. The owner is holding a layout until this passes. */
@@ -437,9 +465,24 @@ export type BackendStayRequest = {
     time: string | null;
     scheduledAt: string | null;
   };
-  /** ISO, once the visit's slot is fixed. Null before — the address is not
-      given until then. */
+  /**
+   * ISO, once the address has been released. Null before.
+   *
+   * Two things release it, one per payment purpose: an assisted visit's SLOT
+   * being fixed, and a stay booking's PAYMENT clearing. A hotel has no slot,
+   * so the payment is its equivalent moment — and a stronger one, since the
+   * whole stay has been paid for by then.
+   */
   addressReleasedAt?: string | null;
+  /**
+   * The street address, attached by `GET /visit-requests/:id` only once
+   * `addressReleasedAt` is set.
+   *
+   * It is never on the listing and never on this document — the server reads
+   * it off the property and attaches it per response, so a request that has
+   * not earned it cannot carry one by accident.
+   */
+  address?: string | null;
   id: string;
   listingId: string;
   propertyName: string;
@@ -455,6 +498,37 @@ export type BackendStayRequest = {
 
   sharing: { label: string | null; price: number | null } | null;
   shareTypeId: string | null;
+
+  /**
+   * What was asked for, rebuilt server-side from the property's own numbers.
+   *
+   * Never from ours: every figure here is what the owner priced and what the
+   * request will actually be charged, which is why a screen showing the cost
+   * of a stay reads these rather than multiplying anything itself.
+   *
+   * The hotel fields are null on every other category — a PG stay has a length
+   * and a joining date, not a check-out and a rate structure.
+   */
+  intent?: {
+    stayType: 'short' | 'long' | null;
+    duration: number | null;
+    durationUnit: 'days' | 'months' | null;
+    joiningDate: string | null;
+    /** Hotels. `YYYY-MM-DD`, and `joiningDate` carries the check-in too. */
+    checkIn?: string | null;
+    checkOut?: string | null;
+    /** Which of the three ways the bed was bought. */
+    rateStructure?: 'nightly' | 'monthly' | 'flexible' | null;
+    /** How many of them, and of what — 3 nights, 2 months, 6 hours. */
+    rateQuantity?: number | null;
+    rateQuantityUnit?: 'nights' | 'months' | 'hours' | null;
+    flexibleJoin: boolean;
+    /** Per unit, snapshotted so a later reprice cannot move a made request. */
+    rateAmount?: number | null;
+    rateUnit?: 'day' | 'month' | null;
+    /** Rate × quantity. The figure a stay booking is charged. */
+    totalAmount?: number | null;
+  } | null;
 
   /**
    * The stages the waiting screen draws, each a real recorded event.

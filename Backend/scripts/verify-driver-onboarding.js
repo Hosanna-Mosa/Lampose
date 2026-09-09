@@ -105,7 +105,10 @@ const scan = (kind, side) => `https://example.invalid/verify/${kind}-${side}.jpg
       role: 'Admin',
       status: 'Active',
     });
-    adminToken = jwt.sign({ id: admin._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    /* The real shape: { id, typ: 'admin', ver } — a hand-rolled { id } token
+       is now refused as LEGACY_TOKEN. See admins/adminToken.js. */
+    const { signAdminToken } = require('../src/modules/admins/adminToken');
+    adminToken = signAdminToken(admin, { expiresIn: '1h' });
 
     /* ── 1. Sign up ─────────────────────────────────────────────────────── */
     /*

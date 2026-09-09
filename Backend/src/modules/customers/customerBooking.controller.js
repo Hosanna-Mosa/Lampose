@@ -19,6 +19,8 @@
 const { PartnerBooking, PartnerReview } = require('../partners/partnerDomains.model');
 const { releaseBed, shareTypeIdForBooking } = require('../inventory/inventory.service');
 const { notifyOwnerOfBookingCancelledByStudent } = require('../notifications/stayRequest.notifier');
+/* DEVELOPMENT ONLY — read by `devForceCheckIn`; remove with it. */
+const config = require('../../config/env');
 
 /** Digits only, last ten — the same shape `phoneKey` produces elsewhere. */
 const phoneDigits = (value) => String(value || '').replace(/\D/g, '').slice(-10);
@@ -31,7 +33,14 @@ const phoneDigits = (value) => String(value || '').replace(/\D/g, '').slice(-10)
  * none of that is the student's to read back, and `documents`/`kyc` in
  * particular are identity scans.
  */
-const toCustomerBooking = (booking, reviewed = false) => ({
+/*
+ * `refund` and `refundable` ride on the booking rather than needing a
+ * separate call: the cancel form has to know whether to ask for a bank
+ * account BEFORE the guest presses Cancel, and the cancelled screen has to
+ * show the refund the moment the cancel returns. Both are null/false for the
+ * free categories, which is nearly every booking.
+ */
+const toCustomerBooking = (booking, reviewed = false, { refund = null, refundable = false } = {}) => ({
   id: String(booking._id),
   requestId: booking.requestId || null,
   propertyId: booking.propertyId,
@@ -61,6 +70,12 @@ const toCustomerBooking = (booking, reviewed = false) => ({
      app say "you cancelled this" rather than "the owner cancelled this"
      when the tap was the student's own. */
   cancelledBy: booking.status === 'cancelled' ? (booking.cancelledBy || null) : null,
+  /* Whether cancelling this would owe the guest money — i.e. they paid for a
+     hotel stay and a settlement exists. The cancel form asks for a bank
+     account only when this is true. */
+  refundable: Boolean(refundable) && booking.status !== 'cancelled',
+  /* The refund, once cancelled. Masked — see `hotelRefund.model.js`. */
+  refund: refund ? refund.toCustomer() : null,
   createdAt: booking.createdAt,
 });
 
@@ -97,10 +112,25 @@ const listBookings = async (req, res, next) => {
 
     const reviewed = await reviewedBookingIds(bookings);
 
+    const refunds = require('../settlements/refund.service');
+
+    const ids = bookings.map((b) => b._id);
+
+    const [refundByBooking, refundableIds] = await Promise.all([
+
+      refunds.forBookings(ids),
+
+      refunds.refundableBookingIds(ids),
+
+    ]);
+
     return res.json({
       success: true,
       count: bookings.length,
-      data: bookings.map((b) => toCustomerBooking(b, reviewed.has(String(b._id)))),
+      data: bookings.map((b) => toCustomerBooking(b, reviewed.has(String(b._id)), {
+        refund: refundByBooking.get(String(b._id)) || null,
+        refundable: refundableIds.has(String(b._id)),
+      })),
     });
   } catch (error) {
     return next(error);
@@ -131,7 +161,18 @@ const getBooking = async (req, res, next) => {
       ? Boolean(await PartnerReview.exists({ bookingId: String(booking._id) }))
       : false;
 
-    return res.json({ success: true, data: toCustomerBooking(booking, reviewed) });
+    const refunds = require('../settlements/refund.service');
+    const [refundByBooking, refundableIds] = await Promise.all([
+      refunds.forBookings([booking._id]),
+      refunds.refundableBookingIds([booking._id]),
+    ]);
+    return res.json({
+      success: true,
+      data: toCustomerBooking(booking, reviewed, {
+        refund: refundByBooking.get(String(booking._id)) || null,
+        refundable: refundableIds.has(String(booking._id)),
+      }),
+    });
   } catch (error) {
     /* A malformed id is a 404 rather than a 500 — it is a bad address, not a
        broken server. */
@@ -178,6 +219,25 @@ const cancelBooking = async (req, res, next) => {
     const reason = String((req.body || {}).reason || '').trim().slice(0, 120) || null;
     const note = String((req.body || {}).note || '').trim().slice(0, 500) || null;
 
+    /*
+     * Bank details for the refund, validated BEFORE anything is cancelled.
+     *
+     * The form asks for them when the stay was paid for. If they are
+     * malformed the answer is a 400 with the booking untouched — cancelling
+     * first and then saying "and the account was wrong" leaves a guest with
+     * no booking and a refund that cannot be sent.
+     */
+    const refunds = require('../settlements/refund.service');
+    let bank = null;
+    try {
+      bank = refunds.validateBank((req.body || {}).bank);
+    } catch (error) {
+      if (error instanceof refunds.RefundError) {
+        return res.status(error.status).json({ success: false, code: error.code, message: error.message });
+      }
+      throw error;
+    }
+
     const booking = await PartnerBooking.findOneAndUpdate(
       { _id: id, ...scopeFor(req.customer), status: 'upcoming' },
       {
@@ -215,6 +275,21 @@ const cancelBooking = async (req, res, next) => {
     const shareTypeId = shareTypeIdForBooking(booking);
     if (shareTypeId) await releaseBed(shareTypeId).catch(() => {});
 
+    /*
+     * The money comes back too — in full, whoever cancelled.
+     *
+     * Null for the free categories. For a paid hotel stay this reverses the
+     * settlement (so the owner's held figure drops it) and opens a refund the
+     * admin queue pays by bank transfer. Awaited rather than fired: the
+     * response below carries the refund so the cancelled screen can show it.
+     */
+    let refund = null;
+    try {
+      refund = await refunds.openForCancelledBooking({ booking, cancelledBy: 'student', bank, reason });
+    } catch (error) {
+      console.error('[booking] cancelled but the refund could not be opened:', error.message);
+    }
+
     /* Fire-and-forget, same contract as every notifier here: the student's
        tap must not wait on a push to the owner, and a push that fails must
        not fail the cancellation. */
@@ -222,7 +297,7 @@ const cancelBooking = async (req, res, next) => {
       console.error('[booking] cancelled but the owner was not notified:', error.message);
     });
 
-    return res.json({ success: true, data: toCustomerBooking(booking) });
+    return res.json({ success: true, data: toCustomerBooking(booking, false, { refund }) });
   } catch (error) {
     if (error.name === 'CastError') {
       return res.status(404).json({ success: false, message: 'Booking not found.' });
@@ -325,6 +400,123 @@ const createReview = async (req, res, next) => {
   }
 };
 
+/* ══════════════════════════════════════════════════════════════════════════
+   DEVELOPMENT ONLY — force a move-in, both halves at once.
+
+   ## What it exists for
+
+   Moving in is gated two ways, and both are correct:
+
+     the DATE   the Stay Partner button reads "Check-in available 25 September"
+                and is disabled until then
+     the ORDER  the owner marks the guest in first, then the guest confirms —
+                because the owner is the one holding the PIN at the door
+
+   Together they make the hotel settlement chain untestable until a real
+   calendar day arrives: a settlement stays `held` until check-in, so Withdraw
+   in the admin Monitor cannot be reached at all. This stamps both halves so
+   the whole path — paid → held → check-in → releasable → Withdraw — can be
+   walked in a minute.
+
+   ## What it is NOT
+
+   It is not a way for a student to check themselves in. It is refused unless
+   the SERVER has `DEV_ALLOW_FORCE_CHECKIN` on, which `env.js` refuses outright
+   under NODE_ENV=production — so on a real deployment this route does not
+   exist, exactly like the payment bypass beside it.
+
+   It is still scoped to the caller's OWN booking. A development flag widens
+   what an account may do to its own data; it never widens whose data an
+   account may touch, and a bypass that ignored ownership would be a hole
+   somebody could reach through in a preview build.
+
+   ## It goes through the same door as the real thing
+
+   `markReleasable` is called here for the same reason `checkInBooking` calls
+   it: a settlement that did not advance would make this bypass useless for
+   the one thing it exists to test. Everything downstream sees a booking that
+   is indistinguishable from a genuinely checked-in one, because that is what
+   it is.
+
+   Delete this function, its route and `DEV_ALLOW_FORCE_CHECKIN` when the
+   settlement flow no longer needs walking through by hand.
+   ══════════════════════════════════════════════════════════════════════════ */
+const devForceCheckIn = async (req, res, next) => {
+  try {
+    if (!config.razorpay.devAllowForceCheckIn) {
+      return res.status(404).json({
+        success: false, code: 'NOT_FOUND', message: 'That route does not exist on this server.',
+      });
+    }
+    /* No readyState check: `requireLamposeDb` on the route is what answers a
+       disconnected database here, the same as every other handler in this
+       file. */
+
+    /* The caller's own booking, and nobody else's — see the header. */
+    const booking = await PartnerBooking.findOne({
+      _id: req.params.id, ...scopeFor(req.customer),
+    });
+    if (!booking) {
+      return res.status(404).json({
+        success: false, code: 'NOT_FOUND', message: 'We could not find that booking.',
+      });
+    }
+
+    const now = new Date();
+    booking.movedInByOwnerAt = booking.movedInByOwnerAt || now;
+    booking.movedInByStudentAt = booking.movedInByStudentAt || now;
+    booking.status = 'in_house';
+    await booking.save();
+
+    console.warn(
+      `🛠️  [DEV BYPASS] booking ${booking._id} forced to in_house without a real check-in `
+      + '(DEV_ALLOW_FORCE_CHECKIN is on).',
+    );
+
+    /* The same call the owner's real check-in makes. A hotel settlement moves
+       `held → releasable`; every other category has no settlement row and this
+       matches nothing, which is the intended no-op. */
+    await require('../settlements/settlement.service')
+      .markReleasable(String(booking._id))
+      .catch((error) => {
+        console.error('[settlement] forced check-in did not release the hold:', error.message);
+      });
+
+    return res.json({ success: true, data: toCustomerBooking(booking) });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/**
+ * The guest says where their refund should go.
+ *
+ * The other half of `cancelBooking`'s bank field: reached after an OWNER
+ * cancelled (the guest was not at a form to be asked), or when the guest
+ * skipped it. Scoped to the caller's own booking like everything here.
+ *
+ * @route POST /api/v2/customers/bookings/:id/refund-details
+ */
+const submitRefundDetails = async (req, res, next) => {
+  try {
+    const booking = await PartnerBooking.findOne({ _id: req.params.id, ...scopeFor(req.customer) }).lean();
+    if (!booking) return res.status(404).json({ success: false, message: 'Booking not found.' });
+
+    const refunds = require('../settlements/refund.service');
+    const refund = await refunds.attachBankDetails(booking._id, (req.body || {}).bank || req.body);
+    return res.json({ success: true, data: toCustomerBooking(booking, false, { refund }) });
+  } catch (error) {
+    const refunds = require('../settlements/refund.service');
+    if (error instanceof refunds.RefundError) {
+      return res.status(error.status).json({ success: false, code: error.code, message: error.message });
+    }
+    if (error.name === 'CastError') return res.status(404).json({ success: false, message: 'Booking not found.' });
+    return next(error);
+  }
+};
+
 module.exports = {
+  devForceCheckIn,
+  submitRefundDetails,
   listBookings, getBooking, cancelBooking, createReview,
 };

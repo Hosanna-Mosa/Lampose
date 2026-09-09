@@ -181,6 +181,12 @@ export type BackendPartnerRequest = {
   status: BackendRequestStatus;
   listingId: string;
   propertyName: string;
+  /**
+   * The property's category when this request was made. '' on a row
+   * written before this field existed, or the web channel's older rows —
+   * treated as "unknown", never as bachelor.
+   */
+  category: string;
   /** Who is coming. The reason this screen exists at all. */
   customer: { name: string; phone: string; email: string };
   preferredDate: string | null;
@@ -243,6 +249,17 @@ export type BackendPartnerRequest = {
    */
   entryPin?: string | null;
   entryPinIssuedAt?: string | null;
+
+  /**
+   * The ₹199 assisted visit — bachelor and co-live only. `null` on every
+   * other category, and on those two once `payment.required` was never set.
+   *
+   * Read-only: the student picks the day and time with the Lampose
+   * representative who walks them through the place, not with the owner.
+   * This is what lets the owner see whether that has happened yet.
+   */
+  payment?: { required: true; status: 'pending' | 'paid' | 'expired' | 'failed'; purpose: string } | null;
+  lamposeVisit?: { status: 'none' | 'scheduled' | 'manual'; date: string | null; time: string | null } | null;
 
   /**
    * Moving in, which takes both sides.

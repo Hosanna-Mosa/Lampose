@@ -41,6 +41,7 @@ export default function CustomersScreen() {
   const router = useRouter();
   const [customers, setCustomers] = useState<ManualCustomer[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -50,6 +51,15 @@ export default function CustomersScreen() {
       setError(err instanceof ApiError ? err.displayMessage : 'We could not load your customers.');
     }
   }, []);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load]);
 
   /*
    * Refetched every time the screen comes back into focus.
@@ -68,6 +78,8 @@ export default function CustomersScreen() {
   return (
     <Screen
       contentStyle={styles.stack}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
       stickyHeader={
         <>
           <View style={styles.backRow}>

@@ -38,9 +38,148 @@ const config = require('../../config/env');
 const razorpay = require('../../infrastructure/razorpay/razorpay');
 const VisitRequest = require('./visitRequest.model');
 const { markVisitPaid, ASSISTED_PURPOSE } = require('./visitPayment.controller');
+const { claimEvent, noteEvent } = require('../settlements/paymentEvent.model');
+const { HotelSettlement } = require('../settlements/hotelSettlement.model');
+const settlements = require('../settlements/settlement.service');
+const partnerPayouts = require('../partners/payout.service');
+const audit = require('../admins/adminAuditLog.model');
+
+/*
+ * Who a webhook is, for the audit log.
+ *
+ * `audit.record` reads `req.admin` because every other caller is an
+ * administrator pressing something. A payout reversal has no administrator —
+ * it is the bank telling us money came back — and the log still has to name an
+ * actor. This is that actor, and it is deliberately recognisable as not a
+ * person.
+ */
+const SYSTEM_ACTOR = {
+  _id: 'system:razorpayx-webhook',
+  name: 'RazorpayX webhook',
+  email: '',
+  role: 'system',
+};
 const twilio = require('../../infrastructure/twilio/twilio');
 
 const LEGACY_PURPOSES = ['contact_unlock', 'assisted_balance'];
+
+/* ══════════════════════════════════════════════════════════════════════════
+   RazorpayX payout events — how a hotel settlement finishes.
+
+   ## Why this is the only path to `paid_out`
+
+   Creating a payout returns 200 with a status that is almost always `queued`
+   or `processing`. Money has not reached a bank at that point, and a
+   settlement marked paid on the strength of that response would tell a hotel
+   they had been paid while the money was still with us.
+
+   So `releaseToOwner` records whatever RazorpayX answered and leaves the
+   settlement in `withdrawing`. These events are what move it: `processed`
+   makes it `paid_out`, `failed` and `cancelled` make it retryable, `reversed`
+   says money came back. `applyPayoutStatus` in the settlement service is the
+   single interpreter, shared with the reconciliation path, so a status word
+   cannot mean two things.
+
+   ## Duplicates
+
+   Razorpay redelivers for hours until it gets a 2xx, and a payout event that
+   ran twice would write a second audit entry and could move a settlement that
+   had already moved on. The event id is claimed before anything is read, and a
+   redelivery is acknowledged without running.
+
+   `applyPayoutStatus` is idempotent on top of that — a repeated `processed`
+   is a no-op, and a late `processing` arriving after `processed` is refused by
+   the terminal-state rule — so the guard and the handler each hold on their
+   own.
+   ══════════════════════════════════════════════════════════════════════════ */
+const handlePayoutEvent = async ({ event, payload, eventId, ack }) => {
+  const payout = payload.payout?.entity || {};
+  const payoutId = payout.id || null;
+
+  /*
+   * Find the settlement.
+   *
+   * By `reference_id` first — it is the settlement's own `_id`, set when the
+   * payout was created — and by the payout id second, which covers a payout
+   * made before references were set and any row whose reference did not
+   * survive.
+   */
+  const reference = payout.reference_id || payout.notes?.settlementId || null;
+  const settlement = reference && /^[0-9a-fA-F]{24}$/.test(String(reference))
+    ? await HotelSettlement.findById(reference)
+    : (payoutId ? await HotelSettlement.findOne({ payoutId }) : null);
+
+  if (!settlement) {
+    /*
+     * Not a hotel settlement. Try the OTHER thing that pays over this rail.
+     *
+     * `payout.service.js` is the owner-initiated Stay Partner payout flow. It
+     * uses the same RazorpayX account, so its events arrive at this same URL
+     * and carry a `PartnerPayout` id as their reference. Without this branch
+     * an owner's payout would sit at "Processing" forever: the dispatch call
+     * answers `queued` far more often than `processed`, and this event is the
+     * only thing that can finish it.
+     */
+    if (!await claimEvent({ eventId, event, source: 'payout', payoutId })) {
+      return ack(`payout event ${eventId} already handled`);
+    }
+
+    const partnerPayout = await partnerPayouts.applyWebhookPayout(payout);
+    if (partnerPayout) {
+      await noteEvent(eventId, 'processed', `partner payout ${partnerPayout._id} → ${partnerPayout.status}`);
+      console.log(`[razorpay-webhook] ${event} → partner payout ${partnerPayout._id} is ${partnerPayout.status}`);
+      return ack();
+    }
+
+    await noteEvent(eventId, 'ignored', `no settlement or partner payout for ${payoutId || 'unknown'}`);
+    return ack(`nothing matches payout ${payoutId || 'unknown'}`);
+  }
+
+  /* Claimed before anything is changed. A redelivery stops here. */
+  if (!await claimEvent({
+    eventId, event, source: 'payout', payoutId, settlementId: String(settlement._id),
+  })) {
+    return ack(`payout event ${eventId} already handled`);
+  }
+
+  const before = settlement.status;
+
+  try {
+    await settlements.applyPayoutStatus(settlement, payout);
+  } catch (error) {
+    await noteEvent(eventId, 'failed', error.message);
+    console.error(`[razorpay-webhook] payout ${payoutId} could not be applied:`, error.message);
+    /* Acknowledged rather than retried: the money has already moved and the
+       fault is ours to find in the log. A 500 would have Razorpay redeliver
+       this for hours against a handler that will fail the same way. */
+    return ack();
+  }
+
+  await noteEvent(eventId, 'processed', `${before} → ${settlement.status}`);
+
+  /*
+   * A REVERSAL is the one payout outcome a person has to know about.
+   *
+   * Everything else is visible in the admin queue when somebody looks. Money
+   * that left and came back changes what is owed to a hotel, and nobody is
+   * watching the queue at the moment it happens — so it is written to the
+   * audit log, which is the record an accountant reads.
+   */
+  if (settlement.status === 'reversed') {
+    await audit.record({ admin: SYSTEM_ACTOR, ip: '', headers: {} }, {
+      action: 'settlement.reversed',
+      targetType: 'hotel_settlements',
+      targetId: settlement._id,
+      before: { status: before },
+      after: { status: 'reversed', payoutId, payoutStatus: settlement.payoutStatus },
+      errorCode: payout.failure_reason ? 'PAYOUT_REVERSED' : '',
+      errorMessage: payout.failure_reason || '',
+    });
+  }
+
+  console.log(`[razorpay-webhook] ${event} → settlement ${settlement._id} ${before} → ${settlement.status}`);
+  return ack();
+};
 
 /**
  * @route POST /api/v2/payments/razorpay/webhook
@@ -63,8 +202,22 @@ const razorpayWebhook = async (req, res) => {
     });
   }
 
+  /*
+   * Two products, one endpoint, two secrets.
+   *
+   * Payment-gateway events and RazorpayX PAYOUT events arrive here together —
+   * the same "one inbound URL, dispatch on what the payload says" rule the
+   * food handler below follows. They are signed with different secrets, so a
+   * payout event verified only against the payment secret would be refused,
+   * and money that had already left the account would go unrecorded.
+   *
+   * `verifyPayoutWebhook` tries the RazorpayX secret and falls back to the
+   * payment one, which covers the common configuration where a merchant sets
+   * a single secret for both.
+   */
   const signature = req.headers['x-razorpay-signature'];
-  const genuine = razorpay.verifyWebhook({ rawBody: req.rawBody, signature });
+  const genuine = razorpay.verifyWebhook({ rawBody: req.rawBody, signature })
+    || razorpay.verifyPayoutWebhook({ rawBody: req.rawBody, signature });
 
   if (!genuine) {
     console.warn('[razorpay-webhook] Refused: signature did not verify.');
@@ -80,12 +233,40 @@ const razorpayWebhook = async (req, res) => {
 
   const event = req.body?.event || '';
   const payload = req.body?.payload || {};
+  /*
+   * Razorpay's own delivery id, from the header rather than the body.
+   *
+   * It is stable across redeliveries of the same event, which is exactly what
+   * a dedupe key needs — where a payment id would not do, since one payment
+   * legitimately produces several events.
+   */
+  const eventId = req.headers['x-razorpay-event-id'] || null;
 
   /* Two events mean the same thing here. `payment_link.paid` is the one the
      link flow fires; `payment.captured` covers a payment made against an
      order from the website or the app. Either carries our id in `notes`. */
   const entity = payload.payment_link?.entity || payload.payment?.entity || {};
   const paymentEntity = payload.payment?.entity || {};
+
+  /*
+   * ── RazorpayX PAYOUT events ────────────────────────────────────────────
+   *
+   * Dispatched on the event name, and BEFORE the payment allow-list below: a
+   * payout is money going OUT and has nothing to do with a request's own
+   * payment, so none of the entity reading underneath applies to it.
+   *
+   * The ordering here is load-bearing. The allow-list answers 200 and returns
+   * for anything that is not a payment, which is the correct thing to do with
+   * the dozens of event types Razorpay sends and we do not want — but a payout
+   * event caught by it would be acknowledged and dropped, and a settlement can
+   * reach `paid_out` from nowhere else. That failure is silent and it is on
+   * the wrong side: the money has already left the account.
+   *
+   * `verify:hotel-payout` scenarios 10, 11 and 14 exist to hold this order.
+   */
+  if (String(event).startsWith('payout.')) {
+    return handlePayoutEvent({ event, payload, eventId, ack });
+  }
 
   if (!['payment_link.paid', 'payment.captured'].includes(event)) {
     return ack(`ignored event "${event}"`);
@@ -123,6 +304,7 @@ const razorpayWebhook = async (req, res) => {
     return ack(`food order ${foodOrderNumber}`);
   }
 
+
   const requestId = entity.notes?.visitRequestId || paymentEntity.notes?.visitRequestId;
   const linkId = payload.payment_link?.entity?.id;
 
@@ -150,15 +332,49 @@ const razorpayWebhook = async (req, res) => {
   }
 
   /*
+   * The replay guard, claimed before anything is changed.
+   *
+   * The `already paid` check above happens to make a redelivered PAYMENT
+   * harmless, because settling one twice is a no-op. That is luck rather than
+   * a guarantee, and it stops being true the moment a handler does anything
+   * with a side effect — which `markVisitPaid` now does: it writes a
+   * settlement and notifies people.
+   *
+   * First writer wins. A redelivery finds the id already claimed and is
+   * acknowledged without running.
+   */
+  if (!await claimEvent({
+    eventId, event, source: 'payment', visitRequestId: String(doc._id), paymentId,
+  })) {
+    return ack(`event ${eventId} already handled`);
+  }
+
+  /*
    * The amount guard.
    *
-   * Purpose `assisted_visit` — or none, which is what every payment link
-   * minted before purposes existed looks like, INCLUDING the retired ₹20
-   * token links still live in old WhatsApp chats. The signature proves the
-   * money is real; only the amount says which product it bought. A payment
-   * short of the price on the document must not settle it.
+   * Purpose `assisted_visit`, `stay_booking`, or none — which is what every
+   * payment link minted before purposes existed looks like, INCLUDING the
+   * retired ₹20 token links still live in old WhatsApp chats. The signature
+   * proves the money is real; only the amount says which product it bought. A
+   * payment short of the price on the document must not settle it.
+   *
+   * The fallback to the platform fee is for an ASSISTED VISIT only. A stay has
+   * no configured price — it is rate × nights, stamped on the request when it
+   * was made — so falling back would let a ₹199 payment settle a ₹3,600 hotel
+   * booking. A stay with no amount on the document is refused outright rather
+   * than compared against a number from another product.
    */
-  const expected = doc.payment?.amountPaise || config.razorpay.assistedVisitAmountPaise;
+  const isStay = (doc.payment?.purpose || 'assisted_visit') === 'stay_booking';
+  const expected = isStay
+    ? doc.payment?.amountPaise
+    : (doc.payment?.amountPaise || config.razorpay.assistedVisitAmountPaise);
+
+  if (isStay && !expected) {
+    console.error(`[razorpay-webhook] request ${doc._id} is a stay booking with no amount on `
+      + `record; refusing to settle it against payment ${paymentId}.`);
+    return ack();
+  }
+
   const amount = Number(paymentEntity.amount || entity.amount || entity.amount_paid || 0);
   if (amount > 0 && amount < expected) {
     console.error(`[razorpay-webhook] UNDERPAID: request ${doc._id} received ${amount} paise `
@@ -179,8 +395,9 @@ const razorpayWebhook = async (req, res) => {
   }
 
   await markVisitPaid(doc, paymentId);
+  await noteEvent(eventId, 'processed', `request ${doc._id} paid`);
 
-  console.log(`[razorpay-webhook] ${event} → request ${doc._id} paid (${paymentId}), slot step started.`);
+  console.log(`[razorpay-webhook] ${event} → request ${doc._id} paid (${paymentId}).`);
   return ack();
 };
 
