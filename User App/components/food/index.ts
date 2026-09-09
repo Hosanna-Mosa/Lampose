@@ -23,6 +23,9 @@ export { ActiveOrderCard, FoodStatusChip, FoodTimeline, timelineIndex } from './
 export { FoodNotice, FoodSectionHeader, OfferStrip, type FoodNoticeTone } from './FoodNotices';
 export { FoodEmptyState, FoodFeedSkeleton, FoodMenuSkeleton, type FoodEmptyStateProps } from './FoodStates';
 export { CartSwitchSheet, type CartSwitchSheetProps } from './CartSwitchSheet';
+export { VegModeSheet, type VegModeSheetProps } from './VegModeSheet';
+export { VegModeTransition, type VegModeTransitionProps } from './VegModeTransition';
+export { VegModeButton, type VegModeButtonProps } from './VegModeButton';
 export {
   DeliveryMap,
   metresBetween,
@@ -31,8 +34,21 @@ export {
   type LngLat,
 } from './DeliveryMap';
 
+export {
+  PromoBanner,
+  PROMO_ASPECT,
+  type PromoBannerProps,
+  type PromoSlide,
+  type SlideHeadline,
+  type SlideRider,
+  type SlideSteam,
+} from './PromoBanner';
+export { CuisineRail, type CuisineRailProps } from './CuisineRail';
+export { CuisineSheet, type CuisineSheetProps } from './CuisineSheet';
+export { RestaurantListCard, type RestaurantListCardProps } from './RestaurantListCard';
+
 export { FoodHome } from './FoodHome';
-export { FoodSearch } from './FoodSearch';
+export { FoodSearch, SUGGESTIONS } from './FoodSearch';
 export { FoodOrders } from './FoodOrders';
 export { FoodModule } from './FoodModule';
 export { FoodComingSoon } from './FoodComingSoon';

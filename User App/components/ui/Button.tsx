@@ -256,6 +256,18 @@ export type IconButtonProps = {
    * not negotiable, so this only changes what is drawn inside it.
    */
   size?: 16 | 20 | 24;
+  /**
+   * Overrides the glyph colour, for a bar drawn straight onto artwork.
+   *
+   * Not the same thing as `onImage`, which is a white DISC and is right when
+   * the control is the only mark on a photograph and has to be found at
+   * once. A row of three discs across the top of a banner is the opposite
+   * problem — it reads as heavier than the picture it sits on. This leaves
+   * the button shapeless and only repaints the glyph, which is what a
+   * header over artwork wants; the legibility comes from the scrim the bar
+   * draws behind itself.
+   */
+  ink?: string;
   style?: ViewStyle;
   testID?: string;
 };
@@ -274,6 +286,7 @@ export function IconButton({
   active = false,
   disabled = false,
   size = 24,
+  ink,
   style,
   testID,
 }: IconButtonProps) {
@@ -300,7 +313,9 @@ export function IconButton({
    */
   const glyphColor = disabled
     ? colors.textTertiary
-    : active
+    : ink
+      ? ink
+      : active
       ? colors.brandInk
       : variant === 'brand'
         // A glyph drawn in the accent on a light surface is type, not fill.

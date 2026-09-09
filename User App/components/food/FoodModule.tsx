@@ -4,7 +4,6 @@ import { StyleSheet, View } from 'react-native';
 
 import { useFood } from '@/context/FoodContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
-import { useTheme } from '@/context/ThemeContext';
 
 import { CartSwitchSheet } from './CartSwitchSheet';
 import { foodHref } from './routes';
@@ -29,9 +28,15 @@ import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
  * The clock is read ONCE, here, and passed down. Every child that needs to know
  * whether a kitchen is open reads the same `now`.
  */
-export function FoodModule() {
+export type FoodModuleProps = {
+  /** Reports whether Home's banner is still behind the app header, so the
+   *  screen above can paint that header over artwork or as an ordinary bar.
+   *  Only Home has a banner; the other two screens never fire it. */
+  onBannerUnderHeader?: (under: boolean) => void;
+};
+
+export function FoodModule({ onBannerUnderHeader }: FoodModuleProps) {
   const { findKitchen } = useFoodCatalogue();
-  const { space } = useTheme();
   const router = useRouter();
   const {
     count,
@@ -86,7 +91,10 @@ export function FoodModule() {
     <View style={styles.host}>
       <View style={styles.body}>
         {foodTab === 'home' ? (
-          <FoodHome onSearch={() => setFoodTab('search')} />
+          <FoodHome
+            onSearch={() => setFoodTab('search')}
+            onBannerUnderHeader={onBannerUnderHeader}
+          />
         ) : foodTab === 'search' ? (
           <FoodSearch />
         ) : (
@@ -95,21 +103,20 @@ export function FoodModule() {
       </View>
 
       {/*
-        The cart bar clears the raised Explore disc rather than sitting under it.
-        The disc is punched 26pt through the top edge of the bar below, so a
-        full-width bar tucked right against that edge would have its "View cart"
-        target hidden behind the disc.
+        Flush against the tab bar below, not floating a gap above it. The tab
+        bar already reserves the device's own safe-area inset, so this bar
+        does not reserve a second one — `bottomInset={0}` — or the two would
+        stack into a band of dead space neither needed.
       */}
       {count > 0 ? (
-        <View style={{ paddingBottom: space[7] }}>
-          <DockedCartBar
-            count={count}
-            total={itemTotal}
-            context={cartContext}
-            onPress={() => router.push(foodHref.cart)}
-            onMeasure={measureCart}
-          />
-        </View>
+        <DockedCartBar
+          count={count}
+          total={itemTotal}
+          context={cartContext}
+          onPress={() => router.push(foodHref.cart)}
+          onMeasure={measureCart}
+          bottomInset={0}
+        />
       ) : null}
 
       <CartSwitchSheet

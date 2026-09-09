@@ -294,6 +294,9 @@ export function toKitchen(raw: BackendKitchen, sections: readonly string[] = [])
     /* The tagline is the restaurant's own words and beats a joined list of
        tags; the cuisines are the fallback. */
     cuisine: raw.description?.trim() || (raw.cuisineTypes ?? []).join(', ') || '',
+    /* The raw tags, kept alongside the reading line above — see the note on
+       `Kitchen.cuisineTypes`. */
+    cuisineTypes: raw.cuisineTypes ?? [],
     landmark: raw.address?.landmark?.trim() || raw.address?.line1?.trim() || '',
     /* Zero rather than absent: `Kitchen.walkMinutes` is required, and the
        card treats 0 as "we do not know" and prints nothing. */

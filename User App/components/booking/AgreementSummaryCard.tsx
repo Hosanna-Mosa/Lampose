@@ -6,28 +6,6 @@ import { useTheme } from '@/context/ThemeContext';
 import type { AgreementClause } from '@/types/booking';
 import { actions } from '@/constants/actions';
 
-/**
- * What a first-time renter actually signs, in plain language.
- *
- * The writing rules are the component:
- *
- *  - Every heading is a sentence about the user, not a field name. "You pay
- *    ₹8,500 every month", never "Monthly rent: ₹8,500".
- *  - The market term still appears, as the right-hand label, so the student
- *    learns the vocabulary without needing it in order to understand. That is
- *    the teaching mechanism for the whole product.
- *  - Every clause states its consequence in rupees or days, with a real date
- *    computed from the move-in date. Never "as per terms".
- *  - Lock-in and notice period are separated, because being asked to confuse
- *    them is how students lose a month's rent.
- *  - The deposit clause names what can be deducted and what cannot.
- *  - "Send to my parent" is a first-class action, not a share sheet — somebody
- *    else is usually paying, and they will ask.
- *
- * No legalese, no "lessee", no "hereinafter". The PDF can be formal; this card
- * is the version that gets read.
- */
-
 export type AgreementSummaryCardProps = {
   propertyLine: string;
   clauses: readonly AgreementClause[];

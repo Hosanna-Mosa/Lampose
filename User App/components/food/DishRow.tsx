@@ -10,6 +10,19 @@ import { AddControl } from './AddControl';
 import { FavouriteHeart } from './FavouriteHeart';
 import { DietMark, FoodPhoto } from './FoodMarks';
 
+/** The menu photograph, square, and how far the Add control hangs below it. */
+const MENU_PHOTO = 112;
+const ADD_OVERLAP = 16;
+
+/**
+ * Orders in the block before a dish is called highly reordered.
+ *
+ * A threshold, not a ranking: "highly reordered" has to mean something a
+ * diner can trust, and the top three dishes of a kitchen nobody orders from
+ * are not that. A dish under the bar simply carries no mark.
+ */
+const REORDER_MARK = 12;
+
 export type DishRowProps = {
   dish: Dish;
   /**
@@ -141,6 +154,21 @@ export function DishRow({
     );
   }
 
+  /*
+   * The menu row, in the shape the reference listing uses.
+   *
+   * The reading order changed: the diet mark now sits on its OWN line above
+   * the name rather than inline with it. On a menu the mark is a filter
+   * result — "this is the veg one" — and a student scanning for it wants it
+   * in a column they can run an eye down, not embedded at the head of a
+   * different-length title each time.
+   *
+   * The photograph grew and squared off, and the Add control now overlaps
+   * its lower edge instead of sitting under it. That is not only styling:
+   * it buys back the vertical space the control used to cost every row,
+   * which is what lets the description have its two lines AND the row still
+   * be shorter than it was.
+   */
   return (
     <Pressable
       onPress={onPress}
@@ -152,16 +180,46 @@ export function DishRow({
       ]}
     >
       <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-        {title}
+        <DietMark diet={dish.diet} size={16} />
+
+        <View style={[styles.titleRow, { gap: space[1] + 2 }]}>
+          <Text variant="title2" numberOfLines={2} style={{ flex: 1, color: ink }}>
+            {dish.name}
+          </Text>
+          {heart}
+        </View>
+
+        {/* Real, and derived: `ordersInBlock` is a count this kitchen's own
+            orders produced. It is not a badge invented to fill the slot the
+            reference puts a discount in — a dish nobody has ordered simply
+            does not carry it. */}
+        {!soldOut && (dish.ordersInBlock ?? 0) >= REORDER_MARK ? (
+          <View style={[styles.reorder, { gap: space[1] + 2 }]}>
+            <View style={[styles.reorderBar, { backgroundColor: colors.success.base }]} />
+            <Text variant="numMeta" style={{ color: colors.success.ink }}>
+              Highly reordered
+            </Text>
+          </View>
+        ) : null}
+
+        <View style={{ marginTop: space[1] }}>{price}</View>
+
         <Text variant="caption" color={soldOut ? 'tertiary' : 'secondary'} numberOfLines={2}>
           {meta ?? dish.description}
         </Text>
-        <View style={{ marginTop: space[1] }}>{price}</View>
       </View>
 
-      <View style={{ width: 88, gap: space[2], alignItems: 'center' }}>
-        <FoodPhoto height={62} width={88} radius={radius.chip} uri={dish.photo} muted={soldOut} />
-        {control}
+      {/* The control hangs off the bottom of the photo, so the well reserves
+          half of it below the image rather than a full row of its own. */}
+      <View style={{ width: MENU_PHOTO, paddingBottom: ADD_OVERLAP }}>
+        <FoodPhoto
+          height={MENU_PHOTO}
+          width={MENU_PHOTO}
+          radius={radius.card}
+          uri={dish.photo}
+          muted={soldOut}
+        />
+        <View style={[styles.menuAdd, { bottom: -ADD_OVERLAP }]}>{control}</View>
       </View>
     </Pressable>
   );
@@ -215,6 +273,10 @@ const styles = StyleSheet.create({
   card: { flexDirection: 'row', borderWidth: StyleSheet.hairlineWidth },
   menuRow: { flexDirection: 'row' },
   titleRow: { flexDirection: 'row', alignItems: 'center' },
+  /* Centred on the photo's lower edge, hanging half below it. */
+  menuAdd: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
+  reorder: { flexDirection: 'row', alignItems: 'center' },
+  reorderBar: { width: 22, height: 4, borderRadius: 2 },
   priceRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
   tile: { width: 140, borderWidth: StyleSheet.hairlineWidth },
 });

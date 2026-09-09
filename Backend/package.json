@@ -28,6 +28,8 @@
     "migrate:categories": "node scripts/migrate-categories.js",
     "verify:food-partner": "node scripts/verify-food-partner.js",
     "seed:food-menu": "node scripts/seed-food-menu.js",
+    "seed:food-restaurants": "node scripts/seed-food-restaurants.js",
+    "backfill:food-covers": "node scripts/backfill-food-covers.js",
     "verify:food-order": "node scripts/verify-food-order-loop.js",
     "verify:food-dispatch": "node scripts/verify-food-dispatch.js",
     "verify:driver-onboarding": "node scripts/verify-driver-onboarding.js",

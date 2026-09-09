@@ -18,7 +18,10 @@ import { FoodEmptyState } from './FoodStates';
 import { FoodSectionHeader } from './FoodNotices';
 import { RatingPill } from './FoodMarks';
 
-const SUGGESTIONS = ['Thali under ₹100', 'Filter coffee', 'Biryani', 'Egg dishes', 'Maggi', 'Paratha'];
+/* Exported so Food Home's search field can cycle the same real terms through
+   its placeholder, rather than a second, invented list drifting from this
+   one. */
+export const SUGGESTIONS = ['Thali under ₹100', 'Filter coffee', 'Biryani', 'Egg dishes', 'Maggi', 'Paratha'];
 
 type PriceBand = 'any' | 'under80' | 'under150';
 

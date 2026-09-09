@@ -58,10 +58,8 @@ const INITIAL_FORM_STATE = {
        that file, not data. */
     customSharingTypes: [],
     sharingPrices: {},
-    /* Rooms as counted on site; beds multiplied out from them. Both are sent
-       — the backend turns them into the claimable bed counts the request flow
-       decrements. */
-    sharingRooms: {},
+    /* Beds entered directly per sharing option — the claimable count the
+       request flow decrements. */
     sharingBeds: {},
     sharingAC: {},
     sharingAcPrices: {},
@@ -182,7 +180,6 @@ export default function App() {
         sharingTypes: ['Single', '2 Sharing'],
         customSharingTypes: [],
         sharingPrices: {},
-        sharingRooms: {},
         sharingBeds: {},
         sharingAC: {},
         sharingAcPrices: {},

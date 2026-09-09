@@ -15,6 +15,15 @@ export type DockedCartBarProps = {
   onPress: () => void;
   /** Reports its own height so the screen above can clear it. */
   onMeasure?: (height: number) => void;
+  /**
+   * Space reserved below the bar for the safe-area inset. Defaults to the
+   * device's own inset, which is correct when this bar is the last thing on
+   * screen (the kitchen screen's cart bar). Pass 0 when something already
+   * safe-area-aware is stacked directly beneath it instead — the food tab
+   * bar, for one, adds its own inset padding, and stacking both leaves a
+   * band of dead space neither one needed.
+   */
+  bottomInset?: number;
 };
 
 /**
@@ -30,7 +39,15 @@ export type DockedCartBarProps = {
  * one committing action on the screen, and the inverted surface is how that is
  * said everywhere else in the product.
  */
-export function DockedCartBar({ count, total, context, label = 'View cart', onPress, onMeasure }: DockedCartBarProps) {
+export function DockedCartBar({
+  count,
+  total,
+  context,
+  label = 'View cart',
+  onPress,
+  onMeasure,
+  bottomInset,
+}: DockedCartBarProps) {
   const { colors, space, layout, radius } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -43,7 +60,13 @@ export function DockedCartBar({ count, total, context, label = 'View cart', onPr
        navigation. Adding it here also keeps the measured height honest: every
        screen sizes its scroll padding from `onMeasure`, so they all clear the
        navigation bar without any of them knowing it exists. */
-    <View onLayout={measure} style={{ paddingHorizontal: layout.gutter, paddingBottom: insets.bottom + space[2] }}>
+    <View
+      onLayout={measure}
+      style={{
+        paddingHorizontal: layout.gutter,
+        paddingBottom: (bottomInset ?? insets.bottom) + space[2],
+      }}
+    >
       <Pressable
         onPress={onPress}
         accessibilityRole="button"

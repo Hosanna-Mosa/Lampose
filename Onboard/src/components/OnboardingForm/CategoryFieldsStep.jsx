@@ -7,31 +7,6 @@ import {
 
 const MEAL_OPTIONS = ['Breakfast', 'Lunch', 'Dinner'];
 
-/**
- * How many people the label says share one room.
- *
- * Mirrors `occupancyOf` in the backend's sharing.util.js, and must keep
- * mirroring it: the agent enters ROOMS here and the beds are multiplied out,
- * so the two sides disagreeing would put a different capacity in the database
- * than the one on this screen.
- *
- * Null where the label does not say — "Dorm Sharing", "1 BHK Independent".
- * Then the form asks for beds directly instead of multiplying.
- */
-const occupancyOf = (label) => {
-  const text = String(label || '').toLowerCase();
-  if (/\bsingle\b/.test(text)) return 1;
-  if (/\bdouble\b/.test(text)) return 2;
-  if (/\btriple\b/.test(text)) return 3;
-  if (/\bquad(ruple)?\b/.test(text)) return 4;
-  const digits = text.match(/(\d+)\s*(sharing|share|bed|seater)/);
-  if (digits) {
-    const n = Number(digits[1]);
-    return Number.isFinite(n) && n > 0 && n <= 50 ? n : null;
-  }
-  return null;
-};
-
 /* The occupancies most properties are laid out in. Anything else is added
    through "Custom" and recorded in `customSharingTypes` — see SharingOptions
    at the bottom of this file. */
@@ -1802,14 +1777,10 @@ function SharingOptions({ details, onChangeDetails, onToggleType, setMapValue, e
               const hasAC = !!(details.sharingAC && details.sharingAC[type]);
               const acPrice = details.sharingAcPrices ? details.sharingAcPrices[type] : '';
 
-              /* How many of this room type exist, and therefore how many beds.
-                 This is the number the app claims against when an owner accepts
-                 a request — without it the option cannot be requested at all,
-                 which is why it is marked required rather than left for later. */
-              const occupancy = occupancyOf(type);
-              const rooms = details.sharingRooms ? details.sharingRooms[type] : '';
+              /* How many beds this option has. This is the number the app
+                 claims against when an owner accepts a request — without it
+                 the option cannot be requested at all. */
               const beds = details.sharingBeds ? details.sharingBeds[type] : '';
-              const derivedBeds = occupancy && Number(rooms) > 0 ? Number(rooms) * occupancy : null;
 
               return (
                 <div
@@ -1837,61 +1808,27 @@ function SharingOptions({ details, onChangeDetails, onToggleType, setMapValue, e
                   />
                   <FieldError message={errors[sharingPriceKey(type)]} />
 
-                  {/* ── How many rooms, and therefore how many beds ──────
-                      The agent counts rooms because that is what they are
-                      standing in front of; the app needs beds, so the two are
-                      multiplied out and both are stored. A label that does not
-                      say how many share a room ("Dorm Sharing", and anything
-                      added through Custom that does not parse) is asked for
-                      beds directly. */}
-                  {occupancy ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '2px' }}>
-                      <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>
-                        How many {type} rooms? *
-                      </span>
-                      <input
-                        id={`sharingRooms-${type}`}
-                        type="number"
-                        min="0"
-                        placeholder="e.g. 3"
-                        value={rooms || ''}
-                        onChange={(e) => {
-                          const count = Number(e.target.value) || '';
-                          setMapValue('sharingRooms', type, count);
-                          /* Beds are written too, not just derived on read —
-                             the backend accepts either, and an explicit number
-                             survives somebody later renaming the label. */
-                          setMapValue('sharingBeds', type, count ? count * occupancy : '');
-                        }}
-                        className="form-input"
-                        style={{ padding: '8px 12px', fontSize: '0.85rem' }}
-                      />
-                      <span style={{ fontSize: '0.72rem', color: derivedBeds ? '#45855a' : '#94a3b8', fontWeight: 600 }}>
-                        {derivedBeds
-                          ? `${rooms} × ${occupancy} = ${derivedBeds} beds available`
-                          : `${occupancy} ${occupancy === 1 ? 'person' : 'people'} per room`}
-                      </span>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '2px' }}>
-                      <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>
-                        Total {type} beds *
-                      </span>
-                      <input
-                        id={`sharingBeds-${type}`}
-                        type="number"
-                        min="0"
-                        placeholder="e.g. 12"
-                        value={beds || ''}
-                        onChange={(e) => setMapValue('sharingBeds', type, Number(e.target.value) || '')}
-                        className="form-input"
-                        style={{ padding: '8px 12px', fontSize: '0.85rem' }}
-                      />
-                      <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600 }}>
-                        We cannot tell how many share a {type} room, so enter the beds directly.
-                      </span>
-                    </div>
-                  )}
+                  {/* Total beds for this option, entered directly — no room
+                      count, no multiplication. Optional: an agent standing
+                      outside a building does not always know the count, and
+                      leaving it blank just means this option is priced but
+                      not yet requestable until an owner or a later edit adds
+                      it. */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '2px' }}>
+                    <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>
+                      Total {type} beds <span style={{ color: '#94a3b8', fontWeight: 500 }}>(optional)</span>
+                    </span>
+                    <input
+                      id={`sharingBeds-${type}`}
+                      type="number"
+                      min="0"
+                      placeholder="e.g. 12 — leave blank if unknown"
+                      value={beds || ''}
+                      onChange={(e) => setMapValue('sharingBeds', type, Number(e.target.value) || '')}
+                      className="form-input"
+                      style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+                    />
+                  </div>
 
                   {/* AC is priced per sharing option, not per property */}
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '2px' }}>

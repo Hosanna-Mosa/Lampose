@@ -191,7 +191,13 @@ export default function FoodPreferencesScreen() {
               <Switch
                 label="Show veg food only"
                 value={preferences.vegOnly}
-                onChange={(value) => setPreferences({ vegOnly: value })}
+                /* Turning this off from here has to leave veg mode fully off,
+                   not just item-level — Home's pure-veg-kitchens mode also
+                   sets `vegOnly`, and a plain switch that only ever touched
+                   its own field would leave `vegRestaurantsOnly` stranded
+                   true, ready to silently re-filter kitchens the next time
+                   this switch is turned back on from here. */
+                onChange={(value) => setPreferences({ vegOnly: value, ...(value ? null : { vegRestaurantsOnly: false }) })}
               />
             </View>
 
