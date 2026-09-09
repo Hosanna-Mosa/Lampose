@@ -30,7 +30,7 @@ const mongoose = require('mongoose');
 const config = require('../../config/env');
 const razorpay = require('../../infrastructure/razorpay/razorpay');
 const VisitRequest = require('./visitRequest.model');
-const { TOKEN_CATEGORIES, normaliseCategory } = require('../../shared/constants/categories');
+const { chargesUpFront } = require('../../shared/constants/categories');
 const twilio = require('../../infrastructure/twilio/twilio');
 
 const OBJECT_ID = /^[0-9a-fA-F]{24}$/;
@@ -40,13 +40,55 @@ const OBJECT_ID = /^[0-9a-fA-F]{24}$/;
    a payment link minted before purposes existed looks like — which is why the
    webhook guards on the amount as well. */
 const ASSISTED_PURPOSE = 'assisted_visit';
+const STAY_PURPOSE = 'stay_booking';
+
+/**
+ * What THIS request charges for, read off the request rather than the listing.
+ *
+ * The category decided it once, at creation, and froze it — so a listing
+ * re-categorised since must not change what an outstanding payment buys.
+ * `assisted_visit` is the fallback because every row written before hotels
+ * charged is one.
+ */
+const purposeOf = (doc) => doc?.payment?.purpose || ASSISTED_PURPOSE;
+
+/**
+ * The figure to charge, in paise, or null when there is none to charge.
+ *
+ * The fallback to the configured platform fee is correct for an assisted visit
+ * — it is a fixed price and the request may not have an amount stamped yet —
+ * and catastrophic for a stay, which has no configured price at all. A hotel
+ * with no amount on the request would be charged ₹199 for a room.
+ */
+const amountFor = (doc) => (
+  purposeOf(doc) === ASSISTED_PURPOSE
+    ? (doc.payment?.amountPaise || config.razorpay.assistedVisitAmountPaise)
+    : (doc.payment?.amountPaise || null)
+);
+
+/** What the guest sees on the Razorpay page and their statement. */
+const describePayment = (doc) => (
+  purposeOf(doc) === ASSISTED_PURPOSE
+    ? `Assisted visit · ${doc.propertyName || 'Lampose'}`
+    : `Stay booking · ${doc.propertyName || 'Lampose'}`
+);
 
 const fail = (res, status, code, message) =>
   res.status(status).json({ success: false, code, message, error: message });
 
-/** True when this property's visits are paid for. */
-const needsToken = (property) =>
-  TOKEN_CATEGORIES.includes(normaliseCategory(property && property.category));
+/**
+ * True when this property takes money through Lampose, of either kind.
+ *
+ * It used to test `TOKEN_CATEGORIES` — the assisted-visit categories — which
+ * was the same question while they were the only ones that charged. A hotel
+ * charges too, for the stay rather than a viewing, so the question this
+ * answers is now "is there a payment step" and `paymentPurposeFor` answers
+ * "which kind".
+ *
+ * The name is kept because it is exported and read at several call sites that
+ * only care about the boolean.
+ */
+const needsToken = (property) => chargesUpFront(property && property.category);
 
 const load = async (res, id) => {
   if (!OBJECT_ID.test(String(id))) {
@@ -77,16 +119,21 @@ const ensurePaymentLink = async (doc) => {
   if (doc.payment.linkUrl) return doc.payment.linkUrl;
   if (!razorpay.isConfigured()) return null;
 
+  /* A stay with no price on it cannot be given a link. See `amountFor`. */
+  const linkAmount = amountFor(doc);
+  if (!linkAmount) return null;
+
   try {
     const link = await razorpay.createPaymentLink({
-      amountPaise: doc.payment.amountPaise || config.razorpay.assistedVisitAmountPaise,
-      description: `Assisted visit · ${doc.propertyName || 'Lampose'}`,
+      amountPaise: linkAmount,
+      description: describePayment(doc),
       name: doc.customer?.name,
       phone: doc.customer?.phone,
       /* The id AND the purpose ride along on the webhook, so the money finds
          its way home without a lookup table — and cannot be mistaken for a
-         legacy payment. */
-      notes: { visitRequestId: String(doc._id), purpose: ASSISTED_PURPOSE },
+         legacy payment. The purpose is the REQUEST's, so a hotel booking and a
+         visit fee are distinguishable on the payment itself. */
+      notes: { visitRequestId: String(doc._id), purpose: purposeOf(doc) },
       expiresAt: doc.payment.dueBy ? Math.floor(doc.payment.dueBy.getTime() / 1000) : null,
     });
 
@@ -122,14 +169,78 @@ const markVisitPaid = async (doc, paymentId) => {
   doc.payment.paymentId = paymentId ? String(paymentId) : null;
   doc.payment.verifiedAt = new Date();
   doc.payment.failureReason = '';
-  /* A slot fixed before the money cannot happen in this flow, but a redelivered
-     webhook after scheduling can — and must not knock a scheduled visit back
-     to the picker. */
-  if (!['scheduled', 'manual'].includes(doc.lamposeVisit.status)) {
+  /*
+   * Only an assisted VISIT has a slot to pick.
+   *
+   * A stay booking is finished by the payment: the guest chose their dates
+   * before the owner ever saw the request, nobody is being sent to meet them,
+   * and there is nothing to schedule. Putting it in `slot_pending` would park
+   * a paid hotel booking in a queue waiting for a slot it can never need — and
+   * the reminder sweep would chase the guest for one two hours later.
+   *
+   * A slot fixed before the money cannot happen in this flow, but a redelivered
+   * webhook after scheduling can — and must not knock a scheduled visit back
+   * to the picker.
+   */
+  if (purposeOf(doc) === ASSISTED_PURPOSE
+    && !['scheduled', 'manual'].includes(doc.lamposeVisit.status)) {
     doc.lamposeVisit.status = 'slot_pending';
     doc.lamposeVisit.slotStage = 'none';
   }
+
+  /*
+   * A stay booking's address is released BY THE PAYMENT.
+   *
+   * `addressReleasedAt` is the one gate on the street address, and until now
+   * only `confirmSchedule` set it — "the slot is what the ₹199 was for, and
+   * the address comes with it". A hotel has no slot, so nothing would ever
+   * have set it: a guest who had paid in full for a room would never be told
+   * where it is.
+   *
+   * Paying for the stay is the equivalent moment, and a stronger one. The
+   * assisted flow withholds the address until a viewing is actually booked
+   * because a ₹199 fee is a smaller commitment than a visit; here the whole
+   * stay is paid for and there is no later step to wait for.
+   */
+  if (purposeOf(doc) === STAY_PURPOSE) {
+    doc.addressReleasedAt = doc.addressReleasedAt || new Date();
+  }
+
   await doc.save();
+
+  /*
+   * The settlement ledger, for a HOTEL stay only.
+   *
+   * This is where a captured payment becomes a record of who is owed what:
+   * the gross, Lampose's commission, the hotel's share, and a Route transfer
+   * holding that share until the guest actually arrives. See
+   * `settlements/settlement.service.js` for the state machine.
+   *
+   * Awaited rather than fired and forgotten, unlike the notifications below —
+   * a payment with no ledger row is money in our account that nothing in the
+   * system says is owed to anybody, and that must not depend on a promise
+   * nobody is watching. But it is wrapped, because the payment has ALREADY
+   * COMMITTED: a settlement that could not be written must be a loud log and a
+   * row an administrator can repair, never a failed payment for a guest whose
+   * card was charged.
+   *
+   * `createForPaidBooking` is idempotent on `bookingId`, so a redelivered
+   * webhook that reaches this twice creates one row.
+   */
+  if (purposeOf(doc) === STAY_PURPOSE && doc.bookingId) {
+    try {
+      const { PartnerBooking } = require('../partners/partnerDomains.model');
+      const settlements = require('../settlements/settlement.service');
+      const booking = await PartnerBooking.findById(doc.bookingId);
+      if (booking) {
+        await settlements.createForPaidBooking({ request: doc, booking });
+      } else {
+        console.error(`[settlement] request ${doc._id} paid but booking ${doc.bookingId} is missing.`);
+      }
+    } catch (error) {
+      console.error(`[settlement] request ${doc._id} paid but no ledger row was written:`, error.message);
+    }
+  }
 
   if (doc.channel === 'app') {
     /* An app request is answered in the app: the push says "pick your slot"
@@ -200,7 +311,14 @@ const createPaymentOrder = async (req, res, next) => {
         'This confirmation has lapsed. Ask the owner again to arrange a visit.');
     }
 
-    const amountPaise = doc.payment.amountPaise || config.razorpay.assistedVisitAmountPaise;
+    /* A stay booking with no amount stamped on it is a broken request, not a
+       free room — see `amountFor`. Refused here rather than sent to Razorpay,
+       which would reject a null amount with a less useful message. */
+    const amountPaise = amountFor(doc);
+    if (!amountPaise) {
+      return fail(res, 409, 'NO_AMOUNT',
+        'We could not work out what this booking costs. Please ask again from the property.');
+    }
 
     const order = await razorpay.createOrder({
       amountPaise,
@@ -208,7 +326,9 @@ const createPaymentOrder = async (req, res, next) => {
       receipt: String(doc._id),
       notes: {
         visitRequestId: String(doc._id),
-        purpose: ASSISTED_PURPOSE,
+        /* The REQUEST's purpose, so a hotel booking and a visit fee are told
+           apart on the payment itself rather than by looking it up. */
+        purpose: purposeOf(doc),
         property: doc.propertyName || '',
       },
     });
@@ -441,10 +561,17 @@ const renderCheckout = async (req, res, next) => {
     if (doc.payment.status === 'paid') {
       return res.type('html').send(bounce(redirect, 'paid'));
     }
+    /* Same guard as the JSON path above: no amount is a broken request, and
+       Razorpay's own refusal would surface here as a blank page. */
+    const pageAmount = amountFor(doc);
+    if (!pageAmount) {
+      return res.type('html').send(bounce(redirect, 'failed'));
+    }
+
     const order = await razorpay.createOrder({
-      amountPaise: doc.payment.amountPaise || config.razorpay.assistedVisitAmountPaise,
+      amountPaise: pageAmount,
       receipt: String(doc._id),
-      notes: { visitRequestId: String(doc._id), purpose: ASSISTED_PURPOSE },
+      notes: { visitRequestId: String(doc._id), purpose: purposeOf(doc) },
     });
     doc.payment.status = 'pending';
     doc.payment.orderId = order.id;

@@ -112,13 +112,17 @@ export default function ProfileSetupScreen() {
         containerStyle={styles.field}
       />
 
-      <View style={styles.spacer} />
-
+      {/* Right under the fields, not pinned to the bottom of the screen —
+          the same fix as `login.tsx`/`otp.tsx`. A bottom-pinned button on a
+          `scroll={false}` screen sits exactly where the keyboard covers it
+          while a field is focused, and this screen autofocuses one on
+          mount. */}
       <Button
         label={saving ? 'Saving…' : 'Continue'}
         onPress={submit}
         loading={saving}
         disabled={!canContinue}
+        style={styles.cta}
       />
     </Screen>
   );
@@ -129,5 +133,5 @@ const styles = StyleSheet.create({
   title: { marginBottom: 8 },
   subtitle: { lineHeight: 21, marginBottom: 30 },
   field: { marginBottom: 20 },
-  spacer: { flex: 1 },
+  cta: { marginTop: 8 },
 });

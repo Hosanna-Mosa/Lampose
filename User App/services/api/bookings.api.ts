@@ -35,6 +35,46 @@ export type BookingStatus =
   | 'completed'
   | 'cancelled';
 
+/** The account a refund goes to, as the app is allowed to see it. */
+export type RefundBank = {
+  accountName: string;
+  /** Four digits. The full number never comes back to the phone. */
+  accountLast4: string;
+  ifsc: string;
+};
+
+/**
+ * Money owed back to the guest after a paid stay was cancelled.
+ *
+ *   awaiting_details   cancelled and owed, but no account to send it to yet
+ *   pending            account given; a person at Lampose is transferring it
+ *   paid               sent, with the bank reference
+ *   rejected           refused, with a reason
+ *
+ * The amount is what was PAID — the rule is full refund, so there is never a
+ * "kept" line and nothing here to subtract.
+ */
+export type CustomerRefund = {
+  id: string;
+  bookingId: string;
+  status: 'awaiting_details' | 'pending' | 'paid' | 'rejected';
+  /** Rupees, for display. */
+  amount: number;
+  amountPaise: number;
+  cancelledBy: 'student' | 'owner';
+  bank: RefundBank | null;
+  reference: string | null;
+  paidAt: string | null;
+  rejectedReason: string | null;
+  createdAt: string;
+};
+
+export type BankDetailsInput = {
+  accountName: string;
+  accountNumber: string;
+  ifsc: string;
+};
+
 export type CustomerBooking = {
   id: string;
   /** The request this came from. Null for a booking an owner keyed in by hand. */
@@ -66,6 +106,13 @@ export type CustomerBooking = {
   reviewed: boolean;
   /** Set only when `status` is `cancelled` — who ended it. */
   cancelledBy: 'student' | 'owner' | null;
+  /**
+   * Would cancelling this owe the guest money? True only for a paid hotel
+   * stay. The cancel form asks for a bank account when it is.
+   */
+  refundable: boolean;
+  /** The refund, once cancelled. Null on a free booking. */
+  refund: CustomerRefund | null;
   createdAt: string;
 };
 
@@ -90,12 +137,35 @@ export async function fetchBooking(id: string, signal?: AbortSignal): Promise<Cu
  */
 export async function cancelBooking(
   id: string,
-  input: { reason?: string; note?: string } = {},
+  input: { reason?: string; note?: string; bank?: BankDetailsInput } = {},
   signal?: AbortSignal,
 ): Promise<CustomerBooking> {
   const res = await api.post<ApiEnvelope<CustomerBooking>>(
     endpoints.bookingCancel(id),
-    { reason: input.reason, note: input.note },
+    /* `bank` rides with the cancel so a paid stay's refund opens with
+       somewhere to go. Validated by the server BEFORE it cancels — a bad
+       account number is a 400 with the booking untouched. */
+    { reason: input.reason, note: input.note, bank: input.bank },
+    { signal },
+  );
+  return unwrap(res);
+}
+
+/**
+ * Tell Lampose where a refund should go.
+ *
+ * The other half of `cancelBooking`'s `bank`: reached when the OWNER
+ * cancelled (the guest was not at a form to be asked) or the guest skipped
+ * it. Moves the refund from `awaiting_details` to `pending`.
+ */
+export async function submitRefundDetails(
+  id: string,
+  bank: BankDetailsInput,
+  signal?: AbortSignal,
+): Promise<CustomerBooking> {
+  const res = await api.post<ApiEnvelope<CustomerBooking>>(
+    endpoints.bookingRefundDetails(id),
+    { bank },
     { signal },
   );
   return unwrap(res);
@@ -123,6 +193,30 @@ export async function createBookingReview(
     endpoints.bookingReview(id),
     { rating: input.rating, comment: input.comment },
     { signal },
+  );
+  return unwrap(res);
+}
+
+/**
+ * DEVELOPMENT ONLY — force both halves of a move-in.
+ *
+ * Checking in is gated by a real calendar day and by an order: the owner marks
+ * the guest in, then the guest confirms. Both are right, and together they
+ * make the hotel settlement chain impossible to test before the date arrives —
+ * a settlement stays `held` until check-in, so Withdraw in the admin Monitor
+ * is unreachable.
+ *
+ * The SERVER decides whether this is available (`DEV_ALLOW_FORCE_CHECKIN`,
+ * refused under NODE_ENV=production), and it is scoped to the caller's own
+ * booking exactly like every other route here. Delete this, its endpoint and
+ * the button that calls it once the flow no longer needs walking by hand.
+ */
+export async function devForceCheckIn(
+  id: string,
+  signal?: AbortSignal,
+): Promise<CustomerBooking> {
+  const res = await api.post<ApiEnvelope<CustomerBooking>>(
+    endpoints.bookingDevForceCheckIn(id), undefined, { signal },
   );
   return unwrap(res);
 }

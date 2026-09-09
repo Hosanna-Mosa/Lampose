@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
-import { ActivityIndicator, ScrollView, View } from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Text } from '@/components/ui';
@@ -35,13 +35,21 @@ import type { AppNotification } from '@/types/support';
  * That is why an inbox here is often short or empty. An empty alerts screen
  * for somebody who has not requested a visit yet is the correct screen.
  *
- * ## Read is a watermark, and the screen says only what it can keep
+ * ## Two read marks, and they are different things
  *
- * "Mark all read" moves a timestamp on the account, so it holds across
- * devices and across launches. There is no per-item read state to move,
- * because there is no per-item row to move it on — tapping an alert opens
- * what it is about and does not pretend to mark it read. The previous version
- * did pretend, in component state that reset on the next visit.
+ * "Mark all read" moves a TIMESTAMP on the account, so it holds across
+ * devices and across launches. Opening one alert cannot use that: the server
+ * derives every alert from a visit request rather than storing rows, so there
+ * is no per-alert record to mark — see `useNotifications`.
+ *
+ * So opening one is recorded on the DEVICE, and it is honest about being a
+ * device record: it survives relaunches and does not follow anybody to a
+ * second phone. Both marks feed one merged answer, which is why the dot on a
+ * row and the number on the bell cannot disagree.
+ *
+ * The earlier version of this screen did not mark a tapped alert at all, and
+ * the version before that pretended to in component state that reset on the
+ * next visit.
  */
 export default function Notifications() {
   const { colors, space, layout, mode } = useTheme();
@@ -59,6 +67,7 @@ export default function Notifications() {
     refetch,
     isFetching,
     markAllRead,
+    markOneRead,
     isMarkingRead,
   } = useNotifications(signedIn);
 
@@ -101,6 +110,15 @@ export default function Notifications() {
           gap: space[5],
           paddingBottom: space[8],
         }}
+        refreshControl={
+          signedIn ? (
+            <RefreshControl
+              refreshing={isFetching && !isPending}
+              onRefresh={() => refetch()}
+              tintColor={colors.brand}
+            />
+          ) : undefined
+        }
       >
         {!signedIn ? (
           /* Alerts are about this person's own requests, so there is nothing
@@ -145,16 +163,22 @@ export default function Notifications() {
                 <NotificationRow
                   key={item.id}
                   notification={toRow(item)}
-                  /* Opens the request it is about. The listing is the
-                     fallback for an alert whose request has aged out of the
-                     window the server returns. */
-                  onPress={() =>
+                  /* Opens the request it is about, and marks this one read on
+                     the way. The listing is the fallback for an alert whose
+                     request has aged out of the window the server returns.
+
+                     Read is recorded BEFORE the push so the dot and the bell
+                     count have already dropped by the time this screen is
+                     returned to — see `markOneRead` for why a device-local
+                     record is the only per-alert mark available. */
+                  onPress={() => {
+                    markOneRead(item.id);
                     router.push(
                       (item.requestId
                         ? `/confirm/${item.listingId}`
                         : `/listing/${item.listingId}`) as never,
-                    )
-                  }
+                    );
+                  }}
                 />
               ))}
             </View>

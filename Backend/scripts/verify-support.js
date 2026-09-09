@@ -112,14 +112,17 @@ const check = (name, ok, extra = '') => results.push([!!ok, name, extra]);
       password: `Supp!${stamp}aA`, role: 'Support', status: 'Active',
     });
     made.admins.push(agent._id);
-    const agentToken = jwt.sign({ id: agent._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    /* The real shape: { id, typ: 'admin', ver } — a hand-rolled { id } token
+       is now refused as LEGACY_TOKEN. See admins/adminToken.js. */
+    const { signAdminToken } = require('../src/modules/admins/adminToken');
+    const agentToken = signAdminToken(agent, { expiresIn: '1h' });
 
     const viewer = await Admin.create({
       name: 'Support Viewer', email: `sup-v-${stamp}@lampose.test`,
       password: `Supp!${stamp}aA`, role: 'Viewer', status: 'Active',
     });
     made.admins.push(viewer._id);
-    const viewerToken = jwt.sign({ id: viewer._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const viewerToken = signAdminToken(viewer, { expiresIn: '1h' });
 
     const remember = (res) => {
       const ref = res.json?.data?.reference;

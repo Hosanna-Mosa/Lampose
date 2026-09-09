@@ -1,35 +1,55 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import React, { useState } from 'react';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Icon, Text } from '@/components/ui';
-import { RefundChaseNote } from '@/components/lifecycle';
-import { cancellationPolicy } from '@/data/bookings';
 import { useTheme } from '@/context/ThemeContext';
+import { useBooking } from '@/services';
 import { formatRupees } from '@/utils/money';
-import { useDepositMark } from '@/components/ui/DepositMark';
 
 /**
  * Screen 57 — cancellation confirmed.
  *
  * No celebration disc, no green tick the size of a fist. Someone has just lost
- * a place to live; the screen's job is to be calm and complete, not congratulatory.
+ * a place to live; the screen's job is to be calm and complete.
  *
- * What it must carry: confirmation that the owner has been told, the money
- * broken down again (the same figures as the previous screen — a number that
- * changes between the two destroys the whole flow), and a named date with
- * permission to chase.
+ * ## Every figure here is the server's
  *
- * The forward action is "Find another place", not "Done". A cancelled booking
- * still leaves someone needing a room.
+ * This used to print `cancellationPolicy` from `data/bookings.ts` — ₹26,499
+ * paid, a ₹499 fee kept, reference CNL-4192, arriving 19 August — on every
+ * cancellation, of every booking, for every student. Those numbers belonged
+ * to a design fixture. On the screen a student reads to find out whether
+ * their money is coming back, that is the worst place in the app to show an
+ * invented figure.
+ *
+ * What is drawn now is the refund the cancel actually opened, read back from
+ * the booking. A free booking has no refund block at all, because there is
+ * no money — the rule is full refund, and nothing else, so there is no
+ * "kept" line to draw either.
  */
 export default function CancellationConfirmed() {
   const { colors, space, layout, mode, radius } = useTheme();
   const insets = useSafeAreaInsets();
-  const depositMark = useDepositMark();
   const router = useRouter();
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { booking, refetch } = useBooking(id);
+
+  const refund = booking?.refund ?? null;
+  const awaitingDetails = refund?.status === 'awaiting_details';
+
+  /* `useBooking` has no `isFetching` of its own, so the pull gesture tracks
+     its own flag — same pattern as `addresses/index.tsx`. */
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
@@ -42,91 +62,79 @@ export default function CancellationConfirmed() {
           paddingTop: space[8],
           paddingBottom: space[8],
         }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand} />
+        }
       >
         <View style={{ gap: space[3] }}>
-          <View
-            style={[
-              styles.disc,
-              { borderRadius: radius.pill, backgroundColor: colors.surfaceSunken },
-            ]}
-          >
-            <Icon name="check" size={24} color={colors.textSecondary} />
+          <View style={[styles.disc, { borderRadius: radius.pill, backgroundColor: colors.surfaceSunken }]}>
+            <Icon name="check" size={20} color={colors.textSecondary} />
           </View>
           <Text variant="display1">Booking cancelled</Text>
           <Text variant="bodyLg" color="secondary">
-            LAM-4192 at Bhavana Girls PG is cancelled. Padma has been told and the bed is back on
-            the market.
+            {booking?.propertyName ? `${booking.propertyName} has been told.` : 'The owner has been told.'}
+            {' '}The room is free for someone else.
           </Text>
         </View>
 
-        {/* The same figures as the screen before. They may never disagree. */}
-        <View
-          style={{
-            backgroundColor: colors.surface,
-            borderColor: colors.border,
-            borderWidth: StyleSheet.hairlineWidth,
-            borderRadius: radius.card,
-            padding: space[4],
-            gap: space[3],
-          }}
-        >
-          <Text variant="title3">Your money</Text>
-          <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.borderSubtle }} />
+        {refund ? (
+          <View
+            style={{
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderRadius: radius.card,
+              padding: space[4],
+              gap: space[3],
+            }}
+          >
+            <Text variant="title3">Your refund</Text>
+            <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.borderSubtle }} />
 
-          <View style={[styles.lineRow, { gap: space[4] }]}>
-            <Text variant="body" style={styles.flex}>
-              You paid
-            </Text>
-            <Text variant="priceSm">{formatRupees(cancellationPolicy.paid)}</Text>
-          </View>
-
-          {cancellationPolicy.lines.map((line) => (
-            <View key={line.label} style={[styles.lineRow, { gap: space[4] }]}>
+            <View style={[styles.lineRow, { gap: space[4] }]}>
               <View style={styles.flex}>
-                <Text variant="body">{line.label} kept</Text>
+                <Text variant="bodyStrong">Coming back to you</Text>
                 <Text variant="numMeta" color="tertiary">
-                  Non-refundable, as shown before you cancelled
+                  In full. Lampose keeps nothing.
                 </Text>
               </View>
-              <Text variant="priceSm" color="secondary">
-                −{formatRupees(line.amount)}
-              </Text>
+              <Text variant="priceLg">{formatRupees(refund.amount)}</Text>
             </View>
-          ))}
 
-          <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border }} />
+            <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.borderSubtle }} />
 
-          <View style={[styles.lineRow, { gap: space[4] }]}>
-            <View style={styles.flex}>
-              <Text variant="bodyStrong">Coming back</Text>
-              <Text variant="numMeta" color="tertiary">
-                {cancellationPolicy.destination}
+            {awaitingDetails ? (
+              <Text variant="body" color="secondary">
+                We need to know which account to send it to. Add your bank details on the next
+                screen and we will transfer it.
               </Text>
-            </View>
-            <Text
-              variant="priceLg"
-              style={depositMark}
-            >
-              {formatRupees(cancellationPolicy.returning)}
-            </Text>
+            ) : refund.bank ? (
+              <Text variant="body" color="secondary">
+                To {refund.bank.accountName} · {refund.bank.ifsc} · account ending {refund.bank.accountLast4}.
+                A person at Lampose makes the transfer; it usually shows within 3–5 working days of
+                being sent, and we will tell you when it is.
+              </Text>
+            ) : null}
           </View>
-        </View>
-
-        <RefundChaseNote
-          arrivesByLabel={cancellationPolicy.arrivesByLabel}
-          timingNote={cancellationPolicy.timingNote}
-          reference={cancellationPolicy.reference}
-          startedLabel="today 14 Aug, 9:41 am"
-        />
+        ) : booking ? (
+          <Text variant="body" color="secondary">
+            Nothing was paid for this booking, so there is nothing to refund.
+          </Text>
+        ) : null}
 
         <View style={{ gap: space[2] }}>
-          {/* Forward-looking. Someone still needs a room. */}
-          <Button label="Find another place" fullWidth onPress={() => router.replace('/home')} />
+          {refund ? (
+            <Button
+              label={awaitingDetails ? 'Add bank details for the refund' : 'Track this refund'}
+              fullWidth
+              onPress={() => router.replace({ pathname: '/bookings/refund', params: { id } })}
+            />
+          ) : null}
           <Button
-            label="Track this refund"
-            variant="secondary"
+            label="Find another place"
+            variant={refund ? 'secondary' : 'primary'}
             fullWidth
-            onPress={() => router.push('/bookings/refund')}
+            onPress={() => router.replace('/home')}
           />
         </View>
       </ScrollView>
@@ -135,7 +143,7 @@ export default function CancellationConfirmed() {
 }
 
 const styles = StyleSheet.create({
-  disc: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  lineRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
   flex: { flex: 1 },
+  disc: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  lineRow: { flexDirection: 'row', alignItems: 'center' },
 });

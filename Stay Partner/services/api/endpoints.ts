@@ -70,6 +70,14 @@ export const endpoints = {
    */
   partnerSummary: `${V2}/partners/summary`,
 
+  /* Payout onboarding — HOTEL owners only. What Razorpay Route needs before it
+     will settle to a hotel; see `payoutOnboarding.api.ts` for why this asks
+     more than the bank account under `earnings/methods`. */
+  payoutOnboarding: `${V2}/partners/payout-onboarding`,
+  payoutOnboardingRefresh: `${V2}/partners/payout-onboarding/refresh`,
+  /* DEVELOPMENT ONLY — 404s unless the server allows it. */
+  payoutOnboardingDevActivate: `${V2}/partners/payout-onboarding/dev-activate`,
+
   /**
    * This partner's listings, scoped by the phone number they proved.
    */
@@ -160,6 +168,9 @@ export const endpoints = {
   partnerBookings: `${V2}/partners/bookings`,
   partnerBooking: (id: string) => `${V2}/partners/bookings/${encodeURIComponent(id)}`,
   partnerBookingCheckin: (id: string) => `${V2}/partners/bookings/${encodeURIComponent(id)}/checkin`,
+  /** DEVELOPMENT ONLY — 404s unless the server has DEV_ALLOW_FORCE_CHECKIN on. */
+  partnerBookingDevForceCheckin: (id: string) =>
+    `${V2}/partners/bookings/${encodeURIComponent(id)}/dev-force-checkin`,
   partnerBookingCheckout: (id: string) => `${V2}/partners/bookings/${encodeURIComponent(id)}/checkout`,
   partnerBookingCancel: (id: string) => `${V2}/partners/bookings/${encodeURIComponent(id)}/cancel`,
 
@@ -170,6 +181,10 @@ export const endpoints = {
   partnerPayoutRequest: `${V2}/partners/payouts/request`,
   partnerPaymentMethods: `${V2}/partners/payment-methods`,
   partnerPaymentMethod: (id: string) => `${V2}/partners/payment-methods/${encodeURIComponent(id)}`,
+  /* Which saved account a payout is addressed to. Promoting one demotes
+     the rest server-side, so the app never sends a list. */
+  partnerPaymentMethodPrimary: (id: string) =>
+    `${V2}/partners/payment-methods/${encodeURIComponent(id)}/primary`,
 
   partnerComplaints: `${V2}/partners/complaints`,
   partnerComplaint: (id: string) => `${V2}/partners/complaints/${encodeURIComponent(id)}`,
@@ -197,11 +212,17 @@ export const endpoints = {
   partnerStaffDelete: (id: string) => `${V2}/partners/staff/${encodeURIComponent(id)}`,
 
   partnerReviews: `${V2}/partners/reviews`,
+  /* The owner's answer to one review. Saved on the review; shown to students. */
+  partnerReviewReply: (id: string) => `${V2}/partners/reviews/${encodeURIComponent(id)}/reply`,
   partnerReferrals: `${V2}/partners/referrals`,
   partnerReferralsWithdraw: `${V2}/partners/referrals/withdraw`,
 
   partnerShareTypes: `${V2}/partners/share-types`,
+  /** Partner-wide — every room type this owner has, everywhere, at once. */
   partnerShareTypesAvailability: `${V2}/partners/share-types/availability`,
+  /** ONE room type, unlike the partner-wide route above. */
+  partnerShareTypeAvailability: (shareTypeId: string) =>
+    `${V2}/partners/share-types/${encodeURIComponent(shareTypeId)}/availability`,
 
   /* ---------------------------------------------------------------- *
    * Public catalogue
@@ -220,11 +241,12 @@ export const endpoints = {
  * that is wired to `partnerDomains.model.js` collections now, support
  * included (`support.api.ts`, mounted at `/partners/support`).
  *
- * `payouts` is real data with one real gap: `partner_payouts` rows are
- * created by `POST /partners/payouts/request` and read back honestly, but
- * nothing yet MOVES money — there is no RazorpayX integration behind them.
- * A requested payout sits `pending` until that is wired; see
- * `Backend/src/modules/partners/payout.service.js`.
+ * `payouts` is real end to end now. A request creates a `pending`
+ * `partner_payouts` row; an administrator dispatches it from the console's
+ * Partner Payouts queue, which pays the owner's saved bank account over
+ * RazorpayX; and the payout webhook moves the row to `completed` when the
+ * bank confirms. Payout METHODS are real too — the `lib/payouts.ts` fixture
+ * they used to run on is gone, and that file is display helpers only.
  */
 export const FIXTURE_BACKED_SCREENS = [
   'inventory/*',

@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Screen, Text, Button, IconButton, Icon, Badge, EmptyState } from '@/components/ui';
-import { METHODS, maskedNumber, subscribeMethods, type PayoutMethod } from '@/lib/payouts';
+import { maskedNumber, toPayoutMethod, type PayoutMethod } from '@/lib/payouts';
 import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
@@ -13,48 +13,50 @@ import { logWarn } from '@/lib/log';
 export default function PayoutMethodsScreen() {
   const router = useRouter();
   const [methods, setMethods] = useState<PayoutMethod[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const loadMethods = async () => {
+  const loadMethods = useCallback(async () => {
     try {
       const items = await fetchPaymentMethodsApi();
-      /*
-       * The three field names here had drifted from `PayoutMethod` —
-       * accountHolder/accountNumber/ifscCode against holderName/last4/ifsc —
-       * so the screen rendered `method.last4` as undefined and read
-       * "ending undefined" to a screen reader.
-       *
-       * The fallbacks went too. They invented a bank account number
-       * ('XXXX4321') and an IFSC ('HDFC0001234') for any row missing them,
-       * which is the worst possible default on a payouts screen: an owner
-       * checking where their money goes would have been shown a plausible
-       * account that is not theirs. Missing stays visibly missing.
-       */
-      const mapped: PayoutMethod[] = (items || []).map((m: any) => {
-        const account = String(m.accountNumber || m.upiId || '');
-        return {
-          id: String(m.id || m._id || ''),
-          bankName: m.type === 'upi' ? 'UPI' : (m.bankName || 'Bank account'),
-          holderName: m.accountName || '',
-          /* Only ever the tail. The full number is typed and never kept — see
-             the note on the type. */
-          last4: account.slice(-4),
-          ifsc: m.ifsc || '',
-          isDefault: Boolean(m.isPrimary),
-        };
-      });
-      setMethods(mapped);
+      /* One mapper, in `lib/payouts.ts`, because three screens read this list
+         and the field names on the wire are not the ones the UI uses. */
+      setMethods((items || []).map(toPayoutMethod));
     } catch (err) {
       logWarn('Failed to load payment methods:', err);
+    } finally {
+      setLoaded(true);
     }
-  };
-
-  useEffect(() => {
-    loadMethods();
   }, []);
+
+  /*
+   * On FOCUS, not on mount.
+   *
+   * Adding, removing and promoting all happen on other screens and then come
+   * back here. A `useEffect([])` ran once and left this list showing the state
+   * before the change — an account the owner had just deleted still sitting
+   * there, or the old default still marked.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      void loadMethods();
+    }, [loadMethods]),
+  );
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadMethods();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadMethods]);
 
   return (
     <Screen
       contentStyle={styles.stack}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
             footer={
               <Button
                 label="+ Add payout method"
@@ -87,7 +89,7 @@ export default function PayoutMethodsScreen() {
             }
           />
         ))
-      ) : (
+      ) : loaded ? (
         // Without a method there is nowhere for money to go, so this says so.
         <EmptyState
           icon="bank"
@@ -95,7 +97,7 @@ export default function PayoutMethodsScreen() {
           body="Add a bank account so your earnings have somewhere to land."
           style={styles.empty}
         />
-      )}
+      ) : null}
     </Screen>
   );
 }

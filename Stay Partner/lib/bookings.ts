@@ -20,6 +20,17 @@ function at(dayOffset: number, hour = 0): Date {
 export type Booking = {
   id: string;
   guest: string;
+  /**
+   * The property's category at the time this booking was made. '' on a row
+   * written before this field existed, or if the property lookup failed at
+   * creation — treated as "unknown", never as bachelor.
+   *
+   * The one thing this drives today: a bachelor tenancy is a direct
+   * arrangement with the guest from the moment it is confirmed, so the
+   * owner-messaging and cancel-via-app actions this screen would otherwise
+   * offer are hidden for it — see `app/booking/[id].tsx`.
+   */
+  category?: string;
   roomType: string;
   checkIn: Date;
   checkOut: Date;
@@ -36,7 +47,14 @@ export type Booking = {
    * both sides. Not four digits and not generated here: it is COMPARED with
    * what the student shows, so a locally invented one is worse than none.
    */
+  /** Design-fixture field. The server never sends a PIN to the owner. */
   checkInCode?: string;
+  /**
+   * Whether check-in asks for the guest's code. True for a booking that came
+   * through a request (a PIN was issued to the guest); false for a walk-in
+   * the owner keyed in by hand. The code itself is verified by the server.
+   */
+  requiresCode?: boolean;
   /** Set once the stay is under way. */
   checkedInAt?: Date;
 
@@ -65,6 +83,7 @@ export const BOOKINGS: Booking[] = [
     payment: 'paid',
     gross: 6_400,
     checkInCode: '4829',
+    requiresCode: true,
     checkedInAt: at(0, 14),
     checkOutBy: '11:00 AM',
   },
@@ -82,6 +101,7 @@ export const BOOKINGS: Booking[] = [
     payment: 'paid',
     gross: 7_200,
     checkInCode: '6035',
+    requiresCode: true,
     checkedInAt: at(-2, 14),
     checkOutBy: '11:00 AM',
   },
@@ -99,6 +119,7 @@ export const BOOKINGS: Booking[] = [
     payment: 'paid',
     gross: 14_400,
     checkInCode: '2947',
+    requiresCode: true,
     checkOutBy: '11:00 AM',
   },
   {
@@ -113,6 +134,7 @@ export const BOOKINGS: Booking[] = [
     payment: 'pending',
     gross: 11_000,
     checkInCode: '7314',
+    requiresCode: true,
     checkOutBy: '11:00 AM',
   },
   {
@@ -127,6 +149,7 @@ export const BOOKINGS: Booking[] = [
     payment: 'paid',
     gross: 8_000,
     checkInCode: '5106',
+    requiresCode: true,
     checkOutBy: '11:00 AM',
   },
 ];
@@ -187,14 +210,36 @@ export function getBooking(id: string | undefined): Booking | undefined {
   return ALL.find((b) => b.id === id);
 }
 
+/**
+ * The server's vocabulary, in the app's spelling.
+ *
+ * `arriving` and `departing` used to map onto `confirmed` and `inHouse`,
+ * which threw away the only two states an owner runs their morning on.
+ */
 const STATUS_MAP: Record<string, Booking['status']> = {
   in_house: 'inHouse',
-  arriving: 'confirmed',
-  departing: 'inHouse',
+  arriving: 'arriving',
+  /* Split out from `arriving` — see `bookingStage.util.js`. A guest expected
+     weeks ago and never checked in is not "today"'s arrival. */
+  overdue_arrival: 'overdueArrival',
+  departing: 'departing',
+  overdue_departure: 'overdueDeparture',
   upcoming: 'confirmed',
   completed: 'completed',
   cancelled: 'cancelled',
 };
+
+/**
+ * Which field to believe.
+ *
+ * `stage` is what the server DERIVED from the dates a moment ago; `status` is
+ * what a person last set. Stage wins where it exists, because it is the only
+ * one that can say "arriving today" — read defensively, so an older build of
+ * the API that sends no `stage` still renders every booking.
+ */
+function statusOf(raw: any): Booking['status'] {
+  return STATUS_MAP[raw?.stage] ?? STATUS_MAP[raw?.status] ?? 'confirmed';
+}
 
 /**
  * One `partner_bookings` row, as the screens want it.
@@ -239,6 +284,7 @@ export function toBooking(raw: any, fallbackId?: string): Booking {
   return {
     id: String(raw?.id ?? raw?._id ?? fallbackId ?? ''),
     guest: raw?.guestName || 'Guest',
+    category: String(raw?.category || ''),
     roomType: raw?.shareType || raw?.roomNumber || '',
     checkIn: startsAt,
     checkOut: endsAt,
@@ -246,7 +292,7 @@ export function toBooking(raw: any, fallbackId?: string): Booking {
        rather than inventing a party size. */
     guests: raw?.guestsLabel || (raw?.roomNumber ? `Room ${raw.roomNumber}` : '1 guest'),
     nights: Math.max(1, Math.round((endsAt.getTime() - startsAt.getTime()) / 86_400_000)),
-    status: STATUS_MAP[raw?.status] ?? 'confirmed',
+    status: statusOf(raw),
     /*
      * `PaymentStatus` has no `partial` member, so a part-paid booking reads as
      * `pending` — the honest side to err on: money is still owed. A card
@@ -258,7 +304,9 @@ export function toBooking(raw: any, fallbackId?: string): Booking {
        request behind it and therefore no code. Never generated here: it is
        COMPARED with what the student shows, so an invented one is worse than
        none. */
-    checkInCode: raw?.entryPin || undefined,
+    /* `hasEntryPin`, not the PIN. The API stopped sending `entryPin` to the
+       owner's app when the check moved server-side — see `checkInBooking`. */
+    requiresCode: Boolean(raw?.hasEntryPin),
     movedInByOwnerAt: raw?.movedInByOwnerAt ? new Date(raw.movedInByOwnerAt) : undefined,
     movedInByStudentAt: raw?.movedInByStudentAt ? new Date(raw.movedInByStudentAt) : undefined,
     checkOutBy: '11:00 AM',

@@ -23,6 +23,12 @@ import { actions } from '@/constants/actions';
 
 export type ActionBarProps = {
   booking: BookingSummary;
+  /**
+   * BACHELOR, PG_HOSTEL and COLIVE only — see the note on `actionsFor`.
+   * Every other category leaves this undefined and gets the switch below
+   * unchanged.
+   */
+  category?: string | null;
   onPrimary?: () => void;
   onSecondary?: () => void;
   onDestructive?: () => void;
@@ -35,7 +41,36 @@ type Actions = {
   destructive?: string;
 };
 
-function actionsFor(booking: BookingSummary): Actions {
+/**
+ * `CONFIRMED` and `CHECKED_IN`, for a bachelor room, PG/Hostel or Co-living,
+ * offer nothing.
+ *
+ * From the moment any of the three is confirmed it is a direct arrangement
+ * with the owner — rent, the code at the door, moving out, all of it,
+ * exactly as the terms card on this screen already states ("Rent and
+ * deposit are settled directly with the owner" / "Lampose does not hold
+ * them" / "Lampose is not part of that arrangement"). Lampose facilitated
+ * the introduction and, where one was charged, the bachelor assisted-visit
+ * fee; it has no channel to message an owner through, no queue that "raise
+ * an issue" would reach, and no record of a move-out notice to act on for
+ * any of the three. Every button these two statuses used to offer named
+ * something Lampose cannot actually do here, which is worse than offering
+ * nothing — a "Message the owner" button with no owner-messaging behind it
+ * is a promise the tap breaks. Co-living was added here alongside the other
+ * two once its own payment step was removed — the same "nothing moves
+ * through Lampose" fact the other two are gated on.
+ *
+ * Every OTHER status keeps its buttons, all three categories included: the
+ * request stage and the assisted-visit payment are real Lampose processes
+ * regardless of category, so "Cancel this request" and the payment retry
+ * still mean something there.
+ */
+function actionsFor(booking: BookingSummary, category?: string | null): Actions {
+  if ((category === 'BACHELOR' || category === 'PG_HOSTEL' || category === 'COLIVE')
+    && (booking.status === 'CONFIRMED' || booking.status === 'CHECKED_IN')) {
+    return {};
+  }
+
   switch (booking.status) {
     case 'REQUESTED':
       return { secondary: actions.support, destructive: 'Cancel this request' };
@@ -45,7 +80,10 @@ function actionsFor(booking: BookingSummary): Actions {
     case 'PAYMENT_FAILED':
       return { primary: 'Try the payment again', destructive: 'Cancel this request' };
     case 'CONFIRMED':
-      return { primary: 'Show move-in code', secondary: 'Change my move-in date', destructive: 'Cancel this booking' };
+      /* No "Show move-in code" — the code is now shown directly at the top
+         of the booking screen instead of behind a reveal tap, so there is
+         nothing left for a primary action here to do. */
+      return { secondary: 'Change my move-in date', destructive: 'Cancel this booking' };
     case 'CHECKED_IN':
       return {
         primary: 'Message the owner',
@@ -70,13 +108,23 @@ function actionsFor(booking: BookingSummary): Actions {
 
 export function ActionBar({
   booking,
+  category,
   onPrimary,
   onSecondary,
   onDestructive,
   onSupport,
 }: ActionBarProps) {
   const { space } = useTheme();
-  const slots = actionsFor(booking);
+  const slots = actionsFor(booking, category);
+  /* Support is "reachable from every one of the thirteen" — except these two
+     for a bachelor room, PG/Hostel or Co-living, where it is exactly the
+     button this whole gate is about: Lampose support has no ticket queue for
+     a landlord dispute it was never told about. Kept as its own check
+     because it is the one row that is not driven by `slots`. */
+  const hideSupport = (category === 'BACHELOR' || category === 'PG_HOSTEL' || category === 'COLIVE')
+    && (booking.status === 'CONFIRMED' || booking.status === 'CHECKED_IN');
+
+  if (!slots.primary && !slots.secondary && !slots.destructive && hideSupport) return null;
 
   return (
     <View style={{ gap: space[2] }}>
@@ -85,8 +133,8 @@ export function ActionBar({
         <Button label={slots.secondary} variant="secondary" onPress={onSecondary} fullWidth />
       ) : null}
 
-      {/* Support, from every one of the thirteen. */}
-      <Button label={actions.support} variant="ghost" onPress={onSupport} fullWidth />
+      {/* Support, from every one of the thirteen — bar the two above. */}
+      {!hideSupport ? <Button label={actions.support} variant="ghost" onPress={onSupport} fullWidth /> : null}
 
       {slots.destructive ? (
         // Separated by a real gap, so the thumb reaching the primary never

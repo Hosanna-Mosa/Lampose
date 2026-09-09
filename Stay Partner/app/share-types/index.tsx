@@ -2,8 +2,12 @@ import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen, Text, Button, IconButton, Icon, Switch, Divider } from '@/components/ui';
-import { SHARE_TYPES, saveShareTypes, setAvailable } from '@/lib/shareTypes';
-import { fetchShareTypesApi, toggleShareTypesAvailabilityApi } from '@/services/api/domain.api';
+import { saveShareTypes, setAvailable, setShareTypes } from '@/lib/shareTypes';
+import {
+  fetchShareTypesApi,
+  setShareTypeAvailability,
+  toggleShareTypesAvailabilityApi,
+} from '@/services/api/domain.api';
 import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
@@ -14,14 +18,16 @@ export default function ShareTypesScreen() {
   const router = useRouter();
   const { reason } = useLocalSearchParams<{ reason?: string }>();
 
-  const [shareTypesList, setShareTypesList] = useState<any[]>(SHARE_TYPES);
-  const [draft, setDraft] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(SHARE_TYPES.map((t) => [t.id, t.available])),
-  );
+  /* Empty until the server answers. Seeding with the fixture drew two
+     invented room types on a property that may have neither, and left them on
+     screen for good if the request failed. */
+  const [shareTypesList, setShareTypesList] = useState<any[]>([]);
+  const [draft, setDraft] = useState<Record<string, boolean>>({});
 
   const loadShareTypes = async () => {
     try {
       const data = await fetchShareTypesApi();
+      if (Array.isArray(data) && data.length === 0) setShareTypes([]);
       if (Array.isArray(data) && data.length > 0) {
         const mapped = data.map((st: any) => ({
           id: st.shareTypeId || st.id || st._id,
@@ -31,6 +37,9 @@ export default function ShareTypesScreen() {
         }));
         setShareTypesList(mapped);
         setDraft(Object.fromEntries(mapped.map((t) => [t.id, t.available])));
+        /* Feed the shared cache the dashboard's banner and the online toggle
+           both read, so they stop disagreeing with this screen. */
+        setShareTypes(mapped);
       }
     } catch (err) {
       logWarn('Failed to fetch share types:', err);
@@ -46,12 +55,31 @@ export default function ShareTypesScreen() {
   const confirming = reason === 'accepting';
   const canSubmit = confirming ? draftVisibleCount > 0 : dirty;
 
+  /*
+   * Each switched row was never reaching the server.
+   *
+   * This used to call the partner-wide `toggleShareTypesAvailabilityApi` with
+   * one boolean collapsed from "is anything in the draft still on" — so
+   * switching a single room off here, then saving with others left on, wrote
+   * `isAvailable: true` across every room type this owner has (see the note
+   * on `updateShareTypeAvailability` in the backend). A room turned off never
+   * actually turned off, and a stale pause on an unrelated property could get
+   * silently switched back on in the same tap. `setShareTypeAvailability` is
+   * the per-row route that was missing; every row whose switch actually moved
+   * is written individually now, which is also the only way a bachelor room
+   * paused here stops being requestable in the app.
+   */
   const save = async () => {
     try {
-      const isOnline = draftVisibleCount > 0;
-      await toggleShareTypesAvailabilityApi(isOnline);
+      const changed = shareTypesList.filter((t) => draft[t.id] !== t.available);
+      await Promise.all(changed.map((t) => setShareTypeAvailability(t.id, draft[t.id])));
       saveShareTypes(draft);
-      if (confirming && isOnline) {
+
+      /* "Confirm & go online" only raises the partner-wide flag from here —
+         it must not bulk-write every row back on, which would undo the
+         per-row save just above. */
+      if (confirming) {
+        await toggleShareTypesAvailabilityApi(true);
         setAvailable(true);
       }
     } catch (err) {

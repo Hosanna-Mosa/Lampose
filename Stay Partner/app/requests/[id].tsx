@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import {
@@ -15,6 +15,7 @@ import {
   CountdownChip,
   type BookingStatus,
 } from '@/components/ui';
+import { useAlert } from '@/components/ui/AppAlert';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 import { formatDateTime, formatINR } from '@/lib/format';
@@ -71,6 +72,54 @@ function prettyDate(iso?: string | null): string {
   return `${d} ${names[m - 1]} ${y}`;
 }
 
+/** "2:00 PM" from a `HH:mm` the server stores. */
+function prettyTime(hhmm?: string | null): string {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+/**
+ * What the owner needs to know about the ₹199 assisted visit — bachelor and
+ * co-live only, and read-only: the student books the slot with the Lampose
+ * representative who walks them through the place, not with the owner.
+ *
+ * `null` when this request never carried one (every other category, or a
+ * card whose payment was never made required in the first place).
+ */
+function visitCopy(request: BackendPartnerRequest): { title: string; body: string } | null {
+  if (!request.payment?.required) return null;
+  const { status } = request.payment;
+  const visit = request.lamposeVisit;
+
+  if (status === 'expired' || status === 'failed') {
+    return {
+      title: 'The visit window lapsed',
+      body: 'The student did not pay in time, so no visit was arranged. The bed is still yours until they ask again.',
+    };
+  }
+  if (status === 'pending') {
+    return {
+      title: 'Waiting on the student',
+      body: 'They still need to pay ₹199 for a Lampose representative to walk them through the place before move-in.',
+    };
+  }
+  // Paid. Now it is a question of whether a slot has been picked.
+  if (visit?.status === 'scheduled' || visit?.status === 'manual') {
+    return {
+      title: `Visit scheduled · ${prettyDate(visit.date)}${visit.time ? `, ${prettyTime(visit.time)}` : ''}`,
+      body: 'A Lampose representative will bring them by at this time. Nothing further to do on your side.',
+    };
+  }
+  return {
+    title: 'Paid — picking a time',
+    body: 'The student has paid for the visit and is choosing a day and time with our team. This card updates once it is fixed.',
+  };
+}
+
 function stayLength(request: BackendPartnerRequest): string {
   const intent = request.intent;
   if (!intent?.duration || !intent?.durationUnit) return 'Not specified';
@@ -118,9 +167,10 @@ function outcomeCopy(request: BackendPartnerRequest): { title: string; body: str
 export default function RequestDetailScreen() {
   const router = useRouter();
   const c = useColors();
+  const { alert } = useAlert();
   const { id } = useLocalSearchParams<{ id: string }>();
 
-  const { request, secondsRemaining, countdown, actionable, isPending, error } = useStayRequest(id);
+  const { request, secondsRemaining, countdown, actionable, isPending, error, isRefetching, refetch } = useStayRequest(id);
   const answer = useAnswerRequest(id);
 
   /* The server's refusal, shown as the server worded it. "This request has
@@ -128,7 +178,11 @@ export default function RequestDetailScreen() {
      for an owner to know, and a generic failure would flatten both. */
   useEffect(() => {
     if (!answer.error) return;
-    Alert.alert('Could not answer', answer.error.displayMessage);
+    void alert({
+      title: 'Could not answer',
+      message: answer.error.displayMessage,
+      tone: 'error',
+    });
   }, [answer.error]);
 
   if (isPending && !request) {
@@ -156,6 +210,7 @@ export default function RequestDetailScreen() {
   }
 
   const outcome = outcomeCopy(request);
+  const visit = visitCopy(request);
 
   /*
    * Two channels reach this screen, and only one of them is answered here.
@@ -181,11 +236,12 @@ export default function RequestDetailScreen() {
            difference between an owner learning it here and learning it from
            a phone call. */
         if (result.autoDeclined > 0) {
-          Alert.alert(
-            'Accepted',
-            `That was the last bed in this room, so ${result.autoDeclined} other `
-            + `request${result.autoDeclined === 1 ? '' : 's'} closed automatically.`,
-          );
+          void alert({
+            title: 'Accepted',
+            message: `That was the last bed in this room, so ${result.autoDeclined} other `
+              + `request${result.autoDeclined === 1 ? '' : 's'} closed automatically.`,
+            tone: 'success',
+          });
         }
       },
     });
@@ -196,6 +252,8 @@ export default function RequestDetailScreen() {
       padX={22}
       background="bg"
       contentStyle={styles.stack}
+      refreshing={isRefetching}
+      onRefresh={refetch}
       stickyHeader={(
         <View style={styles.headerRow}>
           <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
@@ -264,6 +322,20 @@ export default function RequestDetailScreen() {
           <Text variant="cardTitle">{outcome.title}</Text>
           <Text variant="body" style={{ color: c.textSecondary, marginTop: 4 }}>
             {outcome.body}
+          </Text>
+        </Card>
+      ) : null}
+
+      {/* Bachelor and co-live only — the ₹199 assisted visit, and where it
+          stands. The bed was already taken when this request was accepted;
+          this is a separate walkthrough the student still has to book with a
+          Lampose representative before moving in, and until this card
+          existed the owner had no way to know whether they had. */}
+      {visit ? (
+        <Card>
+          <Text variant="cardTitle">{visit.title}</Text>
+          <Text variant="body" style={{ color: c.textSecondary, marginTop: 4 }}>
+            {visit.body}
           </Text>
         </Card>
       ) : null}
@@ -346,7 +418,13 @@ export default function RequestDetailScreen() {
         <DetailRow label="Requested" value={formatDateTime(new Date(request.createdAt))} last />
       </Card>
 
-      {request.status === 'confirmed' ? (
+      {/* Not for a bachelor room. Once confirmed — and, where one is due, the
+          visit paid for and scheduled, both shown above — a bachelor tenancy
+          is a direct arrangement between the two of them; the booking screen
+          this button opens has nothing left for Lampose to show or do there
+          either (see the same gate on "Cancel booking",
+          app/booking/[id].tsx), so there is nothing worth this tap. */}
+      {request.status === 'confirmed' && request.category !== 'BACHELOR' ? (
         <Button
           label="See the booking"
           variant="secondary"

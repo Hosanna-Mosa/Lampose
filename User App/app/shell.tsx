@@ -1,4 +1,5 @@
 import { Stack, useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
@@ -17,6 +18,7 @@ import {
   SuccessState,
   TabBar,
   usePhotoHeroHeight,
+  usePhotoHeaderStatusBarStyle,
   type TabItem,
 } from '@/components/shell';
 import { emptyStates, errorStates, successCopy } from '@/constants/copy';
@@ -40,7 +42,7 @@ const TABS: TabItem[] = [
 const VIEWS = ['Headers', 'CTA bar', 'States', 'Photo'] as const;
 
 export default function ShellPreview() {
-  const { colors, space, layout } = useTheme();
+  const { mode, colors, space, layout } = useTheme();
   const router = useRouter();
   const heroHeight = usePhotoHeroHeight();
   const [tab, setTab] = useState('explore');
@@ -48,6 +50,9 @@ export default function ShellPreview() {
   const [sharing, setSharing] = useState(2);
   const [barHeight, setBarHeight] = useState(120);
   const scrollY = useSharedValue(0);
+  // Same crossfade the real listing screen uses — see the hook for why the
+  // Photo tab needs this rather than a fixed style.
+  const photoStatusBarStyle = usePhotoHeaderStatusBarStyle(scrollY, heroHeight);
 
   const onScroll = useAnimatedScrollHandler((event) => {
     // Straight to a shared value. No setState anywhere in the threshold logic.
@@ -59,6 +64,7 @@ export default function ShellPreview() {
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
+      <StatusBar style={view === 'Photo' ? photoStatusBarStyle : (mode === 'dark' ? 'light' : 'dark')} />
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
         {/* A way out of the preview itself. It sits ABOVE the header being
             demonstrated, so the two are never confused for one bar — the one

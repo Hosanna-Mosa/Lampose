@@ -15,6 +15,8 @@ import { useBooking, useBookingActions } from '@/services/hooks/useBookings';
 import { ApiError } from '@/services/api/client';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
+/* DEVELOPMENT ONLY — gates the force-check-in bypass below. */
+import { PREVIEW_CONTROLS } from '@/constants/env';
 
 /**
  * The entry PIN is SIX digits.
@@ -27,7 +29,7 @@ import { useColors } from '@/hooks/useColors';
  * here: six boxes, and a comparison that actually compares.
  */
 const CODE_LENGTH = 6;
-const MAX_ATTEMPTS = 3;
+const MAX_ATTEMPTS = 10;
 /** How long the guest's code stays valid once this screen is open. */
 const CODE_TTL_MS = 180_000;
 
@@ -61,7 +63,7 @@ export default function CheckInScreen() {
   const { id, state: forced } = useLocalSearchParams<{ id: string; state?: Forced }>();
 
   const { booking, notFound, isPending } = useBooking(id);
-  const { checkIn } = useBookingActions(id);
+  const { checkIn, devForceCheckIn } = useBookingActions(id);
 
   const [code, setCode] = useState('');
   const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS);
@@ -106,19 +108,39 @@ export default function CheckInScreen() {
 
   /*
    * A manual walk-in has no PIN at all — no request was ever accepted for it,
-   * so `entryPin` is null on the row. Those cannot be code-checked and must
-   * not be blocked by a box that can never be satisfied: the owner typed this
-   * guest in themselves and is the only proof there is.
+   * so the server issued none. Those cannot be code-checked and must not be
+   * blocked by a box that can never be satisfied: the owner typed this guest
+   * in themselves and is the only proof there is.
    */
-  const expected = digitsOf(booking.checkInCode);
-  const codeless = expected.length === 0;
+  const codeless = !booking.requiresCode;
 
-  const markIn = () => {
-    checkIn.mutate(undefined, {
+  /*
+   * The SERVER decides whether the code is right.
+   *
+   * This screen used to compare the typed code against `booking.checkInCode`
+   * — a PIN the API had sent down to this very phone — and then call the
+   * check-in route with no body. The server never saw the code, so the
+   * comparison proved nothing to it, and anyone with the owner's handset could
+   * stamp a guest in. The PIN no longer comes down at all; what is typed goes
+   * up, and `BAD_PIN` comes back if it is wrong.
+   *
+   * The attempt counter and lockout are kept exactly as they were, now driven
+   * by the server's refusal rather than a local mismatch.
+   */
+  const markIn = (typed?: string) => {
+    checkIn.mutate(typed, {
       onSuccess: () => {
         router.replace({ pathname: '/booking/checked-in', params: { id: booking.id } });
       },
       onError: (err) => {
+        if (err instanceof ApiError && err.code === 'BAD_PIN') {
+          const left = attemptsLeft - 1;
+          setAttemptsLeft(left);
+          setWrong(true);
+          setCode('');
+          if (left <= 0) setToast('Too many attempts. Code entry is locked for 15 minutes.');
+          return;
+        }
         setToast(
           err instanceof ApiError
             ? err.displayMessage
@@ -132,18 +154,36 @@ export default function CheckInScreen() {
     if (checkIn.isPending || expired || lockedOut) return;
     if (codeless) { markIn(); return; }
     if (!complete) return;
+    markIn(code);
+  };
 
-    /* An actual comparison. This used to be
-       `code === booking.checkInCode || code.length === CODE_LENGTH`, whose
-       right-hand side is true whenever the left is even evaluated — so every
-       code passed. */
-    if (code === expected) { markIn(); return; }
-
-    const left = attemptsLeft - 1;
-    setAttemptsLeft(left);
-    setWrong(true);
-    setCode('');
-    if (left <= 0) setToast('Too many attempts. Code entry is locked for 15 minutes.');
+  /*
+   * DEVELOPMENT ONLY — skip the code and the check-in date, both.
+   *
+   * The real flow above already works correctly once the code is right — see
+   * `POST /bookings/:id/checkin` on the backend — but the SERVER also
+   * refuses `TOO_EARLY` until the booking's actual check-in date, which makes
+   * everything past this screen (active stay, checkout, the hotel settlement
+   * chain) untestable on a booking made for a future date. This calls the
+   * dev-only route that stamps both halves of the move-in at once and goes
+   * straight to the next screen, so that chain can be walked through without
+   * waiting for the calendar. 404s on the server unless `DEV_ALLOW_FORCE_CHECKIN`
+   * is on, which is refused outright in production — see `devForceCheckInOwner`.
+   */
+  const devForceIn = () => {
+    if (devForceCheckIn.isPending) return;
+    devForceCheckIn.mutate(undefined, {
+      onSuccess: () => {
+        router.replace({ pathname: '/booking/checked-in', params: { id: booking.id } });
+      },
+      onError: (err) => {
+        setToast(
+          err instanceof ApiError
+            ? err.displayMessage
+            : 'The dev bypass failed. Please try again.',
+        );
+      },
+    });
   };
 
   // ── Lockout replaces the whole body: there's nothing to type into. ──
@@ -154,11 +194,21 @@ export default function CheckInScreen() {
         padX={24}
         contentStyle={styles.fill}
         footer={
-          <Button
-            label="Contact support"
-            variant="secondary"
-            onPress={() => router.push('/support')}
-          />
+          <View style={styles.footerStack}>
+            <Button
+              label="Contact support"
+              variant="secondary"
+              onPress={() => router.push('/support')}
+            />
+            {PREVIEW_CONTROLS ? (
+              <Button
+                label={devForceCheckIn.isPending ? 'Marking in…' : '🛠 DEV: check in now'}
+                variant="secondary"
+                onPress={devForceIn}
+                disabled={devForceCheckIn.isPending}
+              />
+            ) : null}
+          </View>
         }
         stickyHeader={
           <>
@@ -193,12 +243,36 @@ export default function CheckInScreen() {
       padX={24}
       contentStyle={styles.fill}
       footer={
-        <Button
-          label={checkIn.isPending ? 'Marking in…' : 'Verify & check in'}
-          onPress={verify}
-          loading={checkIn.isPending}
-          disabled={(!codeless && !complete) || expired || checkIn.isPending}
-        />
+        <View style={styles.footerStack}>
+          <Button
+            label={checkIn.isPending ? 'Marking in…' : 'Verify & check in'}
+            onPress={verify}
+            loading={checkIn.isPending}
+            disabled={(!codeless && !complete) || expired || checkIn.isPending}
+          />
+          {/*
+            DEVELOPMENT ONLY — see `devForceIn`.
+            Same power as the "🛠 DEV: check in now" button on the booking
+            detail screen, one step further: that one only got as far as
+            THIS screen, where the server's real date gate still refused a
+            booking made for a future day. This is the bypass that actually
+            finishes the job — it does not read the typed code at all, so it
+            works whether or not `complete` is true.
+          */}
+          {PREVIEW_CONTROLS ? (
+            <>
+              <Button
+                label={devForceCheckIn.isPending ? 'Marking in…' : '🛠 DEV: check in now (ignores date & code)'}
+                variant="secondary"
+                onPress={devForceIn}
+                disabled={devForceCheckIn.isPending}
+              />
+              <Text variant="caption" color="textTertiary" center>
+                Development only — stamps both sides of the move-in directly
+              </Text>
+            </>
+          ) : null}
+        </View>
       }
     >
       {expired ? (
@@ -274,6 +348,7 @@ export default function CheckInScreen() {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
+  footerStack: { gap: 8 },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   backRow: { height: 44, justifyContent: 'center', marginLeft: -10, marginBottom: 8 },
   backRowPushed: { marginTop: 56 },

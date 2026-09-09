@@ -5,7 +5,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { WaitingPill } from '@/components/shell';
+import { AlertProvider } from '@/components/ui';
 import { AppStateProvider } from '@/context/AppStateContext';
 import { AuthProvider } from '@/context/AuthContext';
 import { FoodCatalogueProvider } from '@/context/FoodCatalogueContext';
@@ -25,6 +25,14 @@ import {
   SourceSans3_700Bold,
 } from '@expo-google-fonts/source-sans-3';
 import { DMMono_400Regular, DMMono_500Medium } from '@expo-google-fonts/dm-mono';
+/* Stays typography — one family, four sizes. The three faces above are still
+   loaded because the FOOD module keeps them; see `TypographyScope`. */
+import {
+  Manrope_400Regular,
+  Manrope_500Medium,
+  Manrope_600SemiBold,
+  Manrope_700Bold,
+} from '@expo-google-fonts/manrope';
 import { useFonts } from 'expo-font';
 import { StyleSheet, View } from 'react-native';
 import { Stack } from 'expo-router';
@@ -78,6 +86,10 @@ const fonts = {
   SourceSans3_700Bold,
   DMMono_400Regular,
   DMMono_500Medium,
+  Manrope_400Regular,
+  Manrope_500Medium,
+  Manrope_600SemiBold,
+  Manrope_700Bold,
 };
 
 /**
@@ -122,18 +134,26 @@ function RootLayoutNav() {
 }
 
 /**
- * The navigator, with the live request floating over it.
+ * The navigator.
  *
- * The pill is a sibling of the Stack rather than a child of any screen: it has
- * to survive navigation, which is the entire reason it exists. `box-none` on
- * the wrapper means only the pill itself catches touches — everything else
- * falls through to the screen underneath.
+ * `WaitingPill` — the draggable bubble that followed a live request around the
+ * app — used to sit here as a sibling of the Stack. It has been removed: a
+ * control that floats over every screen and has to be dragged out of the way
+ * is in the way, and the request it tracked is not lost without it. The
+ * confirmation screen still watches the request, the alerts screen still
+ * carries the owner's answer, and Bookings still lists it — the pill was a
+ * fourth place to find out, at the cost of covering the bottom of every screen
+ * in the product.
+ *
+ * The component itself is still in `components/shell/WaitingPill.tsx` and
+ * `PendingRequestProvider` still holds the state it read, because
+ * `reservedBottom` on that provider is what the snackbar and the docked cart
+ * bar measure themselves against — that half was never about the pill.
  */
 function Shell() {
   return (
     <View style={styles.root}>
       <RootLayoutNav />
-      <WaitingPill />
     </View>
   );
 }
@@ -172,7 +192,21 @@ export default function RootLayout() {
                   component renders ThemeProvider and cannot consume it. */}
               <GestureHandlerRootView style={styles.root}>
                 <KeyboardProvider>
-                  <Shell />
+                  {/*
+                    The app's own alert, in place of the platform one.
+
+                    Innermost of the providers, and deliberately: it renders a
+                    `Modal` over everything, so it has to sit INSIDE
+                    `GestureHandlerRootView` for its buttons to receive
+                    touches, and inside `ThemeProvider` because the card is
+                    themed. Everything above it can call `useAlert()`.
+
+                    See `components/ui/AppAlert.tsx` for why `Alert.alert` is
+                    not used anywhere in this app.
+                  */}
+                  <AlertProvider>
+                    <Shell />
+                  </AlertProvider>
                 </KeyboardProvider>
               </GestureHandlerRootView>
                     </FoodProvider>

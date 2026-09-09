@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { Icon, Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
@@ -98,25 +98,50 @@ export function LocalityRow({
 }
 
 /**
- * The current-location row, which sits above the list and states its guess.
+ * The current-location row.
  *
- * Stating it is the point: a wrong GPS read gets caught here, before it
- * filters anything.
+ * ## It takes a real fix now
+ *
+ * It used to be a label over `guessLocality` — the area with the most
+ * listings in it — dressed as a location control and captioned "most likely".
+ * Nothing about it touched the device: a student in Kondapur and a student in
+ * Bangalore were both offered whichever area happened to be busiest, and a
+ * control called "use my current location" that has never asked for a location
+ * is worse than no control, because it is confidently wrong.
+ *
+ * The screen above it now runs `findMyLocality`, which takes one foreground
+ * fix and matches it against the areas the catalogue actually holds. This
+ * component draws the three states that produces — idle, working, answered —
+ * and nothing else. `subtitle` is whatever the screen has to say about the
+ * match, because only the screen knows whether it found the block, only the
+ * city, or nothing at all.
+ *
+ * The result is still a SUGGESTION that has to be tapped. A geocoder that
+ * names the road a bus is on rather than the neighbourhood is a normal
+ * outcome, and it costs a tap rather than a wasted search.
  */
 export function CurrentLocationRow({
-  guessName,
+  subtitle,
+  loading = false,
+  tone = 'normal',
   onPress,
 }: {
-  guessName: string;
+  /** What the screen has to say about the fix. Never invented here. */
+  subtitle: string;
+  loading?: boolean;
+  /** `problem` draws the caption in the caution ink — refused, or no match. */
+  tone?: 'normal' | 'problem';
   onPress: () => void;
 }) {
   const { colors, space, radius, touch } = useTheme();
 
   return (
     <Pressable
-      onPress={onPress}
+      onPress={loading ? undefined : onPress}
+      disabled={loading}
       accessibilityRole="button"
-      accessibilityLabel={`Use my current location. Best guess: ${guessName}`}
+      accessibilityState={{ busy: loading }}
+      accessibilityLabel={`Use my current location. ${subtitle}`}
       style={({ pressed }) => [
         styles.row,
         {
@@ -130,13 +155,19 @@ export function CurrentLocationRow({
         },
       ]}
     >
-      <Icon name="mapPin" size={20} color={colors.brandInk} />
+      {/* The spinner replaces the pin rather than sitting beside it, so the row
+          does not change width while it works. */}
+      {loading ? (
+        <ActivityIndicator color={colors.brandInk} style={styles.glyph} />
+      ) : (
+        <Icon name="crosshair" size={20} color={colors.brandInk} />
+      )}
       <View style={styles.flex}>
         <Text variant="bodyStrong" color="brand">
-          Use my current location
+          {loading ? 'Finding you…' : 'Use my current location'}
         </Text>
-        <Text variant="numMeta" color="tertiary">
-          {guessName}, most likely
+        <Text variant="numMeta" color={tone === 'problem' ? 'warning' : 'tertiary'}>
+          {subtitle}
         </Text>
       </View>
     </Pressable>
@@ -147,4 +178,6 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   flex: { flex: 1 },
   rentCol: { alignItems: 'flex-end' },
+  /* The icon's own box, so swapping in a spinner does not shift the text. */
+  glyph: { width: 20, height: 20 },
 });

@@ -248,6 +248,24 @@ const setSlot = async (req, res, next) => {
     if (!doc.payment?.required) {
       return fail(res, 400, 'NOT_APPLICABLE', 'This visit does not use scheduled slots.');
     }
+    /*
+     * A stay booking has no slot to set.
+     *
+     * `payment.required` alone stopped being the right question when hotels
+     * started charging: they pay, so they pass that check, and they have no
+     * viewing to schedule. The guest picked their dates before the owner ever
+     * saw the request and nobody is being sent to meet them.
+     *
+     * The app never reaches this for a hotel — `markVisitPaid` leaves
+     * `lamposeVisit.status` at `none`, so the confirmation screen routes
+     * straight to the booking. This is the server saying the same thing, so a
+     * stale client or a replayed request cannot park a paid booking in a
+     * scheduling queue.
+     */
+    if ((doc.payment.purpose || 'assisted_visit') !== 'assisted_visit') {
+      return fail(res, 400, 'NOT_APPLICABLE',
+        'This booking is already complete — there is no visit to schedule.');
+    }
     if (doc.payment.status !== 'paid') {
       return fail(res, 402, 'PAYMENT_DUE', 'Pay for the visit before choosing a slot.');
     }

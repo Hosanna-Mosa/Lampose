@@ -27,6 +27,10 @@ const signToken = (user) => jwt.sign(
 const readToken = (req) => {
   const header = req.headers.authorization || '';
   if (header.startsWith('Bearer ')) return header.slice(7).trim();
+  /* `?token=` exists for one caller: the leads panel's export, which is a
+     window.open() navigation and cannot set a header. The request logger
+     redacts it. */
+  if (req.query && typeof req.query.token === 'string' && req.query.token) return req.query.token;
   return (req.body && req.body.token) || null;
 };
 

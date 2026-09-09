@@ -28,10 +28,28 @@ const RECT = {
 
 // ── Booking status ────────────────────────────────────────────────────────
 
+/**
+ * Where a booking is, from an OWNER's point of view.
+ *
+ * `arriving` and `departing` are the two an owner actually runs their day on
+ * — who is turning up, who is leaving — and both used to be discarded: the
+ * server's mapper folded `arriving` into `confirmed` and `departing` into
+ * `inHouse`, so a list of ten bookings all read "Confirmed" and the one
+ * arriving this afternoon looked identical to the one arriving in March.
+ *
+ * They are derived from the dates rather than stored, because they change at
+ * midnight on their own — see `Backend/src/modules/partners/bookingStage.util.js`.
+ */
 export type BookingStatus =
   | 'confirmed'
+  | 'arriving'
+  /** Due before today, still not checked in. Was folded into `arriving` — see `bookingStage.util.js`. */
+  | 'overdueArrival'
   | 'pending'
   | 'inHouse'
+  | 'departing'
+  /** In-house, past the day they were due to leave, not checked out. */
+  | 'overdueDeparture'
   | 'completed'
   | 'cancelled'
   | 'declined'
@@ -50,17 +68,36 @@ export function BookingStatusBadge({
 }) {
   const c = useColors();
 
+  /*
+   * The LABEL is the carrier, not the colour.
+   *
+   * This family is deliberately text-only — shape and the absence of an icon
+   * are what stop it being confused with the money badges beside it — so the
+   * words have to do the whole job. "Arriving today" says something
+   * "Confirmed" never could, and it still says it in greyscale, in sunlight,
+   * and to somebody who cannot tell the green pill from the amber one.
+   *
+   * Two states carry today's date in the word because they are today by
+   * definition: nothing is `arriving` tomorrow.
+   */
   const map: Record<BookingStatus, { label: string; fg: string; bg: string }> = {
+    arriving: { label: 'Arriving today', fg: c.warningOnTint, bg: c.warningTint },
+    /* Red, not amber — this one used to say "Arriving today" for a guest due
+       two months ago, which read as the app being wrong rather than the
+       guest being late. */
+    overdueArrival: { label: 'Overdue arrival', fg: c.error, bg: c.errorTint },
     confirmed: { label: 'Confirmed', fg: c.successOnTint, bg: c.successTint },
     pending: { label: 'Pending', fg: c.warningOnTint, bg: c.warningTint },
     inHouse: { label: 'In-house', fg: c.accent, bg: c.accentTint },
+    departing: { label: 'Checking out today', fg: c.accent, bg: c.accentTint },
+    overdueDeparture: { label: 'Overdue checkout', fg: c.error, bg: c.errorTint },
     completed: { label: 'Completed', fg: c.info, bg: c.infoTint },
     cancelled: { label: 'Cancelled', fg: c.error, bg: c.errorTint },
     declined: { label: 'Declined', fg: c.textSecondary, bg: c.borderSubtle },
     expired: { label: 'Expired', fg: c.textSecondary, bg: c.borderSubtle },
     draft: { label: 'Draft', fg: c.textSecondary, bg: c.borderSubtle },
   };
-  const s = map[status];
+  const s = map[status] ?? map.confirmed;
 
   const d = PILL[size];
   return (
@@ -99,7 +136,12 @@ export function PaymentStatusBadge({
     failed: { label: 'Failed', bg: c.error, icon: 'alert-circle' },
     refunded: { label: 'Refunded', bg: c.info, icon: 'refresh' },
   };
-  const s = map[status];
+  /* Every other badge family in this file falls back rather than indexing
+     straight into the map — this one did not, so a status this map has no
+     entry for (a stale build's older `PaymentStatus`, a value some other
+     screen's data never actually guaranteed) crashed on `s.bg` below instead
+     of drawing something. */
+  const s = map[status] ?? map.pending;
 
   const d = RECT[size];
   return (
@@ -120,7 +162,7 @@ export function PaymentStatusBadge({
 
 // ── Payout status ─────────────────────────────────────────────────────────
 
-export type PayoutState = 'processing' | 'completed' | 'failed';
+export type PayoutState = 'pending' | 'processing' | 'completed' | 'failed';
 
 /**
  * A transfer's state. Deliberately the same solid-rect-plus-icon shape as
@@ -138,12 +180,17 @@ export function PayoutStatusBadge({
 }) {
   const c = useColors();
 
+  /* `pending` is a payout the owner has asked for and nobody has sent yet;
+     `processing` is one that has left us and is with the bank. Two different
+     answers to "where is my money", and collapsing them told an owner their
+     transfer was under way before anyone had touched it. */
   const map: Record<PayoutState, { label: string; bg: string; icon: IconName }> = {
-    processing: { label: 'Processing', bg: c.warningFill, icon: 'clock' },
-    completed: { label: 'Completed', bg: c.success, icon: 'check' },
+    pending: { label: 'Requested', bg: c.warningFill, icon: 'clock' },
+    processing: { label: 'With the bank', bg: c.info, icon: 'refresh' },
+    completed: { label: 'Paid', bg: c.success, icon: 'check' },
     failed: { label: 'Failed', bg: c.error, icon: 'alert-circle' },
   };
-  const s = map[status];
+  const s = map[status] ?? map.pending;
   const d = RECT[size];
 
   return (

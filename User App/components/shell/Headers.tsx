@@ -1,5 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import React from 'react';
+import React, { useState } from 'react';
 import { Pressable, StyleSheet, View,
   useWindowDimensions,
 } from 'react-native';
@@ -7,6 +7,8 @@ import Animated, {
   Extrapolation,
   interpolate,
   interpolateColor,
+  runOnJS,
+  useAnimatedReaction,
   useAnimatedStyle,
   type SharedValue,
 } from 'react-native-reanimated';
@@ -276,6 +278,56 @@ export function photoHeaderWindows(heroHeight: number, headerHeight: number) {
     background: [threshold - 60, threshold] as const,
     title: [threshold - 30, threshold + 10] as const,
   };
+}
+
+/**
+ * The OS status bar's style to pair with `PhotoHeader` / `PhotoHero`.
+ *
+ * `PhotoHeader`'s own back and action glyphs already crossfade from white
+ * (over the photo) to ink (once the header goes solid) — see `glyphStyle`
+ * below. The system status bar row — the clock, signal, battery — is a
+ * native surface `expo-status-bar`'s `<StatusBar>` controls from OUTSIDE
+ * this render tree, and on its own it knows nothing about `scrollY`: a
+ * screen that hardcodes `style="light"` for the photo keeps WHITE icons
+ * long after the header has scrolled solid, and white-on-white is
+ * unreadable. This is that fix.
+ *
+ * The crossing point is the SAME threshold `PhotoHeader` itself uses
+ * (`photoHeaderWindows`), so the OS row and the in-app header cross at one
+ * scroll position rather than two that could drift apart.
+ *
+ * Bridged to React state — unlike everything else in this file — because
+ * `<StatusBar style>` is a plain prop, not a worklet-driven style. `runOnJS`
+ * only actually crosses to JS when the boolean itself flips, not on every
+ * scroll frame, so this costs nothing while scrolling within either zone.
+ */
+export function usePhotoHeaderStatusBarStyle(
+  scrollY: SharedValue<number>,
+  heroHeight?: number,
+): 'light' | 'dark' {
+  const { mode } = useTheme();
+  const insets = useSafeAreaInsets();
+  const measured = usePhotoHeroHeight();
+  const hero = heroHeight ?? measured;
+  const windows = photoHeaderWindows(hero, HEADER_HEIGHT + insets.top);
+  const crossing = windows.background[1];
+
+  const [solid, setSolid] = useState(false);
+
+  useAnimatedReaction(
+    () => scrollY.value >= crossing,
+    (next, previous) => {
+      if (next !== previous) runOnJS(setSolid)(next);
+    },
+    [crossing],
+  );
+
+  // Over the photo: always light content, in either theme — a dark-mode icon
+  // reads no better against a bright photograph than a light-mode one does.
+  if (!solid) return 'light';
+  // Header solid: pair with `colors.surface`, which is what the header
+  // actually turned — white in light mode, near-black in dark mode.
+  return mode === 'dark' ? 'light' : 'dark';
 }
 
 export type PhotoHeaderProps = {

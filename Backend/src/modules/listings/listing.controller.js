@@ -67,6 +67,9 @@ const withAvailability = async (listings) => {
         totalBeds: row.totalBeds,
         availableBeds: row.availableBeds,
         requestable: !paused && !full,
+        /* The pause is reported ahead of the bed count on purpose: a room the
+           owner switched off is not "full", and telling a student every bed
+           is taken when six are free sends them away for the wrong reason. */
         reason: paused ? 'OWNER_PAUSED' : full ? 'NO_BEDS_FREE' : null,
       };
     });
@@ -75,11 +78,54 @@ const withAvailability = async (listings) => {
       ...listing,
       sharingOptions: options,
       /* One flag the card can read without walking the options. A listing
-         with nothing requestable still appears in the feed — it is a real
-         place and it may free up — but its Send Request button is off. */
+         with nothing requestable is still REACHABLE by id — a saved listing
+         or a shared link must not turn into a 404 — but its Send Request
+         button is off. */
       requestable: options.some((option) => option.requestable),
+
+      /*
+       * The owner switched this listing OFF.
+       *
+       * True only when every room type we have a count for is paused — which
+       * is exactly what the Stay Partner toggle does, since it writes
+       * `isAvailable` to every share type of the property at once.
+       *
+       * A listing with no counts recorded at all is NOT paused. It is
+       * unfinished, which is a different thing and must not be hidden: most
+       * of the collection is in that state and hiding it would empty the app.
+       */
+      paused: ownerPaused(options),
+
+      /*
+       * SOME room type is paused, even though the listing as a whole is not.
+       *
+       * Not hidden — the listing may still have other rooms open — but the
+       * owner has told us to stop sending people at least one of them, and a
+       * card that still wins the top of the feed on `createdAt` alone reads
+       * as though nothing changed. `getListings` sorts on this to push it
+       * down instead.
+       */
+      anyOptionPaused: options.some((option) => option.reason === 'OWNER_PAUSED'),
     };
   });
+};
+
+/**
+ * Has the owner switched this whole listing off?
+ *
+ * The Stay Partner "Taking bookings" toggle writes `isAvailable` to every
+ * `partner_share_types` row of a property in one update, so "all recorded room
+ * types paused" is precisely what that switch being off looks like from here.
+ * There is no flag on the property itself — `Property.isAvailable` does not
+ * exist — and this is deliberately derived rather than adding one, because a
+ * second copy of the same fact is a second thing to get out of step.
+ *
+ * Room types with no count recorded are ignored rather than counted as paused:
+ * an unfinished listing is not a switched-off one.
+ */
+const ownerPaused = (options) => {
+  const known = options.filter((option) => option.reason !== 'NO_INVENTORY_RECORDED');
+  return known.length > 0 && known.every((option) => option.reason === 'OWNER_PAUSED');
 };
 
 const getListings = async (req, res, next) => {
@@ -87,7 +133,12 @@ const getListings = async (req, res, next) => {
     const {
       category, city, locality, maxPrice, search,
     } = req.query;
-    const filter = {};
+    /* A listing the owner deleted from their own app. Excluded here, in the
+       Mongo query, rather than filtered alongside `paused` below — a removed
+       property has no `partner_share_types` rows worth loading availability
+       for, and the point is that it is gone from the feed as completely as a
+       property that never existed. See `removeMyProperty`. */
+    const filter = { status: { $ne: 'removed' } };
 
     /*
      * One category, or several separated by commas.
@@ -138,6 +189,7 @@ const getListings = async (req, res, next) => {
 
     /* No limit: the Explore page is the only consumer and it pages the render
        itself, so the response is the whole collection. */
+
     const properties = await Property.find(filter).sort({ createdAt: -1 }).lean();
     let listings = properties.map(formatListing);
 
@@ -168,7 +220,38 @@ const getListings = async (req, res, next) => {
 
     const withBeds = await withAvailability(listings);
 
-    return res.json({ success: true, count: withBeds.length, data: withBeds });
+    /*
+     * A listing the owner switched off does not appear in the feed.
+     *
+     * It used to. The share-type pause made every room non-requestable and the
+     * card stayed in Explore with its button greyed out — reasonable for one
+     * room type being full, wrong for an owner who has told us to stop sending
+     * people. They flip the switch, watch it move, and keep getting requests.
+     *
+     * Filtered HERE rather than in the Mongo query because the answer lives in
+     * `partner_share_types`, which this query does not join — `withAvailability`
+     * is where those rows are already loaded.
+     *
+     * Hidden from the FEED only. `GET /listings/:id` still resolves, so a saved
+     * card, a shared link or an open booking never turns into a 404; it reports
+     * `paused: true` and `requestable: false` instead.
+     */
+    const visible = withBeds.filter((listing) => !listing.paused);
+
+    /*
+     * A listing with a paused room type sorts last, not first.
+     *
+     * `.sort` is stable, so this only demotes the `anyOptionPaused` listings —
+     * the newest-first order above still decides both groups. The owner
+     * flipped a switch specifically to stop new requests on part of this
+     * listing; ranking it above properties nothing is paused on undoes that on
+     * the one screen students actually browse.
+     */
+    const ranked = [...visible].sort(
+      (a, b) => Number(a.anyOptionPaused) - Number(b.anyOptionPaused),
+    );
+
+    return res.json({ success: true, count: ranked.length, data: ranked });
   } catch (error) {
     return next(error);
   }
@@ -177,6 +260,53 @@ const getListings = async (req, res, next) => {
 // @route   GET /api/v2/listings/:id
 // @desc    A single listing
 // @access  Public
+/**
+ * What guests said about a place, for the listing page.
+ *
+ * Public, like the listing itself: a student decides whether to request a
+ * bed partly on this, before they have an account. Nothing personal is sent —
+ * `author` is the first name the student typed, `customerId` and `bookingId`
+ * stay behind. The owner's reply rides on each review so a student sees both
+ * halves of the exchange; that reply used to exist only on the owner's phone.
+ *
+ * `averageRating` is null with no reviews. A listing with nothing said about
+ * it has no rating, and inventing one — for a place that may be brand new —
+ * is exactly what this page must not do.
+ *
+ * @route GET /api/v2/listings/:id/reviews
+ */
+const getListingReviews = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!/^[0-9a-fA-F]{24}$/.test(String(id))) {
+      return res.status(404).json({ success: false, code: 'NOT_FOUND', message: 'Listing not found' });
+    }
+
+    // eslint-disable-next-line global-require
+    const { PartnerReview } = require('../partners/partnerDomains.model');
+    const rows = await PartnerReview.find({ propertyId: String(id) })
+      .sort({ createdAt: -1 }).limit(100)
+      .select('author rating comment date reply createdAt').lean();
+
+    const data = rows.map((r) => ({
+      id: String(r._id),
+      author: r.author,
+      rating: r.rating,
+      comment: r.comment,
+      date: r.date,
+      reply: r.reply && r.reply.text ? { text: r.reply.text, at: r.reply.at } : null,
+    }));
+
+    const averageRating = data.length
+      ? Math.round((data.reduce((sum, r) => sum + r.rating, 0) / data.length) * 10) / 10
+      : null;
+
+    return res.json({ success: true, averageRating, count: data.length, data });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const getListingById = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -197,6 +327,17 @@ const getListingById = async (req, res, next) => {
     }
 
     const [listing] = await withAvailability([formatListing(property)]);
+
+    /*
+     * A removed listing still resolves — same reasoning as a paused one: a
+     * saved card, a shared link or an old booking that names this property
+     * must not turn into a 404. It just cannot be requested any more, which
+     * `withAvailability` has no way to know since it never sees `status`.
+     */
+    if (property.status === 'removed') {
+      listing.removed = true;
+      listing.requestable = false;
+    }
 
     return res.json({ success: true, data: listing });
   } catch (error) {
@@ -366,4 +507,6 @@ const getListingMeta = async (req, res, next) => {
   }
 };
 
-module.exports = { getListings, getListingById, getListingMeta };
+module.exports = { getListings, getListingById, getListingMeta,
+  getListingReviews,
+};

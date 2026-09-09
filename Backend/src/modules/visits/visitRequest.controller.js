@@ -37,6 +37,7 @@ const { readListingAddress } = require('./visitAddress.util');
 const { validateIntent, describeIntent } = require('../listings/stayIntent.util');
 const config = require('../../config/env');
 const { needsToken, ensurePaymentLink } = require('./visitPayment.controller');
+const { paymentForNewRequest } = require('./requestPayment.util');
 
 /* One definition, in shared/constants/categories.js — these used to be
    three hand-synchronised copies. */
@@ -466,6 +467,7 @@ const createVisitRequest = async (req, res, next) => {
     const doc = await VisitRequest.create({
       listingId: String(listingId),
       propertyName: property.name,
+      category: normaliseCategory(property.category) || '',
       ownerName: property.ownerName || 'Property Owner',
       ownerMobile,
       customer: {
@@ -491,15 +493,16 @@ const createVisitRequest = async (req, res, next) => {
       shareTypeId: (chosen && chosen.shareTypeId) || null,
       intent,
       /*
-       * A bachelor or co-live visit is paid for once the owner confirms.
+       * What this request costs, and why — see `paymentForNewRequest`.
        *
-       * Decided here, from the category, and never re-read: a listing whose
-       * category is edited later must not retroactively make a paid request
-       * unpaid, or turn a free one into a debt.
+       * A bachelor or co-live visit is paid for once the owner confirms; a
+       * hotel is paid for in full, because the payment IS the booking rather
+       * than a token in front of a viewing. Decided here, from the category,
+       * and never re-read: a listing whose category is edited later must not
+       * retroactively make a paid request unpaid, reprice a settled one, or
+       * turn a free one into a debt.
        */
-      payment: needsToken(property)
-        ? { required: true, status: 'pending', amountPaise: config.razorpay.assistedVisitAmountPaise }
-        : { required: false, status: 'not_required' },
+      payment: paymentForNewRequest(property.category, intent),
       consentWhatsApp: Boolean(consentWhatsApp),
       consentAt: consentWhatsApp ? new Date() : null,
       consentedTerms: consentedTerms === true,

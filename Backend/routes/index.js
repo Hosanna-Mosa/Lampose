@@ -61,6 +61,8 @@ const v1PermissionRoutes = require('../src/modules/permissions/permission.routes
 const v1AnalyticsRoutes = require('../src/modules/analytics/analytics.routes');
 const v1VisitRequestAdminRoutes = require('../src/modules/visits/visitRequest.admin.routes');
 const v1PartnerPayoutAdminRoutes = require('../src/modules/partners/partnerPayout.admin.routes');
+const v1RefundAdminRoutes = require('../src/modules/settlements/refund.admin.routes');
+const v1MonitorAdminRoutes = require('../src/modules/settlements/monitor.admin.routes');
 const v1ScriperUserAdminRoutes = require('../src/modules/scraper/scriperUser.admin.routes');
 const v1ScraperJobAdminRoutes = require('../src/modules/scraper/scraperJob.admin.routes');
 const v1ScraperLeadAdminRoutes = require('../src/modules/scraper/scraperLead.admin.routes');
@@ -107,6 +109,11 @@ const V1_GROUPS = [
   ['/permissions', v1PermissionRoutes, 'employee edit/delete permission requests'],
   ['/admin/visit-requests', v1VisitRequestAdminRoutes, 'Super Admin CRUD — visitrequests collection'],
   ['/admin/partner-payouts', v1PartnerPayoutAdminRoutes, 'Super Admin — Stay Partner payout queue, RazorpayX dispatch'],
+  ['/admin/refunds', v1RefundAdminRoutes, 'guest refunds for cancelled hotel stays; Super Admin marks them paid'],
+  /* Monitor: bookings and money across all four categories. Reading is open to
+     any active administrator; changing a commission needs Admin, and releasing
+     a hotel's share needs Super Admin. See the router. */
+  ['/admin/monitor', v1MonitorAdminRoutes, 'booking + payment monitor, per category; hotel commission and payout release'],
   ['/admin/scriper-users', v1ScriperUserAdminRoutes, 'Super Admin CRUD — leads panel accounts (scriper_users)'],
   ['/admin/scriper-jobs', v1ScraperJobAdminRoutes, 'Super Admin CRUD — scrape job history (scriper_jobs)'],
   ['/admin/scriper-leads', v1ScraperLeadAdminRoutes, 'Super Admin CRUD — scraped leads (scriper_leads)'],
@@ -228,6 +235,8 @@ const LEGACY_ALIASES = [
   ['/permissions', v1PermissionRoutes, false],
   ['/admin/visit-requests', v1VisitRequestAdminRoutes, false],
   ['/admin/partner-payouts', v1PartnerPayoutAdminRoutes, false],
+  ['/admin/refunds', v1RefundAdminRoutes, false],
+  ['/admin/monitor', v1MonitorAdminRoutes, false],
   ['/admin/scriper-users', v1ScriperUserAdminRoutes, false],
   ['/admin/scriper-jobs', v1ScraperJobAdminRoutes, false],
   ['/admin/scriper-leads', v1ScraperLeadAdminRoutes, false],

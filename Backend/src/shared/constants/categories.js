@@ -86,6 +86,40 @@ const LEGACY_CATEGORY = {
   'house / co-live': 'COLIVE',
 };
 
+/**
+ * Every raw spelling that means this code — the inverse of `LEGACY_CATEGORY`.
+ *
+ * The `properties` collection was never migrated, and it shows: PG, Hostel and
+ * PG_HOSTEL are all live spellings of ONE category, as are BACHELOR and
+ * "Bachelor Room", and HOTEL and Dormitory. Anything that queries or groups by
+ * the stored value without this gets a bucket per spelling — which is exactly
+ * why the console's "Property mix" reports eight categories when there are
+ * four.
+ *
+ * So a query for one category is a query for a SET of strings, and this is the
+ * only place that set is derived. Building it from `LEGACY_CATEGORY` rather
+ * than listing it by hand means a spelling added there is understood by every
+ * query for free.
+ */
+const rawValuesFor = (code) => Object.entries(LEGACY_CATEGORY)
+  .filter(([, mapped]) => mapped === code)
+  .map(([raw]) => raw);
+
+/** Regex-safe. Stored spellings contain "/" and "-", and one day will
+    contain something worse. */
+const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * A case-insensitive matcher for one category, for a Mongo query.
+ *
+ * `$in` on the lowercase list alone would miss "Hostel" and "Bachelor Room",
+ * which is how they are actually stored. Anchored, case-insensitive regexes
+ * mean no call site has to guess at the casing in the collection.
+ */
+const categoryQuery = (code) => ({
+  $in: rawValuesFor(code).map((raw) => new RegExp(`^${escapeRegExp(raw)}$`, 'i')),
+});
+
 /** A code for anything that has ever named one of these, or null. */
 const normaliseCategory = (value) => {
   const key = String(value === undefined || value === null ? '' : value).trim().toLowerCase();
@@ -140,11 +174,75 @@ const SIMPLE_PATH_CATEGORIES = ['BACHELOR', 'COLIVE'];
  * browse into an intent — and it is what the joining date and the street
  * address sit behind.
  *
- * PG_HOSTEL and HOTEL are absent on purpose: a bed in a shared room is a lower
- * commitment on both sides, and putting a payment in front of it would cost
- * more requests than it would filter.
+ * PG_HOSTEL is absent on purpose: a bed in a shared room is a lower commitment
+ * on both sides, and putting a payment in front of it would cost more requests
+ * than it would filter.
+ *
+ * COLIVE is absent for the SAME reason, as of 9 September 2026. It charged the
+ * ₹199 assisted-visit fee until then, on the reasoning that a whole-property
+ * let is a viewing somebody drives across a city for. That was overruled as a
+ * business decision: co-living is free to enquire about, exactly like PG.
+ *
+ * Nothing else about the category moved. It keeps its simple detail path and
+ * its room-type occupancy — see `SIMPLE_PATH_CATEGORIES` and `OCCUPANCY_KEYS`
+ * — because those describe how a co-live listing is SHAPED, not what it costs.
+ *
+ * HOTEL is absent for a different reason again, and the difference is the
+ * whole point of `PREPAID_CATEGORIES` below — a hotel IS paid for, but not for
+ * a viewing.
+ *
+ * Requests already created keep whatever `payment.purpose` was frozen onto
+ * them, so a co-live visitor who paid ₹199 yesterday still has a paid request
+ * and a slot to pick. This changes what NEW requests are asked for.
  */
-const TOKEN_CATEGORIES = ['BACHELOR', 'COLIVE'];
+const TOKEN_CATEGORIES = ['BACHELOR'];
+
+/**
+ * Categories paid for IN FULL, up front, as the booking itself.
+ *
+ * Nobody views a hotel room before taking it. There is no representative to
+ * send, no viewing to schedule and nothing for a token to hold — the guest
+ * picks dates, the owner confirms the room is free, and then they pay for the
+ * stay. The payment is not a filter in front of a visit; it IS the booking.
+ *
+ * So the amount is the stay total the server already computes and validates in
+ * `stayIntent.util.js` — rate × nights, months or hours — snapshotted onto the
+ * request at creation. It is deliberately NOT `assistedVisitAmountPaise`,
+ * which is a fixed platform fee and has nothing to say about what a room
+ * costs.
+ */
+const PREPAID_CATEGORIES = ['HOTEL'];
+
+/**
+ * WHY this category charges, or null when it does not.
+ *
+ * The two payment kinds share one subdocument, one Razorpay integration and
+ * one webhook, and they must not share a meaning. They differ in every way
+ * that matters downstream:
+ *
+ *   assisted_visit   a fixed platform fee (₹199), explained as a two-line
+ *                    split, which buys a VIEWING — so paying it opens the slot
+ *                    picker and the address is released with the slot
+ *   stay_booking     the stay total, which buys the STAY — so paying it
+ *                    finishes the booking, and there is no slot to pick
+ *
+ * Reading this rather than testing category membership at each call site is
+ * what stops a hotel being chased for a visit slot it never needed, or being
+ * charged ₹199 because a fallback reached for the assisted price.
+ *
+ * Frozen onto the request at creation (`payment.purpose`): re-deriving it from
+ * a live listing would let an edited category reprice a request somebody has
+ * already paid.
+ */
+const paymentPurposeFor = (category) => {
+  const normalised = normaliseCategory(category);
+  if (TOKEN_CATEGORIES.includes(normalised)) return 'assisted_visit';
+  if (PREPAID_CATEGORIES.includes(normalised)) return 'stay_booking';
+  return null;
+};
+
+/** Does this category take money through Lampose at all, of either kind? */
+const chargesUpFront = (category) => paymentPurposeFor(category) !== null;
 
 /** The category whose price is quoted per night rather than per day. */
 const NIGHTLY_CATEGORIES = ['HOTEL'];
@@ -160,6 +258,11 @@ module.exports = {
   SIMPLE_PATH_CATEGORIES,
   NIGHTLY_CATEGORIES,
   TOKEN_CATEGORIES,
+  PREPAID_CATEGORIES,
+  paymentPurposeFor,
+  chargesUpFront,
+  rawValuesFor,
+  categoryQuery,
   DEFAULT_CATEGORY,
   normaliseCategory,
   isCategory,

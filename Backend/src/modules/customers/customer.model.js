@@ -108,6 +108,10 @@ const customerSchema = new mongoose.Schema(
      * session-guarded route, and dropped the moment Expo reports
      * DeviceNotRegistered rather than retried forever against a wiped phone.
      */
+    /* Revocation. Carried in the session token as `ver` and compared on every
+       request; "sign out everywhere" bumps it and every token so far dies.
+       See iam/session.controller.js. */
+    sessionVersion: { type: Number, default: 0 },
     devices: {
       type: [
         {

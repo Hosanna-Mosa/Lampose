@@ -400,6 +400,119 @@ const setMyPropertyAvailability = async (req, res, next) => {
   }
 };
 
+// @route   DELETE /api/v2/partners/properties/:id
+// @desc    Take a listing off Lampose for good, from the owner's own app
+// @access  Partner session (owner of the property only)
+/**
+ * Removing a listing, not erasing it.
+ *
+ * ## Soft, on purpose
+ *
+ * This sets `status: 'removed'` and leaves the `properties` document exactly
+ * where it is. A hard delete would take every `partner_bookings`,
+ * `partner_reviews` and `partner_payouts` row that points at this
+ * `propertyId` with it in spirit if not in fact — none of those collections
+ * are cleaned up by a property disappearing, so an owner's own Earnings and
+ * History screens would start rendering payouts and stays against a
+ * property that no longer resolves. Soft removal is what keeps that history
+ * intact while still taking the listing out of circulation everywhere a
+ * student could find it — `getListings` filters `status: 'removed'` out of
+ * the feed, and `getListingById` reports `removed: true` rather than 404,
+ * the same shape a paused listing already uses for a saved card or an old
+ * link.
+ *
+ * ## Refused while somebody is actually relying on this listing
+ *
+ * A guest currently staying (`in_house`) or already accepted and due
+ * (`upcoming`) has nowhere to go if the property vanishes from under them —
+ * their entry PIN, their booking detail screen and their move-out flow all
+ * read this property. A student mid-request (`pending_owner`/`otp_pending`)
+ * is waiting on an answer from a listing that is about to stop existing.
+ * Both are refused with a 409 naming what is blocking it, not a silent
+ * no-op and not a removal that strands somebody.
+ *
+ * Cancelled, completed, declined and expired rows are all terminal and do
+ * not block — they are exactly the history this being a soft delete is
+ * for.
+ *
+ * ## The room types are paused too
+ *
+ * Belt and braces: `status: 'removed'` is what the feed and the listing
+ * page actually gate on, but bulk-pausing every `partner_share_types` row
+ * the same way `setMyPropertyAvailability` does keeps `ownerPaused` and
+ * `requestable` internally consistent for any other code path that still
+ * derives availability from those rows instead of `status`.
+ */
+const removeMyProperty = async (req, res, next) => {
+  try {
+    if (mongoose.connection.readyState !== 1) return dbDown(res);
+
+    const property = await findOwnedProperty(req.partner, req.params.id);
+    if (!property) return notFound(res);
+
+    const propertyId = String(property._id);
+
+    if (property.status === 'removed') {
+      return res.json({
+        success: true,
+        message: 'This listing was already removed.',
+        data: { propertyId, status: 'removed' },
+      });
+    }
+
+    const { PartnerBooking } = require('./partnerDomains.model');
+    const VisitRequest = require('../visits/visitRequest.model');
+
+    const activeGuests = await PartnerBooking.countDocuments({
+      propertyId,
+      status: { $in: ['in_house', 'upcoming'] },
+    });
+    if (activeGuests > 0) {
+      return res.status(409).json({
+        success: false,
+        code: 'ACTIVE_BOOKINGS',
+        message: activeGuests === 1
+          ? 'One guest is currently staying or due at this listing. Wait until that stay ends '
+            + 'before removing it.'
+          : `${activeGuests} guests are currently staying or due at this listing. Wait until `
+            + 'those stays end before removing it.',
+      });
+    }
+
+    const pendingRequests = await VisitRequest.countDocuments({
+      listingId: propertyId,
+      status: { $in: ['otp_pending', 'pending_owner'] },
+    });
+    if (pendingRequests > 0) {
+      return res.status(409).json({
+        success: false,
+        code: 'PENDING_REQUESTS',
+        message: pendingRequests === 1
+          ? 'A student is waiting on an answer to a request at this listing. Answer it first.'
+          : `${pendingRequests} students are waiting on an answer at this listing. Answer them first.`,
+      });
+    }
+
+    property.status = 'removed';
+    property.removedAt = new Date();
+    await property.save();
+
+    const { PartnerShareType } = require('./partnerDomains.model');
+    await PartnerShareType.updateMany({ propertyId }, { $set: { isAvailable: false } });
+
+    console.log(`   🗑️  [Partner Removal] "${property.name}" (${propertyId}) `
+      + `removed by partner ${req.partner.partnerId}`);
+
+    return res.json({
+      success: true,
+      message: 'This listing has been removed from Lampose. Its past bookings and payouts are unaffected.',
+      data: { propertyId, status: 'removed' },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 /* ── Photos ──────────────────────────────────────────────────────────────── */
 
 /** Configured per request, exactly as the KYC and onboarding uploads do it. */
@@ -467,6 +580,7 @@ module.exports = {
   getMyPropertyById,
   updateMyProperty,
   setMyPropertyAvailability,
+  removeMyProperty,
   uploadPropertyImages,
   MAX_PROPERTY_IMAGES,
 };

@@ -1,7 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Icon, Text } from '@/components/ui';
@@ -183,6 +183,13 @@ export default function Results() {
       <ScrollView
         contentContainerStyle={{ padding: layout.gutter, gap: space[5], paddingBottom: space[8] }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isFetching && !loading}
+            onRefresh={() => refetch()}
+            tintColor={colors.brand}
+          />
+        }
       >
         {loading ? (
           [0, 1, 2].map((key) => <ListingCardSkeleton key={key} variant="list" />)
@@ -271,6 +278,10 @@ export default function Results() {
         <FilterSheet
           query={query}
           inventory={inventory}
+          /* The category this result set was opened for, so the sheet asks
+             that category's questions. Null on the "All places" view, where
+             the sheet falls back to the general set. */
+          category={category ?? null}
           onApply={(next) => {
             setQuery(next);
             setFiltersOpen(false);

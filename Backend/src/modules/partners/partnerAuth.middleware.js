@@ -45,7 +45,11 @@ const TOKEN_TYPE = 'partner';
  * endpoints look up and what the device stores.
  */
 const signPartnerToken = (partner) => jwt.sign(
-  { sub: partner.partnerId, typ: TOKEN_TYPE, phone: partner.phone },
+  /* `ver` is the account's sessionVersion; a token behind it is refused. See
+     iam/session.controller.js — it is what "sign out everywhere" bumps. */
+  {
+    sub: partner.partnerId, typ: TOKEN_TYPE, phone: partner.phone, ver: partner.sessionVersion || 0,
+  },
   config.auth.jwtSecret,
   { expiresIn: config.auth.jwtExpiresIn },
 );
@@ -106,6 +110,10 @@ async function requirePartner(req, res, next) {
        the note at the top of the file. */
     if (!partner.phoneVerifiedAt) {
       return deny(res, 'Please verify your number again.', 'PHONE_NOT_VERIFIED');
+    }
+
+    if ((decoded.ver || 0) !== (partner.sessionVersion || 0)) {
+      return deny(res, 'This session was signed out. Please sign in again.', 'SESSION_REVOKED');
     }
 
     req.partner = partner;

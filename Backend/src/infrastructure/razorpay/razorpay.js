@@ -404,43 +404,73 @@ const createFundAccount = async ({ contactId, method, bankAccount, vpa }) => {
  *
  * `mode: 'IMPS'` — settles in minutes, on any bank account, at a small fixed
  * fee RazorpayX charges Lampose rather than the owner. `queue_if_low_balance`
- * is true so a payout made while the virtual account is thin queues rather
- * than failing outright; `payout.service.js` still records what RazorpayX
- * answered either way.
+ * is true so a payout made while the virtual account is thin QUEUES rather
+ * than failing outright — the caller records whatever RazorpayX answered
+ * either way, and a queued payout is a real payout that will settle.
  *
- * `referenceId` MUST be unique per payout attempt — it is what makes a
- * retried call land on the SAME payout at RazorpayX rather than paying twice,
- * which is why `payout.service.js` derives it from the `PartnerPayout` row's
- * own id rather than generating one per call.
+ * ## `account_number` is OURS, never the beneficiary's
+ *
+ * It is the RazorpayX current/virtual account the money leaves FROM. The
+ * person being paid is identified only by `fund_account_id`. Putting a hotel's
+ * account number in this field would be asking RazorpayX to pay out of an
+ * account we do not own, which it would refuse — but the field name invites
+ * the mistake often enough to be worth saying here.
+ *
+ * ## `idempotencyKey` is separate from `referenceId`, and that is deliberate
+ *
+ * `referenceId` is OUR name for the payout, shown in the RazorpayX dashboard
+ * and echoed back on webhooks — it is how a payout is traced to a settlement.
+ *
+ * `idempotencyKey` is what makes a retried HTTP call land on the SAME payout
+ * rather than creating a second one. They were one value; they are two because
+ * a payout that DEFINITIVELY failed may legitimately be retried as a NEW
+ * payout, and that attempt needs a fresh idempotency key while keeping a
+ * reference that still points at the same settlement. Sending the old key
+ * would return the old failed payout for ever.
+ *
+ * The caller owns both: see `settlement.service.js`, which derives the key
+ * from the settlement id plus an attempt counter that only advances on a
+ * definitive failure.
  *
  * @param {{ fundAccountId: string, amountPaise: number, referenceId: string,
- *           narration?: string }} input
+ *           idempotencyKey: string, narration?: string, purpose?: string,
+ *           notes?: object }} input
  */
 const createPayout = async ({
-  fundAccountId, amountPaise, referenceId, narration,
+  fundAccountId, amountPaise, referenceId, idempotencyKey, narration, purpose, notes,
 }) => {
   if (!isPayoutConfigured()) throw payoutNotConfiguredError();
+
+  if (!idempotencyKey) {
+    /* Refused rather than defaulted. A default derived from the reference
+       would look identical at every call site and would silently stop being a
+       guard the first time somebody retried a failed payout. */
+    const error = new Error('A payout needs an idempotency key.');
+    error.code = 'NO_IDEMPOTENCY_KEY';
+    throw error;
+  }
 
   const response = await fetch(PAYOUTS_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: payoutAuthHeader(),
-      /* RazorpayX's own idempotency header, on the reference id — a retried
-         call with the same reference returns the first payout rather than
-         moving money twice. */
-      'X-Payout-Idempotency': String(referenceId).slice(0, 40),
+      /* RazorpayX's own idempotency header — a retried call with the same key
+         returns the first payout rather than moving money twice. */
+      'X-Payout-Idempotency': String(idempotencyKey).slice(0, 40),
     },
     body: JSON.stringify({
+      /* OURS. See the note above. */
       account_number: config.razorpayx.accountNumber,
       fund_account_id: fundAccountId,
       amount: amountPaise,
       currency: 'INR',
       mode: 'IMPS',
-      purpose: 'payout',
+      purpose: purpose || 'payout',
       queue_if_low_balance: true,
       reference_id: String(referenceId).slice(0, 40),
       narration: String(narration || 'Lampose payout').slice(0, 30),
+      ...(notes ? { notes } : null),
     }),
   });
 
@@ -448,7 +478,53 @@ const createPayout = async ({
   return response.json();
 };
 
+/**
+ * What RazorpayX believes about a payout right now.
+ *
+ * The reconciliation half. A webhook can be missed, delayed or arrive out of
+ * order, so the admin queue needs a way to ASK rather than only to be told —
+ * and a settlement stuck in `withdrawing` is exactly the row somebody wants to
+ * ask about.
+ */
+const fetchPayout = async (payoutId) => {
+  if (!isPayoutConfigured()) throw payoutNotConfiguredError();
+
+  const response = await fetch(`${PAYOUTS_URL}/${encodeURIComponent(payoutId)}`, {
+    headers: { Authorization: payoutAuthHeader() },
+  });
+
+  if (!response.ok) throw await asError(response, 'Could not read the payout.', 'RAZORPAYX_PAYOUT_READ_FAILED');
+  return response.json();
+};
+
+/**
+ * Verify a RazorpayX PAYOUT webhook.
+ *
+ * Separate from `verifyWebhook` above because the two products are signed with
+ * different secrets — and tries BOTH, because a merchant who points one
+ * endpoint at both products configures one secret. Trying both is safe: a
+ * forged body verifies against neither, and the cost of the second HMAC is
+ * nothing next to a payout event silently failing verification.
+ */
+const verifyPayoutWebhook = ({ rawBody, signature }) => {
+  if (!rawBody || !signature) return false;
+
+  const candidates = [config.razorpayx.webhookSecret, config.razorpay.webhookSecret]
+    .filter(Boolean)
+    /* One secret configured for both products must not be hashed twice. */
+    .filter((secret, index, all) => all.indexOf(secret) === index);
+
+  return candidates.some((secret) => {
+    const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+    const a = Buffer.from(expected, 'utf8');
+    const b = Buffer.from(String(signature), 'utf8');
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  });
+};
+
 module.exports = {
   isConfigured, createOrder, refundPayment, createPaymentLink, verifySignature, verifyWebhook,
   isPayoutConfigured, createContact, createFundAccount, createPayout,
+  fetchPayout, verifyPayoutWebhook,
 };

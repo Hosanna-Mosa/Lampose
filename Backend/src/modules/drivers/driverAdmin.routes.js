@@ -35,14 +35,11 @@ const {
 
 const router = express.Router();
 
-/** Roles allowed to CHANGE a rider's fate. Reading is wider. */
-const DECIDING_ROLES = new Set(['Super Admin', 'Admin', 'Food Admin']);
+/* Deciding a rider's fate is `riders.decide` — Super Admin, Admin, Food Admin
+   — from the one permission table in iam/iam.roles.js. Reading is wider. */
+const { can } = require('../iam/iam.middleware');
 
-const requireDriverApprover = (req, res, next) => {
-  if (DECIDING_ROLES.has(req.admin?.role)) return next();
-  const message = 'Approving a rider requires the Admin or Food Admin role.';
-  return res.status(403).json({ success: false, code: 'FORBIDDEN', message, error: message });
-};
+const requireDriverApprover = can('riders.decide');
 
 router.use(verifyAdminToken);
 router.use(requireLamposeDb);

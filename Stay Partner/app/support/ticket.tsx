@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { Screen, Text, IconButton, Icon, Badge, Divider, EmptyState } from '@/components/ui';
@@ -36,7 +36,7 @@ export default function TicketThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const reference = id ?? '';
 
-  const { data: thread, isLoading, isError } = useSupportTicket(reference);
+  const { data: thread, isLoading, isError, isRefetching, refetch } = useSupportTicket(reference);
   const { reply, markRead } = useSupportActions();
   const queryClient = useQueryClient();
 
@@ -170,6 +170,9 @@ export default function TicketThreadScreen() {
         contentContainerStyle={styles.messages}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={c.accent} colors={[c.accent]} />
+        }
       >
         {thread.messages.map((m) => (
           <Bubble key={m.id} message={m} mine={mine} />

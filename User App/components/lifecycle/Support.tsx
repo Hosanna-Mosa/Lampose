@@ -152,10 +152,20 @@ export function TicketMessageRow({ message }: TicketMessageRowProps) {
           gap: space[1],
         }}
       >
-        {/* A named human on the support side. "LAMPOSE Support" answers nobody. */}
+        {/*
+          Who wrote it.
+
+          Our side is signed "Support" rather than the name on the admin
+          account that typed it — see `signatureFor` in
+          `adapters/support.adapter.ts` for why a staff member's real name has
+          no business in a customer's thread. A property owner's reply keeps
+          their own name, because which owner answered is exactly the point of
+          it, and those get the " · LAMPOSE" suffix dropped as well: an owner
+          is not us.
+        */}
         {message.authorName ? (
           <Text variant="numMeta" color="secondary">
-            {message.authorName} · LAMPOSE
+            {message.author === 'support' ? 'LAMPOSE Support' : message.authorName}
           </Text>
         ) : null}
         <Text variant="body" style={mine ? { color: colors.onBrand } : undefined}>

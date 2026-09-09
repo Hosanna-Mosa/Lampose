@@ -33,9 +33,14 @@ const express = require('express');
 
 const router = express.Router();
 const verifyAdminToken = require('../analytics/verifyAdminToken.middleware');
+const { can } = require('../iam/iam.middleware');
 const { sendAdminMessage, toE164 } = require('../../infrastructure/twilio/twilio');
 
 router.use(verifyAdminToken);
+/* Reaching a real person's phone from the console is `messaging.send` —
+   Super Admin, Admin — from the one permission table in iam/iam.roles.js.
+   Listing the templates is any administrator. */
+const requireSender = can('messaging.send');
 
 /* [env var, friendly label, one-line hint on the numbered variables]. Hints
    are informational only — see the header above for why nothing here
@@ -83,7 +88,7 @@ router.get('/templates', (req, res) => {
 
 // @route   POST /api/admin/whatsapp/send
 // @desc    Send one WhatsApp message, free text or an approved template.
-router.post('/send', async (req, res) => {
+router.post('/send', requireSender, async (req, res) => {
   try {
     const { to, mode, body, templateKey, variables } = req.body;
 

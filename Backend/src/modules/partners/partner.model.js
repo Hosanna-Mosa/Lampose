@@ -93,6 +93,91 @@ const partnerSchema = new mongoose.Schema(
      */
     phoneDigits: { type: String, required: true, index: true },
 
+    /*
+     * ── Razorpay Route payout onboarding ──────────────────────────────
+     *
+     * Only HOTEL owners need this, and only because a hotel is the one
+     * category where a guest's money passes through Lampose on its way to the
+     * owner. PG/Hostel and Co-living owners are paid nothing by us — they
+     * collect rent themselves — and a Bachelor visit fee is entirely ours.
+     * So this stays empty for the great majority of partners, and the gate in
+     * the Stay Partner app is derived from "owns a hotel AND this is not
+     * active" rather than from the field alone.
+     *
+     * ## Why a linked account and not just a bank account
+     *
+     * `PartnerPaymentMethod` already stores a bank account and a UPI id, and
+     * for the existing `payout.service.js` flow that is enough — RazorpayX
+     * pays whoever we name. Route is different: the hotel becomes a
+     * SUB-MERCHANT of ours and Razorpay settles to them directly, so Razorpay
+     * has to onboard them as a merchant — legal name, business type, PAN, a
+     * stakeholder, a registered address. That is what `route.js` sends and
+     * why this subdocument exists beside the payment method rather than
+     * replacing it.
+     *
+     * ## `status` is Razorpay's answer, not ours
+     *
+     *   none          nothing submitted
+     *   submitted     we have their details; RazorpayX has not accepted them
+     *                 yet (an unreachable or unconfigured rail)
+     *   under_review  RETIRED. Route had an approval step; RazorpayX has none.
+     *                 Kept in the enum so rows written under Route still load.
+     *   active        RazorpayX accepted the beneficiary and we hold a fund
+     *                 account id. THE ONLY VALUE THAT PERMITS A PAYOUT.
+     *   rejected      RazorpayX refused the details; `rejectionReason` says why
+     *
+     * The gate opens on `active` alone. Under Route that meant "Razorpay
+     * approved this sub-merchant"; under RazorpayX it means "a fund account
+     * exists", which is the only thing a payout actually needs. Whether the
+     * BANK accepts the transfer is answered by the payout, not here.
+     */
+    payoutOnboarding: {
+      status: {
+        type: String,
+        enum: ['none', 'submitted', 'under_review', 'active', 'rejected'],
+        default: 'none',
+      },
+      /* ── RazorpayX Payouts: the live rail ────────────────────────── */
+
+      /* `cont_…` — WHO is paid. One per owner, created once and reused. */
+      razorpayContactId: { type: String, default: null },
+      /*
+       * `fa_…` — WHERE their money goes. The id every payout is addressed to,
+       * and the single test for "can this owner be paid": `beneficiaryFor` in
+       * `settlement.service.js` refuses without it.
+       *
+       * Replaced rather than edited when an owner changes bank: a fund account
+       * is immutable at RazorpayX, so a new account means a new one.
+       */
+      razorpayFundAccountId: { type: String, default: null },
+
+      /* ── Razorpay Route: historical only ─────────────────────────── */
+
+      /*
+       * Kept, not dropped. Owners onboarded before the migration carry a Route
+       * linked account, and removing the fields would make those records
+       * unreadable. Nothing writes them any more.
+       */
+      linkedAccountId: { type: String, default: null },
+      productId: { type: String, default: null },
+      stakeholderId: { type: String, default: null },
+
+      /* A snapshot for the admin queue and for the owner to read back. The
+         full account number is NOT stored here — `PartnerPaymentMethod` holds
+         what little we keep, and Razorpay holds the rest. */
+      legalBusinessName: { type: String, default: '' },
+      beneficiaryName: { type: String, default: '' },
+      accountLast4: { type: String, default: '' },
+      ifsc: { type: String, default: '' },
+
+      submittedAt: { type: Date, default: null },
+      activatedAt: { type: Date, default: null },
+      rejectionReason: { type: String, default: '' },
+      /* When we last asked Razorpay what it thinks. The status above is a
+         cache of their answer, and this says how stale it is. */
+      lastCheckedAt: { type: Date, default: null },
+    },
+
     /* Empty until profile setup. A partner who has proved their number but not
        finished the form is a real, ordinary state — the app shows the setup
        screen for exactly that case, and `profileCompletedAt` is how it knows. */
@@ -134,6 +219,10 @@ const partnerSchema = new mongoose.Schema(
      * session-guarded route, and dropped the moment Expo reports
      * DeviceNotRegistered rather than retried forever against a wiped phone.
      */
+    /* Revocation. Carried in the session token as `ver` and compared on every
+       request; "sign out everywhere" bumps it and every token so far dies.
+       See iam/session.controller.js. */
+    sessionVersion: { type: Number, default: 0 },
     devices: {
       type: [
         {

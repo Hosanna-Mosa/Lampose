@@ -1,9 +1,11 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Modal, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
-import { BottomSheet, Button, Icon, OfflineBanner, Radio, SearchField, Snackbar, Text } from '@/components/ui';
+import {
+  BottomSheet, Button, OfflineBanner, Radio, SearchField, Snackbar, Text, useAlert,
+} from '@/components/ui';
 import { ExploreHeader, StateTemplate, TabBar, type TabItem } from '@/components/shell';
 import {
   CategoryTabs,
@@ -18,22 +20,26 @@ import {
 } from '@/components/discovery';
 import { BookingRow, BookingSegments, ProfileGroup, ProfileRow } from '@/components/lifecycle';
 import { FoodComingSoon, FoodModule } from '@/components/food';
+import { TypographyScope } from '@/context/TypographyContext';
 import { foodHref } from '@/components/food/routes';
-import { useAppEnv, useFoodMode, usePreviewControls } from '@/hooks/useAppEnv';
-import { BUILT_AS, CAN_OVERRIDE_ENV, setAppEnv, type AppEnv } from '@/services/runtimeEnv';
+import { useFoodMode } from '@/hooks/useAppEnv';
 import { emptyStates } from '@/constants/copy';
 import { useAppState } from '@/context/AppStateContext';
 import { useAuth } from '@/context/AuthContext';
 import { useFood, type FoodTab } from '@/context/FoodContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useTheme, type ThemePreference } from '@/context/ThemeContext';
+import type { StayCategory } from '@/constants/tokens';
 import { fromRealBooking, segmentOf, type BookingSegment } from '@/data/bookings';
 import {
-  useBookings, useListingMeta, useListings, useMyCoupon, useNotifications, useSaved,
+  useAddresses, useBookings, useListingMeta, useListings, useMyCoupon, useNotifications, useSaved,
 } from '@/services';
 import { BACKEND_CATEGORIES } from '@/services/adapters/listing.adapter';
+import { isAllLocalities } from '@/types/auth';
 import { genderMeta, isGone } from '@/types/listing';
-import { activeFilterCount, applyQuery, EMPTY_QUERY, type SearchQuery } from '@/types/filters';
+import {
+  activeFilterCount, applyQuery, EMPTY_QUERY, filterSpecFor, type SearchQuery,
+} from '@/types/filters';
 import { ownerWindowLabel } from '@/types/request';
 
 /**
@@ -65,38 +71,6 @@ const APPEARANCE_OPTIONS: readonly { id: ThemePreference; label: string }[] = [
   { id: 'light', label: 'Light' },
   { id: 'dark', label: 'Dark' },
   { id: 'system', label: 'Use my phone setting' },
-];
-
-/**
- * The developer mode picker.
- *
- * Only ever rendered in a build that `CAN_OVERRIDE_ENV` — a production build
- * has no override to set, so the row is absent rather than disabled. Each
- * label says what the mode DOES rather than naming it, because the whole
- * reason to reach for this is to see one of these two behaviours.
- */
-const APP_ENV_LABEL: Record<AppEnv, string> = {
-  development: 'Development',
-  preview: 'Preview',
-  production: 'Production · what students see',
-};
-
-const APP_ENV_OPTIONS: readonly { id: AppEnv; label: string; note: string }[] = [
-  {
-    id: 'development',
-    label: 'Development',
-    note: 'Preview controls on every screen, console logging, and the Food module if this build has one.',
-  },
-  {
-    id: 'preview',
-    label: 'Preview',
-    note: 'The same as development. Kept separate so an internal build can be told apart in a bug report.',
-  },
-  {
-    id: 'production',
-    label: 'Production',
-    note: 'Exactly what a student sees. Controls hidden, console silent, Food shows "coming soon".',
-  },
 ];
 
 /**
@@ -151,8 +125,19 @@ export default function Home() {
   const { colors, space, layout, mode, radius, preference, setPreference } = useTheme();
   const router = useRouter();
   const { user, status, signOut } = useAuth();
+  const { confirm } = useAlert();
   const { coupon } = useMyCoupon(status === 'signedIn');
   const { locality, category, setCategory } = useAppState();
+  /*
+   * "All locations" is an area answer that means "do not scope this".
+   *
+   * Everything below that would otherwise send a city or a locality over the
+   * wire checks this first, and so does everything that puts a place name in
+   * a sentence. It is a sentinel `Locality` rather than a null so the entry
+   * router does not read it as an unanswered question — see `ALL_LOCALITIES`.
+   */
+  const everywhere = isAllLocalities(locality);
+  const scopedCity = everywhere ? null : locality?.city ?? null;
   /* How much of the bottom edge the tab bar is occupying, measured by the bar
      itself. The snackbar has to clear it. */
   const { reservedBottom } = usePendingRequest();
@@ -177,13 +162,35 @@ export default function Home() {
   const [wholeCity, setWholeCity] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [query, setQuery] = useState<SearchQuery>(EMPTY_QUERY);
+  /*
+   * One set of filters PER CATEGORY, not one shared between the four.
+   *
+   * Switching tabs used to reset the query to `EMPTY_QUERY`, which was the
+   * right call while there was only one set of controls: carrying "2-sharing"
+   * from PG into Hotels would have filtered a feed by a value that means
+   * nothing there.
+   *
+   * Now that each category asks its own questions — see `filterSpecFor` — the
+   * answers belong to the category that asked them. A student comparing PGs
+   * under ₹8,000 for girls against co-lives under ₹12,000 sets each once, and
+   * flicking between the tabs shows each feed as they left it. Resetting on
+   * every tap made the tab row a control that destroyed work.
+   *
+   * Keyed by category rather than four `useState`s so the chip row, the sheet
+   * and the count all read one value and there is no fourth place to forget.
+   */
+  const [queries, setQueries] = useState<Partial<Record<StayCategory, SearchQuery>>>({});
+  const query = (category && queries[category]) || EMPTY_QUERY;
+  const setQuery = useCallback(
+    (next: SearchQuery) => {
+      if (!category) return;
+      setQueries((current) => ({ ...current, [category]: next }));
+    },
+    [category],
+  );
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
-  const [envOpen, setEnvOpen] = useState(false);
-  const appEnv = useAppEnv();
   const FOOD_MODE = useFoodMode();
-  const previewControls = usePreviewControls();
   const [segment, setSegment] = useState<BookingSegment>('active');
   /*
    * The real thing — `GET /customers/bookings`, mapped through
@@ -235,8 +242,11 @@ export default function Home() {
     isFetching: feedFetching,
   } = useListings({
     category,
-    city: locality?.city ?? null,
-    locality: debouncedSearch ? null : (wholeCity ? null : locality?.name ?? null),
+    city: scopedCity,
+    /* Unscoped on "All locations", the same way a search is: both are the
+       student asking to look past the area they picked. */
+    locality:
+      everywhere || debouncedSearch ? null : (wholeCity ? null : locality?.name ?? null),
     search: debouncedSearch || null,
     enabled: Boolean(category),
   });
@@ -256,8 +266,9 @@ export default function Home() {
    */
   const { listings: cityListings } = useListings({
     category,
-    city: locality?.city ?? null,
-    enabled: Boolean(category) && Boolean(locality) && !wholeCity,
+    city: scopedCity,
+    /* Nothing to widen TO when the feed is already everywhere. */
+    enabled: Boolean(category) && Boolean(locality) && !everywhere && !wholeCity,
   });
 
   /* A new area starts narrow again. Carrying city-wide across a change of
@@ -269,6 +280,13 @@ export default function Home() {
   /* The same query the alerts screen reads, so the badge and the screen are
      one fetch and cannot disagree about the count. */
   const { unread } = useNotifications();
+
+  /* How many addresses are in the book, for the Profile row that states it.
+     Gated on the tab being open — the same rule the bookings fetch above
+     follows — so a student who never opens Profile never pays for it. */
+  const { count: addressCount, isPending: addressesLoading } = useAddresses(
+    status === 'signedIn' && tab === 'profile',
+  );
 
   const filterCount = activeFilterCount(query);
 
@@ -287,9 +305,11 @@ export default function Home() {
   const total = shown.length;
 
   /** What the feed is currently scoped to, for every sentence that names it. */
-  const scopeLabel = wholeCity
-    ? locality?.city ?? 'your city'
-    : locality?.name ?? locality?.city ?? 'your area';
+  const scopeLabel = everywhere
+    ? 'every area we cover'
+    : wholeCity
+      ? locality?.city ?? 'your city'
+      : locality?.name ?? locality?.city ?? 'your area';
 
   /**
    * How many the same filters would return across the whole city.
@@ -304,8 +324,9 @@ export default function Home() {
     [cityListings, query],
   );
 
-  /* Only worth offering when it would actually show more. */
-  const canWiden = Boolean(locality) && !wholeCity && cityTotal > total;
+  /* Only worth offering when it would actually show more — and never when the
+     feed is already unscoped, which is as wide as it goes. */
+  const canWiden = Boolean(locality) && !everywhere && !wholeCity && cityTotal > total;
 
   /**
    * How much is in the other three categories.
@@ -327,14 +348,18 @@ export default function Home() {
      * word doing the work: counting catalogue-wide offered four other places
      * in an area that holds one, and the tab switch would then show nothing.
      */
-    const counts = meta.categoriesIn(
-      wholeCity ? locality?.city ?? '' : `${locality?.city ?? ''}::${locality?.name ?? ''}`,
-    );
+    const counts = everywhere
+      /* No key at all counts the whole catalogue, which is exactly the scope
+         the feed is showing. */
+      ? meta.categoriesIn('')
+      : meta.categoriesIn(
+        wholeCity ? locality?.city ?? '' : `${locality?.city ?? ''}::${locality?.name ?? ''}`,
+      );
 
     return Object.entries(counts)
       .filter(([name]) => !mine.has(name))
       .reduce((sum, count) => sum + count[1], 0);
-  }, [meta, category, locality?.name, locality?.city, wholeCity]);
+  }, [meta, category, locality?.name, locality?.city, wholeCity, everywhere]);
 
   /* A failure with nothing behind it is offline; a failure the server
      authored is not, and the banner must not blame a student's connection
@@ -403,13 +428,21 @@ export default function Home() {
    * ("Up to ₹10,000"). The row therefore states what is currently on, instead
    * of making the student open the sheet to find out.
    */
+  /* Which questions this category asks, so the row cannot offer a shortcut to
+     a control the sheet behind it does not draw. */
+  const spec = filterSpecFor(category);
+
   const quickChips: readonly FilterChip[] = [
-    {
-      id: 'gender',
-      label: query.gender ? genderMeta[query.gender].label : 'Gender',
-      active: query.gender !== null,
-      clearable: true,
-    },
+    /* Gender only where it is a rule. A "Gender" chip on Hotels opened a sheet
+       with no gender control in it. */
+    ...(spec.gender
+      ? [{
+        id: 'gender',
+        label: query.gender ? genderMeta[query.gender].label : 'Gender',
+        active: query.gender !== null,
+        clearable: true,
+      }]
+      : []),
     {
       id: 'rent',
       label:
@@ -417,14 +450,39 @@ export default function Home() {
       active: query.rentCeiling !== null,
       clearable: true,
     },
-    {
-      id: 'sharing',
-      label: query.sharing.length
-        ? `${query.sharing[0]}${query.sharing.length > 1 ? ` +${query.sharing.length - 1}` : ''}`
-        : 'Sharing',
-      active: query.sharing.length > 0,
-      clearable: true,
-    },
+    /* Named by what this category sells — "Sharing" on a PG, "Which unit?" on
+       a bachelor room. The heading is trimmed to a chip's worth of it. */
+    ...(spec.sharingLabel
+      ? [{
+        id: 'sharing',
+        label: query.sharing.length
+          ? `${query.sharing[0]}${query.sharing.length > 1 ? ` +${query.sharing.length - 1}` : ''}`
+          : spec.sharingLabel.replace(/\?$/, ''),
+        active: query.sharing.length > 0,
+        clearable: true,
+      }]
+      : []),
+    /* Furnishing where an empty room is possible; meals where a mess is. Both
+       are the deciding question on the categories that have them, which is
+       exactly what earns a chip rather than a trip into the sheet. */
+    ...(spec.furnishing
+      ? [{
+        id: 'furnishing',
+        label: query.furnishing.length
+          ? `${query.furnishing[0]}${query.furnishing.length > 1 ? ` +${query.furnishing.length - 1}` : ''}`
+          : 'Furnishing',
+        active: query.furnishing.length > 0,
+        clearable: true,
+      }]
+      : []),
+    ...(spec.meals
+      ? [{
+        id: 'meals',
+        label: query.meals === null ? 'Meals' : query.meals ? 'With meals' : 'Without meals',
+        active: query.meals !== null,
+        clearable: true,
+      }]
+      : []),
   ];
 
   /**
@@ -439,6 +497,8 @@ export default function Home() {
     if (id === 'gender') setQuery({ ...query, gender: null });
     if (id === 'rent') setQuery({ ...query, rentCeiling: null });
     if (id === 'sharing') setQuery({ ...query, sharing: [] });
+    if (id === 'furnishing') setQuery({ ...query, furnishing: [] });
+    if (id === 'meals') setQuery({ ...query, meals: null });
   };
 
   /*
@@ -490,7 +550,9 @@ export default function Home() {
 
       <ExploreHeader
         locality={locality?.name ?? 'Choose an area'}
-        city={locality ? locality.city : undefined}
+        /* The sentinel carries no city, and "All locations · " with nothing
+           after it reads as a bug rather than as a scope. */
+        city={locality && !everywhere ? locality.city : undefined}
         onPressLocality={() => router.push('/(entry)/locality')}
         /*
          * Same two icons, repointed while Food is open — the header pivots
@@ -521,18 +583,21 @@ export default function Home() {
         <ScrollView
           contentContainerStyle={{ paddingTop: space[2], paddingBottom: space[8], gap: space[4] }}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={feedFetching && !feedLoading}
+              onRefresh={() => refetchFeed()}
+              tintColor={colors.brand}
+            />
+          }
         >
           {/* Controls section — grouped tightly for a clean header layout */}
           <View style={{ gap: space[2] }}>
-            {category ? (
-              <CategoryTabs
-                value={category}
-                onChange={(next) => {
-                  setCategory(next);
-                  setQuery(EMPTY_QUERY);
-                }}
-              />
-            ) : null}
+            {/* No `setQuery(EMPTY_QUERY)` on change any more — each category
+                keeps its own filters, so switching tabs shows that category's
+                feed as it was left rather than wiping what was set. See
+                `queries` above. */}
+            {category ? <CategoryTabs value={category} onChange={setCategory} /> : null}
 
             <View style={{ paddingHorizontal: layout.gutter }}>
               <SearchField
@@ -765,7 +830,13 @@ export default function Home() {
            constants/food.ts and defaults to production — a missing env value
            must never leak the unfinished module. */
         FOOD_MODE === 'dev' ? (
-          <FoodModule />
+          /* The second of the two food typography boundaries — the other is
+             app/food/_layout.tsx. This module is reached as a TAB rather than
+             a route, so it never passes through that layout and would
+             otherwise inherit the stay scale. */
+          <TypographyScope module="food">
+            <FoodModule />
+          </TypographyScope>
         ) : (
           <FoodComingSoon onExplore={() => setTab('explore')} />
         )
@@ -817,15 +888,20 @@ export default function Home() {
             <ProfileRow label="Alerts" value={`${unread} unread`} onPress={() => router.push('/notifications')} />
             {/* The address book. Reachable here rather than only from the
                 checkout, because the moment somebody wants to FIX an address
-                is rarely the moment they are ordering. */}
-            <ProfileRow label="Your addresses" onPress={() => router.push('/addresses')} />
-            <ProfileRow label="Saved places" value={String(saved.length)} onPress={() => setTab('saved')} />
-            <ProfileRow label="Past stays" onPress={() => router.push('/bookings/history')} />
+                is rarely the moment they are ordering.
+
+                It carries its own count for the same reason every other row
+                here does: most visits to this screen are somebody checking a
+                number, and a row that has to be opened to answer "how many
+                have I saved" is a row that costs a tap to say nothing. The
+                count is the address query's, not a second fetch — see
+                `useAddresses`. */}
             <ProfileRow
-              label="Receipts & agreements"
-              onPress={() => router.push('/bookings/receipts')}
-              last
+              label="Your addresses"
+              value={addressesLoading ? '…' : `${addressCount} saved`}
+              onPress={() => router.push('/addresses')}
             />
+            <ProfileRow label="Saved places" value={String(saved.length)} onPress={() => setTab('saved')} last />
           </ProfileGroup>
 
           <ProfileGroup title="App">
@@ -845,74 +921,73 @@ export default function Home() {
                 chevron, so both looked like doors. A settings row that states
                 a fact nobody can change, and cannot be opened to check it, is
                 worse than a shorter list. */}
+            {/* "Design-system sheets" used to sit below this row, behind the
+                preview gate. It is gone: the sheets are a builder's tool and
+                this list belongs to a student. `app/preview.tsx` still exists
+                and is still one `lampose://preview` away for anybody who
+                needs it — what was removed is the door on a customer's
+                profile, not the room behind it. */}
             <ProfileRow
               label="Help & support"
               onPress={() => router.push('/support')}
-              last={!previewControls}
+              last
             />
-            {/*
-              * Gated, like the Developer group below, because the screen
-              * behind it is.
-              *
-              * `app/preview.tsx` redirects to /home whenever preview controls
-              * are off, which a production build makes permanent — so an
-              * ungated row was a chevron that bounced. On the mode IN FORCE
-              * rather than on `CAN_OVERRIDE_ENV`: the redirect is written
-              * against the same answer, and the two have to agree or the row
-              * comes back the moment a switchable build is set to Production.
-              * The Developer group's opposite choice is deliberate for the
-              * opposite reason — see the note on it.
-              */}
-            {previewControls ? (
-              <ProfileRow
-                label="Design-system sheets"
-                onPress={() => router.push('/preview')}
-                last
-              />
-            ) : null}
           </ProfileGroup>
 
-          {/*
-            * Developer, and only in a build that may be switched.
-            *
-            * Gated on CAN_OVERRIDE_ENV — the BUILD's answer — not on the mode
-            * in force. Gating it on the current mode would make the group
-            * vanish the instant somebody selected Production, leaving no way
-            * back short of reinstalling the app.
-            */}
-          {CAN_OVERRIDE_ENV ? (
-            <ProfileGroup title="Developer">
-              <ProfileRow
-                label="Run as"
-                value={APP_ENV_LABEL[appEnv]}
-                onPress={() => setEnvOpen(true)}
-                last
-              />
-            </ProfileGroup>
-          ) : null}
+          {/* The "Developer" group — one "Run as" row that switched the app
+              between development, preview and production — is gone from this
+              screen. `services/runtimeEnv.ts` still holds the override and
+              every gate that reads it still works; what was removed is the
+              only control that wrote it. A build that needs switching gets it
+              back here, deliberately, rather than shipping it to students. */}
 
           <View style={{ gap: space[2] }}>
             <ProfileGroup>
+              {/* "Delete my account" and the paragraph that explained what it
+                  kept are both gone. Nothing behind them was ever built — the
+                  row had no handler — so what is removed is a destructive
+                  control that could not do anything and a promise about data
+                  retention nobody was in a position to keep. */}
+              {/*
+                Logging out ASKS first.
+
+                It used to sign out on the tap. It sits directly under "Saved
+                places" and "Help & support" in a list people scroll, it is the
+                one row in the profile whose effect cannot be undone with
+                another tap, and getting back in costs an SMS code — so a
+                mis-tap threw somebody out of the app and made them wait for a
+                message to get back in.
+
+                The app's own dialog rather than the platform's; see
+                `components/ui/AppAlert.tsx`. Not `destructive`: signing out
+                loses nothing — the shortlist, the addresses and the bookings
+                are all on the account — so a red button would overstate it.
+                It is still a question.
+              */}
               <ProfileRow
                 label="Log out"
-                onPress={async () => {
-                  await signOut();
-                  // Back to the router, which sends an account-less session to
-                  // auth. Staying on home would leave the student inside a
-                  // screen that now requires the account they just discarded.
-                  router.replace('/');
+                last
+                onPress={() => {
+                  void (async () => {
+                    const ok = await confirm({
+                      title: 'Log out?',
+                      message: 'You will need your mobile number and a new code to sign back in. '
+                        + 'Your bookings, saved places and addresses stay on your account.',
+                      confirmLabel: 'Log out',
+                      cancelLabel: 'Stay signed in',
+                    });
+                    if (!ok) return;
+
+                    await signOut();
+                    // Back to the router, which sends an account-less session
+                    // to auth. Staying on home would leave the student inside
+                    // a screen that now requires the account they just
+                    // discarded.
+                    router.replace('/');
+                  })();
                 }}
               />
-              <ProfileRow label="Delete my account" destructive last />
             </ProfileGroup>
-            {/* States exactly what survives, and why. An active booking and its
-                agreement cannot vanish because a student taps delete on a bad
-                day. */}
-            <Text variant="caption" color="tertiary">
-              Deleting removes your profile, saved places and search history. Your completed
-              bookings and their agreements stay with us for 7 years — we are required to keep them,
-              and you may need them. An active booking must end before you can delete.
-            </Text>
           </View>
         </ScrollView>
       ) : (
@@ -960,17 +1035,6 @@ export default function Home() {
             ));
           })()}
 
-          {/* The past segment is a list of bookings; history is the richer view
-              carrying today's price, which is the question a returning student
-              actually has. */}
-          {segment === 'past' ? (
-            <Button
-              label="See past stays with today's prices"
-              variant="ghost"
-              fullWidth
-              onPress={() => router.push('/bookings/history')}
-            />
-          ) : null}
         </ScrollView>
       )}
 
@@ -1023,6 +1087,8 @@ export default function Home() {
         <FilterSheet
           query={query}
           inventory={listings}
+          /* Which questions to ask, and which of them may block Apply. */
+          category={category}
           onApply={(next) => {
             setQuery(next);
             setFiltersOpen(false);
@@ -1062,31 +1128,6 @@ export default function Home() {
         </View>
       </BottomSheet>
 
-      <BottomSheet
-        visible={envOpen}
-        onClose={() => setEnvOpen(false)}
-        title="Run as"
-      >
-        <View style={{ gap: space[2] }}>
-          {APP_ENV_OPTIONS.map((option) => (
-            <View key={option.id} style={{ gap: 2 }}>
-              <Radio
-                label={option.label}
-                selected={appEnv === option.id}
-                onSelect={() => setAppEnv(option.id)}
-              />
-              <Text variant="caption" color="tertiary">
-                {option.note}
-              </Text>
-            </View>
-          ))}
-          <Text variant="caption" color="tertiary">
-            This build was made as {BUILT_AS}. The setting is remembered across restarts, and
-            only exists here — a production build cannot be switched out of production, so it
-            has no such setting at all.
-          </Text>
-        </View>
-      </BottomSheet>
     </View>
   );
 }
@@ -1095,14 +1136,4 @@ const styles = StyleSheet.create({
   identity: { flexDirection: 'row', alignItems: 'center' },
   avatar: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
   couponCard: { padding: 16, gap: 2 },
-  flex: { flex: 1 },
-  row: { flexDirection: 'row', alignItems: 'center' },
-  search: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 60,
-    // The one 2px border in the system — a deliberate one-off, so the search
-    // entry reads as a physical object rather than another card.
-    borderWidth: 2,
-  },
 });

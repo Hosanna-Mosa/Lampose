@@ -276,7 +276,7 @@ const notifyStudentDeclined = async (request) => {
  * was accepted. It is keyed on `customerId`, which is why that field had to
  * exist on the booking at all.
  */
-const notifyStudentBookingCancelled = async (booking) => {
+const notifyStudentBookingCancelled = async (booking, refund = null) => {
   if (!booking || !booking.customerId) return null;
   say(`[notify] booking cancelled → student ${booking.customerId} (${booking.propertyName})`);
 
@@ -294,8 +294,43 @@ const notifyStudentBookingCancelled = async (booking) => {
     /* Names the property and says the money position in the same breath.
        "Cancelled" on its own sends somebody straight to support to ask the
        question this sentence already answers. */
+    /* The money sentence is TRUE now, and specific. A paid stay names the
+       amount and asks for an account; a free one says nothing about money at
+       all, because there is none. */
     body: `${booking.propertyName} cancelled your booking for ${booking.checkInDate || 'your move-in date'}.`
-      + ' Anything you paid is refunded. You can find another place in the app.',
+      + (refund
+        ? ` Your ₹${Math.round(refund.amountPaise / 100).toLocaleString('en-IN')} will be refunded in full — `
+          + (refund.status === 'awaiting_details'
+            ? 'open the booking to tell us which account to send it to.'
+            : 'we will tell you when it is sent.')
+        : ' You can find another place in the app.'),
+    data: { ...data, refundStatus: refund ? refund.status : null },
+  });
+};
+
+/**
+ * The refund has been sent.
+ *
+ * The one refund event a guest needs pushed: the reference is what they
+ * quote to their bank if it has not appeared in a few days.
+ */
+const notifyStudentRefundPaid = async (refund) => {
+  if (!refund || !refund.customerId) return null;
+  say(`[notify] refund paid → student ${refund.customerId} (${refund.propertyName})`);
+
+  const data = {
+    kind: 'refund.paid',
+    bookingId: refund.bookingId,
+    refundId: String(refund._id),
+    status: 'paid',
+  };
+  emitLive('customer', refund.customerId, 'booking_updated', data);
+
+  return pushTo(Customer(), { customerId: refund.customerId }, {
+    title: 'Refund sent',
+    body: `₹${Math.round(refund.amountPaise / 100).toLocaleString('en-IN')} for ${refund.propertyName} has been sent to your account`
+      + (refund.reference ? ` · Ref ${refund.reference}` : '')
+      + '. It usually shows within 3–5 working days.',
     data,
   });
 };
@@ -522,6 +557,7 @@ module.exports = {
   notifyStudentAccepted,
   notifyStudentDeclined,
   notifyStudentBookingCancelled,
+  notifyStudentRefundPaid,
   notifyStudentCheckedIn,
   notifyStudentCheckedOut,
   notifyStudentExpired,

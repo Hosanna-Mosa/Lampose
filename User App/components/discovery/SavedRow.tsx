@@ -135,7 +135,7 @@ export function SavedRow({ entry, onPress, onRemove }: SavedRowProps) {
         accessibilityLabel={`Remove ${listing.name} from saved`}
         style={styles.remove}
       >
-        <Icon name="bookmark" size={24} color={colors.brandInk} fill={colors.brandInk} />
+        <Icon name="bookmark" size={28} color={colors.brandInk} fill={colors.brandInk} />
       </Pressable>
     </Pressable>
   );

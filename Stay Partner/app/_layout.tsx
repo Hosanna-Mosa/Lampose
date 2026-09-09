@@ -6,7 +6,9 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { AlertProvider } from '@/components/ui/AppAlert';
 import { SplashView } from '@/components/SplashView';
+import colors from '@/constants/colors';
 import {
   Manrope_400Regular,
   Manrope_500Medium,
@@ -72,11 +74,32 @@ function RootLayoutNav() {
   const router = useRouter();
   const navigationState = useRootNavigationState();
 
+  /*
+   * ## There is no payout gate here any more
+   *
+   * A hotel owner used to be redirected to a bank-details form the moment they
+   * signed in, before they could reach their own dashboard. It was the wrong
+   * place to ask twice over: an owner opening the app at 8am has a guest
+   * arriving, not a form to fill, and somebody who had been running fine for
+   * months was suddenly locked out of bookings they needed to manage over a
+   * detail that blocks nothing until they ask to be paid.
+   *
+   * Bank details are asked for at the ONE moment they are actually needed —
+   * pressing "Request payout" — where the question explains itself because the
+   * owner has just asked for money. `app/earnings/index.tsx` catches the
+   * server's `NO_PAYMENT_METHOD` and offers to take them to the form.
+   *
+   * The server is unchanged and still refuses to create a payout without an
+   * account, so nothing here is load-bearing: this was a prompt, not a
+   * safeguard, and removing it cannot let an unpayable payout through.
+   */
+
   const inAuthFlow = segments[0] === '(auth)';
   /* `useSegments()` is typed as a 1-tuple, but a nested route genuinely has a
      second segment at runtime — `(auth)/profile-setup` is two. Widened rather
      than indexed past the declared length, which TypeScript rejects outright. */
   const onProfileSetup = (segments as readonly string[])[1] === 'profile-setup';
+  const onPayoutSetup = (segments as readonly string[])[1] === 'payout-setup';
 
   /*
    * One navigator, always mounted, and the gate redirects inside it.
@@ -117,10 +140,18 @@ function RootLayoutNav() {
       return;
     }
 
-    /* Signed in and set up. Nothing in the auth flow is theirs any more, so a
-       stale history entry pointing at it goes to the dashboard. */
-    if (inAuthFlow) router.replace('/');
-  }, [status, profileComplete, inAuthFlow, onProfileSetup, navigationState?.key, router]);
+    /*
+     * Signed in and set up. Nothing in the auth flow is theirs any more, so a
+     * stale history entry pointing at it goes to the dashboard.
+     *
+     * `payout-setup` is exempt: it still exists and is still reachable, but as
+     * a screen an owner CHOSE to open rather than one they were sent to.
+     * Redirecting away from it would bounce anybody who navigated there
+     * deliberately straight back out.
+     */
+    if (inAuthFlow && !onPayoutSetup) router.replace('/');
+  }, [status, profileComplete, inAuthFlow, onProfileSetup, onPayoutSetup,
+    navigationState?.key, router]);
 
   /* Mounted before the splash short-circuit, because a hook cannot live
      behind a conditional return — and because the cold-start tap has already
@@ -133,7 +164,18 @@ function RootLayoutNav() {
 
   return (
     <>
-      <Stack screenOptions={{ headerShown: false }}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          /* The navigator's own scene container sits behind every screen and
+             otherwise defaults to white — visible as a flash during a stack
+             transition, and, on a screen that does not paint its own full
+             background, wherever content does not fully cover it. Fixed to
+             the app's own ground colour rather than left to that default,
+             the same way the User App's root Stack already is. */
+          contentStyle: { backgroundColor: colors.light.bg },
+        }}
+      >
         {/* Both groups are declared, and both exist as routes: each has a
             `_layout.tsx`. Naming a group without one is what produced
             "No route named "(auth)" exists in nested children" — expo-router
@@ -200,14 +242,27 @@ export default function RootLayout() {
           <AuthProvider>
             <GestureHandlerRootView style={styles.flex}>
               <KeyboardProvider>
-                {booted ? (
-                  <>
-                    <StatusBar style="dark" />
-                    <RootLayoutNav />
-                  </>
-                ) : (
-                  <SplashView />
-                )}
+                {/*
+                  The app's own alert, in place of the platform one.
+
+                  Inside `GestureHandlerRootView` so the card's buttons receive
+                  touches, and wrapping the navigator so every screen can call
+                  `useAlert()`. It wraps the splash too, which costs nothing and
+                  means a failure during boot has somewhere to be shown.
+
+                  See `components/ui/AppAlert.tsx` for why `Alert.alert` is not
+                  used anywhere in this app.
+                */}
+                <AlertProvider>
+                  {booted ? (
+                    <>
+                      <StatusBar style="dark" />
+                      <RootLayoutNav />
+                    </>
+                  ) : (
+                    <SplashView />
+                  )}
+                </AlertProvider>
               </KeyboardProvider>
             </GestureHandlerRootView>
           </AuthProvider>

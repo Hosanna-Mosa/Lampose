@@ -65,8 +65,10 @@ const { phoneKey } = Partner;
 /* One definition, in shared/constants/categories.js — these used to be
    three hand-synchronised copies. */
 const {
-  NIGHTLY_CATEGORIES, SIMPLE_PATH_CATEGORIES, TOKEN_CATEGORIES, normaliseCategory,
+  NIGHTLY_CATEGORIES, SIMPLE_PATH_CATEGORIES,
+  normaliseCategory,
 } = require('../../shared/constants/categories');
+const { paymentForNewRequest } = require('./requestPayment.util');
 
 /* ------------------------------------------------------------------ *
  * Failures
@@ -370,6 +372,7 @@ const createStayRequest = async ({ customer, listingId, sharing, intent, consent
     channel: 'app',
     listingId: String(property._id),
     propertyName: property.name,
+    category: normaliseCategory(property.category) || '',
     ownerName: property.ownerName || 'Property Owner',
     /* Read off the property document, never from the request body — that is
        the line that stops a caller making a stranger's phone ring — and
@@ -392,17 +395,14 @@ const createStayRequest = async ({ customer, listingId, sharing, intent, consent
     sharing: { label: option.label, price: option.price },
     intent: checked.intent || null,
     /*
-     * The ₹199 assisted-visit payment, on the categories that charge one.
+     * What this request costs, and why — see `paymentForNewRequest`.
      *
-     * Set here as well as on the web path because a bachelor visit costs the
-     * same whichever surface asked for it — the only difference is that this
-     * one's owner answers in Stay Partner rather than on WhatsApp. Frozen at
-     * creation: editing the listing's category later must not make a paid
-     * request unpaid.
+     * Two kinds: a bachelor or co-live pays a flat fee for an assisted
+     * VIEWING, a hotel pays for the STAY. Frozen at creation, so editing the
+     * listing's category later cannot make a paid request unpaid or reprice
+     * one somebody has already settled.
      */
-    payment: TOKEN_CATEGORIES.includes(normaliseCategory(property.category))
-      ? { required: true, status: 'pending', amountPaise: config.razorpay.assistedVisitAmountPaise }
-      : { required: false, status: 'not_required' },
+    payment: paymentForNewRequest(property.category, checked.intent),
 
     consentedTerms: true,
     consentedTermsAt: createdAt,
@@ -551,6 +551,27 @@ const acceptAndBook = async (requestId, partner) => {
 
   const { request, shareTypeId } = await accept(requestId, partner);
 
+  /*
+   * The category, for the one field on the booking that names it.
+   *
+   * Not on `VisitRequest` itself — `accept()` above touches only that
+   * collection — so it is read off the property once, here, at the moment
+   * the booking is written. A failed lookup (a deleted property, Mongo
+   * hiccuping) must never fail an acceptance that has already claimed a
+   * bed; the booking is simply written with `category: ''`, which
+   * `forOwner()` on the app side already treats as "unknown, show
+   * everything" rather than as bachelor.
+   */
+  let propertyCategory = '';
+  try {
+    const Property = require('../properties/property.model');
+    const { normaliseCategory } = require('../../shared/constants/categories');
+    const property = await Property.findById(request.listingId).select('category').lean();
+    propertyCategory = normaliseCategory(property && property.category) || '';
+  } catch {
+    propertyCategory = '';
+  }
+
   /* ── The customer row ─────────────────────────────────────────────────
      `source: 'request'` is the field the schema already carries for exactly
      this — it separates a guest who proved their own number through the User
@@ -587,6 +608,7 @@ const acceptAndBook = async (requestId, partner) => {
       requestId: String(request._id),
       propertyId: request.listingId,
       propertyName: request.propertyName,
+      category: propertyCategory,
       guestName: (request.customer && request.customer.name) || '',
       guestPhone: (request.customer && request.customer.phone) || '',
       guestEmail: (request.customer && request.customer.email) || '',

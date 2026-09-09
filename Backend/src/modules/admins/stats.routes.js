@@ -5,6 +5,13 @@ const Admin = require('./admin.model');
 const Property = require('../properties/property.model');
 const VerificationRequest = require('../verification/verificationRequest.model');
 const { getVerificationTeamNumbers } = require('../../infrastructure/twilio/twilio');
+const verifyAdminToken = require('../analytics/verifyAdminToken.middleware');
+const { can } = require('../iam/iam.middleware');
+
+/* These answered anybody until now — administrator names and emails, the
+   verification team's phone numbers, the process's memory. Every signed-in
+   administrator may read the dashboard; telemetry is narrower (below). */
+router.use(verifyAdminToken);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -435,7 +442,7 @@ router.get('/activity', async (req, res) => {
  * @desc    Live runtime + database telemetry for the System page.
  * @access  Admin
  */
-router.get('/system', async (req, res) => {
+router.get('/system', can('system.read'), async (req, res) => {
   try {
     const conn = mongoose.connection;
     const READY_STATES = ['disconnected', 'connected', 'connecting', 'disconnecting'];

@@ -1,16 +1,19 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
 
-import { Button, Checkbox, RentDisplay, Text } from '@/components/ui';
+import {
+  BottomSheet, Button, Checkbox, Icon, InlineAlert, RentDisplay, Text, TextField, type IconName,
+} from '@/components/ui';
 import {
   PhotoHeader,
   PhotoHero,
   StateTemplate,
   StickyCtaBar,
   usePhotoHeroHeight,
+  usePhotoHeaderStatusBarStyle,
 } from '@/components/shell';
 import {
   AmenityGrid,
@@ -25,6 +28,7 @@ import {
   StayIntentSelector,
   stayTotals,
   stayIntentComplete,
+  isFutureDay,
   type StayIntent,
   defaultSharingSelection,
   defaultHotelIntent,
@@ -33,8 +37,11 @@ import {
 } from '@/components/discovery';
 import { errorStates } from '@/constants/copy';
 import { useAppState } from '@/context/AppStateContext';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { useListing, useListings, useSaved } from '@/services';
+import { useListing, useListingReviews, useListings, useSaved } from '@/services';
+import { addAddress } from '@/services/api/addresses.api';
+import { ApiError } from '@/services/api/client';
 import { availabilityLabel, isGone } from '@/types/listing';
 import { actions } from '@/constants/actions';
 
@@ -63,10 +70,38 @@ export default function ListingDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { locality } = useAppState();
+  const { user, completeProfile } = useAuth();
 
   const { listing, isPending, error, notFound, refetch, isFetching } = useListing(id);
+  /* Same query key `GuestReviews` reads below, so this is not a second
+     request — React Query dedupes on the key and both call sites share the
+     one cache entry. Held here too so the pull-to-refresh gesture on the
+     outer scroll view can refresh the reviews alongside the listing. */
+  const { refetch: refetchReviews, isFetching: reviewsFetching } = useListingReviews(id);
   const { isSaved, toggleSaved } = useSaved();
   const saved = listing ? isSaved(listing.id) : false;
+
+  /* ── The name and address a request needs, asked before it is sent ───────
+     There is no separate account-creation step any more — signing in is a
+     phone number and a code, nothing else — so the first time this screen
+     is what asks for a name at all. `stayRequest.service.js` refuses a
+     nameless request with `PROFILE_INCOMPLETE`; this sheet is what stops
+     that refusal from ever being what a student sees. It opens on the tap
+     that would otherwise send the request, asks once, and the button below
+     it does not navigate until it closes with something saved.
+
+     Address is asked here too, though nothing server-side requires it — this
+     is the one moment before now this app has ever asked either question, so
+     collecting both together is one interruption instead of two. Saved
+     through the same calls the reactive fallback on `confirm/[id].tsx` uses
+     (`completeProfile`, `addAddress`) — that screen's own form stays in
+     place as a safety net, for a request sent some way other than this
+     button ever finds one still missing. */
+  const [profileSheetOpen, setProfileSheetOpen] = useState(false);
+  const [profileName, setProfileName] = useState('');
+  const [profileAddress, setProfileAddress] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   /*
    * Nothing is pre-selected on the first render any more.
@@ -174,6 +209,10 @@ export default function ListingDetail() {
   const onScroll = useAnimatedScrollHandler((event) => {
     scrollY.value = event.contentOffset.y;
   });
+  // Crosses from light (over the photo) to theme-correct dark/light content
+  // at the SAME scroll position PhotoHeader itself turns solid at — see the
+  // hook for why a static "light" here goes invisible once that happens.
+  const heroStatusBarStyle = usePhotoHeaderStatusBarStyle(scrollY);
 
   /*
    * Three states before there is a listing, and they are three different
@@ -264,6 +303,12 @@ export default function ListingDetail() {
   const hotelComplete = (() => {
     if (!isHotel) return false;
     if (!hotelIntent.sharingId || !hotelIntent.checkIn) return false;
+    /* The picker is bounded to today onwards, so this can only fail on a date
+       that arrived from somewhere else — a re-sent request, a screen left open
+       overnight. It is checked anyway, because a check-in in the past is a
+       request the owner cannot act on and the student finds out about it after
+       the owner has been notified. */
+    if (!isFutureDay(hotelIntent.checkIn)) return false;
     const bed = listing.sharingOptions?.find((o) => o.id === hotelIntent.sharingId);
     const structure = hotelIntent.rateStructure
       ?? (bed?.rates?.nightly ? 'nightly' : bed?.rates?.monthly ? 'monthly' : 'flexible');
@@ -360,7 +405,7 @@ export default function ListingDetail() {
           ? 'The owner has paused this room type'
           : 'Live availability not confirmed — call the owner';
 
-  const requestBed = () =>
+  const goToConfirm = () =>
     router.push({
       pathname: '/confirm/[id]',
       params: {
@@ -413,9 +458,50 @@ export default function ListingDetail() {
       },
     } as never);
 
+  /* The button's own handler. A name on the account sends straight through,
+     exactly as this always has; nothing on THAT path changed. Its absence
+     opens the sheet instead of the confirmation screen — the request is not
+     sent, and nothing was tried and failed. */
+  const requestBed = () => {
+    if (!user?.name) {
+      setProfileError(null);
+      setProfileSheetOpen(true);
+      return;
+    }
+    goToConfirm();
+  };
+
+  const submitProfileAndContinue = async () => {
+    const trimmedName = profileName.trim();
+    if (!trimmedName) {
+      setProfileError('Add your name to send the request.');
+      return;
+    }
+    setSavingProfile(true);
+    setProfileError(null);
+    try {
+      await completeProfile({ name: trimmedName });
+      const trimmedAddress = profileAddress.trim();
+      if (trimmedAddress) {
+        /* Best-effort. A missing address must not be the reason a request
+           never reaches the owner — the name above is the only hard
+           requirement, on this screen and on the server. */
+        await addAddress({ kind: 'home', label: 'Home', line1: trimmedAddress }).catch(() => {});
+      }
+      setProfileSheetOpen(false);
+      goToConfirm();
+    } catch (caught) {
+      setProfileError(
+        caught instanceof ApiError ? caught.displayMessage : 'We could not save that. Please try again.',
+      );
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <StatusBar style="light" />
+      <StatusBar style={heroStatusBarStyle} />
 
       <PhotoHeader
         title={listing.name}
@@ -431,6 +517,16 @@ export default function ListingDetail() {
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: ctaHeight + space[6] }}
+        refreshControl={
+          <RefreshControl
+            refreshing={(isFetching || reviewsFetching) && !isPending}
+            onRefresh={() => {
+              refetch();
+              refetchReviews();
+            }}
+            tintColor={colors.brand}
+          />
+        }
       >
         <PhotoHero scrollY={scrollY}>
           {/* The tinted block stays as the ground, so a photograph that is
@@ -471,7 +567,7 @@ export default function ListingDetail() {
           paints, so nothing changes visually except that the photo stops
           showing through.
         */}
-        <View style={{ padding: layout.gutter, gap: space[5], backgroundColor: colors.bg }}>
+        <View style={{ padding: layout.gutter, gap: space[4], backgroundColor: colors.bg }}>
           {/* Identity */}
           <View style={{ gap: space[2] }}>
             <GenderBadge gender={listing.gender} />
@@ -485,8 +581,23 @@ export default function ListingDetail() {
           </View>
 
           {/* Money, and the deposit immediately under it — the whole reason
-              this screen can afford a sparse card. */}
-          <View style={{ gap: space[3] }}>
+              this screen can afford a sparse card.
+
+              Tinted rather than plain, and the one section that carries the
+              accent at full strength rather than a chip: everything above
+              this point is identity (what the place is called, where it is);
+              this is the number the whole page exists to answer, and it
+              should not read as one more grey block among several. */}
+          <View
+            style={{
+              backgroundColor: colors.brandTint,
+              borderRadius: radius.card,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: colors.brand,
+              padding: space[4],
+              gap: space[3],
+            }}
+          >
             <RentDisplay
               rent={shownRent}
               deposit={undefined}
@@ -500,7 +611,7 @@ export default function ListingDetail() {
                 anybody else is looking. The window travels with the number —
                 128 views is a lot this week and nothing at all since March. */}
             {listing.viewCount !== undefined ? (
-              <Text variant="numMeta" color="tertiary">
+              <Text variant="numMeta" style={{ color: colors.brandInk }}>
                 {listing.viewCount.toLocaleString('en-IN')} viewed
                 {listing.viewWindow ? ` in ${listing.viewWindow}` : ''}
               </Text>
@@ -584,7 +695,12 @@ export default function ListingDetail() {
               reading at all. */}
           {listing.description ? (
             <View style={{ gap: space[2] }}>
-              <Text variant="title3">About this place</Text>
+              <SectionHeading
+                icon="home"
+                title="About this place"
+                tint={colors.surfaceRaised}
+                ink={colors.textPrimary}
+              />
               <Text variant="body" color="secondary">
                 {listing.description}
               </Text>
@@ -599,9 +715,25 @@ export default function ListingDetail() {
               the serving windows are simply a fact about the place. */}
           {listing.meals ? <MealPlanCard plan={listing.meals} /> : null}
 
+          {/*
+            What guests said, and what the owner answered.
+
+            Under the description and above the facilities, because it is the
+            other half of "should I keep reading": the owner's words above,
+            the guests' words here. A place nobody has reviewed says so rather
+            than showing an invented average — a rating that does not exist is
+            worse than none on the screen a student decides on.
+          */}
+          <GuestReviews listingId={listing.id} />
+
           {listing.amenities?.length ? (
             <View style={{ gap: space[3] }}>
-              <Text variant="title3">What&apos;s here</Text>
+              <SectionHeading
+                icon="verified"
+                title="What's here"
+                tint={colors.success.tint}
+                ink={colors.success.ink}
+              />
               <AmenityGrid amenities={listing.amenities} category={listing.category} />
               <Text variant="caption" color="tertiary">
                 What is missing is listed as plainly as what is present — you find out here, not on the
@@ -630,12 +762,13 @@ export default function ListingDetail() {
           {true ? (
             <View
               style={{
-                backgroundColor: colors.surface,
+                backgroundColor: consented ? colors.brandTint : colors.surface,
                 borderColor: consented ? colors.brand : colors.border,
                 borderWidth: consented ? 1.5 : StyleSheet.hairlineWidth,
                 borderRadius: radius.card,
                 paddingHorizontal: space[4],
-                paddingVertical: space[2],
+                paddingVertical: space[3],
+                gap: space[1],
               }}
             >
               <Checkbox
@@ -643,6 +776,40 @@ export default function ListingDetail() {
                 checked={consented}
                 onChange={setConsented}
               />
+              {/*
+                The documents themselves, one tap away.
+
+                The line above names two agreements and, until now, was the
+                only mention of them anywhere in this flow — a student ticking
+                a box about terms they had no way to read. These open the real
+                pages on lampose.com (`/privacy`, `/terms` — see
+                Frontend/src/App.jsx), in the browser rather than a WebView:
+                these are documents to read and possibly keep, not a step in
+                the flow, and the back gesture should return to this screen
+                with the tick untouched.
+
+                Separate from the Checkbox's own label so that tapping a link
+                does not toggle the box, which is what putting them inside the
+                label would do.
+              */}
+              <View style={[styles.legalRow, { gap: space[3], paddingLeft: space[6] }]}>
+                {[
+                  { label: 'Privacy Policy', url: 'https://lampose.com/privacy' },
+                  { label: 'Terms and Conditions', url: 'https://lampose.com/terms' },
+                ].map((doc) => (
+                  <Pressable
+                    key={doc.url}
+                    onPress={() => { Linking.openURL(doc.url).catch(() => {}); }}
+                    hitSlop={8}
+                    accessibilityRole="link"
+                    accessibilityLabel={`Read the ${doc.label}`}
+                  >
+                    <Text variant="caption" color="brand" style={styles.underline}>
+                      {doc.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
             </View>
           ) : null}
         </View>
@@ -691,8 +858,25 @@ export default function ListingDetail() {
                    here only moved a 400 to the next screen. */
                 (Boolean(listing.sharingOptions?.length) && !sharing) || !consented)
           }
+          /*
+            What happens after the tap, said before it.
+            
+            A hotel is paid for IN FULL once the owner confirms the room is
+            free — it is the one category where the request leads to the whole
+            cost of the stay rather than to a fee or to nothing. "5 free
+            requests per week" was true of the request and silent about that,
+            which is the wrong thing to be silent about on the button that
+            starts it.
+            
+            Bachelor and co-live keep "you pay only after the owner accepts",
+            which is exactly what their ₹199 does.
+          */
           note={availabilityNote
-            ?? (byStay || isHotel ? '5 free requests per week' : 'Free to request · you pay only after the owner accepts')}
+            ?? (isHotel
+              ? 'Free to ask · you pay for the stay once the owner confirms'
+              : byStay
+                ? '5 free requests per week'
+                : 'Free to request · you pay only after the owner accepts')}
           onMeasure={setCtaHeight}
         />
       ) : null}
@@ -703,6 +887,104 @@ export default function ListingDetail() {
         groups={groups}
         provenance="Uploaded by the owner."
       />
+
+      {/* Opened by `requestBed`, in place of the confirmation screen, the
+          first time this account has no name on file. The request is not
+          sent until this closes with one — see the note where it opens. */}
+      <BottomSheet
+        visible={profileSheetOpen}
+        onClose={() => setProfileSheetOpen(false)}
+        title="One more thing before we send this"
+        footer={(
+          <Button
+            label="Save and send request"
+            loadingLabel="Sending"
+            loading={savingProfile}
+            disabled={savingProfile || profileName.trim().length === 0}
+            onPress={submitProfileAndContinue}
+            fullWidth
+          />
+        )}
+      >
+        <View style={{ gap: space[4] }}>
+          <Text variant="body" color="secondary">
+            {listing.ownerName ?? 'The owner'} sees this on your request. Saved to your account — you
+            will not be asked again.
+          </Text>
+
+          <TextField
+            label="Your name"
+            value={profileName}
+            onChangeText={setProfileName}
+            placeholder="Anjali Reddy"
+            autoCapitalize="words"
+            textContentType="name"
+            helper="As on the ID you'll show at move-in."
+            autoFocus
+          />
+          <TextField
+            label="Your address"
+            optional
+            value={profileAddress}
+            onChangeText={setProfileAddress}
+            placeholder="House no., street, area, city"
+            autoCapitalize="sentences"
+            helper="For your records — not sent to the owner."
+          />
+
+          {profileError ? <InlineAlert tone="error" title="Not saved" body={profileError} /> : null}
+        </View>
+      </BottomSheet>
+    </View>
+  );
+}
+
+/* ── Section headings ──────────────────────────────────────────────────── */
+
+/**
+ * A heading that gives its section a colour of its own.
+ *
+ * The page used to run every block as `title3` in ink on the same ground,
+ * separated by nothing but space — five sections that looked like one long
+ * document, which is what "it all reads the same" meant. Each now carries a
+ * tinted glyph and a rule in its own hue, so the eye can find "what's here"
+ * without reading the words.
+ *
+ * The hues are the palette's own semantic families, not new colours: accent
+ * for the thing being chosen, caution for meals and ratings (the warm pair),
+ * ink for the owner's own words. Every text/tint pairing here is one the
+ * token file already documents a contrast ratio for — see `constants/tokens`.
+ * Colour is never the only signal: the glyph and the words carry it too, which
+ * is the rule the palette's own header sets out.
+ */
+function SectionHeading({
+  icon,
+  title,
+  tint,
+  ink,
+}: {
+  icon: IconName;
+  title: string;
+  tint: string;
+  ink: string;
+}) {
+  const { space, radius } = useTheme();
+  return (
+    <View style={[styles.sectionHead, { gap: space[2] }]}>
+      <View style={[styles.sectionRule, { backgroundColor: ink }]} />
+      <View
+        style={[
+          styles.glyphChip,
+          {
+            width: 30, height: 30, borderRadius: radius.chip, backgroundColor: tint,
+          },
+        ]}
+      >
+        <Icon name={icon} size={16} color={ink} />
+      </View>
+      <Text variant="title3" style={{ color: ink }}>
+        {title}
+      </Text>
     </View>
   );
 }
@@ -711,4 +993,109 @@ const styles = StyleSheet.create({
   centre: { alignItems: 'center', justifyContent: 'center' },
   hero: { backgroundColor: '#4A463E' },
   row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
+  legalRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
+  underline: { textDecorationLine: 'underline' },
+  /* A section's own colour, carried by a rule down its left edge and a tinted
+     glyph beside the title — see `SectionHeading`. */
+  sectionHead: { flexDirection: 'row', alignItems: 'center' },
+  sectionRule: { width: 3, alignSelf: 'stretch', borderRadius: 2 },
+  glyphChip: { alignItems: 'center', justifyContent: 'center' },
 });
+
+
+/* ── Guest reviews ─────────────────────────────────────────────────────── */
+
+function Stars({ rating }: { rating: number }) {
+  const { colors } = useTheme();
+  const full = Math.max(0, Math.min(5, Math.round(rating)));
+  return (
+    <Text
+      variant="numMeta"
+      style={{ color: colors.warning.base, letterSpacing: 1 }}
+      accessibilityLabel={`${full} out of 5`}
+    >
+      {'★'.repeat(full)}
+      <Text variant="numMeta" style={{ color: colors.borderSubtle, letterSpacing: 1 }}>
+        {'★'.repeat(5 - full)}
+      </Text>
+    </Text>
+  );
+}
+
+function GuestReviews({ listingId }: { listingId: string }) {
+  const { colors, space, radius } = useTheme();
+  const { reviews, averageRating, count, isPending } = useListingReviews(listingId);
+
+  /* Nothing to say yet, and still loading is not "nothing". */
+  if (isPending) return null;
+
+  return (
+    <View style={{ gap: space[3] }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
+        <SectionHeading
+          icon="star"
+          title="What guests say"
+          tint={colors.warning.tint}
+          ink={colors.warning.ink}
+        />
+        {count > 0 && averageRating != null ? (
+          <Text variant="numMeta" style={{ color: colors.warning.ink }}>
+            {averageRating.toFixed(1)} · {count === 1 ? '1 review' : `${count} reviews`}
+          </Text>
+        ) : null}
+      </View>
+
+      {count === 0 ? (
+        <Text variant="body" color="secondary">
+          No reviews yet. Guests can rate a stay once it is over.
+        </Text>
+      ) : (
+        reviews.slice(0, 10).map((r) => (
+          <View
+            key={r.id}
+            style={{
+              backgroundColor: colors.warning.tint,
+              borderLeftColor: colors.warning.base,
+              borderLeftWidth: 3,
+              borderRadius: radius.card,
+              padding: space[4],
+              gap: space[2],
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[3] }}>
+              <Text variant="bodyStrong" numberOfLines={1} style={{ flex: 1 }}>
+                {r.author}
+              </Text>
+              <Stars rating={r.rating} />
+            </View>
+            <Text variant="body" color="secondary">
+              {r.comment}
+            </Text>
+            <Text variant="caption" color="tertiary">
+              {r.date}
+            </Text>
+
+            {r.reply ? (
+              <View
+                style={{
+                  marginTop: space[1],
+                  paddingLeft: space[3],
+                  borderLeftWidth: 2,
+                  borderLeftColor: colors.brand,
+                  gap: space[1],
+                }}
+              >
+                <Text variant="label" color="brand">
+                  Owner replied
+                </Text>
+                <Text variant="body" color="secondary">
+                  {r.reply.text}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        ))
+      )}
+    </View>
+  );
+}

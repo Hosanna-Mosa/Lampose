@@ -13,6 +13,7 @@ import { logWarn } from '@/lib/log';
 export default function StaffListScreen() {
   const router = useRouter();
   const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadStaff = async () => {
     try {
@@ -34,9 +35,20 @@ export default function StaffListScreen() {
     loadStaff();
   }, []);
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await loadStaff();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <Screen
       contentStyle={styles.stack}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
             footer={<Button label="+ Invite staff" onPress={() => router.push('/staff/invite')} />}
       stickyHeader={
         <>

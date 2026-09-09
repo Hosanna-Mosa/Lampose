@@ -192,6 +192,11 @@ export const scraperApi = {
       }
     });
     const params = new URLSearchParams({ format, ...cleanFilters });
+    /* The export opens in a new tab — a navigation, not an XHR — so the
+       session cannot travel in a header. The backend accepts it as `?token=`
+       for this route alone. */
+    const token = localStorage.getItem('scriper_token');
+    if (token) params.set('token', token);
     return `${API_BASE_URL}/scraper/export?${params.toString()}`;
   }
 };

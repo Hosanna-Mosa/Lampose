@@ -18,6 +18,7 @@ export {
   photoHeaderWindows,
   PHOTO_HERO_HEIGHT,
   usePhotoHeroHeight,
+  usePhotoHeaderStatusBarStyle,
   type ExploreHeaderProps,
   type StandardHeaderProps,
   type PhotoHeaderProps,

@@ -42,16 +42,14 @@ const {
 
 const router = express.Router();
 
-/** Roles allowed to WRITE into somebody's support thread. Reading is wider. */
-const ANSWERING_ROLES = new Set(['Super Admin', 'Admin', 'Support']);
+/* Writing into somebody's thread is `support.answer` — Super Admin, Admin,
+   Support — from the one permission table in iam/iam.roles.js. Reading is
+   wider: any signed-in administrator. */
+const { can } = require('../iam/iam.middleware');
+const { rolesWith } = require('../iam/iam.roles');
 
-const requireSupportAgent = (req, res, next) => {
-  if (ANSWERING_ROLES.has(req.admin?.role)) return next();
-  const message = 'Answering support requires the Admin or Support role.';
-  return res.status(403).json({
-    success: false, code: 'FORBIDDEN', message, error: message,
-  });
-};
+const ANSWERING_ROLES = new Set(rolesWith('support.answer'));
+const requireSupportAgent = can('support.answer');
 
 router.use(verifyAdminToken);
 router.use(requireLamposeDb);

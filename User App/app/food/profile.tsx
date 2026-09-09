@@ -17,7 +17,7 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Text } from '@/components/ui';
@@ -33,7 +33,7 @@ export default function FoodProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, signOut } = useAuth();
-  const { preferences, favouriteDishList, favouriteKitchenList } = useFood();
+  const { preferences, favouriteDishList, favouriteKitchenList, favouritesLoading, refreshFavourites } = useFood();
 
   const favouriteCount = favouriteDishList.length + favouriteKitchenList.length;
   const dietLabel =
@@ -46,6 +46,9 @@ export default function FoodProfileScreen() {
 
       <ScrollView
         contentContainerStyle={{ padding: layout.gutter, gap: space[5], paddingBottom: space[8] }}
+        refreshControl={
+          <RefreshControl refreshing={favouritesLoading} onRefresh={refreshFavourites} tintColor={colors.brand} />
+        }
       >
         <View style={[styles.identity, { gap: space[3] }]}>
           <View

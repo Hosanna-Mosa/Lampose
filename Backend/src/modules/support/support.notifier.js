@@ -72,6 +72,106 @@ const linkedRoom = (ticket) => (
   ticket && ticket.linkedPartnerId ? realtime.rooms.partner(ticket.linkedPartnerId) : null
 );
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+   The push half.
+
+   Everything above is socket-only, and a socket reaches a phone that has the
+   app open. A support reply is the one message in this product most likely to
+   arrive when the app is CLOSED: a student raised a deposit dispute at
+   midnight and the team answered at ten the next morning. Without a push,
+   they find the answer only by opening Support again — which, for somebody
+   waiting on money, means opening it every hour.
+
+   So a reply from the team is also pushed to whichever handset the requester
+   registered, and to the linked owner on a student's property ticket. The
+   requester's OWN message is never pushed back to them.
+
+   ## Looking the account up
+
+   `requester.kind` says which collection; `requester.id` is that audience's
+   public id — `partnerId`, `customerId`, `driverId`, `restaurantId` — which
+   is what each support router put in `req.support`. Every one of those models
+   carries `devices[]` from its own device route.
+
+   ## Never able to fail a reply
+
+   Wrapped like the socket emits: a push that throws — no token, Expo down,
+   the model missing — is logged and dropped. The reply already saved.
+   ══════════════════════════════════════════════════════════════════════════ */
+const push = require('../../infrastructure/push/push');
+
+const MODEL_FOR = {
+  partner: () => ({ Model: require('../partners/partner.model'), key: 'partnerId' }),
+  customer: () => ({ Model: require('../customers/customer.model'), key: 'customerId' }),
+  driver: () => ({ Model: require('../drivers/driver.model'), key: 'driverId' }),
+  restaurant: () => ({ Model: require('../foodpartners/foodRestaurant.model'), key: 'restaurantId' }),
+};
+
+const pushTo = async (kind, id, message) => {
+  if (!id) return null;
+  const pick = MODEL_FOR[kind] || MODEL_FOR.customer;
+  try {
+    const { Model, key } = pick();
+    const account = await Model.findOne({ [key]: String(id) }).select('devices').lean();
+    const tokens = ((account && account.devices) || []).map((d) => d.token).filter(Boolean);
+    if (!tokens.length) return { sent: 0, reason: 'NO_DEVICES' };
+    return await push.sendPush(tokens, { ...message, channelId: 'support' });
+  } catch (error) {
+    console.error(`[support] push to ${kind} ${id} failed:`, error.message);
+    return null;
+  }
+};
+
+const requesterOf = (ticket) => {
+  const requester = (ticket && ticket.requester) || {};
+  return { kind: requester.kind || 'customer', id: requester.id || ticket.customerId || null };
+};
+
+const preview = (text, n = 120) => {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  return t.length > n ? `${t.slice(0, n - 1)}…` : t;
+};
+
+/**
+ * The team answered. Push it to the person waiting.
+ *
+ * Only a `support` author — the requester typing into their own thread must
+ * not be pushed their own words, and a `system` line ("status changed") is
+ * not speech.
+ */
+const pushReply = (ticket, message) => {
+  if (!ticket || !message || message.author !== 'support') return;
+  const who = requesterOf(ticket);
+  const data = { kind: 'support.reply', reference: ticket.reference, ticketKind: ticket.kind };
+
+  pushTo(who.kind, who.id, {
+    title: `${message.authorName || 'Lampose Support'} replied`,
+    body: `${ticket.subject ? `${ticket.subject} · ` : ''}${preview(message.body)}`,
+    data,
+  }).catch(() => {});
+
+  /* The owner named on a student's property ticket reads the thread too. */
+  if (ticket.linkedPartnerId) {
+    pushTo('partner', ticket.linkedPartnerId, {
+      title: 'Lampose replied on a guest’s ticket',
+      body: `${ticket.subject ? `${ticket.subject} · ` : ''}${preview(message.body)}`,
+      data,
+    }).catch(() => {});
+  }
+};
+
+/** The queue closed it. Worth a push: the person can stop waiting. */
+const pushOutcome = (ticket) => {
+  if (!ticket || !['resolved', 'closed'].includes(ticket.status)) return;
+  const who = requesterOf(ticket);
+  pushTo(who.kind, who.id, {
+    title: ticket.status === 'resolved' ? 'Your ticket was resolved' : 'Your ticket was closed',
+    body: `${ticket.subject || 'Support'} — open it to see the outcome${ticket.status === 'resolved' ? ', or reply if it is not sorted' : ''}.`,
+    data: { kind: 'support.status', reference: ticket.reference, status: ticket.status },
+  }).catch(() => {});
+};
+
 /** The compact shape every support event carries, so a list row can redraw. */
 const rowOf = (ticket) => {
   try {
@@ -150,6 +250,9 @@ const messageAdded = (ticket, message) => {
   } catch {
     /* As above. */
   }
+
+  /* After the sockets, and never able to fail them. */
+  pushReply(ticket, message);
 };
 
 /**
@@ -176,6 +279,8 @@ const ticketUpdated = (ticket) => {
   } catch {
     /* As above. */
   }
+
+  pushOutcome(ticket);
 };
 
 module.exports = {

@@ -24,6 +24,9 @@ import { FoodRestaurantsPage } from './pages/FoodRestaurantsPage';
 import { FoodOrdersPage } from './pages/FoodOrdersPage';
 import { DriversPage } from './pages/DriversPage';
 import { ZonesPage } from './pages/ZonesPage';
+import { MonitorPage } from './pages/MonitorPage';
+import { PartnerPayoutsPage } from './pages/PartnerPayoutsPage';
+import { RefundsPage } from './pages/RefundsPage';
 import { SupportPage } from './pages/SupportPage';
 import { insightsService } from './api/services/insightsService';
 import { permissionService } from './api/services/permissionService';
@@ -54,6 +57,9 @@ const VALID_TABS = [
   'drivers',
   'zones',
   'support',
+  'monitor',
+  'partner-payouts',
+  'refunds',
 ] as const;
 
 type Tab = (typeof VALID_TABS)[number];
@@ -255,6 +261,22 @@ const AppContent: React.FC = () => {
         ) : (
           <Dashboard setActiveTab={setActiveTab as (t: string) => void} />
         );
+      /* Every signed-in administrator may READ Monitor — it is the operational
+         picture of the business. The page itself hides the commission field
+         below Admin and the Withdraw button below Super Admin, and
+         `monitor.admin.routes.js` refuses both regardless of what is drawn. */
+      case 'monitor':
+        return <MonitorPage search={search} role={user?.role} />;
+      /* Same reasoning as Monitor above: any signed-in administrator may READ
+         the queue, and the page hides Send money below Super Admin, which
+         `partnerPayout.admin.routes.js` enforces regardless of what is drawn. */
+      case 'partner-payouts':
+        return <PartnerPayoutsPage search={search} role={user?.role} />;
+      /* Same shape as Partner Payouts: anyone may read the queue; only a Super
+         Admin sees the Mark-as-refunded control, and the server refuses the
+         write regardless. */
+      case 'refunds':
+        return <RefundsPage search={search} role={user?.role} />;
       case 'support':
         return tabAllowedFor('support', user?.role) ? (
           <SupportPage search={search} />

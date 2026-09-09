@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen, Text, Button, IconButton, Select, EmptyState } from '@/components/ui';
-import { METHODS, defaultMethod, shortLabel } from '@/lib/payouts';
+import { shortLabel, toPayoutMethod, type PayoutMethod } from '@/lib/payouts';
 import { MIN_WITHDRAW_POINTS } from '@/lib/referrals';
 import { formatINR } from '@/lib/format';
 import { ApiError } from '@/services/api/client';
-import { fetchReferralsApi, withdrawReferralApi } from '@/services/api/domain.api';
+import {
+  fetchPaymentMethodsApi, fetchReferralsApi, withdrawReferralApi,
+} from '@/services/api/domain.api';
 import { radius } from '@/constants/layout';
 import { fonts, type } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
@@ -22,11 +24,14 @@ import { useColors } from '@/hooks/useColors';
  * "withdraw" the same points again. Both now read and write the real
  * `/partners/referrals` endpoints.
  *
- * The payout METHOD picker below is still the fixture (`lib/payouts.ts`) —
- * the backend has real payment-method endpoints
- * (`partnerDomains.controller.js#getPaymentMethods`/`addPaymentMethod`) but
- * nothing in this app calls them yet. That is a separate, pre-existing gap;
- * fixing it is not what made this screen's numbers wrong.
+ * The payout METHOD picker was the last fixture left on this screen, and it
+ * was the worst of them: it offered two invented bank accounts, so an owner
+ * cashed out real points and was told the money was on its way to an account
+ * belonging to nobody. Worse, `hasMethods` counted those fixture rows, so an
+ * owner who had never saved an account could withdraw anyway.
+ *
+ * It reads `PartnerPaymentMethod` now. No saved account means no withdrawal,
+ * and the account named on the confirmation is one the owner actually added.
  */
 export default function WithdrawReferralsScreen() {
   const c = useColors();
@@ -34,7 +39,11 @@ export default function WithdrawReferralsScreen() {
 
   const [available, setAvailable] = useState<number | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const hasMethods = METHODS.length > 0;
+
+  /* The owner's own saved accounts. `null` until the first read returns, so
+     the screen never claims "no payout method" before it has looked. */
+  const [methods, setMethods] = useState<PayoutMethod[] | null>(null);
+  const hasMethods = (methods?.length ?? 0) > 0;
 
   useEffect(() => {
     let active = true;
@@ -46,6 +55,18 @@ export default function WithdrawReferralsScreen() {
         if (active) setLoadError(err instanceof ApiError ? err.displayMessage : 'We could not load your balance.');
       }
     })();
+
+    (async () => {
+      try {
+        const rows = await fetchPaymentMethodsApi();
+        if (active) setMethods((rows || []).map(toPayoutMethod));
+      } catch {
+        /* An empty list is the safe reading: it offers to add an account
+           rather than offering to spend points into nothing. */
+        if (active) setMethods([]);
+      }
+    })();
+
     return () => {
       active = false;
     };
@@ -53,16 +74,21 @@ export default function WithdrawReferralsScreen() {
 
   const eligible = typeof available === 'number' && available >= MIN_WITHDRAW_POINTS;
 
-  const [methodLabel, setMethodLabel] = useState<string | null>(() => {
-    const d = defaultMethod();
-    return d ? shortLabel(d) : null;
-  });
+  const [methodLabel, setMethodLabel] = useState<string | null>(null);
   const [withdrawing, setWithdrawing] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
-  const methodOptions = METHODS.map(shortLabel);
-  const selectedMethod = METHODS.find((m) => shortLabel(m) === methodLabel);
+  const methodOptions = (methods ?? []).map(shortLabel);
+  const selectedMethod = (methods ?? []).find((m) => shortLabel(m) === methodLabel);
+
+  /* Preselect whichever account the owner made their default, once the list
+     arrives. Left alone afterwards, so a choice they made is not overwritten. */
+  useEffect(() => {
+    if (methodLabel || !methods?.length) return;
+    const primary = methods.find((m) => m.isDefault) ?? methods[0];
+    setMethodLabel(shortLabel(primary));
+  }, [methods, methodLabel]);
 
   const backRow = (
     <View style={styles.backRow}>

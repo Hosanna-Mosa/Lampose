@@ -17,8 +17,16 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /* Booking windows. The floor is notice for the owner; the ceiling stops a
-   request being made about a room nobody can speak for that far out. */
-const JOIN_MIN_DAYS = 2;
+   request being made about a room nobody can speak for that far out.
+
+   The floor is ZERO: today is a joining date somebody may ask for. It was two
+   days, which refused the case this product is most useful in — a student who
+   needs a bed tonight. Nothing is booked by asking, and the owner answers
+   every request, so an owner who needs two days' notice declines and says so.
+   The app's picker carries the same bound (`NOTICE_DAYS` in
+   components/discovery/StayIntentSelector.tsx); the two move together or the
+   picker offers a day this refuses. */
+const JOIN_MIN_DAYS = 0;
 const JOIN_MAX_MONTHS = 2;
 
 const SHORT_MAX_DAYS = 7;

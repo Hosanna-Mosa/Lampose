@@ -495,7 +495,13 @@ export function toListing(doc: BackendListing): Listing {
        request screens can say what happens after the owner says yes, rather
        than inferring it from the pricing path. */
     visitToken: doc.visitToken?.required
-      ? { required: true, amountPaise: doc.visitToken.amountPaise ?? undefined }
+      ? {
+        required: true,
+        /* What the money buys. Older servers send no purpose and only ever
+           charged for a visit, so that is the fallback. */
+        purpose: doc.visitToken.purpose ?? 'assisted_visit',
+        amountPaise: doc.visitToken.amountPaise ?? undefined,
+      }
       : { required: false },
 
     /* `houseRules` stays absent. The panel records a curfew time and nothing

@@ -103,6 +103,7 @@ export {
   StayIntentSelector,
   stayTotals,
   stayIntentComplete,
+  isFutureDay,
   unitPrice,
   sharingAtRate,
   trackOf,

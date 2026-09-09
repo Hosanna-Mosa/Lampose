@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { StayCategory } from '@/constants/tokens';
 import type { Locality } from '@/types/auth';
 import type { BackendListingMeta } from '@/services/api/types';
-import { fetchListing, fetchListingMeta, fetchListings } from '@/services/api/listings.api';
+import { fetchListing, fetchListingReviews, fetchListingMeta, fetchListings } from '@/services/api/listings.api';
 import { ApiError } from '@/services/api/client';
 import { guessLocality, toLocalities } from '@/services/adapters/places.adapter';
 import { queryKeys } from './keys';
@@ -90,6 +90,32 @@ export function useListings(options: UseListingsOptions = {}) {
 }
 
 /** One listing. Enabled only once there is an id to ask about. */
+/**
+ * What guests said about one listing, with the owner's replies.
+ *
+ * Separate from `useListing` rather than folded into it: the listing itself
+ * is read on every card and every detail open, while reviews are read on the
+ * detail page only, and a place with two hundred reviews should not make the
+ * feed heavier.
+ */
+export function useListingReviews(id: string | undefined) {
+  const query = useQuery({
+    queryKey: queryKeys.listingReviews(id ?? ''),
+    queryFn: ({ signal }) => fetchListingReviews(id as string, signal),
+    enabled: Boolean(id),
+    staleTime: STALE_MS,
+    retry,
+  });
+
+  return {
+    ...query,
+    reviews: query.data?.reviews ?? [],
+    averageRating: query.data?.averageRating ?? null,
+    count: query.data?.count ?? 0,
+    error: query.error as ApiError | null,
+  };
+}
+
 export function useListing(id: string | undefined) {
   const query = useQuery({
     queryKey: queryKeys.listing(id ?? ''),
@@ -131,6 +157,7 @@ export type ListingMeta = {
    * say how many places of a DIFFERENT kind are in the area currently on
    * screen — a question the catalogue-wide list above cannot answer.
    */
+  /** Category counts within a scope. `''` is the whole catalogue. */
   categoriesIn: (scope: string) => Record<string, number>;
   /** Monthly only — nightly listings are excluded server-side. */
   monthlyRent: { min: number | null; max: number | null; median: number | null };
@@ -165,6 +192,22 @@ export function useListingMeta(category?: StayCategory | null) {
   });
 
   const byScope = new Map<string, Record<string, number>>();
+
+  /*
+   * The empty scope is the WHOLE catalogue.
+   *
+   * Registered explicitly rather than left to fall through to `{}`, because
+   * "All locations" is a real answer on the locality screen and the feed's
+   * empty state has to be able to count the other categories under it. Built
+   * from `meta.categories`, which is the server's own catalogue-wide facet, so
+   * it is the same tally the per-area maps below are slices of rather than a
+   * sum this client computed.
+   */
+  byScope.set(
+    '',
+    Object.fromEntries((query.data?.categories ?? []).map((row) => [row.name, row.count])),
+  );
+
   for (const city of query.data?.cities ?? []) byScope.set(city.name, city.categories ?? {});
   for (const area of query.data?.localities ?? []) {
     byScope.set(`${area.city}::${area.name}`, area.categories ?? {});

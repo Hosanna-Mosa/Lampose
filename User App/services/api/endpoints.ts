@@ -56,6 +56,8 @@ export const endpoints = {
 
   /** One listing, by its Mongo id. 404 on anything that is not one. */
   listing: (id: string) => `${V2}/listings/${encodeURIComponent(id)}`,
+  /* What guests said about a place, with the owner's replies. Public. */
+  listingReviews: (id: string) => `${V2}/listings/${encodeURIComponent(id)}/reviews`,
 
   /**
    * The stay request: ask an owner for a bed, watch the clock, pull it back.
@@ -73,8 +75,17 @@ export const endpoints = {
   booking: (id: string) => `${V2}/customers/bookings/${encodeURIComponent(id)}`,
   /** The student's own Cancel button — only while the stay is still `upcoming`. */
   bookingCancel: (id: string) => `${V2}/customers/bookings/${encodeURIComponent(id)}/cancel`,
+  /* Where a cancelled stay's refund should go — asked after an owner
+     cancelled, or if the guest skipped it when cancelling. */
+  bookingRefundDetails: (id: string) => `${V2}/customers/bookings/${encodeURIComponent(id)}/refund-details`,
   /** "Rate your stay" — offered once a booking reaches `completed`. */
   bookingReview: (id: string) => `${V2}/customers/bookings/${encodeURIComponent(id)}/review`,
+  /* DEVELOPMENT ONLY — 404s unless the server has DEV_ALLOW_FORCE_CHECKIN on,
+     which env.js refuses under NODE_ENV=production. Stamps both halves of a
+     move-in so the hotel settlement chain can be walked without waiting for a
+     real check-in date. Remove with the dev button on `bookings/[id].tsx`. */
+  bookingDevForceCheckIn: (id: string) =>
+    `${V2}/customers/bookings/${encodeURIComponent(id)}/dev-force-checkin`,
   stayRequests: `${V2}/customers/stay-requests`,
   /* The visit-request routes, shared with the website. The token steps live
      there rather than under /customers because a request made from either

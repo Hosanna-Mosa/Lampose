@@ -7,6 +7,7 @@ import {
   cancelBookingApi,
   checkInBookingApi,
   checkOutBookingApi,
+  devForceCheckInOwnerApi,
   fetchBookingById,
 } from '@/services/api/domain.api';
 import { useAuth } from '@/context/AuthContext';
@@ -111,7 +112,18 @@ export function useBookingActions(id?: string | null) {
   };
 
   const checkIn = useMutation({
-    mutationFn: () => checkInBookingApi(id as string),
+    mutationFn: (code?: string) => checkInBookingApi(id as string, code),
+    retry: false,
+    onSettled: settle,
+  });
+
+  /* DEVELOPMENT ONLY — see `devForceCheckInOwnerApi`. A separate mutation
+     from `checkIn` rather than a parameter on it: the real check-in and the
+     bypass are two different requests to two different routes, and keeping
+     them apart is what stops a slipped default ever reaching the bypass by
+     accident. */
+  const devForceCheckIn = useMutation({
+    mutationFn: () => devForceCheckInOwnerApi(id as string),
     retry: false,
     onSettled: settle,
   });
@@ -131,9 +143,10 @@ export function useBookingActions(id?: string | null) {
 
   return {
     checkIn,
+    devForceCheckIn,
     checkOut,
     cancel,
-    isBusy: checkIn.isPending || checkOut.isPending || cancel.isPending,
-    error: (checkIn.error ?? checkOut.error ?? cancel.error) as ApiError | null,
+    isBusy: checkIn.isPending || devForceCheckIn.isPending || checkOut.isPending || cancel.isPending,
+    error: (checkIn.error ?? devForceCheckIn.error ?? checkOut.error ?? cancel.error) as ApiError | null,
   };
 }

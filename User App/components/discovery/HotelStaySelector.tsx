@@ -61,9 +61,32 @@ export type HotelStaySelectorProps = {
   options: readonly SharingOption[];
   value: HotelIntent;
   onChange: (next: HotelIntent) => void;
-  /** The window the listing reported: `{ min, max }` as `YYYY-MM-DD`. */
+  /**
+   * The window the listing reported: `{ min, max }` as `YYYY-MM-DD`.
+   *
+   * Optional, and its absence used to mean "no bounds at all" — the listing
+   * screen never passed one, so `minimumDate` reached `DateField` as
+   * `undefined` and the OS calendar happily accepted last March. A check-in in
+   * the past is not a slightly wrong booking, it is a request an owner cannot
+   * act on, and the student finds out after the owner has been notified.
+   *
+   * `todayISO()` is the floor whenever the listing does not state a later one.
+   * A property CAN legitimately open later than today — that is what `min` is
+   * for — but nothing can open before today.
+   */
   joinWindow?: { min?: string; max?: string } | null;
 };
+
+/** Local date as `YYYY-MM-DD`. Local components, not `toISOString()`, which
+    returns yesterday for most of an Indian evening. */
+const todayISO = (): string => {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+/** The later of two `YYYY-MM-DD` days. Lexicographic works on this format. */
+const laterOf = (a: string, b?: string): string => (b && b > a ? b : a);
 
 const nightsBetween = (from: string, to: string): number =>
   Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
@@ -83,6 +106,10 @@ const prettyDay = (iso: string): string =>
 
 export function HotelStaySelector({ options, value, onChange, joinWindow }: HotelStaySelectorProps) {
   const { colors, space, radius } = useTheme();
+
+  /* Never before today, whatever the listing said — see `joinWindow`. */
+  const earliest = laterOf(todayISO(), joinWindow?.min);
+  const latest = joinWindow?.max;
 
   const set = (patch: Partial<HotelIntent>) => onChange({ ...value, ...patch });
 
@@ -198,8 +225,8 @@ export function HotelStaySelector({ options, value, onChange, joinWindow }: Hote
                   checkOut: value.checkOut && value.checkOut <= checkIn ? null : value.checkOut,
                 })}
                 placeholder="Pick a date"
-                minimumDate={joinWindow?.min ?? undefined}
-                maximumDate={joinWindow?.max ?? undefined}
+                minimumDate={earliest}
+                maximumDate={latest ?? undefined}
                 accessibilityLabel="Check-in date"
               />
             </View>
@@ -208,6 +235,15 @@ export function HotelStaySelector({ options, value, onChange, joinWindow }: Hote
               <Text variant="caption" color="tertiary">
                 {byNight ? 'CHECK-OUT' : `HOW MANY ${(active?.qtyUnit ?? 'nights').toUpperCase()}?`}
               </Text>
+              {/* A nightly stay is bought between two dates; hourly and
+                  monthly are bought by a COUNT, which is the one field here
+                  that is typed rather than picked — and therefore the one
+                  needing its own bound. `RATE_QUANTITY` in
+                  `stayIntent.util.js` refuses anything outside the range, so
+                  an unclamped box let somebody enter 99 hours and meet the
+                  refusal on the next screen. It is clamped on the way in: an
+                  empty box stays empty (nothing typed is not zero), and
+                  anything above the ceiling is held at it. */}
               {byNight ? (
                 <DateField
                   value={value.checkOut}
@@ -215,15 +251,26 @@ export function HotelStaySelector({ options, value, onChange, joinWindow }: Hote
                   placeholder="Pick a date"
                   /* Never before the check-in, and never the same day: a stay
                      of zero nights is not a stay. The picker enforces it, so
-                     the invalid range cannot be entered in the first place. */
-                  minimumDate={value.checkIn ? nextDay(value.checkIn) : (joinWindow?.min ?? undefined)}
-                  maximumDate={joinWindow?.max ?? undefined}
+                     the invalid range cannot be entered in the first place.
+                     With no check-in yet it falls back to the same floor the
+                     check-in has, which is today at the earliest. */
+                  minimumDate={value.checkIn ? nextDay(value.checkIn) : earliest}
+                  maximumDate={latest ?? undefined}
                   accessibilityLabel="Check-out date"
                 />
               ) : (
                 <TextInput
                   value={value.rateQuantity ? String(value.rateQuantity) : ''}
-                  onChangeText={(text) => set({ rateQuantity: Number(text.replace(/\D/g, '')) || null })}
+                  onChangeText={(text) => {
+                    const digits = Number(text.replace(/\D/g, ''));
+                    if (!digits) {
+                      set({ rateQuantity: null });
+                      return;
+                    }
+                    const min = active?.min ?? 1;
+                    const max = active?.max ?? digits;
+                    set({ rateQuantity: Math.min(Math.max(digits, min), max) });
+                  }}
                   keyboardType="number-pad"
                   placeholder={String(active?.min ?? 1)}
                   placeholderTextColor={colors.textTertiary}
@@ -236,11 +283,14 @@ export function HotelStaySelector({ options, value, onChange, joinWindow }: Hote
             </View>
           </View>
 
-          {joinWindow?.min && joinWindow?.max ? (
-            <Text variant="caption" color="tertiary">
-              Anytime from {prettyDay(joinWindow.min)} to {prettyDay(joinWindow.max)}
-            </Text>
-          ) : null}
+          {/* States the window, always. It used to be drawn only when the
+              listing supplied BOTH ends, which was never — so the one line
+              telling somebody which dates are allowed never rendered. */}
+          <Text variant="caption" color="tertiary">
+            {latest
+              ? `Anytime from ${prettyDay(earliest)} to ${prettyDay(latest)}`
+              : `From ${prettyDay(earliest)} onwards — past dates cannot be booked`}
+          </Text>
 
           {total > 0 && active ? (
             <Text variant="numMeta" color="secondary">

@@ -2,7 +2,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { contactNumberOf, deliveryFeeFor, metaLine, walkLabel } from '@/services/adapters/food.adapter';
 import React, { useMemo, useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
@@ -177,6 +177,9 @@ export default function KitchenScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: space[8] * 2, gap: space[3] }}
+        refreshControl={
+          <RefreshControl refreshing={loading || loadingMenus} onRefresh={refetch} tintColor={colors.brand} />
+        }
       >
         {/* Open / closed, stated before anything priced */}
         <View style={{ paddingHorizontal: layout.gutter, gap: space[3], paddingTop: space[2] }}>

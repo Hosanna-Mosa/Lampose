@@ -1,6 +1,8 @@
 import React from 'react';
 import {
+  BadgeIndianRupee,
   BarChart3,
+  Bike,
   Briefcase,
   Building2,
   CalendarCheck,
@@ -8,21 +10,22 @@ import {
   Globe,
   KeyRound,
   LayoutDashboard,
+  LifeBuoy,
   ListChecks,
   LogOut,
-  LifeBuoy,
+  Map,
   MessageCircle,
   Package,
   Radar,
   ReceiptIndianRupee,
+  RotateCcw,
   Server,
   Settings,
-  UtensilsCrossed,
-  Bike,
-  Map,
   ShieldCheck,
   UserCog,
   Users,
+  UtensilsCrossed,
+  Wallet,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import type { AdminRole } from '../../api/types';
@@ -52,6 +55,26 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'analytics', label: 'Analytics', icon: BarChart3 },
       { id: 'web-analytics', label: 'Web Analytics', icon: Globe },
+    ],
+  },
+  {
+    /* Monitor sits directly under Overview and above Records, because it is
+       the screen somebody opens to answer "what is happening right now" —
+       and because it is the only place money is released. Open to every
+       signed-in administrator to READ; the page hides the commission field
+       from anyone below Admin and the Withdraw button from anyone below
+       Super Admin, matching `monitor.admin.routes.js`. */
+    heading: 'Monitor',
+    items: [
+      { id: 'monitor', label: 'Bookings & Payments', icon: BadgeIndianRupee },
+      /* Owner-requested payouts. Beside Bookings & Payments because both are
+         money leaving Lampose, but a separate screen because they are
+         different money: this one has no guest payment and no commission
+         behind it — see `partnerPayoutService`. */
+      { id: 'partner-payouts', label: 'Partner Payouts', icon: Wallet },
+      /* Guests owed money for a cancelled hotel stay. Beside the two payout
+         queues because it is the third way money leaves Lampose by hand. */
+      { id: 'refunds', label: 'Refunds', icon: RotateCcw },
     ],
   },
   {

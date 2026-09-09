@@ -666,8 +666,14 @@ const run = async () => {
     return 'refused with 403';
   });
 
-  await check("scraperApi.getExportUrl('csv')  →  window.open, so it must work with no Authorization header", async () => {
-    const { status, headers, bytes } = await call('GET', `/api/v2/scraper/export?format=csv&jobId=${fixtureJobId}`, { raw: true });
+  await check('GET /api/v2/scraper/export  with no identity at all is refused (it used to answer with everything)', async () => {
+    const { status } = await call('GET', `/api/v2/scraper/export?format=csv&jobId=${fixtureJobId}`, { raw: true });
+    expect(status === 401, `expected 401, got ${status}`);
+    return 'refused — this was the last way round the assignment boundary';
+  });
+
+  await check("scraperApi.getExportUrl('csv')  →  window.open cannot set a header, so the token rides in ?token=", async () => {
+    const { status, headers, bytes } = await call('GET', `/api/v2/scraper/export?format=csv&jobId=${fixtureJobId}&token=${token}`, { raw: true });
     expect(status === 200, `expected 200, got ${status} — the export button opens a plain browser tab`);
     expect((headers.get('content-disposition') || '').includes('attachment'), 'no attachment disposition, the browser would render it');
     /* The BOM is what makes Excel read the file as UTF-8 instead of the system
@@ -679,20 +685,23 @@ const run = async () => {
   });
 
   await check("scraperApi.getExportUrl('json')", async () => {
-    const { status, headers } = await call('GET', '/api/v2/scraper/export?format=json', { raw: true });
+    const { status, headers } = await call('GET', `/api/v2/scraper/export?format=json&token=${token}`, { raw: true });
     expect(status === 200 && (headers.get('content-disposition') || '').includes('.json'), `expected a json attachment, got ${status}`);
     return 'downloads';
   });
 
   await check('scraperApi.startScrape()  →  POST /api/v2/scraper/start  validates its inputs', async () => {
-    const { status } = await call('POST', '/api/v2/scraper/start', { body: { query: 'PG' } });
+    const anon = await call('POST', '/api/v2/scraper/start', { body: { query: 'PG', location: 'Visakhapatnam' } });
+    expect(anon.status === 401, `expected 401 with no token, got ${anon.status}`);
+    const { status } = await call('POST', '/api/v2/scraper/start', { token, body: { query: 'PG' } });
     expect(status === 400, `expected 400 for a missing location, got ${status}`);
-    return '400 when query or location is missing';
+    return '401 unauthenticated, 400 when query or location is missing';
   });
 
   if (RUN_SCRAPE) {
     await check('scraperApi.startScrape()  →  a real Google Maps scrape, end to end', async () => {
       const start = await call('POST', '/api/v2/scraper/start', {
+        token,
         body: {
           query: 'PG', location: 'Visakhapatnam', landmark: 'MVP Colony', source: 'GoogleMaps', depth: 3,
         },
@@ -708,7 +717,7 @@ const run = async () => {
         // eslint-disable-next-line no-await-in-loop
         await new Promise((r) => { setTimeout(r, 4000); });
         // eslint-disable-next-line no-await-in-loop
-        const poll = await call('GET', `/api/v2/scraper/status/${jobId}`);
+        const poll = await call('GET', `/api/v2/scraper/status/${jobId}`, { token });
         expect(poll.status === 200, `status poll failed: ${poll.status}`);
         last = poll.body.data;
         expectFields(last, ['jobId', 'name', 'status', 'progress', 'statusMessage', 'resultCount'], 'status');
@@ -734,13 +743,13 @@ const run = async () => {
   }
 
   await check('scraperApi.stopJob()  →  POST /api/v2/scraper/stop/:jobId', async () => {
-    const { status, body } = await call('POST', `/api/v2/scraper/stop/${fixtureJobId}`);
+    const { status, body } = await call('POST', `/api/v2/scraper/stop/${fixtureJobId}`, { token });
     expect(status === 200 && body.success === true, `expected 200, got ${status}`);
     return 'accepted';
   });
 
   await check('scraperApi.getStatus()  →  GET /api/v2/scraper/status/:jobId', async () => {
-    const { status, body } = await call('GET', `/api/v2/scraper/status/${fixtureJobId}`);
+    const { status, body } = await call('GET', `/api/v2/scraper/status/${fixtureJobId}`, { token });
     expect(status === 200, `expected 200, got ${status}`);
     return expectFields(body.data, ['jobId', 'name', 'status', 'progress', 'statusMessage', 'resultCount'], 'status');
   });
@@ -749,15 +758,26 @@ const run = async () => {
 
   section('onboard.lampose.com   (onboards-frontend/src/services/api.js  →  v1)');
 
+  /* Every route on this router now needs a verified caller — the onboarding
+     app's own employee token, reused from the leads-panel section above, or
+     the admin console. That is what the real app already sends on every
+     request (services/api.js's interceptor attaches Authorization whenever a
+     token is stored); these calls now match it. */
   await check('fetchProperties()  →  GET /api/v1/properties  (App.jsx listing grid)', async () => {
-    const { status, body } = await call('GET', '/api/v1/properties');
+    const { status, body } = await call('GET', '/api/v1/properties', { token: employeeToken });
     expect(status === 200, `expected 200, got ${status}`);
     expect(body.success === true && Array.isArray(body.data), 'App.jsx checks res.success && res.data');
     return `${body.count} listings (verified + pending, merged from verificationrequests)`;
   });
 
+  await check('a caller with no token at all is refused, not handed the listing grid', async () => {
+    const { status } = await call('GET', '/api/v1/properties');
+    expect(status === 401, `expected 401, got ${status}`);
+    return 'refused before any handler ran';
+  });
+
   await check('the unversioned /api/properties alias is still v1, not v2', async () => {
-    const { status, body } = await call('GET', '/api/properties');
+    const { status, body } = await call('GET', '/api/properties', { token: employeeToken });
     expect(status === 200 && body.success === true, `expected 200, got ${status}`);
     /* The v1 route reports the split; the v2 one does not exist in its
        response. This is the check that catches the two being swapped. */
@@ -767,7 +787,7 @@ const run = async () => {
   });
 
   await check('fetchProperties({category, search, stayType})  filters', async () => {
-    const { status, body } = await call('GET', '/api/v1/properties?category=PG&search=a&stayType=Long Stay');
+    const { status, body } = await call('GET', '/api/v1/properties?category=PG&search=a&stayType=Long Stay', { token: employeeToken });
     expect(status === 200 && Array.isArray(body.data), `expected 200, got ${status}`);
     return `${body.count} rows`;
   });
@@ -775,7 +795,7 @@ const run = async () => {
   await check('fetchPropertyById()  →  GET /api/v1/properties/:id', async () => {
     const id = created.propertyIds[0];
     expect(id, 'skipped — nothing was created');
-    const { status, body } = await call('GET', `/api/v1/properties/${id}`);
+    const { status, body } = await call('GET', `/api/v1/properties/${id}`, { token: employeeToken });
     expect(status === 200 && body.data && String(body.data._id) === id, `expected 200, got ${status}`);
     return 'found through the v1 reader too — one shared collection';
   });
@@ -784,6 +804,7 @@ const run = async () => {
     /* Deliberately incomplete: a full payload would send a real WhatsApp
        message to a real number. Validation runs before Twilio is touched. */
     const { status, body } = await call('POST', '/api/v1/properties', {
+      token: employeeToken,
       body: { name: `VERIFY NO-SEND ${stamp}` },
     });
     expect(status === 400, `expected 400 for a missing owner/place/category, got ${status}`);
@@ -793,6 +814,7 @@ const run = async () => {
 
   await check('onboardProperty()  →  POST /api/v1/properties rejects an unknown category', async () => {
     const { status, body } = await call('POST', '/api/v1/properties', {
+      token: employeeToken,
       body: {
         name: 'x', place: 'y', ownerName: 'z', ownerMobile: '9999999999', category: 'Penthouse',
       },
@@ -817,6 +839,7 @@ const run = async () => {
   await check('uploadImage()  →  POST /api/v1/properties/upload-image  (multipart, real Cloudinary)', async () => {
     const response = await fetch(`${base}/api/v1/properties/upload-image`, {
       method: 'POST',
+      headers: { Authorization: `Bearer ${employeeToken}` },
       body: uploadForm('image', 1),
     });
     const body = await response.json().catch(() => ({}));
@@ -834,6 +857,7 @@ const run = async () => {
   await check('uploadImages()  →  POST /api/v1/properties/upload-images  (batch, real Cloudinary)', async () => {
     const response = await fetch(`${base}/api/v1/properties/upload-images`, {
       method: 'POST',
+      headers: { Authorization: `Bearer ${employeeToken}` },
       body: uploadForm('images', 2),
     });
     const body = await response.json().catch(() => ({}));
@@ -852,7 +876,7 @@ const run = async () => {
   });
 
   await check('upload with no file at all must be a 400, not a 500', async () => {
-    const { status, body } = await call('POST', '/api/v1/properties/upload-image', { body: {} });
+    const { status, body } = await call('POST', '/api/v1/properties/upload-image', { token: employeeToken, body: {} });
     expect(status === 400, `expected 400, got ${status}`);
     expect(body.success === false, 'the form branches on json.success');
     return '400 before Cloudinary is contacted';
@@ -860,11 +884,72 @@ const run = async () => {
 
   section('onboard.lampose.com   (onboards-frontend/src/services/permissions.js  →  v1)');
 
-  let permissionId = null;
+  /* ── Two real, verified identities for this section ────────────────────
+     Before the IAM pass, `x-employee-email` alone identified the caller on
+     these routes — no token, no login, just a header anybody could set.
+     `bindEmployeeEmail` now requires that header to equal the address inside
+     a VERIFIED token, and `PUT /permissions/:id` (deciding a grant) is
+     `permissions.decide` — a console capability an employee never holds. So
+     this section needs two real accounts, each signed in for real:
+
+       empToken      a field agent (scriper_users, role EMPLOYEE) — created
+                     with the leads-panel admin's own token, the same way
+                     the leads-panel section above creates one.
+       consoleToken  a Super Admin (admins) — `POST /api/v1/admin/register`
+                     now creates the FIRST administrator only and this
+                     database already has real ones, so it is written
+                     directly into the collection (as every other identity
+                     in this script is, when its own HTTP route needs a
+                     login it cannot supply) and then signed in for real, so
+                     every check below exercises the real token contract. */
+  const Admin = require('../src/modules/admins/admin.model');
+
   const empEmail = `verify_field_${stamp}@example.invalid`;
+  let empToken = null;
+  let permissionId = null;
+
+  await check('a field agent — minted like an onboarding-login account, signed in for real', async () => {
+    const madeEmployee = await call('POST', '/api/v2/users', {
+      token,
+      body: {
+        name: 'Verify Field Agent', email: empEmail, password: 'employee123', role: 'EMPLOYEE',
+      },
+    });
+    expect([200, 201].includes(madeEmployee.status), `expected 201, got ${madeEmployee.status}`);
+    created.userIds.push(madeEmployee.body.data && madeEmployee.body.data.userId);
+
+    const login = await call('POST', '/api/v2/auth/login', { body: { email: empEmail, password: 'employee123' } });
+    expect(login.status === 200 && login.body.data && login.body.data.token, `expected a token, got ${login.status}`);
+    empToken = login.body.data.token;
+    return 'signed in as EMPLOYEE — x-employee-email is now bound to this token';
+  });
+
+  const consoleAdminEmail = `verify_console_${stamp}@example.invalid`;
+  let consoleToken = null;
+  let consoleAdminId = null;
+
+  await check('a Super Admin session — minted directly, signed in for real', async () => {
+    const admin = await Admin.create({
+      name: 'Verify Console', email: consoleAdminEmail, password: 'verify123', role: 'Super Admin', status: 'Active',
+    });
+    consoleAdminId = String(admin._id);
+    created.adminIds.push(consoleAdminId);
+
+    const { status, body } = await call('POST', '/api/v1/admin/login', {
+      body: { email: consoleAdminEmail, password: 'verify123' },
+    });
+    expect(status === 200 && body.token, `expected a token, got ${status}`);
+    expect(
+      Array.isArray(body.capabilities) && body.capabilities.includes('permissions.decide'),
+      'a Super Admin login must carry its capabilities',
+    );
+    consoleToken = body.token;
+    return `signed in as ${body.user.role} with ${body.capabilities.length} capabilities`;
+  });
 
   await check('requestPermission()  →  POST /api/v1/permissions', async () => {
     const { status, body } = await call('POST', '/api/v1/permissions', {
+      token: empToken,
       headers: { 'x-employee-email': empEmail },
       body: {
         propertyId: created.propertyIds[0] || `tmp_${stamp}`,
@@ -880,9 +965,23 @@ const run = async () => {
     return expectFields(body.data, ['_id', 'status', 'action', 'employeeEmail', 'active'], 'res.data');
   });
 
+  await check('a header that does not match the signed-in employee is refused', async () => {
+    const { status, body } = await call('POST', '/api/v1/permissions', {
+      token: empToken,
+      headers: { 'x-employee-email': `somebody-else-${stamp}@example.invalid` },
+      body: {
+        propertyId: created.propertyIds[0] || `tmp_${stamp}`, action: 'edit', reason: 'identity mismatch',
+      },
+    });
+    expect(status === 403 && body.code === 'IDENTITY_MISMATCH', `expected 403 IDENTITY_MISMATCH, got ${status} ${body.code}`);
+    return 'refused before the request was ever filed';
+  });
+
   await check('fetchPropertyAccess()  →  GET /api/v1/permissions/access  (Edit/Delete buttons)', async () => {
     const propertyId = created.propertyIds[0] || `tmp_${stamp}`;
-    const { status, body } = await call('GET', `/api/v1/permissions/access?propertyId=${propertyId}&employeeEmail=${empEmail}`);
+    const { status, body } = await call('GET', `/api/v1/permissions/access?propertyId=${propertyId}&employeeEmail=${empEmail}`, {
+      token: empToken,
+    });
     expect(status === 200 && body.success === true, `expected 200, got ${status}`);
     expectFields(body.data, ['propertyId', 'employeeEmail', 'permissions'], 'res.data');
     expect(body.data.permissions.edit.allowed === false, 'a pending request must not already allow the edit');
@@ -894,6 +993,7 @@ const run = async () => {
     const id = created.propertyIds[0];
     expect(id, 'skipped — nothing was created');
     const { status, body } = await call('PUT', `/api/v1/properties/${id}`, {
+      token: empToken,
       headers: { 'x-employee-email': empEmail },
       body: { name: 'should not apply' },
     });
@@ -905,12 +1005,15 @@ const run = async () => {
   await check('an administrator grant unlocks exactly one write  →  PUT /api/v1/permissions/:id', async () => {
     expect(permissionId, 'skipped — no permission request');
     const granted = await call('PUT', `/api/v1/permissions/${permissionId}`, {
-      body: { status: 'granted', decidedBy: 'verify-script' },
+      token: consoleToken,
+      body: { status: 'granted' },
     });
     expect(granted.status === 200 && granted.body.data.active === true, 'the grant is not active');
+    expect(granted.body.data.decidedBy === consoleAdminEmail, 'decidedBy must be the signed-in admin, not the body');
 
     const id = created.propertyIds[0];
     const write = await call('PUT', `/api/v1/properties/${id}`, {
+      token: empToken,
       headers: { 'x-employee-email': empEmail },
       body: { address: `verified-by-script-${stamp}` },
     });
@@ -918,6 +1021,7 @@ const run = async () => {
 
     /* One approval buys one action: the second attempt must be refused. */
     const again = await call('PUT', `/api/v1/properties/${id}`, {
+      token: empToken,
       headers: { 'x-employee-email': empEmail },
       body: { address: 'second attempt' },
     });
@@ -931,21 +1035,25 @@ const run = async () => {
     /* Same employee, but the grant above was for `edit` and has been spent.
        A delete must need its own approval. */
     const ungated = await call('DELETE', `/api/v1/properties/${id}`, {
+      token: empToken,
       headers: { 'x-employee-email': empEmail },
     });
     expect(ungated.status === 403, `expected 403 without a delete grant, got ${ungated.status}`);
     expect(ungated.body.action === 'delete', `the refusal names action "${ungated.body.action}"`);
 
     const request = await call('POST', '/api/v1/permissions', {
+      token: empToken,
       headers: { 'x-employee-email': empEmail },
       body: { propertyId: id, employeeEmail: empEmail, action: 'delete', reason: 'verify script' },
     });
     created.permissionIds.push(request.body.data._id);
     await call('PUT', `/api/v1/permissions/${request.body.data._id}`, {
-      body: { status: 'granted', decidedBy: 'verify-script' },
+      token: consoleToken,
+      body: { status: 'granted' },
     });
 
     const granted = await call('DELETE', `/api/v1/properties/${id}`, {
+      token: empToken,
       headers: { 'x-employee-email': empEmail },
     });
     expect(granted.status === 200, `the granted delete failed: ${granted.status}`);
@@ -956,9 +1064,12 @@ const run = async () => {
     return 'edit grant does not authorise a delete; a delete grant does';
   });
 
-  await check('the admin console can close a grant  →  POST /api/v1/permissions/:id/consume', async () => {
+  await check('the admin console can close a grant on anybody’s behalf  →  POST /api/v1/permissions/:id/consume', async () => {
+    /* The console is a verified, trusted identity, so — unlike an employee,
+       who may only spend a grant filed under their OWN signed-in email — it
+       may file and close a grant for an employeeEmail of its choosing. */
     const request = await call('POST', '/api/v1/permissions', {
-      headers: { 'x-employee-email': empEmail },
+      token: consoleToken,
       body: {
         propertyId: created.propertyIds[0] || `tmp_${stamp}`,
         employeeEmail: `consume_${stamp}@example.invalid`,
@@ -969,20 +1080,34 @@ const run = async () => {
     const id = request.body.data._id;
     created.permissionIds.push(id);
 
-    await call('PUT', `/api/v1/permissions/${id}`, { body: { status: 'granted' } });
-    const spent = await call('POST', `/api/v1/permissions/${id}/consume`);
+    await call('PUT', `/api/v1/permissions/${id}`, { token: consoleToken, body: { status: 'granted' } });
+    const spent = await call('POST', `/api/v1/permissions/${id}/consume`, { token: consoleToken });
     expect(spent.status === 200 && spent.body.data.status === 'used', `expected used, got ${spent.status}`);
 
     /* Spending it twice must not be possible, or one approval buys many. */
-    const again = await call('POST', `/api/v1/permissions/${id}/consume`);
+    const again = await call('POST', `/api/v1/permissions/${id}/consume`, { token: consoleToken });
     expect(again.status === 409, `expected 409 on a second consume, got ${again.status}`);
     return 'granted → used → 409 on reuse';
+  });
+
+  await check('an employee may spend only their OWN grant, not somebody else’s', async () => {
+    const request = await call('POST', '/api/v1/permissions', {
+      token: consoleToken,
+      body: { propertyId: created.propertyIds[0] || `tmp_${stamp}`, employeeEmail: `not-${empEmail}`, action: 'edit', reason: 'ownership check' },
+    });
+    const id = request.body.data._id;
+    created.permissionIds.push(id);
+    await call('PUT', `/api/v1/permissions/${id}`, { token: consoleToken, body: { status: 'granted' } });
+
+    const stolen = await call('POST', `/api/v1/permissions/${id}/consume`, { token: empToken });
+    expect(stolen.status === 403, `expected 403, got ${stolen.status}`);
+    return 'refused — the grant belongs to a different email';
   });
 
   await check('DELETE /api/v1/permissions/:id  removes the audit row', async () => {
     const id = created.permissionIds[created.permissionIds.length - 1];
     expect(id, 'skipped — no permission to delete');
-    const { status, body } = await call('DELETE', `/api/v1/permissions/${id}`);
+    const { status, body } = await call('DELETE', `/api/v1/permissions/${id}`, { token: consoleToken });
     expect(status === 200 && body.success === true, `expected 200, got ${status}`);
     created.permissionIds = created.permissionIds.filter((p) => p !== id);
     return 'deleted';
@@ -1028,37 +1153,46 @@ const run = async () => {
 
   /* The console itself is not one of the three frontends here, so these are
      checked against the routes rather than against a caller. They are part of
-     the v1 surface and a merge that broke them would go unnoticed otherwise. */
+     the v1 surface and a merge that broke them would go unnoticed otherwise.
 
-  const consoleEmail = `verify_console_${stamp}@example.invalid`;
-  let consoleAdminId = null;
+     `consoleToken` / `consoleAdminId` / `consoleAdminEmail` were minted just
+     above, in the onboarding-permissions section — the first place a Super
+     Admin identity was needed. Reused here rather than minted twice. */
 
-  await check('POST /api/v1/admin/register  is guarded by V1_ADMIN_SECRET_KEY', async () => {
+  await check('GET /api/v1/admin/bootstrap  reports whether the console needs its first account', async () => {
+    const { status, body } = await call('GET', '/api/v1/admin/bootstrap');
+    expect(status === 200 && typeof body.needsBootstrap === 'boolean', `expected 200, got ${status}`);
+    /* This database already has real administrators (this script's own
+       Super Admin among them by now), so bootstrap must read as done. */
+    expect(body.needsBootstrap === false, 'bootstrap should be done — this database already has administrators');
+    return `needsBootstrap: ${body.needsBootstrap}`;
+  });
+
+  await check('POST /api/v1/admin/register  refuses a wrong key even after bootstrap', async () => {
     const wrong = await call('POST', '/api/v1/admin/register', {
-      body: {
-        name: 'Verify Console', email: consoleEmail, password: 'verify123', adminSecretKey: 'not-the-key',
-      },
+      body: { name: 'X', email: `nope_${stamp}@example.invalid`, password: 'verify1234', adminSecretKey: 'not-the-key' },
     });
-    expect(wrong.status === 403, `expected 403 with a wrong key, got ${wrong.status}`);
+    expect(wrong.status === 403 && wrong.body.code === 'BAD_SECRET', `expected 403 BAD_SECRET, got ${wrong.status} ${wrong.body.code}`);
+    return 'BAD_SECRET — checked before bootstrap status, as intended';
+  });
 
+  await check('POST /api/v1/admin/register  is bootstrap-only — refused once an administrator exists', async () => {
     const key = process.env.V1_ADMIN_SECRET_KEY;  // .env only — was a committed literal
     const { status, body } = await call('POST', '/api/v1/admin/register', {
-      body: {
-        name: 'Verify Console', email: consoleEmail, password: 'verify123', role: 'Admin', adminSecretKey: key,
-      },
+      body: { name: 'Second Super Admin', email: `verify_second_${stamp}@example.invalid`, password: 'verify1234', adminSecretKey: key },
     });
-    expect([200, 201].includes(status), `expected 201, got ${status}: ${body.message}`);
-    expect(body.token && body.user, 'the console reads res.token and res.user');
-    consoleAdminId = body.user.id;
-    created.adminIds.push(consoleAdminId);
-    /* This is the regression the merge nearly introduced: adding
-       ADMIN_SECRET_KEY for v2 used to change the key this route wanted. */
-    return 'wrong key refused, correct key accepted — separate from ADMIN_SECRET_KEY';
+    expect(status === 403 && body.code === 'BOOTSTRAP_DONE', `expected 403 BOOTSTRAP_DONE, got ${status} ${body.code}`);
+    /* This is the fix the vulnerability needed: the old route created an
+       account of ANY role, for anybody holding the key, with no ceiling — a
+       second, third, hundredth Super Admin. Now the key only ever bootstraps
+       the first one; every account after that is made from Administrators by
+       a signed-in Super Admin (below). */
+    return 'refused — correct key, but the console is already bootstrapped';
   });
 
   await check('POST /api/v1/admin/login  (a different identity system from v2)', async () => {
     const { status, body } = await call('POST', '/api/v1/admin/login', {
-      body: { email: consoleEmail, password: 'verify123' },
+      body: { email: consoleAdminEmail, password: 'verify123' },
     });
     expect(status === 200 && body.success === true, `expected 200, got ${status}`);
     expect(body.token && body.user.role, 'the console reads res.token and res.user.role');
@@ -1066,84 +1200,147 @@ const run = async () => {
     /* The same credentials must NOT work against the leads panel: these are
        two account stores, and a merge that collapsed them would show up here. */
     const crossover = await call('POST', '/api/v2/auth/login', {
-      body: { email: consoleEmail, password: 'verify123' },
+      body: { email: consoleAdminEmail, password: 'verify123' },
     });
     expect(crossover.status === 401, `an admins-collection account signed into the leads panel (${crossover.status})`);
     return `signed in as ${body.user.role}; the same account is rejected by v2, as it must be`;
   });
 
-  await check('PUT + DELETE /api/v1/admin/users/:id', async () => {
-    expect(consoleAdminId, 'skipped — no console admin was created');
-    const updated = await call('PUT', `/api/v1/admin/users/${consoleAdminId}`, {
+  await check('a Super Admin can never change their OWN role or status', async () => {
+    const { status, body } = await call('PUT', `/api/v1/admin/users/${consoleAdminId}`, {
+      token: consoleToken,
+      body: { role: 'Viewer' },
+    });
+    expect(status === 403 && body.code === 'SELF_CHANGE', `expected 403 SELF_CHANGE, got ${status} ${body.code}`);
+    return 'refused — a role change on your own account needs a different Super Admin';
+  });
+
+  await check('POST + PUT + DELETE /api/v1/admin/users/:id  (admins.manage)', async () => {
+    const madeAdmin = await call('POST', '/api/v1/admin/users', {
+      token: consoleToken,
+      body: {
+        name: 'Verify Second Admin', email: `verify_target_${stamp}@example.invalid`, password: 'verify1234', role: 'Admin',
+      },
+    });
+    expect([200, 201].includes(madeAdmin.status), `create failed: ${madeAdmin.status}: ${madeAdmin.body.message}`);
+    const targetId = madeAdmin.body.id;
+    created.adminIds.push(targetId);
+
+    const updated = await call('PUT', `/api/v1/admin/users/${targetId}`, {
+      token: consoleToken,
       body: { role: 'Viewer', status: 'Inactive' },
     });
     expect(updated.status === 200 && updated.body.role === 'Viewer', `update failed: ${updated.status}`);
 
-    const removed = await call('DELETE', `/api/v1/admin/users/${consoleAdminId}`);
+    const removed = await call('DELETE', `/api/v1/admin/users/${targetId}`, { token: consoleToken });
     expect(removed.status === 200 && removed.body.success === true, `delete failed: ${removed.status}`);
-    created.adminIds = created.adminIds.filter((a) => a !== consoleAdminId);
-    return 'role/status updated, then deleted';
+    created.adminIds = created.adminIds.filter((a) => a !== targetId);
+    return 'created, role/status updated by a different Super Admin, deleted';
   });
 
-  await check('POST + PUT + DELETE /api/v1/verifications  (the console queue)', async () => {
+  await check('an unauthenticated caller cannot list, create or change administrator accounts', async () => {
+    const list = await call('GET', '/api/v1/admin/users');
+    expect(list.status === 401, `expected 401 on GET /admin/users, got ${list.status}`);
+    const write = await call('POST', '/api/v1/admin/users', { body: { name: 'X', email: 'x@example.invalid' } });
+    expect(write.status === 401, `expected 401 on POST /admin/users, got ${write.status}`);
+    return 'both refused before any handler ran';
+  });
+
+  await check('POST + PUT + DELETE /api/v1/verifications  (the console queue, verifications.manage)', async () => {
     const madeIt = await call('POST', '/api/v1/verifications', {
+      token: consoleToken,
       body: { ownerMobileE164: `whatsapp:+9199${String(stamp).slice(-8)}`, status: 'pending' },
     });
     expect([200, 201].includes(madeIt.status), `create failed: ${madeIt.status} ${madeIt.body.message}`);
     const id = madeIt.body.data._id;
 
-    const updated = await call('PUT', `/api/v1/verifications/${id}`, { body: { status: 'verified' } });
+    const updated = await call('PUT', `/api/v1/verifications/${id}`, { token: consoleToken, body: { status: 'verified' } });
     expect(updated.status === 200 && updated.body.data.status === 'verified', `update failed: ${updated.status}`);
     expect(updated.body.data.respondedAt, 'respondedAt is not stamped when a request is marked verified');
 
-    const removed = await call('DELETE', `/api/v1/verifications/${id}`);
+    const removed = await call('DELETE', `/api/v1/verifications/${id}`, { token: consoleToken });
     expect(removed.status === 200, `delete failed: ${removed.status}`);
     return 'created, verified (respondedAt stamped), deleted';
   });
 
   await check('GET /api/v1/admin/users  (admins collection, not scriper_users)', async () => {
-    const { status, body } = await call('GET', '/api/v1/admin/users');
+    const { status, body } = await call('GET', '/api/v1/admin/users', { token: consoleToken });
     expect(status === 200, `expected 200, got ${status}`);
     expect(Array.isArray(body.items), 'the console reads res.items');
     return `${body.total} administrator account(s) — a different collection from the ${'/api/v2/users'} one`;
   });
 
-  await check('GET /api/v1/admin/stats  (dashboard)', async () => {
-    const { status, body } = await call('GET', '/api/v1/admin/stats');
+  await check('GET /api/v1/admin/stats  (dashboard) needs a signed-in administrator', async () => {
+    const anon = await call('GET', '/api/v1/admin/stats');
+    expect(anon.status === 401, `expected 401 for an anonymous caller, got ${anon.status}`);
+    const { status, body } = await call('GET', '/api/v1/admin/stats', { token: consoleToken });
     expect(status === 200 && body.success === true, `expected 200, got ${status}`);
     return expectFields(body, ['admins', 'properties', 'verifications', 'windowDays'], 'stats');
   });
 
   await check('GET /api/v1/admin/activity  (notification feed)', async () => {
-    const { status, body } = await call('GET', '/api/v1/admin/activity');
+    const { status, body } = await call('GET', '/api/v1/admin/activity', { token: consoleToken });
     expect(status === 200 && Array.isArray(body.items), `expected 200, got ${status}`);
     return `${body.count} event(s)`;
   });
 
-  await check('GET /api/v1/admin/system  (system telemetry)', async () => {
-    const { status, body } = await call('GET', '/api/v1/admin/system');
+  await check('GET /api/v1/admin/system  (system telemetry) — narrower than the dashboard', async () => {
+    /* Every signed-in administrator reads the dashboard; only Admin and up
+       read telemetry, because it names the verification team's phone
+       numbers. `empToken` cannot reach either — it is not a console token
+       at all. */
+    const wrongIdentity = await call('GET', '/api/v1/admin/system', { token: empToken });
+    expect(wrongIdentity.status === 401, `expected 401 for a non-console token, got ${wrongIdentity.status}`);
+    const { status, body } = await call('GET', '/api/v1/admin/system', { token: consoleToken });
     expect(status === 200 && body.success === true, `expected 200, got ${status}`);
     expectFields(body.database, ['name', 'readyState', 'connected', 'collections'], 'system.database');
     return `${body.database.collections.length} collections visible`;
   });
 
   await check('GET /api/v1/verifications  (verification queue)', async () => {
-    const { status, body } = await call('GET', '/api/v1/verifications');
+    const { status, body } = await call('GET', '/api/v1/verifications', { token: consoleToken });
     expect(status === 200 && body.success === true, `expected 200, got ${status}`);
     expect(Array.isArray(body.items) && Array.isArray(body.data), 'both response shapes must be present');
     return `${body.count} verification request(s)`;
   });
 
-  await check('POST /api/v1/whatsapp/webhook  answers TwiML even for an unknown sender', async () => {
+  /* Twilio signs every request with the account's auth token: an HMAC-SHA1
+     over the exact URL Twilio was configured with, plus the sorted POST
+     parameters, base64-encoded — the same computation twilioSignature.js
+     verifies against. Reproduced by hand here, rather than skipped, because
+     this webhook is where an owner's YES publishes a property and the whole
+     point of shared/middleware/twilioSignature.js is that a request without
+     this cannot act as them. */
+  const signTwilioRequest = (url, params) => {
+    const data = Object.keys(params).sort().reduce((acc, key) => acc + key + params[key], url);
+    return require('crypto').createHmac('sha1', process.env.TWILIO_AUTH_TOKEN).update(Buffer.from(data, 'utf-8')).digest('base64');
+  };
+
+  await check('POST /api/v1/whatsapp/webhook  refuses a request with no Twilio signature', async () => {
     const response = await fetch(`${base}/api/v1/whatsapp/webhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ From: 'whatsapp:+10000000000', Body: 'hello' }).toString(),
     });
+    expect(response.status === 403, `expected 403 with no signature, got ${response.status}`);
+    return 'refused before any WhatsApp reply was processed as this sender';
+  });
+
+  await check('POST /api/v1/whatsapp/webhook  answers TwiML for a validly signed request', async () => {
+    const params = { From: 'whatsapp:+10000000000', Body: 'hello' };
+    const url = `${config.webhooks.publicBaseUrl}/api/v1/whatsapp/webhook`;
+    const response = await fetch(`${base}/api/v1/whatsapp/webhook`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Twilio-Signature': signTwilioRequest(url, params),
+      },
+      body: new URLSearchParams(params).toString(),
+    });
     const text = await response.text();
-    expect(response.status === 200, `expected 200, got ${response.status}`);
+    expect(response.status === 200, `expected 200, got ${response.status}: ${text.slice(0, 200)}`);
     expect(text.includes('<Response>'), 'Twilio needs a TwiML document back, got: ' + text.slice(0, 60));
-    return 'TwiML returned — the webhook contract holds';
+    return 'TwiML returned — the webhook contract holds, signed';
   });
 
   section('routing & versioning');
@@ -3196,8 +3393,25 @@ const run = async () => {
   await check('the owner marking alone does not put anybody in house', async () => {
     const { PartnerBooking } = require('../src/modules/partners/partnerDomains.model');
 
+    /*
+     * Check-in is verified on the SERVER now: it needs the guest's entry PIN
+     * in the body and refuses a date before the booking's check-in date. The
+     * request above asked for no joining date, so the booking landed on the
+     * join window's default — bring it to today, the way a real arrival is,
+     * and send the PIN the way the owner's app does after the guest shows it.
+     */
+    const { todayInIndia } = require('../src/modules/partners/bookingStage.util');
+    await PartnerBooking.updateOne({ _id: moveIn.bookingId }, { $set: { checkInDate: todayInIndia() } });
+    const before = await PartnerBooking.findById(moveIn.bookingId).select('entryPin').lean();
+    expect(before && before.entryPin, 'the accepted booking carries no entry PIN to check against');
+
+    const early = await call('POST', `/api/v2/partners/bookings/${moveIn.bookingId}/checkin`,
+      { token: moveIn.ownerToken, body: { code: 'WRONG0' } });
+    expect(early.status === 403 && early.body.code === 'BAD_PIN',
+      `a wrong code should be refused with 403 BAD_PIN, got ${early.status} ${early.body.code || ''}`);
+
     const { status } = await call('POST', `/api/v2/partners/bookings/${moveIn.bookingId}/checkin`,
-      { token: moveIn.ownerToken });
+      { token: moveIn.ownerToken, body: { code: before.entryPin } });
     expect(status === 200, `expected 200, got ${status}`);
 
     const booking = await PartnerBooking.findById(moveIn.bookingId).lean();
@@ -3483,14 +3697,29 @@ const run = async () => {
     expect(/if \(CAN_OVERRIDE_ENV\) \{\s*\n\s*AsyncStorage\.getItem/.test(runtime),
       'a production build still reads the stored override at launch');
 
-    /* The toggle is gated on what the BUILD allows, not on the mode in force
-       — otherwise selecting Production removes the only way back. */
+    /*
+     * There is no writer at all any more, which is stronger than gating one.
+     *
+     * The profile screen used to carry a "Developer" group with a "Run as"
+     * row, gated on `CAN_OVERRIDE_ENV` so a production build could not show
+     * it. This asserted that gate. The group has since been removed outright
+     * — a student's profile is not the place for it — so the assertion is now
+     * the absence of the writer rather than the presence of its gate.
+     *
+     * That is a strictly safer property and the same one, arrived at from the
+     * other side: `setAppEnv` still refuses in a production build (asserted
+     * above), and now nothing in the app calls it regardless. Restoring the
+     * group for an internal build means restoring the gate with it, and this
+     * check is what will say so.
+     */
     const home = fs.readFileSync(path.join(root, 'User App', 'app/home.tsx'), 'utf8');
-    expect(/\{CAN_OVERRIDE_ENV \? \(/.test(home),
-      'the Developer group is not gated on CAN_OVERRIDE_ENV');
+    expect(!/setAppEnv/.test(home),
+      'the profile screen can write the env override again — gate it on CAN_OVERRIDE_ENV');
+    expect(!/CAN_OVERRIDE_ENV/.test(home),
+      'home.tsx references CAN_OVERRIDE_ENV without a Developer group — one of the two is stale');
 
     return 'both apps: APP_ENV defaults to production, EAS pins it, no screen gates on __DEV__, '
-      + 'and the runtime toggle cannot escalate a production build';
+      + 'the runtime toggle cannot escalate a production build, and no screen writes it';
   });
 
   section('CORS preflight from each production origin');

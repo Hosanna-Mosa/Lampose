@@ -73,16 +73,33 @@ export default function CheckedInScreen() {
   /* The server's own answer, not an assumption about what our own write did.
      `status` only reaches `inHouse` when both sides have confirmed. */
   const bothIn = booking.status === 'inHouse' || Boolean(booking.movedInByStudentAt);
+  /* Bachelor's checkout date on `booking/active` is fabricated — see the
+     note on `PrimaryAction` in `booking/[id].tsx`. Keeps its own flag
+     because that reason genuinely does not apply to the Check-out row
+     below, which stays shown for PG/Hostel. */
+  const bachelor = booking.category === 'BACHELOR';
+  /* PG/Hostel and Co-living don't fabricate their checkout date, but the
+     destination itself is withheld for them too now — same "direct
+     arrangement, nothing on Lampose's side to track" reasoning as the
+     payout figure and owner-messaging already withheld elsewhere on this
+     booking. None of these three should still reach `booking/active`
+     through this button just because it was skipped on the detail
+     screen's own. */
+  const noActiveStay = bachelor || booking.category === 'PG_HOSTEL' || booking.category === 'COLIVE';
 
   return (
     <Screen
       padX={22}
       contentStyle={styles.stack}
+      refreshing={isRefetching}
+      onRefresh={refetch}
       footer={
         bothIn ? (
           <Button
-            label="View active stay"
-            onPress={() => router.replace({ pathname: '/booking/active', params: { id: booking.id } })}
+            label={noActiveStay ? 'Go back to home' : 'View active stay'}
+            onPress={() => (noActiveStay
+              ? router.replace('/')
+              : router.replace({ pathname: '/booking/active', params: { id: booking.id } }))}
           />
         ) : (
           <View style={styles.actions}>
@@ -146,8 +163,15 @@ export default function CheckedInScreen() {
       <Card>
         <DetailRow label="Guest" value={booking.guest} />
         <DetailRow label="Room" value={booking.roomType || 'Not set'} />
-        <DetailRow label="Check-in" value={formatDayDate(booking.checkIn)} />
-        <DetailRow label="Check-out" value={formatDayDate(booking.checkOut)} last />
+        <DetailRow label="Check-in" value={formatDayDate(booking.checkIn)} last={bachelor} />
+        {/* A bachelor tenancy has no move-out date to show — the student was
+            never asked for one, so `booking.checkOut` here is a fallback
+            value (`toBooking()`, "the day after move-in"), never a real
+            answer. Showing it would print an invented date as this tenant's
+            move-out day. */}
+        {!bachelor ? (
+          <DetailRow label="Check-out" value={formatDayDate(booking.checkOut)} last />
+        ) : null}
       </Card>
     </Screen>
   );

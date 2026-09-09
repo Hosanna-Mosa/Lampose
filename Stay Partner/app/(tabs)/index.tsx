@@ -5,9 +5,9 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen, Text, Button, Card, Icon, Skeleton, HeaderPill, Switch } from '@/components/ui';
 import { unreadCount } from '@/lib/notifications';
 import { POINTS_PER_REFERRAL, POINT_VALUE_RUPEES } from '@/lib/referrals';
-import { openCount as openComplaintsCount, subscribeComplaints } from '@/lib/complaints';
+import { subscribeComplaints } from '@/lib/complaints';
 import {
-  SHARE_TYPES,
+  setShareTypes,
   visibleCount as visibleShareTypes,
   subscribeShareTypes,
   isAvailable,
@@ -22,16 +22,9 @@ import { useColors } from '@/hooks/useColors';
 
 // ── Static content, as shown in the design ────────────────────────────────
 
-const OWNER = 'Anjali';
-const PROPERTY = 'Sea View Villa';
-/** More than one, so the switcher pill keeps its chevron. */
-const PROPERTY_COUNT = 2;
-
-const TODAY = { arrivals: 3, departures: 2, inHouse: 5 };
-const EARNINGS = { today: '₹9,600', week: '₹58,400' };
 
 import { fetchSummary } from '@/services/api/portfolio.api';
-import { fetchNotificationsApi, toggleShareTypesAvailabilityApi } from '@/services/api/domain.api';
+import { fetchNotificationsApi, fetchShareTypesApi, toggleShareTypesAvailabilityApi } from '@/services/api/domain.api';
 import { useAuth } from '@/context/AuthContext';
 import { logWarn } from '@/lib/log';
 
@@ -64,7 +57,9 @@ export default function TodayTab() {
    * hook polls the real endpoint while anything is pending and stops when
    * nothing is.
    */
-  const { groups: requestGroups, clockOffset } = useStayRequests();
+  const { groups: requestGroups, clockOffset, refetch: refetchRequests } = useStayRequests();
+
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     const unsubComplaints = subscribeComplaints(() => setRevision((r) => r + 1));
@@ -77,12 +72,18 @@ export default function TodayTab() {
     };
   }, []);
 
-  const loadData = useCallback(async () => {
+  /*
+   * `silent` skips the state-machine flip to 'loading' — pull-to-refresh
+   * already shows its own spinner via `RefreshControl`, and swapping the
+   * whole body for `LoadingBody` underneath it would blank out the screen
+   * the owner is mid-gesture on.
+   */
+  const loadData = useCallback(async (opts?: { silent?: boolean }) => {
     if (forced && forced !== 'loading') {
       setState(forced);
       return;
     }
-    setState('loading');
+    if (!opts?.silent) setState('loading');
     try {
       const [sum, notifs] = await Promise.all([
         fetchSummary(),
@@ -105,9 +106,18 @@ export default function TodayTab() {
        * routes to it.
        */
       logWarn('Error fetching dashboard summary:', err);
-      setState('error');
+      if (!opts?.silent) setState('error');
     }
   }, [forced]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([loadData({ silent: true }), refetchRequests()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadData, refetchRequests]);
 
   /*
    * Refetched every time this tab comes back into focus, not just on mount —
@@ -169,6 +179,8 @@ export default function TodayTab() {
       tabBarSpacing
       background="bg"
       contentStyle={styles.stack}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
       /* Pinned. The property switcher, the availability toggle and the bell are
          the screen's controls, not its content — losing them behind a scroll
          meant scrolling back up to change property or read an alert. */
@@ -646,9 +658,43 @@ function ComplaintsBanner({ open, onPress }: { open: number; onPress: () => void
   );
 }
 
-/** Count is live from `lib/shareTypes.ts` too — flips the moment a toggle changes. */
+/**
+ * How many room types are visible to customers.
+ *
+ * Reads the owner's REAL room types. The count used to come from a four-row
+ * fixture in `lib/shareTypes.ts`, so every owner was told they had four
+ * whatever their listing actually offered.
+ *
+ * Fetched here rather than passed down because it is the only thing on the
+ * dashboard that needs it, and it re-reads on focus so a change made on the
+ * Share Types screen is reflected on the way back.
+ */
 function ShareTypesBanner({ onPress }: { onPress: () => void }) {
   const c = useColors();
+  const [total, setTotal] = useState(0);
+  const [, force] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      let live = true;
+      fetchShareTypesApi()
+        .then((rows: any) => {
+          if (!live) return;
+          const mapped = (Array.isArray(rows) ? rows : []).map((st: any) => ({
+            id: st.shareTypeId || st.id || st._id,
+            label: st.name || 'Room',
+            pricePerBed: `₹${(st.monthlyPrice || 0).toLocaleString('en-IN')}`,
+            available: Boolean(st.isAvailable),
+          }));
+          setShareTypes(mapped);
+          setTotal(mapped.length);
+          force((n) => n + 1);
+        })
+        .catch(() => { /* The banner simply shows nothing rather than a guess. */ });
+      return () => { live = false; };
+    }, []),
+  );
+
   const visible = visibleShareTypes();
   return (
     <Card variant="elevated" onPress={onPress} style={styles.banner}>
@@ -660,7 +706,7 @@ function ShareTypesBanner({ onPress }: { onPress: () => void }) {
           Share types
         </Text>
         <Text variant="badge" color="textSecondary">
-          {visible} of {SHARE_TYPES.length} visible to customers
+          {total === 0 ? 'None recorded yet' : `${visible} of ${total} visible to customers`}
         </Text>
       </View>
       <Icon name="chevron-right" size={14} color={c.textTertiary} strokeWidth={2} />

@@ -32,14 +32,11 @@ const { tagFoodPartnerRequest } = require('./foodPartner.log');
 
 const router = express.Router();
 
-/** Roles allowed to CHANGE an application's fate. Reading is wider. */
-const DECIDING_ROLES = new Set(['Super Admin', 'Admin', 'Food Admin']);
+/* Deciding an application's fate is `food.decide` — Super Admin, Admin, Food
+   Admin — from the one permission table in iam/iam.roles.js. Reading is wider. */
+const { can } = require('../iam/iam.middleware');
 
-const requireFoodApprover = (req, res, next) => {
-  if (DECIDING_ROLES.has(req.admin?.role)) return next();
-  const message = 'Approving a restaurant requires the Admin or Food Admin role.';
-  return res.status(403).json({ success: false, code: 'FORBIDDEN', message, error: message });
-};
+const requireFoodApprover = can('food.decide');
 
 router.use(tagFoodPartnerRequest);
 router.use(verifyAdminToken);

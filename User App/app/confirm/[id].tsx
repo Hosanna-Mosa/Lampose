@@ -1,17 +1,19 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, ConfirmModal, Dialog, Icon, Text } from '@/components/ui';
+import { Button, ConfirmModal, InlineAlert, Text, TextField, useAlert } from '@/components/ui';
 import { StandardHeader, StateTemplate } from '@/components/shell';
 import { OwnerStatusTrail, WaitLoader, type TrailStep } from '@/components/request';
 import { errorStates } from '@/constants/copy';
 import { usePendingRequest } from '@/context/PendingRequestContext';
+import { usePreviewControls } from '@/hooks/useAppEnv';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { confirmationRewards } from '@/data/rewards';
 import { useListing, useStayRequest } from '@/services';
+import { addAddress } from '@/services/api/addresses.api';
 /* DEVELOPMENT ONLY — remove with the dev bypass button below. */
 import { ApiError } from '@/services/api/client';
 import { devMarkVisitPaid } from '@/services/api/stayRequests.api';
@@ -66,7 +68,12 @@ function stamp(value: string | null | undefined): string | undefined {
 }
 
 export default function OwnerConfirmation() {
-  const { colors, space, layout, radius, touch } = useTheme();
+  const { mode, colors, space, layout, radius } = useTheme();
+  const { confirm } = useAlert();
+  /* Whether this build may draw developer controls at all — see the note on
+     the dev button below. False on a production build, and it re-renders when
+     the mode is switched. */
+  const previewControls = usePreviewControls();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -89,16 +96,40 @@ export default function OwnerConfirmation() {
       consented?: string;
     }>();
 
-  const { listing, isPending: listingLoading, notFound } = useListing(id);
+  const { listing, isPending: listingLoading, notFound, refetch: refetchListing } = useListing(id);
   const { request: pending, start: startPill, settle: settlePill, clear: clearPill } =
     usePendingRequest();
+  const { completeProfile } = useAuth();
 
   /* Keyed by listing, so a request survives the app being closed. Only the
      ID is stored — the status is always the server's. */
   const stay = useStayRequest(id);
 
   const [askingCancel, setAskingCancel] = useState(false);
-  const [rewardsOpen, setRewardsOpen] = useState(false);
+
+  /* Manual pull-to-refresh state. Declared here, with the screen's other
+     hooks, rather than beside `onRefresh` below — that sits past two early
+     returns (loading, not-found), and a hook declared there runs on some
+     renders and not others, which is the exact "rendered more hooks than
+     during the previous render" crash. See the note on `devBusy` below for
+     the same rule applied to the dev-only payment bypass. */
+  const [manualRefreshing, setManualRefreshing] = useState(false);
+
+  /* ── The profile a request needs, asked here rather than at sign-in ──────
+     `stayRequest.service.js` refuses a nameless request with
+     `PROFILE_INCOMPLETE` — the account proved a phone number, not a name,
+     and this is the first moment a name has anywhere to go: an owner reads
+     it off the request. The address line is not enforced server-side (a PG
+     owner has no use for a guest's home address), but it is asked in the
+     SAME form, once, because this is genuinely the first and only moment
+     until now this app ever asked for either — collecting them together
+     here is one interruption instead of two. Both save through calls that
+     already existed (`completeProfile`, `addAddress`); nothing new was
+     added to the backend for this. */
+  const [profileName, setProfileName] = useState('');
+  const [profileAddress, setProfileAddress] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   /** The stay, in the shape the server validates it in. */
   const intent = useMemo(() => {
@@ -135,6 +166,24 @@ export default function OwnerConfirmation() {
     };
   }, [stayType, units, joinDate, flexibleJoin, checkIn, checkOut, rateStructure, rateQuantity]);
 
+  /* One shape, two callers: the auto-send effect below, and the "Save and
+     send request" button on the profile form, once a PROFILE_INCOMPLETE
+     failure is fixed. Kept as one `useMemo` so a retry can never drift from
+     what the first attempt actually sent. */
+  const sendPayload = useMemo(() => (listing ? {
+    listingId: listing.id,
+    /* The bed they chose, exactly as the listing offered it. */
+    sharing: sharingId ?? listing.sharingOptions?.[0]?.label ?? '',
+    intent,
+    /*
+     * The tick from the listing screen, carried through rather than
+     * asserted here. Sending `true` unconditionally would record a consent
+     * nobody gave — and this is precisely the record that matters, since it
+     * is the moment a student's name and number reach a stranger.
+     */
+    consentedTerms: consented === '1',
+  } : null), [listing, sharingId, intent, consented]);
+
   /*
    * One request, ever, unless the student asks for another.
    *
@@ -160,26 +209,45 @@ export default function OwnerConfirmation() {
      * owner a notification and tells a student something untrue.
      */
     if (stay.isHydrating || stay.phase !== 'idle' || stay.request) return;
-    if (!listing || sent.current) return;
+    if (!sendPayload || sent.current) return;
 
     sent.current = true;
-    stay.send({
-      listingId: listing.id,
-      /* The bed they chose, exactly as the listing offered it. */
-      sharing: sharingId ?? listing.sharingOptions?.[0]?.label ?? '',
-      intent,
-      /*
-       * The tick from the listing screen, carried through rather than
-       * asserted here. Sending `true` unconditionally would record a consent
-       * nobody gave — and this is precisely the record that matters, since it
-       * is the moment a student's name and number reach a stranger.
-       */
-      consentedTerms: consented === '1',
-    });
+    stay.send(sendPayload);
     /* Narrow deps on purpose: `stay` is a fresh object every render, so
-       depending on it would re-run this effect constantly. Only the three
-       things the guard actually reads matter. */
-  }, [listing, stay.isHydrating, stay.phase, stay.request, stay.send, intent, sharingId, consented]);
+       depending on it would re-run this effect constantly. Only the things
+       the guard actually reads matter. */
+  }, [sendPayload, stay.isHydrating, stay.phase, stay.request, stay.send]);
+
+  /* The profile form's "Save and send request" — same payload, a fresh
+     attempt. `sent.current` is left alone: it already guards against the
+     EFFECT firing twice, and this is a person tapping a button, not a
+     re-render. */
+  const retryAfterProfile = useCallback(async () => {
+    const trimmedName = profileName.trim();
+    if (!trimmedName) {
+      setProfileError('Add your name to send the request.');
+      return;
+    }
+    setSavingProfile(true);
+    setProfileError(null);
+    try {
+      await completeProfile({ name: trimmedName });
+      const trimmedAddress = profileAddress.trim();
+      if (trimmedAddress) {
+        /* Best-effort. A booking request should not fail because a saved
+           address (which the server does not require for one) could not be
+           written — the name above is the only hard requirement. */
+        await addAddress({ kind: 'home', label: 'Home', line1: trimmedAddress }).catch(() => {});
+      }
+      if (sendPayload) await stay.send(sendPayload);
+    } catch (caught) {
+      setProfileError(
+        caught instanceof ApiError ? caught.displayMessage : 'We could not save that. Please try again.',
+      );
+    } finally {
+      setSavingProfile(false);
+    }
+  }, [profileName, profileAddress, completeProfile, sendPayload, stay]);
 
   /* The app-wide pill takes over the wait, so leaving this screen does not
      mean losing sight of the answer. */
@@ -274,36 +342,56 @@ export default function OwnerConfirmation() {
   const [devBusy, setDevBusy] = useState(false);
   const [devError, setDevError] = useState<string | null>(null);
 
-  const devSkipPayment = useCallback(() => {
+  const devSkipPayment = useCallback(async () => {
     if (!stay.request?.id || devBusy) return;
-    Alert.alert(
-      'Mark payment as done?',
-      'Development bypass — no payment is taken and nothing is owed. The visit will behave '
-      + 'as though the ₹199 had been paid so the rest of the flow can be tested.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Mark as paid',
-          onPress: async () => {
-            setDevBusy(true);
-            setDevError(null);
-            try {
-              await devMarkVisitPaid(String(stay.request!.id));
-              await stay.refresh();
-            } catch (err) {
-              setDevError(
-                err instanceof ApiError
-                  ? err.displayMessage
-                  : 'We could not mark it paid. Please try again.',
-              );
-            } finally {
-              setDevBusy(false);
-            }
-          },
-        },
-      ],
-    );
-  }, [stay, devBusy]);
+
+    /* The app's own dialog — see `AppAlert`. Warning-toned rather than
+       destructive: nothing is lost by doing this, it simply is not a real
+       payment, and the copy is what says so. */
+    const ok = await confirm({
+      title: 'Mark payment as done?',
+      message: 'Development bypass — no payment is taken and nothing is owed. The visit will '
+        + 'behave as though the ₹199 had been paid so the rest of the flow can be tested.',
+      confirmLabel: 'Mark as paid',
+      cancelLabel: 'Cancel',
+      tone: 'warning',
+    });
+    if (!ok) return;
+
+    setDevBusy(true);
+    setDevError(null);
+    try {
+      await devMarkVisitPaid(String(stay.request!.id));
+      /*
+       * The server's answer, read back.
+       *
+       * Nothing here navigates. `payment.status` flipping to `paid` is what
+       * the effect above is watching, and it routes to the slot picker or
+       * straight to the booking depending on whether a slot has been chosen —
+       * the same two destinations a real payment lands on. Pushing a screen
+       * from here would be a second, divergent copy of that decision.
+       */
+      await stay.refresh();
+    } catch (err) {
+      /*
+       * The route 404s when the flag is off, which is the likeliest failure
+       * by far now that the button is drawn without waiting for the server to
+       * offer it. `displayMessage` on a 404 is generic, so this says the one
+       * thing that actually unblocks it.
+       */
+      const notEnabled = err instanceof ApiError && (err.status === 404 || err.status === 403);
+      setDevError(
+        notEnabled
+          ? 'The server does not allow this. Set DEV_ALLOW_MARK_PAID="true" in Backend/.env '
+            + '(NODE_ENV must not be production) and restart it.'
+          : err instanceof ApiError
+            ? err.displayMessage
+            : 'We could not mark it paid. Please try again.',
+      );
+    } finally {
+      setDevBusy(false);
+    }
+  }, [stay, devBusy, confirm]);
 
 
   /*
@@ -371,8 +459,24 @@ export default function OwnerConfirmation() {
       ...(flexibleJoin ? { flexibleJoin } : null),
     };
 
+    /*
+     * Where a settled payment goes, and it depends on what it bought.
+     *
+     * An assisted VISIT buys a viewing, so the next thing is a day and a
+     * time: the slot picker, and the address is released with the slot.
+     *
+     * A stay BOOKING buys the stay. The guest chose their dates before the
+     * owner ever saw the request, nobody is being sent to meet them, and the
+     * server leaves `lamposeVisit.status` at `none` for exactly this reason —
+     * so there is nothing to schedule and the booking is finished. Sending a
+     * hotel guest to a slot picker would ask them to arrange a viewing of a
+     * room they have already paid for.
+     */
     const visitStatus = stay.request?.lamposeVisit?.status;
-    if (stay.request?.payment?.required && visitStatus !== 'scheduled' && visitStatus !== 'manual') {
+    const buysAVisit = (stay.request?.payment?.purpose ?? 'assisted_visit') === 'assisted_visit';
+
+    if (stay.request?.payment?.required && buysAVisit
+      && visitStatus !== 'scheduled' && visitStatus !== 'manual') {
       router.replace({
         pathname: '/visit/slot',
         params: { requestId: String(stay.request.id), ...passthrough },
@@ -382,7 +486,8 @@ export default function OwnerConfirmation() {
 
     router.replace({ pathname: '/booked/[id]', params: passthrough } as never);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paying, stay.request?.payment?.status, stay.request?.lamposeVisit?.status, stay.phase]);
+  }, [paying, stay.request?.payment?.status, stay.request?.payment?.purpose,
+    stay.request?.lamposeVisit?.status, stay.phase]);
 
   /* Read back before anything is drawn, so a student returning to a wait
      never sees the form flash first. */
@@ -452,6 +557,46 @@ export default function OwnerConfirmation() {
    * by `createdAt`, `notifiedAt`, `seenAt`, `decidedAt`, `bookingId` and
    * `entryPinIssuedAt` respectively.
    */
+  const tokenDue = Boolean(
+    stay.request?.payment?.required && stay.request.payment.status !== 'paid',
+  );
+  const tokenAmount = (stay.request?.payment?.amountPaise ?? 0) / 100;
+  /*
+   * Which of the two payments this is.
+   *
+   * A visit fee and a room bill are the same subdocument and completely
+   * different sentences: one is a charge for somebody's afternoon, the other
+   * is the price of the stay. Every string below branches on this rather than
+   * on the category, so a request keeps the wording it was created with.
+   */
+  const isStayBooking = (stay.request?.payment?.purpose ?? 'assisted_visit') === 'stay_booking';
+
+  /**
+   * How the stay total was arrived at — "3 nights · ₹1,200 a night".
+   *
+   * Read off the SERVER's resolved intent, never recomputed here. The figure
+   * on the button is the one being charged, and a breakdown this screen
+   * multiplied out itself could disagree with it — which, on a payment
+   * screen, is the one disagreement nobody forgives.
+   *
+   * Null when the intent carries no quantity, which is every non-hotel
+   * category. The caption falls back to a plain sentence rather than printing
+   * a half-built line.
+   */
+  const stayBreakdown = (() => {
+    const intent = stay.request?.intent;
+    if (!intent?.rateQuantity || !intent?.rateAmount) return null;
+
+    const unit = intent.rateQuantityUnit ?? 'nights';
+    /* "1 night", not "1 nights". The server's unit is always plural. */
+    const counted = `${intent.rateQuantity} ${
+      intent.rateQuantity === 1 ? unit.replace(/s$/, '') : unit
+    }`;
+    const per = unit === 'nights' ? 'a night' : unit === 'months' ? 'a month' : 'an hour';
+
+    return `${counted} · ₹${intent.rateAmount.toLocaleString('en-IN')} ${per}`;
+  })();
+
   const answered = accepted || declined || ranOut || cancelled;
 
   const steps: readonly TrailStep[] = [
@@ -529,7 +674,21 @@ export default function OwnerConfirmation() {
        Lampose representative is at the door, so there is nothing to match —
        and promising one would leave this row "pending" forever. Its slot in
        the trail is the visit schedule instead. */
-    stay.request?.payment?.required
+    /* A stay booking's last row is the PAYMENT, because that is the last thing
+       that has to happen. It has no slot and no entry PIN to wait for. */
+    stay.request?.payment?.required && isStayBooking
+      ? {
+        id: 'paid',
+        label: stay.request?.payment?.status === 'paid'
+          ? 'Booking paid'
+          : `Pay ₹${tokenAmount.toLocaleString('en-IN')} to confirm`,
+        note: stay.request?.payment?.status === 'paid'
+          ? 'Your dates are booked. The address is on your booking.'
+          : 'Your dates are held until this is paid.',
+        when: stamp(stay.request?.payment?.paidAt),
+        state: (stay.request?.payment?.status === 'paid' ? 'done' : 'pending') as TrailStep['state'],
+      }
+      : stay.request?.payment?.required
       ? {
         id: 'slot',
         label: stay.request?.lamposeVisit?.status === 'scheduled'
@@ -552,10 +711,6 @@ export default function OwnerConfirmation() {
       },
   ];
 
-  const tokenDue = Boolean(
-    stay.request?.payment?.required && stay.request.payment.status !== 'paid',
-  );
-  const tokenAmount = (stay.request?.payment?.amountPaise ?? 0) / 100;
   /* Said before the sheet opens, not by it. A student who picked a layout and
      waited for an owner should not meet the price for the first time as a
      payment request. */
@@ -564,7 +719,17 @@ export default function OwnerConfirmation() {
       tint: colors.success.tint,
       ink: colors.success.ink,
       title: `${owner} confirmed`,
-      body: 'Your room is held. Nothing has been charged.' + (tokenDue ? ` Book your assisted visit for ₹${tokenAmount} — a Lampose representative accompanies you, and you pick the day and time right after paying.` : '') + '',
+      body: tokenDue
+        ? (isStayBooking
+          /* A hotel: the money IS the booking, and the dates are already
+             chosen. Saying "nothing has been charged" here would be true for
+             one more tap and misleading about what the tap does. */
+          ? `Your room is held. Pay ₹${tokenAmount.toLocaleString('en-IN')} to confirm the booking — `
+            + 'your dates are already set, and the address arrives the moment it clears.'
+          : `Your room is held. Nothing has been charged. Book your assisted visit for ₹${tokenAmount} `
+            + '— a Lampose representative accompanies you, and you pick the day and time right '
+            + 'after paying.')
+        : 'Your room is held. Nothing has been charged.',
     }
     : bedTaken
       ? {
@@ -621,6 +786,22 @@ export default function OwnerConfirmation() {
 
 
 
+  /*
+   * The countdown already polls the server every three seconds while
+   * waiting — see `useStayRequest`. A manual pull is still worth offering as
+   * a nudge, and it is harmless on the terminal states too, where the poll
+   * has stopped. `stay.refresh()` is a no-op with nothing to refresh before a
+   * request id exists.
+   */
+  const onRefresh = async () => {
+    setManualRefreshing(true);
+    try {
+      await Promise.all([refetchListing(), stay.refresh()]);
+    } finally {
+      setManualRefreshing(false);
+    }
+  };
+
   const askAgain = () => {
     stay.reset();
     clearPill();
@@ -629,10 +810,34 @@ export default function OwnerConfirmation() {
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.bg, paddingBottom: insets.bottom }]}>
-      <StatusBar style="auto" />
-      {/* No back arrow while a request is in flight: backing out has to mean
-          something definite, so the only ways off are the buttons. */}
-      <StandardHeader title="Owner confirmation" subtitle={listing.name} />
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      {/*
+        A way back.
+
+        This screen had no back arrow, on the reasoning that "backing out has
+        to mean something definite, so the only ways off are the buttons".
+        That held while a floating pill followed the request around the app —
+        leaving was safe because the request came with you. The pill is gone,
+        and without it a student who opened this screen had exactly one way
+        off it per state, several of which sit below the fold on a short
+        phone. The OS back gesture did nothing.
+
+        Backing out does not cancel anything, and it should not: the request
+        lives on the server, it is listed in Alerts the moment the owner
+        answers, and "Withdraw request" is still the only thing that ends it.
+        So this is navigation, not a decision — which is why it is a plain
+        arrow and not a prompt.
+
+        `canGoBack()` because this screen is reached by `push` from the
+        listing but by `replace` from the slot picker and from a push
+        notification; home is the honest destination when there is nothing
+        underneath.
+      */}
+      <StandardHeader
+        title="Owner confirmation"
+        subtitle={listing.name}
+        onBack={() => (router.canGoBack() ? router.back() : router.replace('/home'))}
+      />
 
       <ScrollView
         style={{ backgroundColor: colors.bg }}
@@ -642,6 +847,9 @@ export default function OwnerConfirmation() {
           paddingBottom: space[8],
           gap: space[5],
         }}
+        refreshControl={
+          <RefreshControl refreshing={manualRefreshing} onRefresh={onRefresh} tintColor={colors.brand} />
+        }
       >
         {/* Step 1 — sending. `idle` is included so an auto-sending request
             shows this rather than a blank frame before the effect runs. */}
@@ -708,8 +916,66 @@ export default function OwnerConfirmation() {
           here: "This owner is not on Lampose Stay Partner yet" and "Every bed
           in this room type is taken" are completely different problems, and
           only one of them is worth retrying.
+
+          `PROFILE_INCOMPLETE` is the one exception. It is not really a
+          failure — it is the server saying "I need one more thing before I
+          can send this" — so instead of a dead end it gets the one thing
+          that actually resolves it: a name (owners read it off the
+          request), and, since this is genuinely the first moment this app
+          ever asks, an address alongside it. Saved once, fetched on every
+          later sign-in, never asked again.
         */}
-        {failed && stay.error ? (
+        {failed && stay.error?.code === 'PROFILE_INCOMPLETE' ? (
+          <View style={{ gap: space[3] }}>
+            <View style={{
+              backgroundColor: colors.surface,
+              borderRadius: radius.card,
+              padding: space[4],
+              gap: space[4],
+            }}
+            >
+              <View style={{ gap: space[1] }}>
+                <Text variant="bodyStrong">One more thing before we send this</Text>
+                <Text variant="caption" color="secondary">
+                  {listing?.ownerName ?? 'The owner'} sees this on your request. Saved to your account —
+                  you will not be asked again.
+                </Text>
+              </View>
+
+              <TextField
+                label="Your name"
+                value={profileName}
+                onChangeText={setProfileName}
+                placeholder="Anjali Reddy"
+                autoCapitalize="words"
+                textContentType="name"
+                helper="As on the ID you'll show at move-in."
+              />
+              <TextField
+                label="Your address"
+                optional
+                value={profileAddress}
+                onChangeText={setProfileAddress}
+                placeholder="House no., street, area, city"
+                autoCapitalize="sentences"
+                helper="For your records — not sent to the owner."
+              />
+
+              {profileError ? <InlineAlert tone="error" title="Not saved" body={profileError} /> : null}
+
+              <Button
+                label="Save and send request"
+                loadingLabel="Sending"
+                loading={savingProfile}
+                disabled={savingProfile || profileName.trim().length === 0}
+                onPress={retryAfterProfile}
+                fullWidth
+              />
+            </View>
+          </View>
+        ) : null}
+
+        {failed && stay.error && stay.error.code !== 'PROFILE_INCOMPLETE' ? (
           <View style={{ gap: space[3] }}>
             <View style={{
               backgroundColor: colors.warning.tint,
@@ -736,41 +1002,18 @@ export default function OwnerConfirmation() {
 
         {stay.request ? <OwnerStatusTrail steps={steps} /> : null}
 
-        {/* What confirming earns. Read-only: nothing has been paid. */}
-        {!declined && !ranOut && !cancelled && !failed && stay.request && confirmationRewards.length ? (
-          <Pressable
-            onPress={() => setRewardsOpen(true)}
-            accessibilityRole="button"
-            accessibilityLabel={`${confirmationRewards.length} offers unlock when this is confirmed. Opens a list.`}
-            style={({ pressed }) => [
-              styles.rewardStrip,
-              {
-                minHeight: touch.min,
-                paddingHorizontal: space[4],
-                paddingVertical: space[3],
-                gap: space[3],
-                borderRadius: radius.card,
-                backgroundColor: colors.success.tint,
-                borderColor: colors.success.border,
-                borderWidth: StyleSheet.hairlineWidth,
-                opacity: pressed ? 0.75 : 1,
-              },
-            ]}
-          >
-            <View style={[styles.rewardDisc, { backgroundColor: colors.brand, borderRadius: radius.pill }]}>
-              <Icon name="offer" size={20} color={colors.onBrand} />
-            </View>
-            <View style={styles.flex}>
-              <Text variant="bodyStrong" style={{ color: colors.success.ink }}>
-                {confirmationRewards.length} offers on this booking
-              </Text>
-              <Text variant="caption" style={{ color: colors.success.ink }}>
-                They come off the total when you pay
-              </Text>
-            </View>
-            <Icon name="chevronRight" size={20} color={colors.success.ink} />
-          </Pressable>
-        ) : null}
+        {/*
+          The "N offers on this booking" strip stood here, above the actions,
+          with a sheet behind it listing what confirming supposedly earned.
+
+          It is gone, and the reason is what was behind it rather than where it
+          sat. `confirmationRewards` was placeholder content — its own file said
+          so — and every line of it was a commercial promise this app had no way
+          to keep: nothing applies an offer, the payment screen does not read
+          them, and the amounts came off no total anywhere. A student waiting on
+          an owner was being shown three discounts that did not exist, on the
+          screen where they are deciding whether to go through with it.
+        */}
 
         {/* ── The actions, one set per ending ─────────────────────────── */}
 
@@ -781,26 +1024,72 @@ export default function OwnerConfirmation() {
                 request is a tap nobody meant to make. */}
             <Button
               label={tokenDue
-                ? (paying ? 'Checking your payment...' : `Pay ₹${tokenAmount} and continue`)
+                ? (paying
+                  ? 'Checking your payment...'
+                  : isStayBooking
+                    /* Names the total, and says what it buys. "Pay ₹3,600 and
+                       continue" reads as a step in a longer flow; this is the
+                       last one. */
+                    ? `Pay ₹${tokenAmount.toLocaleString('en-IN')} and book`
+                    : `Pay ₹${tokenAmount} and continue`)
                 : 'Continue to booking'}
               onPress={tokenDue ? payThenContinue : goToBooking}
               disabled={paying}
               fullWidth
             />
-            {/* DEVELOPMENT ONLY — see `devSkipPayment`. Server-gated, so it
-                vanishes with the flag rather than needing this edited back
-                out. Labelled so it cannot be mistaken for a payment option. */}
-            {tokenDue && stay.request?.payment?.devMarkPaidAllowed ? (
+            {/*
+              DEVELOPMENT ONLY — see `devSkipPayment`.
+
+              Two gates, and they do different jobs.
+
+              The BUILD gate (`previewControls`) decides whether the button is
+              drawn. It used to be the server's `devMarkPaidAllowed` alone,
+              which meant that on a server without `DEV_ALLOW_MARK_PAID` the
+              button was simply absent — with nothing on screen to say why, or
+              that it existed at all. A developer looking for it concluded it
+              had been removed.
+
+              The SERVER gate is still the one that decides whether it WORKS,
+              and it has to be: a client that could settle a payment by asking
+              nicely is the whole thing `foodPayment.confirmPayment` exists to
+              prevent. `env.js` refuses the flag outright under
+              NODE_ENV=production.
+
+              So on a dev build with the flag off, the button is visible and
+              says what to switch on — which is the useful state, and the one
+              that used to be invisible. On a production build neither gate is
+              open and none of this renders.
+            */}
+            {tokenDue && previewControls ? (
               <>
+                {/*
+                  NOT disabled by `paying`, unlike the real pay button above.
+
+                  `paying` means "a checkout may have just settled, ask the
+                  server a few times" — the focus effect sets it for about four
+                  and a half seconds every time this screen is opened on an
+                  unpaid request, whether or not anybody has been to a
+                  checkout. Gating this on it meant that on arriving at the
+                  accepted state the dev button was greyed out for the first
+                  few seconds: you tapped it, nothing happened, and it looked
+                  broken.
+
+                  There is nothing to protect against. The bypass settles the
+                  request server-side, and the poll that is in flight reads the
+                  same row and sees the same answer. `devBusy` still stops a
+                  double tap.
+                */}
                 <Button
                   label={devBusy ? 'Marking as paid…' : '🛠 DEV: mark payment as done'}
-                  onPress={devSkipPayment}
+                  onPress={() => { void devSkipPayment(); }}
                   variant="secondary"
-                  disabled={paying || devBusy}
+                  disabled={devBusy}
                   fullWidth
                 />
                 <Text variant="numMeta" color="tertiary" style={styles.centred}>
-                  Development bypass — no payment is taken
+                  {stay.request?.payment?.devMarkPaidAllowed
+                    ? 'Development bypass — no payment is taken'
+                    : 'Development bypass — needs DEV_ALLOW_MARK_PAID=true on the server'}
                 </Text>
               </>
             ) : null}
@@ -812,9 +1101,14 @@ export default function OwnerConfirmation() {
             {/* The caption under the button must not contradict the button.
                 With a payment due, it explains the figure instead. */}
             <Text variant="numMeta" color="tertiary" style={styles.centred}>
-              {tokenDue
-                ? '₹100 Lampose representative · ₹99 Lampose fee'
-                : 'Nothing is charged at any point'}
+              {!tokenDue
+                ? 'Nothing is charged at any point'
+                : isStayBooking
+                  /* The stay, broken down the way it was priced — the same
+                     figures the listing quoted, so the total is checkable
+                     rather than asserted. */
+                  ? stayBreakdown ?? 'The full amount for your stay'
+                  : '₹100 Lampose representative · ₹99 Lampose fee'}
             </Text>
           </View>
         ) : waiting ? (
@@ -894,33 +1188,6 @@ export default function OwnerConfirmation() {
         ) : null}
       </ScrollView>
 
-      <Dialog
-        visible={rewardsOpen}
-        onClose={() => setRewardsOpen(false)}
-        title="What you get when this is confirmed"
-        dismissLabel="Got it"
-      >
-        <View style={{ gap: space[4] }}>
-          <View style={[styles.rewardDisc, { backgroundColor: colors.brand, borderRadius: radius.pill }]}>
-            <Icon name="offer" size={20} color={colors.onBrand} />
-          </View>
-          {confirmationRewards.map((reward) => (
-            <View key={reward.id} style={[styles.rewardRow, { gap: space[3] }]}>
-              <Icon name="check" size={20} color={colors.brandInk} />
-              <View style={styles.flex}>
-                <Text variant="bodyStrong">{reward.label}</Text>
-                <Text variant="caption" color="tertiary">{reward.terms}</Text>
-              </View>
-            </View>
-          ))}
-          <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border }} />
-          <Text variant="caption" color="tertiary">
-            These are not codes to copy and nothing here expires while you wait. Whichever of them
-            apply to your booking come off the total on the payment screen.
-          </Text>
-        </View>
-      </Dialog>
-
       {/*
         Withdrawing is a real cancellation now.
 
@@ -948,9 +1215,5 @@ export default function OwnerConfirmation() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   centre: { alignItems: 'center', justifyContent: 'center' },
-  rewardStrip: { flexDirection: 'row', alignItems: 'center' },
-  rewardDisc: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  /* The tick pins to the first line, because the label may wrap. */
-  rewardRow: { flexDirection: 'row', alignItems: 'flex-start' },
   centred: { textAlign: 'center' },
 });

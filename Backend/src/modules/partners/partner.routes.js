@@ -36,7 +36,7 @@ const {
   MAX_KYC_IMAGES,
 } = require('./addCustomer.controller');
 const {
-  getMyPropertyById, updateMyProperty, setMyPropertyAvailability,
+  getMyPropertyById, updateMyProperty, setMyPropertyAvailability, removeMyProperty,
   uploadPropertyImages, MAX_PROPERTY_IMAGES,
 } = require('./propertyEdit.controller');
 
@@ -65,6 +65,7 @@ const {
 } = require('./portfolio.controller');
 const { createInvite, getInvites } = require('./customerReferral.controller');
 const { requirePartner } = require('./partnerAuth.middleware');
+const { makeLogout } = require('../iam/session.controller');
 const {
   registerPartnerDevice, unregisterPartnerDevice,
 } = require('../notifications/device.controller');
@@ -105,14 +106,17 @@ const {
   getBookings,
   getBookingById,
   checkInBooking,
+  devForceCheckInOwner,
   checkOutBooking,
   cancelBooking,
   getEarningsSummary,
   getPayouts,
   getPayoutById,
   requestPayout,
+  replyToReview,
   getPaymentMethods,
   addPaymentMethod,
+  setPrimaryPaymentMethod,
   deletePaymentMethod,
   getComplaints,
   getComplaintById,
@@ -128,7 +132,11 @@ const {
   withdrawReferral,
   getShareTypes,
   updateShareTypeAvailability,
+  updateOneShareTypeAvailability,
 } = require('./partnerDomains.controller');
+const {
+  getOnboarding, submitOnboarding, syncStatus, devActivate,
+} = require('./payoutOnboarding.controller');
 
 router.post('/auth/start', requireLamposeDb, startByIp, startByPhone, startAuth);
 router.post('/auth/resend', requireLamposeDb, resendByIp, resendByPhone, resendAuth);
@@ -149,6 +157,10 @@ router.patch('/me', requireLamposeDb, requirePartner, updateMe);
 router.post('/devices', requireLamposeDb, requirePartner, registerPartnerDevice);
 router.delete('/devices', requireLamposeDb, requirePartner, unregisterPartnerDevice);
 
+/* Signing out, server-side: forget this handset, or — `everywhere: true` —
+   end every session of the account. See iam/session.controller.js. */
+router.post('/auth/logout', requireLamposeDb, requirePartner, makeLogout('partner'));
+
 /* Dashboard summary */
 router.get('/summary', requireLamposeDb, requirePartner, getSummary);
 
@@ -166,6 +178,11 @@ router.patch('/properties/:id', requireLamposeDb, requirePartner, updateMyProper
    property at once — which left an owner with more than one no way to take a
    single listing off. See `setMyPropertyAvailability`. */
 router.patch('/properties/:id/availability', requireLamposeDb, requirePartner, setMyPropertyAvailability);
+
+/* Soft — sets `status: 'removed'`, never drops the document. Refused with a
+   409 while a guest is currently staying/due or a student is waiting on an
+   answer. See `removeMyProperty`. */
+router.delete('/properties/:id', requireLamposeDb, requirePartner, removeMyProperty);
 
 /* Refer a CUSTOMER, not another owner — a second, separate growth loop from
    /referrals below, sharing only the points wallet. Every code is minted off
@@ -240,6 +257,17 @@ router.post('/bookings', requireLamposeDb, requirePartner, createBooking);
 router.get('/bookings', requireLamposeDb, requirePartner, getBookings);
 router.get('/bookings/:id', requireLamposeDb, requirePartner, getBookingById);
 router.post('/bookings/:id/checkin', requireLamposeDb, requirePartner, checkInBooking);
+
+/*
+ * DEVELOPMENT ONLY — force both halves of a move-in, from the owner's app.
+ *
+ * 404s unless the server has `DEV_ALLOW_FORCE_CHECKIN` on, which `env.js`
+ * refuses under NODE_ENV=production. Scoped to a booking this partner owns,
+ * same as every route above. See `devForceCheckInOwner` for why it exists
+ * and when to delete it.
+ */
+router.post('/bookings/:id/dev-force-checkin', requireLamposeDb, requirePartner, devForceCheckInOwner);
+
 router.post('/bookings/:id/checkout', requireLamposeDb, requirePartner, checkOutBooking);
 router.post('/bookings/:id/cancel', requireLamposeDb, requirePartner, cancelBooking);
 
@@ -259,8 +287,33 @@ const payoutRequestLimit = rateLimit({
 });
 router.post('/payouts/request', requireLamposeDb, requirePartner, payoutRequestLimit, requestPayout);
 router.get('/payouts/:id', requireLamposeDb, requirePartner, getPayoutById);
+/* ── Payout onboarding — HOTEL owners only ────────────────────────────────
+   What Razorpay Route needs before it will settle to a hotel. Separate from
+   the payment methods below: those feed the older RazorpayX flow, where we
+   pay from an account we own; this makes the hotel a sub-merchant Razorpay
+   pays directly. See `payoutOnboarding.controller.js`.
+
+   Every route is scoped to `req.partner` — an owner can only ever read or
+   write their own. */
+router.get('/payout-onboarding', requireLamposeDb, requirePartner, getOnboarding);
+router.post(
+  '/payout-onboarding',
+  requireLamposeDb, requirePartner,
+  /* Submitting reaches a payment gateway and creates a merchant record, so it
+     is limited — generously, because a form that failed on a typo should be
+     re-submittable a few times. */
+  rateLimit({
+    name: 'partner-payout-onboarding', windowMs: 60 * 60 * 1000, max: 12, keyOf: partnerKey,
+  }),
+  submitOnboarding,
+);
+router.post('/payout-onboarding/refresh', requireLamposeDb, requirePartner, syncStatus);
+/* DEVELOPMENT ONLY — 404s unless the server allows it. See `devActivate`. */
+router.post('/payout-onboarding/dev-activate', requireLamposeDb, requirePartner, devActivate);
+
 router.get('/payment-methods', requireLamposeDb, requirePartner, getPaymentMethods);
 router.post('/payment-methods', requireLamposeDb, requirePartner, addPaymentMethod);
+router.patch('/payment-methods/:id/primary', requireLamposeDb, requirePartner, setPrimaryPaymentMethod);
 router.delete('/payment-methods/:id', requireLamposeDb, requirePartner, deletePaymentMethod);
 
 /* Complaints & Support */
@@ -281,6 +334,9 @@ router.delete('/staff/:id', requireLamposeDb, requirePartner, removeStaff);
 
 /* Reviews */
 router.get('/reviews', requireLamposeDb, requirePartner, getReviews);
+/* The owner's answer to a review. Saved on the review and shown to every
+   student who reads it — see `GET /listings/:id/reviews`. */
+router.post('/reviews/:id/reply', requireLamposeDb, requirePartner, replyToReview);
 
 /* Referrals */
 router.get('/referrals', requireLamposeDb, requirePartner, getReferralInfo);
@@ -289,5 +345,8 @@ router.post('/referrals/withdraw', requireLamposeDb, requirePartner, withdrawRef
 /* Share Types & Availability */
 router.get('/share-types', requireLamposeDb, requirePartner, getShareTypes);
 router.patch('/share-types/availability', requireLamposeDb, requirePartner, updateShareTypeAvailability);
+/* One room type, not the whole portfolio — see the note on
+   `updateOneShareTypeAvailability` in partnerDomains.controller.js. */
+router.patch('/share-types/:shareTypeId/availability', requireLamposeDb, requirePartner, updateOneShareTypeAvailability);
 
 module.exports = router;

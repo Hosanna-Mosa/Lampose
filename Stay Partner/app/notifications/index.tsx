@@ -18,6 +18,7 @@ export default function NotificationsScreen() {
   const router = useRouter();
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadNotifications = async () => {
     try {
@@ -41,6 +42,15 @@ export default function NotificationsScreen() {
   useEffect(() => {
     loadNotifications();
   }, []);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await loadNotifications();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const handleMarkAllRead = async () => {
     try {
@@ -76,6 +86,8 @@ export default function NotificationsScreen() {
   return (
     <Screen
       contentStyle={styles.stack}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
       stickyHeader={
         <>
           <View style={styles.backRow}>

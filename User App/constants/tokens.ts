@@ -186,13 +186,28 @@ const lightColors: ThemeColors = {
    *
    * Every value below is either a supplied token or a measured derivation of
    * one. Contrast ratios are in the comments; none of them is a guess.
+   *
+   * ## The ground was repainted pure white on 10 Sep 2026
+   *
+   * The Dock sheet's `#EFEDE9` bone tone read as a skin/beige cast rather
+   * than a considered warmth once it was on an actual phone next to the
+   * Stay Partner app's screens — a plain product request to match, not a
+   * contrast fix. `bg` and every neutral derived from it (the two surface
+   * steps, both borders) move to true white/grey here; nothing else in the
+   * palette changes. This is safe on every contrast ratio the comments
+   * below still describe: every one of them was measured against the OLD,
+   * DARKER `#EFEDE9` ground, and a lighter ground only widens the gap to a
+   * foreground colour that was already dark enough to clear it — it cannot
+   * newly fail. `textPrimary`/`textSecondary`/`textTertiary` and every
+   * accent/semantic colour are untouched.
    */
-  bg: '#EFEDE9',
+  bg: '#FFFFFF',
   surface: '#FFFFFF',
-  // A card sitting on another card. Warm enough to separate from pure white.
-  surfaceRaised: '#F7F5F1',
+  // A card sitting on another card — a hairline border carries the
+  // separation now that both are literally the same white.
+  surfaceRaised: '#FFFFFF',
   // Inset wells: skeletons, disabled fields, image placeholders, sold-out rows.
-  surfaceSunken: '#E5E2DB',
+  surfaceSunken: '#F0F0F0',
 
   // INK, supplied. 15.1:1 on the ground, 17.6:1 on a card.
   textPrimary: '#1A1917',
@@ -204,18 +219,20 @@ const lightColors: ThemeColors = {
    * a disabled button, which is drawn on `surfaceSunken` (4.8:1). The warm
    * grey was walked down to #66625A precisely so the third of those clears
    * 4.5 — the first draft at #6E6A62 passed the first two and failed that one.
+   * Both grounds it is measured against are lighter now, so all three ratios
+   * above are floors, not current figures — this colour still clears them.
    */
   textTertiary: '#66625A',
 
-  border: '#E2DED6',
-  borderSubtle: '#EDEAE4',
+  border: '#E6E6E6',
+  borderSubtle: '#F0F0F0',
   /*
    * The edge of an EMPTY interactive field, per WCAG 1.4.11's 3:1 for the
    * boundary of a control. 3.5:1 on the white field fill and 3.0:1 on the
    * ground behind it. `border` above is decorative and deliberately far
    * fainter — right for a card, wrong for a control nobody has answered yet.
    */
-  borderInput: '#8F897C',
+  borderInput: '#8C8C8C',
 
   // ACCENT, supplied.
   brand: '#0E6E5C',
@@ -297,11 +314,36 @@ const lightColors: ThemeColors = {
 /**
  * Dark palette.
  *
- * Derived, not supplied — the Dock sheet is light-only. The rule followed:
- * keep the relationships, invert the ground, and keep it WARM. A neutral-grey
- * dark mode under a bone-and-teal light mode reads as a different product.
+ * Derived, not supplied — the Dock sheet is light-only.
  *
- * Two rules inverted relative to light, both deliberate:
+ * ## The neutrals are CHARCOAL, not brown. This is the correction.
+ *
+ * They used to be a warm ramp derived from the light mode's bone ground:
+ * `#131211`, `#1C1B19`, `#252320`, with text and borders warmed to match. The
+ * reasoning was that "a neutral-grey dark mode under a bone-and-teal light
+ * mode reads as a different product", and on paper that is a fair instinct.
+ *
+ * It does not survive contact with a phone, for a reason specific to dark
+ * mode. A warm tint is a small addition of red and green, and at high
+ * lightness — the light mode's `#EFEDE9` — the eye reads it as paper: there is
+ * plenty of luminance for the hue to be a subtle quality of a white. Near
+ * black there is almost no luminance left, so the same small addition is most
+ * of what the colour IS, and there is nothing for the eye to read it against.
+ * `#1C1B19` does not look like a warm dark grey. It looks like brown, and
+ * eight surfaces of it look like mud — which is what this was reported as.
+ *
+ * The warmth is spent where dark mode can actually carry it: `#101113` through
+ * `#232629` is a near-neutral charcoal with a trace of blue, which is what
+ * keeps it from reading as flat digital grey. The teal accent and the
+ * per-category marks are untouched — the product's identity in dark mode is
+ * the accent and the type, and neither of those changed.
+ *
+ * Every ratio below was re-measured against the new grounds, and each one
+ * meets or beats what the warm ramp gave: primary text 15.7:1 on a card,
+ * secondary 9.7:1, tertiary 5.7:1, and `borderInput` 3.7:1 against WCAG
+ * 1.4.11's 3:1 for the boundary of an empty control.
+ *
+ * Two rules stay inverted relative to light, both deliberate:
  *   - `brandPressed` goes lighter than `brand`, not darker.
  *   - `onBrand` is near-black, not white. The accent has to be lightened to
  *     #2E9B84 to sit on a near-black ground, and white on that is 3.4:1 —
@@ -309,57 +351,79 @@ const lightColors: ThemeColors = {
  *     shared across modes, and it is why `onBrand` exists at all.
  */
 const darkColors: ThemeColors = {
-  bg: '#131211',
-  surface: '#1C1B19',
-  surfaceRaised: '#252320',
-  surfaceSunken: '#0E0D0C',
+  /* The ground, and three surfaces off it. The steps are deliberately small —
+     1.09 and 1.13 — because separation in dark mode comes from the hairline
+     border, not from stacking ever-lighter greys until a card glows. */
+  bg: '#101113',
+  surface: '#191B1E',
+  surfaceRaised: '#232629',
+  surfaceSunken: '#0A0B0C',
 
-  textPrimary: '#F2F0EC',
-  textSecondary: '#BFBAB1',
-  // 5.4:1 on a card. The light-mode tertiary correction applies here too.
-  textTertiary: '#948F87',
+  // 15.7:1 on a card, 17.2:1 on the ground.
+  textPrimary: '#F3F4F6',
+  // 9.7:1 on a card.
+  textSecondary: '#BEC3CA',
+  /* 5.7:1 on a card and 5.0:1 on `surfaceRaised`, which is the tightest of the
+     three grounds this token has to clear — the same three-ground rule the
+     light palette's tertiary was walked down for. */
+  textTertiary: '#8F959D',
 
-  border: '#302E2A',
-  borderSubtle: '#232220',
-  /* 3.4:1 on the dark surface — the same empty-field rule, one palette over. */
-  borderInput: '#736E64',
+  border: '#2C2F34',
+  borderSubtle: '#212429',
+  /* 3.7:1 on the dark surface — the same empty-field rule, one palette over. */
+  borderInput: '#6E747C',
 
-  // ACCENT lightened until it reads on a near-black ground.
+  /* ACCENT lightened until it reads on a near-black ground. Unchanged: the
+     teal is the identity, and it was never the thing that looked brown. */
   brand: '#2E9B84',
   brandPressed: '#3FB39A',
-  // Near-black, not white — see the note above.
-  onBrand: '#0B1512',
+  // Near-black, not white — see the note above. 5.5:1.
+  onBrand: '#08130F',
   // Accent type on a dark ground goes the other way: lighter still. 8.6:1.
   brandInk: '#5FC9AF',
-  brandTint: '#0F2721',
+  /* The wash behind a selected row. Pulled a step toward the new ground so it
+     sits ON the charcoal rather than on the brown it was mixed against.
+     7.9:1 for `brandInk` on it. */
+  brandTint: '#102622',
   brandOnDark: '#8FD6C3',
 
-  graphite: '#252320',
-  graphiteRaised: '#302E2A',
-  onGraphite: '#F2F0EC',
-  onGraphiteMuted: '#A9A398',
+  /* The inverted surface — snackbars, the photo counter pill. In dark mode it
+     is the raised surface rather than a second near-black. */
+  graphite: '#232629',
+  graphiteRaised: '#2C2F34',
+  onGraphite: '#F3F4F6',
+  onGraphiteMuted: '#A3A9B1',
 
   scrim: 'rgba(0,0,0,0.62)',
 
-  success: { base: '#2E9B84', ink: '#7FD3BE', tint: '#0F2721', border: '#2A5A4E', on: '#0B1512' },
-  // CAUTION lightened the same way: #A85A1E is 1.9:1 on a dark card.
+  success: { base: '#2E9B84', ink: '#7FD3BE', tint: '#102622', border: '#295A4E', on: '#08130F' },
+  /* CAUTION lightened the same way: #A85A1E is 1.9:1 on a dark card. Its tint
+     KEEPS its hue — a warning is meant to read warm, and unlike the neutrals
+     it is a small tinted patch seen against charcoal rather than the whole
+     screen. 9.4:1 for its ink. */
   warning: {
     base: '#E0954A',
-    ink: '#EEBC85',
-    tint: '#2C1E0E',
-    border: '#5C4322',
-    borderStrong: '#8A6631',
-    on: '#1A1917',
+    ink: '#EFBE88',
+    tint: '#2A2013',
+    border: '#57452A',
+    borderStrong: '#8A6A38',
+    on: '#101113',
   },
-  danger: { base: '#F08078', ink: '#F5A49E', tint: '#2C1513', border: '#5E2A26', on: '#1A1917' },
-  // Neutral, matching light mode — a caveat is not good news.
-  info: { base: '#BFBAB1', ink: '#F2F0EC', tint: '#252320', border: '#302E2A', on: '#131211' },
+  danger: { base: '#F08078', ink: '#F5A79F', tint: '#2B1A19', border: '#5C2F2B', on: '#101113' },
+  /* Neutral, matching light mode — a caveat is not good news. It follows the
+     charcoal ramp, which is the whole point of it being the neutral role. */
+  info: { base: '#BEC3CA', ink: '#F3F4F6', tint: '#232629', border: '#2C2F34', on: '#101113' },
 
+  /* The category marks keep their hues — they are a taxonomy and telling them
+     apart is their job. Only the TINTS moved, off the brown ramp and onto
+     grounds mixed against the new charcoal, so a category chip sits on the
+     card rather than glowing off it. Every `ink` still clears 9:1 on its own
+     tint. */
   category: {
-    PG_HOSTEL: { mark: '#D9AC5E', ink: '#E9CB96', tint: '#2E250F', code: 'PG' },
-    BACHELOR: { mark: '#C98FBC', ink: '#DDB4D3', tint: '#2A1626', code: 'BR' },
-    COLIVE: { mark: '#6FAAC4', ink: '#A3C9DA', tint: '#12262E', code: 'HC' },
-    HOTEL: { mark: '#8FBC7C', ink: '#B4D3A6', tint: '#1A2614', code: 'HT' },
+    PG_HOSTEL: { mark: '#D9AC5E', ink: '#E9CB96', tint: '#2A2416', code: 'PG' },
+    BACHELOR: { mark: '#C98FBC', ink: '#DDB4D3', tint: '#261A24', code: 'BR' },
+    COLIVE: { mark: '#6FAAC4', ink: '#A3C9DA', tint: '#15242B', code: 'HC' },
+    HOTEL: { mark: '#8FBC7C', ink: '#B4D3A6', tint: '#1B2519', code: 'HT' },
   },
 };
 
@@ -369,7 +433,7 @@ export const palettes = { light: lightColors, dark: darkColors };
  * Typography
  * ------------------------------------------------------------------ */
 
-export type TypeFace = 'display' | 'body' | 'numeric';
+export type TypeFace = 'display' | 'body' | 'numeric' | 'stays';
 
 export type TypeStyle = {
   face: TypeFace;
@@ -448,6 +512,122 @@ export const typeScale = {
 
 export type TypeVariant = keyof typeof typeScale;
 
+/* ══════════════════════════════════════════════════════════════════════════
+   STAYS TYPOGRAPHY — one family, four steps.
+
+   Every variant name in `typeScale` above still exists, because ninety-nine
+   screens name them and renaming type at that many call sites is how a
+   redesign turns into a month of regressions. What changed is what they
+   RESOLVE to: seventeen distinct size/weight pairs across three families
+   collapse onto four, on Manrope alone.
+
+   The four:
+
+     TITLE    20 / 700   the one big thing on a screen — a page title, the
+                         rent on a listing, the amount on a receipt
+     HEADING  15 / 600   section headings and card titles
+     BODY     13 / 400   everything read as a sentence
+     META     11 / 500   labels, captions, timestamps, secondary figures
+
+   ## Why four and not five
+
+   Because the fifth is always the one that makes the other four negotiable.
+   Four steps can be held in the head — a designer adding a screen next month
+   picks one of four rather than judging between 12 and 12.5 — and they are far
+   enough apart (20 → 15 → 13 → 11) that the hierarchy survives a small
+   phone and an OS font-size bump.
+
+   ## What is deliberately lost
+
+   `letterSpacing` per variant is gone; Manrope is drawn tight enough that the
+   negative tracking the display face needed is no longer wanted. The
+   uppercase treatment survives on `label` and `eyebrow` because that is
+   meaning rather than size, and tabular figures survive on everything numeric
+   for the reason they always did: a countdown that reflows its row is worse
+   than one that is a pixel wide.
+
+   FOOD IS NOT AFFECTED. It keeps `typeScale` and the three original families
+   — see `TypographyScope`.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const STAYS_STEPS = {
+  /*
+   * Weights sit one notch above where a print scale would put them.
+   *
+   * Manrope is a light-cored face and these are small sizes on phone panels
+   * that are often dim, often in sunlight, and often cheap. At 400 the body
+   * step read thin against the surface behind it, so every step moved up:
+   * body to 500, meta to 600, heading to 700. The sizes are unchanged, so the
+   * hierarchy is identical — it is the same four steps, set heavier.
+   *
+   * Title stays at 700 because that is the top of what is loaded, and it is
+   * already the heaviest thing on any screen.
+   */
+  title: { face: 'stays', size: 20, weight: 700, lineHeight: 26, letterSpacing: -0.3 },
+  heading: { face: 'stays', size: 15, weight: 700, lineHeight: 20, letterSpacing: -0.1 },
+  body: { face: 'stays', size: 13, weight: 500, lineHeight: 19, letterSpacing: 0 },
+  meta: { face: 'stays', size: 11, weight: 600, lineHeight: 15, letterSpacing: 0 },
+} as const;
+
+/**
+ * Every existing variant, mapped onto one of the four.
+ *
+ * Read this as the redesign itself: it is the whole decision about what counts
+ * as a title, a heading, body copy or metadata on the stay side, written once.
+ */
+export const staysTypeScale = {
+  /* TITLE · 20/700 — the one big thing on a screen. */
+  display1: STAYS_STEPS.title,
+  priceHero: { ...STAYS_STEPS.title, tabular: true },
+
+  /* HEADING · 15/600 — section headings, card titles, and any figure that
+     needs to outrank the sentence beside it. */
+  display2: STAYS_STEPS.heading,
+  title1: STAYS_STEPS.heading,
+  title2: STAYS_STEPS.heading,
+  title3: STAYS_STEPS.heading,
+  priceLg: { ...STAYS_STEPS.heading, tabular: true },
+
+  /* BODY · 13/400 — everything read as a sentence.
+
+     `bodyStrong` resolves here too, which is the one real casualty of holding
+     to four steps: emphasis inside a sentence is gone rather than bolder. The
+     alternative was a fifth pair at 13/600, and a bold body IS the fifth step
+     every four-step scale grows first. Promoting it to HEADING instead would
+     have been worse — 15px inside a 13px paragraph breaks the line rhythm. */
+  bodyLg: STAYS_STEPS.body,
+  body: STAYS_STEPS.body,
+  bodyStrong: STAYS_STEPS.body,
+  priceMd: { ...STAYS_STEPS.body, tabular: true },
+
+  /* META · 11/500 — labels, captions, timestamps, secondary figures.
+
+     `label` and `eyebrow` stay distinguishable without a heavier weight,
+     because what marks them is uppercase and tracking — that is meaning, not
+     size, so it survives the collapse. */
+  caption: STAYS_STEPS.meta,
+  numMeta: { ...STAYS_STEPS.meta, tabular: true },
+  priceSm: { ...STAYS_STEPS.meta, tabular: true },
+  label: { ...STAYS_STEPS.meta, letterSpacing: 0.8, upper: true },
+  eyebrow: { ...STAYS_STEPS.meta, letterSpacing: 1.1, upper: true },
+
+  /*
+   * The one exception, and it is not a size decision.
+   *
+   * `codeHero` is the six-character gate code a student holds up at a door. It
+   * is deliberately enormous and deliberately unscalable, because the whole
+   * screen exists to be read across a lobby and its layout breaks the moment
+   * the code wraps. Making it 20px to satisfy a four-step scale would defeat
+   * the screen. It moves onto Manrope with everything else.
+   */
+  codeHero: {
+    face: 'stays', size: 44, weight: 700, lineHeight: 48, letterSpacing: 1,
+    tabular: true, noScale: true,
+  },
+} as const satisfies Record<TypeVariant, TypeStyle>;
+
+
+
 /**
  * Loaded font family names, keyed by face and weight.
  *
@@ -494,6 +674,25 @@ export const fontFamilies: Record<TypeFace, Record<400 | 500 | 600 | 700, string
     600: 'DMMono_500Medium',
     700: 'DMMono_500Medium',
   },
+
+  /*
+   * STAYS — one family, every weight.
+   *
+   * Manrope, replacing the Outfit/Source Sans/DM Mono trio across the stay
+   * side of the app. It is a UI face rather than a text face: open apertures
+   * that hold up at 11px on a cheap panel, and numerals that are close enough
+   * to uniform width that a changing rent does not reflow the row around it.
+   *
+   * One family for headings, prose AND figures is the point. Three faces meant
+   * a price sat in a different typeface from the label above it and the total
+   * below it, which is a lot of visual difference to carry for no information.
+   */
+  stays: {
+    400: 'Manrope_400Regular',
+    500: 'Manrope_500Medium',
+    600: 'Manrope_600SemiBold',
+    700: 'Manrope_700Bold',
+  },
 };
 
 export function resolveFontFamily(face: TypeFace, weight: 400 | 500 | 600 | 700): string {
@@ -538,6 +737,8 @@ export const maxFontSizeMultiplier: Record<TypeFace, number> = {
   display: MAX_FONT_SCALE,
   body: MAX_FONT_SCALE,
   numeric: MAX_FONT_SCALE,
+  /* Stays uses the body cap: it IS the body face now. */
+  stays: 1.3,
 };
 
 /* ------------------------------------------------------------------ *

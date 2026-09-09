@@ -148,6 +148,25 @@ const SUPPORT_ROOM = 'support';
  * about in detail — an unauthenticated socket is simply disconnected, and the
  * app reconnects with a fresh token when its session refreshes.
  */
+/* Which collection holds a token type's session version. Only the two
+   stay-side identities carry one today; the other two pass through. */
+const SESSION_MODEL = {
+  customer: () => [require('../../modules/customers/customer.model'), 'customerId'],
+  partner: () => [require('../../modules/partners/partner.model'), 'partnerId'],
+};
+
+const sessionStillValid = async (claims) => {
+  const pick = SESSION_MODEL[claims.typ];
+  if (!pick) return true;
+  try {
+    const [Model, key] = pick();
+    const doc = await Model.findOne({ [key]: String(claims.sub) }).select('status sessionVersion').lean();
+    return Boolean(doc) && doc.status !== 'blocked' && (doc.sessionVersion || 0) === (claims.ver || 0);
+  } catch {
+    return false;
+  }
+};
+
 const identify = async (token) => {
   if (!token || !config.auth.configured) return null;
   let claims;
@@ -161,32 +180,34 @@ const identify = async (token) => {
 
   const kind = KIND_OF_TYPE[claims.typ];
   if (kind && claims.sub) {
+    /* The two stay-side identities carry a session version (see
+       iam/session.controller.js). One indexed read at the handshake — not per
+       event — so that "sign out everywhere" also closes the live line. */
+    if (!(await sessionStillValid(claims))) return null;
     return { kind, id: String(claims.sub), room: ROOM_OF_TYPE[claims.typ](claims) };
   }
 
   /*
    * An administrator, for the support queue.
    *
-   * The v1 admin console's token is `jwt.sign({ id })` — it carries no `typ`
-   * at all, which is why it falls through the map above rather than being
-   * listed in it. That absence is load-bearing: a token with no `typ` could be
-   * anything, so this branch does not trust the shape, it goes and LOOKS. The
-   * account must still exist and must still be Active, exactly as
-   * `verifyAdminToken.middleware.js` requires on every HTTP request — a
-   * suspended administrator whose browser tab is still open gets no socket.
+   * The console's token is `typ: 'admin'` (admins/adminToken.js). It is not
+   * in the map above because this branch does not trust the shape — it goes
+   * and LOOKS: the account must still exist, must still be Active, and the
+   * token's `ver` must be the account's current `sessionVersion`, exactly as
+   * `verifyAdminToken.middleware.js` requires on every HTTP request. A
+   * suspended or demoted administrator whose browser tab is still open gets
+   * no socket.
    *
-   * This is a DB read on the handshake, which the other three branches avoid.
-   * It is worth it here and only here: the other three are per-rider and
-   * per-diner connections that reconnect on every train tunnel, while this is
-   * a handful of staff browsers, and the thing being protected is every
-   * support thread in the system rather than one person's own.
+   * A token with no `typ` at all is a console token from before the upgrade
+   * and is refused, as the HTTP guard refuses it — one sign-in fixes both.
    */
-  if (!claims.typ && claims.id) {
+  if (claims.typ === 'admin' && claims.id) {
     try {
       // eslint-disable-next-line global-require
       const Admin = require('../../modules/admins/admin.model');
-      const admin = await Admin.findById(claims.id).select('name role status');
+      const admin = await Admin.findById(claims.id).select('name role status sessionVersion');
       if (!admin || admin.status !== 'Active') return null;
+      if ((claims.ver || 0) !== (admin.sessionVersion || 0)) return null;
       return {
         kind: 'admin',
         id: String(admin._id),

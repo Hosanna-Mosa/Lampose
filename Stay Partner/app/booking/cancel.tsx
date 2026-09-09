@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Screen,
@@ -13,6 +13,7 @@ import {
   Toast,
   EmptyState,
 } from '@/components/ui';
+import { useAlert } from '@/components/ui/AppAlert';
 import { useBooking, useBookingActions } from '@/services/hooks/useBookings';
 import { ApiError } from '@/services/api/client';
 import { radius } from '@/constants/layout';
@@ -53,6 +54,7 @@ const HOURS_48 = 48 * 60 * 60 * 1000;
  */
 export default function CancelBookingScreen() {
   const c = useColors();
+  const { confirm } = useAlert();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
 
@@ -86,19 +88,31 @@ export default function CancelBookingScreen() {
     );
   };
 
-  /* The second ask. Native, because this is the one dialog in the flow that
-     must not look like part of the form it is guarding. */
-  const confirm = () => {
+  /*
+   * The second ask.
+   *
+   * It used to be the PLATFORM dialog, on the reasoning that this is "the one
+   * dialog in the flow that must not look like part of the form it is
+   * guarding". The instinct was right and the tool was wrong: the OS dialog
+   * does not look like part of the form because it does not look like part of
+   * the APP — different face, different shape on each OS, and a filled blue
+   * "Cancel booking" sitting exactly where a thumb rests.
+   *
+   * `AppAlert` separates it the way this app separates things: a scrim, a
+   * card lifted off the page, the destructive choice as an outline, and the
+   * safe one underneath it where the thumb actually is.
+   */
+  const askThenCancel = async () => {
     if (!reason || !booking) return;
-    Alert.alert(
-      'Cancel this booking?',
-      `${booking.guest}'s booking will be cancelled and they will be told straight away. `
-      + 'The bed goes back on your availability. This cannot be undone.',
-      [
-        { text: 'Keep booking', style: 'cancel' },
-        { text: 'Cancel booking', style: 'destructive', onPress: commit },
-      ],
-    );
+    const ok = await confirm({
+      title: 'Cancel this booking?',
+      message: `${booking.guest}'s booking will be cancelled and they will be told straight away. `
+        + 'The bed goes back on your availability. This cannot be undone.',
+      confirmLabel: 'Cancel booking',
+      cancelLabel: 'Keep booking',
+      destructive: true,
+    });
+    if (ok) commit();
   };
 
   if (isPending && !booking) {
@@ -145,7 +159,7 @@ export default function CancelBookingScreen() {
           <Button
             label={cancel.isPending ? 'Cancelling…' : 'Cancel booking'}
             variant="destructive"
-            onPress={confirm}
+            onPress={() => { void askThenCancel(); }}
             loading={cancel.isPending}
             disabled={!reason || cancel.isPending}
             style={styles.action}

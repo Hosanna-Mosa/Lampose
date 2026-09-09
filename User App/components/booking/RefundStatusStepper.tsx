@@ -25,13 +25,21 @@ const STAGES: readonly { id: RefundStageId; label: string; note: string }[] = [
   { id: 'sent', label: 'Sent to your account', note: '' },
 ];
 
-export type RefundStatusStepperProps = { refund: RefundState };
+export type RefundStatusStepperProps = {
+  refund: RefundState;
+  /**
+   * The four stages, with their labels. Defaults to the deposit refund's
+   * ("Room checked", the owner's three days). A cancellation refund has the
+   * same four ids and different words — see `app/bookings/refund.tsx`.
+   */
+  stages?: readonly { id: RefundStageId; label: string; note: string }[];
+};
 
-export function RefundStatusStepper({ refund }: RefundStatusStepperProps) {
+export function RefundStatusStepper({ refund, stages = STAGES }: RefundStatusStepperProps) {
   const { colors, space, radius } = useTheme();
   const depositMark = useDepositMark();
 
-  const currentIndex = STAGES.findIndex((stage) => stage.id === refund.stage);
+  const currentIndex = stages.findIndex((stage) => stage.id === refund.stage);
 
   const returning = refund.lines.reduce(
     (sum, line) => sum + (line.deduction ? -Math.abs(line.amount) : line.amount),
@@ -41,7 +49,7 @@ export function RefundStatusStepper({ refund }: RefundStatusStepperProps) {
   return (
     <View style={{ gap: space[4] }}>
       <View>
-        {STAGES.map((stage, index) => {
+        {stages.map((stage, index) => {
           const done = index < currentIndex;
           const current = index === currentIndex;
           const failed = refund.failed && stage.id === 'sent' && current;
@@ -81,7 +89,7 @@ export function RefundStatusStepper({ refund }: RefundStatusStepperProps) {
                     color={done || current || failed ? colors.onBrand : colors.textTertiary}
                   />
                 </View>
-                {index < STAGES.length - 1 ? (
+                {index < stages.length - 1 ? (
                   <View
                     style={[
                       styles.connector,

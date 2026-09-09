@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
@@ -6,7 +6,6 @@ import {
   Screen,
   Text,
   IconButton,
-  Segmented,
   EmptyState,
   RequestCard,
   type BookingRequest,
@@ -20,7 +19,7 @@ import { useColors } from '@/hooks/useColors';
 import { formatINR } from '@/lib/format';
 
 /**
- * Every request that has reached this owner.
+ * The requests still waiting on this owner.
  *
  * ## Real, and the fixtures are gone
  *
@@ -30,34 +29,30 @@ import { formatINR } from '@/lib/format';
  * `GET /api/v2/partners/requests`, scoped server-side to the phone number
  * this partner proved.
  *
- * ## Pending is a different KIND of row, not a filter of the same one
+ * ## History moved to the Bookings tab
  *
- * A pending request has a deadline measured in minutes and two buttons.
- * Everything else is history with neither. They are separated rather than
- * sorted, because an owner who has to scroll past last week's declines to
- * find the one row racing a clock has already lost most of the three minutes.
+ * This screen used to carry a second tab — every request once it had an
+ * answer, win or lose. It is gone from here, not deleted: an owner looking
+ * for "what happened with that student" was checking two places for one
+ * answer, because a request that got ACCEPTED became a booking and moved to
+ * the Bookings tab's own history, while a DECLINED or EXPIRED one — which
+ * never becomes a booking at all — stayed stranded here, on a tab an owner
+ * had no reason left to open once the deadline had passed. `BookingsTab`
+ * now folds both kinds into the one History an owner actually goes back to.
  *
- * The list polls while anything is pending and stops when nothing is — an
- * owner reading history is not waiting on anything.
+ * What is left here is exactly what still needs a person: a deadline
+ * measured in minutes and two buttons. The list polls while anything is
+ * pending and stops when nothing is — there is nothing left on this screen
+ * to read once it does.
  */
 
-type Tab = 'pending' | 'answered';
-
-const TABS: readonly Tab[] = ['pending', 'answered'];
-
-const EMPTY_COPY: Record<Tab, { title: string; body: string }> = {
-  pending: {
-    title: 'No requests right now',
-    body: 'New stay requests arrive here, and your phone will buzz when they do.',
-  },
-  answered: {
-    title: 'Nothing answered yet',
-    body: 'Requests you accept or decline, and any that ran out of time, are kept here.',
-  },
+const EMPTY_PENDING = {
+  title: 'No requests right now',
+  body: 'New stay requests arrive here, and your phone will buzz when they do.',
 };
 
 /** The server's status, in the badge set this app already draws. */
-const BADGE_FOR: Record<string, BookingStatus> = {
+export const REQUEST_BADGE_FOR: Record<string, BookingStatus> = {
   pending_owner: 'pending',
   confirmed: 'confirmed',
   declined: 'declined',
@@ -66,7 +61,7 @@ const BADGE_FOR: Record<string, BookingStatus> = {
 };
 
 /** "5 Sep" from a `YYYY-MM-DD` calendar day. */
-function shortDate(iso?: string | null): string {
+export function shortDate(iso?: string | null): string {
   if (!iso) return '';
   const [y, m, d] = iso.split('-').map(Number);
   if (!y || !m || !d) return iso;
@@ -94,7 +89,9 @@ function stayLine(request: BackendPartnerRequest): string {
   return 'Dates to confirm';
 }
 
-function toCard(request: BackendPartnerRequest, offsetMs: number): BookingRequest {
+/** Shared with `BookingsTab`, which renders the same request shape in its
+    History tab — one mapping, so the two never draw a request differently. */
+export function toRequestCard(request: BackendPartnerRequest, offsetMs: number): BookingRequest {
   return {
     id: request.id,
     guest: request.customer?.name || 'A student',
@@ -105,11 +102,15 @@ function toCard(request: BackendPartnerRequest, offsetMs: number): BookingReques
       : request.sharing?.price
         ? `${formatINR(request.sharing.price)}/mo`
         : '—',
-    status: BADGE_FOR[request.status] ?? 'pending',
+    status: REQUEST_BADGE_FOR[request.status] ?? 'pending',
     /*
      * Epoch ms, from the SERVER's deadline corrected for this device's clock.
      * The card colours its own border from urgency, so a phone running fast
-     * would otherwise paint a request red a minute early.
+     * would otherwise paint a request red a minute early. Meaningless once a
+     * request is answered — `RequestCard` only draws the countdown while
+     * `status === 'pending'` — but computed the same way regardless so a
+     * request that arrives here already answered never divides by a stale
+     * deadline.
      */
     expiresAt: Date.now() + secondsLeft(request, offsetMs) * 1000,
   };
@@ -118,10 +119,9 @@ function toCard(request: BackendPartnerRequest, offsetMs: number): BookingReques
 export default function RequestsInbox() {
   const router = useRouter();
   const c = useColors();
-  const [tab, setTab] = useState<Tab>('pending');
 
   const queryClient = useQueryClient();
-  const { groups, unread, isPending, error, clockOffset } = useStayRequests();
+  const { groups, unread, isPending, error, clockOffset, isRefetching, refetch } = useStayRequests();
 
   /*
    * The badge clears when the list is actually looked at.
@@ -146,20 +146,19 @@ export default function RequestsInbox() {
     }, []),
   );
 
-  const labels = useMemo<Record<Tab, string>>(() => ({
-    /* The count is on the tab because it is the reason to press it. */
-    pending: groups.pending.length ? `Pending · ${groups.pending.length}` : 'Pending',
-    answered: 'History',
-  }), [groups.pending.length]);
-
   /* Soonest-expiring first — the one thing here actually racing a clock. */
-  const list = tab === 'pending'
-    ? [...groups.pending].sort((a, b) => secondsLeft(a, clockOffset.current) - secondsLeft(b, clockOffset.current))
-    : groups.answered;
+  const list = useMemo(
+    () => [...groups.pending].sort(
+      (a, b) => secondsLeft(a, clockOffset.current) - secondsLeft(b, clockOffset.current),
+    ),
+    [groups.pending, clockOffset],
+  );
 
   return (
     <Screen
       contentStyle={styles.stack}
+      refreshing={isRefetching}
+      onRefresh={refetch}
       stickyHeader={(
         <>
           {/* No back affordance, which is what the design always assumed: this
@@ -178,12 +177,10 @@ export default function RequestsInbox() {
         </>
       )}
     >
-      <Segmented options={TABS} value={tab} onChange={setTab} labels={labels} />
-
       {/* A pending request is counting down, so the wait is worth naming. */}
-      {tab === 'pending' && groups.pending.length > 0 ? (
+      {list.length > 0 ? (
         <Text variant="label" style={{ color: c.textCaption }}>
-          {groups.pending.length === 1 ? 'One student is' : `${groups.pending.length} students are`} waiting
+          {list.length === 1 ? 'One student is' : `${list.length} students are`} waiting
           on you — {formatCountdown(secondsLeft(list[0], clockOffset.current))} left on the soonest
         </Text>
       ) : null}
@@ -205,15 +202,15 @@ export default function RequestsInbox() {
         list.map((request) => (
           <RequestCard
             key={request.id}
-            request={toCard(request, clockOffset.current)}
+            request={toRequestCard(request, clockOffset.current)}
             onPress={() => router.push({ pathname: '/requests/[id]', params: { id: request.id } })}
           />
         ))
       ) : (
         <EmptyState
           icon="bookings"
-          title={EMPTY_COPY[tab].title}
-          body={EMPTY_COPY[tab].body}
+          title={EMPTY_PENDING.title}
+          body={EMPTY_PENDING.body}
           style={styles.empty}
         />
       )}

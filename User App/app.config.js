@@ -44,7 +44,12 @@ const adaptiveIcon = fs.existsSync(adaptiveIconPath) ? './assets/images/adaptive
 const BRAND = {
   ink: '#1A1917',
   accent: '#0E6E5C',
-  background: '#EFEDE9',
+  // Kept equal to `colors.bg` in `constants/tokens.ts` — see the note above.
+  // Both moved from the Dock sheet's warm `#EFEDE9` to true white on
+  // 10 Sep 2026, together, for the same reason this comment already
+  // explains: a launch screen out of sync with the first React frame is a
+  // visible flash on cold start.
+  background: '#FFFFFF',
 };
 
 export default {

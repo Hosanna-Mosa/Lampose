@@ -185,6 +185,48 @@ const config = {
     devAllowMarkPaid: String(process.env.DEV_ALLOW_MARK_PAID || '').trim().toLowerCase() === 'true'
       && String(process.env.NODE_ENV || '').trim() !== 'production',
 
+    /*
+     * DEVELOPMENT ONLY — force a move-in without waiting for the date.
+     *
+     * Checking in is gated by a real calendar day (the Stay Partner button
+     * says "Check-in available 25 September") and by an ORDER — the owner
+     * marks the guest in, then the guest confirms. Both are correct and both
+     * make the hotel settlement flow untestable until the day arrives.
+     *
+     * This flag unlocks a bypass that stamps both halves at once, so the
+     * whole chain — check-in → settlement releasable → Withdraw in the admin
+     * Monitor — can be walked through in a minute.
+     *
+     * A SEPARATE flag from `devAllowMarkPaid` rather than one shared
+     * development switch: they unlock different powers over different things,
+     * and a single flag would mean enabling a payment bypass to test a
+     * calendar. Refused under NODE_ENV=production the same way.
+     */
+    devAllowForceCheckIn: String(process.env.DEV_ALLOW_FORCE_CHECKIN || '').trim().toLowerCase() === 'true'
+      && String(process.env.NODE_ENV || '').trim() !== 'production',
+
+    /*
+     * What Lampose keeps from a HOTEL booking, as a percentage.
+     *
+     * The DEFAULT only. Every settlement stores its own `commissionPercent`,
+     * copied from here when the row is created and editable per booking by an
+     * administrator — so changing this figure reprices future bookings and
+     * never one already made. A settlement that has left `releasable` freezes
+     * it entirely.
+     *
+     * Applies to HOTEL alone. PG/Hostel and Co-living take no money through
+     * the platform, and Bachelor's ₹199 is a fixed fee that is entirely ours
+     * with no owner share to take a percentage of.
+     *
+     * Clamped to 0–100: a percentage outside that is not a bigger or smaller
+     * commission, it is a negative payout or a debt.
+     */
+    hotelCommissionPercent: (() => {
+      const raw = Number(process.env.HOTEL_COMMISSION_PERCENT);
+      if (!Number.isFinite(raw) || raw < 0 || raw > 100) return 5;
+      return raw;
+    })(),
+
     /* In PAISE, because that is the only unit Razorpay accepts and converting
        at the boundary is where rounding bugs get in. 19900 = ₹199, charged in
        one shot — there is no advance/balance split any more. */
@@ -248,6 +290,41 @@ const config = {
        thing as a bank account number belonging to a partner. Found on the
        RazorpayX dashboard. */
     accountNumber: String(process.env.RAZORPAYX_ACCOUNT_NUMBER || '').trim(),
+
+    /*
+     * The secret RazorpayX signs PAYOUT webhooks with.
+     *
+     * Separate from `razorpay.webhookSecret` because they are separate
+     * products with separate dashboards, and a deployment can legitimately
+     * have one and not the other. It falls back to the payment-gateway secret
+     * only because a merchant who configures ONE webhook endpoint for both
+     * products will have set one secret — and a payout event silently failing
+     * signature verification is the worst of both worlds: money moved and
+     * nothing recorded it.
+     *
+     * `verifyPayoutWebhook` tries this first and the PG secret second, so
+     * either configuration verifies and neither is guessed at.
+     */
+    webhookSecret: String(
+      process.env.RAZORPAYX_WEBHOOK_SECRET || process.env.RAZORPAY_WEBHOOK_SECRET || '',
+    ).trim(),
+
+    /*
+     * MANUAL PAYOUTS — the mode this deployment is actually in.
+     *
+     * RazorpayX is built, tested and dormant. Until the account has
+     * credentials, an owner is paid by a person making a bank transfer and
+     * recording the reference here, and every automatic dispatch path refuses
+     * with a sentence saying so rather than half-working.
+     *
+     * It is a FLAG rather than deleted or commented-out code because the
+     * automatic path is the destination, not a mistake: flip this to `false`
+     * once the keys are in and the whole rail wakes up with its tests still
+     * passing. Defaults to manual, so a deployment that has never heard of
+     * this variable cannot accidentally try to move money over a rail it has
+     * no credentials for.
+     */
+    manualPayouts: String(process.env.PAYOUTS_MANUAL ?? 'true').trim().toLowerCase() !== 'false',
     get configured() {
       return Boolean(this.keyId && this.keySecret && this.accountNumber);
     },
@@ -293,6 +370,18 @@ const config = {
 
   storage: { mode: storageMode },
 
+  /* Inbound webhooks that must prove who sent them — see
+     shared/middleware/twilioSignature.js. */
+  webhooks: {
+    publicBaseUrl: String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, ''),
+    /* The exact URL configured in the Twilio console, when the rebuilt one
+       would differ (a path rewrite in nginx, say). */
+    twilioUrl: String(process.env.TWILIO_WEBHOOK_URL || '').trim(),
+    /* Never true in production — refused below with a warning, like the
+       DEV_ALLOW_* flags. */
+    allowUnsigned: !isProduction && bool(process.env.ALLOW_UNSIGNED_WEBHOOKS, false),
+  },
+
   auth: {
     jwtSecret,
     /* False only when JWT_SECRET is missing in production. The v2 auth and
@@ -305,6 +394,11 @@ const config = {
        means a forgotten session on someone else's computer is dead by
        tomorrow, and a regular visitor still signs in at most once a day. */
     webJwtExpiresIn: process.env.WEB_JWT_EXPIRES_IN || '1d',
+    /* The admin console's session. A browser on a desk, not a phone in a
+       pocket: twelve hours outlives a working day and not a machine somebody
+       walked away from. Revocation does not wait for this — see
+       admins/adminToken.js. */
+    adminSessionTtl: process.env.ADMIN_SESSION_TTL || '12h',
     adminSecretKey,
     /* Guards the v2 routes that only ever run behind the leads panel's login
        screen. Set to false only if a client that cannot send an Authorization
@@ -336,6 +430,18 @@ const configWarnings = [];
 if (!mongoUri) {
   configWarnings.push(
     'MONGO_URI is not set — v2 data routes answer 503 and v1 falls back to its in-memory store.',
+  );
+}
+
+/* The WhatsApp webhook is where an owner's YES publishes a property. Unsigned
+   means anybody can say YES for them. Off in production no matter what. */
+if (bool(process.env.ALLOW_UNSIGNED_WEBHOOKS, false)) {
+  configWarnings.push(
+    isProduction
+      ? 'ALLOW_UNSIGNED_WEBHOOKS is set but NODE_ENV=production — REFUSED. Inbound WhatsApp '
+        + 'must carry a valid X-Twilio-Signature here.'
+      : '⚠️  ALLOW_UNSIGNED_WEBHOOKS is ON — /api/whatsapp/webhook accepts unsigned requests. '
+        + 'Development only. Unset it before anybody real uses this server.',
   );
 }
 
