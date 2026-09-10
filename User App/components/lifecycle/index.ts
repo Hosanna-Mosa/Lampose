@@ -48,3 +48,8 @@ export { RefundChaseNote, type RefundChaseNoteProps } from './RefundChaseNote';
 export { TicketRow, TicketMessageRow, type TicketRowProps, type TicketMessageRowProps } from './Support';
 export { NotificationRow, type NotificationRowProps } from './NotificationRow';
 export { ProfileRow, ProfileGroup, type ProfileRowProps, type ProfileGroupProps } from './ProfileRow';
+
+/* The appearance setting, row and sheet in one. Both profiles draw it and
+   it is account-wide, so it is a single component rather than a row each
+   screen wires to a sheet of its own — see its doc comment. */
+export { AppearanceRow, type AppearanceRowProps } from './AppearanceRow';

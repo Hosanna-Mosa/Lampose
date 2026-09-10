@@ -109,7 +109,6 @@ export function CuisineRail({
   const onScroll = useAnimatedScrollHandler((event) => {
     scrollX.value = event.contentOffset.x;
   });
-
   /* A cuisine the rail has cut still has to be reachable while it is the
      ACTIVE filter, or picking "Shawarma" from the sheet would drop it off
      the rail and leave the feed filtered by something invisible. */
@@ -144,7 +143,27 @@ export function CuisineRail({
       horizontal
       showsHorizontalScrollIndicator={false}
       onScroll={onScroll}
-      scrollEventThrottle={16}
+      /*
+       * Every frame, not every 16ms — and this is the shake.
+       *
+       * A tile's horizontal position is moved by the platform's own scroller
+       * on every frame it draws. Its vertical position is moved by us, from
+       * the offset that arrives in a scroll event. At `16` those events are
+       * capped near 60 a second, so on a 90Hz or 120Hz phone the arc is only
+       * told where the row is on every second or third frame — the tiles
+       * arrive at the right height a frame late, catch up, and fall behind
+       * again. That is the bob: not irregular motion, a vertical position
+       * quantised to a slower clock than the horizontal one it belongs to.
+       *
+       * `1` means "every frame the scroller produces", which is exactly what
+       * the two need to share. It is affordable here only because `onScroll`
+       * is a worklet: the handler runs on the UI thread and never wakes the
+       * JS thread, so more events cost a few arithmetic operations rather
+       * than a bridge crossing each. This is the documented pacing for a
+       * Reanimated scroll handler; the `16` it replaces is the figure you
+       * want when a JS callback is on the other end.
+       */
+      scrollEventThrottle={1}
       contentContainerStyle={[
         styles.row,
         {
@@ -189,11 +208,11 @@ export function CuisineRail({
  *
  * ## Why it measures itself
  *
- * The tile's own centre is read from `onLayout` rather than computed from
- * its index. Index arithmetic needs every tile to be the same width, and
- * this rail's are not: the coupon flag is 72, the chips are 72, and "See
- * all" is deliberately content-sized so its label and caret fit. Measuring
- * costs one layout pass per tile and stays right whatever is in the row.
+ * A tile has to know where IT is to know how far up the curve it sits, and
+ * only layout can say — the row's contents are a coupon flag, a variable
+ * number of cuisine chips and a "See all", none of them the same width. So
+ * each tile reports its own centre once, which costs one layout pass per tile
+ * and stays right whatever is in the row.
  *
  * ## Why the first frame is flat
  *

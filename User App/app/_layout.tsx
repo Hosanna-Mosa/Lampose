@@ -7,6 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AlertProvider } from '@/components/ui';
 import { AppStateProvider } from '@/context/AppStateContext';
+import { BottomBarProvider } from '@/context/BottomBarContext';
 import { AuthProvider } from '@/context/AuthContext';
 import { FoodCatalogueProvider } from '@/context/FoodCatalogueContext';
 import { FoodProvider } from '@/context/FoodContext';
@@ -180,6 +181,13 @@ export default function RootLayout() {
             <AuthProvider>
               <AppStateProvider>
                 <PendingRequestProvider>
+                  {/* Whether the bottom bar is currently out of the way. It sits
+                      beside the bottom-edge registry rather than in it: that one
+                      answers "how much room is claimed down there", this one
+                      answers "is the bar up", and the docked cart bar reads
+                      both. Above the Stack because every screen with a feed
+                      writes to it and the bar is a sibling of all of them. */}
+                  <BottomBarProvider>
                   {/* The cart has to outlive the screens that build it: a student
                       adds a thali, wanders into a listing, comes back. It sits
                       inside PendingRequestProvider because the docked cart bar
@@ -211,6 +219,7 @@ export default function RootLayout() {
               </GestureHandlerRootView>
                     </FoodProvider>
                   </FoodCatalogueProvider>
+                  </BottomBarProvider>
                 </PendingRequestProvider>
               </AppStateProvider>
             </AuthProvider>

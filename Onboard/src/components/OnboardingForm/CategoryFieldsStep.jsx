@@ -164,6 +164,7 @@ const CATEGORY_LABEL = {
   BACHELOR: 'Bachelor',
   HOTEL: 'Hotels',
   COLIVE: 'House / Co-live',
+  COMMERCIAL: 'Shop / Commercial',
 };
 
 const CATEGORY_BADGE = {
@@ -171,7 +172,44 @@ const CATEGORY_BADGE = {
   BACHELOR: 'badge-bachelor',
   HOTEL: 'badge-dormitory',
   COLIVE: 'badge-bachelor',
+  /* Reusing the dormitory badge rather than minting a fifth colour. The badge
+     set is a palette, not a taxonomy, and a new colour here would have to be
+     added to the stylesheet, the listing card and the admin console before it
+     stopped looking like a bug on three screens. */
+  COMMERCIAL: 'badge-dormitory',
 };
+
+/**
+ * What a commercial unit is going to be used for.
+ *
+ * Multi-select, because a bare 400 sq ft shell on a main road is genuinely
+ * offered to a chemist, a mobile shop and a tailor at the same time, and an
+ * owner who has to pick one is being asked a question they cannot answer. It
+ * is what a prospective tenant filters on, so it is the first thing asked.
+ */
+const COMMERCIAL_USES = [
+  'Shop / Showroom',
+  'Office',
+  'Godown / Warehouse',
+  'Restaurant / Cafe',
+  'Clinic / Pharmacy',
+  'Salon / Gym',
+  'Any commercial use',
+];
+
+/** Where in the building it sits. Ground and the road it faces are most of
+ *  what a retail rent is; anything above the first is an office question. */
+const COMMERCIAL_FLOORS = [
+  'Basement', 'Ground floor', 'Mezzanine', '1st floor', '2nd floor', '3rd floor or above',
+];
+
+/** Bare shell is the default and the commonest — commercial is handed over
+ *  empty far more often than a home is. */
+const COMMERCIAL_FURNISHING = ['Bare shell', 'Semi-furnished', 'Fully furnished'];
+
+const COMMERCIAL_WASHROOM = ['Private washroom', 'Shared washroom', 'No washroom'];
+
+const COMMERCIAL_PARKING = ['No parking', 'Two-wheeler only', 'Car parking', 'Two-wheeler and car'];
 
 export default function CategoryFieldsStep({ category, details = {}, onChangeDetails, errors = {} }) {
   if (!category) return null;
@@ -489,6 +527,116 @@ export default function CategoryFieldsStep({ category, details = {}, onChangeDet
               its 2 BHKs to women, and puts a kitchen in some units and not
               others — one answer for the whole property could only ever
               describe part of it. */}
+        </div>
+      )}
+
+      {/* ==================== SHOP / COMMERCIAL FORM ==================== */}
+      {/*
+        Its own block, sharing nothing with the four above, because a
+        commercial let has no overlap with them worth reusing. There are no
+        layouts, no occupancy and no tenant rules — a shop is one unit let
+        whole — and the facts that decide it are ones a residential form never
+        asks: how big, which floor, and whether there is a washroom.
+
+        The rent is NOT here. It is the ordinary monthly rent field in step 4,
+        typed once, because a commercial unit has a single price rather than
+        one per occupancy — see `validation.js`, where COMMERCIAL is kept off
+        the derive-the-rent path for exactly that reason.
+      */}
+      {category === 'COMMERCIAL' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '18px' }}>
+          <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+            <label className="form-label">Suitable for *</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {COMMERCIAL_USES.map((use) => {
+                const picked = Array.isArray(details.commercialUses) && details.commercialUses.includes(use);
+                return (
+                  <button
+                    key={use}
+                    type="button"
+                    className={`btn ${picked ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ padding: '8px 14px', fontSize: '0.9rem' }}
+                    onClick={() => handleCheckboxArray('commercialUses', use)}
+                  >
+                    {use}
+                  </button>
+                );
+              })}
+            </div>
+            <FieldError message={errors['categoryDetails.commercialUses']} />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Built-up area (sq ft) *</label>
+            <input
+              type="number"
+              className="form-input"
+              min="1"
+              placeholder="e.g. 450"
+              value={details.builtUpArea || ''}
+              onChange={(e) => onChangeDetails('builtUpArea', e.target.value)}
+              style={{ borderColor: errorBorder(errors['categoryDetails.builtUpArea']) }}
+            />
+            <FieldError message={errors['categoryDetails.builtUpArea']} />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Floor *</label>
+            <select
+              className="form-select"
+              value={details.floor || ''}
+              onChange={(e) => onChangeDetails('floor', e.target.value)}
+              style={{ borderColor: errorBorder(errors['categoryDetails.floor']) }}
+            >
+              <option value="">Select floor</option>
+              {COMMERCIAL_FLOORS.map((floor) => <option key={floor} value={floor}>{floor}</option>)}
+            </select>
+            <FieldError message={errors['categoryDetails.floor']} />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Condition</label>
+            <select
+              className="form-select"
+              value={details.commercialFurnishing || 'Bare shell'}
+              onChange={(e) => onChangeDetails('commercialFurnishing', e.target.value)}
+            >
+              {COMMERCIAL_FURNISHING.map((level) => <option key={level} value={level}>{level}</option>)}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Washroom</label>
+            <select
+              className="form-select"
+              value={details.washroom || 'Private washroom'}
+              onChange={(e) => onChangeDetails('washroom', e.target.value)}
+            >
+              {COMMERCIAL_WASHROOM.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Parking</label>
+            <select
+              className="form-select"
+              value={details.parking || 'No parking'}
+              onChange={(e) => onChangeDetails('parking', e.target.value)}
+            >
+              {COMMERCIAL_PARKING.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </div>
+
+          <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+            <label className="form-label">Anything a tenant should know</label>
+            <textarea
+              className="form-input"
+              rows={3}
+              placeholder="e.g. corner unit facing the main road, 12 ft shutter, no cooking allowed, lift access closes at 8 PM"
+              value={details.commercialNotes || ''}
+              onChange={(e) => onChangeDetails('commercialNotes', e.target.value)}
+            />
+          </div>
         </div>
       )}
     </div>

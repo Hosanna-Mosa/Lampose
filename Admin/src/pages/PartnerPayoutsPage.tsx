@@ -39,16 +39,30 @@ import {
   AlertTriangle, Ban, CheckCircle2, Clock, Landmark, RefreshCw, Send, Wallet,
 } from 'lucide-react';
 
-import {
-  Badge, Button, Card, EmptyState, Field, Input, Modal, PageHeader, Textarea,
-  Table, TableSkeleton, Td, Th, Toast, Tr,
-  type BadgeTone, type ToastState,
-} from '../components/ui';
+import { Badge } from '../components/common/atoms/Badge';
+import type { BadgeTone } from '../components/common/atoms/Badge';
+import { Button } from '../components/common/atoms/Button';
+import { Card } from '../components/common/atoms/Card';
+import { Input } from '../components/common/atoms/Input';
+import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
+import { Textarea } from '../components/common/atoms/Textarea';
+import { EmptyState } from '../components/common/molecules/EmptyState';
+import { Field } from '../components/common/molecules/Field';
+import { PageHeader } from '../components/common/molecules/PageHeader';
+import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
+import { Modal } from '../components/common/organisms/Modal';
+import { Toast } from '../components/common/organisms/Toast';
+import type { ToastState } from '../components/common/organisms/Toast';
 import {
   PartnerPayoutError, partnerPayoutService,
   type PartnerPayout, type PartnerPayoutStatus,
 } from '../api/services/partnerPayoutService';
 import type { AdminRole } from '../api/types';
+import { Box } from '../components/common/atoms/Box';
+import { Inline } from '../components/common/atoms/Inline';
+import { TableBody, TableHead } from '../components/common/atoms/PlainTable';
+import { Text } from '../components/common/atoms/Text';
+import { filterBySearch } from '../components/common/utils';
 
 /** Rupees, written the way every other figure in the console is. */
 const inr = (n: number) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
@@ -119,16 +133,15 @@ export const PartnerPayoutsPage: React.FC<Props> = ({ search = '', role }) => {
 
   useEffect(() => { void load(); }, [load]);
 
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
+  const visible = useMemo(
+    () => filterBySearch(rows, search, (r, q) =>
       (r.ownerName || '').toLowerCase().includes(q)
       || r.partnerPhoneDigits?.toLowerCase().includes(q)
       || (r.bankAccount || '').toLowerCase().includes(q)
       || (r.razorpayReferenceId || '').toLowerCase().includes(q)
-      || r.id.toLowerCase().includes(q));
-  }, [rows, search]);
+      || r.id.toLowerCase().includes(q)),
+    [rows, search]
+  );
 
   /* What is actually waiting on somebody, regardless of the current filter. */
   const owed = useMemo(
@@ -177,7 +190,7 @@ export const PartnerPayoutsPage: React.FC<Props> = ({ search = '', role }) => {
   };
 
   return (
-    <div className="space-y-5">
+    <Box className="space-y-5">
       <PageHeader
         eyebrow="Stay Partner"
         title="Partner payouts"
@@ -192,26 +205,26 @@ export const PartnerPayoutsPage: React.FC<Props> = ({ search = '', role }) => {
       />
 
       <Card className="flex flex-wrap items-center gap-x-8 gap-y-3">
-        <div>
-          <div className="text-label uppercase tracking-wide text-ink-3">Awaiting payment</div>
-          <div className="text-h2 font-semibold tabular-nums">{inr(owed)}</div>
-        </div>
-        <div>
-          <div className="text-label uppercase tracking-wide text-ink-3">Requests</div>
-          <div className="text-h2 font-semibold tabular-nums">
+        <Box>
+          <Box className="text-label uppercase tracking-wide text-ink-3">Awaiting payment</Box>
+          <Box className="text-h2 font-semibold tabular-nums">{inr(owed)}</Box>
+        </Box>
+        <Box>
+          <Box className="text-label uppercase tracking-wide text-ink-3">Requests</Box>
+          <Box className="text-h2 font-semibold tabular-nums">
             {rows.filter((r) => r.status === 'pending').length}
-          </div>
-        </div>
-        <div className="ml-auto max-w-md text-body text-ink-2">
+          </Box>
+        </Box>
+        <Box className="ml-auto max-w-md text-body text-ink-2">
           {!canAct
             ? 'You can read this queue. Paying an owner is Super Admin only.'
             : manual
               ? 'Payouts are manual: transfer the money from your bank, then mark it paid.'
               : 'Payouts are automatic — RazorpayX sends the money when you press Send.'}
-        </div>
+        </Box>
       </Card>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <Box className="flex flex-wrap items-center gap-2">
         {FILTERS.map((f) => (
           <Button
             key={f.id}
@@ -222,7 +235,7 @@ export const PartnerPayoutsPage: React.FC<Props> = ({ search = '', role }) => {
             {f.label}
           </Button>
         ))}
-      </div>
+      </Box>
 
       <Card padded={false}>
         {loading ? (
@@ -246,7 +259,7 @@ export const PartnerPayoutsPage: React.FC<Props> = ({ search = '', role }) => {
           />
         ) : (
           <Table>
-            <thead>
+            <TableHead>
               <Tr>
                 <Th>Owner</Th>
                 <Th>Amount</Th>
@@ -255,8 +268,8 @@ export const PartnerPayoutsPage: React.FC<Props> = ({ search = '', role }) => {
                 <Th>Requested</Th>
                 <Th className="text-right">Action</Th>
               </Tr>
-            </thead>
-            <tbody>
+            </TableHead>
+            <TableBody>
               {visible.map((r) => {
                 const s = STATUS[r.status] ?? STATUS.pending;
                 const bookings = r.bookingIds?.length || 0;
@@ -264,63 +277,63 @@ export const PartnerPayoutsPage: React.FC<Props> = ({ search = '', role }) => {
                 return (
                   <Tr key={r.id}>
                     <Td>
-                      <div className="font-medium text-ink">{r.ownerName || 'Unnamed owner'}</div>
-                      <div className="mt-0.5 text-[11px] tabular-nums text-ink-3">
+                      <Box className="font-medium text-ink">{r.ownerName || 'Unnamed owner'}</Box>
+                      <Box className="mt-0.5 text-[11px] tabular-nums text-ink-3">
                         {r.partnerPhoneDigits}
-                      </div>
+                      </Box>
                     </Td>
 
                     <Td>
-                      <div className="tabular-nums font-medium text-ink">{inr(r.amount)}</div>
+                      <Box className="tabular-nums font-medium text-ink">{inr(r.amount)}</Box>
                       {/* What the figure is made of — an owner querying it will
                           ask exactly this. */}
-                      <div className="mt-0.5 text-[11px] text-ink-3">
+                      <Box className="mt-0.5 text-[11px] text-ink-3">
                         {[
                           bookings ? `${bookings} booking${bookings === 1 ? '' : 's'}` : '',
                           stays ? `${stays} hotel stay${stays === 1 ? '' : 's'}` : '',
                         ].filter(Boolean).join(' · ') || 'no lines'}
-                      </div>
+                      </Box>
                     </Td>
 
                     <Td>
                       {/* The account the OWNER saved. Masked at the source —
                           the console never sees a full account number. */}
-                      <div className="flex items-center gap-1.5 text-ink-2">
+                      <Box className="flex items-center gap-1.5 text-ink-2">
                         <Landmark className="size-3.5 shrink-0" />
-                        <span>{r.bankAccount || 'No account on file'}</span>
-                      </div>
+                        <Inline>{r.bankAccount || 'No account on file'}</Inline>
+                      </Box>
                       {r.razorpayReferenceId && (
-                        <div className="mt-0.5 font-mono text-[11px] text-ink-3">
+                        <Box className="mt-0.5 font-mono text-[11px] text-ink-3">
                           Ref {r.razorpayReferenceId}
-                        </div>
+                        </Box>
                       )}
                     </Td>
 
                     <Td>
                       <Badge tone={s.tone}>{s.label}</Badge>
                       {r.status === 'failed' && r.failureReason && (
-                        <div className="mt-1 max-w-[26ch] text-[11px] leading-snug text-crit">
+                        <Box className="mt-1 max-w-[26ch] text-[11px] leading-snug text-crit">
                           {r.failureReason}
-                        </div>
+                        </Box>
                       )}
                       {r.status === 'completed' && r.paidByAdminName && (
-                        <div className="mt-1 text-[11px] text-ink-3">by {r.paidByAdminName}</div>
+                        <Box className="mt-1 text-[11px] text-ink-3">by {r.paidByAdminName}</Box>
                       )}
                     </Td>
 
                     <Td className="text-ink-2">
-                      <div className="flex items-center gap-1.5">
+                      <Box className="flex items-center gap-1.5">
                         <Clock className="size-3.5 shrink-0" />
                         {when(r.requestedAt || r.createdAt)}
-                      </div>
+                      </Box>
                       {r.processedAt && (
-                        <div className="mt-0.5 text-[11px] text-ink-3">paid {when(r.processedAt)}</div>
+                        <Box className="mt-0.5 text-[11px] text-ink-3">paid {when(r.processedAt)}</Box>
                       )}
                     </Td>
 
                     <Td className="text-right">
                       {canAct && (r.status === 'pending' || r.status === 'processing') ? (
-                        <div className="flex items-center justify-end gap-2">
+                        <Box className="flex items-center justify-end gap-2">
                           <Button variant="ghost" size="sm" icon={Ban} onClick={() => open(r, 'refuse')}>
                             Refuse
                           </Button>
@@ -332,19 +345,19 @@ export const PartnerPayoutsPage: React.FC<Props> = ({ search = '', role }) => {
                           >
                             {manual ? 'Mark as paid' : 'Send money'}
                           </Button>
-                        </div>
+                        </Box>
                       ) : r.status === 'completed' ? (
-                        <span className="inline-flex items-center gap-1.5 text-label text-good">
+                        <Inline className="inline-flex items-center gap-1.5 text-label text-good">
                           <CheckCircle2 className="size-3.5" /> Paid
-                        </span>
+                        </Inline>
                       ) : (
-                        <span className="text-label text-ink-3">—</span>
+                        <Inline className="text-label text-ink-3">—</Inline>
                       )}
                     </Td>
                   </Tr>
                 );
               })}
-            </tbody>
+            </TableBody>
           </Table>
         )}
       </Card>
@@ -380,12 +393,12 @@ export const PartnerPayoutsPage: React.FC<Props> = ({ search = '', role }) => {
         )}
       >
         {acting && (
-          <div className="space-y-3 text-body text-ink-2">
-            <p>
-              <span className="font-medium text-ink">{inr(acting.row.amount)}</span> to{' '}
-              <span className="font-medium text-ink">{acting.row.ownerName || 'this owner'}</span>
+          <Box className="space-y-3 text-body text-ink-2">
+            <Text>
+              <Inline className="font-medium text-ink">{inr(acting.row.amount)}</Inline> to{' '}
+              <Inline className="font-medium text-ink">{acting.row.ownerName || 'this owner'}</Inline>
               {acting.row.bankAccount ? ` · ${acting.row.bankAccount}` : ''}
-            </p>
+            </Text>
 
             {acting.kind === 'pay' && manual && (
               <Field
@@ -413,16 +426,16 @@ export const PartnerPayoutsPage: React.FC<Props> = ({ search = '', role }) => {
             )}
 
             {acting.kind === 'pay' && (
-              <p className="text-ink-3">
+              <Text className="text-ink-3">
                 The amount was set when the owner requested it and cannot be edited here.
-              </p>
+              </Text>
             )}
-          </div>
+          </Box>
         )}
       </Modal>
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
-    </div>
+    </Box>
   );
 };
 

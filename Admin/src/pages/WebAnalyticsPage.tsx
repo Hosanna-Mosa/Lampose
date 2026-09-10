@@ -16,121 +16,34 @@ import {
   Users,
   Zap,
 } from 'lucide-react';
-import {
-  Button,
-  Card,
-  CardHeader,
-  EmptyState,
-  ErrorState,
-  Field,
-  IconButton,
-  Input,
-  PageHeader,
-  Skeleton,
-  Table,
-  TableSkeleton,
-  Td,
-  Th,
-  Tr,
-  cx,
-} from '../components/ui';
-import { ColumnChart, Donut, RankedBars } from '../components/charts';
-import { StatCard } from '../components/dashboard/StatCard';
+import { Card } from '../components/common/atoms/Card';
+import { IconButton } from '../components/common/atoms/IconButton';
+import { Skeleton } from '../components/common/atoms/Skeleton';
+import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
+import { CardHeader } from '../components/common/molecules/CardHeader';
+import { EmptyState } from '../components/common/molecules/EmptyState';
+import { ErrorState } from '../components/common/molecules/ErrorState';
+import { PageHeader } from '../components/common/molecules/PageHeader';
+import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
+import { cx } from '../components/common/utils';
+import { StatCard } from '../components/common/molecules/StatCard';
+import { ColumnChart } from '../components/common/organisms/ColumnChart';
+import { Donut } from '../components/common/organisms/Donut';
+import { RankedBars } from '../components/common/organisms/RankedBars';
 import { webAnalyticsService, type GaQuery } from '../api/services/webAnalyticsService';
 import { useFetch } from '../lib/useFetch';
 import { compactNumber, deltaPercent, duration, formatDate, formatDateTime, percent } from '../lib/format';
-import type { GaOverviewMetrics, GaRangePreset, GaTrafficChannel, GaTrafficPoint } from '../api/types';
+import type { GaOverviewMetrics, GaTrafficChannel, GaTrafficPoint } from '../api/types';
 
 /* ── Date range control ───────────────────────────────────────────────── */
 
-const PRESETS: Array<{ id: Exclude<GaRangePreset, 'custom'>; label: string }> = [
-  { id: 'today', label: 'Today' },
-  { id: 'yesterday', label: 'Yesterday' },
-  { id: '7d', label: '7 days' },
-  { id: '30d', label: '30 days' },
-  { id: '90d', label: '90 days' },
-];
+import { RangeControl } from '../components/web-analytics/molecules/RangeControl';
+import { Box } from '../components/common/atoms/Box';
+import { PlainButton } from '../components/common/atoms/PlainButton';
+import { PlainTd, PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
+import { Text } from '../components/common/atoms/Text';
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
 
-const RangeControl: React.FC<{ query: GaQuery; onChange: (q: GaQuery) => void }> = ({ query, onChange }) => {
-  const [customOpen, setCustomOpen] = useState(false);
-  const [customStart, setCustomStart] = useState(query.startDate || todayISO());
-  const [customEnd, setCustomEnd] = useState(query.endDate || todayISO());
-
-  return (
-    <div className="relative">
-      <div className="flex items-center gap-0.5 p-0.5 rounded-control bg-surface-inset">
-        {PRESETS.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => {
-              setCustomOpen(false);
-              onChange({ range: p.id });
-            }}
-            aria-pressed={query.range === p.id}
-            className={cx(
-              'h-7 px-2.5 rounded-[6px] text-label transition-colors',
-              query.range === p.id ? 'bg-surface text-ink shadow-[var(--shadow-sm)]' : 'text-ink-3 hover:text-ink'
-            )}
-          >
-            {p.label}
-          </button>
-        ))}
-        <button
-          onClick={() => setCustomOpen((v) => !v)}
-          aria-pressed={query.range === 'custom'}
-          className={cx(
-            'h-7 px-2.5 rounded-[6px] text-label transition-colors',
-            query.range === 'custom' ? 'bg-surface text-ink shadow-[var(--shadow-sm)]' : 'text-ink-3 hover:text-ink'
-          )}
-        >
-          Custom
-        </button>
-      </div>
-
-      {customOpen && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setCustomOpen(false)} aria-hidden />
-          <div className="absolute right-0 top-9 z-50 w-72 p-3.5 bg-surface border border-line rounded-panel shadow-[var(--shadow-lg)] anim-fade-up space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Start date">
-                <Input
-                  type="date"
-                  value={customStart}
-                  max={customEnd}
-                  onChange={(e) => setCustomStart(e.target.value)}
-                />
-              </Field>
-              <Field label="End date">
-                <Input
-                  type="date"
-                  value={customEnd}
-                  min={customStart}
-                  max={todayISO()}
-                  onChange={(e) => setCustomEnd(e.target.value)}
-                />
-              </Field>
-            </div>
-            <Button
-              variant="primary"
-              size="sm"
-              className="w-full justify-center"
-              onClick={() => {
-                onChange({ range: 'custom', startDate: customStart, endDate: customEnd });
-                setCustomOpen(false);
-              }}
-            >
-              Apply range
-            </Button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-};
-
-/* ── Static lookups ───────────────────────────────────────────────────── */
 
 const OVERVIEW_CARDS: Array<{
   key: keyof GaOverviewMetrics;
@@ -220,7 +133,7 @@ export const WebAnalyticsPage: React.FC = () => {
   const dates = (t?.timeseries ?? []).map((p) => p.date);
 
   return (
-    <div className="space-y-5">
+    <Box className="space-y-5">
       <PageHeader
         eyebrow="Website"
         title="Web Analytics"
@@ -242,7 +155,7 @@ export const WebAnalyticsPage: React.FC = () => {
       ) : (
         <>
           {/* Overview cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          <Box className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             {OVERVIEW_CARDS.map(({ key, label, icon, format }) => (
               <StatCard
                 key={key}
@@ -254,19 +167,19 @@ export const WebAnalyticsPage: React.FC = () => {
                 deltaLabel="vs previous period"
               />
             ))}
-          </div>
+          </Box>
 
           {/* Traffic over time + sources */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <Box className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <Card className="lg:col-span-2">
               <CardHeader
                 title="Traffic over time"
                 description={`${activeMetric.label} per day`}
                 icon={TrendingUp}
                 action={
-                  <div className="flex items-center gap-0.5 p-0.5 rounded-control bg-surface-inset">
+                  <Box className="flex items-center gap-0.5 p-0.5 rounded-control bg-surface-inset">
                     {TRAFFIC_METRICS.map((m) => (
-                      <button
+                      <PlainButton
                         key={m.id}
                         onClick={() => setTrafficMetric(m.id)}
                         aria-pressed={trafficMetric === m.id}
@@ -278,12 +191,12 @@ export const WebAnalyticsPage: React.FC = () => {
                         )}
                       >
                         {m.label}
-                      </button>
+                      </PlainButton>
                     ))}
-                  </div>
+                  </Box>
                 }
               />
-              <div className="mt-5">
+              <Box className="mt-5">
                 {traffic.loading ? (
                   <Skeleton className="h-45 w-full" />
                 ) : trafficHasData ? (
@@ -297,12 +210,12 @@ export const WebAnalyticsPage: React.FC = () => {
                 ) : (
                   <EmptyState icon={TrendingUp} title="No traffic in this window" description="Widen the date range to see earlier activity." />
                 )}
-              </div>
+              </Box>
             </Card>
 
             <Card>
               <CardHeader title="Traffic sources" description="Sessions by channel" icon={PieChart} />
-              <div className="mt-5">
+              <Box className="mt-5">
                 {traffic.loading ? (
                   <Skeleton className="h-37 w-full" />
                 ) : sourcesHasData ? (
@@ -316,44 +229,44 @@ export const WebAnalyticsPage: React.FC = () => {
                 ) : (
                   <EmptyState icon={PieChart} title="No sessions recorded" />
                 )}
-              </div>
+              </Box>
             </Card>
-          </div>
+          </Box>
 
           {/* Top pages */}
           <Card padded={false}>
-            <div className="p-5 pb-4">
+            <Box className="p-5 pb-4">
               <CardHeader title="Top pages" description="Most-viewed pages in this window" icon={FileText} />
-            </div>
+            </Box>
             {pages.error ? (
-              <div className="px-5 pb-5">
+              <Box className="px-5 pb-5">
                 <ErrorState message={pages.error} onRetry={pages.reload} />
-              </div>
+              </Box>
             ) : (
               <Table>
-                <thead>
-                  <tr>
+                <TableHead>
+                  <PlainTr>
                     <Th>Page</Th>
                     <Th className="text-right">Views</Th>
                     <Th className="text-right">Users</Th>
                     <Th className="text-right">Avg. time</Th>
-                  </tr>
-                </thead>
-                <tbody>
+                  </PlainTr>
+                </TableHead>
+                <TableBody>
                   {pages.loading ? (
                     <TableSkeleton cols={4} rows={6} />
                   ) : !pages.data?.pages.length ? (
-                    <tr>
-                      <td colSpan={4}>
+                    <PlainTr>
+                      <PlainTd colSpan={4}>
                         <EmptyState icon={FileText} title="No page views in this window" description="Pages appear once Google Analytics records views for them." />
-                      </td>
-                    </tr>
+                      </PlainTd>
+                    </PlainTr>
                   ) : (
                     pages.data.pages.map((p) => (
                       <Tr key={p.pagePath}>
                         <Td className="max-w-72">
-                          <p className="text-ink font-medium truncate">{p.pageTitle}</p>
-                          <p className="text-label text-ink-3 truncate mt-0.5">{p.pagePath}</p>
+                          <Text className="text-ink font-medium truncate">{p.pageTitle}</Text>
+                          <Text className="text-label text-ink-3 truncate mt-0.5">{p.pagePath}</Text>
                         </Td>
                         <Td className="text-right tabular">{compactNumber(p.screenPageViews)}</Td>
                         <Td className="text-right tabular">{compactNumber(p.totalUsers)}</Td>
@@ -361,16 +274,16 @@ export const WebAnalyticsPage: React.FC = () => {
                       </Tr>
                     ))
                   )}
-                </tbody>
+                </TableBody>
               </Table>
             )}
           </Card>
 
           {/* Devices, browsers, geography */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <Box className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <Card>
               <CardHeader title="Devices" description="Sessions by device category" icon={Smartphone} />
-              <div className="mt-5">
+              <Box className="mt-5">
                 {users.loading ? (
                   <Skeleton className="h-37 w-full" />
                 ) : devicesHasData ? (
@@ -388,18 +301,18 @@ export const WebAnalyticsPage: React.FC = () => {
                 ) : (
                   <EmptyState icon={Smartphone} title="No device data" />
                 )}
-              </div>
+              </Box>
             </Card>
 
             <Card>
               <CardHeader title="Browsers" description="Top browsers by users" icon={Compass} />
-              <div className="mt-5">
+              <Box className="mt-5">
                 {users.loading ? (
-                  <div className="space-y-4">
+                  <Box className="space-y-4">
                     {Array.from({ length: 4 }).map((_, i) => (
                       <Skeleton key={i} className="h-8 w-full" />
                     ))}
-                  </div>
+                  </Box>
                 ) : browsersHasData ? (
                   <RankedBars
                     data={(u?.browsers ?? []).map((b) => ({ label: b.browser, value: b.totalUsers }))}
@@ -409,18 +322,18 @@ export const WebAnalyticsPage: React.FC = () => {
                 ) : (
                   <EmptyState icon={Compass} title="No browser data" />
                 )}
-              </div>
+              </Box>
             </Card>
 
             <Card>
               <CardHeader title="Geography" description="Top countries by users" icon={MapPin} />
-              <div className="mt-5">
+              <Box className="mt-5">
                 {users.loading ? (
-                  <div className="space-y-4">
+                  <Box className="space-y-4">
                     {Array.from({ length: 4 }).map((_, i) => (
                       <Skeleton key={i} className="h-8 w-full" />
                     ))}
-                  </div>
+                  </Box>
                 ) : countriesHasData ? (
                   <RankedBars
                     data={(u?.countries ?? []).map((c) => ({ label: c.country, value: c.totalUsers }))}
@@ -434,20 +347,20 @@ export const WebAnalyticsPage: React.FC = () => {
                 ) : (
                   <EmptyState icon={MapPin} title="No geography data" />
                 )}
-              </div>
+              </Box>
             </Card>
-          </div>
+          </Box>
 
           {/* Events */}
           <Card>
             <CardHeader title="Top events" description="Most frequent GA4 events in this window" icon={Zap} />
-            <div className="mt-5">
+            <Box className="mt-5">
               {events.loading ? (
-                <div className="space-y-4">
+                <Box className="space-y-4">
                   {Array.from({ length: 5 }).map((_, i) => (
                     <Skeleton key={i} className="h-8 w-full" />
                   ))}
-                </div>
+                </Box>
               ) : events.error ? (
                 <ErrorState message={events.error} onRetry={events.reload} />
               ) : eventsHasData ? (
@@ -459,16 +372,16 @@ export const WebAnalyticsPage: React.FC = () => {
               ) : (
                 <EmptyState icon={Zap} title="No events recorded" description="Events appear once Google Analytics receives them from the site." />
               )}
-            </div>
+            </Box>
           </Card>
 
           {overview.data && (
-            <p className="text-label text-ink-3 text-center">
+            <Text className="text-label text-ink-3 text-center">
               Data from Google Analytics 4 · refreshed {formatDateTime(overview.data.generatedAt)}
-            </p>
+            </Text>
           )}
         </>
       )}
-    </div>
+    </Box>
   );
 };

@@ -1,11 +1,10 @@
 import React, { useEffect } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
   interpolateColor,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
-  withTiming,
 } from 'react-native-reanimated';
 
 import { Text } from '@/components/ui';
@@ -15,50 +14,74 @@ import { pressScale, usePressAnimation } from '@/hooks/usePressAnimation';
 import type { VegMode } from '@/types/food';
 
 /**
- * Every colour on this control is a LITERAL, not a theme token.
+ * The veg control — a labelled chip, not a bare switch.
  *
- * It sits on the banner artwork, which runs from a shaded green garden to a
- * bright orange sky to a pale pink one to mid blue. No token survives that:
- * `brand` green on the green banner is green on green, and `textTertiary`
- * grey vanishes into the pink. Worse, the tokens FLIP with the app's theme
- * while the artwork underneath does not — a dark-mode surface token would
- * put a near-black control on a near-black photograph.
+ * ## What was wrong with the switch
  *
- * ## No container
+ * The version this replaces was a white track with a coloured knob and the
+ * word VEG floating above it, drawn straight onto the banner artwork with no
+ * surface of its own. It was legible. Nobody knew what it did.
  *
- * An earlier pass gave the whole thing an opaque white pill to stand on.
- * It was legible but it read as a sticker laid over the picture. This
- * carries no box at all: the parts are white, and each one casts a shadow
- * so it keeps an edge over the pale banners where white-on-white would
- * otherwise dissolve. The shadow IS the container.
+ * Two separate reasons, and the fix has to answer both:
  *
- * ## Why the track stays white in both states
+ *   1. A naked switch states a STATE, never a subject. On/off — of what? The
+ *      only answer was four white capital letters small enough to read as a
+ *      watermark on a photograph of a biryani.
+ *   2. It had no ground. The search field sitting immediately beside it is an
+ *      opaque white pill; this was a floating white shape on artwork. Two
+ *      controls in one row, one of which does not look like a control, and
+ *      the eye files the odd one out as part of the picture.
  *
- * The obvious switch turns its track green when on — and green is the one
- * colour that cannot be trusted here, because one of the four banners is a
- * green garden. So the TRACK is always white, on every banner and in both
- * states, and the KNOB carries the state instead: neutral when off, accent
- * when on. A green knob on a white track reads on all four; a green track
- * on green artwork reads on three.
+ * So it is a pill now, the same opaque white as the field it shares the row
+ * with, and it says what it is: the mark, the word, the switch.
+ *
+ * ## The mark earns its place where four embellishments did not
+ *
+ * This control has thrown away a diet mark, a coin flip, a growing leaf and a
+ * filling gauge, all for the same reason — each was decoration bolted beside a
+ * switch that already worked. The green square-and-dot is different in kind.
+ * It is not a picture of veg food, it is the mark printed on every packet of
+ * it in the country, and a diner reads it without being taught. It is the
+ * shortest sentence available for "this is about vegetarian".
+ *
+ * It is drawn rather than imported: two nested views, a bordered square and a
+ * dot. An SVG or a glyph for a shape this simple is a dependency to justify
+ * later.
+ *
+ * ## Why the switch may finally be conventional
+ *
+ * The old note in this file explained at length why the track had to stay
+ * white in BOTH states: green is the one colour that cannot be trusted on a
+ * banner that is sometimes a green garden, so the state had to live on the
+ * knob instead. That constraint is gone, and gone as a consequence rather
+ * than by decision — the switch is inside an opaque pill now, so what is
+ * behind it is white, always, whatever the artwork underneath is doing. The
+ * track can be grey-when-off and green-when-on like every other switch a
+ * person has ever used.
+ *
+ * That is the real argument for the pill. It does not just make the control
+ * legible, it lets the control be ordinary.
  */
-const ON_ART = '#FFFFFF';
-const KNOB_OFF = '#9A948A';
-/** The light-theme accent, pinned — it is drawn on the white track, which
- *  never follows the theme either. 6.25:1 there. */
-const KNOB_ON = '#0E6E5C';
-/** Soft, wide, and low-opacity: an edge for the white parts on a pale sky,
- *  not a drop shadow anybody should be able to point at. */
-const ART_SHADOW = {
-  textShadowColor: 'rgba(0,0,0,0.45)',
-  textShadowOffset: { width: 0, height: 1 },
-  textShadowRadius: 3,
-} as const;
 
-const TRACK_W = 50;
-const TRACK_H = 30;
-const INSET = 3;
-const KNOB = TRACK_H - INSET * 2; // 24
-const TRAVEL = TRACK_W - KNOB - INSET * 2; // 20
+/* Literals, not theme tokens. The pill is opaque white on artwork in both
+   themes — it does not flip to a dark surface at night, because the
+   photograph behind it does not. */
+const PILL = '#FFFFFF';
+/** Near-black rather than pure, so "VEG" does not ring against the white. */
+const INK = '#1B1F1C';
+/** The light-theme accent, pinned. 6.25:1 on the white pill. */
+const GREEN = '#0E6E5C';
+/** An off track has to read as a track, not as a gap in the pill. */
+const TRACK_OFF = '#DCD9D3';
+
+const MARK = 15;
+const MARK_DOT = 7;
+
+const TRACK_W = 32;
+const TRACK_H = 19;
+const INSET = 2.5;
+const KNOB = TRACK_H - INSET * 2; // 14
+const TRAVEL = TRACK_W - KNOB - INSET * 2; // 13
 
 export type VegModeButtonProps = {
   mode: VegMode;
@@ -66,24 +89,16 @@ export type VegModeButtonProps = {
 };
 
 /**
- * The veg control. A plain switch — track, knob, on or off. Nothing else.
+ * Pressing it does not toggle, quite.
  *
- * Every embellishment tried before this (a diet mark, a coin flip, a
- * growing leaf, a filling gauge with a label riding above it) got in its
- * own way. This is the version with all of that stripped back out: which of
- * the two ON modes is live is left to the picker sheet and the caption line
- * already printed under it on Food Home — this control's only job is on or
- * off, so it only shows on or off.
- *
- * "VEG" sits above it in the same uppercase caption weight the tab bar uses
- * for its own labels, in plain (non-animated) React state rather than through
- * `Animated.Text` — that wraps React Native's raw `Text`, not this app's own
- * `Text`, which is what every other label in the product goes through for
- * its font resolution.
+ * Off, it opens the picker — "veg items everywhere" and "pure veg kitchens
+ * only" are two different filters and the control cannot guess which. On, it
+ * turns off directly, because there is only one way to be off. The switch
+ * still reads as a switch to a screen reader (`role="switch"`, `checked`)
+ * because that is what its STATE is; the extra question on the way in is the
+ * screen's business, not the control's.
  */
 export function VegModeButton({ mode, onPress }: VegModeButtonProps) {
-  /* No `useTheme()` here on purpose — see the note on `PILL`. This control
-     draws on artwork, so it takes none of its colours from the theme. */
   const reduceMotion = useReduceMotion();
   const { onPressIn, onPressOut, progress: pressProgress } = usePressAnimation('iconButton');
 
@@ -94,17 +109,19 @@ export function VegModeButton({ mode, onPress }: VegModeButtonProps) {
     slide.value = reduceMotion ? (on ? 1 : 0) : withSpring(on ? 1 : 0, { damping: 16, stiffness: 220 });
   }, [on, reduceMotion, slide]);
 
-  /* Press-scale on the OUTER wrapper, slide on the INNER knob — two views,
-     two `transform` keys, neither one silently replacing the other on
-     style-array merge. (That exact mistake is what broke every earlier
-     version of this control — see git history if it matters why.) */
+  /* Press-scale on the OUTER pill, slide on the INNER knob — two views, two
+     `transform` keys, neither one silently replacing the other on style-array
+     merge. (That exact mistake is what broke every earlier version of this
+     control — see git history if it matters why.) */
   const hostStyle = useAnimatedStyle(() => ({
     transform: [{ scale: reduceMotion ? 1 : 1 - pressProgress.value * (1 - pressScale.iconButton) }],
   }));
 
-  /* The knob carries the state, not the track — see the note at the top. */
+  const trackStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(slide.value, [0, 1], [TRACK_OFF, GREEN]),
+  }));
+
   const knobStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(slide.value, [0, 1], [KNOB_OFF, KNOB_ON]),
     transform: [{ translateX: slide.value * TRAVEL }],
   }));
 
@@ -123,17 +140,23 @@ export function VegModeButton({ mode, onPress }: VegModeButtonProps) {
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ checked: on }}
       hitSlop={8}
-      style={styles.host}
     >
-      <Animated.View style={[styles.stack, hostStyle]}>
+      {/* `elevation.raised` for the same reason the search field beside it
+          carries one: a white object needs an edge on the two banners that are
+          themselves near-white. */}
+      <Animated.View style={[styles.pill, elevation.raised, hostStyle]}>
+        {/* The mark stays green in both states. Greying it when the filter is
+            off would read as "no veg here", which is the opposite of what an
+            off filter means. */}
+        <View style={styles.mark}>
+          <View style={styles.markDot} />
+        </View>
+
         <Text variant="label" style={styles.word}>
           VEG
         </Text>
 
-        {/* `elevation.raised` on the track is doing the same job the text
-            shadow does for the word above it — giving a white object an
-            edge on the two banners that are themselves near-white. */}
-        <Animated.View style={[styles.track, elevation.raised]}>
+        <Animated.View style={[styles.track, trackStyle]}>
           <Animated.View style={[styles.knob, knobStyle]} />
         </Animated.View>
       </Animated.View>
@@ -142,17 +165,43 @@ export function VegModeButton({ mode, onPress }: VegModeButtonProps) {
 }
 
 const styles = StyleSheet.create({
-  host: { alignItems: 'center' },
-  stack: { alignItems: 'center', gap: 3 },
-  word: { color: ON_ART, ...ART_SHADOW },
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingLeft: 9,
+    paddingRight: 8,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: PILL,
+  },
+  /* A square with a border and a dot — the printed mark, at roughly the size
+     it is printed. `borderRadius: 3` rather than a true corner: at 15pt a hard
+     90° reads as an aliasing artefact rather than as a square. */
+  mark: {
+    width: MARK,
+    height: MARK,
+    borderRadius: 3,
+    borderWidth: 1.5,
+    borderColor: GREEN,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  markDot: {
+    width: MARK_DOT,
+    height: MARK_DOT,
+    borderRadius: MARK_DOT / 2,
+    backgroundColor: GREEN,
+  },
+  /* Colour only. The `label` variant already carries its own tracking and
+     its own uppercasing from the type scale, and setting `letterSpacing`
+     here would quietly override the scale's value for this one word. */
+  word: { color: INK },
   track: {
     width: TRACK_W,
     height: TRACK_H,
     borderRadius: TRACK_H / 2,
     justifyContent: 'center',
-    /* White in BOTH states, on every banner — the state lives on the knob.
-       See the note at the top of the file. */
-    backgroundColor: ON_ART,
   },
   knob: {
     position: 'absolute',
@@ -160,5 +209,6 @@ const styles = StyleSheet.create({
     width: KNOB,
     height: KNOB,
     borderRadius: KNOB / 2,
+    backgroundColor: PILL,
   },
 });

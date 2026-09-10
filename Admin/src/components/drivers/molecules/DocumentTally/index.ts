@@ -1,0 +1,1 @@
+export { DocumentTally } from './DocumentTally';

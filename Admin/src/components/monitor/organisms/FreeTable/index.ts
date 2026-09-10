@@ -1,0 +1,1 @@
+export { FreeTable } from './FreeTable';

@@ -92,55 +92,37 @@
    dashboard for as long as there was no button here, and without a way to say
    so the queue would never empty.
    ══════════════════════════════════════════════════════════════════════════ */
+import { Section } from '../components/common/molecules/Section';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { ElementType } from 'react';
 import {
   Bike,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  CircleSlash,
-  HandCoins,
-  History,
   MapPin,
-  PackageCheck,
-  Phone,
   ReceiptIndianRupee,
   RefreshCw,
-  ShieldCheck,
   Store,
   Timer,
-  TriangleAlert,
-  Truck,
   Undo2,
   User,
-  UtensilsCrossed,
-  XCircle,
 } from 'lucide-react';
 
-import {
-  Badge,
-  Button,
-  Card,
-  DataRow,
-  EmptyState,
-  ErrorState,
-  Field,
-  Input,
-  Modal,
-  PageHeader,
-  Select,
-  Table,
-  TableSkeleton,
-  Td,
-  Textarea,
-  Th,
-  Toast,
-  Tr,
-  cx,
-  type BadgeTone,
-  type ToastState,
-} from '../components/ui';
+import { Badge } from '../components/common/atoms/Badge';
+import type { BadgeTone } from '../components/common/atoms/Badge';
+import { Button } from '../components/common/atoms/Button';
+import { Card } from '../components/common/atoms/Card';
+import { Input } from '../components/common/atoms/Input';
+import { Select } from '../components/common/atoms/Select';
+import { Table, Th, Tr } from '../components/common/atoms/Table';
+import { DataRow } from '../components/common/molecules/DataRow';
+import { EmptyState } from '../components/common/molecules/EmptyState';
+import { ErrorState } from '../components/common/molecules/ErrorState';
+import { Field } from '../components/common/molecules/Field';
+import { PageHeader } from '../components/common/molecules/PageHeader';
+import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
+import { Modal } from '../components/common/organisms/Modal';
+import { Toast } from '../components/common/organisms/Toast';
+import type { ToastState } from '../components/common/organisms/Toast';
 import {
   FOOD_DISPATCH_STATES,
   FOOD_ORDER_OPEN_STATUSES,
@@ -150,7 +132,7 @@ import {
 } from '../api/services/foodOrderService';
 import { useAuth } from '../context/AuthContext';
 import { useDebounced, useFetch } from '../lib/useFetch';
-import { formatDateTime, relativeTime, rupees, rupeesFromPaise } from '../lib/format';
+import { rupees, rupeesFromPaise } from '../lib/format';
 import type {
   FoodDispatchOfferOutcome,
   FoodDispatchState,
@@ -160,11 +142,24 @@ import type {
   FoodOrderPaymentMode,
   FoodOrderPaymentStatus,
   FoodOrderQuery,
-  FoodOrderRow,
   FoodOrderStatus,
   FoodRefundCode,
 } from '../api/types';
 
+import { CountCard } from '../components/food-orders/molecules/CountCard';
+import { QueueRow } from '../components/food-orders/molecules/QueueRow';
+import { RefundPanel } from '../components/food-orders/organisms/RefundPanel';
+import { MoneyRow } from '../components/food-orders/molecules/MoneyRow';
+import { PhoneLink } from '../components/food-orders/atoms/PhoneLink';
+import { STATUS_META, PAYMENT_META, PAYMENT_MODE_LABEL, money, dash, when, elapsed } from '../components/food-orders/utils';
+import type { RefundNotice } from '../components/food-orders/utils';
+import { Box } from '../components/common/atoms/Box';
+import { Inline } from '../components/common/atoms/Inline';
+import { List } from '../components/common/atoms/List';
+import { ListItem } from '../components/common/atoms/ListItem';
+import { Option } from '../components/common/atoms/Option';
+import { PlainTable, PlainTd, PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
+import { Text } from '../components/common/atoms/Text';
 interface FoodOrdersPageProps {
   /** The header's filter box. `AdminLayout` names this tab, so it is on. */
   search: string;
@@ -184,26 +179,7 @@ interface FoodOrdersPageProps {
  * Vocabulary
  * ------------------------------------------------------------------ */
 
-const STATUS_META: Record<FoodOrderStatus, { tone: BadgeTone; icon: ElementType; label: string }> = {
-  placed: { tone: 'brand', icon: ReceiptIndianRupee, label: 'Placed' },
-  accepted: { tone: 'brand', icon: CheckCircle2, label: 'Accepted' },
-  preparing: { tone: 'brand', icon: UtensilsCrossed, label: 'Cooking' },
-  ready: { tone: 'warn', icon: PackageCheck, label: 'Ready to collect' },
-  picked_up: { tone: 'brand', icon: Bike, label: 'On the way' },
-  delivered: { tone: 'good', icon: CheckCircle2, label: 'Delivered' },
-  rejected: { tone: 'crit', icon: XCircle, label: 'Rejected' },
-  cancelled: { tone: 'neutral', icon: CircleSlash, label: 'Cancelled' },
-};
 
-/* "Not paid" rather than "pending": on this screen `pending` almost always
-   means a checkout somebody walked away from, and "pending" reads as though
-   the money is on its way. */
-const PAYMENT_META: Record<FoodOrderPaymentStatus, { tone: BadgeTone; label: string }> = {
-  pending: { tone: 'neutral', label: 'Not paid' },
-  paid: { tone: 'good', label: 'Paid' },
-  refunded: { tone: 'brand', label: 'Refunded' },
-  failed: { tone: 'crit', label: 'Payment failed' },
-};
 
 const DISPATCH_META: Record<FoodDispatchState, { tone: BadgeTone; label: string }> = {
   idle: { tone: 'neutral', label: 'No rider needed yet' },
@@ -220,10 +196,6 @@ const OFFER_META: Record<FoodDispatchOfferOutcome, { tone: BadgeTone; label: str
   cancelled: { tone: 'neutral', label: 'Withdrawn' },
 };
 
-const PAYMENT_MODE_LABEL: Record<FoodOrderPaymentMode, string> = {
-  online: 'Online',
-  cod: 'Cash on delivery',
-};
 
 const VEG_LABEL: Record<string, string> = {
   veg: 'Veg',
@@ -263,22 +235,9 @@ const FINAL_CODES = new Set<FoodRefundCode>([
  * Small formatters. Money always goes through `rupees` from lib/format.
  * ------------------------------------------------------------------ */
 
-/** A dash, not a nought, when the figure was never written. */
-const money = (value: number | null | undefined): string =>
-  (value === null || value === undefined ? '—' : rupees(value));
 
-const dash = (value: string | null | undefined): string => (value ? value : '—');
 
-const when = (iso: string | null | undefined): string => formatDateTime(iso);
 
-/** "12 min", "1 h 14 min" — an operations screen is read in elapsed time. */
-const elapsed = (minutes: number): string => {
-  if (!Number.isFinite(minutes) || minutes < 0) return '—';
-  if (minutes < 60) return `${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest ? `${hours} h ${rest} min` : `${hours} h`;
-};
 
 const metres = (value: number): string => {
   if (!Number.isFinite(value) || value <= 0) return '—';
@@ -298,10 +257,6 @@ const statusParam = (filter: StatusFilter): FoodOrderQuery['status'] => {
   return filter;
 };
 
-interface RefundNotice {
-  tone: 'good' | 'warn' | 'crit';
-  text: string;
-}
 
 /**
  * What is known about the money once nothing is in the air.
@@ -807,7 +762,7 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
   };
 
   return (
-    <div className="space-y-4">
+    <Box className="space-y-4">
       <PageHeader
         title="Food orders"
         description="The orders that need somebody. Find one by its number, read where its money went, and send it back when it is owed."
@@ -826,7 +781,7 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
       {/* Every number here is a filter. A count somebody cannot act on is
           decoration — the same rule the support queue follows. */}
       {tally && (
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <Box className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <CountCard
             label="Needs a human"
             value={tally.needsHuman}
@@ -870,20 +825,20 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
               setStatus(openFilterActive ? 'all' : 'open');
             }}
           />
-        </div>
+        </Box>
       )}
 
       <Card>
         {/* The search for an order is the header's box — see `q` above. */}
-        <div className="flex flex-wrap items-end gap-3">
+        <Box className="flex flex-wrap items-end gap-3">
           <Field label="Status" className="w-44">
             <Select value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)}>
-              <option value="all">Any status</option>
-              <option value="open">Still open</option>
+              <Option value="all">Any status</Option>
+              <Option value="open">Still open</Option>
               {FOOD_ORDER_STATUSES.map((value) => (
-                <option key={value} value={value}>
+                <Option key={value} value={value}>
                   {STATUS_META[value].label}
-                </option>
+                </Option>
               ))}
             </Select>
           </Field>
@@ -893,11 +848,11 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
               value={paymentStatus}
               onChange={(e) => setPaymentStatus(e.target.value as FoodOrderPaymentStatus | 'all')}
             >
-              <option value="all">Any</option>
+              <Option value="all">Any</Option>
               {FOOD_PAYMENT_STATUSES.map((value) => (
-                <option key={value} value={value}>
+                <Option key={value} value={value}>
                   {PAYMENT_META[value].label}
-                </option>
+                </Option>
               ))}
             </Select>
           </Field>
@@ -907,9 +862,9 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
               value={paymentMode}
               onChange={(e) => setPaymentMode(e.target.value as FoodOrderPaymentMode | 'all')}
             >
-              <option value="all">Either</option>
-              <option value="online">Online</option>
-              <option value="cod">Cash</option>
+              <Option value="all">Either</Option>
+              <Option value="online">Online</Option>
+              <Option value="cod">Cash</Option>
             </Select>
           </Field>
 
@@ -918,11 +873,11 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
               value={dispatchState}
               onChange={(e) => setDispatchState(e.target.value as FoodDispatchState | 'all')}
             >
-              <option value="all">Any</option>
+              <Option value="all">Any</Option>
               {FOOD_DISPATCH_STATES.map((value) => (
-                <option key={value} value={value}>
+                <Option key={value} value={value}>
                   {DISPATCH_META[value].label}
-                </option>
+                </Option>
               ))}
             </Select>
           </Field>
@@ -949,13 +904,13 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
               Drop the fault filter
             </Button>
           )}
-        </div>
+        </Box>
       </Card>
 
       <Card padded={false} className="overflow-hidden">
         {queue.loading ? (
           <Table>
-            <thead>
+            <TableHead>
               <Tr>
                 <Th>Order</Th>
                 <Th>Kitchen</Th>
@@ -966,15 +921,15 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                 <Th>Placed</Th>
                 <Th />
               </Tr>
-            </thead>
-            <tbody>
+            </TableHead>
+            <TableBody>
               <TableSkeleton cols={8} />
-            </tbody>
+            </TableBody>
           </Table>
         ) : queue.error ? (
-          <div className="p-4">
+          <Box className="p-4">
             <ErrorState message={queue.error} onRetry={queue.reload} />
-          </div>
+          </Box>
         ) : rows.length === 0 ? (
           <EmptyState
             icon={ReceiptIndianRupee}
@@ -995,7 +950,7 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
         ) : (
           <>
             <Table>
-              <thead>
+              <TableHead>
                 <Tr>
                   <Th>Order</Th>
                   <Th>Kitchen</Th>
@@ -1006,28 +961,28 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                   <Th>Placed</Th>
                   <Th />
                 </Tr>
-              </thead>
-              <tbody>
+              </TableHead>
+              <TableBody>
                 {rows.map((row) => (
                   <QueueRow key={row.orderNumber} row={row} onOpen={() => openOrder(row.orderNumber)} />
                 ))}
-              </tbody>
+              </TableBody>
             </Table>
 
             {/* The queue is paged server-side and can be longer than a screen,
                 so the count is stated rather than implied by the scrollbar. */}
             {queue.data && (
-              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-t border-line">
-                <p className="text-label text-ink-3 tabular">
+              <Box className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-t border-line">
+                <Text className="text-label text-ink-3 tabular">
                   {queue.data.total} order{queue.data.total === 1 ? '' : 's'} · page{' '}
                   {queue.data.page} of {queue.data.pages}
-                </p>
+                </Text>
                 {queue.data.pages > 1 && (
                   /* "Previous" and "Next" rather than "newer" and "older":
                      the server sorts oldest-first while a `needs` filter is on
                      and newest-first otherwise, so either of those words would
                      be a lie on half the views. */
-                  <div className="flex items-center gap-2">
+                  <Box className="flex items-center gap-2">
                     <Button
                       size="sm"
                       variant="secondary"
@@ -1046,9 +1001,9 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                     >
                       Next
                     </Button>
-                  </div>
+                  </Box>
                 )}
-              </div>
+              </Box>
             )}
           </>
         )}
@@ -1072,14 +1027,14 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
         }
       >
         {!open && (detail.loading || detail.refreshing) ? (
-          <p className="text-body text-ink-3">Loading the order…</p>
+          <Text className="text-body text-ink-3">Loading the order…</Text>
         ) : detail.error && !open ? (
           <ErrorState message={detail.error} onRetry={detail.reload} />
         ) : !open ? (
-          <p className="text-body text-ink-3">Nothing to show.</p>
+          <Text className="text-body text-ink-3">Nothing to show.</Text>
         ) : (
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-center gap-2">
+          <Box className="space-y-5">
+            <Box className="flex flex-wrap items-center gap-2">
               <Badge tone={STATUS_META[open.status].tone} icon={STATUS_META[open.status].icon}>
                 {STATUS_META[open.status].label}
               </Badge>
@@ -1102,13 +1057,13 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                   Stuck {elapsed(open.ageMinutes)}
                 </Badge>
               )}
-            </div>
+            </Box>
 
             {!!open.rejectionReason && (
-              <div className="rounded-control border border-crit-border bg-crit-soft p-3">
-                <p className="text-micro uppercase text-crit mb-1">Why the kitchen refused it</p>
-                <p className="text-body text-ink-2">{open.rejectionReason}</p>
-              </div>
+              <Box className="rounded-control border border-crit-border bg-crit-soft p-3">
+                <Text className="text-micro uppercase text-crit mb-1">Why the kitchen refused it</Text>
+                <Text className="text-body text-ink-2">{open.rejectionReason}</Text>
+              </Box>
             )}
 
             {/* Who to ring comes first. Somebody opening this page is usually
@@ -1117,31 +1072,31 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
               <DataRow
                 label="Diner"
                 value={
-                  <span className="inline-flex items-center gap-2">
+                  <Inline className="inline-flex items-center gap-2">
                     <User className="size-3.5 text-ink-3" aria-hidden />
                     {dash(open.customer.name)}
                     <PhoneLink phone={open.customer.phone} />
-                  </span>
+                  </Inline>
                 }
               />
               <DataRow
                 label="Kitchen"
                 value={
-                  <span className="inline-flex items-center gap-2">
+                  <Inline className="inline-flex items-center gap-2">
                     <Store className="size-3.5 text-ink-3" aria-hidden />
                     {open.restaurant.name || open.restaurant.restaurantId}
                     <PhoneLink phone={open.restaurant.phone} />
-                  </span>
+                  </Inline>
                 }
               />
               {!!open.restaurant.ownerName && (
                 <DataRow
                   label="Owner"
                   value={
-                    <span className="inline-flex items-center gap-2">
+                    <Inline className="inline-flex items-center gap-2">
                       {open.restaurant.ownerName}
                       <PhoneLink phone={open.restaurant.ownerPhone} />
-                    </span>
+                    </Inline>
                   }
                 />
               )}
@@ -1149,11 +1104,11 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                 <DataRow
                   label="Rider"
                   value={
-                    <span className="inline-flex items-center gap-2">
+                    <Inline className="inline-flex items-center gap-2">
                       <Bike className="size-3.5 text-ink-3" aria-hidden />
                       {dash(open.rider.name)}
                       <PhoneLink phone={open.rider.phone} />
-                    </span>
+                    </Inline>
                   }
                 />
               ) : (
@@ -1163,10 +1118,10 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                 <DataRow
                   label="Delivering to"
                   value={
-                    <span className="inline-flex items-start gap-2 text-right">
+                    <Inline className="inline-flex items-start gap-2 text-right">
                       <MapPin className="size-3.5 text-ink-3 mt-0.5 shrink-0" aria-hidden />
                       {dash(open.customer.deliveryAddress)}
-                    </span>
+                    </Inline>
                   }
                 />
               )}
@@ -1174,9 +1129,9 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
 
             {/* ── Where the money is. The question this page exists for. ── */}
             <Section title="Where the money is">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <p className="text-label text-ink-3 mb-1">What the diner paid</p>
+              <Box className="grid gap-4 md:grid-cols-2">
+                <Box>
+                  <Text className="text-label text-ink-3 mb-1">What the diner paid</Text>
                   <MoneyRow label="Items" value={open.money.itemsTotal} />
                   <MoneyRow label="Packaging" value={open.money.packagingCharge} />
                   <MoneyRow label="Delivery" value={open.money.deliveryFee} />
@@ -1184,9 +1139,9 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                     <MoneyRow label="Discount" value={-open.money.discount} />
                   )}
                   <MoneyRow label="Charged" value={open.money.grandTotal} strong />
-                </div>
-                <div>
-                  <p className="text-label text-ink-3 mb-1">Where it goes</p>
+                </Box>
+                <Box>
+                  <Text className="text-label text-ink-3 mb-1">Where it goes</Text>
                   <MoneyRow label="Kitchen keeps" value={open.money.partnerPayout} />
                   <MoneyRow
                     label={
@@ -1201,8 +1156,8 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                   />
                   <MoneyRow label="Rider earns" value={open.money.riderEarnings} />
                   <MoneyRow label="Lampose keeps" value={open.money.lamposeNet} strong />
-                </div>
-              </div>
+                </Box>
+              </Box>
             </Section>
 
             {/* ── The payment, and the refund ─────────────────────────── */}
@@ -1215,7 +1170,7 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                     label="Taken at the gateway"
                     value={
                       open.payment.amountPaise > 0 ? (
-                        <span className="tabular">{rupeesFromPaise(open.payment.amountPaise)}</span>
+                        <Inline className="tabular">{rupeesFromPaise(open.payment.amountPaise)}</Inline>
                       ) : (
                         '—'
                       )
@@ -1228,37 +1183,37 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
               )}
 
               {open.payment.refund.state === 'settled' && (
-                <div className="mt-3 rounded-control border border-good-border bg-good-soft p-3">
-                  <p className="text-micro uppercase text-good mb-1">
+                <Box className="mt-3 rounded-control border border-good-border bg-good-soft p-3">
+                  <Text className="text-micro uppercase text-good mb-1">
                     Refunded
                     {open.payment.refund.channel === 'manual'
                       ? ' — recorded by hand'
                       : ' — through Razorpay'}
-                  </p>
-                  <p className="text-body text-ink-2 font-mono break-all">
+                  </Text>
+                  <Text className="text-body text-ink-2 font-mono break-all">
                     {dash(open.payment.refund.reference)}
-                  </p>
-                  <p className="text-label text-ink-3 mt-1">
+                  </Text>
+                  <Text className="text-label text-ink-3 mt-1">
                     {when(open.payment.refund.at)}
                     {open.payment.refund.by ? ` · by ${open.payment.refund.by}` : ''}
-                  </p>
+                  </Text>
                   {!!open.payment.refund.note && (
-                    <p className="text-label text-ink-3 mt-1 break-words">
+                    <Text className="text-label text-ink-3 mt-1 break-words">
                       {open.payment.refund.note}
-                    </p>
+                    </Text>
                   )}
-                </div>
+                </Box>
               )}
 
               {/* A failed attempt is on the record and stays on the screen —
                   the retry below is only truthful if what went wrong last time
                   is visible next to it. */}
               {open.payment.lastFailure && (
-                <div className="mt-3 rounded-control border border-crit-border bg-crit-soft p-3">
-                  <p className="text-micro uppercase text-crit mb-1">Last attempt failed</p>
-                  <p className="text-body text-ink-2 break-words">{open.payment.lastFailure.note}</p>
-                  <p className="text-label text-ink-3 mt-1">{when(open.payment.lastFailure.at)}</p>
-                </div>
+                <Box className="mt-3 rounded-control border border-crit-border bg-crit-soft p-3">
+                  <Text className="text-micro uppercase text-crit mb-1">Last attempt failed</Text>
+                  <Text className="text-body text-ink-2 break-words">{open.payment.lastFailure.note}</Text>
+                  <Text className="text-label text-ink-3 mt-1">{when(open.payment.lastFailure.at)}</Text>
+                </Box>
               )}
             </Section>
 
@@ -1286,43 +1241,43 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
             {/* ── What they ordered ───────────────────────────────────── */}
             <Section title={`What they ordered (${open.lines.length})`}>
               {open.lines.length === 0 ? (
-                <p className="text-body text-ink-3">No lines were snapshotted on this order.</p>
+                <Text className="text-body text-ink-3">No lines were snapshotted on this order.</Text>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-body">
-                    <tbody>
+                <Box className="overflow-x-auto">
+                  <PlainTable className="w-full text-body">
+                    <TableBody>
                       {open.lines.map((line, index) => (
-                        <tr
+                        <PlainTr
                           key={`${line.productId || line.productName}-${index}`}
                           className="border-b border-line last:border-0 align-top"
                         >
-                          <td className="py-2 pr-3 tabular text-ink-3 w-10">×{line.quantity}</td>
-                          <td className="py-2 pr-3">
-                            <p className="text-ink">
+                          <PlainTd className="py-2 pr-3 tabular text-ink-3 w-10">×{line.quantity}</PlainTd>
+                          <PlainTd className="py-2 pr-3">
+                            <Text className="text-ink">
                               {line.productName}
                               {line.variantName ? ` · ${line.variantName}` : ''}
-                            </p>
-                            <p className="text-label text-ink-3">
+                            </Text>
+                            <Text className="text-label text-ink-3">
                               {VEG_LABEL[line.isVeg] ?? line.isVeg}
                               {line.addOns.length
                                 ? ` · with ${line.addOns.map((a) => a.name).join(', ')}`
                                 : ''}
-                            </p>
+                            </Text>
                             {!!line.note && (
-                              <p className="text-label text-ink-3 italic">“{line.note}”</p>
+                              <Text className="text-label text-ink-3 italic">“{line.note}”</Text>
                             )}
-                          </td>
-                          <td className="py-2 pr-3 text-right tabular text-ink-3 whitespace-nowrap">
+                          </PlainTd>
+                          <PlainTd className="py-2 pr-3 text-right tabular text-ink-3 whitespace-nowrap">
                             {money(line.unitPrice)}
-                          </td>
-                          <td className="py-2 text-right tabular text-ink whitespace-nowrap">
+                          </PlainTd>
+                          <PlainTd className="py-2 text-right tabular text-ink whitespace-nowrap">
                             {money(line.lineTotal)}
-                          </td>
-                        </tr>
+                          </PlainTd>
+                        </PlainTr>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
+                    </TableBody>
+                  </PlainTable>
+                </Box>
               )}
             </Section>
 
@@ -1334,47 +1289,47 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                 <DataRow
                   label="Riders asked"
                   value={
-                    <span className="tabular">
+                    <Inline className="tabular">
                       {open.dispatch.candidateCount} shortlisted · {open.dispatch.attempts} offer
                       {open.dispatch.attempts === 1 ? '' : 's'} made
-                    </span>
+                    </Inline>
                   }
                 />
                 {!!open.dispatch.failureReason && (
-                  <div className="mt-3 rounded-control border border-warn-border bg-warn-soft p-3">
-                    <p className="text-micro uppercase text-warn mb-1">Why nobody came</p>
-                    <p className="text-body text-ink-2">{open.dispatch.failureReason}</p>
-                  </div>
+                  <Box className="mt-3 rounded-control border border-warn-border bg-warn-soft p-3">
+                    <Text className="text-micro uppercase text-warn mb-1">Why nobody came</Text>
+                    <Text className="text-body text-ink-2">{open.dispatch.failureReason}</Text>
+                  </Box>
                 )}
 
                 {open.dispatch.offers.length > 0 && (
-                  <div className="mt-3 overflow-x-auto">
-                    <table className="w-full text-body">
-                      <tbody>
+                  <Box className="mt-3 overflow-x-auto">
+                    <PlainTable className="w-full text-body">
+                      <TableBody>
                         {open.dispatch.offers.map((offer, index) => (
-                          <tr
+                          <PlainTr
                             key={`${offer.driverId}-${index}`}
                             className="border-b border-line last:border-0"
                           >
-                            <td className="py-1.5 pr-3 font-mono text-label text-ink">
+                            <PlainTd className="py-1.5 pr-3 font-mono text-label text-ink">
                               {offer.driverId}
-                            </td>
-                            <td className="py-1.5 pr-3 tabular text-ink-3 whitespace-nowrap">
+                            </PlainTd>
+                            <PlainTd className="py-1.5 pr-3 tabular text-ink-3 whitespace-nowrap">
                               {metres(offer.distanceMeters)}
-                            </td>
-                            <td className="py-1.5 pr-3">
+                            </PlainTd>
+                            <PlainTd className="py-1.5 pr-3">
                               <Badge tone={OFFER_META[offer.outcome].tone}>
                                 {OFFER_META[offer.outcome].label}
                               </Badge>
-                            </td>
-                            <td className="py-1.5 text-label text-ink-3 break-words">
+                            </PlainTd>
+                            <PlainTd className="py-1.5 text-label text-ink-3 break-words">
                               {offer.reason || when(offer.respondedAt ?? offer.offeredAt)}
-                            </td>
-                          </tr>
+                            </PlainTd>
+                          </PlainTr>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
+                      </TableBody>
+                    </PlainTable>
+                  </Box>
                 )}
               </Section>
             )}
@@ -1397,7 +1352,7 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                   label="Accepted from"
                   value={
                     open.rider.acceptedFromMeters > 0 ? (
-                      <span className="tabular">{metres(open.rider.acceptedFromMeters)} away</span>
+                      <Inline className="tabular">{metres(open.rider.acceptedFromMeters)} away</Inline>
                     ) : (
                       '—'
                     )
@@ -1405,7 +1360,7 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                 />
                 <DataRow
                   label="Earns"
-                  value={<span className="tabular">{money(open.rider.earnings)}</span>}
+                  value={<Inline className="tabular">{money(open.rider.earnings)}</Inline>}
                 />
               </Section>
             )}
@@ -1413,37 +1368,37 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
             {/* ── The history ─────────────────────────────────────────── */}
             <Section title="What happened, in order">
               {open.statusHistory.length === 0 ? (
-                <p className="text-body text-ink-3">Nothing has been written against this order.</p>
+                <Text className="text-body text-ink-3">Nothing has been written against this order.</Text>
               ) : (
-                <ol className="list-none m-0 p-0 space-y-0">
+                <List ordered className="list-none m-0 p-0 space-y-0">
                   {open.statusHistory.map((event, index) => (
-                    <li
+                    <ListItem
                       key={`${event.status}-${event.at ?? index}`}
                       className="relative pl-5 pb-3 last:pb-0"
                     >
-                      <span
+                      <Inline
                         className="absolute left-[3px] top-1.5 size-1.5 rounded-full bg-line-strong"
                         aria-hidden
                       />
                       {index < open.statusHistory.length - 1 && (
-                        <span
+                        <Inline
                           className="absolute left-[6px] top-3 bottom-0 w-px bg-line"
                           aria-hidden
                         />
                       )}
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-body text-ink">
+                      <Box className="flex flex-wrap items-center gap-2">
+                        <Inline className="text-body text-ink">
                           {STATUS_META[event.status]?.label ?? event.status}
-                        </span>
-                        <span className="text-label text-ink-3">{when(event.at)}</span>
-                        <span className="text-label text-ink-3">· {event.by}</span>
-                      </div>
+                        </Inline>
+                        <Inline className="text-label text-ink-3">{when(event.at)}</Inline>
+                        <Inline className="text-label text-ink-3">· {event.by}</Inline>
+                      </Box>
                       {!!event.note && (
-                        <p className="text-label text-ink-2 mt-0.5 break-words">{event.note}</p>
+                        <Text className="text-label text-ink-2 mt-0.5 break-words">{event.note}</Text>
                       )}
-                    </li>
+                    </ListItem>
                   ))}
-                </ol>
+                </List>
               )}
             </Section>
 
@@ -1459,406 +1414,21 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                 <DataRow label="Promised in" value={`${open.promisedMinutes} min`} />
               )}
             </Section>
-          </div>
+          </Box>
         )}
       </Modal>
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
-    </div>
+    </Box>
   );
 };
 
 /* ── Pieces ───────────────────────────────────────────────────────────────── */
 
-/** A number above the queue that is also the filter for the rows behind it. */
-const CountCard: React.FC<{
-  label: string;
-  value: number;
-  hint: string;
-  tone: 'crit' | 'warn' | 'neutral';
-  active: boolean;
-  onClick: () => void;
-}> = ({ label, value, hint, tone, active, onClick }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    aria-pressed={active}
-    className={cx(
-      'text-left rounded-panel border p-3 transition-colors duration-120',
-      active
-        ? 'border-brand-border bg-brand-soft'
-        : 'border-line bg-surface hover:border-line-strong'
-    )}
-  >
-    <p className="text-micro uppercase text-ink-3">{label}</p>
-    <p
-      className={cx(
-        'text-2xl font-semibold tabular mt-1',
-        value > 0 && tone === 'crit' && 'text-crit',
-        value > 0 && tone === 'warn' && 'text-warn',
-        (value === 0 || tone === 'neutral') && 'text-ink'
-      )}
-    >
-      {value}
-    </p>
-    <p className="text-label text-ink-3 mt-0.5">{hint}</p>
-  </button>
-);
 
-/** One row of the queue: enough to triage without opening it. */
-const QueueRow: React.FC<{ row: FoodOrderRow; onOpen: () => void }> = ({ row, onOpen }) => (
-  <Tr>
-    <Td>
-      <p className="font-mono tabular font-medium text-ink">{row.orderNumber}</p>
-      <div className="flex flex-wrap items-center gap-1 mt-1">
-        {row.flags.refundOwed && (
-          <Badge tone="crit" icon={Undo2}>
-            Refund owed
-          </Badge>
-        )}
-        {row.flags.dispatchFailed && (
-          <Badge tone="crit" icon={Truck}>
-            No rider
-          </Badge>
-        )}
-        {row.flags.stuck && (
-          <Badge tone="warn" icon={Timer}>
-            Stuck {elapsed(row.ageMinutes)}
-          </Badge>
-        )}
-        {row.refund.state === 'settled' && (
-          <Badge tone="good" icon={CheckCircle2}>
-            Refunded
-          </Badge>
-        )}
-      </div>
-    </Td>
-    <Td>
-      {/* The id when nothing was ever written down, never an invented name. */}
-      {row.restaurantName ? (
-        <>
-          <p className="text-ink">{row.restaurantName}</p>
-          <p className="text-label text-ink-3 font-mono">{row.restaurantId}</p>
-        </>
-      ) : (
-        <p className="text-ink font-mono">{row.restaurantId}</p>
-      )}
-    </Td>
-    <Td>
-      <p className="text-ink">{row.customerName || 'Unnamed'}</p>
-      <p className="text-label text-ink-3 font-mono tabular">{dash(row.customerPhone)}</p>
-    </Td>
-    <Td className="text-right">
-      <span className="tabular text-ink">{money(row.grandTotal)}</span>
-    </Td>
-    <Td>
-      <Badge tone={STATUS_META[row.status].tone} icon={STATUS_META[row.status].icon}>
-        {STATUS_META[row.status].label}
-      </Badge>
-    </Td>
-    <Td>
-      <Badge tone={PAYMENT_META[row.paymentStatus].tone}>
-        {PAYMENT_META[row.paymentStatus].label}
-      </Badge>
-      <p className="text-label text-ink-3 mt-0.5">{PAYMENT_MODE_LABEL[row.paymentMode]}</p>
-    </Td>
-    <Td>
-      <span className="text-label text-ink-2" title={formatDateTime(row.placedAt)}>
-        {relativeTime(row.placedAt)}
-      </span>
-    </Td>
-    <Td className="text-right">
-      <Button variant="ghost" icon={ChevronRight} onClick={onOpen}>
-        Open
-      </Button>
-    </Td>
-  </Tr>
-);
 
-/**
- * The refund, and the record of a refund that happened elsewhere.
- *
- * Kept in one component so the two can never drift apart visually — they are
- * adjacent, they end in the same state, and the whole risk is somebody
- * pressing the wrong one. The red frame and the plain frame are the difference.
- */
-const RefundPanel: React.FC<{
-  order: FoodOrderDetail;
-  canRefund: boolean;
-  busy: boolean;
-  notice: RefundNotice | null;
-  reason: string;
-  onReason: (value: string) => void;
-  confirming: boolean;
-  onAsk: () => void;
-  onCancelAsk: () => void;
-  onSend: () => void;
-  settleOpen: boolean;
-  onSettleOpen: (value: boolean) => void;
-  reference: string;
-  onReference: (value: string) => void;
-  settleNote: string;
-  onSettleNote: (value: string) => void;
-  onSettle: () => void;
-}> = ({
-  order,
-  canRefund,
-  busy,
-  notice,
-  reason,
-  onReason,
-  confirming,
-  onAsk,
-  onCancelAsk,
-  onSend,
-  settleOpen,
-  onSettleOpen,
-  reference,
-  onReference,
-  settleNote,
-  onSettleNote,
-  onSettle,
-}) => {
-  const diner = order.customer.name || 'the diner';
-  const settled = order.payment.refund.state === 'settled';
 
-  /* Once anything has come back with a 200 for this order, the control is gone
-     for the rest of the visit — including the shape where the money moved and
-     the save did not. See the header. */
-  if (notice) {
-    return (
-      <Section title="Refund">
-        <div
-          className={cx(
-            'rounded-control border p-3',
-            notice.tone === 'good' && 'border-good-border bg-good-soft',
-            notice.tone === 'warn' && 'border-warn-border bg-warn-soft',
-            notice.tone === 'crit' && 'border-crit-border bg-crit-soft'
-          )}
-        >
-          <p className="text-body text-ink break-words">{notice.text}</p>
-          {notice.tone === 'warn' && (
-            <p className="text-label text-ink-2 mt-1.5">
-              Do not send this again. Write the reference against the order by hand — the money
-              has already left.
-            </p>
-          )}
-        </div>
-      </Section>
-    );
-  }
 
-  if (settled) {
-    /* The record itself is drawn above, in Payment. Repeating it here would
-       give the same fact two homes; saying there is nothing to do is useful. */
-    return (
-      <Section title="Refund">
-        <p className="text-body text-ink-3">
-          This one is settled. Nothing is owed and there is nothing to send.
-        </p>
-      </Section>
-    );
-  }
 
-  if (!canRefund) {
-    return (
-      <Section title="Refund">
-        <p className="text-body text-ink-3 flex items-start gap-2">
-          <ShieldCheck className="size-4 shrink-0 mt-0.5" aria-hidden />
-          {order.payment.refundable
-            ? 'This order is owed a refund. Sending it needs the Admin or Super Admin role — '
-              + 'reading it does not.'
-            : order.payment.refundBlockedReason
-              || 'There is nothing to send back on this order.'}
-        </p>
-      </Section>
-    );
-  }
-
-  if (!order.payment.refundable) {
-    return (
-      <Section title="Refund">
-        {/* The server's own sentence, verbatim. It knows which of the four
-            reasons applies and this page does not re-derive it. */}
-        <p className="text-body text-ink-3">
-          {order.payment.refundBlockedReason || 'There is nothing to send back on this order.'}
-        </p>
-      </Section>
-    );
-  }
-
-  return (
-    <Section title="Refund">
-      <div className="rounded-control border border-crit-border bg-crit-soft p-3">
-        {confirming ? (
-          <>
-            <p className="text-body font-medium text-ink">Send this payment back to {diner}?</p>
-            <div className="text-body text-ink-2 mt-1.5 space-y-1">
-              {order.payment.amountPaise > 0 ? (
-                <p>
-                  Razorpay recorded taking{' '}
-                  <span className="tabular font-medium text-ink">
-                    {rupeesFromPaise(order.payment.amountPaise)}
-                  </span>{' '}
-                  for {order.orderNumber}
-                  {order.payment.paidAt ? ` on ${when(order.payment.paidAt)}` : ''}.
-                </p>
-              ) : (
-                <p>Nothing on this order says what the gateway took, only that it was paid.</p>
-              )}
-              {/* No figure of ours goes here. The gateway refunds the whole
-                  captured payment and reports the real number back. */}
-              <p>
-                The whole of that payment goes back. Razorpay decides the exact amount and tells
-                us afterwards — there is no way to send part of it, and no figure here is ours.
-              </p>
-              <p>It cannot be undone from this console.</p>
-              {!!reason.trim() && (
-                /* What is about to be written, shown before it is written —
-                   this sentence ends up on the order's history and in
-                   Razorpay's notes, and the confirm step is the last chance to
-                   read it back. */
-                <p className="text-ink-3">Recorded as: “{reason.trim()}”</p>
-              )}
-            </div>
-            <div className="flex flex-wrap justify-end gap-2 mt-3">
-              <Button variant="secondary" onClick={onCancelAsk} disabled={busy}>
-                Cancel
-              </Button>
-              <Button variant="danger" icon={Undo2} onClick={onSend} loading={busy} disabled={busy}>
-                {busy ? 'Sending…' : `Send it back to ${diner}`}
-              </Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <p className="text-body font-medium text-ink flex items-center gap-2">
-              <TriangleAlert className="size-4 text-crit shrink-0" aria-hidden />
-              This order is owed a refund
-            </p>
-            <p className="text-body text-ink-2 mt-1">
-              Razorpay sends the whole captured payment back to {diner}. It is one press, it is
-              final, and it is recorded against your name.
-            </p>
-            <div className="mt-3">
-              <Field
-                label="Why"
-                hint="Optional, kept to 200 characters. It goes onto the order's history and into Razorpay's own notes — it is what somebody reads six weeks from now trying to work out what this was."
-              >
-                <Textarea
-                  rows={2}
-                  value={reason}
-                  onChange={(e) => onReason(e.target.value)}
-                  maxLength={200}
-                  placeholder="e.g. the kitchen was closed and the diner cancelled"
-                />
-              </Field>
-            </div>
-            <div className="flex justify-end mt-3">
-              <Button variant="danger" icon={HandCoins} onClick={onAsk} disabled={busy}>
-                Refund {diner}
-              </Button>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* A different act with the same ending, so a different frame and a
-          different verb. This one moves no money; it writes down that money
-          already moved, which is why the reference is not optional. */}
-      <div className="mt-3 rounded-control border border-line bg-surface-subtle p-3">
-        {settleOpen ? (
-          <>
-            <p className="text-body font-medium text-ink">Already refunded somewhere else</p>
-            <p className="text-body text-ink-2 mt-1">
-              This sends nothing. It records that the money has already gone, takes the order out
-              of the queue, and tells everybody afterwards that the debt is settled — so it has to
-              be true.
-            </p>
-            <div className="mt-3 space-y-3">
-              <Field
-                label="Reference"
-                required
-                hint="The Razorpay refund id, or the bank reference. Up to 64 characters. It is the only thing that will ever let anybody match this order to the money."
-              >
-                <Input
-                  value={reference}
-                  onChange={(e) => onReference(e.target.value)}
-                  maxLength={64}
-                  placeholder="rfnd_… or a bank reference"
-                />
-              </Field>
-              <Field label="Note" hint="Optional, up to 80 characters — where it was done.">
-                <Input
-                  value={settleNote}
-                  onChange={(e) => onSettleNote(e.target.value)}
-                  maxLength={80}
-                  placeholder="e.g. razorpay dashboard"
-                />
-              </Field>
-            </div>
-            <div className="flex flex-wrap justify-end gap-2 mt-3">
-              <Button variant="secondary" onClick={() => onSettleOpen(false)} disabled={busy}>
-                Cancel
-              </Button>
-              <Button
-                icon={CheckCircle2}
-                onClick={onSettle}
-                loading={busy}
-                disabled={busy || !reference.trim()}
-              >
-                Record it as refunded
-              </Button>
-            </div>
-          </>
-        ) : (
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-body text-ink-2">
-              Somebody already refunded this in the Razorpay dashboard or by transfer?
-            </p>
-            <Button variant="secondary" icon={History} onClick={() => onSettleOpen(true)}>
-              Record it
-            </Button>
-          </div>
-        )}
-      </div>
-    </Section>
-  );
-};
-
-const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <div>
-    <p className="text-micro uppercase text-ink-3 mb-1.5">{title}</p>
-    <div>{children}</div>
-  </div>
-);
-
-/** One line of the reconciliation. Tabular, so the column reads down. */
-const MoneyRow: React.FC<{ label: string; value: number | null; strong?: boolean }> = ({
-  label,
-  value,
-  strong,
-}) => (
-  <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-line last:border-0">
-    <span className={cx('text-sm', strong ? 'text-ink' : 'text-ink-3')}>{label}</span>
-    <span className={cx('text-sm tabular text-right', strong ? 'text-ink font-medium' : 'text-ink-2')}>
-      {money(value)}
-    </span>
-  </div>
-);
-
-/** A number nobody has to copy out by hand. */
-const PhoneLink: React.FC<{ phone: string }> = ({ phone }) => {
-  if (!phone) return <span className="text-ink-3">no number</span>;
-  return (
-    <a
-      href={`tel:${phone}`}
-      className="inline-flex items-center gap-1 font-mono tabular text-brand-ink hover:underline"
-    >
-      <Phone className="size-3" aria-hidden />
-      {phone}
-    </a>
-  );
-};
 
 export default FoodOrdersPage;

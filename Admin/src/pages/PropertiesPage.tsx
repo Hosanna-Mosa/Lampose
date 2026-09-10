@@ -3,7 +3,6 @@ import {
   Building2,
   Calendar,
   Hourglass,
-  ImageOff,
   LayoutGrid,
   List,
   MapPin,
@@ -15,35 +14,46 @@ import {
   User,
   X,
 } from 'lucide-react';
-import {
-  Badge,
-  Button,
-  Card,
-  DataRow,
-  EmptyState,
-  ErrorState,
-  Field,
-  IconButton,
-  Input,
-  Modal,
-  PageHeader,
-  Select,
-  Skeleton,
-  Table,
-  TableSkeleton,
-  Td,
-  Th,
-  Toast,
-  Tr,
-  cx,
-  type ToastState,
-} from '../components/ui';
+import { Badge } from '../components/common/atoms/Badge';
+import { Button } from '../components/common/atoms/Button';
+import { Card } from '../components/common/atoms/Card';
+import { IconButton } from '../components/common/atoms/IconButton';
+import { Input } from '../components/common/atoms/Input';
+import { Select } from '../components/common/atoms/Select';
+import { Skeleton } from '../components/common/atoms/Skeleton';
+import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
+import { DataRow } from '../components/common/molecules/DataRow';
+import { EmptyState } from '../components/common/molecules/EmptyState';
+import { ErrorState } from '../components/common/molecules/ErrorState';
+import { Field } from '../components/common/molecules/Field';
+import { PageHeader } from '../components/common/molecules/PageHeader';
+import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
+import { Modal } from '../components/common/organisms/Modal';
+import { Toast } from '../components/common/organisms/Toast';
+import type { ToastState } from '../components/common/organisms/Toast';
+import { cx, filterBySearch } from '../components/common/utils';
 import { propertyService } from '../api/services/propertyService';
 import { useFetch } from '../lib/useFetch';
 import { PROPERTY_CATEGORIES, propertyCategoryLabel, STAY_TYPES } from '../lib/domain';
 import { formatDate, formatDateTime, rupees } from '../lib/format';
 import type { PropertyEntity } from '../api/types';
 
+import { Thumb } from '../components/properties/atoms/Thumb';
+import { KeyValueEditor } from '../components/properties/organisms/KeyValueEditor';
+import type { KVRow } from '../components/properties/organisms/KeyValueEditor';
+import { Aside } from '../components/common/atoms/Aside';
+import { Box } from '../components/common/atoms/Box';
+import { Form } from '../components/common/atoms/Form';
+import { Heading } from '../components/common/atoms/Heading';
+import { Image } from '../components/common/atoms/Image';
+import { Inline } from '../components/common/atoms/Inline';
+import { Link } from '../components/common/atoms/Link';
+import { Option } from '../components/common/atoms/Option';
+import { PlainButton } from '../components/common/atoms/PlainButton';
+import { PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
+import { PlainTextarea } from '../components/common/atoms/PlainTextarea';
+import { Region } from '../components/common/atoms/Region';
+import { Text } from '../components/common/atoms/Text';
 interface PropertiesPageProps {
   search: string;
 }
@@ -60,39 +70,6 @@ const EMPTY_FORM = {
   stayType: 'Long Stay',
 };
 
-/** Listing thumbnail, falling back to a neutral placeholder when the record has
- *  no image or the Cloudinary URL fails to load. */
-const Thumb: React.FC<{ property: PropertyEntity; className?: string }> = ({ property, className }) => {
-  const [failed, setFailed] = useState(false);
-  const src = property.imageUrl;
-  const usable = src && !failed && !src.startsWith('/');
-
-  if (!usable) {
-    return (
-      <div className={cx('grid place-items-center bg-surface-inset text-ink-3', className)}>
-        <ImageOff className="size-5" strokeWidth={1.5} />
-      </div>
-    );
-  }
-
-  return (
-    <img
-      src={src}
-      alt=""
-      loading="lazy"
-      onError={() => setFailed(true)}
-      className={cx('object-cover bg-surface-inset', className)}
-    />
-  );
-};
-
-/* ── Category details ─────────────────────────────────────────────────────
-   `categoryDetails` is `Mixed` in property.model.js — its shape depends on
-   `category` and isn't validated, so it's read and edited generically rather
-   than through a form that would have to guess a schema. The known keys
-   (documented in Backend/src/modules/listings/sharing.util.js) get a
-   friendly label and layout below; anything else still shows, just less
-   dressed up, so nothing the onboarding app sends is ever hidden. */
 
 const KNOWN_DETAIL_KEYS = new Set([
   'sharingTypes', 'roomTypes', 'bedType', 'roomType', 'sharingPrices',
@@ -167,14 +144,14 @@ const describeCategoryDetails = (details: Record<string, unknown>): DetailRow[] 
       key: 'sharingPrices',
       label: 'Pricing by option',
       value: (
-        <div className="space-y-1">
+        <Box className="space-y-1">
           {Object.entries(prices as Record<string, unknown>).map(([label, price]) => (
-            <div key={label} className="flex items-center justify-between gap-3">
-              <span className="text-ink">{label}</span>
-              <span className="tabular">{rupees(Number(price) || 0)}</span>
-            </div>
+            <Box key={label} className="flex items-center justify-between gap-3">
+              <Inline className="text-ink">{label}</Inline>
+              <Inline className="tabular">{rupees(Number(price) || 0)}</Inline>
+            </Box>
           ))}
-        </div>
+        </Box>
       ),
     });
   }
@@ -207,10 +184,6 @@ const describeCategoryDetails = (details: Record<string, unknown>): DetailRow[] 
   return rows;
 };
 
-interface KVRow {
-  key: string;
-  value: string;
-}
 
 /** `categoryDetails` (or any plain object) → editable rows. Non-string values
  *  are shown as their JSON so an editor round-trips numbers/arrays/objects
@@ -243,39 +216,6 @@ const rowsToObject = (rows: KVRow[]): Record<string, unknown> => {
   return obj;
 };
 
-/** Generic editor for a schema-less object — every field on `categoryDetails`
- *  the onboarding app might send, without this console having to know its
- *  shape in advance. */
-const KeyValueEditor: React.FC<{ rows: KVRow[]; onChange: (rows: KVRow[]) => void }> = ({ rows, onChange }) => {
-  const update = (i: number, patch: Partial<KVRow>) =>
-    onChange(rows.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
-  const remove = (i: number) => onChange(rows.filter((_, idx) => idx !== i));
-
-  return (
-    <div className="space-y-2">
-      {rows.map((row, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <Input
-            placeholder="key"
-            value={row.key}
-            onChange={(e) => update(i, { key: e.target.value })}
-            className="w-2/5 font-mono text-sm"
-          />
-          <Input
-            placeholder="value"
-            value={row.value}
-            onChange={(e) => update(i, { value: e.target.value })}
-            className="flex-1 font-mono text-sm"
-          />
-          <IconButton icon={Trash2} label={`Remove ${row.key || 'field'}`} tone="danger" onClick={() => remove(i)} />
-        </div>
-      ))}
-      <Button type="button" size="sm" variant="secondary" icon={Plus} onClick={() => onChange([...rows, { key: '', value: '' }])}>
-        Add field
-      </Button>
-    </div>
-  );
-};
 
 export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
   const [category, setCategory] = useState('All');
@@ -304,16 +244,14 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
   );
 
   // The header filter narrows what is already loaded, so typing costs no request.
-  const properties = useMemo(() => {
-    const list = data ?? [];
-    const q = search.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter((p) =>
+  const properties = useMemo(
+    () => filterBySearch(data ?? [], search, (p, q) =>
       [p.name, p.place, p.ownerName, p.ownerMobile, p.address, p.employeeEmail]
         .filter(Boolean)
         .some((field) => field.toLowerCase().includes(q))
-    );
-  }, [data, search]);
+    ),
+    [data, search]
+  );
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -423,7 +361,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
   };
 
   return (
-    <div className="space-y-5">
+    <Box className="space-y-5">
       <PageHeader
         eyebrow="Records"
         title="Properties"
@@ -445,22 +383,22 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
 
       {/* Filters — one row above the content */}
       <Card padded={false} className="p-3">
-        <div className="flex flex-wrap items-center gap-2.5">
+        <Box className="flex flex-wrap items-center gap-2.5">
           <Select value={category} onChange={(e) => setCategory(e.target.value)} className="w-auto min-w-36">
-            <option value="All">All categories</option>
+            <Option value="All">All categories</Option>
             {PROPERTY_CATEGORIES.map((c) => (
-              <option key={c} value={c}>
+              <Option key={c} value={c}>
                 {propertyCategoryLabel(c)}
-              </option>
+              </Option>
             ))}
           </Select>
 
           <Select value={stayType} onChange={(e) => setStayType(e.target.value)} className="w-auto min-w-36">
-            <option value="All">All stay types</option>
+            <Option value="All">All stay types</Option>
             {STAY_TYPES.map((s) => (
-              <option key={s} value={s}>
+              <Option key={s} value={s}>
                 {s}
-              </option>
+              </Option>
             ))}
           </Select>
 
@@ -478,16 +416,16 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
             </Button>
           )}
 
-          <span className="text-label text-ink-3 ml-auto tabular">
+          <Inline className="text-label text-ink-3 ml-auto tabular">
             {loading ? 'Loading…' : `${properties.length} of ${data?.length ?? 0} shown`}
-          </span>
+          </Inline>
 
-          <div className="flex items-center gap-0.5 p-0.5 rounded-control bg-surface-inset">
+          <Box className="flex items-center gap-0.5 p-0.5 rounded-control bg-surface-inset">
             {([
               ['grid', LayoutGrid, 'Grid view'],
               ['table', List, 'Table view'],
             ] as const).map(([mode, Icon, label]) => (
-              <button
+              <PlainButton
                 key={mode}
                 onClick={() => setView(mode)}
                 title={label}
@@ -499,44 +437,44 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                 )}
               >
                 <Icon className="size-4" strokeWidth={1.75} />
-              </button>
+              </PlainButton>
             ))}
-          </div>
-        </div>
+          </Box>
+        </Box>
       </Card>
 
       {error ? (
         <ErrorState message={error} onRetry={reload} />
       ) : loading ? (
         view === 'grid' ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+          <Box className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {Array.from({ length: 6 }).map((_, i) => (
               <Card key={i} padded={false} className="overflow-hidden">
                 <Skeleton className="h-36 w-full rounded-none" />
-                <div className="p-4 space-y-2.5">
+                <Box className="p-4 space-y-2.5">
                   <Skeleton className="h-4 w-3/5" />
                   <Skeleton className="h-3 w-2/5" />
                   <Skeleton className="h-3 w-1/3" />
-                </div>
+                </Box>
               </Card>
             ))}
-          </div>
+          </Box>
         ) : (
           <Card padded={false}>
             <Table>
-              <thead>
-                <tr>
+              <TableHead>
+                <PlainTr>
                   <Th>Property</Th>
                   <Th>Category</Th>
                   <Th>Owner</Th>
                   <Th className="text-right">Rent</Th>
                   <Th>Onboarded</Th>
                   <Th />
-                </tr>
-              </thead>
-              <tbody>
+                </PlainTr>
+              </TableHead>
+              <TableBody>
                 <TableSkeleton cols={6} />
-              </tbody>
+              </TableBody>
             </Table>
           </Card>
         )
@@ -558,37 +496,37 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
           />
         </Card>
       ) : view === 'grid' ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        <Box className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           {properties.map((p) => (
             <Card key={p.id} padded={false} className="overflow-hidden flex flex-col group">
-              <button
+              <PlainButton
                 onClick={() => setSelected(p)}
                 className="block text-left relative"
                 aria-label={`Open ${p.name}`}
               >
                 <Thumb property={p} className="h-36 w-full" />
-                <span className="absolute top-2.5 left-2.5">
+                <Inline className="absolute top-2.5 left-2.5">
                   <Badge tone="neutral" className="bg-surface/90 backdrop-blur-sm">
                     {propertyCategoryLabel(p.category)}
                   </Badge>
-                </span>
+                </Inline>
                 {p.images.length > 1 && (
-                  <span className="absolute top-2.5 right-2.5 px-1.5 py-0.5 rounded-control bg-surface/90 backdrop-blur-sm text-label text-ink-2 tabular">
+                  <Inline className="absolute top-2.5 right-2.5 px-1.5 py-0.5 rounded-control bg-surface/90 backdrop-blur-sm text-label text-ink-2 tabular">
                     {p.images.length} photos
-                  </span>
+                  </Inline>
                 )}
-              </button>
+              </PlainButton>
 
-              <div className="p-4 flex-1 flex flex-col">
-                <button onClick={() => setSelected(p)} className="text-left">
-                  <h3 className="text-section text-ink truncate group-hover:text-brand-ink transition-colors">
+              <Box className="p-4 flex-1 flex flex-col">
+                <PlainButton onClick={() => setSelected(p)} className="text-left">
+                  <Heading level={3} className="text-section text-ink truncate group-hover:text-brand-ink transition-colors">
                     {p.name}
-                  </h3>
-                </button>
-                <p className="text-sm text-ink-3 mt-1 flex items-center gap-1.5 truncate">
+                  </Heading>
+                </PlainButton>
+                <Text className="text-sm text-ink-3 mt-1 flex items-center gap-1.5 truncate">
                   <MapPin className="size-3.5 shrink-0" strokeWidth={1.75} />
                   {p.place || 'Location not recorded'}
-                </p>
+                </Text>
 
                 {!p.isVerified && (
                   <Badge tone="warn" icon={Hourglass} className="mt-2 self-start">
@@ -596,13 +534,13 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                   </Badge>
                 )}
 
-                <div className="mt-3 pt-3 border-t border-line flex items-end justify-between gap-3">
-                  <div>
-                    <p className="text-micro uppercase text-ink-3">Monthly rent</p>
-                    <p className="text-body font-medium text-ink tabular mt-0.5">{rupees(p.rent)}</p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <span className="text-label text-ink-3 tabular mr-1">{formatDate(p.createdAt)}</span>
+                <Box className="mt-3 pt-3 border-t border-line flex items-end justify-between gap-3">
+                  <Box>
+                    <Text className="text-micro uppercase text-ink-3">Monthly rent</Text>
+                    <Text className="text-body font-medium text-ink tabular mt-0.5">{rupees(p.rent)}</Text>
+                  </Box>
+                  <Box className="flex items-center gap-1">
+                    <Inline className="text-label text-ink-3 tabular mr-1">{formatDate(p.createdAt)}</Inline>
                     <IconButton icon={Pencil} label={`Edit ${p.name}`} onClick={() => openEdit(p)} />
                     <IconButton
                       icon={Trash2}
@@ -610,64 +548,64 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                       tone="danger"
                       onClick={() => setPendingDelete(p)}
                     />
-                  </div>
-                </div>
-              </div>
+                  </Box>
+                </Box>
+              </Box>
             </Card>
           ))}
-        </div>
+        </Box>
       ) : (
         <Card padded={false}>
           <Table>
-            <thead>
-              <tr>
+            <TableHead>
+              <PlainTr>
                 <Th>Property</Th>
                 <Th>Category</Th>
                 <Th>Owner</Th>
                 <Th className="text-right">Rent</Th>
                 <Th>Onboarded</Th>
                 <Th />
-              </tr>
-            </thead>
-            <tbody>
+              </PlainTr>
+            </TableHead>
+            <TableBody>
               {properties.map((p) => (
                 <Tr key={p.id}>
                   <Td>
-                    <button
+                    <PlainButton
                       onClick={() => setSelected(p)}
                       className="flex items-center gap-3 text-left group"
                     >
                       <Thumb property={p} className="size-9 rounded-control shrink-0" />
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium text-ink truncate max-w-56 group-hover:text-brand-ink transition-colors">
+                      <Inline className="min-w-0">
+                        <Inline className="block text-sm font-medium text-ink truncate max-w-56 group-hover:text-brand-ink transition-colors">
                           {p.name}
-                        </span>
-                        <span className="block text-label text-ink-3 truncate max-w-56">
+                        </Inline>
+                        <Inline className="block text-label text-ink-3 truncate max-w-56">
                           {p.place || '—'}
-                        </span>
-                      </span>
-                    </button>
+                        </Inline>
+                      </Inline>
+                    </PlainButton>
                   </Td>
                   <Td>
-                    <div className="flex flex-col items-start gap-1">
+                    <Box className="flex flex-col items-start gap-1">
                       <Badge tone="neutral">{propertyCategoryLabel(p.category)}</Badge>
                       {!p.isVerified && (
                         <Badge tone="warn" icon={Hourglass}>
                           Awaiting verification
                         </Badge>
                       )}
-                    </div>
+                    </Box>
                   </Td>
                   <Td>
-                    <span className="block text-sm text-ink truncate max-w-40">{p.ownerName || '—'}</span>
-                    <span className="block text-label text-ink-3 font-mono tabular">
+                    <Inline className="block text-sm text-ink truncate max-w-40">{p.ownerName || '—'}</Inline>
+                    <Inline className="block text-label text-ink-3 font-mono tabular">
                       {p.ownerMobile || '—'}
-                    </span>
+                    </Inline>
                   </Td>
                   <Td className="text-right text-ink tabular">{rupees(p.rent)}</Td>
                   <Td className="tabular">{formatDate(p.createdAt)}</Td>
                   <Td className="text-right">
-                    <div className="flex items-center justify-end gap-0.5">
+                    <Box className="flex items-center justify-end gap-0.5">
                       <IconButton icon={Pencil} label={`Edit ${p.name}`} onClick={() => openEdit(p)} />
                       <IconButton
                         icon={Trash2}
@@ -675,11 +613,11 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                         tone="danger"
                         onClick={() => setPendingDelete(p)}
                       />
-                    </div>
+                    </Box>
                   </Td>
                 </Tr>
               ))}
-            </tbody>
+            </TableBody>
           </Table>
         </Card>
       )}
@@ -687,43 +625,43 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
       {/* Detail drawer */}
       {selected && (
         <>
-          <div
+          <Box
             className="fixed inset-0 z-40 bg-[rgb(9_12_20/0.45)] backdrop-blur-[2px]"
             onClick={() => setSelected(null)}
             aria-hidden
           />
-          <aside
+          <Aside
             role="dialog"
             aria-label={selected.name}
             className="fixed top-0 bottom-0 right-0 z-50 w-full max-w-md bg-surface border-l border-line flex flex-col anim-slide-left"
           >
-            <div className="h-14 px-4 border-b border-line flex items-center justify-between gap-3 shrink-0">
-              <div className="min-w-0">
-                <h2 className="text-section text-ink truncate">{selected.name}</h2>
-                <p className="text-label text-ink-3 flex items-center gap-1.5">
+            <Box className="h-14 px-4 border-b border-line flex items-center justify-between gap-3 shrink-0">
+              <Box className="min-w-0">
+                <Heading level={2} className="text-section text-ink truncate">{selected.name}</Heading>
+                <Text className="text-label text-ink-3 flex items-center gap-1.5">
                   {propertyCategoryLabel(selected.category)}
                   {!selected.isVerified && (
                     <Badge tone="warn" icon={Hourglass}>
                       Awaiting verification
                     </Badge>
                   )}
-                </p>
-              </div>
+                </Text>
+              </Box>
               <IconButton icon={X} label="Close" onClick={() => setSelected(null)} />
-            </div>
+            </Box>
 
             {!selected.isVerified && (
-              <p className="px-4 pt-3 text-label text-ink-3 leading-relaxed">
+              <Text className="px-4 pt-3 text-label text-ink-3 leading-relaxed">
                 Not yet a live listing — this is a snapshot from an onboarding request still awaiting owner or
                 verifier confirmation on WhatsApp. Editing or deleting it updates or cancels that request.
-              </p>
+              </Text>
             )}
 
-            <div className="flex-1 overflow-y-auto">
+            <Box className="flex-1 overflow-y-auto">
               {selected.images.length > 0 && (
-                <div className="flex gap-2 p-4 overflow-x-auto">
+                <Box className="flex gap-2 p-4 overflow-x-auto">
                   {selected.images.map((img, i) => (
-                    <img
+                    <Image
                       key={`${img}-${i}`}
                       src={img}
                       alt=""
@@ -731,13 +669,13 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                       className="h-28 w-40 shrink-0 object-cover rounded-panel bg-surface-inset"
                     />
                   ))}
-                </div>
+                </Box>
               )}
 
-              <div className="px-4 pb-4 space-y-5">
+              <Box className="px-4 pb-4 space-y-5">
                 {selected.documents && selected.documents.length > 0 && (
-                  <section>
-                    <h3 className="text-micro uppercase text-ink-3 mb-1">Verification documents</h3>
+                  <Region>
+                    <Heading level={3} className="text-micro uppercase text-ink-3 mb-1">Verification documents</Heading>
                     {/* Sensitive. These links are public-read on Cloudinary —
                         unguessable, not private — so they open in a new tab
                         rather than rendering inline in a console that is often
@@ -747,105 +685,105 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                         key={`${doc.url}-${i}`}
                         label={doc.kind === 'pan' ? 'Owner / business PAN' : (doc.docType || 'Proof of premises')}
                         value={
-                          <a
+                          <Link
                             href={doc.url}
                             target="_blank"
                             rel="noreferrer noopener"
                             className="text-accent underline underline-offset-2"
                           >
                             {doc.name || 'Open document'}
-                          </a>
+                          </Link>
                         }
                       />
                     ))}
-                  </section>
+                  </Region>
                 )}
 
-                <section>
-                  <h3 className="text-micro uppercase text-ink-3 mb-1">Pricing</h3>
+                <Region>
+                  <Heading level={3} className="text-micro uppercase text-ink-3 mb-1">Pricing</Heading>
                   <DataRow label="Monthly rent" value={rupees(selected.rent)} mono />
                   <DataRow label="Monthly price" value={rupees(selected.monthlyPrice)} mono />
                   <DataRow label="Daily price" value={rupees(selected.dailyPrice)} mono />
                   <DataRow label="Deposit" value={rupees(selected.deposit)} mono />
-                </section>
+                </Region>
 
-                <section>
-                  <h3 className="text-micro uppercase text-ink-3 mb-1">Owner</h3>
+                <Region>
+                  <Heading level={3} className="text-micro uppercase text-ink-3 mb-1">Owner</Heading>
                   <DataRow label="Name" value={selected.ownerName || '—'} />
                   <DataRow label="WhatsApp" value={selected.ownerMobile || '—'} mono />
                   {selected.ownerAltMobile && (
                     <DataRow label="Mobile" value={selected.ownerAltMobile} mono />
                   )}
-                </section>
+                </Region>
 
-                <section>
-                  <h3 className="text-micro uppercase text-ink-3 mb-1">Location</h3>
+                <Region>
+                  <Heading level={3} className="text-micro uppercase text-ink-3 mb-1">Location</Heading>
                   <DataRow label="Place" value={selected.place || '—'} />
                   <DataRow label="Address" value={selected.address || '—'} />
-                </section>
+                </Region>
 
-                <section>
-                  <h3 className="text-micro uppercase text-ink-3 mb-1">Stay</h3>
+                <Region>
+                  <Heading level={3} className="text-micro uppercase text-ink-3 mb-1">Stay</Heading>
                   <DataRow label="Stay type" value={selected.stayType} />
                   <DataRow label="Short stay" value={selected.shortStayDuration || '—'} />
                   <DataRow label="Long stay" value={selected.longStayDuration || '—'} />
-                </section>
+                </Region>
 
                 {selected.amenities.length > 0 && (
-                  <section>
-                    <h3 className="text-micro uppercase text-ink-3 mb-2">Amenities</h3>
-                    <div className="flex flex-wrap gap-1.5">
+                  <Region>
+                    <Heading level={3} className="text-micro uppercase text-ink-3 mb-2">Amenities</Heading>
+                    <Box className="flex flex-wrap gap-1.5">
                       {selected.amenities.map((a) => (
                         <Badge key={a} tone="neutral">
                           {a}
                         </Badge>
                       ))}
-                    </div>
-                  </section>
+                    </Box>
+                  </Region>
                 )}
 
                 {selected.description && (
-                  <section>
-                    <h3 className="text-micro uppercase text-ink-3 mb-1">Description</h3>
-                    <p className="text-sm text-ink-2 leading-relaxed whitespace-pre-wrap">
+                  <Region>
+                    <Heading level={3} className="text-micro uppercase text-ink-3 mb-1">Description</Heading>
+                    <Text className="text-sm text-ink-2 leading-relaxed whitespace-pre-wrap">
                       {selected.description}
-                    </p>
-                  </section>
+                    </Text>
+                  </Region>
                 )}
 
                 {(() => {
                   const detailRows = describeCategoryDetails(selected.categoryDetails);
                   return detailRows.length > 0 ? (
-                    <section>
-                      <h3 className="text-micro uppercase text-ink-3 mb-1">
+                    <Region>
+                      <Heading level={3} className="text-micro uppercase text-ink-3 mb-1">
                         {propertyCategoryLabel(selected.category)} details
-                      </h3>
+                      </Heading>
                       {detailRows.map((row) => (
                         <DataRow key={row.key} label={row.label} value={row.value} />
                       ))}
-                    </section>
+                    </Region>
                   ) : null;
                 })()}
 
-                <section>
-                  <h3 className="text-micro uppercase text-ink-3 mb-1">Record</h3>
+                <Region>
+                  <Heading level={3} className="text-micro uppercase text-ink-3 mb-1">Record</Heading>
                   <DataRow label="Onboarded by" value={selected.employeeEmail || 'Not recorded'} />
                   <DataRow label="Created" value={formatDateTime(selected.createdAt)} />
                   <DataRow label="Updated" value={formatDateTime(selected.updatedAt)} />
                   <DataRow label="Document ID" value={selected.id} mono />
-                </section>
-              </div>
-            </div>
+                </Region>
+              </Box>
+            </Box>
 
-            <div className="p-3 border-t border-line flex justify-between gap-2 shrink-0">
+            <Box className="p-3 border-t border-line flex justify-between gap-2 shrink-0">
               <Button variant="secondary" icon={Pencil} onClick={() => openEdit(selected)}>
                 Edit
               </Button>
               <Button variant="danger" icon={Trash2} onClick={() => setPendingDelete(selected)}>
                 Delete property
               </Button>
-            </div>
-          </aside>
+            </Box>
+          </Aside>
         </>
       )}
 
@@ -866,37 +804,37 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
           </>
         }
       >
-        <form id="create-property" onSubmit={handleCreate} className="space-y-4">
+        <Form id="create-property" onSubmit={handleCreate} className="space-y-4">
           {formError && (
-            <p className="text-sm text-crit bg-crit-soft border border-crit-border rounded-control px-3 py-2">
+            <Text className="text-sm text-crit bg-crit-soft border border-crit-border rounded-control px-3 py-2">
               {formError}
-            </p>
+            </Text>
           )}
 
           <Field label="Property name" required>
             <Input required value={form.name} onChange={setField('name')} placeholder="Sunrise Residency" />
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
+          <Box className="grid grid-cols-2 gap-3">
             <Field label="Category" required>
               <Select value={form.category} onChange={setField('category')}>
                 {PROPERTY_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
+                  <Option key={c} value={c}>
                     {propertyCategoryLabel(c)}
-                  </option>
+                  </Option>
                 ))}
               </Select>
             </Field>
             <Field label="Stay type">
               <Select value={form.stayType} onChange={setField('stayType')}>
                 {STAY_TYPES.map((s) => (
-                  <option key={s} value={s}>
+                  <Option key={s} value={s}>
                     {s}
-                  </option>
+                  </Option>
                 ))}
               </Select>
             </Field>
-          </div>
+          </Box>
 
           <Field label="Place" required hint="Locality and city, as recorded by the field agent.">
             <Input
@@ -911,7 +849,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
             <Input value={form.address} onChange={setField('address')} placeholder="Street, landmark, PIN" />
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
+          <Box className="grid grid-cols-2 gap-3">
             <Field label="Owner name" required>
               <Input required value={form.ownerName} onChange={setField('ownerName')} />
             </Field>
@@ -924,9 +862,9 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                 className="font-mono"
               />
             </Field>
-          </div>
+          </Box>
 
-          <div className="grid grid-cols-2 gap-3">
+          <Box className="grid grid-cols-2 gap-3">
             <Field label="Monthly rent (₹)" required>
               <Input
                 required
@@ -946,8 +884,8 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                 className="tabular"
               />
             </Field>
-          </div>
-        </form>
+          </Box>
+        </Form>
       </Modal>
 
       {/* Edit */}
@@ -972,31 +910,31 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
         }
       >
         {editForm && (
-          <form id="edit-property" onSubmit={handleUpdate} className="space-y-4">
+          <Form id="edit-property" onSubmit={handleUpdate} className="space-y-4">
             <Field label="Property name" required>
               <Input required value={editForm.name} onChange={setEditField('name')} />
             </Field>
 
-            <div className="grid grid-cols-2 gap-3">
+            <Box className="grid grid-cols-2 gap-3">
               <Field label="Category" required>
                 <Select value={editForm.category} onChange={setEditField('category')}>
                   {PROPERTY_CATEGORIES.map((c) => (
-                    <option key={c} value={c}>
+                    <Option key={c} value={c}>
                       {propertyCategoryLabel(c)}
-                    </option>
+                    </Option>
                   ))}
                 </Select>
               </Field>
               <Field label="Stay type">
                 <Select value={editForm.stayType} onChange={setEditField('stayType')}>
                   {STAY_TYPES.map((s) => (
-                    <option key={s} value={s}>
+                    <Option key={s} value={s}>
                       {s}
-                    </option>
+                    </Option>
                   ))}
                 </Select>
               </Field>
-            </div>
+            </Box>
 
             <Field label="Place" required>
               <Input required value={editForm.place} onChange={setEditField('place')} />
@@ -1006,26 +944,26 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
               <Input value={editForm.address} onChange={setEditField('address')} />
             </Field>
 
-            <div className="grid grid-cols-2 gap-3">
+            <Box className="grid grid-cols-2 gap-3">
               <Field label="Owner name" required>
                 <Input required value={editForm.ownerName} onChange={setEditField('ownerName')} />
               </Field>
               <Field label="Owner mobile" required>
                 <Input required value={editForm.ownerMobile} onChange={setEditField('ownerMobile')} className="font-mono" />
               </Field>
-            </div>
+            </Box>
 
-            <div className="grid grid-cols-2 gap-3">
+            <Box className="grid grid-cols-2 gap-3">
               <Field label="Monthly rent (₹)" required>
                 <Input required type="number" min="0" value={editForm.rent} onChange={setEditField('rent')} className="tabular" />
               </Field>
               <Field label="Deposit (₹)">
                 <Input type="number" min="0" value={editForm.deposit} onChange={setEditField('deposit')} className="tabular" />
               </Field>
-            </div>
+            </Box>
 
             <Field label="Description" hint="Free text shown to whoever reads this listing's full detail.">
-              <textarea
+              <PlainTextarea
                 value={editForm.description}
                 onChange={setEditField('description')}
                 rows={3}
@@ -1039,7 +977,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
             >
               <KeyValueEditor rows={editDetailRows} onChange={setEditDetailRows} />
             </Field>
-          </form>
+          </Form>
         )}
       </Modal>
 
@@ -1060,38 +998,38 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
           </>
         }
       >
-        <p className="text-body text-ink-2">
+        <Text className="text-body text-ink-2">
           {pendingDelete?.isVerified ? (
             <>
-              “<span className="text-ink font-medium">{pendingDelete?.name}</span>” will be removed from the
+              “<Inline className="text-ink font-medium">{pendingDelete?.name}</Inline>” will be removed from the
               properties collection. This cannot be undone.
             </>
           ) : (
             <>
-              “<span className="text-ink font-medium">{pendingDelete?.name}</span>” hasn't been verified yet — this
+              “<Inline className="text-ink font-medium">{pendingDelete?.name}</Inline>” hasn't been verified yet — this
               cancels its onboarding request instead of deleting a live listing. This cannot be undone.
             </>
           )}
-        </p>
+        </Text>
         {pendingDelete && (
-          <div className="mt-3 space-y-1">
-            <p className="text-sm text-ink-3 flex items-center gap-2">
+          <Box className="mt-3 space-y-1">
+            <Text className="text-sm text-ink-3 flex items-center gap-2">
               <MapPin className="size-3.5" strokeWidth={1.75} /> {pendingDelete.place || '—'}
-            </p>
-            <p className="text-sm text-ink-3 flex items-center gap-2">
+            </Text>
+            <Text className="text-sm text-ink-3 flex items-center gap-2">
               <User className="size-3.5" strokeWidth={1.75} /> {pendingDelete.ownerName || '—'}
-            </p>
-            <p className="text-sm text-ink-3 flex items-center gap-2">
+            </Text>
+            <Text className="text-sm text-ink-3 flex items-center gap-2">
               <Phone className="size-3.5" strokeWidth={1.75} /> {pendingDelete.ownerMobile || '—'}
-            </p>
-            <p className="text-sm text-ink-3 flex items-center gap-2">
+            </Text>
+            <Text className="text-sm text-ink-3 flex items-center gap-2">
               <Calendar className="size-3.5" strokeWidth={1.75} /> Added {formatDate(pendingDelete.createdAt)}
-            </p>
-          </div>
+            </Text>
+          </Box>
         )}
       </Modal>
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
-    </div>
+    </Box>
   );
 };

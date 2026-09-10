@@ -39,8 +39,29 @@
    guessing, and callers decide what an unknown category means for them.
    ══════════════════════════════════════════════════════════════════════════ */
 
-/** The stored values. This array IS the schema enum. */
-const CATEGORIES = ['PG_HOSTEL', 'BACHELOR', 'HOTEL', 'COLIVE'];
+/**
+ * The stored values. This array IS the schema enum.
+ *
+ * COMMERCIAL is the odd one and is meant to be: it is not somewhere anybody
+ * sleeps. It is here because the same field agents walking a street to onboard
+ * a PG are the ones being offered the shop two doors down, and making them
+ * file that as a "Bachelor" to get it into the system is how a category list
+ * stops meaning anything. What it costs is that every surface which assumed
+ * "a listing is a stay" now has one value it must decline rather than render
+ * — see `STAY_CATEGORIES`.
+ */
+const CATEGORIES = ['PG_HOSTEL', 'BACHELOR', 'HOTEL', 'COLIVE', 'COMMERCIAL'];
+
+/**
+ * The subset a person can actually live in.
+ *
+ * The student app browses stays, and its feed asks for a category by name on
+ * every tab — except when no tab is chosen yet, where asking for nothing means
+ * asking for everything. Before COMMERCIAL that was harmless, because
+ * everything WAS a stay. It is not any more, so anything serving the stay side
+ * of the product filters on this rather than on `CATEGORIES`.
+ */
+const STAY_CATEGORIES = ['PG_HOSTEL', 'BACHELOR', 'HOTEL', 'COLIVE'];
 
 /**
  * What a person sees. The only place the backend spells them out.
@@ -54,6 +75,7 @@ const CATEGORY_LABEL = {
   BACHELOR: 'Bachelor',
   HOTEL: 'Hotels',
   COLIVE: 'House / Co-live',
+  COMMERCIAL: 'Shop / Commercial',
 };
 
 /**
@@ -84,6 +106,16 @@ const LEGACY_CATEGORY = {
   'co-live': 'COLIVE',
   'house/co-live': 'COLIVE',
   'house / co-live': 'COLIVE',
+
+  /* No legacy spellings to carry — nothing was ever stored under any of these.
+     They are here because `normaliseCategory` is what every query string,
+     fixture and admin filter goes through, and a category that only answers to
+     its own code is one that fails the first time somebody types the words. */
+  commercial: 'COMMERCIAL',
+  shop: 'COMMERCIAL',
+  'shop/commercial': 'COMMERCIAL',
+  'shop / commercial': 'COMMERCIAL',
+  'commercial space': 'COMMERCIAL',
 };
 
 /**
@@ -155,6 +187,11 @@ const OCCUPANCY_KEYS = {
   /* Co-live is let as a whole property, like Bachelor, and records the same
      layouts rather than a sharing ladder. */
   COLIVE: ['roomTypes', 'roomType'],
+  /* COMMERCIAL is absent, and has to stay absent. Occupancy is a question
+     about how many people share a room, and a shop has no answer to it — not
+     "one", which is what any placeholder key here would end up asserting.
+     `occupancyOf` reads `OCCUPANCY_KEYS[code] || []`, so an absent entry
+     already means "this category has no occupancy", which is the truth. */
 };
 
 /**
@@ -163,8 +200,13 @@ const OCCUPANCY_KEYS = {
  * These skip the month-ladder and daily-rate path entirely: the panel records
  * neither for them, so the detail page asks for sharing alone. PG_HOSTEL is
  * absent because it is the one category that does carry a stay-length ladder.
+ *
+ * COMMERCIAL is here for the half of that sentence that applies: it has no
+ * ladder and no nightly rate, just a monthly rent. The sharing half does not
+ * apply to it at all, which costs nothing — the flag only reaches the student
+ * app's detail page, and a shop never appears there. See `STAY_CATEGORIES`.
  */
-const SIMPLE_PATH_CATEGORIES = ['BACHELOR', 'COLIVE'];
+const SIMPLE_PATH_CATEGORIES = ['BACHELOR', 'COLIVE', 'COMMERCIAL'];
 
 /**
  * Categories where a confirmed visit is paid for before it completes.
@@ -194,6 +236,12 @@ const SIMPLE_PATH_CATEGORIES = ['BACHELOR', 'COLIVE'];
  * Requests already created keep whatever `payment.purpose` was frozen onto
  * them, so a co-live visitor who paid ₹199 yesterday still has a paid request
  * and a slot to pick. This changes what NEW requests are asked for.
+ *
+ * COMMERCIAL is absent from this and from `PREPAID_CATEGORIES`, so it charges
+ * nothing of either kind. A shop is let after a negotiation between two
+ * businesses, not booked; there is no viewing to hold with a token and no
+ * stay total to take up front. Onboarding records the premises and the rent,
+ * and the conversation happens off-platform.
  */
 const TOKEN_CATEGORIES = ['BACHELOR'];
 
@@ -252,6 +300,7 @@ const DEFAULT_CATEGORY = 'PG_HOSTEL';
 
 module.exports = {
   CATEGORIES,
+  STAY_CATEGORIES,
   CATEGORY_LABEL,
   LEGACY_CATEGORY,
   OCCUPANCY_KEYS,

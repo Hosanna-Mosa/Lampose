@@ -9,22 +9,26 @@ import {
   ShieldCheck,
   UserCheck,
 } from 'lucide-react';
-import {
-  Button,
-  Card,
-  CardHeader,
-  EmptyState,
-  ErrorState,
-  IconButton,
-  PageHeader,
-  Skeleton,
-  cx,
-} from '../components/ui';
-import { ColumnChart, Donut, RankedBars } from '../components/charts';
+import { Button } from '../components/common/atoms/Button';
+import { Card } from '../components/common/atoms/Card';
+import { IconButton } from '../components/common/atoms/IconButton';
+import { Skeleton } from '../components/common/atoms/Skeleton';
+import { CardHeader } from '../components/common/molecules/CardHeader';
+import { EmptyState } from '../components/common/molecules/EmptyState';
+import { ErrorState } from '../components/common/molecules/ErrorState';
+import { PageHeader } from '../components/common/molecules/PageHeader';
+import { cx } from '../components/common/utils';
+import { ColumnChart } from '../components/common/organisms/ColumnChart';
+import { Donut } from '../components/common/organisms/Donut';
+import { RankedBars } from '../components/common/organisms/RankedBars';
 import { insightsService } from '../api/services/insightsService';
 import { useFetch } from '../lib/useFetch';
 import { compactNumber, formatDate, formatDateTime, percent, rupees } from '../lib/format';
 import { categoryHue, stayTypeHue, verificationMeta } from '../lib/domain';
+import { Box } from '../components/common/atoms/Box';
+import { Inline } from '../components/common/atoms/Inline';
+import { PlainButton } from '../components/common/atoms/PlainButton';
+import { Text } from '../components/common/atoms/Text';
 
 const WINDOWS = [
   { days: 7, label: '7 days' },
@@ -62,7 +66,7 @@ export const AnalyticsPage: React.FC = () => {
   const trendHasData = (s?.properties.trend ?? []).some((t) => t.count > 0);
 
   return (
-    <div className="space-y-5">
+    <Box className="space-y-5">
       <PageHeader
         eyebrow="Overview"
         title="Analytics"
@@ -70,9 +74,9 @@ export const AnalyticsPage: React.FC = () => {
         actions={
           <>
             {/* Time-range control — one row, above the charts */}
-            <div className="flex items-center gap-0.5 p-0.5 rounded-control bg-surface-inset">
+            <Box className="flex items-center gap-0.5 p-0.5 rounded-control bg-surface-inset">
               {WINDOWS.map((w) => (
-                <button
+                <PlainButton
                   key={w.days}
                   onClick={() => setDays(w.days)}
                   aria-pressed={days === w.days}
@@ -84,9 +88,9 @@ export const AnalyticsPage: React.FC = () => {
                   )}
                 >
                   {w.label}
-                </button>
+                </PlainButton>
               ))}
-            </div>
+            </Box>
             <IconButton
               icon={RefreshCw}
               label="Reload analytics"
@@ -100,29 +104,29 @@ export const AnalyticsPage: React.FC = () => {
       {error ? (
         <ErrorState message={error} onRetry={reload} />
       ) : loading ? (
-        <div className="space-y-4">
+        <Box className="space-y-4">
           <Skeleton className="h-24 w-full rounded-panel" />
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Box className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Skeleton className="h-72 w-full rounded-panel" />
             <Skeleton className="h-72 w-full rounded-panel" />
-          </div>
-        </div>
+          </Box>
+        </Box>
       ) : !s ? null : (
         <>
           {/* Portfolio value — the one hero figure on this view */}
           <Card>
-            <div className="flex flex-col lg:flex-row lg:items-center gap-6">
-              <div className="lg:border-r lg:border-line lg:pr-8">
-                <p className="text-label text-ink-2">Combined monthly rent across the portfolio</p>
-                <p className="text-hero text-ink figure mt-1.5">
+            <Box className="flex flex-col lg:flex-row lg:items-center gap-6">
+              <Box className="lg:border-r lg:border-line lg:pr-8">
+                <Text className="text-label text-ink-2">Combined monthly rent across the portfolio</Text>
+                <Text className="text-hero text-ink figure mt-1.5">
                   {rupees(s.properties.rent.portfolioMonthly)}
-                </p>
-                <p className="text-sm text-ink-3 mt-1.5">
+                </Text>
+                <Text className="text-sm text-ink-3 mt-1.5">
                   Across {s.properties.total} propert{s.properties.total === 1 ? 'y' : 'ies'}
-                </p>
-              </div>
+                </Text>
+              </Box>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 flex-1">
+              <Box className="grid grid-cols-2 sm:grid-cols-4 gap-6 flex-1">
                 {[
                   { label: 'Average rent', value: rupees(s.properties.rent.average), icon: IndianRupee },
                   { label: 'Lowest rent', value: rupees(s.properties.rent.min), icon: IndianRupee },
@@ -133,13 +137,13 @@ export const AnalyticsPage: React.FC = () => {
                     icon: IndianRupee,
                   },
                 ].map((m) => (
-                  <div key={m.label}>
-                    <p className="text-label text-ink-3">{m.label}</p>
-                    <p className="text-section text-ink tabular mt-1">{m.value}</p>
-                  </div>
+                  <Box key={m.label}>
+                    <Text className="text-label text-ink-3">{m.label}</Text>
+                    <Text className="text-section text-ink tabular mt-1">{m.value}</Text>
+                  </Box>
                 ))}
-              </div>
-            </div>
+              </Box>
+            </Box>
           </Card>
 
           {/* Onboarding pace */}
@@ -149,13 +153,13 @@ export const AnalyticsPage: React.FC = () => {
               description={`Properties added per day over the last ${days} days`}
               icon={CalendarRange}
               action={
-                <span className="text-label text-ink-3 tabular">
+                <Inline className="text-label text-ink-3 tabular">
                   {s.properties.addedInWindow} in window · {s.properties.addedInPreviousWindow} in the
                   previous {days} days
-                </span>
+                </Inline>
               }
             />
-            <div className="mt-5">
+            <Box className="mt-5">
               {trendHasData ? (
                 <ColumnChart
                   data={s.properties.trend.map((t) => ({ label: formatDate(t.date), value: t.count }))}
@@ -185,14 +189,14 @@ export const AnalyticsPage: React.FC = () => {
                   }
                 />
               )}
-            </div>
+            </Box>
           </Card>
 
           {/* Composition */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Box className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card>
               <CardHeader title="By category" description="Accommodation type mix" icon={Building2} />
-              <div className="mt-5">
+              <Box className="mt-5">
                 {categoryData.length ? (
                   <Donut
                     data={categoryData}
@@ -203,12 +207,12 @@ export const AnalyticsPage: React.FC = () => {
                 ) : (
                   <EmptyState icon={Building2} title="No properties recorded" />
                 )}
-              </div>
+              </Box>
             </Card>
 
             <Card>
               <CardHeader title="By stay type" description="Short vs long stay inventory" icon={BedDouble} />
-              <div className="mt-5">
+              <Box className="mt-5">
                 {stayTypeData.length ? (
                   <Donut
                     data={stayTypeData}
@@ -219,19 +223,19 @@ export const AnalyticsPage: React.FC = () => {
                 ) : (
                   <EmptyState icon={BedDouble} title="No stay types recorded" />
                 )}
-              </div>
+              </Box>
             </Card>
-          </div>
+          </Box>
 
           {/* Geography & people */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Box className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card>
               <CardHeader
                 title="Locations"
                 description="Where the portfolio is concentrated"
                 icon={MapPin}
               />
-              <div className="mt-5">
+              <Box className="mt-5">
                 {s.properties.topPlaces.length ? (
                   <RankedBars
                     data={s.properties.topPlaces.map((p) => ({
@@ -248,7 +252,7 @@ export const AnalyticsPage: React.FC = () => {
                 ) : (
                   <EmptyState icon={MapPin} title="No locations recorded" />
                 )}
-              </div>
+              </Box>
             </Card>
 
             <Card>
@@ -257,7 +261,7 @@ export const AnalyticsPage: React.FC = () => {
                 description="Properties onboarded per agent account"
                 icon={UserCheck}
               />
-              <div className="mt-5">
+              <Box className="mt-5">
                 {s.properties.topOnboarders.length ? (
                   <RankedBars
                     data={s.properties.topOnboarders.map((o) => ({ label: o.label, value: o.count }))}
@@ -271,9 +275,9 @@ export const AnalyticsPage: React.FC = () => {
                     description="Listings created before agent tracking was added carry no employee email."
                   />
                 )}
-              </div>
+              </Box>
             </Card>
-          </div>
+          </Box>
 
           {/* Verification performance */}
           <Card>
@@ -282,14 +286,14 @@ export const AnalyticsPage: React.FC = () => {
               description="Owner confirmation requests by outcome"
               icon={ShieldCheck}
               action={
-                <span className="text-label text-ink-3">
+                <Inline className="text-label text-ink-3">
                   {s.verifications.successRate === null
                     ? 'No completed requests yet'
                     : `${percent(s.verifications.successRate, 0)} success rate`}
-                </span>
+                </Inline>
               }
             />
-            <div className="mt-5">
+            <Box className="mt-5">
               {s.verifications.byStatus.length ? (
                 <RankedBars
                   data={s.verifications.byStatus.map((v) => ({
@@ -307,14 +311,14 @@ export const AnalyticsPage: React.FC = () => {
                   description="Requests appear once owners are sent a confirmation message."
                 />
               )}
-            </div>
+            </Box>
           </Card>
 
-          <p className="text-label text-ink-3 text-center">
+          <Text className="text-label text-ink-3 text-center">
             Computed {formatDateTime(s.generatedAt)} from the live database.
-          </p>
+          </Text>
         </>
       )}
-    </div>
+    </Box>
   );
 };

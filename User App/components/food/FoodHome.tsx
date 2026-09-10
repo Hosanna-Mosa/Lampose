@@ -1,4 +1,3 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -16,6 +15,7 @@ import Svg, { Path } from 'react-native-svg';
 
 import { Icon, Text } from '@/components/ui';
 import { useAppState } from '@/context/AppStateContext';
+import { useBottomBar } from '@/context/BottomBarContext';
 import { useFood } from '@/context/FoodContext';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { formatRupees } from '@/utils/money';
@@ -28,7 +28,7 @@ import { FoodNotice, FoodSectionHeader } from './FoodNotices';
 import { VegModeSheet } from './VegModeSheet';
 import { VegModeTransition } from './VegModeTransition';
 import { VegModeButton } from './VegModeButton';
-import { PromoBanner, PROMO_ASPECT, type PromoSlide } from './PromoBanner';
+import { PromoBanner, type PromoSlide } from './PromoBanner';
 import { HEADER_HEIGHT } from '@/components/shell';
 import { CuisineRail } from './CuisineRail';
 import { CuisineSheet } from './CuisineSheet';
@@ -54,6 +54,52 @@ import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
  * `RestaurantListCard`'s own doc comments for why, and the module audit
  * earlier this session for the mistake this is deliberately not repeating.
  */
+/**
+ * How far this feed has to move before the app bar stops floating on the
+ * artwork and becomes an ordinary solid bar.
+ *
+ * Half the bar's own height. Far enough that a thumb resting on a still page
+ * cannot flicker it, near enough that it happens as the scroll begins — which
+ * is the point: the bar is pinned from the first pixel, so the ONLY thing that
+ * tells a reader it is pinned is the moment it goes solid.
+ *
+ * It used to be `bannerHeight - headerRoom`, which is the moment the artwork
+ * stops being what is directly behind the bar — geometrically exact, and about
+ * 256pt of scrolling on a normal phone. That is a third of a screen spent
+ * looking at a bar that has not yet admitted it is stuck, which read as the
+ * bar taking a long time to stick, because that is what it was doing.
+ *
+ * The cost of the earlier switch is that the solid bar now covers the top of
+ * the banner while the banner is still on screen. That top strip is sky in all
+ * four pieces of artwork, which is why this is the cheap side of the trade.
+ */
+const HEADER_STICK_AT = HEADER_HEIGHT / 2;
+
+/**
+ * And how far from the top the chrome goes back to floating on the artwork.
+ *
+ * Deliberately much larger than `HEADER_STICK_AT`, and reached only while the
+ * feed is travelling UP. Coming back to the top is not the mirror image of
+ * leaving it: a fling decelerates into the top, so the last 28pt — the ones
+ * that would trigger a symmetric threshold — are the slowest of the whole
+ * gesture. The chrome would sit there solid through the entire settle and
+ * change at the very last moment, which is what "it takes time to go back"
+ * looks like. Releasing at 96 lands it while the scroll is still moving.
+ *
+ * Two different boundaries for the two directions is normally how you build a
+ * flicker loop, and it would be one here if either rule could fire on its own:
+ * anywhere between the two, both conditions read true. The DIRECTION gate is
+ * what keeps it stable — each rule only fires on the gesture it belongs to —
+ * the same shape the bottom bar's own hide-and-show uses.
+ *
+ * The ceiling on this number is the artwork: released too far down and the bar
+ * goes transparent with the FEED behind it, which is white ink on a white
+ * list. The banner is roughly `screenWidth / 1.071` tall and the chrome is
+ * about 144pt of it, so even on the narrowest phone there is ~150pt of margin.
+ * 96 sits inside that on every device.
+ */
+const HEADER_RELEASE_AT = 96;
+
 export function FoodHome({
   onSearch,
   onBannerUnderHeader,
@@ -116,33 +162,79 @@ export function FoodHome({
    * the device's own top inset plus the bar's height. `HeroControls` starts
    * below it.
    *
-   * `bannerUnderHeader` is which way the bar should be painted. While the
-   * artwork is still behind it, white ink on a scrim; once the feed has
-   * scrolled up under it, white ink would be white-on-white, so the bar goes
-   * back to being an ordinary opaque one. Only this component can answer it,
-   * because the banner's height is derived from the artwork's ratio and the
-   * screen's width — nothing above it knows either.
+   * `bannerUnderHeader` is which way the bar should be painted: white ink on a
+   * scrim while it is floating on the artwork at the top of the feed, an
+   * ordinary opaque bar the moment the feed starts moving. Only this component
+   * can answer it, because only this one is told when the feed scrolls — see
+   * `HEADER_STICK_AT` for where the crossing sits and why it moved.
    */
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const headerRoom = insets.top + HEADER_HEIGHT;
-  const bannerHeight = Math.round(width / PROMO_ASPECT);
+
+  /* The bottom bar reads this feed's scroll too — it slides away while the
+     feed is being read down. One `onScroll` for both, rather than two
+     handlers racing to be the one the ScrollView keeps. */
+  const { onScroll: barScroll, height: barHeight } = useBottomBar();
 
   /* Compared against a ref, not state: this fires on every scroll frame and
      only the CROSSING matters. Re-rendering the whole feed sixty times a
      second to re-assert the same boolean is the version of this that drops
      frames. */
   const underHeader = useRef(true);
+  /*
+   * How the search band is painted, on the SAME crossing the app bar above it
+   * uses — held in a shared value rather than in state.
+   *
+   * That is not a micro-optimisation, it is the whole reason the band appears
+   * to stick INSTANTLY. A `useState` here re-renders this component, and this
+   * component is the entire food feed: fifteen kitchen cards, two dish rails
+   * and the cuisine rail, reconciled before the new colour can be painted. On
+   * a mid-range phone that is long enough to see, and what you see is a bar
+   * that took its time deciding to stick. Writing a shared value paints on the
+   * UI thread and re-renders nothing.
+   *
+   * No `withTiming`: the bar above cuts, so this cuts. A 140ms fade here
+   * against an instant switch there would put the two out of step, and they
+   * have to read as one piece of chrome.
+   */
+  const bandSolid = useSharedValue(0);
+  /* Where the last scroll event left the feed, so this can tell which way the
+     thumb is going. A ref, not state: it changes on every frame and must
+     re-render nothing. */
+  const lastY = useRef(0);
+
+  const setOnArtwork = useCallback(
+    (next: boolean) => {
+      if (next === underHeader.current) return;
+      underHeader.current = next;
+      bandSolid.value = next ? 0 : 1;
+      onBannerUnderHeader?.(next);
+    },
+    [bandSolid, onBannerUnderHeader],
+  );
+
   const reportScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const next = event.nativeEvent.contentOffset.y < bannerHeight - headerRoom;
-      if (next !== underHeader.current) {
-        underHeader.current = next;
-        onBannerUnderHeader?.(next);
+      barScroll(event);
+      const y = event.nativeEvent.contentOffset.y;
+      /* 2pt of deadband, so a resting thumb's jitter is not a direction. */
+      const goingUp = y < lastY.current - 2;
+      lastY.current = y;
+
+      if (y > HEADER_STICK_AT) {
+        /* Going solid is unconditional: any movement away from the top means
+           the chrome is over content and needs its own ground under it. */
+        if (!goingUp || y >= HEADER_RELEASE_AT) setOnArtwork(false);
       }
+
+      /* And coming back is direction-gated — see `HEADER_RELEASE_AT`. */
+      if (y <= HEADER_STICK_AT || (goingUp && y < HEADER_RELEASE_AT)) setOnArtwork(true);
     },
-    [bannerHeight, headerRoom, onBannerUnderHeader],
+    [barScroll, setOnArtwork],
   );
+
+  const bandFillStyle = useAnimatedStyle(() => ({ opacity: bandSolid.value }));
 
   const areaLabel = locality?.name ?? 'your area';
   const vegMode = vegModeOf(preferences);
@@ -455,40 +547,6 @@ export function FoodHome({
       label: 'Order now — find dishes and kitchens near you',
     },
     {
-      id: 'full-first-order',
-      tone: 'caution',
-      image: require('../../assets/images/banner-full-first-order.jpg'),
-      /* Two, both measured off `new2.png`: the coconut chutney bowl at 68%
-         across and the filter coffee tumbler at 77%. The coffee's is the
-         smaller and shorter of the pair, because a tumbler that size does
-         not throw the plume a full bowl does — a matched pair would read as
-         two copies of one effect rather than as two hot things. */
-      /* Pushed harder than the green banner: this one steams against a lit
-         orange sky, where white has far less of the range to itself. */
-      steam: [
-        { x: 0.679, y: 0.632, rise: 0.22, spread: 0.12, strength: 1.2 },
-        { x: 0.774, y: 0.661, rise: 0.16, spread: 0.09, strength: 1.2 },
-      ],
-      onPress: onSearch,
-      label: 'New user offer — flat 50% off your first order',
-    },
-    {
-      id: 'full-street-bites',
-      tone: 'caution',
-      image: require('../../assets/images/banner-full-street-bites.jpg'),
-      /* The chai glass, measured off `new3.png` — 61% across, leaving the
-         glass at 58% down. The noodles beside it are being lifted cold on
-         chopsticks and get none: steam on food the picture does not show as
-         hot is the same kind of lie as a badge with no data behind it. */
-      /* The hardest of the three, and pushed hardest. White steam on a pale
-         pink sky is a small step however opaque it is — this is close to the
-         ceiling of what the effect can do here, and if it still reads faint
-         the fix is a warmer, greyer steam rather than a more opaque white. */
-      steam: [{ x: 0.613, y: 0.583, rise: 0.22, spread: 0.105, strength: 1.35 }],
-      onPress: onSearch,
-      label: 'Explore a wide variety of cuisines near you',
-    },
-    {
       id: 'full-delivered',
       tone: 'brand',
       /* A PLATE — the scooter has been taken out of this file and is layered
@@ -542,13 +600,47 @@ export function FoodHome({
       onPress: onSearch,
       label: 'Order now — your favourite food, delivered',
     },
+    {
+      id: 'full-first-order',
+      tone: 'caution',
+      image: require('../../assets/images/banner-full-first-order.jpg'),
+      /* Two, both measured off `new2.png`: the coconut chutney bowl at 68%
+         across and the filter coffee tumbler at 77%. The coffee's is the
+         smaller and shorter of the pair, because a tumbler that size does
+         not throw the plume a full bowl does — a matched pair would read as
+         two copies of one effect rather than as two hot things. */
+      /* Pushed harder than the green banner: this one steams against a lit
+         orange sky, where white has far less of the range to itself. */
+      steam: [
+        { x: 0.679, y: 0.632, rise: 0.22, spread: 0.12, strength: 1.2 },
+        { x: 0.774, y: 0.661, rise: 0.16, spread: 0.09, strength: 1.2 },
+      ],
+      onPress: onSearch,
+      label: 'New user offer — flat 50% off your first order',
+    },
+    {
+      id: 'full-street-bites',
+      tone: 'caution',
+      image: require('../../assets/images/banner-full-street-bites.jpg'),
+      /* The chai glass, measured off `new3.png` — 61% across, leaving the
+         glass at 58% down. The noodles beside it are being lifted cold on
+         chopsticks and get none: steam on food the picture does not show as
+         hot is the same kind of lie as a badge with no data behind it. */
+      /* The hardest of the three, and pushed hardest. White steam on a pale
+         pink sky is a small step however opaque it is — this is close to the
+         ceiling of what the effect can do here, and if it still reads faint
+         the fix is a warmer, greyer steam rather than a more opaque white. */
+      steam: [{ x: 0.613, y: 0.583, rise: 0.22, spread: 0.105, strength: 1.35 }],
+      onPress: onSearch,
+      label: 'Explore a wide variety of cuisines near you',
+    },
   ];
 
   return (
     <>
     <ScrollView
       showsVerticalScrollIndicator={false}
-      contentContainerStyle={{ paddingBottom: space[8], gap: space[4] }}
+      contentContainerStyle={{ paddingBottom: space[8] + barHeight, gap: space[4] }}
       onScroll={reportScroll}
       scrollEventThrottle={16}
     >
@@ -559,23 +651,13 @@ export function FoodHome({
           one image carries the background and the message together, so the
           controls simply sit ON it and there is no join left to hide.
 
-          `box-none` on the overlay: it spans the whole picture, and without
-          it the artwork underneath would be untappable everywhere the
-          search field and the toggle do not reach — including the "Order
-          Now" button painted into the picture, which is the most likely
-          place on the whole screen for a thumb to land. */}
+          The search row used to be an `absoluteFill` overlay inside this
+          block. It is pinned OUTSIDE the ScrollView now — it still rests on
+          the artwork in exactly the same place, but a child of the banner
+          scrolls away with the banner, and this one has to stay. See the
+          band below the feed. */}
       <View>
         <PromoBanner slides={promoSlides} />
-
-        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          <HeroControls
-            areaLabel={areaLabel}
-            onSearch={onSearch}
-            vegMode={vegMode}
-            onPressVeg={pressVegButton}
-            headerRoom={headerRoom}
-          />
-        </View>
 
         {/* The bottom edge, curved rather than a straight cut into the page
             below. See `BannerCurve`'s own comment for how and why. */}
@@ -856,7 +938,83 @@ export function FoodHome({
       <Text variant="numMeta" color="tertiary" style={{ paddingHorizontal: layout.gutter }}>
         Ready times are the kitchen&apos;s estimate · dev build, mock catalogue (EXPO_PUBLIC_FOOD_MODE)
       </Text>
+
     </ScrollView>
+
+    {/*
+      The search band — pinned, and the reason it is out here.
+
+      It sits at exactly the height it always did, and it is a SIBLING of the
+      ScrollView rather than a child of it. That is the whole trick: it does
+      not need a transform or a scroll offset to stay put, because nothing is
+      moving it. A child of the banner scrolled away with the banner; a child
+      of the content would need its position undone frame by frame; this just
+      never moves.
+
+      Rendered after the feed so it paints over it, and before the sheets so
+      they still paint over IT.
+
+      `box-none`, because it spans the full width but only its controls should
+      take taps — the artwork's own painted "Order Now" sits below it and is
+      the likeliest place on the screen for a thumb to land.
+    */}
+    <View
+      pointerEvents="box-none"
+      style={[
+        styles.stickyBand,
+        {
+          top: headerRoom,
+          paddingHorizontal: space[4],
+          /* Symmetric, so the field clears the bar above it by the same 8pt
+             it clears the feed below. The top half is what used to be
+             `HeroControls`' own `space[2]` offset, so the resting position is
+             unchanged. */
+          paddingTop: space[2],
+          paddingBottom: space[2],
+        },
+      ]}
+    >
+      {/*
+        What the band is painted on once the bar above has gone solid, so the
+        two read as one piece of chrome. `surface` rather than `bg`: it is
+        continuing the bar, not starting the page.
+
+        Its own layer rather than a `backgroundColor` on the band, because that
+        is what lets the switch happen on the UI thread — see `bandSolid`.
+
+        The hairline is load-bearing, not decoration: in the light theme
+        `surface` and `bg` are BOTH #FFFFFF, so without it the band has no
+        bottom edge and the feed passing behind it looks sliced off in mid-air.
+
+        There is no scrim under the controls any more. There used to be a
+        second dark gradient here, under the app bar's own, and the two stacked
+        into a black wash across the top third of the artwork that stopped dead
+        at this band's bottom edge — a hard horizontal line across the picture.
+        Nothing on this row needed it: the search field is an opaque white
+        pill, and the veg switch's "VEG" carries its own text shadow (see
+        `ART_SHADOW`). The bar above keeps a scrim because loose white words
+        genuinely do need one.
+      */}
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFill,
+          {
+            backgroundColor: colors.surface,
+            borderBottomWidth: StyleSheet.hairlineWidth,
+            borderBottomColor: colors.borderSubtle,
+          },
+          bandFillStyle,
+        ]}
+      />
+
+      <HeroControls
+        areaLabel={areaLabel}
+        onSearch={onSearch}
+        vegMode={vegMode}
+        onPressVeg={pressVegButton}
+      />
+    </View>
 
     <CuisineSheet
       visible={browseOpen}
@@ -997,61 +1155,49 @@ function BannerCurve({ width }: { width: number }) {
  * What is left is the one control that has to be here rather than in the
  * picture: the search field, and the veg switch beside it. Everything on
  * this block is now either a control or the photograph.
+ *
+ * ## It draws the row and nothing around it
+ *
+ * Where the row sits and what is painted behind it belong to the band that
+ * holds it — see `styles.stickyBand`. This used to own its own top offset and
+ * its own scrim, which was fine while it was welded into the banner and could
+ * only ever be in one place. It is pinned now, so the thing that knows where
+ * the top of the screen is has to be the thing that positions it.
  */
 function HeroControls({
   areaLabel,
   onSearch,
   vegMode,
   onPressVeg,
-  headerRoom,
 }: {
   areaLabel: string;
   onSearch: () => void;
   vegMode: VegMode;
   onPressVeg: () => void;
-  /** Top inset plus the pinned app header — what this has to clear. */
-  headerRoom: number;
 }) {
   const { colors, space, radius } = useTheme();
 
   return (
-    <View style={{ paddingHorizontal: space[4], paddingTop: headerRoom + space[2] }}>
-      {/* Light on purpose. The header above draws its own, stronger scrim
-          over the status bar and the locality line; this one only has to
-          stop an opaque white field from dissolving into the bright pink and
-          yellow skies of two of the four banners. Any heavier and the two
-          scrims stack into a band across artwork the block exists to show.
-          `pointerEvents="none"` — it spans the row and would otherwise eat
-          the taps meant for the field beneath it. */}
-      <LinearGradient
-        colors={['rgba(0,0,0,0.22)', 'rgba(0,0,0,0)']}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 0.7 }}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
+    <View style={[styles.heroSearchRow, { gap: space[2] }]}>
+      <Pressable
+        onPress={onSearch}
+        accessibilityRole="search"
+        accessibilityLabel="Search dishes, kitchens"
+        style={({ pressed }) => [
+          styles.heroSearch,
+          {
+            backgroundColor: pressed ? colors.surfaceSunken : colors.surface,
+            borderRadius: radius.button,
+            paddingHorizontal: space[3] + 2,
+            gap: space[3],
+          },
+        ]}
+      >
+        <Icon name="search" size={20} color={colors.brandInk} />
+        <RotatingPlaceholder areaLabel={areaLabel} />
+      </Pressable>
 
-      <View style={[styles.heroSearchRow, { gap: space[2] }]}>
-        <Pressable
-          onPress={onSearch}
-          accessibilityRole="search"
-          accessibilityLabel="Search dishes, kitchens"
-          style={({ pressed }) => [
-            styles.heroSearch,
-            {
-              backgroundColor: pressed ? colors.surfaceSunken : colors.surface,
-              borderRadius: radius.button,
-              paddingHorizontal: space[3] + 2,
-              gap: space[3],
-            },
-          ]}
-        >
-          <Icon name="search" size={20} color={colors.brandInk} />
-          <RotatingPlaceholder areaLabel={areaLabel} />
-        </Pressable>
-
-        <VegModeButton mode={vegMode} onPress={onPressVeg} />
-      </View>
+      <VegModeButton mode={vegMode} onPress={onPressVeg} />
     </View>
   );
 }
@@ -1109,6 +1255,9 @@ function RotatingPlaceholder({ areaLabel }: { areaLabel: string }) {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   bannerCurve: { position: 'absolute', left: 0, bottom: 0 },
+  /* Pinned over the feed. `top` is supplied by the caller, which is the only
+     place that knows the safe-area inset. */
+  stickyBand: { position: 'absolute', left: 0, right: 0 },
   heroSearchRow: { flexDirection: 'row', alignItems: 'center' },
   heroSearch: { flex: 1, flexDirection: 'row', alignItems: 'center', minHeight: 48 },
   filterRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },

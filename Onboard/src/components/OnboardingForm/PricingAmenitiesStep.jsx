@@ -64,11 +64,27 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
   };
 
   const isBachelor = formData.category === 'BACHELOR' || formData.category === 'COLIVE';
+  /*
+   * A shop is monthly by definition, the mirror of the hotel rule below.
+   *
+   * Nobody takes a commercial unit by the night, so it is forced onto the
+   * long-stay path whatever `stayType` holds — a stale Short Stay carried over
+   * from a hotel would otherwise ask a godown for a nightly rate, and
+   * `validation.js` (which forces the same thing) would then refuse to submit
+   * against a field the form never showed.
+   */
+  const isCommercial = formData.category === 'COMMERCIAL';
   /* A hotel is nightly by definition, so it takes the short-stay path
      whatever `stayType` happens to hold — a stale Long Stay carried over from
      a previous category would otherwise hide check-in and check-out. */
-  const isShortStay = (currentStayType === 'Short Stay' || isHotel) && !isBachelor;
-  const isLongStay = (currentStayType === 'Long Stay' || isBachelor) && !isShortStay;
+  const isShortStay = (currentStayType === 'Short Stay' || isHotel) && !isBachelor && !isCommercial;
+  const isLongStay = (currentStayType === 'Long Stay' || isBachelor || isCommercial) && !isShortStay;
+  /*
+   * Categories that are never asked "short or long?" — the answer is fixed by
+   * what they are. They still take the typed-price path below, unlike the
+   * whole-property lets, which read a rent derived from their layouts.
+   */
+  const fixedStayLength = isHotel || isCommercial;
 
   // Local File Selection (Does not upload to cloud until form submit)
   const handleFileSelect = (e) => {
@@ -152,9 +168,9 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
             step), and a hotel records check-in and check-out rather than a
             duration. */}
         <span>
-          {isBachelor
+          {isBachelor || fixedStayLength
             ? '3. Pricing & Photos'
-            : (isHotel ? '3. Pricing & Photos' : '3. Stay Duration, Pricing & Amenities')}
+            : '3. Stay Duration, Pricing & Amenities'}
         </span>
       </h3>
 
@@ -178,14 +194,14 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
             * form would then ask for a monthly rent the bed grid had already
             * answered.
             */}
-          {isHotel ? null : (
+          {fixedStayLength ? null : (
             <label className="form-label" style={{ fontSize: '0.95rem', color: '#181e1b', fontWeight: 700, marginBottom: '14px' }}>
               Are you looking for / Offering Stay Type *
             </label>
           )}
 
           {/* 2 Main Stay Type Buttons (Short Stay vs Long Stay) */}
-          <div style={{ display: isHotel ? 'none' : 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '18px' }}>
+          <div style={{ display: fixedStayLength ? 'none' : 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '18px' }}>
             <button
               type="button"
               className="btn"
@@ -343,11 +359,15 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
             }}>
               <h4 style={{ fontSize: '0.92rem', color: '#181e1b', fontWeight: 700, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <Calendar size={16} color="#45855a" />
-                <span>Long Stay Configuration (Starting from 1 Month)</span>
+                <span>{isCommercial ? 'Monthly Rent' : 'Long Stay Configuration (Starting from 1 Month)'}</span>
               </h4>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
-                <div className="form-group" style={{ marginBottom: 0 }}>
+                {/* A commercial lease has a term, but it is negotiated in the
+                    agreement rather than picked from a list of stay lengths —
+                    and "Minimum Duration" under a heading about stays reads as
+                    a question about living there. */}
+                <div className="form-group" style={{ marginBottom: 0, display: isCommercial ? 'none' : undefined }}>
                   <label className="form-label" style={{ color: '#181e1b' }}>Minimum Duration</label>
                   <select
                     name="longStayDuration"
@@ -753,7 +773,11 @@ export default function PricingAmenitiesStep({ formData, onChange, errors = {} }
         * form seeds — a hotel claiming "Food" and "RO Water" that nobody
         * entered is worse than a hotel claiming nothing.
         */}
-      {isBachelor || isHotel ? null : (
+      {/* Commercial joins them: the list below is Food, RO Water, Laundry and
+          the rest of a residential offer, none of which a shop has. What a
+          commercial unit does carry — condition, washroom, parking — is asked
+          in its own block in the previous step. */}
+      {isBachelor || isHotel || isCommercial ? null : (
         <div className="form-group" id="propertyAmenities">
           <label className="form-label" style={{ color: '#181e1b', fontWeight: 700, marginBottom: '12px' }}>
             Key Amenities Included *

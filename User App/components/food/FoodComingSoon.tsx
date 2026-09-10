@@ -2,6 +2,7 @@ import React from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { Button, Icon, Text } from '@/components/ui';
+import { useBottomBar } from '@/context/BottomBarContext';
 import { useTheme } from '@/context/ThemeContext';
 
 /**
@@ -16,12 +17,17 @@ import { useTheme } from '@/context/ThemeContext';
  */
 export function FoodComingSoon({ onExplore }: { onExplore: () => void }) {
   const { colors, space, layout, radius } = useTheme();
+  /* The bar floats over this screen too — collapsed to the way out, but still
+     taking room off the bottom edge that the action button has to clear. It is
+     one screenful and never scrolls far, so it does not drive the bar; it only
+     pays the padding. */
+  const { height: barHeight } = useBottomBar();
 
   return (
     <ScrollView
       contentContainerStyle={[
         styles.container,
-        { padding: layout.gutter, paddingBottom: space[8], gap: space[4] },
+        { padding: layout.gutter, paddingBottom: space[8] + barHeight, gap: space[4] },
       ]}
     >
       <View

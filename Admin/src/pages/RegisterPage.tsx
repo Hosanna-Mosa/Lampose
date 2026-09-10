@@ -1,10 +1,20 @@
 import React, { useState } from 'react';
 import { AlertCircle, ArrowRight, Eye, EyeOff, Info } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { AuthLayout } from './AuthLayout';
-import { Button, Field, Input, NO_AUTOFILL, Select } from '../components/ui';
+import { Button } from '../components/common/atoms/Button';
+import { Input } from '../components/common/atoms/Input';
+import { Select } from '../components/common/atoms/Select';
+import { Field } from '../components/common/molecules/Field';
+import { AuthLayout } from '../components/common/templates/AuthLayout';
+import { NO_AUTOFILL } from '../components/common/utils';
 import { ADMIN_ROLES } from '../lib/domain';
 import type { AdminRole } from '../api/types';
+import { Box } from '../components/common/atoms/Box';
+import { Form } from '../components/common/atoms/Form';
+import { Heading } from '../components/common/atoms/Heading';
+import { Option } from '../components/common/atoms/Option';
+import { PlainButton } from '../components/common/atoms/PlainButton';
+import { Text } from '../components/common/atoms/Text';
 
 interface RegisterPageProps {
   onSwitchToLogin: () => void;
@@ -42,20 +52,20 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onSwitchToLogin }) =
 
   return (
     <AuthLayout>
-      <h1 className="text-title text-ink">Create an administrator account</h1>
-      <p className="text-body text-ink-2 mt-1.5">
+      <Heading level={1} className="text-title text-ink">Create an administrator account</Heading>
+      <Text className="text-body text-ink-2 mt-1.5">
         Registration is gated by the server-side secret key.
-      </p>
+      </Text>
 
-      <form onSubmit={handleSubmit} className="mt-7 space-y-4" autoComplete="off">
+      <Form onSubmit={handleSubmit} className="mt-7 space-y-4" autoComplete="off">
         {error && (
-          <div
+          <Box
             role="alert"
             className="flex items-start gap-2.5 p-3 rounded-panel bg-crit-soft border border-crit-border"
           >
             <AlertCircle className="size-4 text-crit shrink-0 mt-0.5" strokeWidth={2} />
-            <p className="text-sm text-ink-2">{error}</p>
-          </div>
+            <Text className="text-sm text-ink-2">{error}</Text>
+          </Box>
         )}
 
         <Field label="Full name" required>
@@ -81,7 +91,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onSwitchToLogin }) =
         </Field>
 
         <Field label="Password" required hint="At least 6 characters.">
-          <div className="relative">
+          <Box className="relative">
             <Input
               required
               minLength={6}
@@ -92,29 +102,29 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onSwitchToLogin }) =
               onChange={(e) => setPassword(e.target.value)}
               className="pr-10"
             />
-            <button
+            <PlainButton
               type="button"
               onClick={() => setShowPassword((v) => !v)}
               aria-label={showPassword ? 'Hide password' : 'Show password'}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-3 hover:text-ink transition-colors"
             >
               {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-            </button>
-          </div>
+            </PlainButton>
+          </Box>
         </Field>
 
         <Field label="Role" required>
           <Select value={role} onChange={(e) => setRole(e.target.value as AdminRole)}>
             {ADMIN_ROLES.map((r) => (
-              <option key={r} value={r}>
+              <Option key={r} value={r}>
                 {r}
-              </option>
+              </Option>
             ))}
           </Select>
         </Field>
 
         <Field label="Admin secret key" required>
-          <div className="relative">
+          <Box className="relative">
             <Input
               required
               type={showSecret ? 'text' : 'password'}
@@ -125,37 +135,37 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onSwitchToLogin }) =
               className="pr-10 font-mono"
               spellCheck={false}
             />
-            <button
+            <PlainButton
               type="button"
               onClick={() => setShowSecret((v) => !v)}
               aria-label={showSecret ? 'Hide secret key' : 'Show secret key'}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-3 hover:text-ink transition-colors"
             >
               {showSecret ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-            </button>
-          </div>
+            </PlainButton>
+          </Box>
         </Field>
 
-        <p className="flex items-start gap-2 text-label text-ink-3">
+        <Text className="flex items-start gap-2 text-label text-ink-3">
           <Info className="size-3.5 shrink-0 mt-px" strokeWidth={1.75} />
           The key is verified against the backend environment. Ask an existing Super Admin if you do not
           have it.
-        </p>
+        </Text>
 
         <Button type="submit" variant="primary" loading={loading} className="w-full">
           Create account <ArrowRight className="size-4" strokeWidth={2} />
         </Button>
-      </form>
+      </Form>
 
-      <p className="text-sm text-ink-3 mt-6 text-center">
+      <Text className="text-sm text-ink-3 mt-6 text-center">
         Already registered?{' '}
-        <button
+        <PlainButton
           onClick={onSwitchToLogin}
           className="text-brand-ink font-medium hover:underline underline-offset-2"
         >
           Sign in
-        </button>
-      </p>
+        </PlainButton>
+      </Text>
     </AuthLayout>
   );
 };

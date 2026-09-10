@@ -9,30 +9,28 @@ import {
   TrendingUp,
   UserCog,
 } from 'lucide-react';
-import { StatCard } from '../components/dashboard/StatCard';
-import { ColumnChart, Donut, RankedBars } from '../components/charts';
-import {
-  Badge,
-  Button,
-  Card,
-  CardHeader,
-  EmptyState,
-  ErrorState,
-  IconButton,
-  PageHeader,
-  Skeleton,
-  Table,
-  Td,
-  Th,
-  Tr,
-} from '../components/ui';
+import { StatCard } from '../components/common/molecules/StatCard';
+import { ColumnChart } from '../components/common/organisms/ColumnChart';
+import { Donut } from '../components/common/organisms/Donut';
+import { RankedBars } from '../components/common/organisms/RankedBars';
+import { Badge } from '../components/common/atoms/Badge';
+import { Button } from '../components/common/atoms/Button';
+import { Card } from '../components/common/atoms/Card';
+import { IconButton } from '../components/common/atoms/IconButton';
+import { Skeleton } from '../components/common/atoms/Skeleton';
+import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
+import { CardHeader } from '../components/common/molecules/CardHeader';
+import { EmptyState } from '../components/common/molecules/EmptyState';
+import { ErrorState } from '../components/common/molecules/ErrorState';
+import { PageHeader } from '../components/common/molecules/PageHeader';
 import { insightsService } from '../api/services/insightsService';
 import { propertyService } from '../api/services/propertyService';
 import { useFetch } from '../lib/useFetch';
 import { compactNumber, deltaPercent, formatDate, percent, rupees } from '../lib/format';
-import { categoryHue, verificationMeta } from '../lib/domain';
+import { categoryHue, propertyCategoryLabel, verificationMeta } from '../lib/domain';
 import { useAuth } from '../context/AuthContext';
-import { propertyCategoryLabel } from '../lib/domain';
+import { Box } from '../components/common/atoms/Box';
+import { PlainTd, PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
 
 interface DashboardProps {
   setActiveTab: (tab: string) => void;
@@ -81,7 +79,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   const recentProperties = (recent.data ?? []).slice(0, 6);
 
   return (
-    <div className="space-y-5">
+    <Box className="space-y-5">
       <PageHeader
         eyebrow={`Signed in as ${user?.role ?? 'Administrator'}`}
         title={`Welcome back, ${user?.name?.split(' ')[0] ?? 'there'}`}
@@ -109,7 +107,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       ) : (
         <>
           {/* Key figures */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          <Box className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             <StatCard
               loading={stats.loading}
               label="Properties onboarded"
@@ -148,10 +146,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
               footnote={`${s?.admins.active ?? 0} active`}
               icon={UserCog}
             />
-          </div>
+          </Box>
 
           {/* Trend + composition */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <Box className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <Card className="lg:col-span-2">
               <CardHeader
                 title="Onboarding activity"
@@ -165,7 +163,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                   )
                 }
               />
-              <div className="mt-5">
+              <Box className="mt-5">
                 {stats.loading ? (
                   <Skeleton className="h-45 w-full" />
                 ) : trendValues.some((v) => v > 0) ? (
@@ -186,12 +184,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                     description="Onboardings from the last 30 days will be plotted here."
                   />
                 )}
-              </div>
+              </Box>
             </Card>
 
             <Card>
               <CardHeader title="Property mix" description="Share by category" icon={Building2} />
-              <div className="mt-5">
+              <Box className="mt-5">
                 {stats.loading ? (
                   <Skeleton className="h-37 w-full" />
                 ) : categoryData.length ? (
@@ -205,25 +203,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                 ) : (
                   <EmptyState icon={Building2} title="No properties yet" />
                 )}
-              </div>
+              </Box>
             </Card>
-          </div>
+          </Box>
 
           {/* Locations + verification outcomes */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Box className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card>
               <CardHeader
                 title="Top locations"
                 description="Where listings are concentrated"
                 icon={MapPin}
               />
-              <div className="mt-5">
+              <Box className="mt-5">
                 {stats.loading ? (
-                  <div className="space-y-4">
+                  <Box className="space-y-4">
                     {Array.from({ length: 4 }).map((_, i) => (
                       <Skeleton key={i} className="h-8 w-full" />
                     ))}
-                  </div>
+                  </Box>
                 ) : s?.properties.topPlaces.length ? (
                   <RankedBars
                     data={s.properties.topPlaces.map((p) => ({
@@ -240,7 +238,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                 ) : (
                   <EmptyState icon={MapPin} title="No locations recorded" />
                 )}
-              </div>
+              </Box>
             </Card>
 
             <Card>
@@ -254,13 +252,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                   </Button>
                 }
               />
-              <div className="mt-5">
+              <Box className="mt-5">
                 {stats.loading ? (
-                  <div className="space-y-4">
+                  <Box className="space-y-4">
                     {Array.from({ length: 3 }).map((_, i) => (
                       <Skeleton key={i} className="h-8 w-full" />
                     ))}
-                  </div>
+                  </Box>
                 ) : verificationData.length ? (
                   <RankedBars
                     data={verificationData}
@@ -274,15 +272,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                     description="Requests appear once owners are sent a confirmation message."
                   />
                 )}
-              </div>
+              </Box>
             </Card>
-          </div>
+          </Box>
         </>
       )}
 
       {/* Latest records */}
       <Card padded={false}>
-        <div className="p-5 pb-4">
+        <Box className="p-5 pb-4">
           <CardHeader
             title="Latest properties"
             description="Most recent entries in the properties collection"
@@ -293,44 +291,44 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
               </Button>
             }
           />
-        </div>
+        </Box>
 
         {recent.error ? (
-          <div className="px-5 pb-5">
+          <Box className="px-5 pb-5">
             <ErrorState message={recent.error} onRetry={recent.reload} />
-          </div>
+          </Box>
         ) : (
           <Table>
-            <thead>
-              <tr>
+            <TableHead>
+              <PlainTr>
                 <Th>Property</Th>
                 <Th>Category</Th>
                 <Th>Location</Th>
                 <Th className="text-right">Monthly rent</Th>
                 <Th>Onboarded</Th>
-              </tr>
-            </thead>
-            <tbody>
+              </PlainTr>
+            </TableHead>
+            <TableBody>
               {recent.loading ? (
                 Array.from({ length: 4 }).map((_, i) => (
-                  <tr key={i} className="border-b border-line last:border-0">
+                  <PlainTr key={i} className="border-b border-line last:border-0">
                     {Array.from({ length: 5 }).map((__, c) => (
-                      <td key={c} className="px-4 py-3.5 first:pl-5 last:pr-5">
+                      <PlainTd key={c} className="px-4 py-3.5 first:pl-5 last:pr-5">
                         <Skeleton className={`h-3.5 ${c === 0 ? 'w-44' : 'w-20'}`} />
-                      </td>
+                      </PlainTd>
                     ))}
-                  </tr>
+                  </PlainTr>
                 ))
               ) : !recentProperties.length ? (
-                <tr>
-                  <td colSpan={5}>
+                <PlainTr>
+                  <PlainTd colSpan={5}>
                     <EmptyState
                       icon={Building2}
                       title="No properties yet"
                       description="Listings onboarded through the field app will appear here."
                     />
-                  </td>
-                </tr>
+                  </PlainTd>
+                </PlainTr>
               ) : (
                 recentProperties.map((p) => (
                   <Tr key={p.id}>
@@ -344,10 +342,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                   </Tr>
                 ))
               )}
-            </tbody>
+            </TableBody>
           </Table>
         )}
       </Card>
-    </div>
+    </Box>
   );
 };

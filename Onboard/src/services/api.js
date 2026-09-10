@@ -35,6 +35,7 @@ import {
   getAuthToken,
   getCurrentUser,
   getSavedEmployeeEmail,
+  logout,
   setAuthSession,
 } from './auth.js';
 
@@ -124,6 +125,30 @@ api.interceptors.request.use((requestConfig) => {
   requestConfig.headers['X-Client'] = 'onboard-web';
   return requestConfig;
 });
+
+/**
+ * A dead session is cleared here, once, rather than at every call site.
+ *
+ * The token lasts seven days. When it lapses the browser still holds a name
+ * and an email, so the header goes on showing the agent as signed in while
+ * every request comes back 401 — a state the screens read as "the backend is
+ * down", because from a call site the two are indistinguishable. They are not
+ * the same thing at all: one needs the server started, the other needs the
+ * agent to sign in again.
+ *
+ * The sign-in call itself is exempt. A 401 there means "wrong password",
+ * which is an answer to a question that was asked, not a session that ran
+ * out, and clearing storage on it would be clearing nothing.
+ */
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const url = error?.config?.url || '';
+    const isSignIn = /\/auth\/(onboarding-login|login|register)$/i.test(url);
+    if (error?.response?.status === 401 && !isSignIn) logout();
+    return Promise.reject(error);
+  },
+);
 
 /**
  * Every function here resolves rather than throws, and always to an object
@@ -509,7 +534,25 @@ export const loginUser = async ({ email, password }) => {
     .catch(fail);
 
   if (data?.success || data?.valid || data?.data?.token) {
-    const token = data.data?.token || data.token || 'session_token';
+    /*
+     * No token, no session. This used to fall back to the literal string
+     * `'session_token'`, which is the worst of both worlds: the app stores a
+     * session and shows the agent signed in, and then every single request
+     * carries `Bearer session_token` — which the API cannot decode, so it
+     * answers 401 forever. A sign-in that visibly succeeded and then refused
+     * to load anything is much harder to diagnose than one that simply says
+     * it failed, which is what happens now.
+     */
+    const token = data.data?.token || data.token;
+    if (!token) {
+      console.warn('   ❌ sign-in returned no token');
+      return {
+        success: false,
+        valid: false,
+        error: 'Signed in, but the server did not issue a session token. Try again.',
+      };
+    }
+
     const employee = readEmployee(data, inputEmail);
     setAuthSession(token, employee);
     console.info(`   ✅ signed in: ${employee.name} (${employee.email})`);
@@ -542,7 +585,15 @@ export const registerUser = async ({ name, email, mobile, password, role }) => {
     .catch(fail);
 
   if (data?.success || data?.data?.token) {
-    const token = data.data?.token || data.token || 'session_token';
+    /* Same trap as `loginUser` — see the note there. */
+    const token = data.data?.token || data.token;
+    if (!token) {
+      return {
+        success: false,
+        error: 'Account created, but the server did not issue a session token. Sign in to continue.',
+      };
+    }
+
     const employee = readEmployee(data, inputEmail);
     setAuthSession(token, employee);
     return { success: true, token, user: employee };

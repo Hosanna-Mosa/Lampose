@@ -39,7 +39,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
-  Bike,
   CheckCircle2,
   CircleSlash,
   Clock,
@@ -49,37 +48,30 @@ import {
   RefreshCw,
   Send,
   ShieldAlert,
-  User,
-  UtensilsCrossed,
   Wifi,
   WifiOff,
 } from 'lucide-react';
 
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorState,
-  Field,
-  Input,
-  Modal,
-  PageHeader,
-  Select,
-  Skeleton,
-  Textarea,
-  Toast,
-  cx,
-  type BadgeTone,
-  type ToastState,
-} from '../components/ui';
+import { Badge } from '../components/common/atoms/Badge';
+import { Button } from '../components/common/atoms/Button';
+import { Card } from '../components/common/atoms/Card';
+import { Input } from '../components/common/atoms/Input';
+import { Select } from '../components/common/atoms/Select';
+import { Skeleton } from '../components/common/atoms/Skeleton';
+import { Textarea } from '../components/common/atoms/Textarea';
+import { EmptyState } from '../components/common/molecules/EmptyState';
+import { ErrorState } from '../components/common/molecules/ErrorState';
+import { Field } from '../components/common/molecules/Field';
+import { PageHeader } from '../components/common/molecules/PageHeader';
+import { Modal } from '../components/common/organisms/Modal';
+import { Toast } from '../components/common/organisms/Toast';
+import type { ToastState } from '../components/common/organisms/Toast';
+import { cx } from '../components/common/utils';
 import {
   supportService,
   type QueueQuery,
   type RequesterKind,
-  type SupportRow,
   type SupportThread,
-  type TicketPriority,
   type TicketStatus,
 } from '../api/services/supportService';
 import {
@@ -94,6 +86,15 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useFetch } from '../lib/useFetch';
 
+import { QueueRow } from '../components/support/molecules/QueueRow';
+import { AUDIENCE_LABEL, STATUS_TONE, STATUS_LABEL, since, clockTime } from '../components/support/utils';
+import { Box } from '../components/common/atoms/Box';
+import { Heading } from '../components/common/atoms/Heading';
+import { Inline } from '../components/common/atoms/Inline';
+import { Link } from '../components/common/atoms/Link';
+import { Option } from '../components/common/atoms/Option';
+import { PlainButton } from '../components/common/atoms/PlainButton';
+import { Text } from '../components/common/atoms/Text';
 interface SupportPageProps {
   search: string;
 }
@@ -102,149 +103,13 @@ interface SupportPageProps {
  * Vocabulary
  * ------------------------------------------------------------------ */
 
-const AUDIENCE_ICON: Record<RequesterKind, typeof User> = {
-  customer: User,
-  driver: Bike,
-  restaurant: UtensilsCrossed,
-  partner: Home,
-};
 
-const AUDIENCE_LABEL: Record<RequesterKind, string> = {
-  customer: 'Diner',
-  driver: 'Rider',
-  restaurant: 'Restaurant',
-  partner: 'Owner',
-};
 
-const STATUS_TONE: Record<TicketStatus, BadgeTone> = {
-  open: 'warn',
-  awaiting_customer: 'brand',
-  resolved: 'good',
-  closed: 'neutral',
-};
 
-const STATUS_LABEL: Record<TicketStatus, string> = {
-  open: 'Open',
-  /* "Waiting on them", not "awaiting customer" — the row is read by somebody
-     deciding what to pick up next, and the useful fact is whose move it is. */
-  awaiting_customer: 'Waiting on them',
-  resolved: 'Resolved',
-  closed: 'Closed',
-};
 
-const PRIORITY_TONE: Record<TicketPriority, BadgeTone> = {
-  low: 'neutral',
-  normal: 'neutral',
-  high: 'warn',
-  urgent: 'crit',
-};
 
-/** "3 min", "2 h", "5 d" — a queue is read in elapsed time, not in dates. */
-const since = (iso: string): string => {
-  const then = new Date(iso).getTime();
-  if (!Number.isFinite(then)) return '';
-  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
-  if (seconds < 60) return 'just now';
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} min`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} h`;
-  return `${Math.round(hours / 24)} d`;
-};
 
-const clockTime = (iso: string): string => {
-  const at = new Date(iso);
-  return Number.isFinite(at.getTime())
-    ? at.toLocaleString(undefined, {
-      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-    })
-    : '';
-};
 
-/* ------------------------------------------------------------------ *
- * One row in the queue
- * ------------------------------------------------------------------ */
-
-interface RowProps {
-  row: SupportRow;
-  active: boolean;
-  onOpen: () => void;
-}
-
-const QueueRow: React.FC<RowProps> = ({ row, active, onOpen }) => {
-  const Icon = AUDIENCE_ICON[row.requester.kind];
-  const isReport = row.kind === 'report';
-
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className={cx(
-        'w-full text-left px-4 py-3 border-b border-line transition-colors',
-        active
-          ? 'bg-surface-inset'
-          : 'hover:bg-surface-subtle',
-      )}
-    >
-      <div className="flex items-start gap-3">
-        {/*
-          The unread dot marks something the REQUESTER said that nobody here
-          has read — not any activity. A dot that lit up for our own replies
-          would be a dot that is always on, which is a dot nobody looks at.
-        */}
-        <span
-          className={cx(
-            'mt-1.5 h-2 w-2 shrink-0 rounded-full',
-            row.unread ? 'bg-brand' : 'bg-transparent',
-          )}
-          aria-hidden
-        />
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <Icon className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden />
-            <span className="truncate text-body font-medium text-ink">
-              {row.requester.name}
-            </span>
-            {isReport && (
-              /* A safety report is not a ticket with a label. It is a
-                 different queue with a different promise to the person who
-                 filed it, and it must be impossible to mistake in a list. */
-              <Badge tone="crit" icon={ShieldAlert}>Report</Badge>
-            )}
-            {row.priority !== 'normal' && row.priority !== 'low' && (
-              <Badge tone={PRIORITY_TONE[row.priority]}>{row.priority}</Badge>
-            )}
-          </div>
-
-          <p className="mt-0.5 truncate text-body text-ink-2">
-            {row.subject}
-          </p>
-
-          <div className="mt-1 flex items-center gap-2 text-micro text-ink-3">
-            <span className="font-mono">{row.reference}</span>
-            <span aria-hidden>·</span>
-            <span>{AUDIENCE_LABEL[row.requester.kind]}</span>
-            <span aria-hidden>·</span>
-            <span title={clockTime(row.lastActivityAt)}>{since(row.lastActivityAt)}</span>
-            {row.assignedToName && (
-              <>
-                <span aria-hidden>·</span>
-                <span className="truncate">{row.assignedToName}</span>
-              </>
-            )}
-          </div>
-        </div>
-
-        <Badge tone={STATUS_TONE[row.status]}>{STATUS_LABEL[row.status]}</Badge>
-      </div>
-    </button>
-  );
-};
-
-/* ------------------------------------------------------------------ *
- * The page
- * ------------------------------------------------------------------ */
 
 export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
   const { user } = useAuth();
@@ -460,12 +325,12 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
   const counts = stats.data;
 
   return (
-    <div className="space-y-4">
+    <Box className="space-y-4">
       <PageHeader
         title="Support"
         description="Every ticket from the diner, rider and restaurant apps — in one queue."
         actions={(
-          <div className="flex items-center gap-2">
+          <Box className="flex items-center gap-2">
             {/* Says which transport is actually working. A page that showed
                 "Live" while the socket was down would be claiming a freshness
                 it is not delivering. */}
@@ -479,16 +344,16 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
             >
               Refresh
             </Button>
-          </div>
+          </Box>
         )}
       />
 
       {/* The numbers, and each one is a filter. A count somebody cannot act on
           is decoration. */}
       {counts && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <Box className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           {(['customer', 'driver', 'restaurant', 'partner'] as RequesterKind[]).map((k) => (
-            <button
+            <PlainButton
               key={k}
               type="button"
               onClick={() => setAudience(audience === k ? '' : k)}
@@ -499,11 +364,11 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
                   : 'border-line hover:border-line-strong',
               )}
             >
-              <p className="text-micro text-ink-3">{AUDIENCE_LABEL[k]}</p>
-              <p className="text-title">{counts.audiences[k] ?? 0}</p>
-            </button>
+              <Text className="text-micro text-ink-3">{AUDIENCE_LABEL[k]}</Text>
+              <Text className="text-title">{counts.audiences[k] ?? 0}</Text>
+            </PlainButton>
           ))}
-          <button
+          <PlainButton
             type="button"
             onClick={() => setKind(kind === 'report' ? '' : 'report')}
             className={cx(
@@ -513,12 +378,12 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
                 : 'border-line hover:border-line-strong',
             )}
           >
-            <p className="text-micro text-ink-3">Safety reports</p>
-            <p className={cx('text-title', counts.openReports > 0 && 'text-crit')}>
+            <Text className="text-micro text-ink-3">Safety reports</Text>
+            <Text className={cx('text-title', counts.openReports > 0 && 'text-crit')}>
               {counts.openReports}
-            </p>
-          </button>
-          <button
+            </Text>
+          </PlainButton>
+          <PlainButton
             type="button"
             onClick={() => setAssigned(assigned === 'unassigned' ? '' : 'unassigned')}
             className={cx(
@@ -528,44 +393,44 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
                 : 'border-line hover:border-line-strong',
             )}
           >
-            <p className="text-micro text-ink-3">Nobody's</p>
-            <p className="text-title">{counts.unassigned}</p>
-          </button>
-        </div>
+            <Text className="text-micro text-ink-3">Nobody's</Text>
+            <Text className="text-title">{counts.unassigned}</Text>
+          </PlainButton>
+        </Box>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(320px,380px)_1fr]">
+      <Box className="grid gap-4 lg:grid-cols-[minmax(320px,380px)_1fr]">
         {/* ── The queue ─────────────────────────────────────────────── */}
         <Card padded={false} className="overflow-hidden">
-          <div className="flex flex-wrap gap-2 border-b border-line p-3">
+          <Box className="flex flex-wrap gap-2 border-b border-line p-3">
             <Select
               value={status}
               onChange={(e) => setStatus(e.target.value as TicketStatus | 'active' | '')}
               className="flex-1"
             >
-              <option value="active">Still to do</option>
-              <option value="open">Open</option>
-              <option value="awaiting_customer">Waiting on them</option>
-              <option value="resolved">Resolved</option>
-              <option value="closed">Closed</option>
-              <option value="">Everything</option>
+              <Option value="active">Still to do</Option>
+              <Option value="open">Open</Option>
+              <Option value="awaiting_customer">Waiting on them</Option>
+              <Option value="resolved">Resolved</Option>
+              <Option value="closed">Closed</Option>
+              <Option value="">Everything</Option>
             </Select>
             <Select
               value={assigned}
               onChange={(e) => setAssigned(e.target.value as 'me' | 'unassigned' | 'any' | '')}
               className="flex-1"
             >
-              <option value="">Anyone's</option>
-              <option value="me">Mine</option>
-              <option value="unassigned">Nobody's</option>
+              <Option value="">Anyone's</Option>
+              <Option value="me">Mine</Option>
+              <Option value="unassigned">Nobody's</Option>
             </Select>
-          </div>
+          </Box>
 
-          <div className="max-h-[70vh] overflow-y-auto">
+          <Box className="max-h-[70vh] overflow-y-auto">
             {queue.loading && !rows.length ? (
-              <div className="space-y-2 p-4">
+              <Box className="space-y-2 p-4">
                 {[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
-              </div>
+              </Box>
             ) : queue.error ? (
               <ErrorState message={queue.error} onRetry={queue.reload} />
             ) : !rows.length ? (
@@ -588,17 +453,17 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
                 />
               ))
             )}
-          </div>
+          </Box>
         </Card>
 
         {/* ── The conversation ──────────────────────────────────────── */}
         <Card padded={false} className="flex min-h-[60vh] flex-col overflow-hidden">
           {threadBusy ? (
-            <div className="space-y-3 p-4">
+            <Box className="space-y-3 p-4">
               <Skeleton className="h-6 w-1/3" />
               <Skeleton className="h-20 w-2/3" />
               <Skeleton className="h-20 w-2/3 self-end" />
-            </div>
+            </Box>
           ) : threadError ? (
             <ErrorState message={threadError} onRetry={() => selected && void openThread(selected)} />
           ) : !thread ? (
@@ -611,13 +476,13 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
             <>
               {/* Who, and how to reach them. A support screen without a phone
                   number on it is a screen somebody leaves to find one. */}
-              <div className="border-b border-line p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="truncate text-body font-semibold">
+              <Box className="border-b border-line p-4">
+                <Box className="flex flex-wrap items-start justify-between gap-3">
+                  <Box className="min-w-0">
+                    <Box className="flex flex-wrap items-center gap-2">
+                      <Heading level={2} className="truncate text-body font-semibold">
                         {thread.requester.name}
-                      </h2>
+                      </Heading>
                       <Badge tone="neutral">{AUDIENCE_LABEL[thread.requester.kind]}</Badge>
                       {thread.kind === 'report' && (
                         <Badge tone="crit" icon={ShieldAlert}>Safety report</Badge>
@@ -625,7 +490,7 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
                       <Badge tone={STATUS_TONE[thread.status]}>
                         {STATUS_LABEL[thread.status]}
                       </Badge>
-                    </div>
+                    </Box>
                     {/* "About the platform, or about this property?" — what the
                         student answered when they opened this. Set means the
                         owner named here can also read and reply to this
@@ -633,36 +498,36 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
                         admin alone, which is what a platform-category ticket
                         (a payment, the app itself) always does. */}
                     {thread.linkedPartnerId ? (
-                      <p className="mt-1 inline-flex items-center gap-1 text-micro text-warn">
+                      <Text className="mt-1 inline-flex items-center gap-1 text-micro text-warn">
                         <Home className="h-3 w-3" aria-hidden />
                         About a property — also visible to{' '}
                         {thread.linkedPartnerName || 'its owner'} in Stay Partner
-                      </p>
+                      </Text>
                     ) : (
-                      <p className="mt-1 text-micro text-ink-3">About the Lampose platform — admin only</p>
+                      <Text className="mt-1 text-micro text-ink-3">About the Lampose platform — admin only</Text>
                     )}
-                    <p className="mt-1 text-body text-ink-2">
+                    <Text className="mt-1 text-body text-ink-2">
                       {thread.subject}
-                    </p>
-                    <div className="mt-1 flex flex-wrap items-center gap-3 text-micro text-ink-3">
-                      <span className="font-mono">{thread.reference}</span>
+                    </Text>
+                    <Box className="mt-1 flex flex-wrap items-center gap-3 text-micro text-ink-3">
+                      <Inline className="font-mono">{thread.reference}</Inline>
                       {thread.requester.phone && (
-                        <a
+                        <Link
                           className="inline-flex items-center gap-1 hover:underline"
                           href={`tel:${thread.requester.phone}`}
                         >
                           <Phone className="h-3 w-3" aria-hidden />
                           {thread.requester.phone}
-                        </a>
+                        </Link>
                       )}
-                      {thread.category && <span>About: {thread.category}</span>}
-                      {thread.reason && <span>Reason: {thread.reason}</span>}
-                      {thread.orderNumber && <span>Order {thread.orderNumber}</span>}
-                      <span>Opened {since(thread.createdAt)} ago</span>
-                    </div>
-                  </div>
+                      {thread.category && <Inline>About: {thread.category}</Inline>}
+                      {thread.reason && <Inline>Reason: {thread.reason}</Inline>}
+                      {thread.orderNumber && <Inline>Order {thread.orderNumber}</Inline>}
+                      <Inline>Opened {since(thread.createdAt)} ago</Inline>
+                    </Box>
+                  </Box>
 
-                  <div className="flex shrink-0 flex-wrap gap-2">
+                  <Box className="flex shrink-0 flex-wrap gap-2">
                     {canAnswer && !thread.assignedToId && (
                       <Button variant="secondary" onClick={() => void claim()}>Claim</Button>
                     )}
@@ -684,37 +549,37 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
                         Close
                       </Button>
                     )}
-                  </div>
-                </div>
+                  </Box>
+                </Box>
 
                 {thread.assignedToName && (
-                  <p className="mt-2 text-micro text-ink-3">
+                  <Text className="mt-2 text-micro text-ink-3">
                     Held by {thread.assignedToName}
-                  </p>
+                  </Text>
                 )}
                 {thread.evidenceRequired && (
-                  <p className="mt-2 inline-flex items-center gap-1 text-xs text-warn">
+                  <Text className="mt-2 inline-flex items-center gap-1 text-xs text-warn">
                     <AlertTriangle className="h-3 w-3" aria-hidden />
                     This reason needs evidence — chase for a photograph if none has arrived.
-                  </p>
+                  </Text>
                 )}
-              </div>
+              </Box>
 
               {/* The thread itself. */}
-              <div className="flex-1 space-y-3 overflow-y-auto p-4">
+              <Box className="flex-1 space-y-3 overflow-y-auto p-4">
                 {thread.messages.map((message) => {
                   if (message.author === 'system') {
                     /* A rule, not a bubble. A system line records what
                        HAPPENED; drawing it as speech lets a process guarantee
                        be mistaken for a person's promise. */
                     return (
-                      <div key={message.id} className="flex items-center gap-2 py-1">
-                        <span className="h-px flex-1 bg-line" />
-                        <span className="text-center text-micro text-ink-3">
+                      <Box key={message.id} className="flex items-center gap-2 py-1">
+                        <Inline className="h-px flex-1 bg-line" />
+                        <Inline className="text-center text-micro text-ink-3">
                           {message.body}
-                        </span>
-                        <span className="h-px flex-1 bg-line" />
-                      </div>
+                        </Inline>
+                        <Inline className="h-px flex-1 bg-line" />
+                      </Box>
                     );
                   }
 
@@ -732,11 +597,11 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
                       ? (thread.linkedPartnerName || 'Property owner')
                       : thread.requester.name;
                   return (
-                    <div
+                    <Box
                       key={message.id}
                       className={cx('flex', ours ? 'justify-end' : 'justify-start')}
                     >
-                      <div
+                      <Box
                         className={cx(
                           'max-w-[80%] rounded-lg px-3 py-2',
                           ours
@@ -747,10 +612,10 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
                         )}
                       >
                         {fromPartner && (
-                          <p className="mb-0.5 text-micro font-medium text-warn">Property owner</p>
+                          <Text className="mb-0.5 text-micro font-medium text-warn">Property owner</Text>
                         )}
-                        <p className="whitespace-pre-wrap text-body">{message.body}</p>
-                        <p className={cx('mt-1 text-micro', ours ? 'opacity-70' : 'text-ink-3')}>
+                        <Text className="whitespace-pre-wrap text-body">{message.body}</Text>
+                        <Text className={cx('mt-1 text-micro', ours ? 'opacity-70' : 'text-ink-3')}>
                           {/* A NAME, because "Lampose Support" answers nobody.
                               Somebody chasing a deposit for three weeks who
                               gets four replies signed the same way cannot tell
@@ -758,35 +623,35 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
                           {senderName}
                           {' · '}
                           {clockTime(message.at)}
-                        </p>
-                      </div>
-                    </div>
+                        </Text>
+                      </Box>
+                    </Box>
                   );
                 })}
-              </div>
+              </Box>
 
               {/* The reply box. */}
-              <div className="border-t border-line p-3">
+              <Box className="border-t border-line p-3">
                 {!canAnswer ? (
-                  <p className="text-body text-ink-3">
+                  <Text className="text-body text-ink-3">
                     Your role can read this queue but not answer it. Answering needs
                     the Admin or Support role.
-                  </p>
+                  </Text>
                 ) : thread.status === 'closed' ? (
                   /* Say why the box is gone rather than showing a dead one.
                      The server refuses a reply into a closed thread with a 409,
                      and a text area that takes a paragraph and then loses it is
                      the worst version of that rule. */
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-body text-ink-3">
+                  <Box className="flex flex-wrap items-center justify-between gap-2">
+                    <Text className="text-body text-ink-3">
                       This thread is closed. Reopen it to say anything more.
-                    </p>
+                    </Text>
                     <Button variant="secondary" onClick={() => void setStatusTo('open')}>
                       Reopen
                     </Button>
-                  </div>
+                  </Box>
                 ) : (
-                  <div className="space-y-2">
+                  <Box className="space-y-2">
                     <Textarea
                       rows={3}
                       value={draft}
@@ -802,13 +667,13 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
                         }
                       }}
                     />
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-micro text-ink-3">
+                    <Box className="flex flex-wrap items-center justify-between gap-2">
+                      <Text className="text-micro text-ink-3">
                         {thread.status === 'open'
                           ? 'Sending moves this to “Waiting on them”.'
                           : 'Ctrl+Enter to send.'}
-                      </p>
-                      <div className="flex gap-2">
+                      </Text>
+                      <Box className="flex gap-2">
                         {thread.status === 'open' && (
                           /* For "we are looking into it" — a holding reply
                              should not take the ticket off the active queue
@@ -828,15 +693,15 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
                         >
                           {sending ? 'Sending…' : 'Send'}
                         </Button>
-                      </div>
-                    </div>
-                  </div>
+                      </Box>
+                    </Box>
+                  </Box>
                 )}
-              </div>
+              </Box>
             </>
           )}
         </Card>
-      </div>
+      </Box>
 
       {/* Resolving asks for the OUTCOME in the queue's own words. A list of
           rows all reading "Resolved" is a list somebody has to open one by one
@@ -869,14 +734,14 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
             placeholder="Refunded ₹1,000 — arrived 14 Mar"
           />
         </Field>
-        <p className="mt-2 flex items-center gap-1 text-micro text-ink-3">
+        <Text className="mt-2 flex items-center gap-1 text-micro text-ink-3">
           <Clock className="h-3 w-3" aria-hidden />
           Resolved threads can still be replied to. Use Close when it is finished.
-        </p>
+        </Text>
       </Modal>
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
-    </div>
+    </Box>
   );
 };
 

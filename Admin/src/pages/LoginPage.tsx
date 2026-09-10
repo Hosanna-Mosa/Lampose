@@ -1,8 +1,16 @@
 import React, { useState } from 'react';
 import { AlertCircle, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { AuthLayout } from './AuthLayout';
-import { Button, Field, Input, NO_AUTOFILL } from '../components/ui';
+import { Button } from '../components/common/atoms/Button';
+import { Input } from '../components/common/atoms/Input';
+import { Field } from '../components/common/molecules/Field';
+import { AuthLayout } from '../components/common/templates/AuthLayout';
+import { NO_AUTOFILL } from '../components/common/utils';
+import { Box } from '../components/common/atoms/Box';
+import { Form } from '../components/common/atoms/Form';
+import { Heading } from '../components/common/atoms/Heading';
+import { PlainButton } from '../components/common/atoms/PlainButton';
+import { Text } from '../components/common/atoms/Text';
 
 interface LoginPageProps {
   onSwitchToRegister: () => void;
@@ -31,20 +39,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
 
   return (
     <AuthLayout>
-      <h1 className="text-title text-ink">Sign in</h1>
-      <p className="text-body text-ink-2 mt-1.5">
+      <Heading level={1} className="text-title text-ink">Sign in</Heading>
+      <Text className="text-body text-ink-2 mt-1.5">
         Use your Lampose administrator credentials.
-      </p>
+      </Text>
 
-      <form onSubmit={handleSubmit} className="mt-7 space-y-4" autoComplete="off">
+      <Form onSubmit={handleSubmit} className="mt-7 space-y-4" autoComplete="off">
         {error && (
-          <div
+          <Box
             role="alert"
             className="flex items-start gap-2.5 p-3 rounded-panel bg-crit-soft border border-crit-border"
           >
             <AlertCircle className="size-4 text-crit shrink-0 mt-0.5" strokeWidth={2} />
-            <p className="text-sm text-ink-2">{error}</p>
-          </div>
+            <Text className="text-sm text-ink-2">{error}</Text>
+          </Box>
         )}
 
         <Field label="Email address" required>
@@ -60,7 +68,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
         </Field>
 
         <Field label="Password" required>
-          <div className="relative">
+          <Box className="relative">
             <Input
               required
               type={showPassword ? 'text' : 'password'}
@@ -71,31 +79,31 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
               placeholder="••••••••"
               className="pr-10"
             />
-            <button
+            <PlainButton
               type="button"
               onClick={() => setShowPassword((v) => !v)}
               aria-label={showPassword ? 'Hide password' : 'Show password'}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-3 hover:text-ink transition-colors"
             >
               {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-            </button>
-          </div>
+            </PlainButton>
+          </Box>
         </Field>
 
         <Button type="submit" variant="primary" loading={loading} className="w-full">
           Sign in <ArrowRight className="size-4" strokeWidth={2} />
         </Button>
-      </form>
+      </Form>
 
-      <p className="text-sm text-ink-3 mt-6 text-center">
+      <Text className="text-sm text-ink-3 mt-6 text-center">
         Need an account?{' '}
-        <button
+        <PlainButton
           onClick={onSwitchToRegister}
           className="text-brand-ink font-medium hover:underline underline-offset-2"
         >
           Register with the admin secret key
-        </button>
-      </p>
+        </PlainButton>
+      </Text>
     </AuthLayout>
   );
 };

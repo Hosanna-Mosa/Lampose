@@ -36,13 +36,27 @@ import {
   AlertTriangle, Ban, CheckCircle2, Clock, Landmark, RefreshCw, RotateCcw, ShieldAlert,
 } from 'lucide-react';
 
-import {
-  Badge, Button, Card, EmptyState, Field, Input, Modal, PageHeader, Textarea,
-  Table, TableSkeleton, Td, Th, Toast, Tr,
-  type BadgeTone, type ToastState,
-} from '../components/ui';
+import { Badge } from '../components/common/atoms/Badge';
+import type { BadgeTone } from '../components/common/atoms/Badge';
+import { Button } from '../components/common/atoms/Button';
+import { Card } from '../components/common/atoms/Card';
+import { Input } from '../components/common/atoms/Input';
+import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
+import { Textarea } from '../components/common/atoms/Textarea';
+import { EmptyState } from '../components/common/molecules/EmptyState';
+import { Field } from '../components/common/molecules/Field';
+import { PageHeader } from '../components/common/molecules/PageHeader';
+import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
+import { Modal } from '../components/common/organisms/Modal';
+import { Toast } from '../components/common/organisms/Toast';
+import type { ToastState } from '../components/common/organisms/Toast';
 import { RefundError, refundService, type Refund, type RefundStatus } from '../api/services/refundService';
 import type { AdminRole } from '../api/types';
+import { Box } from '../components/common/atoms/Box';
+import { Inline } from '../components/common/atoms/Inline';
+import { TableBody, TableHead } from '../components/common/atoms/PlainTable';
+import { Text } from '../components/common/atoms/Text';
+import { filterBySearch } from '../components/common/utils';
 
 const inr = (n: number) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
 
@@ -112,10 +126,11 @@ export const RefundsPage: React.FC<Props> = ({ search = '', role }) => {
   useEffect(() => { void load(); }, [load]);
 
   const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
     const byWho = who === 'All' ? rows : rows.filter((r) => r.cancelledBy === who);
-    if (!q) return byWho;
-    return byWho.filter((r) =>
+    /* `bank.accountNumber` is deliberately NOT case-folded, as it was not
+       before: an account number has no case to fold, and folding it here
+       would quietly change what this screen finds. */
+    return filterBySearch(byWho, search, (r, q) =>
       (r.guestName || '').toLowerCase().includes(q)
       || (r.guestPhone || '').toLowerCase().includes(q)
       || (r.propertyName || '').toLowerCase().includes(q)
@@ -160,7 +175,7 @@ export const RefundsPage: React.FC<Props> = ({ search = '', role }) => {
   };
 
   return (
-    <div className="space-y-5">
+    <Box className="space-y-5">
       <PageHeader
         eyebrow="Stay bookings"
         title="Refunds"
@@ -171,30 +186,30 @@ export const RefundsPage: React.FC<Props> = ({ search = '', role }) => {
       />
 
       <Card className="flex flex-wrap items-center gap-x-8 gap-y-3">
-        <div>
-          <div className="text-label uppercase tracking-wide text-ink-3">Owed to guests</div>
-          <div className="text-h2 font-semibold tabular-nums">{inr(owed)}</div>
-        </div>
-        <div>
-          <div className="text-label uppercase tracking-wide text-ink-3">Ready to send</div>
-          <div className="text-h2 font-semibold tabular-nums">{rows.filter((r) => r.status === 'pending').length}</div>
-        </div>
-        <div>
-          <div className="text-label uppercase tracking-wide text-ink-3">Waiting on guest</div>
-          <div className="text-h2 font-semibold tabular-nums">{rows.filter((r) => r.status === 'awaiting_details').length}</div>
-        </div>
+        <Box>
+          <Box className="text-label uppercase tracking-wide text-ink-3">Owed to guests</Box>
+          <Box className="text-h2 font-semibold tabular-nums">{inr(owed)}</Box>
+        </Box>
+        <Box>
+          <Box className="text-label uppercase tracking-wide text-ink-3">Ready to send</Box>
+          <Box className="text-h2 font-semibold tabular-nums">{rows.filter((r) => r.status === 'pending').length}</Box>
+        </Box>
+        <Box>
+          <Box className="text-label uppercase tracking-wide text-ink-3">Waiting on guest</Box>
+          <Box className="text-h2 font-semibold tabular-nums">{rows.filter((r) => r.status === 'awaiting_details').length}</Box>
+        </Box>
         {!canAct && (
-          <div className="ml-auto max-w-md text-body text-ink-2">You can read this queue. Sending a refund is Super Admin only.</div>
+          <Box className="ml-auto max-w-md text-body text-ink-2">You can read this queue. Sending a refund is Super Admin only.</Box>
         )}
       </Card>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <Box className="flex flex-wrap items-center gap-2">
         {FILTERS.map((f) => (
           <Button key={f.id} variant={filter === f.id ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter(f.id)}>
             {f.label}
           </Button>
         ))}
-        <span className="mx-1 h-5 w-px bg-line" aria-hidden="true" />
+        <Inline className="mx-1 h-5 w-px bg-line" aria-hidden="true" />
         {([
           { id: 'All', label: 'Anyone cancelled' },
           { id: 'student', label: 'Guest cancelled' },
@@ -204,7 +219,7 @@ export const RefundsPage: React.FC<Props> = ({ search = '', role }) => {
             {f.label}
           </Button>
         ))}
-      </div>
+      </Box>
 
       <Card padded={false}>
         {loading ? (
@@ -219,7 +234,7 @@ export const RefundsPage: React.FC<Props> = ({ search = '', role }) => {
           />
         ) : (
           <Table>
-            <thead>
+            <TableHead>
               <Tr>
                 <Th>Guest</Th>
                 <Th>Stay</Th>
@@ -229,23 +244,23 @@ export const RefundsPage: React.FC<Props> = ({ search = '', role }) => {
                 <Th>Status</Th>
                 <Th className="text-right">Action</Th>
               </Tr>
-            </thead>
-            <tbody>
+            </TableHead>
+            <TableBody>
               {visible.map((r) => {
                 const s = STATUS[r.status] ?? STATUS.awaiting_details;
                 return (
                   <Tr key={r.id}>
                     <Td>
-                      <div className="font-medium text-ink">{r.guestName || 'Guest'}</div>
-                      <div className="mt-0.5 text-[11px] tabular-nums text-ink-3">{r.guestPhone}</div>
+                      <Box className="font-medium text-ink">{r.guestName || 'Guest'}</Box>
+                      <Box className="mt-0.5 text-[11px] tabular-nums text-ink-3">{r.guestPhone}</Box>
                     </Td>
 
                     <Td>
-                      <div className="text-ink">{r.propertyName}</div>
-                      <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-ink-3">
+                      <Box className="text-ink">{r.propertyName}</Box>
+                      <Box className="mt-0.5 flex items-center gap-1.5 text-[11px] text-ink-3">
                         <Clock className="size-3.5 shrink-0" />
                         check-in {r.checkInDate || '—'}
-                      </div>
+                      </Box>
                     </Td>
 
                     {/* WHO and WHY, as the main text of their own column —
@@ -255,53 +270,53 @@ export const RefundsPage: React.FC<Props> = ({ search = '', role }) => {
                       <Badge tone={r.cancelledBy === 'owner' ? 'crit' : 'neutral'}>
                         {r.cancelledBy === 'owner' ? 'Owner cancelled' : 'Guest cancelled'}
                       </Badge>
-                      <div className="mt-1.5 max-w-[30ch] text-ink">
-                        {r.cancelReason || <span className="text-ink-3">No reason given</span>}
-                      </div>
+                      <Box className="mt-1.5 max-w-[30ch] text-ink">
+                        {r.cancelReason || <Inline className="text-ink-3">No reason given</Inline>}
+                      </Box>
                       {r.cancelNote && (
-                        <div className="mt-0.5 max-w-[30ch] text-[12px] leading-snug text-ink-2">“{r.cancelNote}”</div>
+                        <Box className="mt-0.5 max-w-[30ch] text-[12px] leading-snug text-ink-2">“{r.cancelNote}”</Box>
                       )}
-                      <div className="mt-1 text-[11px] text-ink-3">{when(r.createdAt)}</div>
+                      <Box className="mt-1 text-[11px] text-ink-3">{when(r.createdAt)}</Box>
                     </Td>
 
                     <Td>
-                      <div className="tabular-nums font-medium text-ink">{inr(r.amount)}</div>
-                      <div className="mt-0.5 text-[11px] text-ink-3">full amount paid</div>
+                      <Box className="tabular-nums font-medium text-ink">{inr(r.amount)}</Box>
+                      <Box className="mt-0.5 text-[11px] text-ink-3">full amount paid</Box>
                       {r.ownerAlreadyPaid && (
-                        <div className="mt-1 flex max-w-[26ch] items-start gap-1 text-[11px] leading-snug text-warn">
+                        <Box className="mt-1 flex max-w-[26ch] items-start gap-1 text-[11px] leading-snug text-warn">
                           <ShieldAlert className="mt-0.5 size-3.5 shrink-0" />
                           Owner was already paid their share ({r.settlementStatusAtCancel}). Recover separately.
-                        </div>
+                        </Box>
                       )}
                     </Td>
 
                     <Td>
                       {r.bank ? (
-                        <div className="text-ink-2">
-                          <div className="flex items-center gap-1.5"><Landmark className="size-3.5 shrink-0" /><span>{r.bank.accountName}</span></div>
+                        <Box className="text-ink-2">
+                          <Box className="flex items-center gap-1.5"><Landmark className="size-3.5 shrink-0" /><Inline>{r.bank.accountName}</Inline></Box>
                           {/* In full — see the header. A person types this. */}
-                          <div className="mt-0.5 font-mono text-[12px] text-ink">{r.bank.accountNumber}</div>
-                          <div className="font-mono text-[11px] text-ink-3">{r.bank.ifsc}</div>
-                        </div>
+                          <Box className="mt-0.5 font-mono text-[12px] text-ink">{r.bank.accountNumber}</Box>
+                          <Box className="font-mono text-[11px] text-ink-3">{r.bank.ifsc}</Box>
+                        </Box>
                       ) : (
-                        <span className="text-ink-3">Guest has not given an account yet</span>
+                        <Inline className="text-ink-3">Guest has not given an account yet</Inline>
                       )}
-                      {r.reference && <div className="mt-1 font-mono text-[11px] text-ink-3">Ref {r.reference}</div>}
+                      {r.reference && <Box className="mt-1 font-mono text-[11px] text-ink-3">Ref {r.reference}</Box>}
                     </Td>
 
                     <Td>
                       <Badge tone={s.tone}>{s.label}</Badge>
                       {r.status === 'rejected' && r.rejectedReason && (
-                        <div className="mt-1 max-w-[26ch] text-[11px] leading-snug text-crit">{r.rejectedReason}</div>
+                        <Box className="mt-1 max-w-[26ch] text-[11px] leading-snug text-crit">{r.rejectedReason}</Box>
                       )}
                       {r.status === 'paid' && (
-                        <div className="mt-1 text-[11px] text-ink-3">{when(r.paidAt)}{r.paidByAdminName ? ` · by ${r.paidByAdminName}` : ''}</div>
+                        <Box className="mt-1 text-[11px] text-ink-3">{when(r.paidAt)}{r.paidByAdminName ? ` · by ${r.paidByAdminName}` : ''}</Box>
                       )}
                     </Td>
 
                     <Td className="text-right">
                       {canAct && (r.status === 'pending' || r.status === 'awaiting_details') ? (
-                        <div className="flex items-center justify-end gap-2">
+                        <Box className="flex items-center justify-end gap-2">
                           <Button variant="ghost" size="sm" icon={Ban} onClick={() => open(r, 'refuse')}>Refuse</Button>
                           <Button
                             variant="primary"
@@ -313,17 +328,17 @@ export const RefundsPage: React.FC<Props> = ({ search = '', role }) => {
                           >
                             Mark as refunded
                           </Button>
-                        </div>
+                        </Box>
                       ) : r.status === 'paid' ? (
-                        <span className="inline-flex items-center gap-1.5 text-label text-good"><CheckCircle2 className="size-3.5" /> Refunded</span>
+                        <Inline className="inline-flex items-center gap-1.5 text-label text-good"><CheckCircle2 className="size-3.5" /> Refunded</Inline>
                       ) : (
-                        <span className="text-label text-ink-3">—</span>
+                        <Inline className="text-label text-ink-3">—</Inline>
                       )}
                     </Td>
                   </Tr>
                 );
               })}
-            </tbody>
+            </TableBody>
           </Table>
         )}
       </Card>
@@ -345,34 +360,34 @@ export const RefundsPage: React.FC<Props> = ({ search = '', role }) => {
         )}
       >
         {acting && (
-          <div className="space-y-3 text-body text-ink-2">
-            <p>
-              <span className="font-medium text-ink">{inr(acting.row.amount)}</span> to{' '}
-              <span className="font-medium text-ink">{acting.row.guestName || 'the guest'}</span>
+          <Box className="space-y-3 text-body text-ink-2">
+            <Text>
+              <Inline className="font-medium text-ink">{inr(acting.row.amount)}</Inline> to{' '}
+              <Inline className="font-medium text-ink">{acting.row.guestName || 'the guest'}</Inline>
               {acting.row.bank ? ` · ${acting.row.bank.accountNumber} · ${acting.row.bank.ifsc}` : ''}
-            </p>
+            </Text>
 
             {/* Read this before pressing. It is the reason the refund exists. */}
-            <div className="rounded border border-line bg-surface-inset px-3 py-2">
-              <div className="flex items-center gap-2">
+            <Box className="rounded border border-line bg-surface-inset px-3 py-2">
+              <Box className="flex items-center gap-2">
                 <Badge tone={acting.row.cancelledBy === 'owner' ? 'crit' : 'neutral'}>
                   {acting.row.cancelledBy === 'owner' ? 'Owner cancelled' : 'Guest cancelled'}
                 </Badge>
-                <span className="text-[11px] text-ink-3">{when(acting.row.createdAt)}</span>
-              </div>
-              <div className="mt-1.5 text-ink">
-                {acting.row.cancelReason || <span className="text-ink-3">No reason given</span>}
-              </div>
+                <Inline className="text-[11px] text-ink-3">{when(acting.row.createdAt)}</Inline>
+              </Box>
+              <Box className="mt-1.5 text-ink">
+                {acting.row.cancelReason || <Inline className="text-ink-3">No reason given</Inline>}
+              </Box>
               {acting.row.cancelNote && (
-                <div className="mt-0.5 text-[12px] leading-snug text-ink-2">“{acting.row.cancelNote}”</div>
+                <Box className="mt-0.5 text-[12px] leading-snug text-ink-2">“{acting.row.cancelNote}”</Box>
               )}
               {acting.row.ownerAlreadyPaid && (
-                <div className="mt-1.5 flex items-start gap-1 text-[11px] leading-snug text-warn">
+                <Box className="mt-1.5 flex items-start gap-1 text-[11px] leading-snug text-warn">
                   <ShieldAlert className="mt-0.5 size-3.5 shrink-0" />
                   The owner had already been paid their share. Recover it separately.
-                </div>
+                </Box>
               )}
-            </div>
+            </Box>
             {acting.kind === 'pay' && (
               <Field label="Bank reference" hint="The UTR or reference from the transfer. The guest sees this.">
                 <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="HDFCN00123456" autoFocus />
@@ -383,12 +398,12 @@ export const RefundsPage: React.FC<Props> = ({ search = '', role }) => {
                 <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="The stay had already started when it was cancelled." rows={3} />
               </Field>
             )}
-          </div>
+          </Box>
         )}
       </Modal>
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
-    </div>
+    </Box>
   );
 };
 
