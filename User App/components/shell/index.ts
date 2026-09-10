@@ -8,6 +8,7 @@
 
 export { TabBar, type TabBarProps, type TabItem } from './TabBar';
 export { WaitingPill } from './WaitingPill';
+export { OngoingStrip, type OngoingItem, type OngoingStripProps } from './OngoingStrip';
 
 export {
   ExploreHeader,

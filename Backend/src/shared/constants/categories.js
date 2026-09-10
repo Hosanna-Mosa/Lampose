@@ -160,11 +160,33 @@ const OCCUPANCY_KEYS = {
 /**
  * Categories that price by the bed rather than by stay length.
  *
- * These skip the month-ladder and daily-rate path entirely: the panel records
- * neither for them, so the detail page asks for sharing alone. PG_HOSTEL is
- * absent because it is the one category that does carry a stay-length ladder.
+ * These skip the month-ladder and daily-rate path entirely, so the detail page
+ * asks for sharing alone and `validateIntent` records no stay type, duration
+ * or joining date for them.
+ *
+ * ## COLIVE left this list on 10 September 2026
+ *
+ * It sits on the PG_HOSTEL flow now — the full stay-intent path, end to end,
+ * on both apps. That is a product decision, and the data was already there to
+ * honour it: a co-live listing carries `monthlyPrice`, `dailyPrice: 0` and a
+ * `longStayDuration` of "1 Month+", byte for byte the shape a PG carries, and
+ * its sharing options are priced (a PG's often are not). `formatListing` on
+ * the two differed in exactly one field before this — `simpleSharingPath` —
+ * and every reader of that flag derives from this constant, so removing the
+ * code here moves the whole flow at once: the detail page asks for stay type,
+ * months and a joining date; the request carries an intent; the booking gets a
+ * real `checkOutDate` instead of a fabricated one.
+ *
+ * Nothing else about the category moved, and nothing else should. It keeps its
+ * room-type occupancy (`OCCUPANCY_KEYS`) because that describes how a co-live
+ * listing is SHAPED rather than how it is sold, and it stays out of
+ * `TOKEN_CATEGORIES` and `PREPAID_CATEGORIES`, which is what already made it
+ * free to enquire about — exactly like PG.
+ *
+ * BACHELOR stays: its panel records no ladder and no daily rate, its requests
+ * ask for no joining date, and its ₹199 assisted visit hangs off that path.
  */
-const SIMPLE_PATH_CATEGORIES = ['BACHELOR', 'COLIVE'];
+const SIMPLE_PATH_CATEGORIES = ['BACHELOR'];
 
 /**
  * Categories where a confirmed visit is paid for before it completes.
@@ -183,9 +205,11 @@ const SIMPLE_PATH_CATEGORIES = ['BACHELOR', 'COLIVE'];
  * let is a viewing somebody drives across a city for. That was overruled as a
  * business decision: co-living is free to enquire about, exactly like PG.
  *
- * Nothing else about the category moved. It keeps its simple detail path and
- * its room-type occupancy — see `SIMPLE_PATH_CATEGORIES` and `OCCUPANCY_KEYS`
- * — because those describe how a co-live listing is SHAPED, not what it costs.
+ * Nothing else about the category moved AT THAT TIME. It kept its simple
+ * detail path until 10 September 2026, when it moved onto the PG flow — see
+ * `SIMPLE_PATH_CATEGORIES`. Its room-type occupancy (`OCCUPANCY_KEYS`) is
+ * unchanged by either, because that describes how a co-live listing is
+ * SHAPED, not how it is sold or what it costs.
  *
  * HOTEL is absent for a different reason again, and the difference is the
  * whole point of `PREPAID_CATEGORIES` below — a hotel IS paid for, but not for

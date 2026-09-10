@@ -242,38 +242,6 @@ export default function CheckInScreen() {
       scroll={false}
       padX={24}
       contentStyle={styles.fill}
-      footer={
-        <View style={styles.footerStack}>
-          <Button
-            label={checkIn.isPending ? 'Marking in…' : 'Verify & check in'}
-            onPress={verify}
-            loading={checkIn.isPending}
-            disabled={(!codeless && !complete) || expired || checkIn.isPending}
-          />
-          {/*
-            DEVELOPMENT ONLY — see `devForceIn`.
-            Same power as the "🛠 DEV: check in now" button on the booking
-            detail screen, one step further: that one only got as far as
-            THIS screen, where the server's real date gate still refused a
-            booking made for a future day. This is the bypass that actually
-            finishes the job — it does not read the typed code at all, so it
-            works whether or not `complete` is true.
-          */}
-          {PREVIEW_CONTROLS ? (
-            <>
-              <Button
-                label={devForceCheckIn.isPending ? 'Marking in…' : '🛠 DEV: check in now (ignores date & code)'}
-                variant="secondary"
-                onPress={devForceIn}
-                disabled={devForceCheckIn.isPending}
-              />
-              <Text variant="caption" color="textTertiary" center>
-                Development only — stamps both sides of the move-in directly
-              </Text>
-            </>
-          ) : null}
-        </View>
-      }
     >
       {expired ? (
         <Toast
@@ -341,6 +309,52 @@ export default function CheckInScreen() {
         </>
       )}
 
+      {/*
+        The action, directly under what it acts on.
+
+        It was in `Screen`'s pinned footer — right for a form read top to
+        bottom and confirmed at the end, wrong here. The code field opens the
+        keyboard the moment this screen loads (`autoFocus`), and an owner
+        standing at a door could not see the button at all: the one control
+        the screen exists for, behind the keyboard, on a screen that does not
+        scroll.
+
+        Under the input it sits inches from the digits just typed, above the
+        keyboard on any handset, and reads as the next thing to do rather than
+        as page furniture. The spacer below keeps it there rather than letting
+        it drift down an empty screen.
+      */}
+        <View style={styles.footerStack}>
+          <Button
+            label={checkIn.isPending ? 'Marking in…' : 'Verify & check in'}
+            onPress={verify}
+            loading={checkIn.isPending}
+            disabled={(!codeless && !complete) || expired || checkIn.isPending}
+          />
+          {/*
+            DEVELOPMENT ONLY — see `devForceIn`.
+            Same power as the "🛠 DEV: check in now" button on the booking
+            detail screen, one step further: that one only got as far as
+            THIS screen, where the server's real date gate still refused a
+            booking made for a future day. This is the bypass that actually
+            finishes the job — it does not read the typed code at all, so it
+            works whether or not `complete` is true.
+          */}
+          {PREVIEW_CONTROLS ? (
+            <>
+              <Button
+                label={devForceCheckIn.isPending ? 'Marking in…' : '🛠 DEV: check in now (ignores date & code)'}
+                variant="secondary"
+                onPress={devForceIn}
+                disabled={devForceCheckIn.isPending}
+              />
+              <Text variant="caption" color="textTertiary" center>
+                Development only — stamps both sides of the move-in directly
+              </Text>
+            </>
+          ) : null}
+        </View>
+
       <View style={styles.spacer} />
     </Screen>
   );
@@ -348,7 +362,9 @@ export default function CheckInScreen() {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  footerStack: { gap: 8 },
+  /* Was the pinned footer's stack; it is in the body now, under the input —
+     see the note there. The top margin separates it from the digits. */
+  footerStack: { gap: 8, marginTop: 24 },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   backRow: { height: 44, justifyContent: 'center', marginLeft: -10, marginBottom: 8 },
   backRowPushed: { marginTop: 56 },

@@ -13,7 +13,7 @@ import {
   EmptyState,
 } from '@/components/ui';
 import { formatDayDate, formatINR, initials, isSameDay } from '@/lib/format';
-import { type Booking, payoutOf } from '@/lib/bookings';
+import { type Booking, hasPlatformMoney, payoutOf } from '@/lib/bookings';
 import { useBooking } from '@/services/hooks/useBookings';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
@@ -89,13 +89,22 @@ export default function BookingDetailScreen() {
   };
   const avatar = AVATAR_TINT[booking.status] ?? AVATAR_TINT.confirmed;
 
+  /* Built rather than written inline so the LAST row present carries the
+     divider, whichever of the four that turns out to be. */
+  const guestRows = [
+    { label: 'Name', value: booking.guest },
+    { label: 'Phone', value: booking.guestPhone },
+    { label: 'Email', value: booking.guestEmail },
+    { label: 'Address', value: booking.guestAddress },
+  ].filter((row): row is { label: string; value: string } => Boolean(row.value));
+
   return (
     <Screen
       padX={22}
-            contentStyle={styles.stack}
-            footer={hasAction ? <PrimaryAction booking={booking} /> : undefined}
-            refreshing={isRefetching}
-            onRefresh={refetch}
+      contentStyle={styles.stack}
+      footer={hasAction ? <PrimaryAction booking={booking} /> : undefined}
+      refreshing={isRefetching}
+      onRefresh={refetch}
       stickyHeader={
         <>
           <View style={styles.backRow}>
@@ -117,28 +126,58 @@ export default function BookingDetailScreen() {
         </View>
       </View>
 
-      {/* Always two badges, never one merged status — except for PG/Hostel,
-          which has only one to show. `booking.payment` is derived from
-          `totalAmount`/`paidAmount`, and this category never has either: the
-          rent is paid to the owner directly, off the platform (see the note
-          on `commission` in partnerDomains.model.js), so those two fields
-          are always 0/0 and the badge always read "Pending" — a stay that
-          moved in and is happily in-house, permanently flagged as though
-          money were owed. Nothing is pending; the figure just never
-          applied. */}
+      {/* Two badges where there are two facts, one where there is one.
+          `booking.payment` is derived from `totalAmount`/`paidAmount`, which
+          only a hotel booking actually carries — see `hasPlatformMoney`. On
+          the rest they are 0/0, so the badge read "Pending" forever: a
+          bachelor tenant who has moved in and is living there, permanently
+          flagged as though money were owed. Nothing is pending; the figure
+          never applied. */}
       <View style={styles.badges}>
         <BookingStatusBadge status={booking.status} />
-        {booking.category !== 'PG_HOSTEL' && booking.category !== 'COLIVE' ? (
-          <PaymentStatusBadge status={booking.payment} />
-        ) : null}
+        {hasPlatformMoney(booking) ? <PaymentStatusBadge status={booking.payment} /> : null}
       </View>
 
       <Card>
         <DetailRow label="Check-in" value={formatDayDate(booking.checkIn)} />
-        <DetailRow label="Check-out" value={formatDayDate(booking.checkOut)} />
-        <DetailRow label="Room" value={booking.roomType} />
-        <DetailRow label="Guests" value={booking.guests} last />
+        {/* Only where the stay has an agreed end. A bachelor tenancy has
+            none — the request has no move-out field — and this row was
+            printing the mapper's old "day after move-in" fallback as though
+            the tenant were leaving tomorrow. */}
+        {booking.checkOut ? (
+          <DetailRow label="Check-out" value={formatDayDate(booking.checkOut)} />
+        ) : null}
+        <DetailRow label="Room" value={booking.roomType} last={!booking.guests} />
+        {/* Only where somebody actually recorded one — which is the walk-in
+            form alone. See `guests` in `lib/bookings.ts`. */}
+        {booking.guests ? <DetailRow label="Guests" value={booking.guests} last /> : null}
       </Card>
+
+      {/*
+        Who the room was let to.
+
+        Everything a landlord holds about a tenant, on the screen they open to
+        check it: the full name as the student gave it, their number, their
+        email, and where they live. The Add Customer form makes an owner type
+        all four for a walk-in, so the app has always treated them as theirs
+        to see — a booking made through the app just never showed them.
+
+        Each row appears only where there is something to show. A detail
+        nobody recorded gets no row rather than a row reading "not set", and
+        the last one present carries the divider.
+      */}
+      {guestRows.length ? (
+        <Card>
+          {guestRows.map((row, i) => (
+            <DetailRow
+              key={row.label}
+              label={row.label}
+              value={row.value}
+              last={i === guestRows.length - 1}
+            />
+          ))}
+        </Card>
+      ) : null}
 
       {/*
         The entry PIN, above the money.
@@ -182,16 +221,13 @@ export default function BookingDetailScreen() {
         </Card>
       ) : null}
 
-      {/* Not for PG/Hostel or Co-living. `payoutOf` reads `booking.gross`,
-          and for these categories that figure is never a real one — rent is
-          paid to the owner directly, off the platform, with Lampose's cut
-          collected by a phone call rather than a payout (see the note on
-          `commission` in partnerDomains.model.js). "Total payout ₹0" was not
-          a placeholder waiting to be filled in; it was the honest answer to
-          a question these categories never have an answer to, which reads
-          as the app being broken rather than the figure being
-          inapplicable. */}
-      {booking.category !== 'PG_HOSTEL' && booking.category !== 'COLIVE' ? (
+      {/* Only where money actually moved through Lampose — see
+          `hasPlatformMoney`. `payoutOf` reads `booking.gross`, and everywhere
+          else that figure is structurally zero: "Total payout ₹0" was not a
+          placeholder waiting to be filled in, it was the honest answer to a
+          question these categories never have one for, and it reads as the
+          app being broken rather than the figure being inapplicable. */}
+      {hasPlatformMoney(booking) ? (
         <Card>
           <DetailRow label="Total payout" value={formatINR(payoutOf(booking))} strong last />
         </Card>
