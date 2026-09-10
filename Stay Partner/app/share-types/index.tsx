@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Screen, Text, Button, IconButton, Icon, Switch, Divider } from '@/components/ui';
+import {
+  Screen, Text, Button, IconButton, Icon, Switch, Divider, Select, EmptyState,
+} from '@/components/ui';
 import { saveShareTypes, setAvailable, setShareTypes } from '@/lib/shareTypes';
 import {
   fetchShareTypesApi,
@@ -12,6 +14,23 @@ import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 import { logWarn } from '@/lib/log';
+
+/*
+ * The four categories, plus "all" — the same codes and the same words the
+ * Bookings tab filters by, because an owner should not have to learn two
+ * names for one kind of building.
+ */
+type CategoryFilter = 'all' | 'PG_HOSTEL' | 'BACHELOR' | 'HOTEL' | 'COLIVE';
+const CATEGORIES: { key: CategoryFilter; label: string }[] = [
+  { key: 'all', label: 'All kinds' },
+  { key: 'PG_HOSTEL', label: 'PG / Hostel' },
+  { key: 'BACHELOR', label: 'Bachelor' },
+  { key: 'HOTEL', label: 'Hotels' },
+  { key: 'COLIVE', label: 'House / Co-live' },
+];
+const CATEGORY_VALUES = CATEGORIES.map((o) => o.key);
+const categoryLabel = (key: CategoryFilter): string =>
+  CATEGORIES.find((o) => o.key === key)?.label ?? 'All kinds';
 
 export default function ShareTypesScreen() {
   const c = useColors();
@@ -24,6 +43,35 @@ export default function ShareTypesScreen() {
   const [shareTypesList, setShareTypesList] = useState<any[]>([]);
   const [draft, setDraft] = useState<Record<string, boolean>>({});
 
+  /*
+   * Which kind of building, for finding one row among many.
+   *
+   * An owner running several properties accumulates a room type per layout
+   * per building — this account has 151 — and the list is names and prices
+   * with nothing to tell "1 BHK" at ₹7,000 from "1 BHK" at ₹12,000. Narrowing
+   * by category is the cheapest way to get to the one being looked for.
+   *
+   * The filter NARROWS THE VIEW ONLY. `draft` is keyed by id and `save`
+   * compares it against the full list, so a switch flipped under one filter
+   * is still saved after the filter changes — hiding a row must never
+   * silently drop an edit to it.
+   */
+  const [category, setCategory] = useState<CategoryFilter>('all');
+
+  /* Only the kinds this owner actually has. Offering "Hotels" to somebody
+     with none is a filter that can only ever empty the screen. */
+  const kinds = useMemo(
+    () => [...new Set(shareTypesList.map((t) => t.category).filter(Boolean))] as CategoryFilter[],
+    [shareTypesList],
+  );
+
+  const shown = useMemo(
+    () => (category === 'all'
+      ? shareTypesList
+      : shareTypesList.filter((t) => t.category === category)),
+    [shareTypesList, category],
+  );
+
   const loadShareTypes = async () => {
     try {
       const data = await fetchShareTypesApi();
@@ -34,6 +82,11 @@ export default function ShareTypesScreen() {
           label: st.name || 'Room',
           pricePerBed: `₹${(st.monthlyPrice || 8000).toLocaleString('en-IN')}`,
           available: Boolean(st.isAvailable),
+          /* Which building this room type belongs to. Both empty on a row
+             whose property has since been deleted — still the owner's to
+             switch off, so it is listed rather than hidden. */
+          category: String(st.category || ''),
+          propertyName: String(st.propertyName || ''),
         }));
         setShareTypesList(mapped);
         setDraft(Object.fromEntries(mapped.map((t) => [t.id, t.available])));
@@ -111,6 +164,21 @@ export default function ShareTypesScreen() {
         it without deleting it.
       </Text>
 
+      {/* Drawn only where there is more than one kind to choose between — an
+          owner with a single PG does not need a control that can only ever
+          say "PG / Hostel". `overlay` so opening it draws over the list
+          instead of pushing every row down the screen. */}
+      {kinds.length > 1 ? (
+        <Select
+          label="Kind"
+          overlay
+          options={CATEGORY_VALUES.filter((k) => k === 'all' || kinds.includes(k))}
+          value={category}
+          onChange={setCategory}
+          format={categoryLabel}
+        />
+      ) : null}
+
       {confirming ? (
         <View style={[styles.banner, { backgroundColor: c.accentTint }]}>
           <Icon name="info" size={16} color={c.accent} strokeWidth={2} style={styles.bannerIcon} />
@@ -120,15 +188,28 @@ export default function ShareTypesScreen() {
         </View>
       ) : null}
 
+      {shareTypesList.length && !shown.length ? (
+        <EmptyState
+          icon="bed"
+          title={`No ${categoryLabel(category).toLowerCase()} room types`}
+          body="Nothing under this kind yet — switch to All kinds to see every one."
+          actionLabel="Show all kinds"
+          onAction={() => setCategory('all')}
+        />
+      ) : null}
+
       <View style={[styles.list, { borderColor: c.borderCard, backgroundColor: c.surface }]}>
-        {shareTypesList.map((t, i) => (
+        {shown.map((t, i) => (
           <View key={t.id}>
             {i > 0 ? <Divider /> : null}
             <View style={styles.row}>
               <View style={styles.rowBody}>
                 <Text style={styles.rowLabel}>{t.label}</Text>
                 <Text variant="caption" color="textSecondary">
-                  {t.pricePerBed} per bed
+                  {/* The building, where it is known. Two rows both called
+                      "1 BHK" are only telling apart by which property they
+                      are in — the price alone is a guess. */}
+                  {t.pricePerBed} per bed{t.propertyName ? ` · ${t.propertyName}` : ''}
                 </Text>
               </View>
               <Switch

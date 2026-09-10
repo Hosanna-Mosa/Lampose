@@ -63,7 +63,22 @@ const addMonths = (iso, n) => {
   d.setUTCMonth(d.getUTCMonth() + n);
   return d.toISOString().slice(0, 10);
 };
-const LONG_LADDER = [1, 3, 6, 12];
+/*
+ * Every month of a year, not four rungs of a ladder.
+ *
+ * This was [1, 3, 6, 12], and a student who wanted four months had to round
+ * to three (a month short of what they need) or six (two months they cannot
+ * pay for). Nothing in the panel ever expressed those rungs — the only thing
+ * an owner states about length is a MINIMUM, which `longMonthOptions` reads
+ * out of `longStayDuration` and keeps as the floor. The gaps between the
+ * rungs were an invention of this constant.
+ *
+ * It is one list for both jobs: what a listing OFFERS (served as
+ * `durationOptions.longMonths`) and what a request may CLAIM (`validateIntent`
+ * checks against it), so the picker can never offer a length the check
+ * refuses.
+ */
+const LONG_LADDER = Array.from({ length: 12 }, (unused, i) => i + 1);
 
 const num = (value) => {
   const n = Number(value);
@@ -133,12 +148,12 @@ const stayRatesFor = (doc) => {
 };
 
 /**
- * Month choices for a long stay.
+ * Month choices for a long stay: the owner's minimum up to twelve.
  *
  * `longStayDuration` is free text from the panel — "1 Month+", "6 months min".
- * A leading number is read as the owner's minimum and the standard ladder is
- * filtered to it, so a six-month-minimum property never offers one month.
- * Unparseable text falls back to the whole ladder rather than blocking.
+ * A leading number is read as the owner's minimum and the ladder is filtered
+ * to it, so a six-month-minimum property offers 6..12 and never one month.
+ * Unparseable text falls back to the whole year rather than blocking.
  */
 const longMonthOptions = (doc) => {
   const text = String((doc && doc.longStayDuration) || '');
@@ -406,9 +421,15 @@ const validateIntent = ({ doc, intent, sharingOption, simplePath, datesPath }) =
       ok: false,
       code: 'BAD_DURATION',
       options: allowed,
+      /* A range, now that the months between the ends are all offered — the
+         old "starts at 1 month" said nothing about the 13 somebody just
+         asked for. A single-option list (a two-year minimum) still reads as
+         a floor, because it has no other end to name. */
       message: stayType === 'short'
         ? `Short stays here are ${allowed[0]}–${allowed[allowed.length - 1]} days.`
-        : `Long stays here start at ${allowed[0]} month${allowed[0] === 1 ? '' : 's'}.`,
+        : allowed.length > 1
+          ? `Long stays here are ${allowed[0]}–${allowed[allowed.length - 1]} months.`
+          : `Long stays here start at ${allowed[0]} month${allowed[0] === 1 ? '' : 's'}.`,
     };
   }
 

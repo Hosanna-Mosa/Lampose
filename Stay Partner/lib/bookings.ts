@@ -21,6 +21,21 @@ export type Booking = {
   id: string;
   guest: string;
   /**
+   * How to reach the guest, and where they live.
+   *
+   * All four are on the booking the owner is shown because all four are what
+   * a landlord holds about a tenant: the walk-in form asks an owner to type
+   * every one of them, so the app has always treated them as theirs to see.
+   * A request-made booking simply never carried the address — see
+   * `guestAddressesFor` on the server.
+   *
+   * Empty string, never a placeholder: a detail nobody recorded gets no row
+   * rather than a row saying "not set".
+   */
+  guestPhone?: string;
+  guestEmail?: string;
+  guestAddress?: string;
+  /**
    * The property's category at the time this booking was made. '' on a row
    * written before this field existed, or if the property lookup failed at
    * creation — treated as "unknown", never as bachelor.
@@ -31,11 +46,43 @@ export type Booking = {
    * offer are hidden for it — see `app/booking/[id].tsx`.
    */
   category?: string;
+  /**
+   * The request this booking came from, or null on a walk-in.
+   *
+   * Carried so a screen can ask the REQUEST what state the guest's side of
+   * the flow is in — whether the fee is paid, whether a visit has been
+   * scheduled. The booking row knows none of that, and on a bachelor room its
+   * own `checkInDate` is not a date anybody chose (see `arrivingToday` on the
+   * Today screen).
+   */
+  requestId?: string | null;
   roomType: string;
   checkIn: Date;
-  checkOut: Date;
-  guests: string;
-  nights: number;
+  /**
+   * `null` on an OPEN-ENDED tenancy — which is most of them.
+   *
+   * A bachelor room is never asked for a length: that request has no
+   * move-out field at all, so the server stores `checkOutDate: ''` and means
+   * it. This used to be a required `Date`, so the mapper invented "the day
+   * after move-in" to satisfy the type, and every screen printed that
+   * invented day as the tenant's move-out date — a fact about a TypeScript
+   * annotation, rendered as a fact about somebody's tenancy.
+   *
+   * Nullable is the honest shape. A screen with nothing to show hides the
+   * row rather than being handed a date to display.
+   */
+  checkOut: Date | null;
+  /**
+   * How many people, as the owner described them — "2 adults", "family of 4".
+   *
+   * `null` on a booking that came from a REQUEST, which is every booking the
+   * app makes: nothing on a visit request ever asks how many people are
+   * coming, so the schema's `guestsLabel` is empty and there is no headcount
+   * to show. Only the Add Customer walk-in form fills it in.
+   */
+  guests: string | null;
+  /** Nights, where the stay has two ends. `null` when it is open-ended. */
+  nights: number | null;
   status: BookingStatus;
   payment: PaymentStatus;
   /** What the guest pays, before commission. */
@@ -201,6 +248,40 @@ export const HISTORY = PAST;
 /** Current and past together — for anywhere a ticket or dispute needs to link any stay. */
 export const ALL_BOOKINGS = ALL;
 
+/**
+ * Whether the guest's money moved through Lampose on this booking.
+ *
+ * The one question that makes a payout figure and a payment badge mean
+ * anything, and it has exactly one answer per category:
+ *
+ *   HOTEL       a stay is prepaid through us, so there is a real gross, a
+ *               real commission and a real payout. The only one.
+ *   BACHELOR    charges, but the ₹199 is Lampose's assisted-visit fee — ₹100
+ *               to the representative who goes, ₹99 our own. Never the
+ *               owner's money. Rent and deposit are settled with the owner
+ *               directly, which is what the student's own app tells them.
+ *   PG_HOSTEL   nothing is taken at all; the rent is a direct arrangement and
+ *   COLIVE      Lampose's cut is collected by a phone call, not a payout.
+ *
+ * So `totalAmount`/`paidAmount` are 0/0 on three of the four, and everything
+ * derived from them was reporting a fact about the SCHEMA as though it were a
+ * fact about the stay: "Total payout ₹0" on a room we never handled money
+ * for, and a `Pending` badge that survived moving in — an in-house tenant
+ * permanently flagged as though they owed something.
+ *
+ * Bachelor was the one this missed. It sat outside the PG/Co-living guard on
+ * the detail screen and the bookings list while three other screens already
+ * grouped it with them, so the same booking said "settled directly with the
+ * owner" in the student's app and "Pending ₹0" in the owner's.
+ *
+ * A row with no category — written before the field existed, or whose
+ * property could not be read at the time — is answered by the figure itself
+ * rather than by a guess about which kind of place it was.
+ */
+export function hasPlatformMoney(b: Booking): boolean {
+  return b.category ? b.category === 'HOTEL' : b.gross > 0;
+}
+
 /** Owner payout — always derived, never stored, so it can't drift from the fee. */
 export function payoutOf(b: Booking): number {
   return netOn(b.gross);
@@ -272,11 +353,14 @@ export function toBooking(raw: any, fallbackId?: string): Booking {
 
   /* Dates are stored as strings and may be unparseable on an old row, and
      `checkOutDate` is legitimately '' on a stay with no agreed end. One
-     millisecond of guarding beats "Invalid Date" on every screen. */
+     millisecond of guarding beats "Invalid Date" on every screen.
+
+     No end date means NO END DATE. It used to mean "start + one day", which
+     is where the invented move-out on every bachelor booking came from. */
   const validIn = !Number.isNaN(checkIn.getTime());
   const validOut = !Number.isNaN(checkOut.getTime());
   const startsAt = validIn ? checkIn : new Date();
-  const endsAt = validOut ? checkOut : new Date(startsAt.getTime() + 86_400_000);
+  const endsAt = validOut ? checkOut : null;
 
   const total = Number(raw?.totalAmount ?? 0);
   const paid = Number(raw?.paidAmount ?? 0);
@@ -284,14 +368,32 @@ export function toBooking(raw: any, fallbackId?: string): Booking {
   return {
     id: String(raw?.id ?? raw?._id ?? fallbackId ?? ''),
     guest: raw?.guestName || 'Guest',
+    guestPhone: raw?.guestPhone || '',
+    guestEmail: raw?.guestEmail || '',
+    guestAddress: raw?.guestAddress || '',
     category: String(raw?.category || ''),
+    requestId: raw?.requestId ?? null,
     roomType: raw?.shareType || raw?.roomNumber || '',
     checkIn: startsAt,
     checkOut: endsAt,
-    /* The schema records no headcount, so the label states what is known
-       rather than inventing a party size. */
-    guests: raw?.guestsLabel || (raw?.roomNumber ? `Room ${raw.roomNumber}` : '1 guest'),
-    nights: Math.max(1, Math.round((endsAt.getTime() - startsAt.getTime()) / 86_400_000)),
+    /*
+     * The owner's own words, or nothing at all.
+     *
+     * This used to fall back to `Room ${raw.roomNumber}` — which put a ROOM
+     * NUMBER in a field labelled Guests, and `acceptAndBook` writes that
+     * field as the literal string 'Unassigned' (the owner picks a numbered
+     * room at check-in, not at acceptance). So every booking made through
+     * the app read "Guests: Room Unassigned": the wrong field, showing a
+     * placeholder as though it were data.
+     *
+     * The room is already on its own row directly above, off `shareType`, so
+     * nothing is lost by dropping that fallback. A booking with no recorded
+     * headcount now says so by having no row, rather than by printing a
+     * sentence about something else.
+     */
+    guests: raw?.guestsLabel ? String(raw.guestsLabel) : null,
+    /* Only where there are two ends to count between. */
+    nights: endsAt ? Math.max(1, Math.round((endsAt.getTime() - startsAt.getTime()) / 86_400_000)) : null,
     status: statusOf(raw),
     /*
      * `PaymentStatus` has no `partial` member, so a part-paid booking reads as

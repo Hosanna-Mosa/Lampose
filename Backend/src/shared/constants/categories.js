@@ -225,9 +225,11 @@ const SIMPLE_PATH_CATEGORIES = ['BACHELOR', 'COLIVE', 'COMMERCIAL'];
  * let is a viewing somebody drives across a city for. That was overruled as a
  * business decision: co-living is free to enquire about, exactly like PG.
  *
- * Nothing else about the category moved. It keeps its simple detail path and
- * its room-type occupancy — see `SIMPLE_PATH_CATEGORIES` and `OCCUPANCY_KEYS`
- * — because those describe how a co-live listing is SHAPED, not what it costs.
+ * Nothing else about the category moved AT THAT TIME. It kept its simple
+ * detail path until 10 September 2026, when it moved onto the PG flow — see
+ * `SIMPLE_PATH_CATEGORIES`. Its room-type occupancy (`OCCUPANCY_KEYS`) is
+ * unchanged by either, because that describes how a co-live listing is
+ * SHAPED, not how it is sold or what it costs.
  *
  * HOTEL is absent for a different reason again, and the difference is the
  * whole point of `PREPAID_CATEGORIES` below — a hotel IS paid for, but not for

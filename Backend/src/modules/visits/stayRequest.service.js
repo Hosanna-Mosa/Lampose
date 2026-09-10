@@ -299,6 +299,55 @@ const createStayRequest = async ({ customer, listingId, sharing, intent, consent
     );
   }
 
+  /*
+   * 5b — one booking in progress at a time, across every property.
+   *
+   * Step 5 above asks "do you already have this ONE?". This asks "are you
+   * already in the middle of a booking anywhere?", and it is a different
+   * rule with a different reason: a booking in flight is a bed an owner is
+   * holding, or a payment window somebody is inside. Starting a second puts
+   * two owners on hold for one student who can only take one of them, and
+   * the one who loses finds out by being stood up.
+   *
+   * IN FLIGHT means the process has not landed either way:
+   *
+   *   pending_owner              an owner's clock is running.
+   *   confirmed + owed payment   accepted, and the money has not arrived. The
+   *                              bed is theirs and the window is open.
+   *
+   * Everything else is settled and unblocks immediately — declined, expired
+   * and cancelled are a FAILURE, and confirmed-and-paid (or confirmed with
+   * nothing to pay, which is every PG) is a SUCCESS. Neither should stop
+   * somebody looking for the next place, which is exactly when a student
+   * turned down by one owner starts looking.
+   *
+   * Deliberately NOT blocked on a paid booking waiting to be moved into: a
+   * student who has paid for a room in September is not barred from asking
+   * about a short stay in July. The process succeeded; the tenancy is not the
+   * process.
+   *
+   * Checked AFTER step 5 so the most specific true answer still wins —
+   * "you already have a request waiting on this property" beats the general
+   * form of the same sentence.
+   */
+  const inFlight = await VisitRequest.findOne({
+    customerId: customer.customerId,
+    $or: [
+      { status: 'pending_owner', expiresAt: { $gt: new Date() } },
+      { status: 'confirmed', 'payment.required': true, 'payment.status': { $nin: ['paid'] } },
+    ],
+  }).select('propertyName status').lean();
+
+  if (inFlight) {
+    throw new StayRequestError(
+      'BOOKING_IN_PROGRESS',
+      inFlight.status === 'pending_owner'
+        ? `You are already waiting on ${inFlight.propertyName}. Finish or cancel that request before starting another.`
+        : `Your booking at ${inFlight.propertyName} still needs to be paid for. Finish or cancel it before starting another.`,
+      409,
+    );
+  }
+
   /* 6 — the sharing option is one the LISTING actually offers, resolved
      against the property rather than trusted. A crafted label would otherwise
      put a room type in front of an owner that the page never showed. */
@@ -503,7 +552,27 @@ const accept = async (requestId, partner) => {
            door. See the note on the field. */
         ...(tokenDue
           ? { 'payment.status': 'pending', 'payment.dueBy': new Date(issuedAt.getTime() + config.razorpay.payWindowHours * 3600 * 1000) }
-          : { entryPin: generateEntryPin(), entryPinIssuedAt: issuedAt }),
+          : {
+            entryPin: generateEntryPin(),
+            entryPinIssuedAt: issuedAt,
+            /*
+             * And the address, because for a free category THIS is the moment.
+             *
+             * `addressReleasedAt` is the one gate on the street address, and
+             * it had exactly two setters — a paid visit's slot, and a hotel's
+             * stay payment. Both are on the paid path, so a PG student never
+             * got an address from the API at all: they were sent one over
+             * WhatsApp and their own app showed none, on the screen they open
+             * standing outside the building.
+             *
+             * The equivalent moment for a free category is this tap. It IS
+             * the confirmation — the same branch mints the entry PIN here for
+             * the same reason — and the WhatsApp message this triggers
+             * already carries the address, so the gate was withholding from
+             * the app something the student had been sent anyway.
+             */
+            addressReleasedAt: issuedAt,
+          }),
       },
     },
     { new: true },

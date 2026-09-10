@@ -3,12 +3,14 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { Button, Text } from '@/components/ui';
 import { StandardHeader, StateTemplate } from '@/components/shell';
 import { BookingTimeline, VerificationCodeDisplay } from '@/components/booking';
 import { DirectionsButton } from '@/components/discovery';
-import { ActionBar } from '@/components/lifecycle';
+import { ActionBar, hasActions } from '@/components/lifecycle';
+import { ongoingQueryKey } from '@/hooks/useOngoing';
 import { errorStates } from '@/constants/copy';
 import { useTheme } from '@/context/ThemeContext';
 import {
@@ -210,6 +212,7 @@ export default function BookingDetail() {
       complete: Boolean(real.booking.movedInByOwnerAt && real.booking.movedInByStudentAt),
     }
     : stay.request?.moveIn;
+  const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState(false);
   const [moveInError, setMoveInError] = useState<string | null>(null);
 
@@ -270,6 +273,17 @@ export default function BookingDetail() {
          screen has just changed it. */
       if (real.booking) await real.refetch();
       else await stay.refresh();
+      /*
+       * And the home strip, which is a cache of the same fact.
+       *
+       * This was the last outstanding step of the whole flow, so the row
+       * saying "Confirm your move-in" has to go the moment it is done. Without
+       * this it survived until the query went stale — which is longer than
+       * the two taps it takes to press Done and land on the screen it is
+       * drawn on, so a finished booking sat there still asking to be
+       * finished.
+       */
+      queryClient.invalidateQueries({ queryKey: ongoingQueryKey });
     } catch (error) {
       setMoveInError((error as { displayMessage?: string }).displayMessage
         ?? 'We could not confirm that. Try again in a moment.');
@@ -589,7 +603,22 @@ export default function BookingDetail() {
           category={property.listing?.category}
           onPrimary={() => {
             if (booking.status === 'ACCEPTED' || booking.status === 'PAYMENT_PENDING') {
-              router.push(`/pay/lst-pg-0143` as never);
+              /*
+               * The confirmation screen, which is where the pay button lives.
+               *
+               * This was `/pay/lst-pg-0143` — a hardcoded FIXTURE listing id,
+               * harmless only for as long as nothing reached it. It is
+               * reachable now: an accepted-but-unpaid booking used to be
+               * mapped to `CONFIRMED`, which offers no primary action at all,
+               * and it correctly reads as `PAYMENT_PENDING` since
+               * `fromRealBooking` started reading the request's payment. So a
+               * student tapping "Pay to confirm" would have landed on a
+               * stranger's fixture PG.
+               *
+               * `confirm/[id]` is keyed by the LISTING, and it is the only
+               * screen that holds a real Razorpay order for this request.
+               */
+              if (propertyId) router.push(`/confirm/${propertyId}` as never);
             } else if (booking.status === 'CHECKED_OUT') router.push('/bookings/refund');
             else router.push('/home');
           }}
@@ -614,6 +643,32 @@ export default function BookingDetail() {
           }}
           onSupport={() => router.push('/support/new')}
         />
+
+        {/*
+          A way off the screen when the bar above has nothing.
+
+          On a confirmed bachelor, PG or co-living booking every action is
+          withheld by design — from confirmation on it is a direct arrangement
+          with the owner, and every button the bar used to offer named
+          something Lampose cannot do. What it left behind was a page that
+          ended on a paragraph: no footer, no action, only the back arrow in
+          the corner. This is not a thirteenth action; it is the exit.
+
+          "Done", and it goes HOME rather than to the Bookings list. This
+          screen is the end of the booking flow, not a detour inside it —
+          the student has read the code or confirmed they moved in, and the
+          next thing they want is the app, not the list they came through.
+          The strip above the tab bar carries anything still unfinished, so
+          nothing is lost by leaving.
+        */}
+        {!hasActions(booking, property.listing?.category) ? (
+          <Button
+            label="Done"
+            variant="secondary"
+            onPress={() => router.replace('/home')}
+            fullWidth
+          />
+        ) : null}
 
         {/* "Rate your stay" — additive, and independent of the fixture status
             above. Shown only once the REAL booking behind this one says the

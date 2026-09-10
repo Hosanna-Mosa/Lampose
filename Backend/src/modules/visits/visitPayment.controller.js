@@ -30,6 +30,7 @@ const mongoose = require('mongoose');
 const config = require('../../config/env');
 const razorpay = require('../../infrastructure/razorpay/razorpay');
 const VisitRequest = require('./visitRequest.model');
+const { generateEntryPin } = require('./otp.util');
 const { chargesUpFront } = require('../../shared/constants/categories');
 const twilio = require('../../infrastructure/twilio/twilio');
 
@@ -169,6 +170,37 @@ const markVisitPaid = async (doc, paymentId) => {
   doc.payment.paymentId = paymentId ? String(paymentId) : null;
   doc.payment.verifiedAt = new Date();
   doc.payment.failureReason = '';
+
+  /*
+   * The entry PIN, for a category that pays for its visit.
+   *
+   * A free category is minted one the moment the owner confirms
+   * (`stayRequest.service.js`), because that tap IS the confirmation. A paid
+   * one deliberately is not: at that point nobody has paid, and the reference
+   * reads to both sides as a confirmed arrangement. So the mint waits here,
+   * which is the equivalent moment — `markVisitPaid` is the ONE funnel a
+   * visit or stay payment clears through (the in-app verify, the WebView
+   * callback and the webhook all arrive here), so there is one place a PIN
+   * comes into existence and it is the same place `payment.status` becomes
+   * `paid`.
+   *
+   * Until now it was minted at neither end: the accept path skipped it
+   * because the token was outstanding, the WhatsApp branch skipped it for
+   * the same reason, and nothing ever came back for it once the money
+   * cleared. So every bachelor booking reached the door with
+   * `entryPin: null`, `hasEntryPin: false` on the owner's side, and a
+   * check-in screen that asked for no code at all — `checkInBooking` skips
+   * its comparison entirely when the booking has no PIN, so a guest could be
+   * marked in by anybody holding the owner's phone.
+   *
+   * Guarded on absence, like the free path's: a redelivered webhook must not
+   * hand out a second number, or the two sides end up holding different PINs
+   * and neither of them is wrong.
+   */
+  if (!doc.entryPin) {
+    doc.entryPin = generateEntryPin();
+    doc.entryPinIssuedAt = new Date();
+  }
   /*
    * Only an assisted VISIT has a slot to pick.
    *
@@ -207,6 +239,34 @@ const markVisitPaid = async (doc, paymentId) => {
   }
 
   await doc.save();
+
+  /*
+   * The owner's copy of the PIN.
+   *
+   * The booking row was written when the owner ACCEPTED — before this
+   * payment existed — so `acceptAndBook` copied across the `entryPin` the
+   * request had at that moment, which was null. `checkInBooking` compares
+   * what the owner types against the BOOKING's own PIN, so without this the
+   * code is minted, shown to the student, and still not checkable at the
+   * door: `hasEntryPin` stays false and the check-in screen asks for
+   * nothing.
+   *
+   * Guarded on absence so a redelivered webhook cannot replace a PIN already
+   * in use, and wrapped because the payment has ALREADY COMMITTED — a PIN
+   * that failed to copy is a loud log and a booking an owner can still check
+   * in by hand, never a failed payment for a student whose card was charged.
+   */
+  if (doc.bookingId && doc.entryPin) {
+    try {
+      const { PartnerBooking } = require('../partners/partnerDomains.model');
+      await PartnerBooking.updateOne(
+        { _id: doc.bookingId, $or: [{ entryPin: null }, { entryPin: { $exists: false } }] },
+        { $set: { entryPin: doc.entryPin } },
+      );
+    } catch (error) {
+      console.error(`[visit-pay] request ${doc._id} paid but its booking kept no entry PIN:`, error.message);
+    }
+  }
 
   /*
    * The settlement ledger, for a HOTEL stay only.

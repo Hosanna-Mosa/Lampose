@@ -15,7 +15,7 @@ import {
 } from '@/components/discovery';
 import { useAppState } from '@/context/AppStateContext';
 import { useTheme } from '@/context/ThemeContext';
-import { useListings } from '@/services';
+import { useListings, useSaved } from '@/services';
 import { isGone } from '@/types/listing';
 import type { StayCategory } from '@/constants/tokens';
 import {
@@ -45,6 +45,11 @@ export default function Results() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { locality } = useAppState();
+  /* The bookmark on every card. This screen rendered one and passed it an
+     empty handler, so the one control on a search result did nothing and
+     never filled in — a dead control being worse than no control, since a
+     student taps it, sees nothing, and concludes saving is broken. */
+  const { isSaved, toggleSaved } = useSaved();
 
   const { category } = useLocalSearchParams<{ category?: StayCategory }>();
 
@@ -257,10 +262,14 @@ export default function Results() {
           results.map((listing) => (
             <ListingCard
               key={listing.id}
-              listing={listing}
+              /* `saved` comes from the shortlist query, not from the search
+                 response — the listings endpoint is public and has no idea
+                 who is asking. Same pairing the home feed uses, off the same
+                 query, so a place saved here is already filled in there. */
+              listing={{ ...listing, saved: isSaved(listing.id) }}
               variant="list"
               onPress={() => router.push(`/listing/${listing.id}`)}
-              onToggleSave={() => {}}
+              onToggleSave={() => toggleSaved(listing.id)}
             />
           ))
         )}

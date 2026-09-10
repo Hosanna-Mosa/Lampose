@@ -64,7 +64,57 @@ const slugify = (value) => String(value || 'stay')
   .replace(/[^a-z0-9]+/g, '-')
   .replace(/^-|-$/g, '');
 
-const formatListing = (input) => {
+/**
+ * The verified partner behind each property, by owner phone.
+ *
+ * One `$in` for a whole page rather than a lookup per row, and only over the
+ * distinct numbers — an owner with twenty listings costs one entry. Keyed on
+ * the last ten digits because `Property.ownerMobile` has been typed in by hand
+ * for as long as the product has existed and holds "+91 8639139906",
+ * "+919704726252" and undefined side by side, while `Partner.phoneDigits` is
+ * clean.
+ *
+ * Only `phoneVerifiedAt` accounts count. An unverified row is somebody who
+ * typed a number into a login screen, not somebody holding the handset — the
+ * same bar `createStayRequest` applies before it will send them a student.
+ *
+ * Returns a Map of digits -> name. A property whose owner is not on Stay
+ * Partner is simply absent, and `formatListing` falls back to the listing's
+ * own text.
+ */
+const ownerNamesFor = async (docs) => {
+  const digitsOf = (value) => String(value || '').replace(/\D/g, '').slice(-10);
+  const wanted = [...new Set(docs.map((d) => digitsOf(d && d.ownerMobile)).filter(Boolean))];
+  if (!wanted.length) return new Map();
+
+  try {
+    const Partner = require('../partners/partner.model');
+    const rows = await Partner.find({ phoneDigits: { $in: wanted }, phoneVerifiedAt: { $ne: null } })
+      .select('phoneDigits name fullName ownerName')
+      .lean();
+
+    const byDigits = new Map();
+    for (const row of rows) {
+      const name = String(row.name || row.fullName || row.ownerName || '').trim();
+      if (name) byDigits.set(String(row.phoneDigits), name);
+    }
+    return byDigits;
+  } catch (error) {
+    /* A name that could not be resolved is not a listing that failed. The
+       property's own text is served, exactly as before. */
+    console.warn('[listings] could not resolve owner names:', error.message);
+    return new Map();
+  }
+};
+
+/**
+ * @param {object} input               the property document
+ * @param {string} [resolvedOwnerName] the verified partner's name, from
+ *                                     `ownerNamesFor`. Optional: a caller that
+ *                                     does not resolve one gets the old
+ *                                     behaviour.
+ */
+const formatListing = (input, resolvedOwnerName = '') => {
   const doc = input && typeof input.toObject === 'function' ? input.toObject() : input;
 
   /* `images` is the gallery and `imageUrl` the single cover the older panel
@@ -91,7 +141,25 @@ const formatListing = (input) => {
     monthlyPrice: doc.monthlyPrice || null,
     dailyPrice: doc.dailyPrice || null,
     deposit: doc.deposit || null,
-    ownerName: doc.ownerName || 'Property Owner',
+    /*
+     * Who the student will actually meet.
+     *
+     * `doc.ownerName` is free text typed onto the property at onboarding, and
+     * it goes stale the moment somebody else takes over the building — or was
+     * simply never the account holder. Measured across the live collection, 41
+     * of the 42 properties with a verified partner disagreed with that
+     * partner's own name: the listing said "Sunand", the person who answers
+     * the request and opens the door is "Venky".
+     *
+     * That name is not decoration. The app says "Waiting for Venky", "Venky
+     * has your booking" and "Ask for Venky at the gate" — a student standing
+     * at a door asking for the wrong person is the failure this prevents.
+     *
+     * So the VERIFIED partner's name wins where the caller resolved one (see
+     * `ownerNamesFor`), and the property's own text is the fallback for a
+     * listing whose owner is not on Stay Partner yet.
+     */
+    ownerName: resolvedOwnerName || doc.ownerName || 'Property Owner',
     ownerMobile: doc.ownerMobile || '',
     /*
      * NOT the street address.
@@ -213,4 +281,5 @@ module.exports = {
   isDaily,
   slugify,
   formatListing,
+  ownerNamesFor,
 };

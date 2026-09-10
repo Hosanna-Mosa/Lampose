@@ -17,10 +17,13 @@
    whatever they typed.
    ══════════════════════════════════════════════════════════════════════════ */
 const { PartnerBooking, PartnerReview } = require('../partners/partnerDomains.model');
+const VisitRequest = require('../visits/visitRequest.model');
 const { releaseBed, shareTypeIdForBooking } = require('../inventory/inventory.service');
 const { notifyOwnerOfBookingCancelledByStudent } = require('../notifications/stayRequest.notifier');
 /* DEVELOPMENT ONLY — read by `devForceCheckIn`; remove with it. */
 const config = require('../../config/env');
+
+const OBJECT_ID = /^[0-9a-fA-F]{24}$/;
 
 /** Digits only, last ten — the same shape `phoneKey` produces elsewhere. */
 const phoneDigits = (value) => String(value || '').replace(/\D/g, '').slice(-10);
@@ -40,7 +43,11 @@ const phoneDigits = (value) => String(value || '').replace(/\D/g, '').slice(-10)
  * show the refund the moment the cancel returns. Both are null/false for the
  * free categories, which is nearly every booking.
  */
-const toCustomerBooking = (booking, reviewed = false, { refund = null, refundable = false } = {}) => ({
+const toCustomerBooking = (
+  booking,
+  reviewed = false,
+  { refund = null, refundable = false, request = null, releasedAddress = '' } = {},
+) => ({
   id: String(booking._id),
   requestId: booking.requestId || null,
   propertyId: booking.propertyId,
@@ -60,7 +67,56 @@ const toCustomerBooking = (booking, reviewed = false, { refund = null, refundabl
      rather than just "not yet". */
   movedInByOwnerAt: booking.movedInByOwnerAt || null,
   movedInByStudentAt: booking.movedInByStudentAt || null,
-  address: (booking.address && String(booking.address)) || null,
+  /*
+   * Where the place actually is.
+   *
+   * `booking.address` is only ever filled by the Add Customer walk-in form,
+   * so a booking made through the app had none — and the student's own
+   * screen, the one they open standing outside the building, showed no
+   * address and no map link.
+   *
+   * The property's address fills that in, gated on the REQUEST's
+   * `addressReleasedAt`: the single rule for who may see where somebody
+   * lives, and the same one `GET /visit-requests/:id` reads. Read from the
+   * property rather than snapshotted, so an owner correcting a door number
+   * corrects it on every booking at once — see `visitAddress.util.js`.
+   */
+  address: (booking.address && String(booking.address)) || releasedAddress || null,
+  /*
+   * Whether the money behind this booking has actually moved.
+   *
+   * The booking row exists from the moment the OWNER accepts — `acceptAndBook`
+   * writes `status: 'upcoming'` — and on a category that charges, that is
+   * BEFORE anybody has paid. The status alone therefore cannot answer "have I
+   * paid", and every client that assumed it could said yes: an accepted-but-
+   * unpaid bachelor booking rendered a completed Paid step on its timeline,
+   * on the screen a student opens to find out what they still owe.
+   *
+   * `totalAmount`/`paidAmount` above cannot fill the gap either — they are
+   * the OWNER's ledger for the stay, and on a bachelor room they are 0/0
+   * because the ₹199 is Lampose's fee, never the owner's money.
+   *
+   * So the request's own payment subdocument rides along. Null where there is
+   * no request behind the booking at all (a walk-in the owner keyed in), which
+   * is a different thing from "nothing to pay" and is left for the client to
+   * read as such.
+   */
+  payment: request && request.payment
+    ? {
+      required: Boolean(request.payment.required),
+      status: request.payment.status || 'not_required',
+      purpose: request.payment.purpose || null,
+      amountPaise: request.payment.amountPaise ?? null,
+      paidAt: request.payment.verifiedAt || null,
+      /* The dev bypass marks a request paid without taking anything. A client
+         drawing a receipt has to be able to tell the two apart. */
+      mode: request.payment.mode || null,
+    }
+    : null,
+  /* Where the assisted visit got to, for the categories that have one — the
+     step between paying and moving in. `slot_pending` is a student who has
+     paid and not yet chosen a day. */
+  visitStatus: (request && request.lamposeVisit && request.lamposeVisit.status) || null,
   /* Whether this booking already has a review — the app draws "Rate your
      stay" only on a `completed` booking with this false, and drops the CTA
      the moment it is true rather than trusting its own memory of having
@@ -95,6 +151,64 @@ const scopeFor = (customer) => {
  * caps at 50 rows and most of them are not `completed` at all, but the ones
  * that are must not turn into 50 round trips to answer one boolean each.
  */
+/**
+ * The requests behind a page of bookings, by booking id.
+ *
+ * One `$in` rather than a lookup per row — a student with fifty bookings must
+ * not cost fifty queries for a field that only says whether they have paid.
+ * A booking with no `requestId` (a walk-in) simply has no entry.
+ */
+const requestsForBookings = async (bookings) => {
+  const ids = bookings
+    .map((b) => b.requestId)
+    .filter((id) => id && OBJECT_ID.test(String(id)));
+  if (!ids.length) return new Map();
+
+  const rows = await VisitRequest.find({ _id: { $in: ids } })
+    .select('payment lamposeVisit addressReleasedAt listingId')
+    .lean();
+  const byRequestId = new Map(rows.map((r) => [String(r._id), r]));
+
+  const byBookingId = new Map();
+  for (const booking of bookings) {
+    const found = byRequestId.get(String(booking.requestId));
+    if (found) byBookingId.set(String(booking._id), found);
+  }
+  return byBookingId;
+};
+
+/**
+ * The street address for each booking whose request has released one.
+ *
+ * Batched, and only for the bookings that have earned it: `addressReleasedAt`
+ * is the one gate on where somebody lives, so a request that has not reached
+ * it contributes no lookup and no address. Distinct property ids, so ten
+ * bookings at one PG cost one read.
+ */
+const addressesForBookings = async (bookings, requestByBooking) => {
+  const wanted = new Map();
+  for (const booking of bookings) {
+    const request = requestByBooking.get(String(booking._id));
+    if (!request || !request.addressReleasedAt) continue;
+    const propertyId = String(request.listingId || booking.propertyId || '');
+    if (OBJECT_ID.test(propertyId)) wanted.set(String(booking._id), propertyId);
+  }
+  if (!wanted.size) return new Map();
+
+  const { readListingAddress } = require('../visits/visitAddress.util');
+  const unique = [...new Set(wanted.values())];
+  const byProperty = new Map(
+    await Promise.all(unique.map(async (id) => [id, await readListingAddress(id)])),
+  );
+
+  const byBooking = new Map();
+  for (const [bookingId, propertyId] of wanted) {
+    const address = byProperty.get(propertyId);
+    if (address) byBooking.set(bookingId, address);
+  }
+  return byBooking;
+};
+
 const reviewedBookingIds = async (bookings) => {
   const ids = bookings.filter((b) => b.status === 'completed').map((b) => String(b._id));
   if (!ids.length) return new Set();
@@ -116,13 +230,12 @@ const listBookings = async (req, res, next) => {
 
     const ids = bookings.map((b) => b._id);
 
-    const [refundByBooking, refundableIds] = await Promise.all([
-
+    const [refundByBooking, refundableIds, requestByBooking] = await Promise.all([
       refunds.forBookings(ids),
-
       refunds.refundableBookingIds(ids),
-
+      requestsForBookings(bookings),
     ]);
+    const addressByBooking = await addressesForBookings(bookings, requestByBooking);
 
     return res.json({
       success: true,
@@ -130,6 +243,8 @@ const listBookings = async (req, res, next) => {
       data: bookings.map((b) => toCustomerBooking(b, reviewed.has(String(b._id)), {
         refund: refundByBooking.get(String(b._id)) || null,
         refundable: refundableIds.has(String(b._id)),
+        request: requestByBooking.get(String(b._id)) || null,
+        releasedAddress: addressByBooking.get(String(b._id)) || '',
       })),
     });
   } catch (error) {
@@ -162,15 +277,19 @@ const getBooking = async (req, res, next) => {
       : false;
 
     const refunds = require('../settlements/refund.service');
-    const [refundByBooking, refundableIds] = await Promise.all([
+    const [refundByBooking, refundableIds, requestByBooking] = await Promise.all([
       refunds.forBookings([booking._id]),
       refunds.refundableBookingIds([booking._id]),
+      requestsForBookings([booking]),
     ]);
+    const addressByBooking = await addressesForBookings([booking], requestByBooking);
     return res.json({
       success: true,
       data: toCustomerBooking(booking, reviewed, {
         refund: refundByBooking.get(String(booking._id)) || null,
         refundable: refundableIds.has(String(booking._id)),
+        request: requestByBooking.get(String(booking._id)) || null,
+        releasedAddress: addressByBooking.get(String(booking._id)) || '',
       }),
     });
   } catch (error) {

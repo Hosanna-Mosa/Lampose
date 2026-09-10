@@ -39,10 +39,10 @@ import { useBooking, useListing, useStayRequest } from '@/services';
  * ## Whether anything was paid depends on the category, and this screen says
  * which
  *
- * It used to state "Nothing was charged, and nothing is owed before you move
- * in" unconditionally, because when it was written no category charged for
- * anything. One does now: a bachelor room takes ₹199 for an assisted visit —
- * ₹100 for the Lampose representative who accompanies it, ₹99 our fee — before
+ * It used to state "nothing was charged" unconditionally, because when it was
+ * written no category charged for anything. One does now: a bachelor room
+ * takes ₹199 for an assisted visit — ₹100 for the Lampose representative
+ * who accompanies it, ₹99 our fee — before
  * this screen is ever reached. So the sentence was flatly untrue for the one
  * category that had just been charged, on the screen somebody looks at
  * immediately after paying, and there was no receipt for it anywhere in the
@@ -53,7 +53,7 @@ import { useBooking, useListing, useStayRequest } from '@/services';
  * same two fields `confirm/[id].tsx` gates its own pay button on, so the two
  * screens cannot disagree about whether money moved. The paid block below is
  * a receipt: what was taken, how it splits, when, and what it bought. The free
- * categories keep the original sentence, which is true of them.
+ * categories say so in one clause instead.
  *
  * `payment.mode` is checked as well as the status, because the development
  * bypass marks a request paid without taking anything. Printing "₹199 paid" for
@@ -69,6 +69,12 @@ import { useBooking, useListing, useStayRequest } from '@/services';
  * arriving at the gate three weeks later goes to Bookings, not back here — so
  * the last block's job is to say that out loud, and the primary action takes
  * them there rather than dumping them on the feed.
+ *
+ * Which is also why the prose here is kept short. Somebody ten seconds past
+ * paying wants four facts — it is confirmed, where, the code, where it lives
+ * — and every extra sentence pushes one of those below the fold. Anything
+ * that reads as reassurance rather than information belongs to the booking
+ * detail, which is where it is read at leisure.
  */
 /** "5 September 2026" from a `YYYY-MM-DD` calendar day. */
 function prettyDate(iso: string): string {
@@ -352,20 +358,18 @@ export default function Booked() {
           <Text variant="title1" style={styles.centred}>
             {owner} has your booking
           </Text>
-          {/* Two sentences, and which one is true is the category's answer,
-              never this screen's guess. Saying "nothing was charged" to
-              somebody who has just paid ₹199 is the specific failure this
-              replaces. */}
+          {/* One clause, and which one is true is the category's answer, never
+              this screen's guess. Saying "nothing was charged" to somebody who
+              has just paid ₹199 is the specific failure this avoids. The
+              detail behind each — the split, the dates — is the receipt
+              block's job, so this line does not also carry it. */}
           <Text variant="bodyLg" color="secondary" style={styles.centred}>
             {booking.sharingLabel} at {listing.name}, from {booking.moveInLabel}.{' '}
             {!chargesForVisit
-              ? 'Nothing was charged, and nothing is owed before you move in.'
+              ? 'Nothing to pay before you move in.'
               : isStayBooking
-                /* The stay is paid for in full, so there is nothing outstanding
-                   at all — which is a stronger and different promise from the
-                   visit fee's "nothing ELSE is owed before you move in". */
-                ? 'Paid in full. Show your booking at reception when you arrive.'
-                : 'Your visit is paid for. Nothing else is owed before you move in.'}
+                ? 'Paid in full.'
+                : 'Your visit is paid for.'}
           </Text>
           <Text variant="priceSm" color="tertiary">
             {/* The server's PIN doubles as the booking reference — one string
@@ -472,15 +476,15 @@ export default function Booked() {
                     : 'Pick a day and time for your visit and we will confirm the representative.'}
             </Text>
 
-            {/* What is NOT covered, which is the point of the line. A visit fee
-                buys an afternoon and leaves every rupee of the tenancy between
-                the student and the owner; a stay payment covers the room and
-                nothing else somebody might add to a bill on the way out. */}
-            <Text variant="caption" color="tertiary">
-              {isStayBooking
-                ? `Extras — food, laundry, a late checkout — are settled with ${owner} directly.`
-                : `Rent and deposit are not part of this. You settle those with ${owner} directly.`}
-            </Text>
+            {/* What is NOT covered — on the visit fee only. ₹199 against a
+                year's rent is the figure somebody can mistake for a deposit,
+                so that one line stays. A stay booking says "Paid in full"
+                above and needs no paragraph qualifying it. */}
+            {!isStayBooking ? (
+              <Text variant="caption" color="tertiary">
+                Rent and deposit are settled with {owner} directly.
+              </Text>
+            ) : null}
           </View>
         ) : waivedForVisit ? (
           <View
@@ -495,7 +499,7 @@ export default function Booked() {
               Visit fee waived
             </Text>
             <Text variant="caption" style={{ color: colors.warning.ink }}>
-              This booking was marked paid without a payment being taken. Nothing was charged.
+              Nothing was charged for this booking.
             </Text>
           </View>
         ) : null}
@@ -553,7 +557,7 @@ export default function Booked() {
         ) : null}
 
         {/*
-          3 — the code, and the thanks.
+          3 — the code.
 
           Shown only when the SERVER has issued one. A locally minted code
           here would be a number a student reads out at a door to an owner
@@ -565,18 +569,13 @@ export default function Booked() {
           in the same order. Nine tiles do not fit a phone.
         */}
         {entryPin ? (
-          <View style={{ gap: space[4] }}>
-            <VerificationCodeDisplay
-              code={entryPin.replace(/\D/g, '')}
-              bookingReference={entryPin}
-              ownerName={listing.ownerName}
-              validLabel={booking.codeValidLabel ?? 'Valid on your move-in day'}
-              variant="embedded"
-            />
-            <Text variant="body" color="secondary" style={styles.centred}>
-              Thanks for booking with LAMPOSE. We hope it feels like home.
-            </Text>
-          </View>
+          <VerificationCodeDisplay
+            code={entryPin.replace(/\D/g, '')}
+            bookingReference={entryPin}
+            ownerName={listing.ownerName}
+            validLabel={booking.codeValidLabel ?? 'Valid on your move-in day'}
+            variant="embedded"
+          />
         ) : null}
 
         {/* 4 — where this lives from now on. */}
@@ -590,8 +589,7 @@ export default function Booked() {
         >
           <Text variant="bodyStrong">This is saved in Bookings</Text>
           <Text variant="caption" color="secondary">
-            The address, the code and everything you agreed to stay there. Open it from Bookings on
-            the day you move in — you do not need to keep this screen or take a screenshot.
+            The address and your code stay there — no need to screenshot this.
           </Text>
         </View>
 

@@ -1,6 +1,6 @@
 import * as Brightness from 'expo-brightness';
 import React, { useEffect } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
 import { Icon, Text } from '@/components/ui';
@@ -20,7 +20,8 @@ import { useReduceMotion, useTheme } from '@/context/ThemeContext';
  * type scale that opts out of OS font scaling entirely — a scaled code wraps,
  * and a wrapped code breaks the one thing it is for.
  *
- * Screen brightness is forced to maximum on mount and restored on unmount.
+ * Screen brightness is forced to maximum on mount and restored on unmount —
+ * and it asks for NOTHING to do it. See the effect below.
  */
 
 export type VerificationCodeDisplayProps = {
@@ -51,23 +52,62 @@ export function VerificationCodeDisplay({
   const { colors, space, radius } = useTheme();
   const reduceMotion = useReduceMotion();
 
+  /*
+   * Max brightness, then put it back. An owner reading this at arm's length in
+   * a dim corridor is the case it exists for.
+   *
+   * ## No permission is asked for, and none is needed
+   *
+   * This called `Brightness.requestPermissionsAsync()` first, which on Android
+   * is not a dialog — it throws the student out of the app onto the system's
+   * full-screen "Modify system settings" page. Tapping "View my booking"
+   * landed on an OS permission screen about modifying system settings, which
+   * is alarming, unexplained, and asks for far more than showing a code needs.
+   *
+   * It was never required. That permission gates the SYSTEM brightness
+   * functions (`setSystemBrightnessAsync`), which this has never called.
+   * `setBrightnessAsync` is scoped to the app's own activity — expo's own
+   * words: "this setting only applies to the current activity; it will
+   * override the system brightness value whenever your app is in the
+   * foreground" — and needs no permission on either platform.
+   *
+   * So the request is gone and the behaviour is unchanged. `restoreSystemBrightnessAsync`
+   * hands the window back to the system on Android, which is a truer undo than
+   * writing back a number we captured: the system value may have moved while
+   * the screen was open, and auto-brightness would be stuck at whatever we
+   * restored.
+   *
+   * Wrapped throughout: a device that refuses brightness control must not take
+   * the entry code down with it. The code is the point; the brightness is a
+   * courtesy.
+   */
   useEffect(() => {
-    if (variant !== 'standalone') return;
+    if (variant !== 'standalone') return undefined;
     let previous: number | null = null;
     let active = true;
 
-    // Max brightness, then put it back. An owner reading this at arm's length
-    // in a dim corridor is the case it exists for.
     (async () => {
-      const { granted } = await Brightness.requestPermissionsAsync();
-      if (!granted || !active) return;
-      previous = await Brightness.getBrightnessAsync();
-      await Brightness.setBrightnessAsync(1);
+      try {
+        previous = await Brightness.getBrightnessAsync();
+        if (!active) return;
+        await Brightness.setBrightnessAsync(1);
+      } catch {
+        /* No brightness control on this device. Nothing to undo. */
+        previous = null;
+      }
     })();
 
     return () => {
       active = false;
-      if (previous !== null) Brightness.setBrightnessAsync(previous);
+      (async () => {
+        try {
+          if (Platform.OS === 'android') await Brightness.restoreSystemBrightnessAsync();
+          else if (previous !== null) await Brightness.setBrightnessAsync(previous);
+        } catch {
+          /* Leaving the screen bright is a poor outcome; crashing on the way
+             out of it is a worse one. */
+        }
+      })();
     };
   }, [variant]);
 

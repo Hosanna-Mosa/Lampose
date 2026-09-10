@@ -175,6 +175,34 @@ const toOwnerJSON = (request) => ({
     }
     : null,
 
+  /*
+   * The ₹199 assisted visit, in the same shape `toOwner()` sends.
+   *
+   * This shape is the WEB channel's; `toOwner()` is the app's, and only that
+   * one carried the payment. So a bachelor request that came through
+   * lampose.com looked, to every owner-side reader, exactly like a request
+   * with nothing outstanding — the "Waiting on the student" card did not
+   * draw, and the ongoing strip on Today skipped it. Two serialisers for one
+   * audience only work while they agree.
+   */
+  payment: request.payment && request.payment.required
+    ? {
+      required: true,
+      status: request.payment.status || 'pending',
+      purpose: request.payment.purpose || 'assisted_visit',
+      /* The figure, for the same reason `toOwner()` carries it: a hotel owes
+         the stay total, not the assisted-visit fee. */
+      amountPaise: request.payment.amountPaise ?? null,
+    }
+    : null,
+  lamposeVisit: request.payment && request.payment.required
+    ? {
+      status: request.lamposeVisit?.status || 'none',
+      date: request.lamposeVisit?.date || null,
+      time: request.lamposeVisit?.time || null,
+    }
+    : null,
+
   createdAt: request.createdAt,
   updatedAt: request.updatedAt,
 });

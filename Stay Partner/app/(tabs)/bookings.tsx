@@ -6,13 +6,15 @@ import {
   Text,
   Chip,
   ChipRow,
+  Select,
   BookingStatusBadge,
+  type BookingStatus,
   PaymentStatusBadge,
   EmptyState,
   RequestCard,
 } from '@/components/ui';
 import { formatINR, formatStayRange } from '@/lib/format';
-import { type Booking, payoutOf } from '@/lib/bookings';
+import { type Booking, hasPlatformMoney, payoutOf } from '@/lib/bookings';
 import { toBooking } from '@/lib/bookings';
 import { fetchBookings } from '@/services/api/domain.api';
 import { ApiError } from '@/services/api/client';
@@ -34,6 +36,39 @@ const OUTCOMES: { key: Outcome; label: string }[] = [
 ];
 
 /*
+ * The six states a live booking can be in, as a filter.
+ *
+ * Upcoming holds everything that has not finished, which on a busy property
+ * is one list mixing a guest arriving this afternoon with a tenant three
+ * months into their stay. The sort already leads with what needs doing today
+ * — this is for the other direction: "show me only who has moved in".
+ *
+ * The labels are the BADGE labels, character for character
+ * (`BookingStatusBadge`). A chip that said "Moved in" while every row it
+ * selected said "In-house" would read as a filter that had not worked, so
+ * the words are one vocabulary rather than two. Ordered by how often an
+ * owner reaches for each, not by the list's own urgency ranking — the two
+ * overdue states are the rarest, and leading a filter row with them buries
+ * the ones that get used.
+ */
+type LiveStatus = 'all' | BookingStatus;
+
+const LIVE_STATUSES: { key: LiveStatus; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'arriving', label: 'Arriving today' },
+  { key: 'inHouse', label: 'In-house' },
+  { key: 'confirmed', label: 'Confirmed' },
+  { key: 'departing', label: 'Checking out today' },
+  { key: 'overdueArrival', label: 'Overdue arrival' },
+  { key: 'overdueDeparture', label: 'Overdue checkout' },
+];
+const statusLabel = (key: LiveStatus): string =>
+  LIVE_STATUSES.find((o) => o.key === key)?.label ?? 'All';
+const outcomeLabel = (key: Outcome): string =>
+  OUTCOMES.find((o) => o.key === key)?.label ?? 'All';
+
+
+/*
  * The four real categories, plus "all" — matching `Backend/src/shared/
  * constants/categories.js`'s enum and label table exactly (each frontend
  * keeps its own copy of the label rather than fetching it; the CODE is what
@@ -49,6 +84,44 @@ const CATEGORIES: { key: CategoryFilter; label: string }[] = [
 ];
 const categoryLabel = (key: CategoryFilter): string =>
   CATEGORIES.find((c) => c.key === key)?.label ?? 'All';
+
+/* The values only — `Select` takes a list of them and words each with
+   `format`, so the label tables above stay the one place a name is written. */
+const CATEGORY_VALUES = CATEGORIES.map((c) => c.key);
+const LIVE_STATUS_VALUES = LIVE_STATUSES.map((o) => o.key);
+const OUTCOME_VALUES = OUTCOMES.map((o) => o.key);
+
+/** "5 bachelor bookings", "1 booking" — counted, and named by the chip. */
+const countPhrase = (n: number, key: CategoryFilter): string => {
+  const kind = key === 'all' ? '' : `${categoryLabel(key).toLowerCase()} `;
+  return `${n} ${kind}booking${n === 1 ? '' : 's'}`;
+};
+
+/**
+ * What to say on an empty tab when the OTHER tab is not empty.
+ *
+ * An empty list has two completely different causes and they were rendered
+ * identically: this owner has no such bookings, or they have several and are
+ * standing on the wrong tab. The second is the one that made an accepted
+ * bachelor booking look lost — five of them sat under Upcoming while History
+ * said there were none, which is true of History and says nothing about the
+ * account.
+ *
+ * The number comes from rows already fetched for this same category, so it
+ * cannot promise something the other tab will not show.
+ */
+const crossTabBody = (tab: Tab, category: CategoryFilter, otherCount: number): string => {
+  const other = tab === 'upcoming' ? 'History' : 'Upcoming';
+  if (otherCount > 0) {
+    return `${countPhrase(otherCount, category)} ${otherCount === 1 ? 'is' : 'are'} under ${other}.`;
+  }
+  if (category !== 'all') {
+    return `Nothing under ${categoryLabel(category)} — try "All" to see every kind.`;
+  }
+  return tab === 'upcoming'
+    ? 'Confirmed stays appear here once you accept a request.'
+    : 'Finished stays, declines and cancellations are kept here.';
+};
 
 /*
  * History used to mean two different things in two different places.
@@ -82,6 +155,7 @@ export default function BookingsTab() {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>('upcoming');
   const [outcome, setOutcome] = useState<Outcome>('all');
+  const [liveStatus, setLiveStatus] = useState<LiveStatus>('all');
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [allBookings, setAllBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -217,6 +291,43 @@ export default function BookingsTab() {
     [requestGroups.answered, category],
   );
 
+  /*
+   * How many rows each tab holds FOR THE CATEGORY ON SCREEN.
+   *
+   * The screen this fixes: an owner accepted a bachelor request, went looking
+   * for it under History · Bachelor, and got "No bachelor history for this
+   * filter yet" — which is true, and useless. The booking was one tab across
+   * the whole time, and nothing on the screen said so. Two filter rows and a
+   * pair of tabs is nine ways to land on an empty list, and every one of them
+   * looked identical to having no bookings at all.
+   *
+   * Both numbers are already on the phone: `loadBookings` fetches every status
+   * for the chosen category in one call and this screen splits them locally,
+   * so counting costs nothing and cannot disagree with what tapping the tab
+   * shows.
+   *
+   * The history count deliberately IGNORES the outcome chip. It answers "is
+   * there anything under History at all", which is the question somebody
+   * staring at an empty list is asking; the outcome chip is visible and
+   * selected right there to explain a narrower result once they arrive.
+   */
+  /* What the Upcoming tab actually lists, once the status chip has had its
+     say. `upcomingCount` below stays the UNFILTERED total, because the tab
+     chip answers "how many are under Upcoming" — the same relationship the
+     History count has with its outcome chip. */
+  const shownUpcoming = useMemo(
+    () => (liveStatus === 'all'
+      ? upcomingList
+      : upcomingList.filter((b) => b.status === liveStatus)),
+    [upcomingList, liveStatus],
+  );
+
+  const upcomingCount = upcomingList.length;
+  const historyCount = historyBookings.length + historyRequests.length;
+  /* Counts are only meaningful once a load has actually answered. Rendering
+     "Upcoming 0" mid-fetch states something false about the account. */
+  const countsReady = !loading && !error && !requestsLoading;
+
   const historyRows = useMemo(() => {
     type Row =
       | { kind: 'booking'; key: string; sortAt: number; booking: Booking }
@@ -225,7 +336,13 @@ export default function BookingsTab() {
     const bookingRows: Row[] = historyBookings
       .filter((b) => outcome === 'all' || b.status === outcome)
       .map((booking) => ({
-        kind: 'booking', key: `b-${booking.id}`, sortAt: booking.checkOut.getTime(), booking,
+        /* An open-ended stay sorts by when it STARTED — it has no end to sort
+           by, and it is in history because somebody closed it, not because a
+           date passed. */
+        kind: 'booking',
+        key: `b-${booking.id}`,
+        sortAt: (booking.checkOut ?? booking.checkIn).getTime(),
+        booking,
       }));
 
     /* "Completed" names a stay that happened, which a request that went
@@ -264,55 +381,75 @@ export default function BookingsTab() {
       }
     >
 
+      {/* The count rides the label rather than a badge component: it is the
+          one thing that makes the pair navigable — an owner can see that
+          Bachelor has five upcoming and no history before tapping anything,
+          which is the whole failure this row used to hide. */}
       <ChipRow style={styles.filters}>
         <Chip
-          label="Upcoming"
+          label={countsReady ? `Upcoming · ${upcomingCount}` : 'Upcoming'}
           size="sm"
           selected={tab === 'upcoming'}
           onPress={() => setTab('upcoming')}
         />
         <Chip
-          label="History"
+          label={countsReady ? `History · ${historyCount}` : 'History'}
           size="sm"
           selected={tab === 'history'}
           onPress={() => setTab('history')}
         />
       </ChipRow>
 
-      {/* Which kind of place — applies to both Upcoming and History, since an
-          owner running several kinds of listings wants "just my hotels"
-          whichever tab they're on. Picking one re-asks the server rather
-          than hiding rows already on the phone — see the note on
-          `loadBookings`. */}
-      <ChipRow style={styles.filters}>
-        {CATEGORIES.map((c) => (
-          <Chip
-            key={c.key}
-            label={c.label}
-            size="sm"
-            subtle
-            tone="neutral"
-            selected={category === c.key}
-            onPress={() => setCategory(c.key)}
-          />
-        ))}
-      </ChipRow>
+      {/*
+        Two dropdowns, not two rows of chips.
 
-      {tab === 'history' ? (
-        <ChipRow style={styles.filters}>
-          {OUTCOMES.map((o) => (
-            <Chip
-              key={o.key}
-              label={o.label}
-              size="sm"
-              subtle
-              tone="neutral"
-              selected={outcome === o.key}
-              onPress={() => setOutcome(o.key)}
+        The chips outgrew the screen. Five categories and seven live statuses
+        is twelve pills wrapping over four lines above a list that then had
+        barely any room left — and, worse, a wrapped chip row gives no clue
+        which of the twelve is currently on without reading all of them. A
+        closed dropdown states its answer in one line each.
+
+        The Upcoming/History pair above stays chips on purpose: it is a
+        segmented control, not a filter. Two states, always both visible,
+        each carrying its own count.
+
+        The STATUS list follows the tab — the six live states under Upcoming,
+        the two terminal ones under History — so every status a booking can
+        carry is reachable from one control.
+      */}
+      <View style={styles.filterRow}>
+        <View style={styles.filterCell}>
+          <Select
+            label="Kind"
+            overlay
+            options={CATEGORY_VALUES}
+            value={category}
+            onChange={setCategory}
+            format={categoryLabel}
+          />
+        </View>
+        <View style={styles.filterCell}>
+          {tab === 'history' ? (
+            <Select
+              label="Outcome"
+              overlay
+              options={OUTCOME_VALUES}
+              value={outcome}
+              onChange={setOutcome}
+              format={outcomeLabel}
             />
-          ))}
-        </ChipRow>
-      ) : null}
+          ) : (
+            <Select
+              label="Status"
+              overlay
+              options={LIVE_STATUS_VALUES}
+              value={liveStatus}
+              onChange={setLiveStatus}
+              format={statusLabel}
+            />
+          )}
+        </View>
+      </View>
 
       {/* A failure and an empty list are different facts and must not share a
           screen. "No upcoming bookings" over a dropped connection tells an
@@ -334,15 +471,29 @@ export default function BookingsTab() {
       ) : loading || (tab === 'history' && requestsLoading && !historyRows.length) ? (
         <EmptyState icon="bookings" title="Loading…" body="" style={styles.empty} />
       ) : tab === 'upcoming' ? (
-        upcomingList.length > 0 ? (
-          upcomingList.map((b) => <BookingRow key={b.id} booking={b} onPress={() => open(b)} />)
+        shownUpcoming.length > 0 ? (
+          shownUpcoming.map((b) => <BookingRow key={b.id} booking={b} onPress={() => open(b)} />)
+        ) : upcomingCount > 0 ? (
+          /* The status chip is hiding them, not the account being empty — the
+             owner narrowed this themselves and the fix is one tap away, same
+             as the outcome chip's own branch under History. */
+          <EmptyState
+            icon="bookings"
+            /* The chip's own words, quoted — "Nothing overdue arrival" is not
+               a sentence, and every one of the six has to read as one. */
+            title={`No "${statusLabel(liveStatus)}" bookings`}
+            body={`${countPhrase(upcomingCount, category)} ${upcomingCount === 1 ? 'is' : 'are'} upcoming on another status — try "All".`}
+            actionLabel="Show all statuses"
+            onAction={() => setLiveStatus('all')}
+            style={styles.empty}
+          />
         ) : (
           <EmptyState
             icon="bookings"
             title="No upcoming bookings"
-            body={category === 'all'
-              ? 'Confirmed stays appear here once you accept a request.'
-              : `No upcoming ${categoryLabel(category).toLowerCase()} bookings right now — try "All" to see every kind.`}
+            body={crossTabBody('upcoming', category, historyCount)}
+            actionLabel={historyCount > 0 ? 'Open History' : undefined}
+            onAction={historyCount > 0 ? () => setTab('history') : undefined}
             style={styles.empty}
           />
         )
@@ -359,13 +510,27 @@ export default function BookingsTab() {
       ) : (
         <EmptyState
           icon="clock"
-          title={`No ${outcome} stays`}
+          /* "No all stays" was what this printed under the All chip, which is
+             not a sentence. The outcome is named only where it narrows
+             something. */
+          title={outcome === 'all' ? 'Nothing in history yet' : `No ${outcome} stays`}
           body={
-            category !== 'all'
-              ? `No ${categoryLabel(category).toLowerCase()} history for this filter yet.`
-              : outcome === 'completed'
-                ? 'Stays move here once they finish.'
-                : 'Declines, expired requests and cancellations are kept here.'
+            /* An outcome chip that is hiding rows explains itself first: the
+               owner narrowed this themselves and the fix is one tap away, not
+               on another tab. */
+            historyCount > 0
+              ? `${countPhrase(historyCount, category)} ${historyCount === 1 ? 'is' : 'are'} in history under another outcome — try "All".`
+              : crossTabBody('history', category, upcomingCount)
+          }
+          actionLabel={
+            historyCount > 0 ? 'Show all outcomes'
+              : upcomingCount > 0 ? 'Open Upcoming'
+                : undefined
+          }
+          onAction={
+            historyCount > 0 ? () => setOutcome('all')
+              : upcomingCount > 0 ? () => setTab('upcoming')
+                : undefined
           }
           style={styles.empty}
         />
@@ -382,12 +547,27 @@ function BookingRow({ booking, onPress }: { booking: Booking; onPress: () => voi
   const c = useColors();
   // A cancelled stay is still a record, but it isn't live — the design dims it.
   const dimmed = booking.status === 'cancelled';
+  /*
+   * The figure, when there is one — tested on the AMOUNT, not the category.
+   *
+   * "₹0" was printing on every PG, bachelor and co-living row, which is the
+   * same non-answer the detail screen's payout card was giving. But a
+   * category test would go too far the other way: a walk-in the owner logged
+   * by hand carries a rent they typed themselves (`add-customer`), whatever
+   * kind of place it is, and that is their figure to see.
+   *
+   * The payment BADGE below is a separate question and keeps its own test:
+   * an amount somebody wrote down is not money we collected, so a row can
+   * honestly show a figure and no payment status at all.
+   */
+  const payout = payoutOf(booking);
 
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${booking.guest}, ${booking.roomType}, ${formatINR(payoutOf(booking))}`}
+      accessibilityLabel={[booking.guest, booking.roomType, payout > 0 ? formatINR(payout) : null]
+        .filter(Boolean).join(', ')}
       style={({ pressed }) => [
         styles.card,
         {
@@ -404,18 +584,19 @@ function BookingRow({ booking, onPress }: { booking: Booking; onPress: () => voi
             {formatStayRange(booking.checkIn, booking.checkOut)} · {booking.roomType}
           </Text>
         </View>
-        <Text tabular style={styles.amount}>
-          {formatINR(payoutOf(booking))}
-        </Text>
+        {payout > 0 ? (
+          <Text tabular style={styles.amount}>
+            {formatINR(payout)}
+          </Text>
+        ) : null}
       </View>
 
       <View style={styles.badges}>
         <BookingStatusBadge status={booking.status} size="sm" />
-        {/* Never for PG/Hostel or Co-living — see the note on the same
-            guard in `booking/[id].tsx`. These categories' payment figure is
-            always 0/0, so the badge always read "Pending" regardless of how
-            the stay is actually going. */}
-        {booking.category !== 'PG_HOSTEL' && booking.category !== 'COLIVE' ? (
+        {/* Only where money moved through Lampose — see `hasPlatformMoney`.
+            Everywhere else the payment figure is 0/0, so the badge read
+            "Pending" regardless of how the stay was actually going. */}
+        {hasPlatformMoney(booking) ? (
           <PaymentStatusBadge status={booking.payment} size="sm" />
         ) : null}
       </View>
@@ -427,6 +608,11 @@ const styles = StyleSheet.create({
   stack: { gap: 12 },
   title: { marginBottom: 2 },
   filters: { marginBottom: 6 },
+  /* Side by side, each half taking exactly half. The panels open in a modal
+     over the page (`overlay`), so neither pushes the list down and the two
+     never fight for the same space. */
+  filterRow: { flexDirection: 'row', gap: 10, marginBottom: 6 },
+  filterCell: { flex: 1 },
   card: {
     borderWidth: 1,
     borderRadius: 14,

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { ApiError } from '@/services/api/client';
@@ -9,6 +9,7 @@ import {
   checkOutBookingApi,
   devForceCheckInOwnerApi,
   fetchBookingById,
+  fetchBookings,
 } from '@/services/api/domain.api';
 import { useAuth } from '@/context/AuthContext';
 import { toBooking, type Booking } from '@/lib/bookings';
@@ -46,6 +47,76 @@ import { queryKeys } from './keys';
 function useReady() {
   const { status } = useAuth();
   return API_BASE_URL_CONFIGURED && status === 'signedIn';
+}
+
+/**
+ * The bookings that are half-done, for the strip on Today.
+ *
+ * Two lists. `ongoing` is the state nothing else in the app reports: the owner
+ * has marked a guest in and the guest has not confirmed from their own phone
+ * yet. `notCheckedIn` is every booking still waiting on an arrival, which the
+ * Today screen narrows to the ones actually due.
+ * `status` stays `upcoming` until both stamps exist, so this booking looks
+ * ordinary in every list — and unless the owner happens to reopen it, nothing
+ * tells them it is still waiting on somebody.
+ *
+ * It owns `queryKeys.bookings`, the key the three mutations below already
+ * invalidate, so checking a guest in refreshes this without a second wire.
+ */
+export function useOngoingBookings() {
+  const enabled = useReady();
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    /* The student confirming is a socket event, not something this owner
+       does — without this the strip would keep asking them to wait for
+       somebody who has already answered. */
+    return onBookingEvent(() => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.bookings });
+    });
+  }, [enabled, queryClient]);
+
+  const query = useQuery({
+    queryKey: queryKeys.bookings,
+    queryFn: async ({ signal }) => {
+      const raw = await fetchBookings(undefined, signal);
+      return (Array.isArray(raw) ? raw : []).map((row) => toBooking(row));
+    },
+    enabled,
+    staleTime: 30_000,
+  });
+
+  const ongoing = useMemo(
+    () => (query.data ?? []).filter((b) => b.movedInByOwnerAt && !b.movedInByStudentAt),
+    [query.data],
+  );
+
+  /*
+   * Everybody nobody has checked in yet — the CANDIDATES for "coming today".
+   *
+   * Which of them is actually due is not a question this hook can answer,
+   * and it was wrong to try. It filtered on the server's `arriving` stage,
+   * which is derived from `checkInDate` — and on a bachelor booking that
+   * field is `acceptAndBook`'s `joining || today` fallback, because that
+   * request never asks for a joining date. So every bachelor booking accepted
+   * today read as "arriving today" the moment it was accepted, while the
+   * student had not paid, had not scheduled a visit, and was not coming
+   * anywhere.
+   *
+   * The Today screen makes that call instead, because it holds the REQUESTS
+   * as well and the request is where the guest's side of the flow lives.
+   * Overdue arrivals stay out either way: they need a decision, not a door
+   * opened, and they would pile up in the strip for ever.
+   */
+  const notCheckedIn = useMemo(
+    () => (query.data ?? []).filter(
+      (b) => !b.movedInByOwnerAt && b.status !== 'completed' && b.status !== 'cancelled',
+    ),
+    [query.data],
+  );
+
+  return { ongoing, notCheckedIn, refetch: query.refetch };
 }
 
 export function useBooking(id?: string | null) {

@@ -258,7 +258,21 @@ export type BackendPartnerRequest = {
    * representative who walks them through the place, not with the owner.
    * This is what lets the owner see whether that has happened yet.
    */
-  payment?: { required: true; status: 'pending' | 'paid' | 'expired' | 'failed'; purpose: string } | null;
+  /**
+   * What the student owes, and WHY — the two are not the same question.
+   *
+   * `purpose` is `assisted_visit` (a bachelor's fixed ₹199, which buys a
+   * walkthrough with a Lampose representative) or `stay_booking` (a hotel's
+   * stay total, which buys the room). `amountPaise` is the figure that was
+   * frozen onto the request when it was created, so it is what the student
+   * was actually asked for rather than anything re-derived here.
+   */
+  payment?: {
+    required: true;
+    status: 'pending' | 'paid' | 'expired' | 'failed';
+    purpose: string;
+    amountPaise: number | null;
+  } | null;
   lamposeVisit?: { status: 'none' | 'scheduled' | 'manual'; date: string | null; time: string | null } | null;
 
   /**

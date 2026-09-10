@@ -83,18 +83,54 @@ function prettyTime(hhmm?: string | null): string {
 }
 
 /**
- * What the owner needs to know about the ₹199 assisted visit — bachelor and
- * co-live only, and read-only: the student books the slot with the Lampose
- * representative who walks them through the place, not with the owner.
+ * Where the student's payment stands — and the two kinds are nothing alike.
  *
- * `null` when this request never carried one (every other category, or a
- * card whose payment was never made required in the first place).
+ * This gated on `payment.required` alone and then told one story: ₹199, a
+ * Lampose representative, a walkthrough, a slot. That is the ASSISTED VISIT,
+ * and a hotel is not it. A hotel guest pays the STAY — rate × nights, chosen
+ * before the owner ever saw the request — with nobody being sent to meet them
+ * and nothing to schedule. `payment.required` is true for both, so a
+ * backpackers' inn was being told a guest owed ₹199 for a walkthrough that
+ * was never going to happen, and then that they were "picking a time" for a
+ * visit that does not exist in their flow.
+ *
+ * `purpose` is the server's own answer to which one this is, frozen onto the
+ * request at creation, and `amountPaise` is what was actually asked for. So
+ * the figure is never written down here.
+ *
+ * `null` when this request carries no payment at all — PG and co-live, which
+ * are free to enquire about.
  */
-function visitCopy(request: BackendPartnerRequest): { title: string; body: string } | null {
+function paymentCopy(request: BackendPartnerRequest): { title: string; body: string } | null {
   if (!request.payment?.required) return null;
-  const { status } = request.payment;
+  const { status, amountPaise } = request.payment;
   const visit = request.lamposeVisit;
+  const amount = typeof amountPaise === 'number' ? formatINR(amountPaise / 100) : null;
 
+  /* A hotel: the money IS the booking. No representative, no slot, and the
+     figure is this guest's own total rather than a platform fee. */
+  if ((request.payment.purpose || 'assisted_visit') === 'stay_booking') {
+    if (status === 'expired' || status === 'failed') {
+      return {
+        title: 'The booking was not paid for',
+        body: 'The guest did not pay in time, so the stay never completed. The room is still yours until they ask again.',
+      };
+    }
+    if (status === 'pending') {
+      return {
+        title: 'Waiting on the guest',
+        body: amount
+          ? `They still need to pay ${amount} for the stay. The room is held until it clears.`
+          : 'They still need to pay for the stay. The room is held until it clears.',
+      };
+    }
+    return {
+      title: amount ? `Paid · ${amount}` : 'Paid in full',
+      body: 'The stay is paid for and the dates are set. Nothing further to do on your side.',
+    };
+  }
+
+  /* A bachelor room: the ₹199 buys a walkthrough, and a slot follows it. */
   if (status === 'expired' || status === 'failed') {
     return {
       title: 'The visit window lapsed',
@@ -104,7 +140,9 @@ function visitCopy(request: BackendPartnerRequest): { title: string; body: strin
   if (status === 'pending') {
     return {
       title: 'Waiting on the student',
-      body: 'They still need to pay ₹199 for a Lampose representative to walk them through the place before move-in.',
+      body: amount
+        ? `They still need to pay ${amount} for a Lampose representative to walk them through the place before move-in.`
+        : 'They still need to pay for a Lampose representative to walk them through the place before move-in.',
     };
   }
   // Paid. Now it is a question of whether a slot has been picked.
@@ -118,6 +156,22 @@ function visitCopy(request: BackendPartnerRequest): { title: string; body: strin
     title: 'Paid — picking a time',
     body: 'The student has paid for the visit and is choosing a day and time with our team. This card updates once it is fixed.',
   };
+}
+
+/**
+ * What the rent is quoted PER, in the words the request itself carries.
+ *
+ * The row hardcoded "/mo", which is right for a PG bed and wrong for a bunk
+ * in a backpackers' inn: that one is ₹550 a NIGHT, and the screen beside it
+ * was already saying "14 nights". `intent.rateUnit` is the server's own
+ * answer — `RATE_UNIT` in `stayIntent.util.js`, set when the intent was
+ * validated — so the unit and the length can no longer disagree.
+ *
+ * Falls back to a month, which is what every category but a hotel is let by
+ * and what a request written before this carried.
+ */
+function rentPer(request: BackendPartnerRequest): string {
+  return request.intent?.rateUnit === 'day' ? '/night' : '/mo';
 }
 
 function stayLength(request: BackendPartnerRequest): string {
@@ -210,7 +264,7 @@ export default function RequestDetailScreen() {
   }
 
   const outcome = outcomeCopy(request);
-  const visit = visitCopy(request);
+  const payment = paymentCopy(request);
 
   /*
    * Two channels reach this screen, and only one of them is answered here.
@@ -326,16 +380,14 @@ export default function RequestDetailScreen() {
         </Card>
       ) : null}
 
-      {/* Bachelor and co-live only — the ₹199 assisted visit, and where it
-          stands. The bed was already taken when this request was accepted;
-          this is a separate walkthrough the student still has to book with a
-          Lampose representative before moving in, and until this card
-          existed the owner had no way to know whether they had. */}
-      {visit ? (
+      {/* Where the student's money stands — the ₹199 walkthrough on a bachelor
+          room, the stay total on a hotel, and nothing at all on PG or
+          co-live, which charge for neither. See `paymentCopy`. */}
+      {payment ? (
         <Card>
-          <Text variant="cardTitle">{visit.title}</Text>
+          <Text variant="cardTitle">{payment.title}</Text>
           <Text variant="body" style={{ color: c.textSecondary, marginTop: 4 }}>
-            {visit.body}
+            {payment.body}
           </Text>
         </Card>
       ) : null}
@@ -398,7 +450,9 @@ export default function RequestDetailScreen() {
         <Divider />
         <DetailRow
           label="Rent"
-          value={request.sharing?.price ? `${formatINR(request.sharing.price)}/mo` : '—'}
+          value={request.sharing?.price
+            ? `${formatINR(request.sharing.price)}${rentPer(request)}`
+            : '—'}
           last
         />
       </Card>
@@ -418,12 +472,35 @@ export default function RequestDetailScreen() {
         <DetailRow label="Requested" value={formatDateTime(new Date(request.createdAt))} last />
       </Card>
 
-      {/* Not for a bachelor room. Once confirmed — and, where one is due, the
-          visit paid for and scheduled, both shown above — a bachelor tenancy
-          is a direct arrangement between the two of them; the booking screen
-          this button opens has nothing left for Lampose to show or do there
-          either (see the same gate on "Cancel booking",
-          app/booking/[id].tsx), so there is nothing worth this tap. */}
+      {/*
+        A confirmed request always ends in a way out.
+
+        A bachelor room used to end in nothing at all: it is excluded from
+        "See the booking" below, and this screen has no footer once the
+        accept/decline pair is gone, so the last thing on it was a card and
+        the only control left was the chevron in the corner. A screen with
+        no action reads as one that failed to finish loading, on the screen
+        an owner lands on straight after accepting.
+
+        "Done", and it goes HOME. The owner's part of a bachelor request ends
+        with the tap that accepted it — what the card above is waiting on is
+        the student's ₹199, which nothing on this screen can hurry. Home is
+        where the ongoing strip sits, and that strip carries this request
+        until the money clears, so leaving loses nothing. That is the fact
+        that makes "Done" true rather than a dismissal.
+      */}
+      {request.status === 'confirmed' && request.category === 'BACHELOR' ? (
+        <Button
+          label="Done"
+          variant="secondary"
+          /* `replace`, not `push`: this is a way OUT of the request, not a
+             second screen stacked on top of one that is finished with. */
+          onPress={() => router.replace('/')}
+        />
+      ) : null}
+
+      {/* Every other category goes straight to the booking the acceptance
+          created — there is something to do on it. */}
       {request.status === 'confirmed' && request.category !== 'BACHELOR' ? (
         <Button
           label="See the booking"

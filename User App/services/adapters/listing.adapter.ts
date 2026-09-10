@@ -222,6 +222,36 @@ const positive = (value: number | null | undefined): number | undefined => {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 };
 
+/** A year, month by month — what a property that quotes nothing is offered at. */
+const LONG_MONTH_CEILING_FALLBACK: readonly number[] = Array.from(
+  { length: 12 },
+  (unused, i) => i + 1,
+);
+
+/**
+ * Every month between the owner's minimum and the longest they quote.
+ *
+ * The server sends a LADDER — 1, 3, 6, 12 — and a student who wants four
+ * months had to round to three or six, which is either a month they do not
+ * want or a month they cannot pay for. The rungs were never a restriction the
+ * owner expressed; the only thing they ever expressed is the FLOOR, which the
+ * server derives from `longStayDuration` ("6 months min") and puts at the
+ * bottom of the list.
+ *
+ * So the floor and the ceiling are kept and the gaps are filled: a property
+ * quoting 1..12 offers all twelve, and one with a six-month minimum still
+ * starts at six. Deriving it from what the server sent rather than hardcoding
+ * 1..12 is what keeps that minimum honest — and keeps this working whichever
+ * shape of list the deployment returns.
+ */
+const everyMonthFrom = (quoted: readonly number[]): readonly number[] => {
+  const valid = quoted.filter((m) => Number.isInteger(m) && m > 0);
+  if (!valid.length) return LONG_MONTH_CEILING_FALLBACK;
+  const floor = Math.min(...valid);
+  const ceiling = Math.max(...valid);
+  return Array.from({ length: ceiling - floor + 1 }, (unused, i) => floor + i);
+};
+
 /**
  * The stay rates, from the two the server offers.
  *
@@ -264,11 +294,12 @@ function toStayRates(doc: BackendListing): readonly StayRate[] {
 
   const monthly = long?.available ? positive(long.monthlyPrice) : undefined;
   if (monthly) {
-    const months = doc.durationOptions?.longMonths?.length
+    const quoted = doc.durationOptions?.longMonths?.length
       ? doc.durationOptions.longMonths
       : long?.monthOptions?.length
         ? long.monthOptions
-        : [1, 3, 6, 12];
+        : LONG_MONTH_CEILING_FALLBACK;
+    const months = everyMonthFrom(quoted);
     rates.push({
       id: 'MONTHLY',
       label: 'By the month',

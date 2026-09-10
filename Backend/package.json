@@ -16,6 +16,7 @@
     "reconcile:inventory": "node scripts/reconcile-inventory.js",
     "clone:db": "node scripts/clone-db.js",
     "seed:booking": "node scripts/seed-booking-dev.js",
+    "seed:sunand": "node scripts/seed-sunand-properties.js",
     "export:listings": "node scripts/export-listings.js",
     "export:listings:clean": "node scripts/export-listings.js --clean",
     "migrate:json": "node scripts/migrate-json-store.js",

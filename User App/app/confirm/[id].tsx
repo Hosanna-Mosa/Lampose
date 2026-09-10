@@ -1,5 +1,6 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,6 +10,7 @@ import { StandardHeader, StateTemplate } from '@/components/shell';
 import { OwnerStatusTrail, WaitLoader, type TrailStep } from '@/components/request';
 import { errorStates } from '@/constants/copy';
 import { usePendingRequest } from '@/context/PendingRequestContext';
+import { ongoingQueryKey } from '@/hooks/useOngoing';
 import { usePreviewControls } from '@/hooks/useAppEnv';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -100,6 +102,8 @@ export default function OwnerConfirmation() {
   const { request: pending, start: startPill, settle: settlePill, clear: clearPill } =
     usePendingRequest();
   const { completeProfile } = useAuth();
+  const queryClient = useQueryClient();
+
 
   /* Keyed by listing, so a request survives the app being closed. Only the
      ID is stored — the status is always the server's. */
@@ -212,7 +216,14 @@ export default function OwnerConfirmation() {
     if (!sendPayload || sent.current) return;
 
     sent.current = true;
-    stay.send(sendPayload);
+    stay.send(sendPayload).finally(() => {
+      /* A new wait belongs in the strip immediately — and, just as
+         importantly, has to start blocking a second booking before the
+         student can walk back to the feed and try one. `finally`, because a
+         REFUSED send is also worth re-reading: the reason is often that
+         something else is already in flight. */
+      queryClient.invalidateQueries({ queryKey: ongoingQueryKey });
+    });
     /* Narrow deps on purpose: `stay` is a fresh object every render, so
        depending on it would re-run this effect constantly. Only the things
        the guard actually reads matter. */
@@ -309,8 +320,25 @@ export default function OwnerConfirmation() {
    */
   const [paying, setPaying] = useState(false);
 
+  /*
+   * Whether a checkout was actually opened FROM this screen.
+   *
+   * The poll below exists for one moment: coming back from Razorpay, where a
+   * webhook can land a second or two after the view closes. It used to run on
+   * every focus, so simply arriving here — from the home strip, a deep link,
+   * or the first mount — put the pay button into "Checking your payment..."
+   * and disabled it for four and a half seconds, on a request nobody had paid
+   * a rupee towards. It reads as though the payment went through, and it
+   * blocks the one control that would have taken it.
+   *
+   * A ref, not state: it must survive the re-render the checkout screen's
+   * focus change causes without itself causing one.
+   */
+  const wentToCheckout = useRef(false);
+
   const payThenContinue = useCallback(() => {
     if (!stay.request?.id) return;
+    wentToCheckout.current = true;
     router.push({
       pathname: '/pay/checkout',
       params: { requestId: String(stay.request.id), returnTo: `/confirm/${String(id)}` },
@@ -405,11 +433,19 @@ export default function OwnerConfirmation() {
    * On focus rather than after an `await`, because the checkout is now a
    * screen rather than a call that returns: this fires whichever way the
    * student left it — the redirect, the header's back, or the OS gesture.
+   *
+   * Gated on having gone there in the first place. See `wentToCheckout`.
    */
   useFocusEffect(
     useCallback(() => {
       if (!stay.request?.payment?.required) return;
       if (stay.request.payment.status === 'paid') return;
+      /* Only on the way BACK from a checkout. Arriving here any other way
+         means nothing was paid and there is nothing to wait for — see
+         `wentToCheckout`. Cleared immediately so a second visit that did not
+         go through the checkout does not inherit this one's poll. */
+      if (!wentToCheckout.current) return;
+      wentToCheckout.current = false;
 
       let live = true;
       setPaying(true);
@@ -1205,6 +1241,12 @@ export default function OwnerConfirmation() {
         onConfirm={async () => {
           setAskingCancel(false);
           await stay.withdraw();
+          /* Withdrawing is the one way a student ENDS a wait themselves, and
+             it is what unblocks starting another booking. The strip and the
+             listing screen's guard both read one query — dropping it here is
+             what makes "cancel this, then book the other place" work on the
+             next tap rather than fifteen seconds later. */
+          queryClient.invalidateQueries({ queryKey: ongoingQueryKey });
         }}
         cancelLabel="Keep waiting"
       />

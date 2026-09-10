@@ -750,6 +750,19 @@ visitRequestSchema.methods.toOwner = function toOwner() {
         required: true,
         status: this.payment.status || 'pending',
         purpose: this.payment.purpose || 'assisted_visit',
+        /*
+         * What is actually owed, because ₹199 is not the answer for every
+         * category that charges.
+         *
+         * A bachelor request owes the fixed assisted-visit fee; a HOTEL owes
+         * the stay total, which is rate × nights and different on every
+         * request. The owner's screen said "₹199 for a Lampose
+         * representative" on both, so a hotel owner was told a backpacker
+         * owed ₹199 for a walkthrough nobody is doing. Sent as the frozen
+         * `amountPaise` rather than re-derived from the intent, so it cannot
+         * drift from what the student was actually asked to pay.
+         */
+        amountPaise: this.payment.amountPaise ?? null,
       }
       : null,
     lamposeVisit: this.payment && this.payment.required

@@ -408,6 +408,19 @@ export type BookingSummary = Booking & {
   realId?: string;
 
   /**
+   * The listing this booking is for, and where its money got to.
+   *
+   * Real bookings only. Together they answer "which screen was this person
+   * on when they left" — an unpaid booking belongs back on `confirm/[id]`,
+   * which is keyed by the LISTING id, not on a booking detail that cannot
+   * take a payment.
+   */
+  propertyId?: string;
+  paymentRequired?: boolean;
+  paymentStatus?: string | null;
+  visitStatus?: string | null;
+
+  /**
    * The exact address, and what it takes to see it.
    *
    * These are deliberately on the booking rather than looked up from the
@@ -650,9 +663,32 @@ export function longDateLabel(isoDate?: string | null): string {
 export function fromRealBooking(
   real: import('@/services/api/bookings.api').CustomerBooking,
 ): BookingSummary {
+  /*
+   * An accepted booking is not a paid one.
+   *
+   * `acceptAndBook` writes `status: 'upcoming'` the moment the OWNER says
+   * yes — which on a bachelor room is before the ₹199 has been paid. Mapping
+   * that straight to `CONFIRMED` told the whole app the booking was settled:
+   * `progressFor('CONFIRMED')` puts the timeline on the "Paid" node, so a
+   * student who backed out of the payment and came back was shown a
+   * completed Paid step for money they had not sent, and the action bar
+   * offered them nothing to pay with.
+   *
+   * `PAYMENT_PENDING` is the status that was always meant for this, and every
+   * screen already knows it: the timeline stops at Accepted, the action bar
+   * offers "Pay to confirm", and the home strip says the payment is
+   * outstanding. Nothing else had to learn a new state.
+   *
+   * Only ever a DEMOTION, and only from the pre-arrival statuses. A stay that
+   * has started or finished is not walked back to a payment screen over an
+   * unpaid visit fee — whatever happened, they are living there.
+   */
+  const owesPayment = Boolean(real.payment?.required) && real.payment?.status !== 'paid';
+  const preArrival = real.status === 'upcoming' || real.status === 'arriving';
+
   const status: BookingStatus = real.status === 'cancelled'
     ? (real.cancelledBy === 'student' ? 'CANCELLED_BY_CUSTOMER' : 'CANCELLED_BY_OWNER')
-    : (REAL_STATUS[real.status] ?? 'CONFIRMED');
+    : (owesPayment && preArrival ? 'PAYMENT_PENDING' : (REAL_STATUS[real.status] ?? 'CONFIRMED'));
 
   return {
     id: real.id,
@@ -670,6 +706,12 @@ export function fromRealBooking(
     totalAmount: real.totalAmount,
     paidAmount: real.paidAmount,
     checkOutDate: real.checkOutDate ?? undefined,
+    /* Carried so a screen can send somebody back to the RIGHT step rather
+       than to the booking they cannot finish yet. */
+    propertyId: real.propertyId,
+    paymentRequired: Boolean(real.payment?.required),
+    paymentStatus: real.payment?.status ?? null,
+    visitStatus: real.visitStatus ?? null,
     reviewed: real.reviewed,
     endedLabel: status === 'COMPLETED' && real.checkOutDate
       ? `Stayed until ${longDateLabel(real.checkOutDate)}`

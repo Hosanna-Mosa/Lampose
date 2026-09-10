@@ -23,11 +23,57 @@ const { withStage } = require('./bookingStage.util');
  * needs the code itself: the server checks it (`checkInBooking`). Sending it
  * down was what made the check theatre.
  */
-const forOwner = (booking, now = new Date()) => {
+const forOwner = (booking, now = new Date(), { guestAddress = '' } = {}) => {
   if (!booking) return booking;
   const { entryPin, ...rest } = booking;
   const { withStage } = require('./bookingStage.util');
-  return { ...withStage(rest, now), hasEntryPin: Boolean(entryPin) };
+  return { ...withStage(rest, now), hasEntryPin: Boolean(entryPin), guestAddress };
+};
+
+/**
+ * Where each guest lives, for a page of bookings.
+ *
+ * The owner already gets `guestName`, `guestPhone` and `guestEmail` off the
+ * booking — they are who the room was let to. The ADDRESS is the one contact
+ * detail a request-made booking never carried: the Add Customer form makes an
+ * owner type one for a walk-in, so the field exists and is expected on the
+ * screen, but `acceptAndBook` has nothing to put in it.
+ *
+ * Read from the customer's own address book rather than snapshotted, and read
+ * LIVE, so a student who completes their profile after the owner accepted is
+ * not permanently blank on their landlord's screen. Their default is the one
+ * that means "where I actually live"; the first entry stands in when nothing
+ * has been marked — `applyDefault` keeps exactly one default, so this only
+ * matters for a book written before that rule.
+ *
+ * One query for the page, keyed by `customerId`. A walk-in has none and
+ * contributes nothing.
+ */
+const guestAddressesFor = async (bookings) => {
+  const ids = [...new Set(bookings.map((b) => b.customerId).filter(Boolean))];
+  if (!ids.length) return new Map();
+
+  try {
+    const Customer = require('../customers/customer.model');
+    const { addressLine } = require('../../shared/utils/address');
+    const rows = await Customer.find({ customerId: { $in: ids } })
+      .select('customerId addresses')
+      .lean();
+
+    const byCustomer = new Map();
+    for (const row of rows) {
+      const book = row.addresses || [];
+      const chosen = book.find((a) => a.isDefault) || book[0];
+      const line = addressLine(chosen);
+      if (line) byCustomer.set(String(row.customerId), line);
+    }
+    return byCustomer;
+  } catch (error) {
+    /* A contact detail that could not be read is not a booking that failed.
+       The row renders without the address rather than the screen erroring. */
+    console.warn('[partner] could not read guest addresses:', error.message);
+    return new Map();
+  }
 };
 
 
@@ -142,7 +188,10 @@ const getBookings = async (req, res, next) => {
        last set. One clock for the whole page, so two rows in the same list
        cannot straddle midnight and disagree — see `bookingStage.util.js`. */
     const now = new Date();
-    const data = bookings.map((b) => forOwner(b, now));
+    const addressByCustomer = await guestAddressesFor(bookings);
+    const data = bookings.map((b) => forOwner(b, now, {
+      guestAddress: addressByCustomer.get(String(b.customerId)) || '',
+    }));
     return res.json({ success: true, count: data.length, data });
   } catch (error) {
     return next(error);
@@ -157,7 +206,13 @@ const getBookingById = async (req, res, next) => {
     if (!booking) {
       return res.status(404).json({ success: false, message: 'Booking not found' });
     }
-    return res.json({ success: true, data: forOwner(booking) });
+    const addressByCustomer = await guestAddressesFor([booking]);
+    return res.json({
+      success: true,
+      data: forOwner(booking, new Date(), {
+        guestAddress: addressByCustomer.get(String(booking.customerId)) || '',
+      }),
+    });
   } catch (error) {
     return next(error);
   }
@@ -1108,7 +1163,46 @@ const getShareTypes = async (req, res, next) => {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
     const key = getDigits(req.partner);
     const items = await PartnerShareType.find({ partnerPhoneDigits: key }).lean();
-    const data = items.map((st) => ({ ...st, id: String(st._id) }));
+
+    /*
+     * Which building each room type belongs to.
+     *
+     * The row carries a `propertyId` and nothing else about the property, so
+     * the screen listed every share type an owner has ever had as one flat
+     * list of names and prices — and an owner with several buildings gets
+     * "1 BHK" three times over at three different rents with no way to tell
+     * which is which. The category is what makes a filter possible and the
+     * name is what makes the rows distinguishable.
+     *
+     * One `$in` over the DISTINCT ids. A property that has since been deleted
+     * simply resolves to nothing and the row keeps empty strings — an
+     * orphaned room type is still the owner's to switch off, so it is listed
+     * rather than hidden.
+     */
+    const OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
+    const propertyIds = [...new Set(
+      items.map((st) => String(st.propertyId || '')).filter((id) => OBJECT_ID_RE.test(id)),
+    )];
+
+    const byProperty = new Map();
+    if (propertyIds.length) {
+      const { normaliseCategory } = require('../../shared/constants/categories');
+      const Property = require('../properties/property.model');
+      const props = await Property.find({ _id: { $in: propertyIds } })
+        .select('category propertyName name')
+        .lean();
+      for (const prop of props) {
+        byProperty.set(String(prop._id), {
+          category: normaliseCategory(prop.category) || '',
+          propertyName: prop.propertyName || prop.name || '',
+        });
+      }
+    }
+
+    const data = items.map((st) => {
+      const owner = byProperty.get(String(st.propertyId)) || { category: '', propertyName: '' };
+      return { ...st, id: String(st._id), ...owner };
+    });
     return res.json({ success: true, count: data.length, data });
   } catch (error) {
     return next(error);

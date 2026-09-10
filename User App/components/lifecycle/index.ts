@@ -14,7 +14,7 @@
    "Where this booking is" sits immediately below where it stood and answers
    the same question with the same words plus a timeline, so the pair was one
    question asked twice, pushing the terms below the fold. */
-export { ActionBar, type ActionBarProps } from './ActionBar';
+export { ActionBar, hasActions, type ActionBarProps } from './ActionBar';
 export { BookingRow, BookingSegments, type BookingRowProps } from './BookingList';
 
 /**

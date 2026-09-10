@@ -3,7 +3,7 @@
 const Property = require('../properties/property.model');
 const { DEFAULT_CATEGORY, normaliseCategory } = require('../../shared/constants/categories');
 const {
-  formatListing, cityOf, localityOf, isDaily,
+  formatListing, ownerNamesFor, cityOf, localityOf, isDaily,
 } = require('./listing.formatter');
 const { escapeRegex } = require('../../shared/utils/text');
 const { rowsFor } = require('../inventory/inventory.service');
@@ -191,7 +191,13 @@ const getListings = async (req, res, next) => {
        itself, so the response is the whole collection. */
 
     const properties = await Property.find(filter).sort({ createdAt: -1 }).lean();
-    let listings = properties.map(formatListing);
+    /* One lookup for the page, so the feed and the detail screen name the same
+       person — see `ownerNamesFor`. */
+    const ownerNames = await ownerNamesFor(properties);
+    const ownerDigits = (doc) => String(doc.ownerMobile || '').replace(/\D/g, '').slice(-10);
+    let listings = properties.map(
+      (doc) => formatListing(doc, ownerNames.get(ownerDigits(doc)) || ''),
+    );
 
     /* City and locality are both derived from free-text `place` after the
        fact, so neither can be part of the database query. */
@@ -326,7 +332,13 @@ const getListingById = async (req, res, next) => {
       });
     }
 
-    const [listing] = await withAvailability([formatListing(property)]);
+    /* The one screen the booking flow reads. Whoever the student is told to
+       expect at the door has to be the person who actually holds the account. */
+    const ownerNames = await ownerNamesFor([property]);
+    const digits = String(property.ownerMobile || '').replace(/\D/g, '').slice(-10);
+    const [listing] = await withAvailability([
+      formatListing(property, ownerNames.get(digits) || ''),
+    ]);
 
     /*
      * A removed listing still resolves — same reasoning as a paused one: a
