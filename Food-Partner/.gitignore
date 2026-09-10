@@ -39,3 +39,6 @@ yarn-error.*
 .vercel
 
 .env
+
+# Snapshot harness (gate A) — cache only; snapshots/ IS committed on purpose.
+.jest-cache/

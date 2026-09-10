@@ -17,7 +17,7 @@
    add-ons, allergens — so operations became a step of its own and the menu
    grew into one. Five steps, and the extra constants below serve them.
    ══════════════════════════════════════════════════════════════════════════ */
-import type { IconName } from "@/components/ui";
+import type { IconName } from "@/components/common/atoms/Icon";
 
 /* ── Landing ─────────────────────────────────────────────────────────────── */
 
