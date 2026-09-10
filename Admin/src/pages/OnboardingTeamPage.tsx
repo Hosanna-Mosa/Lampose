@@ -1,26 +1,27 @@
 import React, { useMemo, useState } from 'react';
 import { Briefcase, Building2, RefreshCw, X } from 'lucide-react';
-import {
-  Badge,
-  Card,
-  EmptyState,
-  ErrorState,
-  IconButton,
-  PageHeader,
-  Table,
-  TableSkeleton,
-  Td,
-  Th,
-  Tr,
-  cx,
-} from '../components/ui';
+import { Badge } from '../components/common/atoms/Badge';
+import { Card } from '../components/common/atoms/Card';
+import { IconButton } from '../components/common/atoms/IconButton';
+import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
+import { EmptyState } from '../components/common/molecules/EmptyState';
+import { ErrorState } from '../components/common/molecules/ErrorState';
+import { PageHeader } from '../components/common/molecules/PageHeader';
+import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
+import { cx, filterBySearch } from '../components/common/utils';
 import { insightsService } from '../api/services/insightsService';
 import { verificationService } from '../api/services/verificationService';
 import { useFetch } from '../lib/useFetch';
-import { verificationMeta } from '../lib/domain';
+import { propertyCategoryLabel, verificationMeta } from '../lib/domain';
 import { formatDate, formatDateTime, percent } from '../lib/format';
 import type { OnboarderEntity } from '../api/types';
-import { propertyCategoryLabel } from '../lib/domain';
+import { Aside } from '../components/common/atoms/Aside';
+import { Box } from '../components/common/atoms/Box';
+import { Heading } from '../components/common/atoms/Heading';
+import { Inline } from '../components/common/atoms/Inline';
+import { PlainTd, PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
+import { Region } from '../components/common/atoms/Region';
+import { Text } from '../components/common/atoms/Text';
 
 interface OnboardingTeamPageProps {
   search: string;
@@ -31,12 +32,10 @@ export const OnboardingTeamPage: React.FC<OnboardingTeamPageProps> = ({ search }
 
   const { data, loading, error, refreshing, reload } = useFetch(() => insightsService.getOnboarders(), []);
 
-  const rows = useMemo(() => {
-    const list = data ?? [];
-    const q = search.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter((o) => o.employeeEmail.toLowerCase().includes(q));
-  }, [data, search]);
+  const rows = useMemo(
+    () => filterBySearch(data ?? [], search, (o, q) => o.employeeEmail.toLowerCase().includes(q)),
+    [data, search]
+  );
 
   const summary = useMemo(() => {
     const list = data ?? [];
@@ -69,7 +68,7 @@ export const OnboardingTeamPage: React.FC<OnboardingTeamPageProps> = ({ search }
   );
 
   return (
-    <div className="space-y-5">
+    <Box className="space-y-5">
       <PageHeader
         eyebrow="Records"
         title="Onboarding Team"
@@ -79,7 +78,7 @@ export const OnboardingTeamPage: React.FC<OnboardingTeamPageProps> = ({ search }
         }
       />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <Box className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Employees onboarding', value: summary.employees, tone: 'text-ink' },
           { label: 'Total onboards', value: summary.onboards, tone: 'text-ink' },
@@ -91,19 +90,19 @@ export const OnboardingTeamPage: React.FC<OnboardingTeamPageProps> = ({ search }
           },
         ].map((s) => (
           <Card key={s.label} className="p-4">
-            <p className="text-label text-ink-2">{s.label}</p>
-            <p className={cx('text-metric figure mt-2', s.tone)}>{loading ? '—' : s.value}</p>
+            <Text className="text-label text-ink-2">{s.label}</Text>
+            <Text className={cx('text-metric figure mt-2', s.tone)}>{loading ? '—' : s.value}</Text>
           </Card>
         ))}
-      </div>
+      </Box>
 
       {error ? (
         <ErrorState message={error} onRetry={reload} />
       ) : (
         <Card padded={false}>
           <Table>
-            <thead>
-              <tr>
+            <TableHead>
+              <PlainTr>
                 <Th>Employee</Th>
                 <Th className="text-right">Onboards</Th>
                 <Th className="text-right">Verified</Th>
@@ -111,14 +110,14 @@ export const OnboardingTeamPage: React.FC<OnboardingTeamPageProps> = ({ search }
                 <Th className="text-right">Rejected</Th>
                 <Th className="text-right">Success rate</Th>
                 <Th>Last onboarded</Th>
-              </tr>
-            </thead>
-            <tbody>
+              </PlainTr>
+            </TableHead>
+            <TableBody>
               {loading ? (
                 <TableSkeleton cols={7} />
               ) : !rows.length ? (
-                <tr>
-                  <td colSpan={7}>
+                <PlainTr>
+                  <PlainTd colSpan={7}>
                     <EmptyState
                       icon={Briefcase}
                       title={search ? 'No matching employees' : 'No onboarding activity yet'}
@@ -128,15 +127,15 @@ export const OnboardingTeamPage: React.FC<OnboardingTeamPageProps> = ({ search }
                           : 'Rows appear here once an employee submits their first property for onboarding.'
                       }
                     />
-                  </td>
-                </tr>
+                  </PlainTd>
+                </PlainTr>
               ) : (
                 rows.map((o) => (
                   <Tr key={o.employeeEmail} className="cursor-pointer" onClick={() => setSelected(o)}>
                     <Td>
-                      <span className="text-sm font-medium text-ink hover:text-brand-ink transition-colors">
+                      <Inline className="text-sm font-medium text-ink hover:text-brand-ink transition-colors">
                         {o.employeeEmail}
-                      </span>
+                      </Inline>
                     </Td>
                     <Td className="text-right tabular">{o.total}</Td>
                     <Td className="text-right tabular text-good">{o.verified}</Td>
@@ -147,7 +146,7 @@ export const OnboardingTeamPage: React.FC<OnboardingTeamPageProps> = ({ search }
                   </Tr>
                 ))
               )}
-            </tbody>
+            </TableBody>
           </Table>
         </Card>
       )}
@@ -155,79 +154,79 @@ export const OnboardingTeamPage: React.FC<OnboardingTeamPageProps> = ({ search }
       {/* Detail drawer — this employee's full onboarding history */}
       {selected && (
         <>
-          <div
+          <Box
             className="fixed inset-0 z-40 bg-[rgb(9_12_20/0.45)] backdrop-blur-[2px]"
             onClick={() => setSelected(null)}
             aria-hidden
           />
-          <aside
+          <Aside
             role="dialog"
             aria-label="Employee onboarding detail"
             className="fixed top-0 bottom-0 right-0 z-50 w-full max-w-lg bg-surface border-l border-line flex flex-col anim-slide-left"
           >
-            <div className="h-14 px-4 border-b border-line flex items-center justify-between gap-3 shrink-0">
-              <div className="min-w-0">
-                <h2 className="text-section text-ink truncate">{selected.employeeEmail}</h2>
-                <p className="text-label text-ink-3">Onboarding history</p>
-              </div>
+            <Box className="h-14 px-4 border-b border-line flex items-center justify-between gap-3 shrink-0">
+              <Box className="min-w-0">
+                <Heading level={2} className="text-section text-ink truncate">{selected.employeeEmail}</Heading>
+                <Text className="text-label text-ink-3">Onboarding history</Text>
+              </Box>
               <IconButton icon={X} label="Close" onClick={() => setSelected(null)} />
-            </div>
+            </Box>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-5">
-              <div className="grid grid-cols-4 gap-2">
+            <Box className="flex-1 overflow-y-auto p-4 space-y-5">
+              <Box className="grid grid-cols-4 gap-2">
                 {[
                   { label: 'Total', value: selected.total, tone: 'text-ink' },
                   { label: 'Verified', value: selected.verified, tone: 'text-good' },
                   { label: 'Pending', value: selected.pending, tone: 'text-warn' },
                   { label: 'Rejected', value: selected.rejected, tone: 'text-crit' },
                 ].map((s) => (
-                  <div key={s.label} className="p-2.5 rounded-control bg-surface-inset border border-line text-center">
-                    <p className={cx('text-section figure', s.tone)}>{s.value}</p>
-                    <p className="text-micro uppercase text-ink-3 mt-0.5">{s.label}</p>
-                  </div>
+                  <Box key={s.label} className="p-2.5 rounded-control bg-surface-inset border border-line text-center">
+                    <Text className={cx('text-section figure', s.tone)}>{s.value}</Text>
+                    <Text className="text-micro uppercase text-ink-3 mt-0.5">{s.label}</Text>
+                  </Box>
                 ))}
-              </div>
+              </Box>
 
-              <section>
-                <h3 className="text-micro uppercase text-ink-3 mb-2 flex items-center gap-1.5">
+              <Region>
+                <Heading level={3} className="text-micro uppercase text-ink-3 mb-2 flex items-center gap-1.5">
                   <Building2 className="size-3" strokeWidth={2} /> Onboarding attempts
-                </h3>
+                </Heading>
 
                 {detail.loading ? (
-                  <p className="text-sm text-ink-3">Loading…</p>
+                  <Text className="text-sm text-ink-3">Loading…</Text>
                 ) : !detail.data?.length ? (
-                  <p className="text-sm text-ink-3">No attempts on record.</p>
+                  <Text className="text-sm text-ink-3">No attempts on record.</Text>
                 ) : (
-                  <div className="space-y-2">
+                  <Box className="space-y-2">
                     {detail.data.map((v) => {
                       const meta = verificationMeta(v.status);
                       return (
-                        <div
+                        <Box
                           key={v.id}
                           className="p-3 rounded-control border border-line flex items-start justify-between gap-3"
                         >
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-ink truncate">
+                          <Box className="min-w-0">
+                            <Text className="text-sm font-medium text-ink truncate">
                               {v.property?.name || 'Untitled property'}
-                            </p>
-                            <p className="text-label text-ink-3 truncate">
+                            </Text>
+                            <Text className="text-label text-ink-3 truncate">
                               {v.property ? `${propertyCategoryLabel(v.property.category)} · ${v.property.place}` : v.ownerMobileE164}
-                            </p>
-                            <p className="text-label text-ink-3 mt-1">{formatDateTime(v.createdAt)}</p>
-                          </div>
+                            </Text>
+                            <Text className="text-label text-ink-3 mt-1">{formatDateTime(v.createdAt)}</Text>
+                          </Box>
                           <Badge tone={meta.tone} icon={meta.icon} className="shrink-0">
                             {meta.label}
                           </Badge>
-                        </div>
+                        </Box>
                       );
                     })}
-                  </div>
+                  </Box>
                 )}
-              </section>
-            </div>
-          </aside>
+              </Region>
+            </Box>
+          </Aside>
         </>
       )}
-    </div>
+    </Box>
   );
 };

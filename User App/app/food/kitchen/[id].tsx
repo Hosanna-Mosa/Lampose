@@ -2,7 +2,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { contactNumberOf, metaLine, walkLabel } from '@/services/adapters/food.adapter';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Icon, SearchField, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';

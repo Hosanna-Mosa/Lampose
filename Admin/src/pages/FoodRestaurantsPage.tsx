@@ -14,6 +14,7 @@
    into existence — a missing value renders as a dash, because a zero would
    read as a real measurement somebody might act on.
    ══════════════════════════════════════════════════════════════════════════ */
+import { Section } from '../components/common/molecules/Section';
 import React, { useMemo, useState } from 'react';
 import {
   Ban,
@@ -28,27 +29,22 @@ import {
   UtensilsCrossed,
   XCircle,
 } from 'lucide-react';
-import {
-  Badge,
-  Button,
-  Card,
-  DataRow,
-  EmptyState,
-  ErrorState,
-  Field,
-  Modal,
-  PageHeader,
-  Table,
-  TableSkeleton,
-  Td,
-  Textarea,
-  Th,
-  Toast,
-  Tr,
-  cx,
-  type BadgeTone,
-  type ToastState,
-} from '../components/ui';
+import { Badge } from '../components/common/atoms/Badge';
+import type { BadgeTone } from '../components/common/atoms/Badge';
+import { Button } from '../components/common/atoms/Button';
+import { Card } from '../components/common/atoms/Card';
+import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
+import { Textarea } from '../components/common/atoms/Textarea';
+import { DataRow } from '../components/common/molecules/DataRow';
+import { EmptyState } from '../components/common/molecules/EmptyState';
+import { ErrorState } from '../components/common/molecules/ErrorState';
+import { Field } from '../components/common/molecules/Field';
+import { PageHeader } from '../components/common/molecules/PageHeader';
+import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
+import { Modal } from '../components/common/organisms/Modal';
+import { Toast } from '../components/common/organisms/Toast';
+import type { ToastState } from '../components/common/organisms/Toast';
+import { cx } from '../components/common/utils';
 import { foodAdminService } from '../api/services/foodAdminService';
 import { useAuth } from '../context/AuthContext';
 import { useFetch } from '../lib/useFetch';
@@ -57,6 +53,14 @@ import type {
   FoodRestaurantRow,
   FoodVerificationStatus,
 } from '../api/types';
+import { Box } from '../components/common/atoms/Box';
+import { Inline } from '../components/common/atoms/Inline';
+import { Link } from '../components/common/atoms/Link';
+import { List } from '../components/common/atoms/List';
+import { ListItem } from '../components/common/atoms/ListItem';
+import { PlainButton } from '../components/common/atoms/PlainButton';
+import { TableBody, TableHead } from '../components/common/atoms/PlainTable';
+import { Text } from '../components/common/atoms/Text';
 
 interface FoodRestaurantsPageProps {
   search: string;
@@ -183,7 +187,7 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
   );
 
   return (
-    <div className="space-y-4">
+    <Box className="space-y-4">
       <PageHeader
         title="Restaurant applications"
         description="Applications from the Food Partner app. Approving one is what lists it to diners."
@@ -195,19 +199,19 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
       />
 
       {summary.length > 0 && (
-        <div className="grid grid-cols-3 gap-3">
+        <Box className="grid grid-cols-3 gap-3">
           {summary.map((s) => (
             <Card key={s.label} padded>
-              <p className="text-micro uppercase text-ink-3">{s.label}</p>
-              <p className="text-2xl font-semibold text-ink tabular mt-1">{s.value}</p>
+              <Text className="text-micro uppercase text-ink-3">{s.label}</Text>
+              <Text className="text-2xl font-semibold text-ink tabular mt-1">{s.value}</Text>
             </Card>
           ))}
-        </div>
+        </Box>
       )}
 
-      <div className="flex flex-wrap gap-1.5">
+      <Box className="flex flex-wrap gap-1.5">
         {FILTERS.map((f) => (
-          <button
+          <PlainButton
             key={f.id}
             onClick={() => setStatus(f.id)}
             className={cx(
@@ -218,9 +222,9 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
             )}
           >
             {f.label}
-          </button>
+          </PlainButton>
         ))}
-      </div>
+      </Box>
 
       <Card>
         {queue.loading ? (
@@ -239,7 +243,7 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
           />
         ) : (
           <Table>
-            <thead>
+            <TableHead>
               <Tr>
                 <Th>Restaurant</Th>
                 <Th>Owner</Th>
@@ -249,38 +253,38 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
                 <Th>Applied</Th>
                 <Th />
               </Tr>
-            </thead>
-            <tbody>
+            </TableHead>
+            <TableBody>
               {rows.map((row) => (
                 <Tr key={row.restaurantId}>
                   <Td>
-                    <p className="font-medium text-ink">{row.restaurantName}</p>
-                    <p className="text-label text-ink-3">
+                    <Text className="font-medium text-ink">{row.restaurantName}</Text>
+                    <Text className="text-label text-ink-3">
                       {row.cuisineTypes.length ? row.cuisineTypes.join(' · ') : dash(row.description)}
-                    </p>
+                    </Text>
                   </Td>
                   <Td>
-                    <p className="text-ink-2">{dash(row.ownerName)}</p>
-                    <p className="text-label text-ink-3">{dash(row.ownerEmail)}</p>
+                    <Text className="text-ink-2">{dash(row.ownerName)}</Text>
+                    <Text className="text-label text-ink-3">{dash(row.ownerEmail)}</Text>
                   </Td>
                   <Td>
-                    <p className="text-ink-2">{dash(row.address?.city)}</p>
-                    <p className="text-label text-ink-3">{dash(row.address?.pincode)}</p>
+                    <Text className="text-ink-2">{dash(row.address?.city)}</Text>
+                    <Text className="text-label text-ink-3">{dash(row.address?.pincode)}</Text>
                   </Td>
                   <Td className="text-right tabular">{row.menuItemCount}</Td>
                   <Td>
-                    <div className="flex items-center gap-1.5">
+                    <Box className="flex items-center gap-1.5">
                       <Badge tone={STATUS_TONE[row.verificationStatus]}>
                         {STATUS_LABEL[row.verificationStatus]}
                       </Badge>
                       {row.verificationStatus === 'approved' && !row.isActive && (
                         <Badge tone="neutral">Paused</Badge>
                       )}
-                    </div>
+                    </Box>
                   </Td>
                   <Td className="text-label text-ink-3">{when(row.createdAt)}</Td>
                   <Td className="text-right">
-                    <div className="flex items-center justify-end gap-1.5">
+                    <Box className="flex items-center justify-end gap-1.5">
                       {canDecide && row.verificationStatus === 'approved' && (
                         <Button
                           variant="ghost"
@@ -294,11 +298,11 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
                       <Button variant="ghost" icon={ChevronRight} onClick={() => setOpenId(row.restaurantId)}>
                         Review
                       </Button>
-                    </div>
+                    </Box>
                   </Td>
                 </Tr>
               ))}
-            </tbody>
+            </TableBody>
           </Table>
         )}
       </Card>
@@ -314,7 +318,7 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
              is a long scroll, and a decision an approver has to hunt for is a
              decision made from the top of the page. */
           canDecide && open ? (
-            <div className="flex flex-wrap items-center justify-end gap-2 w-full">
+            <Box className="flex flex-wrap items-center justify-end gap-2 w-full">
               {open.restaurant.verificationStatus !== 'pending' && (
                 <Button
                   variant="ghost"
@@ -340,33 +344,33 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
               >
                 Approve and list
               </Button>
-            </div>
+            </Box>
           ) : undefined
         }
       >
         {detail.loading ? (
-          <p className="text-body text-ink-3">Loading the application…</p>
+          <Text className="text-body text-ink-3">Loading the application…</Text>
         ) : detail.error ? (
           <ErrorState message={detail.error} onRetry={detail.reload} />
         ) : !open ? (
-          <p className="text-body text-ink-3">Nothing to show.</p>
+          <Text className="text-body text-ink-3">Nothing to show.</Text>
         ) : (
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-center gap-2">
+          <Box className="space-y-5">
+            <Box className="flex flex-wrap items-center gap-2">
               <Badge tone={STATUS_TONE[open.restaurant.verificationStatus]}>
                 {STATUS_LABEL[open.restaurant.verificationStatus]}
               </Badge>
-              <span className="text-label text-ink-3 tabular">{open.restaurant.restaurantId}</span>
+              <Inline className="text-label text-ink-3 tabular">{open.restaurant.restaurantId}</Inline>
               {open.restaurant.verifiedAt && (
-                <span className="text-label text-ink-3">decided {when(open.restaurant.verifiedAt)}</span>
+                <Inline className="text-label text-ink-3">decided {when(open.restaurant.verifiedAt)}</Inline>
               )}
-            </div>
+            </Box>
 
             {!!open.restaurant.verificationNote && (
-              <div className="rounded-control bg-surface-inset p-3">
-                <p className="text-micro uppercase text-ink-3 mb-1">Note on file</p>
-                <p className="text-body text-ink-2">{open.restaurant.verificationNote}</p>
-              </div>
+              <Box className="rounded-control bg-surface-inset p-3">
+                <Text className="text-micro uppercase text-ink-3 mb-1">Note on file</Text>
+                <Text className="text-body text-ink-2">{open.restaurant.verificationNote}</Text>
+              </Box>
             )}
 
             <Section title="The business">
@@ -399,7 +403,7 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
                 label="Pin"
                 value={
                   open.restaurant.location?.coordinates?.length === 2 ? (
-                    <a
+                    <Link
                       className="text-brand-ink inline-flex items-center gap-1 hover:underline"
                       href={`https://www.google.com/maps?q=${open.restaurant.location.coordinates[1]},${open.restaurant.location.coordinates[0]}`}
                       target="_blank"
@@ -408,7 +412,7 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
                       <MapPin className="size-3.5" />
                       {open.restaurant.location.coordinates[1]}, {open.restaurant.location.coordinates[0]}
                       <ExternalLink className="size-3" />
-                    </a>
+                    </Link>
                   ) : (
                     '—'
                   )
@@ -499,39 +503,39 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
 
             <Section title={`Menu — ${open.menuItemCount} item${open.menuItemCount === 1 ? '' : 's'}`}>
               {open.menu.length === 0 ? (
-                <p className="text-body text-ink-3">No menu was submitted with this application.</p>
+                <Text className="text-body text-ink-3">No menu was submitted with this application.</Text>
               ) : (
-                <div className="space-y-3">
+                <Box className="space-y-3">
                   {open.menu.map((group) => (
-                    <div key={group.category}>
-                      <p className="text-micro uppercase text-ink-3 mb-1">
+                    <Box key={group.category}>
+                      <Text className="text-micro uppercase text-ink-3 mb-1">
                         {group.category} · {group.items.length}
-                      </p>
-                      <ul className="space-y-1 list-none m-0 p-0">
+                      </Text>
+                      <List className="space-y-1 list-none m-0 p-0">
                         {group.items.map((item) => (
-                          <li
+                          <ListItem
                             key={item.productId}
                             className="flex items-center gap-2 py-1 border-b border-line last:border-0"
                           >
-                            <span
+                            <Inline
                               className={cx(
                                 'size-2.5 rounded-[2px] border shrink-0',
                                 item.isVeg === 'veg' ? 'border-good' : 'border-crit'
                               )}
                             />
-                            <span className="text-body text-ink flex-1 truncate">{item.productName}</span>
+                            <Inline className="text-body text-ink flex-1 truncate">{item.productName}</Inline>
                             {!!item.tags?.length && (
-                              <span className="text-label text-ink-3">{item.tags.join(' · ')}</span>
+                              <Inline className="text-label text-ink-3">{item.tags.join(' · ')}</Inline>
                             )}
-                            <span className="text-body tabular text-ink-2">
+                            <Inline className="text-body tabular text-ink-2">
                               {money(item.discountedPrice || item.price)}
-                            </span>
-                          </li>
+                            </Inline>
+                          </ListItem>
                         ))}
-                      </ul>
-                    </div>
+                      </List>
+                    </Box>
                   ))}
-                </div>
+                </Box>
               )}
             </Section>
 
@@ -546,7 +550,7 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
 
             {/* ── The decision itself ──────────────────────────────────── */}
             {canDecide ? (
-              <div className="border-t border-line pt-4">
+              <Box className="border-t border-line pt-4">
                 <Field
                   label="Note"
                   hint="Required to reject. The partner reads this in their app as what needs fixing."
@@ -558,27 +562,21 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
                     placeholder="e.g. The FSSAI licence photo is too blurred to read."
                   />
                 </Field>
-              </div>
+              </Box>
             ) : (
-              <div className="border-t border-line pt-4">
-                <p className="text-body text-ink-3 flex items-center gap-2">
+              <Box className="border-t border-line pt-4">
+                <Text className="text-body text-ink-3 flex items-center gap-2">
                   <Phone className="size-4" />
                   Your role can read this queue but not decide on it.
-                </p>
-              </div>
+                </Text>
+              </Box>
             )}
-          </div>
+          </Box>
         )}
       </Modal>
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
-    </div>
+    </Box>
   );
 };
 
-const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <div>
-    <p className="text-micro uppercase text-ink-3 mb-1.5">{title}</p>
-    <div>{children}</div>
-  </div>
-);

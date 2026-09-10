@@ -1,30 +1,32 @@
 import React, { useMemo, useState } from 'react';
 import { CalendarCheck, Pencil, RefreshCw, Trash2, X } from 'lucide-react';
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorState,
-  Field,
-  IconButton,
-  Input,
-  Modal,
-  PageHeader,
-  Select,
-  Table,
-  TableSkeleton,
-  Td,
-  Th,
-  Toast,
-  Tr,
-  type ToastState,
-} from '../components/ui';
+import { Badge } from '../components/common/atoms/Badge';
+import { Button } from '../components/common/atoms/Button';
+import { Card } from '../components/common/atoms/Card';
+import { IconButton } from '../components/common/atoms/IconButton';
+import { Input } from '../components/common/atoms/Input';
+import { Select } from '../components/common/atoms/Select';
+import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
+import { EmptyState } from '../components/common/molecules/EmptyState';
+import { ErrorState } from '../components/common/molecules/ErrorState';
+import { Field } from '../components/common/molecules/Field';
+import { PageHeader } from '../components/common/molecules/PageHeader';
+import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
+import { Modal } from '../components/common/organisms/Modal';
+import { Toast } from '../components/common/organisms/Toast';
+import type { ToastState } from '../components/common/organisms/Toast';
 import { visitRequestAdminService } from '../api/services/visitRequestAdminService';
 import { useFetch } from '../lib/useFetch';
 import { VISIT_STATUSES, visitStatusMeta } from '../lib/domain';
 import { formatDateTime } from '../lib/format';
 import type { VisitRequestEntity, VisitRequestStatus } from '../api/types';
+import { Box } from '../components/common/atoms/Box';
+import { Form } from '../components/common/atoms/Form';
+import { Inline } from '../components/common/atoms/Inline';
+import { Option } from '../components/common/atoms/Option';
+import { PlainTd, PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
+import { Text } from '../components/common/atoms/Text';
+import { filterBySearch } from '../components/common/utils';
 
 interface VisitRequestsPageProps {
   search: string;
@@ -70,14 +72,12 @@ export const VisitRequestsPage: React.FC<VisitRequestsPageProps> = ({ search }) 
     [status]
   );
 
-  const requests = useMemo(() => {
-    const list = data ?? [];
-    const q = search.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter((v) =>
+  const requests = useMemo(
+    () => filterBySearch(data ?? [], search, (v, q) =>
       `${v.propertyName} ${v.customer.name} ${v.customer.phone} ${v.ownerMobile}`.toLowerCase().includes(q)
-    );
-  }, [data, search]);
+    ),
+    [data, search]
+  );
 
   const openEdit = (v: VisitRequestEntity) => {
     setEditing(v);
@@ -132,7 +132,7 @@ export const VisitRequestsPage: React.FC<VisitRequestsPageProps> = ({ search }) 
   };
 
   return (
-    <div className="space-y-5">
+    <Box className="space-y-5">
       <PageHeader
         eyebrow="Database"
         title="Visit Requests"
@@ -143,13 +143,13 @@ export const VisitRequestsPage: React.FC<VisitRequestsPageProps> = ({ search }) 
       />
 
       <Card padded={false} className="p-3">
-        <div className="flex flex-wrap items-center gap-2.5">
+        <Box className="flex flex-wrap items-center gap-2.5">
           <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-auto min-w-40">
-            <option value="All">All statuses</option>
+            <Option value="All">All statuses</Option>
             {VISIT_STATUSES.map((s) => (
-              <option key={s} value={s}>
+              <Option key={s} value={s}>
                 {visitStatusMeta(s).label}
-              </option>
+              </Option>
             ))}
           </Select>
 
@@ -159,10 +159,10 @@ export const VisitRequestsPage: React.FC<VisitRequestsPageProps> = ({ search }) 
             </Button>
           )}
 
-          <span className="text-label text-ink-3 ml-auto tabular">
+          <Inline className="text-label text-ink-3 ml-auto tabular">
             {loading ? 'Loading…' : `${requests.length} request${requests.length === 1 ? '' : 's'}`}
-          </span>
-        </div>
+          </Inline>
+        </Box>
       </Card>
 
       {error ? (
@@ -170,22 +170,22 @@ export const VisitRequestsPage: React.FC<VisitRequestsPageProps> = ({ search }) 
       ) : (
         <Card padded={false}>
           <Table>
-            <thead>
-              <tr>
+            <TableHead>
+              <PlainTr>
                 <Th>Property</Th>
                 <Th>Customer</Th>
                 <Th>Owner mobile</Th>
                 <Th>Status</Th>
                 <Th>Requested</Th>
                 <Th />
-              </tr>
-            </thead>
-            <tbody>
+              </PlainTr>
+            </TableHead>
+            <TableBody>
               {loading ? (
                 <TableSkeleton cols={6} />
               ) : !requests.length ? (
-                <tr>
-                  <td colSpan={6}>
+                <PlainTr>
+                  <PlainTd colSpan={6}>
                     <EmptyState
                       icon={CalendarCheck}
                       title={search || status !== 'All' ? 'No matching requests' : 'No visit requests yet'}
@@ -195,20 +195,20 @@ export const VisitRequestsPage: React.FC<VisitRequestsPageProps> = ({ search }) 
                           : 'Requests submitted through the public "Request a visit" flow will appear here.'
                       }
                     />
-                  </td>
-                </tr>
+                  </PlainTd>
+                </PlainTr>
               ) : (
                 requests.map((v) => {
                   const meta = visitStatusMeta(v.status);
                   return (
                     <Tr key={v.id}>
                       <Td>
-                        <p className="text-sm font-medium text-ink truncate">{v.propertyName}</p>
-                        <p className="text-label text-ink-3 truncate">{v.ownerName}</p>
+                        <Text className="text-sm font-medium text-ink truncate">{v.propertyName}</Text>
+                        <Text className="text-label text-ink-3 truncate">{v.ownerName}</Text>
                       </Td>
                       <Td>
-                        <p className="text-sm text-ink truncate">{v.customer.name || '—'}</p>
-                        <p className="text-label text-ink-3 truncate">{v.customer.phone}</p>
+                        <Text className="text-sm text-ink truncate">{v.customer.name || '—'}</Text>
+                        <Text className="text-label text-ink-3 truncate">{v.customer.phone}</Text>
                       </Td>
                       <Td className="tabular">{v.ownerMobile}</Td>
                       <Td>
@@ -218,7 +218,7 @@ export const VisitRequestsPage: React.FC<VisitRequestsPageProps> = ({ search }) 
                       </Td>
                       <Td className="tabular">{formatDateTime(v.createdAt)}</Td>
                       <Td>
-                        <div className="flex items-center justify-end gap-0.5">
+                        <Box className="flex items-center justify-end gap-0.5">
                           <IconButton icon={Pencil} label={`Edit request for ${v.propertyName}`} onClick={() => openEdit(v)} />
                           <IconButton
                             icon={Trash2}
@@ -226,13 +226,13 @@ export const VisitRequestsPage: React.FC<VisitRequestsPageProps> = ({ search }) 
                             tone="danger"
                             onClick={() => setPendingDelete(v)}
                           />
-                        </div>
+                        </Box>
                       </Td>
                     </Tr>
                   );
                 })
               )}
-            </tbody>
+            </TableBody>
           </Table>
         </Card>
       )}
@@ -259,8 +259,8 @@ export const VisitRequestsPage: React.FC<VisitRequestsPageProps> = ({ search }) 
         }
       >
         {form && (
-          <form id="edit-visit-request" onSubmit={handleUpdate} className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+          <Form id="edit-visit-request" onSubmit={handleUpdate} className="space-y-4">
+            <Box className="grid grid-cols-2 gap-3">
               <Field label="Property name" required>
                 <Input
                   required
@@ -274,24 +274,24 @@ export const VisitRequestsPage: React.FC<VisitRequestsPageProps> = ({ search }) 
                   onChange={(e) => setForm((f) => f && { ...f, status: e.target.value as VisitRequestStatus })}
                 >
                   {VISIT_STATUSES.map((s) => (
-                    <option key={s} value={s}>
+                    <Option key={s} value={s}>
                       {visitStatusMeta(s).label}
-                    </option>
+                    </Option>
                   ))}
                 </Select>
               </Field>
-            </div>
+            </Box>
 
-            <div className="grid grid-cols-2 gap-3">
+            <Box className="grid grid-cols-2 gap-3">
               <Field label="Owner name">
                 <Input value={form.ownerName} onChange={(e) => setForm((f) => f && { ...f, ownerName: e.target.value })} />
               </Field>
               <Field label="Owner mobile (E.164)">
                 <Input value={form.ownerMobile} onChange={(e) => setForm((f) => f && { ...f, ownerMobile: e.target.value })} />
               </Field>
-            </div>
+            </Box>
 
-            <div className="grid grid-cols-3 gap-3">
+            <Box className="grid grid-cols-3 gap-3">
               <Field label="Customer name">
                 <Input value={form.customerName} onChange={(e) => setForm((f) => f && { ...f, customerName: e.target.value })} />
               </Field>
@@ -305,17 +305,17 @@ export const VisitRequestsPage: React.FC<VisitRequestsPageProps> = ({ search }) 
                   onChange={(e) => setForm((f) => f && { ...f, customerEmail: e.target.value })}
                 />
               </Field>
-            </div>
+            </Box>
 
-            <div className="grid grid-cols-2 gap-3">
+            <Box className="grid grid-cols-2 gap-3">
               <Field label="Preferred date" hint="Free text, as submitted.">
                 <Input value={form.preferredDate} onChange={(e) => setForm((f) => f && { ...f, preferredDate: e.target.value })} />
               </Field>
               <Field label="Preferred time">
                 <Input value={form.preferredTime} onChange={(e) => setForm((f) => f && { ...f, preferredTime: e.target.value })} />
               </Field>
-            </div>
-          </form>
+            </Box>
+          </Form>
         )}
       </Modal>
 
@@ -336,14 +336,14 @@ export const VisitRequestsPage: React.FC<VisitRequestsPageProps> = ({ search }) 
           </>
         }
       >
-        <p className="text-body text-ink-2">
-          The request from <span className="text-ink font-medium">{pendingDelete?.customer.name}</span> for{' '}
-          <span className="text-ink font-medium">{pendingDelete?.propertyName}</span> will be removed. This cannot be
+        <Text className="text-body text-ink-2">
+          The request from <Inline className="text-ink font-medium">{pendingDelete?.customer.name}</Inline> for{' '}
+          <Inline className="text-ink font-medium">{pendingDelete?.propertyName}</Inline> will be removed. This cannot be
           undone.
-        </p>
+        </Text>
       </Modal>
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
-    </div>
+    </Box>
   );
 };

@@ -14,8 +14,24 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon, Text, type IconName } from '@/components/ui';
 import { component, easing } from '@/constants/motion';
 import { elevation } from '@/constants/tokens';
+import { useBottomBar } from '@/context/BottomBarContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
+
+/**
+ * How far the raised disc stands proud of the bar's top edge.
+ *
+ * Read by two places that must not drift: `styles.raisedDisc` lifts the disc
+ * by it, and the slide-away transform travels it ON TOP of the bar's own
+ * height. Translating by the height alone leaves the disc's crown parked on
+ * the bottom edge of the screen — the one part of the bar that is not inside
+ * the bar.
+ */
+const RAISED_LIFT = 26;
+
+/** Slack on top of that for the disc's shadow, which spills past its bounds
+ *  and would otherwise be the last thing still visible. */
+const RAISED_SHADOW = 8;
 
 export type TabItem = {
   id: string;
@@ -107,6 +123,18 @@ type BarFrame = {
  * and a travelling indicator asserts an adjacency and a direction that a
  * lateral move does not have. A pill also animates position during a screen
  * swap, so a stuttering swap leaves it stranded between two tabs.
+ *
+ * ## It floats, and it gets out of the way
+ *
+ * The bar is positioned over the screen rather than sitting in the column
+ * below it, and slides off the bottom edge while a feed is being read down —
+ * see `BottomBarContext` for the gesture that decides it. Two consequences
+ * that are easy to get wrong: every scrollable under it has to pad its content
+ * by `height` from that context, because there is no longer a bar in the
+ * layout holding the last card clear of the edge; and the height is reported
+ * to BOTH the bottom-edge registry (so the snackbar clears it) and the bar
+ * context (so the screens can pad by it), which are two different questions
+ * that happen to have the same answer.
  */
 export function TabBar({ tabs, activeId, onChange, collapsedTo, setId }: TabBarProps) {
   const { colors, space, layout } = useTheme();
@@ -177,8 +205,17 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId }: TabBarP
   const { reserveBottom, releaseBottom } = usePendingRequest();
   useEffect(() => () => releaseBottom('tabbar'), [releaseBottom]);
 
+  /* How far off the bottom edge the bar currently is, and how far off it is
+     when fully gone. `height` is a plain number, so the style rebuilds on the
+     one render where it changes rather than being read from the UI thread. */
+  const { hidden, height, setHeight } = useBottomBar();
+  const slide = useAnimatedStyle(() => ({
+    transform: [{ translateY: hidden.value * (height + RAISED_LIFT + RAISED_SHADOW) }],
+  }));
+
   const measure = (event: LayoutChangeEvent) => {
     reserveBottom('tabbar', event.nativeEvent.layout.height);
+    setHeight(event.nativeEvent.layout.height);
     barWidth.value = event.nativeEvent.layout.width;
   };
 
@@ -190,7 +227,7 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId }: TabBarP
   const gap = space[1] + 1;
 
   return (
-    <View
+    <Animated.View
       // Not a tablist when it is holding one button: a screen reader that
       // announces "tab 4 of 4" for a lone way-out control is describing a bar
       // that is not on screen.
@@ -202,6 +239,7 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId }: TabBarP
           ? styles.barCollapsed
           : { backgroundColor: colors.surface, borderTopColor: colors.borderSubtle },
         { paddingBottom: insets.bottom + layout.bottomInsetExtra },
+        slide,
       ]}
     >
       {/*
@@ -260,7 +298,7 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId }: TabBarP
       <View pointerEvents="box-none" style={styles.overlayRow}>
         <RaisedCell frame={live} onChange={onChange} gap={gap} />
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -601,14 +639,14 @@ const styles = StyleSheet.create({
      "Bookings". The button already centres its own contents.
   */
   cell: { flex: 1, minHeight: 56 },
-  /* 46pt disc lifted 26pt above the bar, ringed in `surface` so it reads as
-     punched through the edge rather than pasted on top of it. */
+  /* 46pt disc lifted `RAISED_LIFT` above the bar, ringed in `surface` so it
+     reads as punched through the edge rather than pasted on top of it. */
   raisedDisc: {
     width: 46,
     height: 46,
     borderRadius: 999,
     borderWidth: 3,
-    marginTop: -26,
+    marginTop: -RAISED_LIFT,
     alignItems: 'center',
     justifyContent: 'center',
   },

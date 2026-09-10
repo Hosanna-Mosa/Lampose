@@ -1,29 +1,30 @@
 import React, { useMemo, useState } from 'react';
 import { CheckCircle2, Package, Pencil, Plus, RefreshCw, Trash2, XCircle } from 'lucide-react';
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorState,
-  Field,
-  IconButton,
-  Input,
-  Modal,
-  PageHeader,
-  Switch,
-  Table,
-  TableSkeleton,
-  Td,
-  Th,
-  Toast,
-  Tr,
-  type ToastState,
-} from '../components/ui';
+import { Badge } from '../components/common/atoms/Badge';
+import { Button } from '../components/common/atoms/Button';
+import { Card } from '../components/common/atoms/Card';
+import { IconButton } from '../components/common/atoms/IconButton';
+import { Input } from '../components/common/atoms/Input';
+import { Switch } from '../components/common/atoms/Switch';
+import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
+import { EmptyState } from '../components/common/molecules/EmptyState';
+import { ErrorState } from '../components/common/molecules/ErrorState';
+import { Field } from '../components/common/molecules/Field';
+import { PageHeader } from '../components/common/molecules/PageHeader';
+import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
+import { Modal } from '../components/common/organisms/Modal';
+import { Toast } from '../components/common/organisms/Toast';
+import type { ToastState } from '../components/common/organisms/Toast';
 import { productService } from '../api/services/productService';
 import { useFetch } from '../lib/useFetch';
 import { rupees } from '../lib/format';
 import type { ProductEntity } from '../api/types';
+import { Box } from '../components/common/atoms/Box';
+import { Form } from '../components/common/atoms/Form';
+import { Inline } from '../components/common/atoms/Inline';
+import { PlainTd, PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
+import { Text } from '../components/common/atoms/Text';
+import { filterBySearch } from '../components/common/utils';
 
 interface ProductsPageProps {
   search: string;
@@ -61,12 +62,10 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ search }) => {
 
   const { data, loading, error, refreshing, reload } = useFetch(() => productService.getProducts(), []);
 
-  const products = useMemo(() => {
-    const list = data ?? [];
-    const q = search.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter((p) => `${p.name} ${p.description}`.toLowerCase().includes(q));
-  }, [data, search]);
+  const products = useMemo(
+    () => filterBySearch(data ?? [], search, (p, q) => `${p.name} ${p.description}`.toLowerCase().includes(q)),
+    [data, search]
+  );
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -136,7 +135,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ search }) => {
   };
 
   return (
-    <div className="space-y-5">
+    <Box className="space-y-5">
       <PageHeader
         eyebrow="Database"
         title="Products"
@@ -156,33 +155,33 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ search }) => {
       ) : (
         <Card padded={false}>
           <Table>
-            <thead>
-              <tr>
+            <TableHead>
+              <PlainTr>
                 <Th>Product</Th>
                 <Th>Price</Th>
                 <Th>Availability</Th>
                 <Th />
-              </tr>
-            </thead>
-            <tbody>
+              </PlainTr>
+            </TableHead>
+            <TableBody>
               {loading ? (
                 <TableSkeleton cols={4} />
               ) : !products.length ? (
-                <tr>
-                  <td colSpan={4}>
+                <PlainTr>
+                  <PlainTd colSpan={4}>
                     <EmptyState
                       icon={Package}
                       title={search ? 'No matching products' : 'No products yet'}
                       description={search ? 'Try a different search.' : 'Create the first product record.'}
                     />
-                  </td>
-                </tr>
+                  </PlainTd>
+                </PlainTr>
               ) : (
                 products.map((p) => (
                   <Tr key={p.id}>
                     <Td>
-                      <p className="text-sm font-medium text-ink truncate">{p.name}</p>
-                      {p.description && <p className="text-label text-ink-3 truncate max-w-md">{p.description}</p>}
+                      <Text className="text-sm font-medium text-ink truncate">{p.name}</Text>
+                      {p.description && <Text className="text-label text-ink-3 truncate max-w-md">{p.description}</Text>}
                     </Td>
                     <Td className="tabular">{rupees(p.price)}</Td>
                     <Td>
@@ -191,7 +190,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ search }) => {
                       </Badge>
                     </Td>
                     <Td>
-                      <div className="flex items-center justify-end gap-0.5">
+                      <Box className="flex items-center justify-end gap-0.5">
                         <IconButton icon={Pencil} label={`Edit ${p.name}`} onClick={() => openEdit(p)} />
                         <IconButton
                           icon={Trash2}
@@ -199,12 +198,12 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ search }) => {
                           tone="danger"
                           onClick={() => setPendingDelete(p)}
                         />
-                      </div>
+                      </Box>
                     </Td>
                   </Tr>
                 ))
               )}
-            </tbody>
+            </TableBody>
           </Table>
         </Card>
       )}
@@ -225,11 +224,11 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ search }) => {
           </>
         }
       >
-        <form id="create-product" onSubmit={handleCreate} className="space-y-4">
+        <Form id="create-product" onSubmit={handleCreate} className="space-y-4">
           {formError && (
-            <p className="text-sm text-crit bg-crit-soft border border-crit-border rounded-control px-3 py-2">
+            <Text className="text-sm text-crit bg-crit-soft border border-crit-border rounded-control px-3 py-2">
               {formError}
-            </p>
+            </Text>
           )}
           <Field label="Name" required>
             <Input required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
@@ -240,11 +239,11 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ search }) => {
           <Field label="Price (₹)">
             <Input type="number" min={0} value={form.price} onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))} />
           </Field>
-          <div className="flex items-center justify-between">
-            <span className="text-label text-ink-2">In stock</span>
+          <Box className="flex items-center justify-between">
+            <Inline className="text-label text-ink-2">In stock</Inline>
             <Switch checked={form.inStock} onChange={(v) => setForm((f) => ({ ...f, inStock: v }))} label="In stock" />
-          </div>
-        </form>
+          </Box>
+        </Form>
       </Modal>
 
       {/* Edit */}
@@ -267,7 +266,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ search }) => {
         }
       >
         {editForm && (
-          <form id="edit-product" onSubmit={handleUpdate} className="space-y-4">
+          <Form id="edit-product" onSubmit={handleUpdate} className="space-y-4">
             <Field label="Name">
               <Input value={editForm.name} onChange={(e) => setEditForm((f) => f && { ...f, name: e.target.value })} />
             </Field>
@@ -282,15 +281,15 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ search }) => {
                 onChange={(e) => setEditForm((f) => f && { ...f, price: e.target.value })}
               />
             </Field>
-            <div className="flex items-center justify-between">
-              <span className="text-label text-ink-2">In stock</span>
+            <Box className="flex items-center justify-between">
+              <Inline className="text-label text-ink-2">In stock</Inline>
               <Switch
                 checked={editForm.inStock}
                 onChange={(v) => setEditForm((f) => f && { ...f, inStock: v })}
                 label="In stock"
               />
-            </div>
-          </form>
+            </Box>
+          </Form>
         )}
       </Modal>
 
@@ -311,12 +310,12 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ search }) => {
           </>
         }
       >
-        <p className="text-body text-ink-2">
-          <span className="text-ink font-medium">{pendingDelete?.name}</span> will be removed. This cannot be undone.
-        </p>
+        <Text className="text-body text-ink-2">
+          <Inline className="text-ink font-medium">{pendingDelete?.name}</Inline> will be removed. This cannot be undone.
+        </Text>
       </Modal>
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
-    </div>
+    </Box>
   );
 };

@@ -1,0 +1,1 @@
+export { HotelTable } from './HotelTable';

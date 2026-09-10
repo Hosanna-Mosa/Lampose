@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { AdminLayout } from './components/layout/AdminLayout';
+import { visibleGroupsFor } from './components/common/organisms/Sidebar';
+import { AdminLayout } from './components/common/templates/AdminLayout';
 import { Dashboard } from './pages/Dashboard';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { WebAnalyticsPage } from './pages/WebAnalyticsPage';
@@ -31,7 +32,6 @@ import { SupportPage } from './pages/SupportPage';
 import { insightsService } from './api/services/insightsService';
 import { permissionService } from './api/services/permissionService';
 import { foodOrderService } from './api/services/foodOrderService';
-import { visibleGroupsFor } from './components/layout/Sidebar';
 import type { UserEntity } from './api/types';
 import { useFetch } from './lib/useFetch';
 

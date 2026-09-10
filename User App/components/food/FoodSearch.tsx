@@ -3,8 +3,9 @@ import React, { useMemo, useState } from 'react';
 import { metaLine, walkLabel } from '@/services/adapters/food.adapter';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { Chip, SearchField, Text } from '@/components/ui';
+import { Chip, IconButton, SearchField, Text } from '@/components/ui';
 import { useAppState } from '@/context/AppStateContext';
+import { useBottomBar } from '@/context/BottomBarContext';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
@@ -30,8 +31,20 @@ type PriceBand = 'any' | 'under80' | 'under150';
  *
  * Dishes come before kitchens because students type food, not brands. Nobody
  * has ever opened this screen and typed "Bawarchi".
+ *
+ * ## Why this one screen carries a back control
+ *
+ * Every other screen in this module is a tab, so the bottom bar is its own way
+ * out — tapping any of the three is both "leave here" and "go there", and a
+ * back arrow would be a fourth way to do what the bar already does.
+ *
+ * Search is not a tab any more. It lost its slot to Dine In and is reached
+ * from the field across the top of Home instead, which means the bar has
+ * nothing highlighted while it is open and nothing in it says "back". Without
+ * the arrow the only exit is the raised Explore disc, which does not go back
+ * to Food's Home — it leaves the module entirely.
  */
-export function FoodSearch() {
+export function FoodSearch({ onBack }: { onBack?: () => void }) {
   const { dishes: allDishes, findKitchen, kitchensFor, kitchens, kitchenOpen } = useFoodCatalogue();
 
   /* Walking times exist only when the feed was asked with the student's
@@ -40,6 +53,9 @@ export function FoodSearch() {
      does nothing is worse than one that is not offered. */
   const haveDistances = kitchens.some((kitchen) => kitchen.walkMinutes > 0);
   const { colors, space, layout, radius } = useTheme();
+  /* The bar floats over this screen and gets out of the way while it is read
+     down — see `BottomBarContext`. */
+  const { onScroll: barScroll, height: barHeight } = useBottomBar();
   const router = useRouter();
   const { locality } = useAppState();
   const { preferences, qtyOf, add, setQty, lines } = useFood();
@@ -135,18 +151,41 @@ export function FoodSearch() {
     <ScrollView
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
-      contentContainerStyle={{ paddingTop: space[2], paddingBottom: space[8], gap: space[3] }}
+      contentContainerStyle={{
+        paddingTop: space[2],
+        /* The bar floats over this list, so its height is tail padding here. */
+        paddingBottom: space[8] + barHeight,
+        gap: space[3],
+      }}
+      onScroll={barScroll}
+      scrollEventThrottle={16}
     >
       <View style={{ paddingHorizontal: layout.gutter, gap: space[3] }}>
-        <SearchField
-          value={query}
-          onChangeText={setQuery}
-          onSubmitEditing={remember}
-          onClear={() => setQuery('')}
-          placeholder="Search idli, biryani, a kitchen"
-          returnKeyType="search"
-          accessibilityLabel="Search food"
-        />
+        {/* The arrow sits BESIDE the field rather than above it. A row of its
+            own would cost a whole line of screen to a control that is one
+            glyph, and this screen opens with the keyboard up — the field
+            should be the first thing under the header, not the second. */}
+        <View style={styles.searchRow}>
+          {onBack ? (
+            <IconButton
+              name="chevronLeft"
+              onPress={onBack}
+              accessibilityLabel="Back to food home"
+            />
+          ) : null}
+
+          <View style={styles.searchFieldSlot}>
+            <SearchField
+              value={query}
+              onChangeText={setQuery}
+              onSubmitEditing={remember}
+              onClear={() => setQuery('')}
+              placeholder="Search idli, biryani, a kitchen"
+              returnKeyType="search"
+              accessibilityLabel="Search food"
+            />
+          </View>
+        </View>
 
         <ScrollView
           horizontal
@@ -331,6 +370,13 @@ export function FoodSearch() {
 }
 
 const styles = StyleSheet.create({
+  /* The gap is the IconButton's own — it already carries a 44pt target with
+     the glyph inset in it, so a `gap` here would read as a space between the
+     arrow and the field twice over. */
+  searchRow: { flexDirection: 'row', alignItems: 'center' },
+  /* `flex: 1` and `minWidth: 0`: without the second, a long placeholder makes
+     the field refuse to shrink and pushes the arrow off the left edge. */
+  searchFieldSlot: { flex: 1, minWidth: 0 },
   kitchenRow: { flexDirection: 'row', alignItems: 'center' },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap' },
 });

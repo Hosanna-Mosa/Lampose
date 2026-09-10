@@ -10,34 +10,40 @@ import {
   UserCheck,
   X,
 } from 'lucide-react';
-import {
-  Badge,
-  Button,
-  Card,
-  CardHeader,
-  DataRow,
-  EmptyState,
-  ErrorState,
-  Field,
-  IconButton,
-  Modal,
-  PageHeader,
-  Select,
-  Table,
-  TableSkeleton,
-  Td,
-  Th,
-  Toast,
-  Tr,
-  cx,
-  type ToastState,
-} from '../components/ui';
+import { Badge } from '../components/common/atoms/Badge';
+import { Button } from '../components/common/atoms/Button';
+import { Card } from '../components/common/atoms/Card';
+import { IconButton } from '../components/common/atoms/IconButton';
+import { Select } from '../components/common/atoms/Select';
+import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
+import { CardHeader } from '../components/common/molecules/CardHeader';
+import { DataRow } from '../components/common/molecules/DataRow';
+import { EmptyState } from '../components/common/molecules/EmptyState';
+import { ErrorState } from '../components/common/molecules/ErrorState';
+import { Field } from '../components/common/molecules/Field';
+import { PageHeader } from '../components/common/molecules/PageHeader';
+import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
+import { Modal } from '../components/common/organisms/Modal';
+import { Toast } from '../components/common/organisms/Toast';
+import type { ToastState } from '../components/common/organisms/Toast';
+import { cx, filterBySearch } from '../components/common/utils';
 import { verificationService } from '../api/services/verificationService';
 import { insightsService } from '../api/services/insightsService';
 import { useFetch } from '../lib/useFetch';
 import { VERIFICATION_STATUSES, verificationMeta } from '../lib/domain';
 import { formatDateTime, percent, relativeTime } from '../lib/format';
 import type { VerificationEntity, VerificationStatus } from '../api/types';
+import { Aside } from '../components/common/atoms/Aside';
+import { Box } from '../components/common/atoms/Box';
+import { Code } from '../components/common/atoms/Code';
+import { Form } from '../components/common/atoms/Form';
+import { Heading } from '../components/common/atoms/Heading';
+import { Inline } from '../components/common/atoms/Inline';
+import { Option } from '../components/common/atoms/Option';
+import { PlainButton } from '../components/common/atoms/PlainButton';
+import { PlainTd, PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
+import { Region } from '../components/common/atoms/Region';
+import { Text } from '../components/common/atoms/Text';
 
 interface VerificationsPageProps {
   search: string;
@@ -63,16 +69,14 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
 
   const verifiers = useFetch(() => insightsService.getVerifiers(), []);
 
-  const rows = useMemo(() => {
-    const list = data ?? [];
-    const q = search.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter((v) =>
+  const rows = useMemo(
+    () => filterBySearch(data ?? [], search, (v, q) =>
       [v.ownerMobileE164, v.token, v.lastError, v.property?.name, v.status]
         .filter(Boolean)
         .some((f) => String(f).toLowerCase().includes(q))
-    );
-  }, [data, search]);
+    ),
+    [data, search]
+  );
 
   const summary = useMemo(() => {
     const list = data ?? [];
@@ -146,7 +150,7 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
   };
 
   return (
-    <div className="space-y-5">
+    <Box className="space-y-5">
       <PageHeader
         eyebrow="Records"
         title="Owner verifications"
@@ -162,7 +166,7 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
       />
 
       {/* Outcome summary */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <Box className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Total requests', value: summary.total, tone: 'text-ink' },
           { label: 'Verified', value: summary.verified, tone: 'text-good' },
@@ -170,16 +174,16 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
           { label: 'Failed', value: summary.failed, tone: 'text-crit' },
         ].map((s) => (
           <Card key={s.label} className="p-4">
-            <p className="text-label text-ink-2">{s.label}</p>
-            <p className={cx('text-metric figure mt-2', s.tone)}>{loading ? '—' : s.value}</p>
+            <Text className="text-label text-ink-2">{s.label}</Text>
+            <Text className={cx('text-metric figure mt-2', s.tone)}>{loading ? '—' : s.value}</Text>
           </Card>
         ))}
-      </div>
+      </Box>
 
       {/* Verification team workload — which verifier gets sent how many
           requests, and how those turned out. */}
       <Card padded={false}>
-        <div className="p-4 pb-3">
+        <Box className="p-4 pb-3">
           <CardHeader
             icon={UserCheck}
             title="Verification team"
@@ -193,15 +197,15 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
               />
             }
           />
-        </div>
+        </Box>
         {verifiers.error ? (
-          <div className="px-4 pb-4">
+          <Box className="px-4 pb-4">
             <ErrorState message={verifiers.error} onRetry={verifiers.reload} />
-          </div>
+          </Box>
         ) : (
           <Table>
-            <thead>
-              <tr>
+            <TableHead>
+              <PlainTr>
                 <Th>Verifier</Th>
                 <Th className="text-right">Assigned</Th>
                 <Th className="text-right">Verified</Th>
@@ -209,31 +213,31 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
                 <Th className="text-right">Awaiting reply</Th>
                 <Th className="text-right">Success rate</Th>
                 <Th>Last decision</Th>
-              </tr>
-            </thead>
-            <tbody>
+              </PlainTr>
+            </TableHead>
+            <TableBody>
               {verifiers.loading ? (
                 <TableSkeleton cols={7} />
               ) : !verifiers.data?.length ? (
-                <tr>
-                  <td colSpan={7}>
+                <PlainTr>
+                  <PlainTd colSpan={7}>
                     <EmptyState
                       icon={UserCheck}
                       title="No verification team configured"
                       description="Set VERIFICATION_TEAM_NUMBERS in the backend .env to put a verifier in the loop — without it, an owner's YES auto-verifies with no second pair of eyes."
                     />
-                  </td>
-                </tr>
+                  </PlainTd>
+                </PlainTr>
               ) : (
                 verifiers.data.map((v) => (
                   <Tr key={v.verifierMobileE164}>
                     <Td>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-mono tabular text-ink">
+                      <Box className="flex items-center gap-1.5">
+                        <Inline className="text-sm font-mono tabular text-ink">
                           {v.verifierMobileE164.replace(/^whatsapp:/, '')}
-                        </span>
+                        </Inline>
                         {!v.onRoster && <Badge tone="neutral">Removed from roster</Badge>}
-                      </div>
+                      </Box>
                     </Td>
                     <Td className="text-right tabular">{v.totalAssigned}</Td>
                     <Td className="text-right tabular text-good">{v.verified}</Td>
@@ -246,19 +250,19 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
                   </Tr>
                 ))
               )}
-            </tbody>
+            </TableBody>
           </Table>
         )}
       </Card>
 
       <Card padded={false} className="p-3">
-        <div className="flex flex-wrap items-center gap-2.5">
+        <Box className="flex flex-wrap items-center gap-2.5">
           <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-auto min-w-36">
-            <option value="All">All statuses</option>
+            <Option value="All">All statuses</Option>
             {VERIFICATION_STATUSES.map((s) => (
-              <option key={s} value={s}>
+              <Option key={s} value={s}>
                 {verificationMeta(s).label}
-              </option>
+              </Option>
             ))}
           </Select>
 
@@ -268,10 +272,10 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
             </Button>
           )}
 
-          <span className="text-label text-ink-3 ml-auto tabular">
+          <Inline className="text-label text-ink-3 ml-auto tabular">
             {loading ? 'Loading…' : `${rows.length} request${rows.length === 1 ? '' : 's'}`}
-          </span>
-        </div>
+          </Inline>
+        </Box>
       </Card>
 
       {error ? (
@@ -279,8 +283,8 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
       ) : (
         <Card padded={false}>
           <Table>
-            <thead>
-              <tr>
+            <TableHead>
+              <PlainTr>
                 <Th>Owner mobile</Th>
                 <Th>Property</Th>
                 <Th>Assigned verifier</Th>
@@ -288,14 +292,14 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
                 <Th className="text-right">Attempts</Th>
                 <Th>Last update</Th>
                 <Th />
-              </tr>
-            </thead>
-            <tbody>
+              </PlainTr>
+            </TableHead>
+            <TableBody>
               {loading ? (
                 <TableSkeleton cols={7} />
               ) : !rows.length ? (
-                <tr>
-                  <td colSpan={7}>
+                <PlainTr>
+                  <PlainTd colSpan={7}>
                     <EmptyState
                       icon={ShieldCheck}
                       title={search || status !== 'All' ? 'No matching requests' : 'No verification requests'}
@@ -305,8 +309,8 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
                           : 'Requests are created when an owner is sent a confirmation message.'
                       }
                     />
-                  </td>
-                </tr>
+                  </PlainTd>
+                </PlainTr>
               ) : (
                 rows.map((v) => {
                   const meta = verificationMeta(v.status);
@@ -314,37 +318,37 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
                   return (
                     <Tr key={v.id}>
                       <Td>
-                        <button
+                        <PlainButton
                           onClick={() => setSelected(v)}
                           className="text-sm font-mono tabular text-ink hover:text-brand-ink transition-colors"
                         >
                           {v.ownerMobileE164 || '—'}
-                        </button>
+                        </PlainButton>
                       </Td>
                       <Td className="max-w-52">
                         {v.property ? (
                           <>
-                            <span className="block text-sm text-ink truncate">{v.property.name}</span>
-                            <span className="block text-label text-ink-3 truncate">
+                            <Inline className="block text-sm text-ink truncate">{v.property.name}</Inline>
+                            <Inline className="block text-label text-ink-3 truncate">
                               {v.property.category} · {v.property.place}
-                            </span>
+                            </Inline>
                           </>
                         ) : (
-                          <span className="text-ink-3">Not linked</span>
+                          <Inline className="text-ink-3">Not linked</Inline>
                         )}
                       </Td>
                       <Td>
                         {v.assignedVerifierMobileE164 ? (
-                          <span className="text-sm font-mono tabular text-ink flex items-center gap-1.5">
+                          <Inline className="text-sm font-mono tabular text-ink flex items-center gap-1.5">
                             <UserCheck className="size-3.5 text-ink-3 shrink-0" strokeWidth={1.75} />
                             {v.assignedVerifierMobileE164.replace(/^whatsapp:/, '')}
-                          </span>
+                          </Inline>
                         ) : (
-                          <span className="text-ink-3">Not yet assigned</span>
+                          <Inline className="text-ink-3">Not yet assigned</Inline>
                         )}
                       </Td>
                       <Td>
-                        <div className="flex items-center gap-1.5">
+                        <Box className="flex items-center gap-1.5">
                           <Badge tone={meta.tone} icon={meta.icon}>
                             {meta.label}
                           </Badge>
@@ -353,12 +357,12 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
                               Window closed
                             </Badge>
                           )}
-                        </div>
+                        </Box>
                       </Td>
                       <Td className="text-right tabular">{v.attempts}</Td>
                       <Td className="tabular">{relativeTime(v.updatedAt || v.createdAt)}</Td>
                       <Td>
-                        <div className="flex items-center justify-end gap-0.5">
+                        <Box className="flex items-center justify-end gap-0.5">
                           <IconButton
                             icon={RotateCw}
                             label="Re-queue request"
@@ -372,13 +376,13 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
                             tone="danger"
                             onClick={() => setPendingDelete(v)}
                           />
-                        </div>
+                        </Box>
                       </Td>
                     </Tr>
                   );
                 })
               )}
-            </tbody>
+            </TableBody>
           </Table>
         </Card>
       )}
@@ -386,28 +390,28 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
       {/* Detail drawer */}
       {selected && (
         <>
-          <div
+          <Box
             className="fixed inset-0 z-40 bg-[rgb(9_12_20/0.45)] backdrop-blur-[2px]"
             onClick={() => setSelected(null)}
             aria-hidden
           />
-          <aside
+          <Aside
             role="dialog"
             aria-label="Verification request detail"
             className="fixed top-0 bottom-0 right-0 z-50 w-full max-w-md bg-surface border-l border-line flex flex-col anim-slide-left"
           >
-            <div className="h-14 px-4 border-b border-line flex items-center justify-between gap-3 shrink-0">
-              <div className="min-w-0">
-                <h2 className="text-section text-ink font-mono tabular truncate">
+            <Box className="h-14 px-4 border-b border-line flex items-center justify-between gap-3 shrink-0">
+              <Box className="min-w-0">
+                <Heading level={2} className="text-section text-ink font-mono tabular truncate">
                   {selected.ownerMobileE164}
-                </h2>
-                <p className="text-label text-ink-3">Verification request</p>
-              </div>
+                </Heading>
+                <Text className="text-label text-ink-3">Verification request</Text>
+              </Box>
               <IconButton icon={X} label="Close" onClick={() => setSelected(null)} />
-            </div>
+            </Box>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-5">
-              <div className="flex items-center gap-2">
+            <Box className="flex-1 overflow-y-auto p-4 space-y-5">
+              <Box className="flex items-center gap-2">
                 <Badge
                   tone={verificationMeta(selected.status).tone}
                   icon={verificationMeta(selected.status).icon}
@@ -424,33 +428,33 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
                 >
                   Change status
                 </Button>
-              </div>
+              </Box>
 
               {selected.lastError && (
-                <div className="p-3 rounded-panel bg-crit-soft border border-crit-border">
-                  <p className="text-label text-crit mb-1 flex items-center gap-1.5">
+                <Box className="p-3 rounded-panel bg-crit-soft border border-crit-border">
+                  <Text className="text-label text-crit mb-1 flex items-center gap-1.5">
                     <TriangleAlert className="size-3.5" strokeWidth={2} /> Last error
-                  </p>
-                  <p className="text-sm text-ink-2 leading-relaxed break-words">{selected.lastError}</p>
-                </div>
+                  </Text>
+                  <Text className="text-sm text-ink-2 leading-relaxed break-words">{selected.lastError}</Text>
+                </Box>
               )}
 
               {selected.property && (
-                <section>
-                  <h3 className="text-micro uppercase text-ink-3 mb-1 flex items-center gap-1.5">
+                <Region>
+                  <Heading level={3} className="text-micro uppercase text-ink-3 mb-1 flex items-center gap-1.5">
                     <Building2 className="size-3" strokeWidth={2} /> Linked property
-                  </h3>
+                  </Heading>
                   <DataRow label="Name" value={selected.property.name} />
                   <DataRow label="Category" value={selected.property.category} />
                   <DataRow label="Place" value={selected.property.place} />
                   <DataRow label="Owner" value={selected.property.ownerName} />
-                </section>
+                </Region>
               )}
 
-              <section>
-                <h3 className="text-micro uppercase text-ink-3 mb-1 flex items-center gap-1.5">
+              <Region>
+                <Heading level={3} className="text-micro uppercase text-ink-3 mb-1 flex items-center gap-1.5">
                   <UserCheck className="size-3" strokeWidth={2} /> Verification team
-                </h3>
+                </Heading>
                 <DataRow
                   label="Assigned verifier"
                   value={
@@ -460,51 +464,51 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
                   }
                   mono={!!selected.assignedVerifierMobileE164}
                 />
-                <p className="text-label text-ink-3 mt-1.5 leading-relaxed">
+                <Text className="text-label text-ink-3 mt-1.5 leading-relaxed">
                   {selected.assignedVerifierMobileE164
                     ? 'Randomly picked from VERIFICATION_TEAM_NUMBERS once the owner replied YES. This member\'s own YES/NO on WhatsApp decides the outcome below.'
                     : 'Set once the owner approves — picked at random from the configured verification team.'}
-                </p>
-              </section>
+                </Text>
+              </Region>
 
-              <section>
-                <h3 className="text-micro uppercase text-ink-3 mb-1">Timeline</h3>
+              <Region>
+                <Heading level={3} className="text-micro uppercase text-ink-3 mb-1">Timeline</Heading>
                 <DataRow label="Created" value={formatDateTime(selected.createdAt)} />
                 <DataRow label="Sent" value={formatDateTime(selected.sentAt)} />
                 <DataRow label="Responded" value={formatDateTime(selected.respondedAt)} />
                 <DataRow
                   label="Expires"
                   value={
-                    <span className={isExpired(selected) ? 'text-crit' : undefined}>
+                    <Inline className={isExpired(selected) ? 'text-crit' : undefined}>
                       {formatDateTime(selected.expiresAt)}
-                    </span>
+                    </Inline>
                   }
                 />
                 <DataRow label="Attempts" value={selected.attempts} mono />
-              </section>
+              </Region>
 
-              <section>
-                <h3 className="text-micro uppercase text-ink-3 mb-1">Delivery</h3>
+              <Region>
+                <Heading level={3} className="text-micro uppercase text-ink-3 mb-1">Delivery</Heading>
                 <DataRow label="Delivery status" value={selected.lastDeliveryStatus || '—'} />
                 <DataRow label="Content SID" value={selected.contentSid || '—'} mono />
                 <DataRow label="Message SID" value={selected.outboundMessageSid || '—'} mono />
-              </section>
+              </Region>
 
-              <section>
-                <h3 className="text-micro uppercase text-ink-3 mb-2">Token</h3>
-                <div className="flex items-center gap-2 p-2.5 rounded-control bg-surface-inset border border-line">
-                  <code className="text-sm font-mono text-ink-2 truncate flex-1">{selected.token}</code>
+              <Region>
+                <Heading level={3} className="text-micro uppercase text-ink-3 mb-2">Token</Heading>
+                <Box className="flex items-center gap-2 p-2.5 rounded-control bg-surface-inset border border-line">
+                  <Code className="text-sm font-mono text-ink-2 truncate flex-1">{selected.token}</Code>
                   <IconButton
                     icon={Copy}
                     label="Copy token"
                     onClick={() => copy(selected.token, 'Token')}
                   />
-                </div>
-                <p className="text-label text-ink-3 mt-1.5">Document ID: {selected.id}</p>
-              </section>
-            </div>
+                </Box>
+                <Text className="text-label text-ink-3 mt-1.5">Document ID: {selected.id}</Text>
+              </Region>
+            </Box>
 
-            <div className="p-3 border-t border-line flex justify-between gap-2 shrink-0">
+            <Box className="p-3 border-t border-line flex justify-between gap-2 shrink-0">
               <Button
                 variant="secondary"
                 icon={RotateCw}
@@ -517,8 +521,8 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
               <Button variant="danger" icon={Trash2} onClick={() => setPendingDelete(selected)}>
                 Delete
               </Button>
-            </div>
-          </aside>
+            </Box>
+          </Aside>
         </>
       )}
 
@@ -540,7 +544,7 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
           </>
         }
       >
-        <form id="edit-verification" onSubmit={handleUpdate}>
+        <Form id="edit-verification" onSubmit={handleUpdate}>
           <Field
             label="Status"
             hint="Marking a request verified stamps the response time on the document."
@@ -550,13 +554,13 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
               onChange={(e) => setEditStatus(e.target.value as VerificationStatus)}
             >
               {VERIFICATION_STATUSES.map((s) => (
-                <option key={s} value={s}>
+                <Option key={s} value={s}>
                   {verificationMeta(s).label}
-                </option>
+                </Option>
               ))}
             </Select>
           </Field>
-        </form>
+        </Form>
       </Modal>
 
       {/* Delete */}
@@ -576,14 +580,14 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
           </>
         }
       >
-        <p className="text-body text-ink-2">
+        <Text className="text-body text-ink-2">
           The request for{' '}
-          <span className="text-ink font-medium font-mono">{pendingDelete?.ownerMobileE164}</span> will be
+          <Inline className="text-ink font-medium font-mono">{pendingDelete?.ownerMobileE164}</Inline> will be
           removed from the verificationrequests collection. This cannot be undone.
-        </p>
+        </Text>
       </Modal>
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
-    </div>
+    </Box>
   );
 };

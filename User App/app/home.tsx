@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import {
-  BottomSheet, Button, OfflineBanner, Radio, SearchField, Snackbar, Text, useAlert,
+  Button, OfflineBanner, SearchField, Snackbar, Text, useAlert,
 } from '@/components/ui';
 import {
   ExploreHeader, OngoingStrip, StateTemplate, TabBar, type TabItem,
@@ -20,13 +20,14 @@ import {
   SavedRow,
   type SavedEntry,
 } from '@/components/discovery';
-import { BookingRow, BookingSegments, ProfileGroup, ProfileRow } from '@/components/lifecycle';
+import { AppearanceRow, BookingRow, BookingSegments, ProfileGroup, ProfileRow } from '@/components/lifecycle';
 import { FoodComingSoon, FoodModule } from '@/components/food';
 import { TypographyScope } from '@/context/TypographyContext';
 import { foodHref } from '@/components/food/routes';
 import { useFoodMode } from '@/hooks/useAppEnv';
 import { emptyStates } from '@/constants/copy';
 import { useAppState } from '@/context/AppStateContext';
+import { useBottomBar } from '@/context/BottomBarContext';
 import { useAuth } from '@/context/AuthContext';
 import { useFood, type FoodTab } from '@/context/FoodContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
@@ -56,25 +57,6 @@ import { ownerWindowLabel } from '@/types/request';
  * look identical to an open one — worse than not showing it. The saved list
  * keeps them visible with the price struck, because there it is information.
  */
-
-/**
- * What the Appearance row says without being opened.
- *
- * "Phone setting" alone is not enough — a student who set it to follow the
- * phone and then wonders why the app is dark needs to be told which way that
- * resolved, and this row is the only place that can tell them.
- */
-const APPEARANCE_VALUE: Record<ThemePreference, (mode: 'light' | 'dark') => string> = {
-  light: () => 'Light',
-  dark: () => 'Dark',
-  system: (mode) => `Phone setting · ${mode === 'dark' ? 'Dark' : 'Light'}`,
-};
-
-const APPEARANCE_OPTIONS: readonly { id: ThemePreference; label: string }[] = [
-  { id: 'light', label: 'Light' },
-  { id: 'dark', label: 'Dark' },
-  { id: 'system', label: 'Use my phone setting' },
-];
 
 /**
  * The Food pivot: Profile leaves the bar and Food takes its slot, raised and
@@ -121,11 +103,21 @@ const FOOD_EXIT: TabItem = {
   tone: 'brand',
 };
 
-const FOOD_TAB_IDS = { home: 'food:home', search: 'food:search', orders: 'food:orders' } as const;
+const FOOD_TAB_IDS = {
+  home: 'food:home',
+  /* In the map but never in the bar — see `FoodTab`. Kept so `activeId` can
+     still be derived from `foodTab` without a special case; it simply matches
+     no tab, and the bar shows nothing selected while Search is open, which is
+     honest: none of the three places in the bar is where you are. */
+  search: 'food:search',
+  orders: 'food:orders',
+  dinein: 'food:dinein',
+} as const;
+
 
 
 export default function Home() {
-  const { colors, space, layout, mode, radius, preference, setPreference } = useTheme();
+  const { colors, space, layout, mode, radius } = useTheme();
   const router = useRouter();
   const { user, status, signOut } = useAuth();
   const { confirm } = useAlert();
@@ -144,6 +136,16 @@ export default function Home() {
   /* How much of the bottom edge the tab bar is occupying, measured by the bar
      itself. The snackbar has to clear it. */
   const { reservedBottom } = usePendingRequest();
+  /*
+   * The bar floats over the feeds now and slides away while one is being read
+   * down, so two things come from here rather than from the layout.
+   *
+   * `barScroll` is what tells it which way the thumb went — every vertical
+   * scrollable on this screen hands it their `onScroll`. `barHeight` is what
+   * they pad their content by, because there is no longer a bar in the column
+   * holding the last card clear of the bottom edge.
+   */
+  const { onScroll: barScroll, height: barHeight, showBar } = useBottomBar();
   /* The bottom bar belongs to this screen, so while Food is open this screen is
      the one that has to know which of the module's screens is showing. */
   const { foodTab, setFoodTab, liveOrder, foodUnread } = useFood();
@@ -192,7 +194,6 @@ export default function Home() {
     [category],
   );
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [themeOpen, setThemeOpen] = useState(false);
   const FOOD_MODE = useFoodMode();
   const [segment, setSegment] = useState<BookingSegment>('active');
   /*
@@ -550,13 +551,36 @@ export default function Home() {
     if (!inFoodHome) setBannerUnderHeader(true);
   }, [inFoodHome]);
 
+  /* And the bar comes back up on every tab change. Where the screen you just
+     LEFT was scrolled to says nothing about the one arriving, and arriving on
+     a screen whose bar is already hidden is arriving on a screen with no way
+     out of it. */
+  useEffect(() => {
+    showBar();
+  }, [tab, foodTab, showBar]);
+
+  /*
+   * Home, Orders, Dine In, and the way out.
+   *
+   * Search used to sit second and is gone from the bar — it is the one screen
+   * here with a door of its own on Home, the search field across the top of
+   * the feed, so it was the cheapest of the four to demote when Dine In needed
+   * a slot. Orders moved up into the space rather than Dine In taking it: an
+   * order in flight is the most time-critical thing this module holds, and the
+   * tab that carries the live dot belongs nearer the thumb than a browsing
+   * screen does.
+   *
+   * `walk` for Dine In rather than a plate or a table glyph. The decision it
+   * serves is "can I get there", and the whole screen is ordered by minutes on
+   * foot — the footprints say that where a table would only repeat the label.
+   */
   const FOOD_TABS = useMemo<readonly TabItem[]>(
     () => [
       { id: FOOD_TAB_IDS.home, label: 'Home', icon: 'food' },
-      { id: FOOD_TAB_IDS.search, label: 'Search', icon: 'search' },
       // The dot, not a count: there is only ever one order in flight, so a
       // number would always read "1" and say nothing the dot does not.
       { id: FOOD_TAB_IDS.orders, label: 'Orders', icon: 'agreement', dot: liveOrder !== null },
+      { id: FOOD_TAB_IDS.dinein, label: 'Dine In', icon: 'walk' },
       FOOD_EXIT,
     ],
     [liveOrder],
@@ -576,7 +600,9 @@ export default function Home() {
   const header = (
     <ExploreHeader
       locality={locality?.name ?? 'Choose an area'}
-      city={locality ? locality.city : undefined}
+      /* The sentinel carries no city, and "All locations · " with nothing
+         after it reads as a bug rather than as a scope. */
+      city={locality && !everywhere ? locality.city : undefined}
       onPressLocality={() => router.push('/(entry)/locality')}
       /*
        * Same two icons, repointed while Food is open — the header pivots
@@ -602,32 +628,18 @@ export default function Home() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      {/* Light while the bar is over artwork: the banner's own scrim darkens
+          the top of the picture, so the clock and battery follow the header's
+          ink rather than the theme's. */}
+      <StatusBar style={headerOverlay || mode === 'dark' ? 'light' : 'dark'} />
 
-      <ExploreHeader
-        locality={locality?.name ?? 'Choose an area'}
-        /* The sentinel carries no city, and "All locations · " with nothing
-           after it reads as a bug rather than as a scope. */
-        city={locality && !everywhere ? locality.city : undefined}
-        onPressLocality={() => router.push('/(entry)/locality')}
-        /*
-         * Same two icons, repointed while Food is open — the header pivots
-         * exactly the way the bottom bar already does, just without a swap
-         * animation of its own: nothing here is a set of tabs to cross-fade,
-         * only two destinations that quietly change what they open.
-         *
-         * Alerts is not a tab either side of the pivot — the stay pivot
-         * promoted Saved into the tab bar and this one has no tab to give it.
-         * The bell keeps it one tap from the feed on both sides.
-         */
-        onPressAlerts={() =>
-          router.push(inFoodModule ? foodHref.notifications : '/notifications')
-        }
-        alertCount={inFoodModule ? foodUnread : unread}
-        // Profile lost its tab to Food; the header is its one door on both
-        // sides, and which profile it opens follows the same pivot.
-        onPressProfile={() => (inFoodModule ? router.push(foodHref.profile) : setTab('profile'))}
-      />
+      {/* The one header, drawn in flow. On Food Home it is NOT drawn here:
+          it is the same element, pinned over the banner further down so
+          the artwork can run to the top of the screen. Rendering both
+          would stack two bars in the same place — two localities, two
+          profile marks, and a banner pushed down by a bar that is not
+          supposed to occupy any height there. */}
+      {inFoodHome ? null : header}
 
       {/* Persistent, and it always states the age of what is on screen — a
           stale rent is the dangerous case. The age is only claimed while the
@@ -637,8 +649,16 @@ export default function Home() {
 
       {tab === 'explore' ? (
         <ScrollView
-          contentContainerStyle={{ paddingTop: space[2], paddingBottom: space[8], gap: space[4] }}
+          contentContainerStyle={{
+            paddingTop: space[2],
+            /* `barHeight` on top of the usual tail, because the bar floats over
+               this list rather than sitting under it. */
+            paddingBottom: space[8] + barHeight,
+            gap: space[4],
+          }}
           showsVerticalScrollIndicator={false}
+          onScroll={barScroll}
+          scrollEventThrottle={16}
           refreshControl={
             <RefreshControl
               refreshing={feedFetching && !feedLoading}
@@ -835,7 +855,14 @@ export default function Home() {
         </ScrollView>
       ) : tab === 'saved' ? (
         <ScrollView
-          contentContainerStyle={{ flexGrow: 1, padding: layout.gutter, gap: space[3] }}
+          contentContainerStyle={{
+            flexGrow: 1,
+            padding: layout.gutter,
+            paddingBottom: layout.gutter + barHeight,
+            gap: space[3],
+          }}
+          onScroll={barScroll}
+          scrollEventThrottle={16}
           refreshControl={
             <RefreshControl
               refreshing={savedFetching && !savedPending}
@@ -891,7 +918,7 @@ export default function Home() {
              a route, so it never passes through that layout and would
              otherwise inherit the stay scale. */
           <TypographyScope module="food">
-            <FoodModule />
+            <FoodModule onBannerUnderHeader={setBannerUnderHeader} />
           </TypographyScope>
         ) : (
           <FoodComingSoon onExplore={() => setTab('explore')} />
@@ -900,7 +927,13 @@ export default function Home() {
         /* Screen 64. Every row carries its current value, so most visits here
            end without a tap. */
         <ScrollView
-          contentContainerStyle={{ padding: layout.gutter, gap: space[5], paddingBottom: space[8] }}
+          contentContainerStyle={{
+            padding: layout.gutter,
+            gap: space[5],
+            paddingBottom: space[8] + barHeight,
+          }}
+          onScroll={barScroll}
+          scrollEventThrottle={16}
         >
           <View style={[styles.identity, { gap: space[3] }]}>
             <View
@@ -964,12 +997,12 @@ export default function Home() {
             {/* Appearance is a real setting, not a preview toggle. It was only
                 reachable from the design-system sheets, which no student will
                 ever open — and the preference has always been persisted, so the
-                machinery was there and only the door was missing. */}
-            <ProfileRow
-              label="Appearance"
-              value={APPEARANCE_VALUE[preference](mode)}
-              onPress={() => setThemeOpen(true)}
-            />
+                machinery was there and only the door was missing.
+
+                It is also where the header's old moon/sun button went. The row
+                and its sheet are one component because Food's profile draws
+                the same setting — see `AppearanceRow`. */}
+            <AppearanceRow />
             {/* "Language · English" and "Notifications · All on" used to sit
                 here. Both were assertions about settings that do not exist —
                 there is no language anywhere in the app and no notification
@@ -1047,7 +1080,16 @@ export default function Home() {
           </View>
         </ScrollView>
       ) : (
-        <ScrollView contentContainerStyle={{ flexGrow: 1, padding: layout.gutter, gap: space[3] }}>
+        <ScrollView
+          contentContainerStyle={{
+            flexGrow: 1,
+            padding: layout.gutter,
+            paddingBottom: layout.gutter + barHeight,
+            gap: space[3],
+          }}
+          onScroll={barScroll}
+          scrollEventThrottle={16}
+        >
           <BookingSegments value={segment} onChange={setSegment} />
           {(() => {
             /*
@@ -1134,17 +1176,29 @@ export default function Home() {
         One bar, two vocabularies. Inside the built module it carries the
         module's screens; on the "coming soon" build there are no screens to
         carry, so it collapses to the way out instead.
+
+        Docked over the content rather than sitting below it in the column.
+        That is what lets it slide away while a feed is read down and have the
+        feed be what is underneath — a bar that dropped out of a flex column
+        would leave a band of page background behind it, which is not "the bar
+        is gone", it is "the bar is missing". Every scrollable above pays for
+        it with `barHeight` of extra tail padding.
+
+        `box-none` so the strip either side of the raised disc still belongs to
+        whatever is behind it.
       */}
-      <TabBar
-        tabs={inFoodModule ? FOOD_TABS : TABS}
-        activeId={inFoodModule ? FOOD_TAB_IDS[foodTab] : tab}
-        onChange={changeTab}
-        collapsedTo={tab === 'food' && !inFoodModule ? FOOD_EXIT : null}
-        /* Which set is in the bar, so it can animate the handover. Switching
-           between the module's own screens keeps the same name and gets no
-           transition — only crossing between the stay side and Food does. */
-        setId={tab === 'food' ? 'food' : 'stay'}
-      />
+      <View style={styles.dockedBar} pointerEvents="box-none">
+        <TabBar
+          tabs={inFoodModule ? FOOD_TABS : TABS}
+          activeId={inFoodModule ? FOOD_TAB_IDS[foodTab] : tab}
+          onChange={changeTab}
+          collapsedTo={tab === 'food' && !inFoodModule ? FOOD_EXIT : null}
+          /* Which set is in the bar, so it can animate the handover. Switching
+             between the module's own screens keeps the same name and gets no
+             transition — only crossing between the stay side and Food does. */
+          setId={tab === 'food' ? 'food' : 'stay'}
+        />
+      </View>
 
       {/* Six seconds, because a mis-tap on a bus is the case undo exists for. */}
       <Snackbar
@@ -1189,43 +1243,13 @@ export default function Home() {
         />
       </Modal>
 
-      {/*
-        Appearance.
-
-        Three choices, not a two-state switch. A switch can only say light or
-        dark, which forces a student who wants the app to follow their phone —
-        the majority, and the default — to keep flipping it by hand twice a day.
-
-        It applies on tap and persists immediately. There is no Save: a theme is
-        judged by looking at it, and a preview you have to commit to is a
-        preview nobody trusts.
-      */}
-      <BottomSheet
-        visible={themeOpen}
-        onClose={() => setThemeOpen(false)}
-        title="Appearance"
-      >
-        <View style={{ gap: space[2] }}>
-          {APPEARANCE_OPTIONS.map((option) => (
-            <Radio
-              key={option.id}
-              label={option.label}
-              selected={preference === option.id}
-              onSelect={() => setPreference(option.id)}
-            />
-          ))}
-          <Text variant="caption" color="tertiary">
-            Text size follows your phone in every mode — the app does not override it.
-          </Text>
-        </View>
-      </BottomSheet>
-
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   pinnedHeader: { position: 'absolute', top: 0, left: 0, right: 0 },
+  dockedBar: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   identity: { flexDirection: 'row', alignItems: 'center' },
   avatar: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
   couponCard: { padding: 16, gap: 2 },

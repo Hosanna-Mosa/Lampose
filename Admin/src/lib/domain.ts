@@ -23,7 +23,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { ElementType } from 'react';
-import type { BadgeTone } from '../components/ui';
+import type { BadgeTone } from '../components/common/atoms/Badge';
 import type {
   AdminRole,
   AdminStatus,
@@ -136,7 +136,7 @@ export const ADMIN_STATUSES: AdminStatus[] = ['Active', 'Inactive', 'Pending'];
  * is where the list is actually defined. `PROPERTY_CATEGORY_LABEL` below is
  * what a person reads; this is what goes over the wire and into the column.
  */
-export const PROPERTY_CATEGORIES = ['PG_HOSTEL', 'BACHELOR', 'HOTEL', 'COLIVE'];
+export const PROPERTY_CATEGORIES = ['PG_HOSTEL', 'BACHELOR', 'HOTEL', 'COLIVE', 'COMMERCIAL'];
 
 /** Code → what the console shows. Unknown codes render as themselves. */
 export const PROPERTY_CATEGORY_LABEL: Record<string, string> = {
@@ -144,6 +144,10 @@ export const PROPERTY_CATEGORY_LABEL: Record<string, string> = {
   BACHELOR: 'Bachelor',
   HOTEL: 'Hotels',
   COLIVE: 'House / Co-live',
+  /* Not a stay. The onboarding panel files shops, offices and godowns under
+     this, and the console is the only surface that shows every category
+     together — so it is the one place the word has to appear. */
+  COMMERCIAL: 'Shop / Commercial',
 };
 
 export const propertyCategoryLabel = (code: string): string =>

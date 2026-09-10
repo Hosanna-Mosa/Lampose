@@ -110,16 +110,46 @@ export default function App() {
   // Modal State
   const [activeModalProperty, setActiveModalProperty] = useState(null);
 
-  // Fetch properties only if authenticated
+  /*
+   * Fetch the listings, and say what actually went wrong when it fails.
+   *
+   * This used to answer every failure with "ensure Node server is running",
+   * which is the one explanation the agent cannot act on when it is not true
+   * — and it usually is not. `services/api.js` already classifies the failure
+   * (`kind`, `status`, and the server's own `message`) precisely so this does
+   * not have to guess; the old line threw all of it away and guessed anyway.
+   *
+   * The case it hid most often is an EXPIRED SESSION. The token lasts seven
+   * days, the header goes on showing the agent's name after it has lapsed, and
+   * every request comes back 401 — so the screen said the server was down
+   * while the server was answering perfectly well. That one gets handled
+   * rather than reported: `SESSION_EXPIRED` from the interceptor in api.js
+   * clears the session, and there is nothing to say beyond asking them to sign
+   * in again.
+   */
   const loadData = async () => {
     setLoading(true);
     setErrorMsg(null);
     const res = await fetchProperties();
+
     if (res && res.data) {
       setProperties(res.data);
-    } else {
-      setErrorMsg('Could not fetch listings from backend. Please ensure Node server is running.');
+      setLoading(false);
+      return;
     }
+
+    if (res?.status === 401) {
+      logout();
+      setUser(null);
+      setLoading(false);
+      return;
+    }
+
+    setErrorMsg(
+      res?.kind === 'network'
+        ? res.error
+        : res?.message || res?.error || 'Could not load listings.',
+    );
     setLoading(false);
   };
 
@@ -267,6 +297,25 @@ export default function App() {
         kitchenAvailable: true,
         waterSupply: '24 Hours'
       };
+    } else if (cat === 'COMMERCIAL') {
+      /*
+       * Only the answers that have a safe default.
+       *
+       * Bare shell is seeded because it is what most commercial units are
+       * handed over as, and a private washroom because a unit with none is the
+       * exception worth correcting. Everything the FORM marks required —
+       * suitable-for, area, floor — is deliberately left empty: seeding
+       * "Ground floor" would put a fact on the listing that no agent chose,
+       * and a wrong floor is not something a photograph corrects later.
+       */
+      defaultCategoryDetails = {
+        commercialUses: [],
+        builtUpArea: '',
+        floor: '',
+        commercialFurnishing: 'Bare shell',
+        washroom: 'Private washroom',
+        parking: 'No parking',
+      };
     }
 
     setFormData(prev => ({
@@ -281,12 +330,19 @@ export default function App() {
          than at the four this form seeds for everyone else — an untouched
          default would claim food and a water purifier on a property that has
          neither, and no agent could correct it. */
-      amenities: ['BACHELOR', 'COLIVE', 'HOTEL'].includes(cat) ? [] : prev.amenities,
+      /* COMMERCIAL joins them for the same reason and a sharper one: the four
+         seeded amenities are Food, RO Water and the like, and a shop claiming
+         food is not a default anybody would notice was wrong. */
+      amenities: ['BACHELOR', 'COLIVE', 'HOTEL', 'COMMERCIAL'].includes(cat) ? [] : prev.amenities,
       stayType: (cat === 'BACHELOR' || cat === 'COLIVE')
         ? ''
         /* A hotel quotes by the night, so it opens on the short-stay path
-           rather than inheriting whatever the previous category was on. */
-        : (cat === 'HOTEL' ? 'Short Stay' : (prev.stayType || 'Long Stay')),
+           rather than inheriting whatever the previous category was on. A shop
+           is the mirror: monthly, always, so it is pinned to Long Stay rather
+           than inheriting a Short Stay left behind by a hotel. */
+        : (cat === 'HOTEL'
+          ? 'Short Stay'
+          : (cat === 'COMMERCIAL' ? 'Long Stay' : (prev.stayType || 'Long Stay'))),
       categoryDetails: defaultCategoryDetails
     }));
   };

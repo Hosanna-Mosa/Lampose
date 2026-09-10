@@ -42,40 +42,43 @@ import {
   Truck,
   XCircle,
 } from 'lucide-react';
-import {
-  Badge,
-  Button,
-  Card,
-  DataRow,
-  EmptyState,
-  ErrorState,
-  Field,
-  Modal,
-  PageHeader,
-  Table,
-  TableSkeleton,
-  Td,
-  Textarea,
-  Th,
-  Toast,
-  Tr,
-  cx,
-  type BadgeTone,
-  type ToastState,
-} from '../components/ui';
+import { Badge } from '../components/common/atoms/Badge';
+import type { BadgeTone } from '../components/common/atoms/Badge';
+import { Button } from '../components/common/atoms/Button';
+import { Card } from '../components/common/atoms/Card';
+import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
+import { Textarea } from '../components/common/atoms/Textarea';
+import { DataRow } from '../components/common/molecules/DataRow';
+import { EmptyState } from '../components/common/molecules/EmptyState';
+import { ErrorState } from '../components/common/molecules/ErrorState';
+import { Field } from '../components/common/molecules/Field';
+import { PageHeader } from '../components/common/molecules/PageHeader';
+import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
+import { Modal } from '../components/common/organisms/Modal';
+import { Toast } from '../components/common/organisms/Toast';
+import type { ToastState } from '../components/common/organisms/Toast';
+import { cx } from '../components/common/utils';
 import { driverAdminService } from '../api/services/driverAdminService';
 import { useAuth } from '../context/AuthContext';
 import { useFetch } from '../lib/useFetch';
 import type {
   DriverDetail,
-  DriverDocument,
   DriverDocumentKind,
-  DriverDocumentStatus,
   DriverQueueCounts,
-  DriverRow,
   DriverStatus,
 } from '../api/types';
 
+import { Section } from '../components/common/molecules/Section';
+import { DocumentTally } from '../components/drivers/molecules/DocumentTally';
+import { DutyCell } from '../components/drivers/molecules/DutyCell';
+import { DocumentPanel } from '../components/drivers/organisms/DocumentPanel';
+import { day, ago } from '../components/drivers/utils';
+import { Box } from '../components/common/atoms/Box';
+import { Inline } from '../components/common/atoms/Inline';
+import { Link } from '../components/common/atoms/Link';
+import { PlainButton } from '../components/common/atoms/PlainButton';
+import { PlainTable, PlainTd, PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
+import { Text } from '../components/common/atoms/Text';
 interface DriversPageProps {
   search: string;
 }
@@ -104,19 +107,7 @@ const STATUS_LABEL: Record<DriverStatus, string> = {
   suspended: 'Suspended',
 };
 
-const DOC_TONE: Record<DriverDocumentStatus, BadgeTone> = {
-  verified: 'good',
-  pending: 'warn',
-  rejected: 'crit',
-  missing: 'neutral',
-};
 
-const DOC_LABEL: Record<DriverDocumentStatus, string> = {
-  verified: 'Verified',
-  pending: 'Awaiting review',
-  rejected: 'Rejected',
-  missing: 'Not sent',
-};
 
 const VEHICLE_LABEL: Record<string, string> = {
   bike: 'Motorcycle',
@@ -140,19 +131,7 @@ const money = (value: number | undefined | null): string =>
 const when = (iso: string | null | undefined): string =>
   iso ? new Date(iso).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 
-const day = (iso: string | null | undefined): string =>
-  iso ? new Date(iso).toLocaleDateString('en-IN', { dateStyle: 'medium' }) : '—';
 
-/** How long ago, for a position whose age is the whole of its meaning. */
-const ago = (iso: string | null | undefined): string => {
-  if (!iso) return 'never';
-  const seconds = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
-  if (!Number.isFinite(seconds) || seconds < 0) return 'just now';
-  if (seconds < 90) return `${seconds}s ago`;
-  if (seconds < 5400) return `${Math.round(seconds / 60)}m ago`;
-  if (seconds < 172800) return `${Math.round(seconds / 3600)}h ago`;
-  return `${Math.round(seconds / 86400)}d ago`;
-};
 
 export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
   const { user } = useAuth();
@@ -271,7 +250,7 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
   );
 
   return (
-    <div className="space-y-4">
+    <Box className="space-y-4">
       <PageHeader
         title="Delivery riders"
         description="Applications from the Driver app. Verify each document, then approve the account — approving is what lets a rider go online and be offered work."
@@ -283,19 +262,19 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
       />
 
       {summary.length > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Box className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {summary.map((s) => (
             <Card key={s.label} padded>
-              <p className="text-micro uppercase text-ink-3">{s.label}</p>
-              <p className="text-2xl font-semibold text-ink tabular mt-1">{s.value}</p>
+              <Text className="text-micro uppercase text-ink-3">{s.label}</Text>
+              <Text className="text-2xl font-semibold text-ink tabular mt-1">{s.value}</Text>
             </Card>
           ))}
-        </div>
+        </Box>
       )}
 
-      <div className="flex flex-wrap items-center gap-1.5">
+      <Box className="flex flex-wrap items-center gap-1.5">
         {FILTERS.map((f) => (
-          <button
+          <PlainButton
             key={f.id}
             onClick={() => setStatus(f.id)}
             className={cx(
@@ -306,12 +285,12 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
             )}
           >
             {f.label}
-          </button>
+          </PlainButton>
         ))}
-        <span className="w-px h-5 bg-line mx-1" aria-hidden />
+        <Inline className="w-px h-5 bg-line mx-1" aria-hidden />
         {/* Duty is orthogonal to approval — an approved rider is usually
             offline — so this is its own toggle rather than a sixth status. */}
-        <button
+        <PlainButton
           onClick={() => setOnlineOnly((v) => !v)}
           className={cx(
             'h-8 px-3 rounded-control text-body transition-colors inline-flex items-center gap-1.5',
@@ -322,8 +301,8 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
         >
           <Truck className="size-3.5" />
           On duty now
-        </button>
-      </div>
+        </PlainButton>
+      </Box>
 
       <Card>
         {queue.loading ? (
@@ -342,7 +321,7 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
           />
         ) : (
           <Table>
-            <thead>
+            <TableHead>
               <Tr>
                 <Th>Rider</Th>
                 <Th>Vehicle</Th>
@@ -352,19 +331,19 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
                 <Th>Applied</Th>
                 <Th />
               </Tr>
-            </thead>
-            <tbody>
+            </TableHead>
+            <TableBody>
               {rows.map((row) => (
                 <Tr key={row.driverId}>
                   <Td>
-                    <p className="font-medium text-ink">{row.name || 'Unnamed rider'}</p>
-                    <p className="text-label text-ink-3 font-mono tabular">
+                    <Text className="font-medium text-ink">{row.name || 'Unnamed rider'}</Text>
+                    <Text className="text-label text-ink-3 font-mono tabular">
                       {row.phone} · {row.driverId}
-                    </p>
+                    </Text>
                   </Td>
                   <Td>
-                    <p className="text-ink-2">{VEHICLE_LABEL[row.vehicle.type ?? ''] ?? '—'}</p>
-                    <p className="text-label text-ink-3 font-mono">{dash(row.vehicle.plate)}</p>
+                    <Text className="text-ink-2">{VEHICLE_LABEL[row.vehicle.type ?? ''] ?? '—'}</Text>
+                    <Text className="text-label text-ink-3 font-mono">{dash(row.vehicle.plate)}</Text>
                   </Td>
                   <Td>
                     <DocumentTally row={row} />
@@ -383,7 +362,7 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
                   </Td>
                 </Tr>
               ))}
-            </tbody>
+            </TableBody>
           </Table>
         )}
       </Card>
@@ -397,7 +376,7 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
         size="lg"
         footer={
           canDecide && open ? (
-            <div className="flex flex-wrap items-center justify-end gap-2 w-full">
+            <Box className="flex flex-wrap items-center justify-end gap-2 w-full">
               {open.status === 'suspended' || open.status === 'rejected' ? (
                 <Button icon={CheckCircle2} onClick={() => decide('approved')} disabled={busy}>
                   Reinstate
@@ -422,19 +401,19 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
                   </Button>
                 </>
               )}
-            </div>
+            </Box>
           ) : undefined
         }
       >
         {detail.loading ? (
-          <p className="text-body text-ink-3">Loading the rider…</p>
+          <Text className="text-body text-ink-3">Loading the rider…</Text>
         ) : detail.error ? (
           <ErrorState message={detail.error} onRetry={detail.reload} />
         ) : !open ? (
-          <p className="text-body text-ink-3">Nothing to show.</p>
+          <Text className="text-body text-ink-3">Nothing to show.</Text>
         ) : (
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-center gap-2">
+          <Box className="space-y-5">
+            <Box className="flex flex-wrap items-center gap-2">
               <Badge tone={STATUS_TONE[open.status]}>{STATUS_LABEL[open.status]}</Badge>
               {open.isOnline && (
                 <Badge tone={open.locationFresh ? 'good' : 'warn'} icon={Truck}>
@@ -445,30 +424,30 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
                 <Badge tone="brand">Carrying {open.currentOrderNumber}</Badge>
               )}
               {!open.hasCompletedOnboarding && <Badge tone="warn">Sign-up unfinished</Badge>}
-            </div>
+            </Box>
 
             {!!open.statusReason && (
-              <div className="rounded-control bg-surface-inset p-3">
-                <p className="text-micro uppercase text-ink-3 mb-1">Reason on file — the rider sees this</p>
-                <p className="text-body text-ink-2">{open.statusReason}</p>
-              </div>
+              <Box className="rounded-control bg-surface-inset p-3">
+                <Text className="text-micro uppercase text-ink-3 mb-1">Reason on file — the rider sees this</Text>
+                <Text className="text-body text-ink-2">{open.statusReason}</Text>
+              </Box>
             )}
 
             {/* What the rider still has to send, in the same words their own
                 app is showing them — so support answering "why am I not
                 approved" reads exactly what the rider is looking at. */}
             {open.onboardingMissing.length > 0 && (
-              <div className="rounded-control border border-warn-border bg-warn-soft p-3">
-                <p className="text-micro uppercase text-warn mb-1">Sign-up incomplete</p>
-                <p className="text-body text-warn">
+              <Box className="rounded-control border border-warn-border bg-warn-soft p-3">
+                <Text className="text-micro uppercase text-warn mb-1">Sign-up incomplete</Text>
+                <Text className="text-body text-warn">
                   Still to add: {open.onboardingMissing.join(', ')}.
-                </p>
-              </div>
+                </Text>
+              </Box>
             )}
 
             {/* ── The documents. The reason this page exists. ───────────── */}
             <Section title="Documents">
-              <div className="space-y-3">
+              <Box className="space-y-3">
                 {open.documents.map((doc) => (
                   <DocumentPanel
                     key={doc.kind}
@@ -480,7 +459,7 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
                     onDecide={(verdict) => decideDocument(doc.kind, verdict)}
                   />
                 ))}
-              </div>
+              </Box>
             </Section>
 
             <Section title="Who they are">
@@ -495,7 +474,7 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
                 label="Profile photo"
                 value={
                   open.profilePhotoUrl ? (
-                    <a
+                    <Link
                       className="text-brand-ink inline-flex items-center gap-1 hover:underline"
                       href={open.profilePhotoUrl}
                       target="_blank"
@@ -503,7 +482,7 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
                     >
                       <Eye className="size-3.5" /> View
                       <ExternalLink className="size-3" />
-                    </a>
+                    </Link>
                   ) : (
                     'Not uploaded'
                   )
@@ -530,7 +509,7 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
                 label="Position"
                 value={
                   open.currentLocation ? (
-                    <a
+                    <Link
                       className="text-brand-ink inline-flex items-center gap-1 hover:underline"
                       /* `currentLocation` is `[longitude, latitude]` all the
                          way from Mongo; Google wants lat,lng — this is the one
@@ -542,7 +521,7 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
                       <MapPin className="size-3.5" />
                       {open.currentLocation[1].toFixed(5)}, {open.currentLocation[0].toFixed(5)}
                       <ExternalLink className="size-3" />
-                    </a>
+                    </Link>
                   ) : (
                     'Never reported'
                   )
@@ -554,10 +533,10 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
                   /* An "online" rider the matcher skips is the single most
                      confusing state an operator can be shown, so it is spelled
                      out rather than left to be inferred from a timestamp. */
-                  <span className={open.isOnline && !open.locationFresh ? 'text-crit' : undefined}>
+                  <Inline className={open.isOnline && !open.locationFresh ? 'text-crit' : undefined}>
                     {ago(open.locationUpdatedAt)}
                     {open.isOnline && !open.locationFresh && ' — too old to be offered work'}
-                  </span>
+                  </Inline>
                 }
               />
               <DataRow label="Handsets registered" value={String(open.deviceCount)} />
@@ -585,32 +564,32 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
 
             {open.recentDeliveries.length > 0 && (
               <Section title={`Last ${open.recentDeliveries.length} orders`}>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-body">
-                    <tbody>
+                <Box className="overflow-x-auto">
+                  <PlainTable className="w-full text-body">
+                    <TableBody>
                       {open.recentDeliveries.map((order) => (
-                        <tr key={order.orderNumber} className="border-b border-line last:border-0">
-                          <td className="py-1.5 pr-3 font-mono tabular text-ink">
+                        <PlainTr key={order.orderNumber} className="border-b border-line last:border-0">
+                          <PlainTd className="py-1.5 pr-3 font-mono tabular text-ink">
                             {order.orderNumber}
-                          </td>
-                          <td className="py-1.5 pr-3 text-ink-3">{order.status}</td>
-                          <td className="py-1.5 pr-3 text-ink-3 whitespace-nowrap">
+                          </PlainTd>
+                          <PlainTd className="py-1.5 pr-3 text-ink-3">{order.status}</PlainTd>
+                          <PlainTd className="py-1.5 pr-3 text-ink-3 whitespace-nowrap">
                             {day(order.deliveredAt || order.placedAt)}
-                          </td>
-                          <td className="py-1.5 text-right tabular text-ink-2">
+                          </PlainTd>
+                          <PlainTd className="py-1.5 text-right tabular text-ink-2">
                             {money(order.earnings)}
-                          </td>
-                        </tr>
+                          </PlainTd>
+                        </PlainTr>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
+                    </TableBody>
+                  </PlainTable>
+                </Box>
               </Section>
             )}
 
             {/* ── The account decision ─────────────────────────────────── */}
             {canDecide ? (
-              <div className="border-t border-line pt-4">
+              <Box className="border-t border-line pt-4">
                 <Field
                   label="Reason"
                   hint="Required to reject or suspend. The rider reads this in their app, and support has to be able to explain it."
@@ -623,172 +602,32 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
                   />
                 </Field>
                 {!open.documentsReady && open.status !== 'approved' && (
-                  <p className="text-label text-warn mt-2 flex items-center gap-1.5">
+                  <Text className="text-label text-warn mt-2 flex items-center gap-1.5">
                     <CircleSlash className="size-3.5 shrink-0" />
                     The required documents are not all on file. You can still approve — the gap is
                     recorded against the decision.
-                  </p>
+                  </Text>
                 )}
-              </div>
+              </Box>
             ) : (
-              <div className="border-t border-line pt-4">
-                <p className="text-body text-ink-3 flex items-center gap-2">
+              <Box className="border-t border-line pt-4">
+                <Text className="text-body text-ink-3 flex items-center gap-2">
                   <ShieldCheck className="size-4" />
                   Your role can read this queue but not decide on it.
-                </p>
-              </div>
+                </Text>
+              </Box>
             )}
-          </div>
+          </Box>
         )}
       </Modal>
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
-    </div>
+    </Box>
   );
 };
 
 /* ── Pieces ───────────────────────────────────────────────────────────────── */
 
-/** "3 of 5 verified", plus the one number an approver has to act on. */
-const DocumentTally: React.FC<{ row: DriverRow }> = ({ row }) => {
-  const verified = row.documentCounts.verified ?? 0;
-  const rejected = row.documentCounts.rejected ?? 0;
-  const pending = row.documentCounts.pending ?? 0;
 
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-body tabular text-ink-2">
-        {verified}/{row.documents.length}
-      </span>
-      {rejected > 0 && <Badge tone="crit">{rejected} rejected</Badge>}
-      {rejected === 0 && pending > 0 && <Badge tone="warn">{pending} to review</Badge>}
-      {rejected === 0 && pending === 0 && verified === 0 && <Badge tone="neutral">None sent</Badge>}
-    </div>
-  );
-};
 
-/** Duty, and whether the dispatcher can actually see them. */
-const DutyCell: React.FC<{ row: DriverRow }> = ({ row }) => {
-  if (!row.isOnline) return <span className="text-label text-ink-3">Offline</span>;
-  return (
-    <div className="flex flex-col gap-0.5">
-      <Badge tone={row.locationFresh ? 'good' : 'warn'}>
-        {row.locationFresh ? 'On duty' : 'Position stale'}
-      </Badge>
-      <span className="text-label text-ink-3">{ago(row.locationUpdatedAt)}</span>
-    </div>
-  );
-};
 
-/**
- * One document: the scans, the number, the verdict, and the two buttons.
- *
- * The scans open in a new tab rather than rendering inline. A licence has to be
- * READ — a number, an expiry, a photograph compared against a face — and a
- * 200px thumbnail in a dialog is exactly the size at which an approver stops
- * checking and starts approving.
- */
-const DocumentPanel: React.FC<{
-  doc: DriverDocument;
-  canDecide: boolean;
-  busy: boolean;
-  note: string;
-  onNote: (value: string) => void;
-  onDecide: (verdict: 'verified' | 'rejected') => void;
-}> = ({ doc, canDecide, busy, note, onNote, onDecide }) => {
-  const sent = doc.status !== 'missing';
-
-  return (
-    <div
-      className={cx(
-        'rounded-control border p-3',
-        doc.status === 'rejected' ? 'border-crit-border bg-crit-soft' : 'border-line bg-surface-subtle'
-      )}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-body font-medium text-ink">
-            {doc.label}
-            {!doc.required && <span className="text-label text-ink-3 font-normal"> · optional</span>}
-          </p>
-          <p className="text-label text-ink-3 font-mono tabular">
-            {doc.number || 'no number given'}
-            {doc.submittedAt ? ` · sent ${day(doc.submittedAt)}` : ''}
-            {doc.reviewedAt ? ` · reviewed ${day(doc.reviewedAt)}` : ''}
-          </p>
-        </div>
-        <Badge tone={DOC_TONE[doc.status]}>{DOC_LABEL[doc.status]}</Badge>
-      </div>
-
-      {!!doc.reason && (
-        <p className="text-label text-crit mt-2">Told the rider: “{doc.reason}”</p>
-      )}
-
-      {sent && (
-        <div className="flex flex-wrap gap-2 mt-2.5">
-          {(['frontUrl', 'backUrl'] as const).map((side) =>
-            doc[side] ? (
-              <a
-                key={side}
-                href={doc[side]}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-control border border-line bg-surface text-body text-ink-2 hover:bg-surface-inset"
-              >
-                <Eye className="size-3.5" />
-                {side === 'frontUrl' ? 'Front' : 'Back'}
-                <ExternalLink className="size-3 text-ink-3" />
-              </a>
-            ) : null
-          )}
-          {!doc.backUrl && (
-            <span className="inline-flex items-center h-8 px-2.5 text-label text-ink-3">
-              No reverse side sent
-            </span>
-          )}
-        </div>
-      )}
-
-      {canDecide && sent && (
-        <div className="mt-3 space-y-2">
-          <Textarea
-            rows={1}
-            value={note}
-            onChange={(e) => onNote(e.target.value)}
-            placeholder="Why it is being sent back — required to reject"
-          />
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button
-              variant="danger"
-              icon={XCircle}
-              onClick={() => onDecide('rejected')}
-              disabled={busy || doc.status === 'rejected'}
-            >
-              Send back
-            </Button>
-            <Button
-              icon={CheckCircle2}
-              onClick={() => onDecide('verified')}
-              disabled={busy || doc.status === 'verified'}
-            >
-              Verify
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {!sent && (
-        <p className="text-label text-ink-3 mt-2">
-          The rider has not sent this yet. Nothing to review.
-        </p>
-      )}
-    </div>
-  );
-};
-
-const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <div>
-    <p className="text-micro uppercase text-ink-3 mb-1.5">{title}</p>
-    <div>{children}</div>
-  </div>
-);

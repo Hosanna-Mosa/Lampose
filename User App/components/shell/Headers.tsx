@@ -89,34 +89,19 @@ export function ExploreHeader({
   userName,
   variant = 'surface',
 }: ExploreHeaderProps) {
-  const { colors, space, layout, touch, radius, mode, setPreference } = useTheme();
+  const { colors, space, layout, touch, radius } = useTheme();
   const insets = useSafeAreaInsets();
 
   const initial = userName?.trim().charAt(0).toUpperCase() || null;
 
-  /*
-   * The appearance toggle.
-   *
-   * It reads the theme itself rather than taking a prop, because every screen
-   * that draws this header wants the same control and threading two more props
-   * through each of them buys nothing.
-   *
-   * ## It is a two-state toggle over a three-state setting
-   *
-   * The preference is `light | dark | system`. A header button that cycles
-   * three states is a button whose next press you cannot predict — and the
-   * third state is the confusing one, because "system" LOOKS like whichever of
-   * the other two the phone happens to be set to. So this sets an explicit
-   * light or dark, chosen as the opposite of what is currently RENDERED, which
-   * makes one tap mean exactly one visible change whatever the setting was
-   * before.
-   *
-   * Choosing `system` again is still possible — Profile › Appearance offers all
-   * three. This is the quick control, that one is the full one, and the split
-   * is deliberate: the setting somebody sets once lives in settings, the one
-   * they flip when a room gets dark lives where their thumb already is.
-   */
-  const nextMode = mode === 'dark' ? 'light' : 'dark';
+  /* The appearance toggle used to sit here — a moon/sun button between the
+     locality and the bell. It has moved to "App appearance" on both
+     profiles: it is a set-once setting rather than something a thumb
+     reaches for from a feed, it could only ever reach two of the
+     preference's three states ("follow my phone" was unreachable, and it
+     is the default), and this bar has to stay legible over Food Home's
+     artwork, where every mark it carries costs contrast. See
+     `AppearanceRow`. */
 
   /* Over artwork every mark goes white — icons, both lines of the locality,
      the initial. The scrim below is what makes that a safe single choice
@@ -137,11 +122,20 @@ export function ExploreHeader({
       ]}
     >
       {over ? (
-        /* Top-weighted and fading out by the bar's own bottom edge, so it
-           darkens what is behind the WORDS and stops before it becomes a
-           band lying across the picture. */
+        /*
+         * Top-weighted and fading out by the bar's own bottom edge, so it
+         * darkens what is behind the WORDS and stops before it becomes a band
+         * lying across the picture.
+         *
+         * Halved from 0.55/0.28. At the old strength it read as a black wash
+         * over the top of the artwork rather than as contrast behind two lines
+         * of text — and it used to have a second gradient stacked under it on
+         * Food Home, which is what turned "a bit dark" into a visible dark
+         * rectangle. That one is gone; this one is now as light as it can be
+         * and still carry white ink over the brightest of the four banners.
+         */
         <LinearGradient
-          colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0.28)', 'rgba(0,0,0,0)']}
+          colors={['rgba(0,0,0,0.28)', 'rgba(0,0,0,0.12)', 'rgba(0,0,0,0)']}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
           style={StyleSheet.absoluteFill}
@@ -177,14 +171,6 @@ export function ExploreHeader({
         </Pressable>
 
         <View style={styles.row}>
-          {/* 20, matching the bell beside it — see the note there. */}
-          <IconButton
-            name={mode === 'dark' ? 'sun' : 'moon'}
-            size={20}
-            ink={ink}
-            onPress={() => setPreference(nextMode)}
-            accessibilityLabel={`Switch to ${nextMode} theme`}
-          />
           <View>
             {/* 20, matching the chevron on the locality beside it.
                 At the IconButton default of 24 the bell was the largest mark in

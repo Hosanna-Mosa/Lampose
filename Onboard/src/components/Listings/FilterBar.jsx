@@ -1,12 +1,13 @@
 import React from 'react';
-import { Search, Home, Building2, BedDouble, Users, SlidersHorizontal, UserCheck, Globe } from 'lucide-react';
+import { Search, Home, Building2, BedDouble, Users, Store, SlidersHorizontal, UserCheck, Globe } from 'lucide-react';
 
 const CATEGORIES = [
   { id: 'All', label: 'All Categories', icon: Home },
   { id: 'PG_HOSTEL', label: 'PG / Hostel', icon: Building2 },
   { id: 'BACHELOR', label: 'Bachelor', icon: Users },
   { id: 'COLIVE', label: 'House / Co-live', icon: Home },
-  { id: 'HOTEL', label: 'Hotels', icon: BedDouble }
+  { id: 'HOTEL', label: 'Hotels', icon: BedDouble },
+  { id: 'COMMERCIAL', label: 'Shop / Commercial', icon: Store }
 ];
 
 export default function FilterBar({

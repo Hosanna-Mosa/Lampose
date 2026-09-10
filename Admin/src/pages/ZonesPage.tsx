@@ -72,32 +72,37 @@ import {
   Polygon as MapPolygon,
   useJsApiLoader,
 } from '@react-google-maps/api';
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorState,
-  Field,
-  Input,
-  Modal,
-  PageHeader,
-  Select,
-  Table,
-  TableSkeleton,
-  Td,
-  Textarea,
-  Th,
-  Toast,
-  Tr,
-  cx,
-  type BadgeTone,
-  type ToastState,
-} from '../components/ui';
+import { Badge } from '../components/common/atoms/Badge';
+import type { BadgeTone } from '../components/common/atoms/Badge';
+import { Button } from '../components/common/atoms/Button';
+import { Card } from '../components/common/atoms/Card';
+import { Input } from '../components/common/atoms/Input';
+import { Select } from '../components/common/atoms/Select';
+import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
+import { Textarea } from '../components/common/atoms/Textarea';
+import { EmptyState } from '../components/common/molecules/EmptyState';
+import { ErrorState } from '../components/common/molecules/ErrorState';
+import { Field } from '../components/common/molecules/Field';
+import { PageHeader } from '../components/common/molecules/PageHeader';
+import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
+import { Modal } from '../components/common/organisms/Modal';
+import { Toast } from '../components/common/organisms/Toast';
+import type { ToastState } from '../components/common/organisms/Toast';
+import { cx } from '../components/common/utils';
 import { zoneService } from '../api/services/zoneService';
 import { useAuth } from '../context/AuthContext';
 import { useFetch } from '../lib/useFetch';
 import type { ZoneInput, ZoneRow, ZoneService, ZoneType } from '../api/types';
+import { Box } from '../components/common/atoms/Box';
+import { Code } from '../components/common/atoms/Code';
+import { Inline } from '../components/common/atoms/Inline';
+import { Label } from '../components/common/atoms/Label';
+import { Option } from '../components/common/atoms/Option';
+import { PlainButton } from '../components/common/atoms/PlainButton';
+import { PlainInput } from '../components/common/atoms/PlainInput';
+import { TableBody, TableHead } from '../components/common/atoms/PlainTable';
+import { Strong } from '../components/common/atoms/Strong';
+import { Text } from '../components/common/atoms/Text';
 
 interface ZonesPageProps {
   search: string;
@@ -497,12 +502,12 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
     : [];
 
   return (
-    <div className="space-y-4">
+    <Box className="space-y-4">
       <PageHeader
         title="Service zones"
         description="Where Lampose operates, and what a delivery inside each area is multiplied by. The apps read these the moment you save them."
         actions={
-          <div className="flex items-center gap-2">
+          <Box className="flex items-center gap-2">
             <Button variant="ghost" icon={RefreshCw} onClick={zones.reload} disabled={zones.refreshing}>
               Refresh
             </Button>
@@ -511,19 +516,19 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
                 Create zone
               </Button>
             )}
-          </div>
+          </Box>
         }
       />
 
       {!mapUsable && (
         <Card padded>
-          <div className="flex items-start gap-3">
+          <Box className="flex items-start gap-3">
             <KeyRound className="size-4 text-warn shrink-0 mt-0.5" />
-            <div className="min-w-0">
-              <p className="text-body font-medium text-ink">
+            <Box className="min-w-0">
+              <Text className="text-body font-medium text-ink">
                 {MAPS_KEY ? 'The Google Maps key failed to load' : 'No Google Maps key is set'}
-              </p>
-              <p className="text-body text-ink-2 mt-1">
+              </Text>
+              <Text className="text-body text-ink-2 mt-1">
                 {MAPS_KEY ? (
                   <>
                     Google rejected it, or it could not be reached — check that it is valid, that
@@ -536,31 +541,31 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
                 {!MAPS_KEY && (
                   <>
                     {' '}To draw by clicking, add{' '}
-                    <code className="font-mono text-label bg-surface-inset px-1 py-0.5 rounded">
+                    <Code className="font-mono text-label bg-surface-inset px-1 py-0.5 rounded">
                       VITE_GOOGLE_MAPS_API_KEY=…
-                    </code>{' '}
-                    to <code className="font-mono text-label">Admin/.env</code> and restart the dev
+                    </Code>{' '}
+                    to <Code className="font-mono text-label">Admin/.env</Code> and restart the dev
                     server.
                   </>
                 )}
-              </p>
-            </div>
-          </div>
+              </Text>
+            </Box>
+          </Box>
         </Card>
       )}
 
       {summary.length > 0 && (
-        <div className="grid grid-cols-3 gap-3">
+        <Box className="grid grid-cols-3 gap-3">
           {summary.map((s) => (
             <Card key={s.label} padded>
-              <p className="text-micro uppercase text-ink-3">{s.label}</p>
-              <p className="text-2xl font-semibold text-ink tabular mt-1">{s.value}</p>
+              <Text className="text-micro uppercase text-ink-3">{s.label}</Text>
+              <Text className="text-2xl font-semibold text-ink tabular mt-1">{s.value}</Text>
             </Card>
           ))}
-        </div>
+        </Box>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <Box className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         {/* ── The list ──────────────────────────────────────────────── */}
         <Card className="xl:col-span-2">
           {zones.loading ? (
@@ -575,7 +580,7 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
             />
           ) : (
             <Table>
-              <thead>
+              <TableHead>
                 <Tr>
                   <Th>Zone</Th>
                   <Th>Shape</Th>
@@ -584,8 +589,8 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
                   <Th>Status</Th>
                   <Th />
                 </Tr>
-              </thead>
-              <tbody>
+              </TableHead>
+              <TableBody>
                 {rows.map((zone) => (
                   <Tr
                     key={zone.zoneId}
@@ -596,11 +601,11 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
                     onClick={() => pick(zone)}
                   >
                     <Td>
-                      <p className="font-medium text-ink">{zone.name}</p>
-                      <p className="text-label text-ink-3 font-mono tabular">{zone.zoneId}</p>
+                      <Text className="font-medium text-ink">{zone.name}</Text>
+                      <Text className="text-label text-ink-3 font-mono tabular">{zone.zoneId}</Text>
                     </Td>
                     <Td>
-                      <span className="inline-flex items-center gap-1.5 text-ink-2">
+                      <Inline className="inline-flex items-center gap-1.5 text-ink-2">
                         {zone.type === 'circle' ? (
                           <>
                             <Compass className="size-3.5" />
@@ -614,7 +619,7 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
                               : 'polygon'}
                           </>
                         )}
-                      </span>
+                      </Inline>
                     </Td>
                     <Td className="text-right">
                       <Badge tone={multiplierTone(zone.pricingMultiplier)}>
@@ -637,7 +642,7 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
                       </Badge>
                     </Td>
                     <Td className="text-right">
-                      <div
+                      <Box
                         className="flex items-center justify-end gap-1"
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -667,43 +672,43 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
                             </Button>
                           </>
                         )}
-                      </div>
+                      </Box>
                     </Td>
                   </Tr>
                 ))}
-              </tbody>
+              </TableBody>
             </Table>
           )}
         </Card>
 
         {/* ── The preview map ───────────────────────────────────────── */}
         <Card className="overflow-hidden">
-          <div className="px-4 py-3 border-b border-line">
-            <p className="text-body font-medium text-ink">
+          <Box className="px-4 py-3 border-b border-line">
+            <Text className="text-body font-medium text-ink">
               {selected ? selected.name : 'Nothing selected'}
-            </p>
-            <p className="text-label text-ink-3">
+            </Text>
+            <Text className="text-label text-ink-3">
               {selected
                 ? selected.type === 'circle'
                   ? `Circle · ${selected.radius ?? 0} m`
                   : `Polygon · ${selected.boundary?.[0] ? openRing(selected.boundary[0]).length : 0} points`
                 : 'Pick a zone from the list.'}
-            </p>
-          </div>
-          <div className="h-[420px] bg-surface-inset relative">
+            </Text>
+          </Box>
+          <Box className="h-[420px] bg-surface-inset relative">
             {!mapUsable ? (
-              <div className="absolute inset-0 grid place-items-center text-center px-6">
-                <div>
+              <Box className="absolute inset-0 grid place-items-center text-center px-6">
+                <Box>
                   <MapIcon className="size-6 text-ink-3 mx-auto mb-2" />
-                  <p className="text-body text-ink-3">
+                  <Text className="text-body text-ink-3">
                     {MAPS_KEY ? 'The Google Maps key failed to load.' : 'The map needs a Google Maps key.'}
-                  </p>
-                </div>
-              </div>
+                  </Text>
+                </Box>
+              </Box>
             ) : !isLoaded ? (
-              <div className="absolute inset-0 grid place-items-center">
+              <Box className="absolute inset-0 grid place-items-center">
                 <RefreshCw className="size-5 animate-spin text-brand" />
-              </div>
+              </Box>
             ) : (
               <GoogleMap
                 mapContainerStyle={{ width: '100%', height: '100%' }}
@@ -751,9 +756,9 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
                 })}
               </GoogleMap>
             )}
-          </div>
+          </Box>
         </Card>
-      </div>
+      </Box>
 
       {/* ── Draw / edit ─────────────────────────────────────────────── */}
       <Modal
@@ -763,19 +768,19 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
         description="Click the map to place points. Drag a numbered node to move it."
         size="lg"
         footer={
-          <div className="flex items-center justify-end gap-2 w-full">
+          <Box className="flex items-center justify-end gap-2 w-full">
             <Button variant="ghost" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button onClick={save} disabled={busy}>
               {busy ? 'Saving…' : draft.zoneId ? 'Save changes' : 'Create zone'}
             </Button>
-          </div>
+          </Box>
         }
       >
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <Box className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* ── The form ───────────────────────────────────────────── */}
-          <div className="space-y-4">
+          <Box className="space-y-4">
             <Field label="Zone name" required>
               <Input
                 value={draft.name}
@@ -784,7 +789,7 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
               />
             </Field>
 
-            <div className="grid grid-cols-2 gap-3">
+            <Box className="grid grid-cols-2 gap-3">
               <Field label="Shape">
                 <Select
                   value={draft.type}
@@ -800,8 +805,8 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
                     }));
                   }}
                 >
-                  <option value="polygon">Polygon — a custom shape</option>
-                  <option value="circle">Circle — a centre and a radius</option>
+                  <Option value="polygon">Polygon — a custom shape</Option>
+                  <Option value="circle">Circle — a centre and a radius</Option>
                 </Select>
               </Field>
               <Field label="Price multiplier" hint="1.0 changes nothing.">
@@ -814,23 +819,23 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
                   onChange={(e) => set('multiplier', e.target.value)}
                 />
               </Field>
-            </div>
+            </Box>
 
             {draft.type === 'circle' ? (
-              <div className="rounded-control border border-line bg-surface-subtle p-3 space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-label font-medium text-ink flex items-center gap-1.5">
+              <Box className="rounded-control border border-line bg-surface-subtle p-3 space-y-3">
+                <Box className="flex items-center justify-between">
+                  <Text className="text-label font-medium text-ink flex items-center gap-1.5">
                     <Crosshair className="size-3.5 text-brand" /> Centre
-                  </p>
-                  <button
+                  </Text>
+                  <PlainButton
                     type="button"
                     onClick={clearShape}
                     className="text-label text-crit hover:underline"
                   >
                     Clear
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+                  </PlainButton>
+                </Box>
+                <Box className="grid grid-cols-2 gap-3">
                   <Field label="Latitude">
                     <Input
                       type="number"
@@ -849,7 +854,7 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
                       placeholder="81.7836"
                     />
                   </Field>
-                </div>
+                </Box>
                 <Field label="Radius (metres)">
                   <Input
                     type="number"
@@ -858,54 +863,54 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
                     onChange={(e) => set('radius', e.target.value)}
                   />
                 </Field>
-              </div>
+              </Box>
             ) : (
-              <div className="rounded-control border border-line bg-surface-subtle p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-label font-medium text-ink flex items-center gap-1.5">
+              <Box className="rounded-control border border-line bg-surface-subtle p-3 space-y-2">
+                <Box className="flex items-center justify-between">
+                  <Text className="text-label font-medium text-ink flex items-center gap-1.5">
                     <Shapes className="size-3.5 text-brand" /> {draft.points.length} point
                     {draft.points.length === 1 ? '' : 's'}
-                  </p>
-                  <div className="flex items-center gap-3">
-                    <button
+                  </Text>
+                  <Box className="flex items-center gap-3">
+                    <PlainButton
                       type="button"
                       onClick={undoPoint}
                       disabled={!draft.points.length}
                       className="text-label text-brand-ink hover:underline disabled:opacity-40 inline-flex items-center gap-1"
                     >
                       <Undo2 className="size-3" /> Undo
-                    </button>
-                    <button
+                    </PlainButton>
+                    <PlainButton
                       type="button"
                       onClick={clearShape}
                       className="text-label text-crit hover:underline"
                     >
                       Clear
-                    </button>
-                  </div>
-                </div>
-                <div className="max-h-28 overflow-y-auto font-mono text-label text-ink-2 leading-relaxed">
+                    </PlainButton>
+                  </Box>
+                </Box>
+                <Box className="max-h-28 overflow-y-auto font-mono text-label text-ink-2 leading-relaxed">
                   {draft.points.length ? (
                     draft.points.map((p, i) => (
-                      <div key={`${p[0]}-${p[1]}-${i}`}>
+                      <Box key={`${p[0]}-${p[1]}-${i}`}>
                         {i + 1}. {p[0].toFixed(5)}, {p[1].toFixed(5)}
-                      </div>
+                      </Box>
                     ))
                   ) : (
-                    <span className="text-ink-3 font-sans">
+                    <Inline className="text-ink-3 font-sans">
                       Click the map to place the first point.
-                    </span>
+                    </Inline>
                   )}
-                </div>
-                <div className="flex items-start gap-1.5 rounded-control bg-warn-soft border border-warn-border p-2">
+                </Box>
+                <Box className="flex items-start gap-1.5 rounded-control bg-warn-soft border border-warn-border p-2">
                   <AlertTriangle className="size-3.5 text-warn shrink-0 mt-0.5" />
-                  <p className="text-label text-warn leading-normal">
-                    Points are stored as <strong>[longitude, latitude]</strong>. From the fourth
+                  <Text className="text-label text-warn leading-normal">
+                    Points are stored as <Strong>[longitude, latitude]</Strong>. From the fourth
                     onward a new point is inserted into the nearest edge, so the outline cannot
                     cross itself.
-                  </p>
-                </div>
-              </div>
+                  </Text>
+                </Box>
+              </Box>
             )}
 
             <Field label="Notes" hint="For other administrators. Never shown in an app.">
@@ -918,11 +923,11 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
             </Field>
 
             <Field label="Restrict to services" hint="None selected means every service.">
-              <div className="flex flex-wrap gap-1.5">
+              <Box className="flex flex-wrap gap-1.5">
                 {SERVICES.map((s) => {
                   const on = draft.services.includes(s.id);
                   return (
-                    <button
+                    <PlainButton
                       key={s.id}
                       type="button"
                       onClick={() => toggleService(s.id)}
@@ -934,50 +939,50 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
                       )}
                     >
                       {s.label}
-                    </button>
+                    </PlainButton>
                   );
                 })}
-              </div>
+              </Box>
             </Field>
 
-            <div className="grid grid-cols-2 gap-3">
+            <Box className="grid grid-cols-2 gap-3">
               <Field label="Live from" hint="Leave both blank for always.">
                 <Input type="time" value={draft.start} onChange={(e) => set('start', e.target.value)} />
               </Field>
               <Field label="Live until">
                 <Input type="time" value={draft.end} onChange={(e) => set('end', e.target.value)} />
               </Field>
-            </div>
+            </Box>
 
-            <label className="flex items-center gap-2 text-body text-ink-2">
-              <input
+            <Label className="flex items-center gap-2 text-body text-ink-2">
+              <PlainInput
                 type="checkbox"
                 checked={draft.isActive}
                 onChange={(e) => set('isActive', e.target.checked)}
                 className="size-4 accent-[var(--brand)]"
               />
               Live as soon as it is saved
-            </label>
-          </div>
+            </Label>
+          </Box>
 
           {/* ── The drawing surface ────────────────────────────────── */}
-          <div className="rounded-control border border-line overflow-hidden min-h-[420px] bg-surface-inset relative">
+          <Box className="rounded-control border border-line overflow-hidden min-h-[420px] bg-surface-inset relative">
             {!mapUsable ? (
-              <div className="absolute inset-0 grid place-items-center text-center px-6">
-                <div>
+              <Box className="absolute inset-0 grid place-items-center text-center px-6">
+                <Box>
                   <KeyRound className="size-6 text-ink-3 mx-auto mb-2" />
-                  <p className="text-body text-ink-2">
+                  <Text className="text-body text-ink-2">
                     {MAPS_KEY ? 'The Google Maps key failed to load.' : 'No Google Maps key.'}
-                  </p>
-                  <p className="text-label text-ink-3 mt-1">
+                  </Text>
+                  <Text className="text-label text-ink-3 mt-1">
                     Type the coordinates on the left — the zone saves exactly the same either way.
-                  </p>
-                </div>
-              </div>
+                  </Text>
+                </Box>
+              </Box>
             ) : !isLoaded ? (
-              <div className="absolute inset-0 grid place-items-center">
+              <Box className="absolute inset-0 grid place-items-center">
                 <RefreshCw className="size-5 animate-spin text-brand" />
-              </div>
+              </Box>
             ) : (
               <GoogleMap
                 mapContainerStyle={{ width: '100%', height: '100%', minHeight: 420 }}
@@ -1052,20 +1057,20 @@ export const ZonesPage: React.FC<ZonesPageProps> = ({ search }) => {
             )}
 
             {mapUsable && isLoaded && (
-              <div className="absolute bottom-3 left-3 right-3 rounded-control bg-surface/95 backdrop-blur-sm border border-line px-3 py-2">
-                <p className="text-label text-ink-2 flex items-center gap-1.5">
+              <Box className="absolute bottom-3 left-3 right-3 rounded-control bg-surface/95 backdrop-blur-sm border border-line px-3 py-2">
+                <Text className="text-label text-ink-2 flex items-center gap-1.5">
                   <MapPin className="size-3.5 text-brand shrink-0" />
                   {draft.type === 'circle'
                     ? 'Click to set the centre, or drag the pin.'
                     : 'Click to add a point. Drag a numbered pin to move it.'}
-                </p>
-              </div>
+                </Text>
+              </Box>
             )}
-          </div>
-        </div>
+          </Box>
+        </Box>
       </Modal>
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
-    </div>
+    </Box>
   );
 };

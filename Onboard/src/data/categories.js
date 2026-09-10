@@ -1,7 +1,7 @@
 /* ══════════════════════════════════════════════════════════════════════════
    Codes to words, for the onboarding app.
 
-   The four codes are defined once, server-side, in
+   The codes are defined once, server-side, in
    Backend/src/shared/constants/categories.js — that module owns the list and
    the schema enum is built from it. This file only says how each should read
    on a field agent's screen.
@@ -12,6 +12,7 @@ export const CATEGORY_LABELS = {
   BACHELOR: 'Bachelor',
   HOTEL: 'Hotels',
   COLIVE: 'House / Co-live',
+  COMMERCIAL: 'Shop / Commercial',
 };
 
 /**

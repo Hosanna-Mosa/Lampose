@@ -1,23 +1,26 @@
 import React, { useMemo, useState } from 'react';
 import { AlertTriangle, MessageCircle, RefreshCw, Send, TriangleAlert } from 'lucide-react';
-import {
-  Badge,
-  Button,
-  Card,
-  CardHeader,
-  Field,
-  IconButton,
-  Input,
-  PageHeader,
-  Select,
-  Textarea,
-  Toast,
-  cx,
-  type ToastState,
-} from '../components/ui';
+import { Badge } from '../components/common/atoms/Badge';
+import { Button } from '../components/common/atoms/Button';
+import { Card } from '../components/common/atoms/Card';
+import { IconButton } from '../components/common/atoms/IconButton';
+import { Input } from '../components/common/atoms/Input';
+import { Select } from '../components/common/atoms/Select';
+import { Textarea } from '../components/common/atoms/Textarea';
+import { CardHeader } from '../components/common/molecules/CardHeader';
+import { Field } from '../components/common/molecules/Field';
+import { PageHeader } from '../components/common/molecules/PageHeader';
+import { Toast } from '../components/common/organisms/Toast';
+import type { ToastState } from '../components/common/organisms/Toast';
+import { cx } from '../components/common/utils';
 import { messagingService } from '../api/services/messagingService';
 import { useFetch } from '../lib/useFetch';
 import type { WhatsAppSendMode, WhatsAppTemplate } from '../api/types';
+import { Box } from '../components/common/atoms/Box';
+import { Inline } from '../components/common/atoms/Inline';
+import { Option } from '../components/common/atoms/Option';
+import { PlainButton } from '../components/common/atoms/PlainButton';
+import { Text } from '../components/common/atoms/Text';
 
 /** "1 owner name · 2 property · …" → [{ key: "1", label: "owner name" }, …].
  *  Purely a UI convenience for pre-drawing the right number of variable
@@ -76,7 +79,7 @@ export const MessagesPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5">
+    <Box className="space-y-5">
       <PageHeader
         eyebrow="Tools"
         title="Messages"
@@ -87,7 +90,7 @@ export const MessagesPage: React.FC = () => {
       />
 
       <Card padded={false}>
-        <div className="p-4 flex items-center justify-between gap-4">
+        <Box className="p-4 flex items-center justify-between gap-4">
           <CardHeader
             icon={MessageCircle}
             title="Twilio"
@@ -102,18 +105,18 @@ export const MessagesPage: React.FC = () => {
               {status?.configured ? 'Configured' : 'Not configured'}
             </Badge>
           )}
-        </div>
+        </Box>
       </Card>
 
       {error && (
-        <div className="flex items-start gap-3 p-4 rounded-panel bg-crit-soft border border-crit-border">
+        <Box className="flex items-start gap-3 p-4 rounded-panel bg-crit-soft border border-crit-border">
           <AlertTriangle className="size-4 text-crit shrink-0 mt-0.5" strokeWidth={2} />
-          <p className="text-sm text-ink-2">{error}</p>
-        </div>
+          <Text className="text-sm text-ink-2">{error}</Text>
+        </Box>
       )}
 
       <Card>
-        <div className="space-y-4 max-w-xl">
+        <Box className="space-y-4 max-w-xl">
           <Field label="Recipient" required hint="WhatsApp number. A bare 10-digit number is read as Indian; anything else needs its country code.">
             <Input
               type="tel"
@@ -123,11 +126,11 @@ export const MessagesPage: React.FC = () => {
             />
           </Field>
 
-          <div>
-            <span className="block text-label text-ink-2 mb-1.5">Message type</span>
-            <div className="inline-flex rounded-control border border-line overflow-hidden">
+          <Box>
+            <Inline className="block text-label text-ink-2 mb-1.5">Message type</Inline>
+            <Box className="inline-flex rounded-control border border-line overflow-hidden">
               {(['text', 'template'] as const).map((m) => (
-                <button
+                <PlainButton
                   key={m}
                   type="button"
                   onClick={() => setMode(m)}
@@ -137,10 +140,10 @@ export const MessagesPage: React.FC = () => {
                   )}
                 >
                   {m === 'text' ? 'Free text' : 'Content template'}
-                </button>
+                </PlainButton>
               ))}
-            </div>
-          </div>
+            </Box>
+          </Box>
 
           {mode === 'text' ? (
             <Field
@@ -154,26 +157,26 @@ export const MessagesPage: React.FC = () => {
             <>
               <Field label="Template" required hint={templates.length ? undefined : 'No Content Template SIDs are set in the backend .env.'}>
                 <Select value={templateKey} onChange={(e) => selectTemplate(e.target.value)}>
-                  <option value="">Choose a template…</option>
+                  <Option value="">Choose a template…</Option>
                   {templates.map((t) => (
-                    <option key={t.key} value={t.key}>{t.label}</option>
+                    <Option key={t.key} value={t.key}>{t.label}</Option>
                   ))}
                 </Select>
               </Field>
 
               {selectedTemplate && (
-                <div className="p-3 rounded-panel bg-warn-soft border border-warn-border flex gap-2.5">
+                <Box className="p-3 rounded-panel bg-warn-soft border border-warn-border flex gap-2.5">
                   <TriangleAlert className="size-4 text-warn shrink-0 mt-0.5" strokeWidth={2} />
-                  <p className="text-sm text-ink-2 leading-relaxed">
+                  <Text className="text-sm text-ink-2 leading-relaxed">
                     This template was approved for a specific automated flow. If it carries reply buttons
                     tied to a request ID, sending it here with no matching record means the buttons won&apos;t
                     resolve to anything — this is best used for a manual resend of a real request, or testing.
-                  </p>
-                </div>
+                  </Text>
+                </Box>
               )}
 
               {templateFields.length > 0 && (
-                <div className="space-y-3">
+                <Box className="space-y-3">
                   {templateFields.map((f) => (
                     <Field key={f.key} label={`{{${f.key}}} — ${f.label}`}>
                       <Input
@@ -182,20 +185,20 @@ export const MessagesPage: React.FC = () => {
                       />
                     </Field>
                   ))}
-                </div>
+                </Box>
               )}
             </>
           )}
 
-          <div className="pt-1">
+          <Box className="pt-1">
             <Button variant="primary" icon={Send} loading={busy} disabled={!canSend} onClick={handleSend}>
               Send message
             </Button>
-          </div>
-        </div>
+          </Box>
+        </Box>
       </Card>
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
-    </div>
+    </Box>
   );
 };

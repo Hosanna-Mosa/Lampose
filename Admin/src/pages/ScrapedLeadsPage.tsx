@@ -1,29 +1,30 @@
 import React, { useState } from 'react';
 import { ListChecks, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react';
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorState,
-  Field,
-  IconButton,
-  Input,
-  Modal,
-  PageHeader,
-  Select,
-  Table,
-  TableSkeleton,
-  Td,
-  Th,
-  Toast,
-  Tr,
-  type ToastState,
-} from '../components/ui';
+import { Badge } from '../components/common/atoms/Badge';
+import { Button } from '../components/common/atoms/Button';
+import { Card } from '../components/common/atoms/Card';
+import { IconButton } from '../components/common/atoms/IconButton';
+import { Input } from '../components/common/atoms/Input';
+import { Select } from '../components/common/atoms/Select';
+import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
+import { EmptyState } from '../components/common/molecules/EmptyState';
+import { ErrorState } from '../components/common/molecules/ErrorState';
+import { Field } from '../components/common/molecules/Field';
+import { PageHeader } from '../components/common/molecules/PageHeader';
+import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
+import { Modal } from '../components/common/organisms/Modal';
+import { Toast } from '../components/common/organisms/Toast';
+import type { ToastState } from '../components/common/organisms/Toast';
 import { scraperLeadService } from '../api/services/scraperLeadService';
 import { useFetch } from '../lib/useFetch';
 import { LEAD_STATUSES, SCRAPE_SOURCES, leadStatusMeta } from '../lib/domain';
 import type { LeadStatus, ScrapedLeadEntity, ScrapeSource } from '../api/types';
+import { Box } from '../components/common/atoms/Box';
+import { Form } from '../components/common/atoms/Form';
+import { Inline } from '../components/common/atoms/Inline';
+import { Option } from '../components/common/atoms/Option';
+import { PlainTd, PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
+import { Text } from '../components/common/atoms/Text';
 
 interface ScrapedLeadsPageProps {
   search: string;
@@ -163,7 +164,7 @@ export const ScrapedLeadsPage: React.FC<ScrapedLeadsPageProps> = ({ search }) =>
   };
 
   return (
-    <div className="space-y-5">
+    <Box className="space-y-5">
       <PageHeader
         eyebrow="Database"
         title="Scraped Leads"
@@ -179,13 +180,13 @@ export const ScrapedLeadsPage: React.FC<ScrapedLeadsPageProps> = ({ search }) =>
       />
 
       <Card padded={false} className="p-3">
-        <div className="flex flex-wrap items-center gap-2.5">
+        <Box className="flex flex-wrap items-center gap-2.5">
           <Select value={leadStatus} onChange={(e) => setLeadStatus(e.target.value)} className="w-auto min-w-40">
-            <option value="All">All statuses</option>
+            <Option value="All">All statuses</Option>
             {LEAD_STATUSES.map((s) => (
-              <option key={s} value={s}>
+              <Option key={s} value={s}>
                 {leadStatusMeta(s).label}
-              </option>
+              </Option>
             ))}
           </Select>
           {leadStatus !== 'All' && (
@@ -193,10 +194,10 @@ export const ScrapedLeadsPage: React.FC<ScrapedLeadsPageProps> = ({ search }) =>
               Clear
             </Button>
           )}
-          <span className="text-label text-ink-3 ml-auto tabular">
+          <Inline className="text-label text-ink-3 ml-auto tabular">
             {loading ? 'Loading…' : `${leads.length} lead${leads.length === 1 ? '' : 's'}`}
-          </span>
-        </div>
+          </Inline>
+        </Box>
       </Card>
 
       {error ? (
@@ -204,41 +205,41 @@ export const ScrapedLeadsPage: React.FC<ScrapedLeadsPageProps> = ({ search }) =>
       ) : (
         <Card padded={false}>
           <Table>
-            <thead>
-              <tr>
+            <TableHead>
+              <PlainTr>
                 <Th>Business</Th>
                 <Th>Contact</Th>
                 <Th>City</Th>
                 <Th>Status</Th>
                 <Th>Assigned to</Th>
                 <Th />
-              </tr>
-            </thead>
-            <tbody>
+              </PlainTr>
+            </TableHead>
+            <TableBody>
               {loading ? (
                 <TableSkeleton cols={6} />
               ) : !leads.length ? (
-                <tr>
-                  <td colSpan={6}>
+                <PlainTr>
+                  <PlainTd colSpan={6}>
                     <EmptyState
                       icon={ListChecks}
                       title={search || leadStatus !== 'All' ? 'No matching leads' : 'No leads yet'}
                       description="Leads found by a scrape job — or added here directly — will appear in this list."
                     />
-                  </td>
-                </tr>
+                  </PlainTd>
+                </PlainTr>
               ) : (
                 leads.map((l) => {
                   const meta = leadStatusMeta(l.leadStatus);
                   return (
                     <Tr key={l.id}>
                       <Td>
-                        <p className="text-sm font-medium text-ink truncate">{l.businessName}</p>
-                        <p className="text-label text-ink-3 truncate">{l.category || l.source}</p>
+                        <Text className="text-sm font-medium text-ink truncate">{l.businessName}</Text>
+                        <Text className="text-label text-ink-3 truncate">{l.category || l.source}</Text>
                       </Td>
                       <Td>
-                        <p className="text-sm text-ink truncate">{l.phone || '—'}</p>
-                        <p className="text-label text-ink-3 truncate">{l.email || '—'}</p>
+                        <Text className="text-sm text-ink truncate">{l.phone || '—'}</Text>
+                        <Text className="text-label text-ink-3 truncate">{l.email || '—'}</Text>
                       </Td>
                       <Td>{l.city || '—'}</Td>
                       <Td>
@@ -248,7 +249,7 @@ export const ScrapedLeadsPage: React.FC<ScrapedLeadsPageProps> = ({ search }) =>
                       </Td>
                       <Td>{l.assignedTo.name || '—'}</Td>
                       <Td>
-                        <div className="flex items-center justify-end gap-0.5">
+                        <Box className="flex items-center justify-end gap-0.5">
                           <IconButton icon={Pencil} label={`Edit ${l.businessName}`} onClick={() => openEdit(l)} />
                           <IconButton
                             icon={Trash2}
@@ -256,13 +257,13 @@ export const ScrapedLeadsPage: React.FC<ScrapedLeadsPageProps> = ({ search }) =>
                             tone="danger"
                             onClick={() => setPendingDelete(l)}
                           />
-                        </div>
+                        </Box>
                       </Td>
                     </Tr>
                   );
                 })
               )}
-            </tbody>
+            </TableBody>
           </Table>
         </Card>
       )}
@@ -285,49 +286,49 @@ export const ScrapedLeadsPage: React.FC<ScrapedLeadsPageProps> = ({ search }) =>
           </>
         }
       >
-        <form id="create-lead" onSubmit={handleCreate} className="space-y-4">
+        <Form id="create-lead" onSubmit={handleCreate} className="space-y-4">
           {formError && (
-            <p className="text-sm text-crit bg-crit-soft border border-crit-border rounded-control px-3 py-2">
+            <Text className="text-sm text-crit bg-crit-soft border border-crit-border rounded-control px-3 py-2">
               {formError}
-            </p>
+            </Text>
           )}
-          <div className="grid grid-cols-2 gap-3">
+          <Box className="grid grid-cols-2 gap-3">
             <Field label="Business name" required>
               <Input required value={form.businessName} onChange={(e) => setForm((f) => ({ ...f, businessName: e.target.value }))} />
             </Field>
             <Field label="Source">
               <Select value={form.source} onChange={(e) => setForm((f) => ({ ...f, source: e.target.value as ScrapeSource }))}>
                 {SCRAPE_SOURCES.map((s) => (
-                  <option key={s} value={s}>
+                  <Option key={s} value={s}>
                     {s}
-                  </option>
+                  </Option>
                 ))}
               </Select>
             </Field>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+          </Box>
+          <Box className="grid grid-cols-2 gap-3">
             <Field label="Phone">
               <Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
             </Field>
             <Field label="Email">
               <Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
             </Field>
-          </div>
+          </Box>
           <Field label="Website">
             <Input value={form.website} onChange={(e) => setForm((f) => ({ ...f, website: e.target.value }))} />
           </Field>
           <Field label="Address">
             <Input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <Box className="grid grid-cols-2 gap-3">
             <Field label="Category">
               <Input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} />
             </Field>
             <Field label="City">
               <Input value={form.city} onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))} />
             </Field>
-          </div>
-        </form>
+          </Box>
+        </Form>
       </Modal>
 
       {/* Edit */}
@@ -351,8 +352,8 @@ export const ScrapedLeadsPage: React.FC<ScrapedLeadsPageProps> = ({ search }) =>
         }
       >
         {editForm && (
-          <form id="edit-lead" onSubmit={handleUpdate} className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+          <Form id="edit-lead" onSubmit={handleUpdate} className="space-y-4">
+            <Box className="grid grid-cols-2 gap-3">
               <Field label="Business name">
                 <Input value={editForm.businessName} onChange={(e) => setEditForm((f) => f && { ...f, businessName: e.target.value })} />
               </Field>
@@ -362,36 +363,36 @@ export const ScrapedLeadsPage: React.FC<ScrapedLeadsPageProps> = ({ search }) =>
                   onChange={(e) => setEditForm((f) => f && { ...f, leadStatus: e.target.value as LeadStatus })}
                 >
                   {LEAD_STATUSES.map((s) => (
-                    <option key={s} value={s}>
+                    <Option key={s} value={s}>
                       {leadStatusMeta(s).label}
-                    </option>
+                    </Option>
                   ))}
                 </Select>
               </Field>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+            </Box>
+            <Box className="grid grid-cols-2 gap-3">
               <Field label="Phone">
                 <Input value={editForm.phone} onChange={(e) => setEditForm((f) => f && { ...f, phone: e.target.value })} />
               </Field>
               <Field label="Email">
                 <Input type="email" value={editForm.email} onChange={(e) => setEditForm((f) => f && { ...f, email: e.target.value })} />
               </Field>
-            </div>
+            </Box>
             <Field label="Website">
               <Input value={editForm.website} onChange={(e) => setEditForm((f) => f && { ...f, website: e.target.value })} />
             </Field>
             <Field label="Address">
               <Input value={editForm.address} onChange={(e) => setEditForm((f) => f && { ...f, address: e.target.value })} />
             </Field>
-            <div className="grid grid-cols-2 gap-3">
+            <Box className="grid grid-cols-2 gap-3">
               <Field label="Category">
                 <Input value={editForm.category} onChange={(e) => setEditForm((f) => f && { ...f, category: e.target.value })} />
               </Field>
               <Field label="City">
                 <Input value={editForm.city} onChange={(e) => setEditForm((f) => f && { ...f, city: e.target.value })} />
               </Field>
-            </div>
-          </form>
+            </Box>
+          </Form>
         )}
       </Modal>
 
@@ -412,13 +413,13 @@ export const ScrapedLeadsPage: React.FC<ScrapedLeadsPageProps> = ({ search }) =>
           </>
         }
       >
-        <p className="text-body text-ink-2">
-          <span className="text-ink font-medium">{pendingDelete?.businessName}</span> will be removed from the leads
+        <Text className="text-body text-ink-2">
+          <Inline className="text-ink font-medium">{pendingDelete?.businessName}</Inline> will be removed from the leads
           list. This cannot be undone.
-        </p>
+        </Text>
       </Modal>
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
-    </div>
+    </Box>
   );
 };

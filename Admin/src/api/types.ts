@@ -81,7 +81,7 @@ export interface UserEntity {
   lastLogin: string;
 }
 
-export type PropertyCategory = 'PG_HOSTEL' | 'BACHELOR' | 'HOTEL' | 'COLIVE';
+export type PropertyCategory = 'PG_HOSTEL' | 'BACHELOR' | 'HOTEL' | 'COLIVE' | 'COMMERCIAL';
 
 /**
  * Accommodation listing — `properties` collection. Field names mirror the

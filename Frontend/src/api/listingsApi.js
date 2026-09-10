@@ -56,14 +56,32 @@ const classify = err => {
     { status: err?.status ?? null, cause: err });
 };
 
+/**
+ * The categories this site is willing to show.
+ *
+ * This site used to ask for everything and let `data/categories.js` derive the
+ * tabs from whatever came back — which was right while every row in the
+ * collection was a place to live. The onboarding panel can now file a shop, an
+ * office or a godown under COMMERCIAL, and left alone this page would grow a
+ * tab labelled "COMMERCIAL" full of premises nobody can rent a bed in.
+ *
+ * Stated positively rather than as an exclusion list, so a future non-stay
+ * category is left out by default instead of appearing here until somebody
+ * remembers to add it. The codes are defined in
+ * Backend/src/shared/constants/categories.js.
+ */
+const STAY_CATEGORIES = 'PG_HOSTEL,BACHELOR,HOTEL,COLIVE';
+
 export const listingsApi = {
   /**
-   * Fetch every listing in the database, newest first.
+   * Fetch every STAY listing in the database, newest first.
    * Throws a ListingsError — never substitutes local data.
    */
   async getListings(params = {}) {
     try {
-      const response = await apiClient.get('/listings', params);
+      /* A caller that names its own category wins: the category pages pass one
+         and must keep getting exactly it. This only fills in the default. */
+      const response = await apiClient.get('/listings', { category: STAY_CATEGORIES, ...params });
       const rows = Array.isArray(response?.data) ? response.data
         : Array.isArray(response) ? response
           : null;

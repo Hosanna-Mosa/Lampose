@@ -10,9 +10,9 @@
    service-area check moved here FROM the stay Profile's "Your stuff" group
    because both are about where food goes, not about a stay.
 
-   What stays put: identity editing, appearance and the developer switch are
-   account- and app-wide, not food-specific, and are not duplicated here.
-   Help, sign-out and delete are repeated — see the note on that group below.
+   What stays put: identity editing and the developer switch are account- and
+   app-wide, not food-specific, and are not duplicated here. Help, sign-out,
+   delete and app appearance are repeated — see the note on that group below.
    ══════════════════════════════════════════════════════════════════════════ */
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -22,11 +22,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
-import { ProfileGroup, ProfileRow } from '@/components/lifecycle';
+import { AppearanceRow, ProfileGroup, ProfileRow } from '@/components/lifecycle';
 import { foodHref } from '@/components/food/routes';
 import { useAuth } from '@/context/AuthContext';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
+import { useAddresses } from '@/services';
 
 export default function FoodProfileScreen() {
   const { colors, space, layout, radius, mode } = useTheme();
@@ -34,6 +35,9 @@ export default function FoodProfileScreen() {
   const router = useRouter();
   const { user, signOut } = useAuth();
   const { preferences, favouriteDishList, favouriteKitchenList, favouritesLoading, refreshFavourites } = useFood();
+  /* The same query the stay Profile's address row reads, so the two rows
+     cannot disagree about how many addresses are in the book. */
+  const { count: addressCount, isPending: addressesLoading } = useAddresses();
 
   const favouriteCount = favouriteDishList.length + favouriteKitchenList.length;
   const dietLabel =
@@ -83,7 +87,7 @@ export default function FoodProfileScreen() {
           />
           <ProfileRow
             label="Delivery addresses"
-            value={String(addressChoices.length)}
+            value={addressesLoading ? '…' : String(addressCount)}
             onPress={() => router.push('/addresses')}
           />
           <ProfileRow
@@ -97,11 +101,18 @@ export default function FoodProfileScreen() {
           Repeated rather than left only on the stay side. Being inside Food
           is not a reason a diner should have to remember to hit the exit
           disc first just to ask for help or sign out — the account is the
-          same one either way, so the same three actions belong wherever the
+          same one either way, so the same actions belong wherever the
           person currently is.
+
+          Appearance joined them when it left the header. It was the one
+          app-wide setting a diner could reach without leaving Food, and
+          taking the moon/sun button out of the bar would have stranded it
+          two navigations away for exactly the people most likely to want it
+          — somebody reading a menu in bed at night.
         */}
         <View style={{ gap: space[2] }}>
           <ProfileGroup title="Account">
+            <AppearanceRow />
             <ProfileRow label="Help & support" onPress={() => router.push('/support')} />
             <ProfileRow
               label="Log out"

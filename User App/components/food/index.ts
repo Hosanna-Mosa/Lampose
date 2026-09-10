@@ -50,5 +50,9 @@ export { RestaurantListCard, type RestaurantListCardProps } from './RestaurantLi
 export { FoodHome } from './FoodHome';
 export { FoodSearch, SUGGESTIONS } from './FoodSearch';
 export { FoodOrders } from './FoodOrders';
+/* Dine In — kitchens open now, nearest first. Not a filtered Home; see its
+   own doc comment for the errand it serves and where it deliberately
+   stops short of claiming a table. */
+export { FoodDineIn } from './FoodDineIn';
 export { FoodModule } from './FoodModule';
 export { FoodComingSoon } from './FoodComingSoon';

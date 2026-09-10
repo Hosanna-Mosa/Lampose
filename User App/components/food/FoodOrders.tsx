@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Button, Text } from '@/components/ui';
+import { useBottomBar } from '@/context/BottomBarContext';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { FoodOrder, SpiceLevel } from '@/types/food';
@@ -39,6 +40,9 @@ function joinList(items: readonly string[]): string {
 export function FoodOrders({ onHome }: { onHome: () => void }) {
   const { findDish, findKitchen } = useFoodCatalogue();
   const { colors, space, layout, radius } = useTheme();
+  /* The bar floats over this screen and gets out of the way while it is read
+     down — see `BottomBarContext`. */
+  const { onScroll: barScroll, height: barHeight } = useBottomBar();
   const router = useRouter();
   const { orders, liveOrder, address, add, clear, kitchenId: cartKitchenId, count } = useFood();
 
@@ -234,7 +238,14 @@ export function FoodOrders({ onHome }: { onHome: () => void }) {
   return (
     <ScrollView
       showsVerticalScrollIndicator={false}
-      contentContainerStyle={{ paddingTop: space[2], paddingBottom: space[8], gap: space[4] }}
+      contentContainerStyle={{
+        paddingTop: space[2],
+        /* The bar floats over this list, so its height is tail padding here. */
+        paddingBottom: space[8] + barHeight,
+        gap: space[4],
+      }}
+      onScroll={barScroll}
+      scrollEventThrottle={16}
     >
       {/* Read before the cart opens, not after it is paid for. */}
       {reorderNote ? (

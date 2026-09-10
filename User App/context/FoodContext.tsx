@@ -104,7 +104,17 @@ export type AddResult = 'added' | 'conflict';
  * drives it belongs to `home.tsx` — while Food is open, the app's one tab bar
  * IS the food bar, and it has to be able to read and set this.
  */
-export type FoodTab = 'home' | 'search' | 'orders';
+/**
+ * The module's screens.
+ *
+ * `search` is in this union but NOT in the bottom bar. It stopped being a tab
+ * when Dine In took the slot: a bar of four is the most this design carries,
+ * and search was the one of the four that already had a door on Home — the
+ * field across the top of the feed is where a search actually starts. Being
+ * off the bar changed where it is reached FROM, not what it is, so it stays a
+ * module screen rather than becoming a pushed route.
+ */
+export type FoodTab = 'home' | 'search' | 'orders' | 'dinein';
 
 export type FoodContextValue = {
   /** Home / Search / Orders — the bottom bar's three stay-side-shaped tabs. */

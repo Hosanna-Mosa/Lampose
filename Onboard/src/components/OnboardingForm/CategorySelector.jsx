@@ -1,8 +1,8 @@
 import React from 'react';
-import { Building2, BedDouble, Users, Home, CheckCircle2 } from 'lucide-react';
+import { Building2, BedDouble, Users, Home, Store, CheckCircle2 } from 'lucide-react';
 
 /*
- * The four categories, by code.
+ * The categories, by code.
  *
  * `id` is what gets stored — see Backend/src/shared/constants/categories.js,
  * which is where the list is defined and which will reject anything else.
@@ -40,6 +40,20 @@ const CATEGORY_OPTIONS = [
     subtitle: 'A whole house or a room in one, shared with other tenants',
     badge: 'Shared',
     icon: Home
+  },
+  /*
+   * The one option on this screen nobody sleeps in.
+   *
+   * Last deliberately. An agent onboarding a stay should reach the four they
+   * came for before they reach this one, and the badge says outright what it
+   * is so a shop cannot be picked by a misread of "House".
+   */
+  {
+    id: 'COMMERCIAL',
+    title: 'Shop / Commercial Space',
+    subtitle: 'Shop, office, godown or restaurant space — let by the month, not lived in',
+    badge: 'Commercial',
+    icon: Store
   }
 ];
 

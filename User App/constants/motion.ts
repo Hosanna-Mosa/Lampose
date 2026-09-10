@@ -143,6 +143,41 @@ export const component = {
    */
   tabSetSwap: { duration: 280, easing: easing.standard, scaleFrom: 0.86, reducedDuration: 160 },
   /**
+   * The bottom bar getting out of the way of a feed, and coming back.
+   *
+   * A SPRING rather than a duration, which is the one place in this file that
+   * happens for a navigation element — and it happens because this is the one
+   * animation in the app that is routinely interrupted. A thumb that reverses
+   * mid-flick asks the bar to turn around while it is still moving, and a
+   * timing curve restarted from a third of the way down restarts its easing
+   * too: it decelerates into a target it is already travelling away from. That
+   * hitch is what a reversal looks like with `withTiming`. A spring carries
+   * its velocity through the turn and simply bends.
+   *
+   * Damped just under critical and clamped on top of that, because a bar that
+   * bobs when it arrives is a bar you look AT rather than past. Roughly 300ms
+   * to settle — slow enough to read as a glide, which the 160ms it replaced
+   * was not.
+   *
+   * The rest thresholds are here rather than left to Reanimated's defaults
+   * because this spring runs on a NORMALISED 0–1 value that is multiplied out
+   * to ~130pt by whatever is riding it. The default speed threshold is 2, which
+   * in those units is 260pt/s — it would cut the last stretch of travel and
+   * hand back the snap this token exists to remove.
+   */
+  bottomBarHide: {
+    damping: 24,
+    stiffness: 170,
+    mass: 0.9,
+    overshootClamping: true,
+    restDisplacementThreshold: 0.001,
+    restSpeedThreshold: 0.01,
+    /* Not zero. Reduced motion is a reason to move LESS, not a reason for a
+       whole strip of chrome to blink in and out of existence — and 130pt
+       teleporting at the bottom edge is the more startling of the two. */
+    reducedDuration: 160,
+  },
+  /**
    * A money figure changing. Deliberately overlapped so the screen is never
    * without the number — tabular digits hold the width steady through it.
    */

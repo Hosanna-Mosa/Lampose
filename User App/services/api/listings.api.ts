@@ -60,6 +60,15 @@ export type ListingsResult = {
   count: number;
 };
 
+/**
+ * Every category this app is willing to show, as the server wants them.
+ *
+ * Derived from `BACKEND_CATEGORIES` rather than typed out again, so a category
+ * added to the app's own list is asked for here automatically — and one that
+ * is NOT in the app's list is, correctly, never asked for at all.
+ */
+const STAY_CATEGORY_PARAM = Object.values(BACKEND_CATEGORIES).flat().join(',');
+
 export async function fetchListings(query: ListingQuery = {}): Promise<ListingsResult> {
   const {
     category, city, locality, maxPrice, search, signal,
@@ -72,11 +81,25 @@ export async function fetchListings(query: ListingQuery = {}): Promise<ListingsR
    * maps it to an empty list. Sending nothing would fetch everything and show
    * a Co-live tab full of PGs — the opposite of what was asked for. Sending
    * the app's own name matches no row and the tab is honestly empty.
+   *
+   * ## And why "no category" is no longer "no filter"
+   *
+   * It used to be: an unset category sent nothing and the server returned the
+   * lot, which was harmless while every row in the collection was a place to
+   * live. It is not any more. The onboarding panel can now file a shop, an
+   * office or a godown under COMMERCIAL, and this is a STAY app — a warehouse
+   * has no rent per bed, no sharing, no gender rule and nothing this feed's
+   * cards know how to draw.
+   *
+   * So an unset category asks for the four stay categories by name rather than
+   * for everything. The filter is stated positively on purpose: a future fifth
+   * non-stay category is then excluded by default, instead of appearing in a
+   * student's feed until somebody remembers to add it to an exclusion list.
    */
   const backendCategories = category ? BACKEND_CATEGORIES[category] : undefined;
   const categoryParam = category
     ? (backendCategories?.length ? backendCategories.join(',') : category)
-    : undefined;
+    : STAY_CATEGORY_PARAM;
 
   const envelope = await api.get<ApiEnvelope<BackendListing[]>>(endpoints.listings, {
     query: {

@@ -44,6 +44,10 @@ const MAX_DAILY_PRICE = 50000;
 const MAX_MONTHLY_PRICE = 1000000;
 const MAX_DEPOSIT_MONTHS = 12;
 const MAX_BEDS = 500;
+/* Same job, different unit. A shop is typed in square feet and the extra
+   zero lands just as easily; 100,000 sq ft is a warehouse the size of a
+   stadium, so anything past it is a typo rather than a listing. */
+const MAX_COMMERCIAL_AREA = 100000;
 
 /* ------------------------------------------------------------------ *
  * Primitives
@@ -252,7 +256,17 @@ export function validateOnboarding(formData = {}) {
 
   /* Whole-property lets: priced by the bed, with no stay-length ladder. */
   const isBachelor = category === 'BACHELOR' || category === 'COLIVE';
-  const isShortStay = formData.stayType === 'Short Stay' && !isBachelor;
+  /*
+   * A shop is let by the month and only by the month.
+   *
+   * Nobody takes a commercial unit for a fortnight, so the short-stay path —
+   * which asks for a nightly rate — has nothing to ask a commercial listing
+   * for. Forcing it off that path here rather than hiding the control means a
+   * stale "Short Stay" left over from a previous category cannot quietly
+   * demand a daily price for a godown.
+   */
+  const isCommercial = category === 'COMMERCIAL';
+  const isShortStay = formData.stayType === 'Short Stay' && !isBachelor && !isCommercial;
 
   /* A PG's monthly rent is not typed anywhere: it is derived from the cheapest
      selected sharing option. So the message for a missing one belongs on the
@@ -266,6 +280,10 @@ export function validateOnboarding(formData = {}) {
 
      A hotel derives on the SHORT-stay path, because its rates are nightly;
      the others derive on the long-stay path, because theirs are monthly. */
+  /* `isCommercial` is deliberately absent from both sides of this: a
+     commercial unit has ONE rent, typed into the monthly field in step 4,
+     because there is no occupancy ladder to derive a cheapest option from.
+     Leaving it off the derive path is what makes that field required. */
   const isHotel = category === 'HOTEL';
   const pgDerivesRent = ((category === 'PG_HOSTEL' || isBachelor) && !isShortStay)
     || (isHotel && !isShortStay);
@@ -503,6 +521,35 @@ function validateCategory(category, details, { isShortStay, documents }) {
 
     if (stated > MAX_BEDS) {
       errs[roomCountKey(bedTypes[0])] = `${MAX_BEDS} beds is the most this form accepts — check the numbers`;
+    }
+  }
+
+  if (category === 'COMMERCIAL') {
+    /*
+     * Three required facts, and only three.
+     *
+     * Area, floor and what it may be used for are what a commercial tenant
+     * filters and negotiates on, and none of them can be inferred from a
+     * photograph the way a residential layout can. Everything else the block
+     * asks — condition, washroom, parking — carries a sensible default and is
+     * left optional: an agent standing in an empty shell should be able to
+     * file it from what is in front of them, and a required field they cannot
+     * answer gets a guessed value rather than a blank one.
+     */
+    const uses = Array.isArray(details.commercialUses) ? details.commercialUses : [];
+    if (uses.length === 0) {
+      errs['categoryDetails.commercialUses'] = 'Pick at least one use — this is what a tenant searches by';
+    }
+
+    const area = amount(details.builtUpArea);
+    if (isNaN(area) || area <= 0) {
+      errs['categoryDetails.builtUpArea'] = 'Built-up area is required';
+    } else if (area > MAX_COMMERCIAL_AREA) {
+      errs['categoryDetails.builtUpArea'] = `That is over ${MAX_COMMERCIAL_AREA.toLocaleString('en-IN')} sq ft — check for an extra zero`;
+    }
+
+    if (!text(details.floor)) {
+      errs['categoryDetails.floor'] = 'Select which floor this unit is on';
     }
   }
 
