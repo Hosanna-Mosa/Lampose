@@ -6,7 +6,9 @@ import { ActivityIndicator, Modal, RefreshControl, ScrollView, StyleSheet, View 
 import {
   BottomSheet, Button, OfflineBanner, Radio, SearchField, Snackbar, Text, useAlert,
 } from '@/components/ui';
-import { ExploreHeader, StateTemplate, TabBar, type TabItem } from '@/components/shell';
+import {
+  ExploreHeader, OngoingStrip, StateTemplate, TabBar, type TabItem,
+} from '@/components/shell';
 import {
   CategoryTabs,
   CATEGORY_LABEL,
@@ -28,6 +30,7 @@ import { useAppState } from '@/context/AppStateContext';
 import { useAuth } from '@/context/AuthContext';
 import { useFood, type FoodTab } from '@/context/FoodContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
+import { useOngoing } from '@/hooks/useOngoing';
 import { useTheme, type ThemePreference } from '@/context/ThemeContext';
 import type { StayCategory } from '@/constants/tokens';
 import { fromRealBooking, segmentOf, type BookingSegment } from '@/data/bookings';
@@ -193,17 +196,26 @@ export default function Home() {
   const FOOD_MODE = useFoodMode();
   const [segment, setSegment] = useState<BookingSegment>('active');
   /*
-   * The real thing — `GET /customers/bookings`, mapped through
-   * `fromRealBooking` into the shape this tab's cards already know how to
-   * draw. Only fetched once the tab is actually on screen (`status ===
-   * 'signedIn' && tab === 'bookings'`), matching how every other section of
-   * this component gates its own fetch.
+   * `GET /customers/bookings`, mapped through `fromRealBooking` into the
+   * shape this tab's cards already know how to draw. Only fetched once the
+   * tab is actually on screen, matching how every other section of this
+   * component gates its own fetch.
+   *
+   * It was briefly ungated so the ongoing strip could read it. That was the
+   * wrong source — a booking does not exist until an owner accepts, so the
+   * whole pending stage was invisible to it — and `useOngoing` reads the
+   * REQUESTS instead. The gate is back with the reason for lifting it.
    */
   const bookingsQuery = useBookings(status === 'signedIn' && tab === 'bookings');
   const realBookings = useMemo(
     () => bookingsQuery.bookings.map((b) => fromRealBooking(b)),
     [bookingsQuery.bookings],
   );
+
+  /* The strip's rows, and whether one of them blocks a new booking. One
+     definition, shared with the listing screen's guard and matching the
+     server's own rule — see `useOngoing`. */
+  const { items: ongoing } = useOngoing();
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -1095,6 +1107,27 @@ export default function Home() {
         <View style={styles.pinnedHeader} pointerEvents="box-none">
           {header}
         </View>
+      ) : null}
+
+      {/* Whatever is half-finished, in the layout directly above the bar —
+          see `OngoingStrip`. Hidden inside Food, which is a different module
+          with its own queue and no room for the stay side's. */}
+      {!inFoodModule ? (
+        <OngoingStrip
+          items={ongoing}
+          onPress={(item) => {
+            /* The key carries which id it is, so the destination cannot drift
+               from the stage that produced it. `listing-` is a step that only
+               `confirm/[id]` can finish; `booking-` is one only the booking
+               detail can. */
+            const id = item.key.replace(/^(booking|listing)-/, '');
+            router.push(
+              (item.key.startsWith('listing-')
+                ? `/confirm/${id}`
+                : `/bookings/${id}`) as never,
+            );
+          }}
+        />
       ) : null}
 
       {/*

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -14,6 +14,8 @@ import {
   setAvailable,
 } from '@/lib/shareTypes';
 import { formatCountdown, secondsLeft, useStayRequests } from '@/services/hooks/useStayRequests';
+import { useOngoingBookings } from '@/services/hooks/useBookings';
+import { OngoingStrip, type OwnerOngoingItem } from '@/components/OngoingStrip';
 import { UnansweredRequestAlert } from '@/components/UnansweredRequestAlert';
 import { radius, shadow } from '@/constants/layout';
 import { type } from '@/constants/typography';
@@ -35,6 +37,14 @@ function greeting(hour: number) {
   if (hour < 17) return 'Good afternoon';
   return 'Good evening';
 }
+
+/** "3:30 PM" from the `HH:MM` a slot is stored as. */
+const clockLabel = (hhmm: string): string => {
+  const [h, m] = hhmm.split(':').map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm;
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+};
 
 export default function TodayTab() {
   const c = useColors();
@@ -58,6 +68,149 @@ export default function TodayTab() {
    * nothing is.
    */
   const { groups: requestGroups, clockOffset, refetch: refetchRequests } = useStayRequests();
+
+  /* Bookings the owner has marked in that the guest has not confirmed — see
+     `useOngoingBookings`. The one open state nothing else in the app reports. */
+  const {
+    ongoing: awaitingGuest, notCheckedIn, refetch: refetchOngoing,
+  } = useOngoingBookings();
+
+  /*
+   * Who is actually coming today, which is not what the calendar says.
+   *
+   * A booking's `checkInDate` is only a real date when the student chose one.
+   * A bachelor request never asks for a joining date, so `acceptAndBook`
+   * writes `joining || today` — the day the OWNER accepted — and the derived
+   * stage then reads `arriving` from the moment of acceptance. The strip
+   * announced "Arriving today" for a guest who had not paid, had not picked a
+   * slot, and had no reason to be anywhere near the building.
+   *
+   * So the question is asked of the REQUEST, which knows what the guest has
+   * actually done:
+   *
+   *   a visit was paid for   the day that matters is the SCHEDULED VISIT, and
+   *                          until a slot is fixed there is no day at all.
+   *                          This is bachelor and co-live.
+   *   nothing was paid       the check-in date is the joining date the student
+   *                          picked, so the calendar stage is the answer.
+   *                          This is PG/Hostel, and walk-ins.
+   */
+  const today = useMemo(() => {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }, []);
+
+  const requestById = useMemo(() => new Map(
+    [...requestGroups.pending, ...requestGroups.answered].map((r) => [r.id, r]),
+  ), [requestGroups.pending, requestGroups.answered]);
+
+  const arrivingToday = useMemo(() => notCheckedIn.flatMap((b) => {
+    const request = b.requestId ? requestById.get(b.requestId) : undefined;
+
+    if (request?.payment?.required) {
+      const visit = request.lamposeVisit;
+      if (visit?.status !== 'scheduled' || visit.date !== today) return [];
+      return [{ booking: b, at: visit.time ?? null }];
+    }
+
+    return b.status === 'arriving' ? [{ booking: b, at: null }] : [];
+  }), [notCheckedIn, requestById, today]);
+
+  /*
+   * The strip above the tab bar: everything still open, in one row.
+   *
+   * Three states, and the tone separates them by WHOSE move it is — the
+   * accent means this owner has something to do; quiet means they are waiting
+   * on somebody they cannot hurry, and an urgent-looking chip on one of those
+   * is noise.
+   *
+   *   pending request       theirs to answer, and it EXPIRES in minutes — so
+   *                         it leads, even though an arrival feels louder.
+   *                         Missing it loses the booking outright.
+   *   arriving today        somebody is coming to the door today and has not
+   *                         been checked in. The day's actual work, and the
+   *                         reason an owner opens this screen at all.
+   *   confirmed, unpaid     accepted, and the student still owes the ₹199.
+   *                         This is the one an owner used to lose entirely:
+   *                         once they leave the request screen it is not in
+   *                         the Requests queue (it is answered), not in
+   *                         Bookings as anything distinguishable (the row is
+   *                         `upcoming` like any other), and no badge counts
+   *                         it. It simply went quiet.
+   *   marked in, unconfirmed  the guest has not confirmed from their phone.
+   *
+   * The two the owner can act on come first and wear the accent; the two they
+   * are only waiting on follow, quiet.
+   *
+   * `payment.required` with a status short of `paid` is the same fact the
+   * request screen's own "Waiting on the student" card is drawn from, so the
+   * two cannot disagree about whether the money arrived.
+   */
+  const ongoingItems = useMemo<OwnerOngoingItem[]>(() => [
+    ...requestGroups.pending.map((r) => ({
+      key: `request-${r.id}`,
+      title: r.customer?.name || 'New request',
+      status: 'Waiting on your answer',
+      tone: 'action' as const,
+      icon: 'bell' as const,
+      /* Where Accept and Decline are. */
+      href: { pathname: '/requests/[id]', params: { id: r.id } },
+    })),
+    ...arrivingToday.map(({ booking: b, at }) => ({
+      key: `booking-${b.id}`,
+      title: b.guest,
+      /* A viewing says WHEN, because the owner plans the afternoon around it.
+         An arrival has no time on it — the student picked a day, not an
+         hour — so claiming one would be inventing it. */
+      status: at ? `Visiting today · ${clockLabel(at)}` : 'Arriving today',
+      tone: 'action' as const,
+      icon: 'suitcase' as const,
+      /*
+       * The booking, not the code screen.
+       *
+       * Every other row here resumes something already started, so it goes
+       * straight to where it stopped. This one has not started: the guest is
+       * on their way and the owner may be looking to see WHO before they open
+       * anything. The detail screen names them, shows the room, and its
+       * primary action is "Start check-in" — one tap, and never a PIN pad
+       * opened by somebody who only wanted to look.
+       */
+      href: { pathname: '/booking/[id]', params: { id: b.id } },
+    })),
+    ...requestGroups.answered
+      .filter((r) => r.status === 'confirmed'
+        && r.payment?.required
+        && r.payment.status !== 'paid')
+      .map((r) => ({
+        key: `request-${r.id}`,
+        title: r.customer?.name || 'Accepted request',
+        status: 'Waiting on their payment',
+        tone: 'waiting' as const,
+        icon: 'rupee' as const,
+        /* The same screen that says what is outstanding — the owner has
+           nothing to do here but read it. */
+        href: { pathname: '/requests/[id]', params: { id: r.id } },
+      })),
+    ...awaitingGuest.map((b) => ({
+      key: `booking-${b.id}`,
+      title: b.guest,
+      status: `Waiting for ${b.guest.split(' ')[0]} to confirm`,
+      tone: 'waiting' as const,
+      icon: 'clock' as const,
+      /*
+       * Straight to the waiting screen, not to the booking detail.
+       *
+       * This pointed at `booking/[id]`, which draws a card about the guest
+       * not having confirmed and a button that opens `booking/checked-in` —
+       * so resuming took two taps and landed one screen short of where the
+       * owner actually was. `checked-in` is that screen: it names the guest,
+       * lists the three steps to talk them through, and refetches on focus,
+       * which is the whole reason to come back to it.
+       */
+      href: { pathname: '/booking/checked-in', params: { id: b.id } },
+    })),
+  ], [requestGroups.pending, arrivingToday, requestGroups.answered, awaitingGuest]);
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -113,11 +266,11 @@ export default function TodayTab() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([loadData({ silent: true }), refetchRequests()]);
+      await Promise.all([loadData({ silent: true }), refetchRequests(), refetchOngoing()]);
     } finally {
       setRefreshing(false);
     }
-  }, [loadData, refetchRequests]);
+  }, [loadData, refetchRequests, refetchOngoing]);
 
   /*
    * Refetched every time this tab comes back into focus, not just on mount —
@@ -181,6 +334,17 @@ export default function TodayTab() {
       contentStyle={styles.stack}
       refreshing={refreshing}
       onRefresh={onRefresh}
+      /* The footer band already clears the tab bar, so this lands exactly
+         where it belongs: above the bar, over nothing. Absent entirely when
+         there is nothing open — an empty band would take height from every
+         visit to pay for the rare one. */
+      footer={ongoingItems.length ? (
+        <OngoingStrip
+          items={ongoingItems}
+          /* The row carries its own destination — see `href` on the item. */
+          onPress={(item) => router.push(item.href as never)}
+        />
+      ) : undefined}
       /* Pinned. The property switcher, the availability toggle and the bell are
          the screen's controls, not its content — losing them behind a scroll
          meant scrolling back up to change property or read an alert. */

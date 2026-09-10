@@ -41,7 +41,7 @@ export const saiKrishnaPG: Listing = {
       unit: 'month',
       pricePerUnit: 8500,
       daysPerUnit: 30,
-      unitOptions: [1, 3, 6, 11],
+      unitOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
       deposit: 17000,
     },
   ],
@@ -175,7 +175,7 @@ export const lakshmiHostel: Listing = {
       unit: 'month',
       pricePerUnit: 6900,
       daysPerUnit: 30,
-      unitOptions: [1, 3, 6, 11],
+      unitOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
       deposit: 6900,
     },
   ],
@@ -297,7 +297,7 @@ export const sriSaiDormitory: Listing = {
   stayRates: [
     { id: 'DAILY', label: 'By the night', unit: 'night', pricePerUnit: 550, daysPerUnit: 1, unitOptions: [1, 2, 3, 5, 7], deposit: 0 },
     { id: 'WEEKLY', label: 'By the week', unit: 'week', pricePerUnit: 3200, daysPerUnit: 7, unitOptions: [1, 2, 3], deposit: 1500 },
-    { id: 'MONTHLY', label: 'By the month', unit: 'month', pricePerUnit: 11000, daysPerUnit: 30, unitOptions: [1, 3, 6], deposit: 11000 },
+    { id: 'MONTHLY', label: 'By the month', unit: 'month', pricePerUnit: 11000, daysPerUnit: 30, unitOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], deposit: 11000 },
   ],
   // No mess in a hotel — said out loud rather than leaving a gap where the
   // control would be.
@@ -451,7 +451,7 @@ export const anandPG: Listing = {
       unit: 'month',
       pricePerUnit: 6000,
       daysPerUnit: 30,
-      unitOptions: [1, 3, 6, 11],
+      unitOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
       deposit: 12000,
     },
   ],
@@ -506,7 +506,7 @@ export const bhavanaGirlsPG: Listing = {
       unit: 'month',
       pricePerUnit: 8500,
       daysPerUnit: 30,
-      unitOptions: [1, 3, 6, 11],
+      unitOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
       deposit: 17000,
     },
   ],
@@ -577,7 +577,7 @@ export const sriVidyaHostel: Listing = {
       unit: 'month',
       pricePerUnit: 6900,
       daysPerUnit: 30,
-      unitOptions: [1, 3, 6, 11],
+      unitOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
       deposit: 6900,
     },
   ],
@@ -647,7 +647,7 @@ export const cityNestDorm: Listing = {
   stayRates: [
     { id: 'DAILY', label: 'By the night', unit: 'night', pricePerUnit: 550, daysPerUnit: 1, unitOptions: [1, 2, 3, 5, 7], deposit: 0 },
     { id: 'WEEKLY', label: 'By the week', unit: 'week', pricePerUnit: 3200, daysPerUnit: 7, unitOptions: [1, 2, 3], deposit: 1500 },
-    { id: 'MONTHLY', label: 'By the month', unit: 'month', pricePerUnit: 11000, daysPerUnit: 30, unitOptions: [1, 3, 6], deposit: 11000 },
+    { id: 'MONTHLY', label: 'By the month', unit: 'month', pricePerUnit: 11000, daysPerUnit: 30, unitOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], deposit: 11000 },
   ],
   // No mess in a hotel — said out loud rather than leaving a gap where the
   // control would be.

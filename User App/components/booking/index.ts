@@ -32,6 +32,7 @@ export {
   daysInMonth,
   type MoveInDatePickerProps,
 } from './MoveInDatePicker';
+export { VisitCalendar, type VisitCalendarProps } from './VisitCalendar';
 export { BookingTimeline, type BookingTimelineProps } from './BookingTimeline';
 export {
   VerificationCodeDisplay,

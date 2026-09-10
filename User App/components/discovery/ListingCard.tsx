@@ -111,7 +111,6 @@ function PhotoCarousel({
   listing,
   width,
   height,
-  onToggleSave,
   showGender,
   genderMatches,
   swipeable,
@@ -122,7 +121,6 @@ function PhotoCarousel({
   listing: Listing;
   width: number;
   height: number;
-  onToggleSave?: () => void;
   showGender: boolean;
   genderMatches: boolean;
   swipeable: boolean;
@@ -256,8 +254,43 @@ function PhotoCarousel({
  * The card
  * ------------------------------------------------------------------ */
 
-function Body({ listing, onToggleSave }: { listing: Listing; onToggleSave?: () => void }) {
+/*
+ * The body, and where its press targets are.
+ *
+ * The bookmark used to sit INSIDE the Pressable that opens the listing — a
+ * Pressable nested in a Pressable — and on Android the tap never reached it:
+ * the icon did not even fill in, which is the tell, because the fill is
+ * optimistic and happens before any request. It is the same failure this file
+ * already fixed twice: a press target wrapped AROUND something that needs its
+ * own gestures swallows them (see the notes on the carousel above, and on the
+ * card wrapper below).
+ *
+ * So the opening tap is applied to the two halves that should have it — the
+ * title and the block beneath — and the bookmark is their sibling, nested in
+ * nothing. Tapping anywhere that is not the bookmark still opens the listing,
+ * exactly as before.
+ */
+function Body({
+  listing,
+  onToggleSave,
+  onPress,
+  onPressIn,
+  onPressOut,
+}: {
+  listing: Listing;
+  onToggleSave?: () => void;
+  onPress?: () => void;
+  onPressIn?: () => void;
+  onPressOut?: () => void;
+}) {
   const { colors, space } = useTheme();
+
+  /* Both halves open the same thing, so they share one set of handlers
+     rather than two nearly-identical spreads that can drift apart. Only the
+     title carries the accessibility role: two buttons with one label would
+     have a screen reader announce the same card twice, and the rent below is
+     wanted as READ TEXT, not as a second control. */
+  const openProps = { onPress, onPressIn, onPressOut, disabled: !onPress };
 
   const secondary =
     listing.perNight && listing.monthlyEquivalent
@@ -269,9 +302,16 @@ function Body({ listing, onToggleSave }: { listing: Listing; onToggleSave?: () =
       <View style={[styles.titleRow, { gap: space[2] }]}>
         {/* The name truncates; the area never does. A half-read area name is
             worse than a shortened PG name. */}
-        <Text variant="title3" numberOfLines={1} style={styles.flex}>
-          {listing.name}
-        </Text>
+        <Pressable
+          {...openProps}
+          style={styles.flex}
+          accessibilityRole={onPress ? 'button' : undefined}
+          accessibilityLabel={onPress ? `${listing.name}, ${listing.locality}` : undefined}
+        >
+          <Text variant="title3" numberOfLines={1}>
+            {listing.name}
+          </Text>
+        </Pressable>
         {/*
           Save, where the rating used to be.
 
@@ -311,22 +351,24 @@ function Body({ listing, onToggleSave }: { listing: Listing; onToggleSave?: () =
         ) : null}
       </View>
 
-      <Text variant="body" color="secondary" numberOfLines={1}>
-        {listing.locality}
-        {listing.localityNote ? ` · ${listing.localityNote}` : ''}
-      </Text>
+      <Pressable {...openProps}>
+        <Text variant="body" color="secondary" numberOfLines={1}>
+          {listing.locality}
+          {listing.localityNote ? ` · ${listing.localityNote}` : ''}
+        </Text>
 
-      <View style={{ marginTop: space[1] }}>
-        <RentDisplay
-          rent={listing.rent}
-          perBed={listing.perBed}
-          perNight={listing.perNight}
-          secondaryLine={secondary}
-          size="card"
-          sharedTag={`rent-${listing.id}`}
-          struck={isGone(listing.availability)}
-        />
-      </View>
+        <View style={{ marginTop: space[1] }}>
+          <RentDisplay
+            rent={listing.rent}
+            perBed={listing.perBed}
+            perNight={listing.perNight}
+            secondaryLine={secondary}
+            size="card"
+            sharedTag={`rent-${listing.id}`}
+            struck={isGone(listing.availability)}
+          />
+        </View>
+      </Pressable>
     </View>
   );
 }
@@ -391,7 +433,6 @@ export function ListingCard({
         listing={listing}
         width={variant === 'carousel' ? GEOMETRY.carousel.width : listWidth}
         height={variant === 'carousel' ? GEOMETRY.carousel.photoHeight : GEOMETRY.list.photoHeight}
-        onToggleSave={onToggleSave}
         showGender
         genderMatches={genderMatches}
         swipeable
@@ -399,16 +440,16 @@ export function ListingCard({
         onPressIn={onPressIn}
         onPressOut={onPressOut}
       />
-      <Pressable
+      {/* No Pressable around this any more — it contained the bookmark, which
+          is a control of its own and never got the tap. `Body` carries the
+          opening press on the parts that are not the bookmark. */}
+      <Body
+        listing={listing}
+        onToggleSave={onToggleSave}
         onPress={onPress}
         onPressIn={onPressIn}
         onPressOut={onPressOut}
-        disabled={!onPress}
-        accessibilityRole={onPress ? 'button' : undefined}
-        accessibilityLabel={onPress ? `${listing.name}, ${listing.locality}` : undefined}
-      >
-        <Body listing={listing} onToggleSave={onToggleSave} />
-      </Pressable>
+      />
     </View>
   );
 

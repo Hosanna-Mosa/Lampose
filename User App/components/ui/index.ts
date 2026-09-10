@@ -48,6 +48,7 @@ export {
 } from './Selection';
 export { CeilingFilter, CeilingSlider, type CeilingFilterProps, type CeilingSliderProps } from './CeilingFilter';
 export { DateField, type DateFieldProps } from './DateField';
+export { TimeField, prettyTime, minutesOf, type TimeFieldProps } from './TimeField';
 
 // Feedback
 export {

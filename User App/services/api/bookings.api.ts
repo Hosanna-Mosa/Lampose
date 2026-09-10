@@ -102,6 +102,26 @@ export type CustomerBooking = {
   movedInByOwnerAt: string | null;
   movedInByStudentAt: string | null;
   address: string | null;
+  /**
+   * Whether the money behind this booking has moved, and what it bought.
+   *
+   * The booking row is written when the OWNER accepts, which on a category
+   * that charges is before anybody has paid — so `status` cannot answer
+   * "have I paid" and everything that assumed it could said yes. `null` on a
+   * walk-in the owner keyed in, which has no request behind it and is a
+   * different thing from "nothing to pay".
+   */
+  payment: {
+    required: boolean;
+    status: 'not_required' | 'pending' | 'paid' | 'failed' | string;
+    purpose: 'assisted_visit' | 'stay_booking' | null;
+    amountPaise: number | null;
+    paidAt: string | null;
+    /** `dev` is the bypass, not a payment. Never draw a receipt for it. */
+    mode: string | null;
+  } | null;
+  /** Where the assisted visit got to — the step between paying and moving in. */
+  visitStatus: string | null;
   /** Always false unless `status` is `completed` — see `bookingReview` below. */
   reviewed: boolean;
   /** Set only when `status` is `cancelled` — who ended it. */

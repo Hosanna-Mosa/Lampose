@@ -20,11 +20,17 @@ import { useColors } from '@/hooks/useColors';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAY_MS = 86_400_000;
 
-/** Which day of the stay today is, and how far through it that puts them. */
-function stayProgress(booking: Booking, now = new Date()) {
+/**
+ * Which day of the stay today is, and how far through it that puts them.
+ *
+ * Takes the two ends rather than the booking, because an open-ended stay has
+ * no second one and this cannot be computed for it — the caller has to have
+ * established that before it gets here.
+ */
+function stayProgress(checkIn: Date, checkOut: Date, now = new Date()) {
   const midnight = (d: Date) => new Date(d).setHours(0, 0, 0, 0);
-  const start = midnight(booking.checkIn);
-  const end = midnight(booking.checkOut);
+  const start = midnight(checkIn);
+  const end = midnight(checkOut);
   const today = midnight(now);
 
   const totalDays = Math.max(1, Math.round((end - start) / DAY_MS) + 1);
@@ -81,14 +87,19 @@ export default function ActiveStayScreen() {
    * way — a stale notification, a saved deep link — rather than trusting
    * that nothing ever will.
    */
-  if (booking.category === 'BACHELOR' || booking.category === 'PG_HOSTEL' || booking.category === 'COLIVE') {
+  /* Destructured so the check below narrows it: past this guard there are
+     two ends, and everything here counts between them. */
+  const { checkOut } = booking;
+
+  if (!checkOut
+    || booking.category === 'BACHELOR' || booking.category === 'PG_HOSTEL' || booking.category === 'COLIVE') {
     return (
       <Screen scroll={false} padX={22} background="bg">
         <EmptyState
           icon="search"
           title="Not available for this room"
-          body={booking.category === 'BACHELOR'
-            ? 'Bachelor stays have no fixed length, so there is no checkout to track here.'
+          body={!checkOut
+            ? 'This stay has no agreed end date, so there is no checkout to track here.'
             : 'This stay is a direct arrangement with the guest, so there is nothing to track here.'}
           actionLabel="Go back to home"
           onAction={() => router.replace('/')}
@@ -97,8 +108,8 @@ export default function ActiveStayScreen() {
     );
   }
 
-  const { currentDay, totalDays, ratio } = stayProgress(booking);
-  const departsToday = isSameDay(booking.checkOut, new Date());
+  const { currentDay, totalDays, ratio } = stayProgress(booking.checkIn, checkOut);
+  const departsToday = isSameDay(checkOut, new Date());
 
   /* The footer button and the shortcut are the same act, so they are the same
      function. The shortcut previously called an `openCheckout` that was never
@@ -121,7 +132,7 @@ export default function ActiveStayScreen() {
                 />
               ) : (
                 <Button
-                  label={`Checkout available ${MONTHS[booking.checkOut.getMonth()]} ${booking.checkOut.getDate()}`}
+                  label={`Checkout available ${MONTHS[checkOut.getMonth()]} ${checkOut.getDate()}`}
                   disabled
                 />
               )
@@ -161,7 +172,7 @@ export default function ActiveStayScreen() {
           <View style={[styles.trackFill, { width: `${ratio * 100}%`, backgroundColor: c.accent }]} />
         </View>
         <Text style={[styles.checkoutLine, { color: c.accentInk }]}>
-          Checkout {formatDayDate(booking.checkOut)}{booking.checkOutBy ? ` · ${booking.checkOutBy}` : ''}
+          Checkout {formatDayDate(checkOut)}{booking.checkOutBy ? ` · ${booking.checkOutBy}` : ''}
         </Text>
       </View>
 

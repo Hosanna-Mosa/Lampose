@@ -77,9 +77,13 @@ export function isSameDay(a: Date, b: Date): boolean {
  * The designs hardcode "Today", which is only true on the day the mockup was
  * drawn; this earns the word from the actual date.
  */
-export function formatStayRange(checkIn: Date, checkOut: Date, now = new Date()): string {
+export function formatStayRange(checkIn: Date, checkOut: Date | null, now = new Date()): string {
   const startsToday = isSameDay(checkIn, now);
   const left = startsToday ? 'Today' : `${MONTHS[checkIn.getMonth()]} ${checkIn.getDate()}`;
+  /* An open-ended tenancy has no right-hand side. It reads as a start with no
+     finish, because that is what it is — printing a range would need an end
+     date, and inventing one is what this replaces. */
+  if (!checkOut) return `${left} onwards`;
   const sameMonth = checkIn.getMonth() === checkOut.getMonth();
   const right =
     sameMonth && !startsToday

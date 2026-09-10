@@ -1,13 +1,16 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useQueryClient } from '@tanstack/react-query';
 
-import { Button, DateField, Text } from '@/components/ui';
+import { Button, Text, TimeField, minutesOf, prettyTime } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
+import { VisitCalendar } from '@/components/booking';
 import { useTheme } from '@/context/ThemeContext';
 import { setVisitSlot } from '@/services/api/stayRequests.api';
+import { ongoingQueryKey } from '@/hooks/useOngoing';
 import { ApiError } from '@/services/api/client';
 
 /**
@@ -31,46 +34,43 @@ import { ApiError } from '@/services/api/client';
  * this screen is submitted, nothing has been released and nobody has been
  * told to expect anyone.
  *
- * The choices mirror the backend's slot rules (assistedSlot.controller.js):
- * nine days starting today, eight times between 9:00 and 20:00. The server
- * re-validates both — this screen offering only valid choices is a courtesy,
- * not the gate.
+ * ## The calendar is the screen, and the time is the student's
  *
- * ## Nine chips, and a calendar for everything else
+ * This asked its two questions with chips: nine day pills, then eight time
+ * pills, with the real calendar hidden behind an "or pick another day" field
+ * underneath. Both were our shelf rather than their answer. A student moving
+ * in on the 14th had to notice a secondary control to reach it, and one who
+ * wanted 4pm had to take 3:30 or 5:00.
  *
- * The nine days are a shortcut, not the range. `setVisitSlot` accepts anything
- * from today to `MAX_DAYS_AHEAD` — thirty days — so a student moving in at the
- * start of next month could not pick a date the server would have taken
- * happily. The chips stay because "Today" and "Tomorrow" are most of the
- * answers and a chip is one tap; the calendar carries the rest.
+ * Neither shelf was ever a rule. `setVisitSlot` validates a DATE inside
+ * `[today, MAX_DAYS_AHEAD]` and an HOUR inside `VISIT_HOURS` — it accepts any
+ * `HH:MM` between them. The eight times are the WhatsApp flow's menu, because
+ * a list message has to have rows; nothing required the app to copy them.
  *
- * Its bounds are the server's own, so a date this screen offers is a date the
- * request will accept. The two numbers agreeing is the whole point: a picker
- * that let somebody choose a day and then failed on submit would be worse than
- * the nine chips it replaced.
+ * So the month grid is open on the screen, bounded by the server's own window,
+ * and the time comes from the OS clock clamped to the opening hours. The only
+ * thing still ours is the window itself, which is a fact about when
+ * representatives work.
  */
-
-/** The same eight times the WhatsApp list offers, as the backend stores them. */
-const TIMES: readonly { value: string; label: string }[] = [
-  { value: '09:00', label: '9:00 AM' },
-  { value: '10:30', label: '10:30 AM' },
-  { value: '12:00', label: '12:00 PM' },
-  { value: '14:00', label: '2:00 PM' },
-  { value: '15:30', label: '3:30 PM' },
-  { value: '17:00', label: '5:00 PM' },
-  { value: '18:30', label: '6:30 PM' },
-  { value: '20:00', label: '8:00 PM' },
-];
 
 /**
  * How far ahead a visit may be booked.
  *
- * `MAX_DAYS_AHEAD` in `assistedSlot.controller.js`. Kept in step by hand,
- * like the times above it — the server refuses anything past it with
- * `DATE_TOO_FAR`, so being wrong here costs a rejected submit rather than a
- * bad booking, but it should not be wrong.
+ * `MAX_DAYS_AHEAD` in `assistedSlot.controller.js`. Kept in step by hand —
+ * the server refuses anything past it with `DATE_TOO_FAR`, so being wrong
+ * here costs a rejected submit rather than a bad booking, but it should not
+ * be wrong.
  */
 const MAX_DAYS_AHEAD = 30;
+
+/**
+ * When a representative can be sent.
+ *
+ * `VISIT_HOURS` in `assistedSlot.controller.js`. The server refuses anything
+ * outside with `TIME_OUT_OF_HOURS`, so being wrong here costs a rejected
+ * submit rather than a bad booking — but it should not be wrong.
+ */
+const VISIT_HOURS = { from: 8, to: 20 };
 
 /** Local date, not `toISOString()` — that hands back yesterday for most of an
     Indian evening. */
@@ -80,21 +80,11 @@ const isoDay = (offsetDays: number): string => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-const dayOption = (offsetDays: number) => {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  const label = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
-  return {
-    value: isoDay(offsetDays),
-    label,
-    tag: offsetDays === 0 ? 'Today' : offsetDays === 1 ? 'Tomorrow' : null,
-  };
-};
-
 export default function VisitSlot() {
-  const { mode, colors, space, layout, radius, touch } = useTheme();
+  const { mode, colors, space, layout, radius } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const { requestId, id, stayType, units, sharingId, joinDate, flexibleJoin } =
     useLocalSearchParams<{
@@ -107,53 +97,41 @@ export default function VisitSlot() {
       flexibleJoin?: string;
     }>();
 
-  /* Nine days, computed once — a screen left open across midnight keeps the
-     list it showed rather than reshuffling under a thumb. The server refuses
-     a date that has passed either way. */
-  const days = useMemo(() => Array.from({ length: 9 }, (_, i) => dayOption(i)), []);
+  /* The window's two ends, computed once — a screen left open across midnight
+     keeps the bounds it showed rather than shifting under a thumb. The server
+     refuses a date that has passed either way. */
+  const windowStart = useMemo(() => isoDay(0), []);
+  const windowEnd = useMemo(() => isoDay(MAX_DAYS_AHEAD), []);
 
   const [date, setDate] = useState<string | null>(null);
   const [time, setTime] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  /* Today's times that have already gone. Offering 9 AM at 3 PM is a visit
-     nobody can keep — the server only checks the opening hours. */
-  const times = useMemo(() => {
-    if (date !== days[0].value) return TIMES;
+  /*
+   * On today, the clock cannot go backwards.
+   *
+   * Offering 9 AM at 3 PM is a visit nobody can keep, and the server only
+   * checks the opening hours — so the floor is the app's to hold. Null on
+   * every other day, where the whole window is open.
+   */
+  const earliestToday = useMemo(() => {
+    if (date !== windowStart) return null;
     const now = new Date();
-    const cutoff = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    return TIMES.filter((t) => t.value > cutoff);
-  }, [date, days]);
+    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  }, [date, windowStart]);
 
-  const chosenDay = days.find((d) => d.value === date);
-  const chosenTime = TIMES.find((t) => t.value === time);
+  /* Nothing left today: the clock's floor has passed its ceiling. Said in
+     words rather than by handing somebody a picker that snaps every choice
+     back to 8 PM. */
+  const todayIsDone = Boolean(earliestToday)
+    && (minutesOf(earliestToday) ?? 0) > VISIT_HOURS.to * 60;
 
-  /* The far edge of the window, and how to say it. Computed alongside `days`
-     so a screen left open across midnight keeps one consistent window rather
-     than a list from yesterday and a bound from today. */
-  const windowEnd = useMemo(() => isoDay(MAX_DAYS_AHEAD), []);
-  const prettyWindowEnd = useMemo(
-    () => new Date(`${windowEnd}T00:00:00`).toLocaleDateString('en-IN', {
-      day: 'numeric', month: 'short',
-    }),
-    [windowEnd],
-  );
-
-  /* The calendar shows a date only when the chips do not already own it —
-     otherwise tapping "Tomorrow" would fill the field underneath as well, and
-     the screen would look as though two controls had been answered. */
-  const pickedFromCalendar = Boolean(date) && !chosenDay;
-
-  /* A calendar day the chip row does not cover still needs its own label on
-     the button. */
-  const chosenDayLabel = chosenDay
-    ? chosenDay.label
-    : date
-      ? new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', {
-        weekday: 'short', day: 'numeric', month: 'short',
-      })
-      : null;
+  const chosenDayLabel = date
+    ? new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', {
+      weekday: 'short', day: 'numeric', month: 'short',
+    })
+    : null;
 
   const confirm = async () => {
     if (!requestId || !date || !time) return;
@@ -161,6 +139,9 @@ export default function VisitSlot() {
     setBusy(true);
     try {
       await setVisitSlot(String(requestId), { date, time });
+      /* "Pick your visit slot" is now answered — drop the strip's row rather
+         than leaving it to go stale. */
+      queryClient.invalidateQueries({ queryKey: ongoingQueryKey });
       router.replace({
         pathname: '/booked/[id]',
         params: {
@@ -179,17 +160,6 @@ export default function VisitSlot() {
       setBusy(false);
     }
   };
-
-  const chip = (selected: boolean) => ({
-    minHeight: touch.min,
-    paddingHorizontal: space[4],
-    paddingVertical: space[2],
-    borderRadius: radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: selected ? colors.brand : colors.border,
-    backgroundColor: selected ? colors.brand : colors.surface,
-    justifyContent: 'center' as const,
-  });
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.bg, paddingBottom: insets.bottom }]}>
@@ -214,89 +184,53 @@ export default function VisitSlot() {
 
         <View style={{ gap: space[3] }}>
           <Text variant="title3">Which day?</Text>
-          <View style={[styles.wrap, { gap: space[2] }]}>
-            {days.map((d) => {
-              const selected = date === d.value;
-              return (
-                <Pressable
-                  key={d.value}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  onPress={() => { setDate(d.value); setTime(null); }}
-                  style={chip(selected)}
-                >
-                  <Text
-                    variant="bodyStrong"
-                    style={{ color: selected ? colors.onBrand : colors.textPrimary }}
-                  >
-                    {d.tag ? `${d.tag} · ${d.label}` : d.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {/*
-            Any other day inside the window, from the OS calendar.
-
-            Below the chips rather than instead of them: the common answers are
-            in the next few days and a chip is one tap, but "the 14th" was
-            unreachable. `DateField` is the app's one date control — no second
-            calendar is drawn here — and its bounds are the server's, so it
-            cannot offer a day the submit would refuse.
-
-            Clearing the time on change matches the chips: a slot that has
-            passed on one day has not on another, and carrying a 9 AM selection
-            onto a day whose 9 AM is gone would send a slot nobody can keep.
-          */}
-          <View style={{ gap: space[2] }}>
-            <Text variant="caption" color="tertiary">
-              OR PICK ANOTHER DAY
-            </Text>
-            <DateField
-              value={pickedFromCalendar ? date : null}
-              onChange={(picked) => { setDate(picked); setTime(null); }}
-              placeholder={`Any day up to ${prettyWindowEnd}`}
-              minimumDate={days[0].value}
-              maximumDate={windowEnd}
-              accessibilityLabel="Pick a visit date"
-            />
-          </View>
+          {/* Open on the screen, not behind a field. On this screen the date
+              IS the question — see the note on `VisitCalendar`. Its bounds are
+              the server's own, so a day it lets somebody tap is a day the
+              submit will take. */}
+          <VisitCalendar
+            value={date}
+            onChange={(picked) => {
+              setDate(picked);
+              /* A time belongs to a day: 9 AM has gone on today and has not on
+                 tomorrow, so carrying the choice across would send a slot
+                 nobody can keep. */
+              setTime(null);
+            }}
+            min={windowStart}
+            max={windowEnd}
+          />
         </View>
 
         <View style={{ gap: space[3] }}>
           <Text variant="title3">What time?</Text>
-          {date && !times.length ? (
+          {todayIsDone ? (
             <Text variant="body" color="secondary">
-              No slots left today — pick tomorrow or later.
+              Today is finished — pick tomorrow or later.
             </Text>
           ) : (
-            <View style={[styles.wrap, { gap: space[2] }]}>
-              {times.map((t) => {
-                const selected = time === t.value;
-                return (
-                  <Pressable
-                    key={t.value}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected, disabled: !date }}
-                    disabled={!date}
-                    onPress={() => setTime(t.value)}
-                    style={[chip(selected), !date && styles.dim]}
-                  >
-                    <Text
-                      variant="bodyStrong"
-                      style={{ color: selected ? colors.onBrand : colors.textPrimary }}
-                    >
-                      {t.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            <>
+              {/* Any minute inside the working window, not one of eight we
+                  picked. The server validates the hour range and nothing
+                  finer. */}
+              <TimeField
+                value={time}
+                onChange={setTime}
+                placeholder={date ? 'Pick a time' : 'Pick a day first'}
+                minHour={VISIT_HOURS.from}
+                maxHour={VISIT_HOURS.to}
+                minTime={earliestToday}
+                disabled={!date}
+                accessibilityLabel="Pick a visit time"
+              />
+              <Text variant="caption" color="tertiary">
+                {date && earliestToday
+                  ? `Visits today run until ${prettyTime(`${VISIT_HOURS.to}:00`)}.`
+                  : `Visits are arranged between ${prettyTime(`0${VISIT_HOURS.from}:00`)} `
+                    + `and ${prettyTime(`${VISIT_HOURS.to}:00`)}.`}
+              </Text>
+            </>
           )}
-          {!date ? (
-            <Text variant="caption" color="tertiary">Pick a day first.</Text>
-          ) : null}
         </View>
 
         {error ? (
@@ -316,8 +250,8 @@ export default function VisitSlot() {
           <Button
             label={busy
               ? 'Confirming your visit...'
-              : chosenDayLabel && chosenTime
-                ? `Confirm · ${chosenDayLabel}, ${chosenTime.label}`
+              : chosenDayLabel && time
+                ? `Confirm · ${chosenDayLabel}, ${prettyTime(time)}`
                 : 'Pick a day and time'}
             disabled={!date || !time || busy}
             onPress={confirm}
@@ -335,7 +269,5 @@ export default function VisitSlot() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  wrap: { flexDirection: 'row', flexWrap: 'wrap' },
-  dim: { opacity: 0.4 },
   centred: { textAlign: 'center' },
 });

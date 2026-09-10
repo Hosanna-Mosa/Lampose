@@ -5,7 +5,8 @@ import { ActivityIndicator, Linking, Pressable, RefreshControl, StyleSheet, View
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
 
 import {
-  BottomSheet, Button, Checkbox, Icon, InlineAlert, RentDisplay, Text, TextField, type IconName,
+  BottomSheet, Button, Checkbox, Icon, InlineAlert, RentDisplay, Text, TextField, useAlert,
+  type IconName,
 } from '@/components/ui';
 import {
   PhotoHeader,
@@ -38,6 +39,7 @@ import {
 import { errorStates } from '@/constants/copy';
 import { useAppState } from '@/context/AppStateContext';
 import { useAuth } from '@/context/AuthContext';
+import { useOngoing } from '@/hooks/useOngoing';
 import { useTheme } from '@/context/ThemeContext';
 import { useListing, useListingReviews, useListings, useSaved } from '@/services';
 import { addAddress } from '@/services/api/addresses.api';
@@ -71,6 +73,10 @@ export default function ListingDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { locality } = useAppState();
   const { user, completeProfile } = useAuth();
+  const { confirm } = useAlert();
+  /* One booking at a time — the same rule the server enforces and the home
+     strip draws. See `useOngoing`. */
+  const { blocking } = useOngoing();
 
   const { listing, isPending, error, notFound, refetch, isFetching } = useListing(id);
   /* Same query key `GuestReviews` reads below, so this is not a second
@@ -462,7 +468,40 @@ export default function ListingDetail() {
      exactly as this always has; nothing on THAT path changed. Its absence
      opens the sheet instead of the confirmation screen — the request is not
      sent, and nothing was tried and failed. */
+  /*
+   * One booking at a time, warned before it is refused.
+   *
+   * The SERVER is the rule — `stayRequest.service.js` refuses a second
+   * request with `BOOKING_IN_PROGRESS`, and it has to, because a client
+   * check is a suggestion. This is the same rule read from the same place
+   * the home strip reads it (`useOngoing`), so the student is told before
+   * they have chosen a room, a length and a date and pressed send, rather
+   * than after.
+   *
+   * A prompt rather than a disabled button: "why can I not book this" is a
+   * question a greyed-out control cannot answer, and the useful reply names
+   * the property they are already waiting on and offers to open it.
+   */
+  const openBlocking = () => {
+    if (!blocking) return;
+    router.push(
+      (blocking.key.startsWith('listing-')
+        ? `/confirm/${blocking.key.replace('listing-', '')}`
+        : `/bookings/${blocking.key.replace('booking-', '')}`) as never,
+    );
+  };
+
   const requestBed = () => {
+    if (blocking) {
+      confirm({
+        title: 'You already have a booking going on',
+        message: `${blocking.title} — ${blocking.status.toLowerCase()}. `
+          + 'Finish or cancel that one, and this place will still be here.',
+        confirmLabel: 'Open it',
+        cancelLabel: 'Not now',
+      }).then((go) => { if (go) openBlocking(); });
+      return;
+    }
     if (!user?.name) {
       setProfileError(null);
       setProfileSheetOpen(true);
@@ -489,6 +528,18 @@ export default function ListingDetail() {
         await addAddress({ kind: 'home', label: 'Home', line1: trimmedAddress }).catch(() => {});
       }
       setProfileSheetOpen(false);
+      /* Same gate. This path also ends in a new request, and a rule enforced
+         on one of two routes to the same call is not a rule. */
+      if (blocking) {
+        confirm({
+          title: 'You already have a booking going on',
+          message: `${blocking.title} — ${blocking.status.toLowerCase()}. `
+            + 'Finish or cancel that one, and this place will still be here.',
+          confirmLabel: 'Open it',
+          cancelLabel: 'Not now',
+        }).then((go) => { if (go) openBlocking(); });
+        return;
+      }
       goToConfirm();
     } catch (caught) {
       setProfileError(

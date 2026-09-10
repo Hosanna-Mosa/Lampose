@@ -35,8 +35,11 @@ import { useColors } from '@/hooks/useColors';
  * ## It waits rather than asserting
  *
  * `useBooking` refetches on focus, so coming back to this screen is what
- * catches the student's confirmation. Nothing here writes: the owner's half is
- * already recorded, and the other half is not this app's to claim.
+ * catches the student's confirmation, and a pull refreshes it on the spot.
+ * Nothing here writes: the owner's half is already recorded, and the other
+ * half is not this app's to claim — which is also why there is no button
+ * asking for it. A control that cannot affect its own outcome is one an
+ * owner presses repeatedly at a door.
  */
 export default function CheckedInScreen() {
   const c = useColors();
@@ -102,20 +105,25 @@ export default function CheckedInScreen() {
               : router.replace({ pathname: '/booking/active', params: { id: booking.id } }))}
           />
         ) : (
-          <View style={styles.actions}>
-            <Button
-              label="Back to bookings"
-              variant="secondary"
-              onPress={() => router.replace('/bookings')}
-              style={styles.action}
-            />
-            <Button
-              label={isRefetching ? 'Checking…' : 'Check again'}
-              onPress={() => refetch()}
-              loading={isRefetching}
-              style={styles.action}
-            />
-          </View>
+          /*
+            One button, and it says the owner's part is finished.
+
+            "Check again" stood here first — a manual poll for something the
+            owner cannot make happen, which invited somebody to stand at a
+            door pressing it. The screen pulls to refresh and the card above
+            says what actually moves this on.
+
+            "Done", not "Back to bookings": the owner has checked the code and
+            let somebody through a door, and that IS done from their side.
+            Home rather than the list, because the strip above the tab bar
+            there now carries this booking until the guest confirms — so
+            leaving loses nothing, which is the thing that makes "Done" true.
+          */
+          <Button
+            label="Done"
+            variant="secondary"
+            onPress={() => router.replace('/')}
+          />
         )
       }
       stickyHeader={
@@ -163,13 +171,13 @@ export default function CheckedInScreen() {
       <Card>
         <DetailRow label="Guest" value={booking.guest} />
         <DetailRow label="Room" value={booking.roomType || 'Not set'} />
-        <DetailRow label="Check-in" value={formatDayDate(booking.checkIn)} last={bachelor} />
-        {/* A bachelor tenancy has no move-out date to show — the student was
-            never asked for one, so `booking.checkOut` here is a fallback
-            value (`toBooking()`, "the day after move-in"), never a real
-            answer. Showing it would print an invented date as this tenant's
-            move-out day. */}
-        {!bachelor ? (
+        <DetailRow label="Check-in" value={formatDayDate(booking.checkIn)} last={!booking.checkOut} />
+        {/* Tested on the DATE, not the category. A bachelor tenancy has no
+            move-out day because the request never asks for one, but so does
+            any open-ended PG stay — and `checkOut` is now null on both
+            rather than a "day after move-in" fallback there was never any
+            answer for. */}
+        {booking.checkOut ? (
           <DetailRow label="Check-out" value={formatDayDate(booking.checkOut)} last />
         ) : null}
       </Card>
@@ -212,6 +220,4 @@ const styles = StyleSheet.create({
   stepNumText: { fontFamily: fonts.bold, fontSize: 11 },
   stepText: { flex: 1, lineHeight: 19 },
   note: { lineHeight: 18, marginTop: 12 },
-  actions: { flexDirection: 'row', gap: 10 },
-  action: { flex: 1 },
 });
