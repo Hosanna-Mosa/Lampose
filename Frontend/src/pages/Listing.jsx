@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import Icon from '../components/Icon';
-import ListingCard, { availability, rupees } from '../components/ListingCard';
-import ConnectionError from '../components/ConnectionError';
-import VisitRequestDialog from '../components/VisitRequestDialog';
-import StayIntentPicker from '../components/StayIntentPicker';
-import VisitStatus from '../components/VisitStatus';
+import { Icon } from '../components/common/atoms/Icon/Icon';
+import { ListingCard, rupees } from '../components/common/organisms/ListingCard/ListingCard';
+import { ConnectionError } from '../components/common/organisms/ConnectionError/ConnectionError';
+import { VisitRequestDialog } from '../components/common/organisms/VisitRequestDialog/VisitRequestDialog';
+import { StayIntentPicker } from '../components/common/organisms/StayIntentPicker/StayIntentPicker';
+import { VisitStatus } from '../components/common/organisms/VisitStatus/VisitStatus';
 import { iconForCategory, labelForCategory } from '../data/categories';
 import listingsApi from '../api/listingsApi';
 import { useReveals } from '../hooks/useSite';
 import useVisitRequest from '../hooks/useVisitRequest';
+import { Chevron } from '../components/listing/atoms/Chevron/Chevron';
+import { Aside, Box, DescriptionDetail, DescriptionList, DescriptionTerm, Emphasis, Heading, Image, Inline, Input, Label, List, ListItem, Masthead, PlainButton, Region, Strong, Text } from '../components/common/atoms';
+import { AvailabilityChip } from '../components/common/molecules/AvailabilityChip/AvailabilityChip';
 
 const iconFor = iconForCategory;
 
@@ -128,24 +131,9 @@ const formatValue = v => {
 /* Rendered as the occupancy chooser in the rail, so they would only be
    repeated as rows in the table below it. Keyed by category because that is
    how the panel writes them — see backend/src/utils/sharing.js. */
-const OCCUPANCY_KEY = {
-  /* Two for PG_HOSTEL: the merge joined a category that wrote `sharingTypes`
-     to one that wrote `roomTypes`, and both are live in the collection. */
-  PG_HOSTEL: ['sharingTypes', 'roomTypes'],
-  HOTEL: ['bedTypes', 'bedType'],
-  /* Plural since layouts became multi-select; the singular is what older
-     rows carry. */
-  BACHELOR: ['roomTypes', 'roomType'],
-  COLIVE: ['roomTypes', 'roomType'],
-};
 
-const Chevron = ({ back }) => (
-  <svg className="lst-nav__ico" viewBox="0 0 24 24" aria-hidden="true">
-    <path d={back ? 'M15 4 L7 12 L15 20' : 'M9 4 L17 12 L9 20'} />
-  </svg>
-);
 
-export default function Listing() {
+export function Listing() {
   const { id } = useParams();
   const [item, setItem] = useState(null);
   const [siblings, setSiblings] = useState([]);
@@ -324,13 +312,13 @@ export default function Listing() {
 
   if (loading) {
     return (
-      <section id="listing">
-        <div className="sec-inner">
-          <div className="exp-empty">
-            <p>Loading this listing…</p>
-          </div>
-        </div>
-      </section>
+      <Region id="listing">
+        <Box className="sec-inner">
+          <Box className="exp-empty">
+            <Text>Loading this listing…</Text>
+          </Box>
+        </Box>
+      </Region>
     );
   }
 
@@ -338,26 +326,26 @@ export default function Listing() {
      nothing alike to whoever has to fix it, so they are not merged. */
   if (error) {
     return (
-      <section id="listing">
-        <div className="sec-inner">
+      <Region id="listing">
+        <Box className="sec-inner">
           <ConnectionError error={error} onRetry={() => load()} busy={loading} />
-        </div>
-      </section>
+        </Box>
+      </Region>
     );
   }
 
   if (!item) {
     return (
-      <section id="listing">
-        <div className="sec-inner">
-          <div className="exp-empty">
+      <Region id="listing">
+        <Box className="sec-inner">
+          <Box className="exp-empty">
             <Icon name="search" className="exp-empty__ico" />
-            <h3>That listing is not on Lampose</h3>
-            <p>It may have been taken down, or the link may be mistyped.</p>
+            <Heading level={3}>That listing is not on Lampose</Heading>
+            <Text>It may have been taken down, or the link may be mistyped.</Text>
             <Link className="exp-more" to="/explore">Back to Explore</Link>
-          </div>
-        </div>
-      </section>
+          </Box>
+        </Box>
+      </Region>
     );
   }
 
@@ -503,19 +491,14 @@ export default function Listing() {
   const tiles = images.slice(0, 5);
 
   const chips = (
-    <span className="lst-mosaic__chips">
-      <span className="exp-chip exp-chip--light">{labelForCategory(item.category)}</span>
+    <Inline className="lst-mosaic__chips">
+      <Inline className="exp-chip exp-chip--light">{labelForCategory(item.category)}</Inline>
       {/* Beds free, not stay type. The old chip read "Long Stay" on almost
           every listing because the backend defaults that field — the same
           word on every card is not information. This one changes as owners
           accept requests. */}
-      {(() => {
-        const free = availability(item);
-        return free
-          ? <span className={`exp-chip ${free.full ? 'exp-chip--muted' : 'exp-chip--dark'}`}>{free.label}</span>
-          : null;
-      })()}
-    </span>
+      <AvailabilityChip item={item} />
+    </Inline>
   );
 
   /* What the rail quotes before anything is chosen: the headline rent, so
@@ -524,10 +507,10 @@ export default function Listing() {
   const headlineRent = item.rent || rates.long?.monthlyPrice || null;
 
   return (
-    <section id="listing" className={`exp-card--${item.categorySlug}`}>
-      <div className="sec-inner">
+    <Region id="listing" className={`exp-card--${item.categorySlug}`}>
+      <Box className="sec-inner">
         <Link className="lst-back" to="/explore">
-          <span aria-hidden="true">←</span> All listings
+          <Inline aria-hidden="true">←</Inline> All listings
         </Link>
 
         {/* ── Mosaic gallery ───────────────────────────────────────────
@@ -535,139 +518,139 @@ export default function Listing() {
             at a glance instead of one photo hiding the rest. Any tile — or
             the count pill — opens the lightbox at that photo, where the
             arrows, keys, swipe and thumbnails live. */}
-        <header className="lst-top reveal">
+        <Masthead className="lst-top reveal">
           {shots > 0 ? (
-            <div className={`lst-mosaic lst-mosaic--${Math.min(shots, 5)}`}>
+            <Box className={`lst-mosaic lst-mosaic--${Math.min(shots, 5)}`}>
               {tiles.map((src, i) => (
-                <button
+                <PlainButton
                   key={src}
                   type="button"
                   className="lst-mosaic__ph"
                   onClick={() => openShot(i)}
                   aria-label={`Open photo ${i + 1} of ${shots}`}
                 >
-                  <img
+                  <Image
                     src={src}
                     alt={i === 0 ? item.name : ''}
                     loading={i === 0 ? 'eager' : 'lazy'}
                     decoding="async"
                     onError={e => { e.currentTarget.style.visibility = 'hidden'; }}
                   />
-                </button>
+                </PlainButton>
               ))}
               {chips}
               {shots > 1 && (
-                <button
+                <PlainButton
                   type="button"
                   className="lst-mosaic__all"
                   onClick={() => openShot(0)}
                 >
                   View all {shots} photos
-                </button>
+                </PlainButton>
               )}
-            </div>
+            </Box>
           ) : (
-            <div className="lst-mosaic lst-mosaic--0">
+            <Box className="lst-mosaic lst-mosaic--0">
               {chips}
-            </div>
+            </Box>
           )}
 
-          <div className="lst-head">
-            <h1 className="lst-title">{item.name}</h1>
+          <Box className="lst-head">
+            <Heading level={1} className="lst-title">{item.name}</Heading>
 
-            <p className="lst-where">
+            <Text className="lst-where">
               <Icon name="pin" className="exp-ico" />
               {item.place}
-            </p>
+            </Text>
 
-            <div className="lst-scores">
-              <span className="lst-kind">
+            <Box className="lst-scores">
+              <Inline className="lst-kind">
                 <Icon name={iconFor(item.category)} className="exp-ico" />
                 {labelForCategory(item.category)}
-              </span>
+              </Inline>
               {/* Only where the panel recorded it — hostels carry a type,
                   PGs have no gender field and get no badge rather than a
                   guessed one. */}
               {item.gender && (
-                <span className="lst-kind">
+                <Inline className="lst-kind">
                   <Icon name="users" className="exp-ico" />
                   {item.gender}
-                </span>
+                </Inline>
               )}
               {amenities.length > 0 && (
-                <span className="lst-kind">
+                <Inline className="lst-kind">
                   <Icon name="verified" className="exp-ico" />
                   {amenities.length} facilities listed
-                </span>
+                </Inline>
               )}
-            </div>
-          </div>
-        </header>
+            </Box>
+          </Box>
+        </Masthead>
 
         {/* ── Body ─────────────────────────────────────────────────────
             Content on the left, the booking rail on the right. From 980px
             the rail sticks, so the price and the button follow the reader
             down the page; on a phone the columns stack and the rail comes
             after the facts, where the old inline flow sat. */}
-        <div className="lst-cols">
-          <div className="lst-main">
+        <Box className="lst-cols">
+          <Box className="lst-main">
             {description && (
-              <section className="lst-block reveal">
-                <h2 className="lst-h2">About this property</h2>
-                <p className="lst-desc-body">
+              <Region className="lst-block reveal">
+                <Heading level={2} className="lst-h2">About this property</Heading>
+                <Text className="lst-desc-body">
                   {description}
-                </p>
-              </section>
+                </Text>
+              </Region>
             )}
 
             {/* Meals, from the two fields the panel actually collects. No
                 servings, timings or notes — those are not recorded, and a
                 plausible-looking invention would be read as a promise. */}
             {item.meals && (
-              <section className="lst-block reveal">
-                <h2 className="lst-h2">Meals</h2>
-                <p className="lst-desc-body">
+              <Region className="lst-block reveal">
+                <Heading level={2} className="lst-h2">Meals</Heading>
+                <Text className="lst-desc-body">
                   {item.meals.included
-                    ? <>Food is <strong>included in the rent</strong>{item.meals.foodType ? <> — {item.meals.foodType}</> : null}.</>
-                    : <>Meals are <strong>not included</strong> in the rent{item.meals.foodType ? <> ({item.meals.foodType} available)</> : null}.</>}
-                </p>
-              </section>
+                    ? <>Food is <Strong>included in the rent</Strong>{item.meals.foodType ? <> — {item.meals.foodType}</> : null}.</>
+                    : <>Meals are <Strong>not included</Strong> in the rent{item.meals.foodType ? <> ({item.meals.foodType} available)</> : null}.</>}
+                </Text>
+              </Region>
             )}
 
             {amenities.length > 0 && (
-              <section className="lst-block reveal">
-                <h2 className="lst-h2">What is included</h2>
+              <Region className="lst-block reveal">
+                <Heading level={2} className="lst-h2">What is included</Heading>
                 {/* Six is enough to judge a place by; the rest are one tap away
                     rather than a wall to scroll past. */}
-                <ul className="lst-amenities">
+                <List className="lst-amenities">
                   {(showAllAmenities ? amenities : amenities.slice(0, 6)).map(a => (
-                    <li key={a}>
+                    <ListItem key={a}>
                       <Icon name="verified" className="exp-ico" />
                       {a}
-                    </li>
+                    </ListItem>
                   ))}
-                </ul>
+                </List>
                 {amenities.length > 6 && (
-                  <button
+                  <PlainButton
                     className="xp-linkbtn lst-seeall"
                     onClick={() => setShowAllAmenities(v => !v)}
                   >
                     {showAllAmenities ? 'Show fewer' : `See all ${amenities.length}`}
-                  </button>
+                  </PlainButton>
                 )}
-              </section>
+              </Region>
             )}
 
-            <section className="lst-block reveal">
-              <h2 className="lst-h2">Property details</h2>
-              <dl className="lst-facts">
+            <Region className="lst-block reveal">
+              <Heading level={2} className="lst-h2">Property details</Heading>
+              <DescriptionList className="lst-facts">
                 {facts.map(([k, v]) => (
-                  <div key={k}>
-                    <dt className="exp-lbl">{k}</dt>
-                    <dd>{v}</dd>
-                  </div>
+                  <Box key={k}>
+                    <DescriptionTerm className="exp-lbl">{k}</DescriptionTerm>
+                    <DescriptionDetail>{v}</DescriptionDetail>
+                  </Box>
                 ))}
-              </dl>
+              </DescriptionList>
 
               {/* The city, locality and door number are deliberately not rows
                   above. A public page that prints an owner's exact address
@@ -675,15 +658,15 @@ export default function Listing() {
                   until the owner has agreed to the visit. Saying so here —
                   where the address would have been — answers the question
                   the missing rows would otherwise raise. */}
-              <p className="lst-addr-note">
+              <Text className="lst-addr-note">
                 <Icon name="pin" className="exp-ico" />
-                <span>
-                  The full address is shared on <strong>WhatsApp</strong> once your
+                <Inline>
+                  The full address is shared on <Strong>WhatsApp</Strong> once your
                   visit is confirmed.
-                </span>
-              </p>
-            </section>
-          </div>
+                </Inline>
+              </Text>
+            </Region>
+          </Box>
 
           {/* ── Booking rail ───────────────────────────────────────────
               Price on top, the stay questions under it, one button. Once
@@ -692,8 +675,8 @@ export default function Listing() {
               about the same room. The old record stays until a new one
               replaces it, so cancelling the dialog cannot lose the answer
               already on screen. */}
-          <aside className="lst-rail reveal">
-            <div className="lst-block lst-rail__card">
+          <Aside className="lst-rail reveal">
+            <Box className="lst-block lst-rail__card">
               {visit ? (
                 <VisitStatus
                   request={visit}
@@ -709,24 +692,24 @@ export default function Listing() {
                       nobody presses the button without seeing the number.
                       Before anything is chosen it shows the headline rent —
                       the number the visitor opened the page for. */}
-                  <div className="lst-rail__price">
+                  <Box className="lst-rail__price">
                     {quote ? (
                       <>
-                        <strong>{rupees(quote.amount)}</strong>
-                        <span>{quote.unitLabel}</span>
-                        {quote.durationLabel && <em>· {quote.durationLabel}</em>}
+                        <Strong>{rupees(quote.amount)}</Strong>
+                        <Inline>{quote.unitLabel}</Inline>
+                        {quote.durationLabel && <Emphasis>· {quote.durationLabel}</Emphasis>}
                       </>
                     ) : headlineRent ? (
                       <>
-                        <strong>{rupees(headlineRent)}</strong>
-                        <span>{item.pricePeriod || '/mo'}</span>
+                        <Strong>{rupees(headlineRent)}</Strong>
+                        <Inline>{item.pricePeriod || '/mo'}</Inline>
                       </>
                     ) : (
-                      <span className="lst-rail__unpriced">Choose your stay to see the rate</span>
+                      <Inline className="lst-rail__unpriced">Choose your stay to see the rate</Inline>
                     )}
-                  </div>
+                  </Box>
                   {item.deposit ? (
-                    <p className="lst-rail__dep">Deposit {rupees(item.deposit)}</p>
+                    <Text className="lst-rail__dep">Deposit {rupees(item.deposit)}</Text>
                   ) : null}
 
                   <StayIntentPicker listing={item} value={intent} onChange={setIntent} />
@@ -740,88 +723,88 @@ export default function Listing() {
                       anything — the same request, the same data sharing, and
                       no consent behind it. */}
                   {true && (
-                    <label className="lst-consent">
-                      <input
+                    <Label className="lst-consent">
+                      <Input
                         type="checkbox"
                         checked={intent.consented === true}
                         onChange={e => setIntent(v => ({ ...v, consented: e.target.checked }))}
                       />
-                      <span>
+                      <Inline>
                         I accept the <Link to="/privacy">Privacy Policy</Link> and{' '}
                         <Link to="/terms">Terms and Conditions</Link>.
-                      </span>
-                    </label>
+                      </Inline>
+                    </Label>
                   )}
 
-                  <button className="exp-book" disabled={!ready} onClick={() => setAskOpen(true)}>
+                  <PlainButton className="exp-book" disabled={!ready} onClick={() => setAskOpen(true)}>
                     Request a visit
-                  </button>
+                  </PlainButton>
 
                   {/* Pro-rated only where it is real: a long stay with a
                       monthly rate and a chosen date. */}
                   {quote?.prorated && !quote.prorated.full && (
-                    <p className="lst-prorate">
-                      First month is pro-rated to <strong>{rupees(quote.prorated.amount)}</strong>
+                    <Text className="lst-prorate">
+                      First month is pro-rated to <Strong>{rupees(quote.prorated.amount)}</Strong>
                       {' '}— {quote.prorated.daysCharged} of {quote.prorated.daysInMonth} days.
-                    </p>
+                    </Text>
                   )}
 
-                  {!ready && missing && <p className="lst-sharing__hint">{missing}</p>}
+                  {!ready && missing && <Text className="lst-sharing__hint">{missing}</Text>}
                 </>
               )}
 
-              <p className="lst-note">
+              <Text className="lst-note">
                 Listed through the Lampose onboarding panel. Nothing is paid through
                 this site — arrange the visit with the owner directly.
-              </p>
-            </div>
-          </aside>
-        </div>
+              </Text>
+            </Box>
+          </Aside>
+        </Box>
 
         {/* The heading has to describe what actually came back: a listing in a
             city of its own falls through to same-category matches elsewhere,
             and "More in Guntur" over three Bangalore rooms would be a lie. */}
         {related.length > 0 && (
-          <section className="lst-related">
-            <h2 className="lst-h2">
+          <Region className="lst-related">
+            <Heading level={2} className="lst-h2">
               {related.every(l => l.city === item.city)
                 ? `More in ${item.city}`
                 : 'More like this'}
-            </h2>
-            <div className="exp-grid">
+            </Heading>
+            <Box className="exp-grid">
               {related.map((l, i) => <ListingCard key={l.id} item={l} index={i} />)}
-            </div>
-          </section>
+            </Box>
+          </Region>
         )}
-      </div>
+      </Box>
 
       {/* ── Lightbox ─────────────────────────────────────────────────────
           The full gallery: arrows on desktop, swipe on touch, arrow keys
           from the window, thumbnails to jump. Clicking the backdrop closes;
           clicking the photo or the controls does not. */}
       {lightbox && shots > 0 && (
-        <div
+        <Box
           className="lst-lb"
           role="dialog"
           aria-modal="true"
           aria-label={`${item.name} photos`}
           onClick={() => setLightbox(false)}
         >
-          <button
+          <PlainButton
             type="button"
             className="lst-lb__close"
             onClick={e => { e.stopPropagation(); setLightbox(false); }}
             aria-label="Close photos"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6 L18 18 M18 6 L6 18" /></svg>
-          </button>
+          </PlainButton>
 
-          <div
+          <Box
             className="lst-lb__stage"
             onClick={e => e.stopPropagation()}
             {...(shots > 1 ? swipe : {})}
           >
-            <img
+            <Image
               // Clamped rather than a bare `images[shot]`: the reset effect
               // above fires a render after `images` itself changes length
               // (a new sharing option picked), so there's one frame where
@@ -835,44 +818,44 @@ export default function Listing() {
 
             {shots > 1 && (
               <>
-                <button
+                <PlainButton
                   className="lst-nav lst-nav--back"
                   onClick={() => go(-1)}
                   aria-label="Previous photo"
                 >
                   <Chevron back />
-                </button>
-                <button
+                </PlainButton>
+                <PlainButton
                   className="lst-nav lst-nav--next"
                   onClick={() => go(1)}
                   aria-label="Next photo"
                 >
                   <Chevron />
-                </button>
+                </PlainButton>
 
-                <span className="lst-count" aria-live="polite">
+                <Inline className="lst-count" aria-live="polite">
                   {shot + 1} / {shots}
-                </span>
+                </Inline>
               </>
             )}
-          </div>
+          </Box>
 
           {shots > 1 && (
-            <div className="lst-shots" onClick={e => e.stopPropagation()}>
+            <Box className="lst-shots" onClick={e => e.stopPropagation()}>
               {images.map((src, i) => (
-                <button
+                <PlainButton
                   key={src}
                   className={`lst-shot${i === shot ? ' is-active' : ''}`}
                   onClick={() => setShot(i)}
                   aria-label={`Photo ${i + 1} of ${shots}`}
                   aria-pressed={i === shot}
                 >
-                  <img src={src} alt="" loading="lazy" decoding="async" />
-                </button>
+                  <Image src={src} alt="" loading="lazy" decoding="async" />
+                </PlainButton>
               ))}
-            </div>
+            </Box>
           )}
-        </div>
+        </Box>
       )}
 
       {askOpen && (
@@ -890,11 +873,11 @@ export default function Listing() {
       )}
 
       {toast && (
-        <div className="exp-toast" role="status">
+        <Box className="exp-toast" role="status">
           <Icon name="verified" className="exp-ico" />
           {toast}
-        </div>
+        </Box>
       )}
-    </section>
+    </Region>
   );
 }

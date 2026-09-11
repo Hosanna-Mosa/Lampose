@@ -1,4 +1,4 @@
-import ComingSoon from '../components/ComingSoon';
+import { ComingSoon } from '../components/common/organisms/ComingSoon/ComingSoon';
 
 /* ══════════════════════════════════════════════════════════════════════════
    ORIGINAL FOOD PAGE CODE (COMMENTED OUT TEMPORARILY FOR LATER USE)
@@ -173,6 +173,6 @@ function OriginalFood() {
 }
 ══════════════════════════════════════════════════════════════════════════ */
 
-export default function Food() {
+export function Food() {
   return <ComingSoon />;
 }

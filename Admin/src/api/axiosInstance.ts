@@ -3,7 +3,7 @@ import type { ApiError } from './types';
 
 /** API Base URL read exclusively from environment configuration (.env) */
 export const API_BASE_URL: string =
-  (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:5001/api';
+  (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:8026/api';
 
 /** Backward compatibility alias for API Base URL */
 export const DEFAULT_BASE_URL = API_BASE_URL;
