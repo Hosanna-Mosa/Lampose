@@ -70,7 +70,7 @@ const CONFIGURED_BASE = normaliseBase(
 /* A dev machine with no .env still runs. A production build with no .env is
    a deployment mistake, and silently falling back to localhost turns it into
    "the site loads but nothing saves" — so it is said out loud instead. */
-const DEV_FALLBACK = 'http://localhost:5001/api';
+const DEV_FALLBACK = 'http://localhost:8026/api';
 
 if (!CONFIGURED_BASE) {
   const message =
@@ -308,7 +308,7 @@ export const deleteProperty = (id) =>
  * @param {(File|{file?: File, url?: string})[]} items
  * @param {(stage: string) => void} [onStage] Progress, for the submit button.
  */
-export const uploadPropertyImages = async (items = [], onStage = () => {}) => {
+export const uploadPropertyImages = async (items = [], onStage = () => { }) => {
   const list = items
     .map((item) => (item instanceof File ? { file: item } : item))
     .filter((item) => item && (item.file || item.url));
@@ -371,7 +371,7 @@ export const uploadPropertyImages = async (items = [], onStage = () => {}) => {
  * @returns {Promise<Record<string, string[]>>} label -> uploaded URLs, only
  *   for labels that actually had something to upload.
  */
-export const uploadSharingImages = async (mapOfLabelToItems = {}, onStage = () => {}) => {
+export const uploadSharingImages = async (mapOfLabelToItems = {}, onStage = () => { }) => {
   const out = {};
   const labels = Object.keys(mapOfLabelToItems);
 
@@ -382,7 +382,7 @@ export const uploadSharingImages = async (mapOfLabelToItems = {}, onStage = () =
 
     onStage(`Uploading photos for "${label}" (${i + 1}/${labels.length})...`);
     // eslint-disable-next-line no-await-in-loop
-    const urls = await uploadPropertyImages(items, () => {});
+    const urls = await uploadPropertyImages(items, () => { });
     if (urls.length) out[label] = urls;
   }
 
@@ -427,7 +427,7 @@ export const updatePropertyImages = (id, images) =>
  * @param {{kind: string, docType?: string, file: File}[]} items
  * @param {(stage: string) => void} [onStage]
  */
-export const uploadPropertyDocuments = async (items = [], onStage = () => {}) => {
+export const uploadPropertyDocuments = async (items = [], onStage = () => { }) => {
   const list = items.filter((item) => item && item.file);
   if (list.length === 0) return [];
 

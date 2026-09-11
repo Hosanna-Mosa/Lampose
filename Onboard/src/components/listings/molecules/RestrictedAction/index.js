@@ -1,0 +1,1 @@
+export { RestrictedAction } from './RestrictedAction';

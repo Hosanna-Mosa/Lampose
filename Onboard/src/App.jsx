@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import Navbar from './components/Navbar.jsx';
-import HeroSlider from './components/HeroSlider.jsx';
-import CategorySelector from './components/OnboardingForm/CategorySelector.jsx';
-import BasicDetailsStep from './components/OnboardingForm/BasicDetailsStep.jsx';
-import CategoryFieldsStep from './components/OnboardingForm/CategoryFieldsStep.jsx';
-import PricingAmenitiesStep from './components/OnboardingForm/PricingAmenitiesStep.jsx';
-import FormSuccessModal from './components/OnboardingForm/FormSuccessModal.jsx';
-import AuthScreen from './components/Auth/AuthScreen.jsx';
-import FilterBar from './components/Listings/FilterBar.jsx';
-import PropertyCard from './components/Listings/PropertyCard.jsx';
-import PropertyDetailModal from './components/Listings/PropertyDetailModal.jsx';
+import { Navbar } from './components/common/organisms/Navbar';
+import { HeroSlider } from './components/listings/organisms/HeroSlider';
+import { CategorySelector } from './components/onboard/organisms/CategorySelector';
+import { BasicDetailsStep } from './components/onboard/organisms/BasicDetailsStep';
+import { CategoryFieldsStep } from './components/onboard/organisms/CategoryFieldsStep';
+import { PricingAmenitiesStep } from './components/onboard/organisms/PricingAmenitiesStep';
+import { FormSuccessModal } from './components/onboard/organisms/FormSuccessModal';
+import { AuthScreen } from './components/auth/organisms/AuthScreen';
+import { FilterBar } from './components/listings/molecules/FilterBar';
+import { PropertyCard } from './components/listings/organisms/PropertyCard';
+import { PropertyDetailModal } from './components/listings/organisms/PropertyDetailModal';
 import {
   deleteProperty,
   fetchProperties,
@@ -21,68 +21,11 @@ import {
 import { getCurrentUser, logout, getSavedEmployeeEmail } from './services/auth.js';
 import { validateOnboarding, firstErrorKey, anchorFor } from './services/validation.js';
 import { PlusCircle, AlertCircle, Building2, Loader2, CloudUpload, Database, ShieldAlert, WifiOff } from 'lucide-react';
+import { INITIAL_FORM_STATE } from './components/onboard/utils/initialFormState';
+import { Box, ContentInfo, Form, Heading, Inline, Main, PlainButton, Strong, Text } from './components/common/atoms';
 
-const INITIAL_FORM_STATE = {
-  name: '',
-  place: '',
-  ownerName: '',
-  ownerMobile: '',
-  // Optional second number. Blank is a valid answer and is stored as blank.
-  ownerAltMobile: '',
-  category: 'PG_HOSTEL',
-  employeeEmail: '',
-  stayType: 'Long Stay',
-  shortStayDuration: '1-7 Days',
-  dailyPrice: '',
-  longStayDuration: '1 Month+',
-  monthlyPrice: '',
-  rent: '',
-  deposit: '',
-  address: '',
-  imageUrl: '',
-  images: [],
-  localImages: [],
-  amenities: ['WiFi', 'AC', 'Food', 'RO Water'],
-  categoryDetails: {
-    foodIncluded: true,
-    foodType: 'Both (Veg & Non-Veg)',
-    mealsProvided: ['Breakfast', 'Lunch', 'Dinner'],
-    mealTimings: {
-      Breakfast: '7:30 AM - 9:30 AM',
-      Lunch: '12:30 PM - 2:30 PM',
-      Dinner: '8:00 PM - 10:00 PM'
-    },
-    sharingTypes: ['Single', '2 Sharing'],
-    /* Occupancies added through "Custom" in CategoryFieldsStep. Only the
-       extras are recorded here — the five standard options are a constant in
-       that file, not data. */
-    customSharingTypes: [],
-    sharingPrices: {},
-    /* Beds entered directly per sharing option — the claimable count the
-       request flow decrements. */
-    sharingBeds: {},
-    sharingAC: {},
-    sharingAcPrices: {},
-    curfewTime: '10:30 PM',
-    housekeeping: true,
-    /* Kept in step with handleCategorySelect('PG_HOSTEL') below — that
-       function only runs when an agent explicitly SWITCHES to this category,
-       but PG_HOSTEL is also the category the form opens on by default, which
-       never calls it. Without these five here too, a fresh form's Hostel Type
-       dropdown shows "Boys Hostel" selected (its own `|| 'Boys Hostel'`
-       fallback) while categoryDetails.hostelType is actually empty — so
-       submit fails on a required field that already looks filled in, and
-       nothing on screen shows what to fix. Switching category away and back
-       used to be the only way to actually write the default into state. */
-    hostelType: 'Boys Hostel',
-    canteenFacility: true,
-    wardenContact: '',
-    securityCCTV: true,
-    studyRoom: true
-  }
-};
 
-export default function App() {
+export function App() {
   // Authentication State
   const [user, setUser] = useState(getCurrentUser());
 
@@ -745,7 +688,7 @@ export default function App() {
   });
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* Header Navigation with Auth */}
       <Navbar
         activeTab={activeTab}
@@ -756,14 +699,14 @@ export default function App() {
       />
 
       {/* Main App Workspace */}
-      <main className="main-workspace">
-        <div className="container">
+      <Main className="main-workspace">
+        <Box className="container">
 
           {/* ==================================================== */}
           {/* TAB 1: EXPLORE LIVE LISTINGS */}
           {/* ==================================================== */}
           {activeTab === 'listings' && (
-            <div className="animate-fade-in">
+            <Box className="animate-fade-in">
               {/* Interactive Banner / Carousel */}
               <HeroSlider onCategorySelect={(cat) => {
                 setSelectedCategory(cat);
@@ -785,7 +728,7 @@ export default function App() {
 
               {/* Error Message */}
               {errorMsg && (
-                <div style={{
+                <Box style={{
                   padding: '16px',
                   borderRadius: '16px',
                   background: '#fef2f2',
@@ -797,17 +740,17 @@ export default function App() {
                   gap: '10px'
                 }}>
                   <AlertCircle size={20} />
-                  <span>{errorMsg}</span>
-                </div>
+                  <Inline>{errorMsg}</Inline>
+                </Box>
               )}
 
               {/* Listings Grid */}
               {loading ? (
-                <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
-                  <p style={{ fontSize: '1.1rem' }}>Loading properties from database...</p>
-                </div>
+                <Box style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
+                  <Text style={{ fontSize: '1.1rem' }}>Loading properties from database...</Text>
+                </Box>
               ) : filteredProperties.length === 0 ? (
-                <div style={{
+                <Box style={{
                   textAlign: 'center',
                   padding: '60px 20px',
                   background: '#ffffff',
@@ -816,36 +759,36 @@ export default function App() {
                   color: 'var(--text-muted)'
                 }}>
                   <Building2 size={48} style={{ margin: '0 auto 12px', opacity: 0.4, color: '#45855a' }} />
-                  <h3 style={{ fontSize: '1.2rem', color: 'var(--text-main)', marginBottom: '4px' }}>
+                  <Heading level={3} style={{ fontSize: '1.2rem', color: 'var(--text-main)', marginBottom: '4px' }}>
                     {ownershipFilter === 'mine' ? 'No Accommodations Added By You Yet' : 'No Accommodations Found'}
-                  </h3>
-                  <p style={{ fontSize: '0.88rem' }}>
+                  </Heading>
+                  <Text style={{ fontSize: '0.88rem' }}>
                     {ownershipFilter === 'mine'
                       ? 'You have not onboarded any properties under your account yet. Onboard a property now or explore all platform properties.'
                       : 'Try adjusting your search or category filters, or onboard a new property.'}
-                  </p>
-                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginTop: '16px', flexWrap: 'wrap' }}>
-                    <button
+                  </Text>
+                  <Box style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginTop: '16px', flexWrap: 'wrap' }}>
+                    <PlainButton
                       onClick={() => setActiveTab('onboard')}
                       className="btn btn-primary"
                       style={{ padding: '8px 20px' }}
                     >
                       <PlusCircle size={16} />
-                      <span>Onboard Property</span>
-                    </button>
+                      <Inline>Onboard Property</Inline>
+                    </PlainButton>
                     {ownershipFilter === 'mine' && (
-                      <button
+                      <PlainButton
                         onClick={() => setOwnershipFilter('all')}
                         className="btn btn-secondary"
                         style={{ padding: '8px 20px' }}
                       >
-                        <span>View All Platform Properties ({allPropertiesCount})</span>
-                      </button>
+                        <Inline>View All Platform Properties ({allPropertiesCount})</Inline>
+                      </PlainButton>
                     )}
-                  </div>
-                </div>
+                  </Box>
+                </Box>
               ) : (
-                <div className="property-grid">
+                <Box className="property-grid">
                   {filteredProperties.map(property => (
                     <PropertyCard
                       key={property._id}
@@ -853,26 +796,26 @@ export default function App() {
                       onViewDetails={() => setActiveModalProperty(property)}
                     />
                   ))}
-                </div>
+                </Box>
               )}
-            </div>
+            </Box>
           )}
 
           {/* ==================================================== */}
           {/* TAB 2: MULTI-STEP ONBOARDING FORM */}
           {/* ==================================================== */}
           {activeTab === 'onboard' && (
-            <div className="glass-card form-card animate-fade-in" style={{ maxWidth: '860px', margin: '0 auto', padding: '32px 28px' }}>
-              <div style={{ marginBottom: '24px', textAlign: 'center' }}>
-                <h2 style={{ fontSize: 'clamp(1.5rem, 4vw, 2rem)', fontWeight: 800, color: 'var(--text-main)' }}>
+            <Box className="glass-card form-card animate-fade-in" style={{ maxWidth: '860px', margin: '0 auto', padding: '32px 28px' }}>
+              <Box style={{ marginBottom: '24px', textAlign: 'center' }}>
+                <Heading level={2} style={{ fontSize: 'clamp(1.5rem, 4vw, 2rem)', fontWeight: 800, color: 'var(--text-main)' }}>
                   Onboard Your Accommodation
-                </h2>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
+                </Heading>
+                <Text style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
                   Select category, fill specifications, add photos and live in seconds
-                </p>
-              </div>
+                </Text>
+              </Box>
 
-              <form onSubmit={handleSubmitForm}>
+              <Form onSubmit={handleSubmitForm}>
                 {/* Step 1: Category Picker */}
                 <CategorySelector
                   selectedCategory={formData.category}
@@ -911,7 +854,7 @@ export default function App() {
                   way back to it.
                 */}
                 {Object.keys(formErrors).length > 0 && (
-                  <div
+                  <Box
                     role="alert"
                     style={{
                       display: 'flex', alignItems: 'flex-start', gap: '10px',
@@ -920,16 +863,16 @@ export default function App() {
                     }}
                   >
                     <ShieldAlert size={18} color="#dc2626" style={{ flexShrink: 0, marginTop: '1px' }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <strong style={{ color: '#991b1b', fontSize: '0.9rem' }}>
+                    <Box style={{ flex: 1, minWidth: 0 }}>
+                      <Strong style={{ color: '#991b1b', fontSize: '0.9rem' }}>
                         {Object.keys(formErrors).length === 1
                           ? '1 field needs fixing before this can be saved'
                           : `${Object.keys(formErrors).length} fields need fixing before this can be saved`}
-                      </strong>
-                      <p style={{ color: '#b91c1c', fontSize: '0.82rem', margin: '3px 0 0' }}>
+                      </Strong>
+                      <Text style={{ color: '#b91c1c', fontSize: '0.82rem', margin: '3px 0 0' }}>
                         Nothing has been sent to the database. Each one is marked in red above.
-                      </p>
-                      <button
+                      </Text>
+                      <PlainButton
                         type="button"
                         onClick={() => {
                           const id = anchorFor(firstErrorKey(formErrors));
@@ -946,9 +889,9 @@ export default function App() {
                         }}
                       >
                         Go to the first one
-                      </button>
-                    </div>
-                  </div>
+                      </PlainButton>
+                    </Box>
+                  </Box>
                 )}
 
                 {/* The form was valid, the save was attempted, and it failed. */}
@@ -964,7 +907,7 @@ export default function App() {
                   const inkSoft = rejected ? '#b91c1c' : '#b45309';
 
                   return (
-                    <div
+                    <Box
                       role="alert"
                       style={{
                         display: 'flex', alignItems: 'flex-start', gap: '10px',
@@ -980,78 +923,78 @@ export default function App() {
                           ? <ShieldAlert size={18} color="#b45309" style={{ flexShrink: 0, marginTop: '1px' }} />
                           : <WifiOff size={18} color="#b45309" style={{ flexShrink: 0, marginTop: '1px' }} />}
 
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <strong style={{ color: ink, fontSize: '0.9rem' }}>
+                      <Box style={{ flex: 1, minWidth: 0 }}>
+                        <Strong style={{ color: ink, fontSize: '0.9rem' }}>
                           {submitError.title}
-                        </strong>
-                        <p style={{ color: inkSoft, fontSize: '0.82rem', margin: '3px 0 0' }}>
+                        </Strong>
+                        <Text style={{ color: inkSoft, fontSize: '0.82rem', margin: '3px 0 0' }}>
                           {submitError.detail}
-                        </p>
+                        </Text>
 
                         {/* The way out of an ambiguous save is to LOOK, not to
                             press Submit again. So the only button offered is
                             the one that answers the question. */}
                         {uncertain && (
-                          <button
+                          <PlainButton
                             type="button"
                             onClick={() => { setSubmitError(null); setActiveTab('listings'); loadData(); }}
                             className="btn btn-secondary"
                             style={{ marginTop: '10px', fontSize: '0.8rem', padding: '7px 14px', borderRadius: '9px' }}
                           >
                             Open Listings and check
-                          </button>
+                          </PlainButton>
                         )}
-                      </div>
+                      </Box>
 
-                      <button
+                      <PlainButton
                         type="button"
                         onClick={() => setSubmitError(null)}
                         aria-label="Dismiss"
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0 }}
                       >
                         ✕
-                      </button>
-                    </div>
+                      </PlainButton>
+                    </Box>
                   );
                 })()}
 
                 {/* Submit Button */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'flex-end', paddingTop: '16px', borderTop: '1px solid var(--border-glass)' }}>
-                  <button
+                <Box style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'flex-end', paddingTop: '16px', borderTop: '1px solid var(--border-glass)' }}>
+                  <PlainButton
                     type="button"
                     onClick={() => setActiveTab('listings')}
                     className="btn btn-secondary"
                     disabled={submitting}
                   >
                     Cancel
-                  </button>
+                  </PlainButton>
 
-                  <button
+                  <PlainButton
                     type="submit"
                     disabled={submitting}
                     className="btn btn-primary"
                     style={{ padding: '12px 28px', minWidth: '220px' }}
                   >
                     {submitting ? (
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Inline style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <Loader2 size={18} className="animate-spin" />
-                        <span>{submitStage || 'Uploading & Saving...'}</span>
-                      </span>
+                        <Inline>{submitStage || 'Uploading & Saving...'}</Inline>
+                      </Inline>
                     ) : (
-                      <span>Submit & Onboard Property</span>
+                      <Inline>Submit & Onboard Property</Inline>
                     )}
-                  </button>
-                </div>
-              </form>
-            </div>
+                  </PlainButton>
+                </Box>
+              </Form>
+            </Box>
           )}
 
-        </div>
-      </main>
+        </Box>
+      </Main>
 
       {/* Global Cloud Upload & Submission Progress Modal Overlay */}
       {submitting && (
-        <div style={{
+        <Box style={{
           position: 'fixed',
           inset: 0,
           zIndex: 10000,
@@ -1063,7 +1006,7 @@ export default function App() {
           justifyContent: 'center',
           padding: '16px'
         }} className="animate-fade-in">
-          <div style={{
+          <Box style={{
             maxWidth: '440px',
             width: '100%',
             padding: '32px 24px',
@@ -1073,7 +1016,7 @@ export default function App() {
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
             border: '1px solid #e2e8f0'
           }}>
-            <div style={{
+            <Box style={{
               width: '64px',
               height: '64px',
               borderRadius: '50%',
@@ -1086,35 +1029,35 @@ export default function App() {
               color: '#45855a'
             }}>
               <Loader2 size={32} className="animate-spin" />
-            </div>
+            </Box>
 
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#181e1b', marginBottom: '8px' }}>
+            <Heading level={3} style={{ fontSize: '1.25rem', fontWeight: 800, color: '#181e1b', marginBottom: '8px' }}>
               Onboarding Property...
-            </h3>
+            </Heading>
             
-            <p style={{ fontSize: '0.9rem', color: '#45855a', fontWeight: 700, marginBottom: '6px' }}>
+            <Text style={{ fontSize: '0.9rem', color: '#45855a', fontWeight: 700, marginBottom: '6px' }}>
               {submitStage || 'Uploading photos to Cloudinary CDN & Saving...'}
-            </p>
+            </Text>
 
-            <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
+            <Inline style={{ fontSize: '0.78rem', color: '#64748b' }}>
               Please do not close this window while images are being saved to cloud storage.
-            </span>
-          </div>
-        </div>
+            </Inline>
+          </Box>
+        </Box>
       )}
 
       {/* Footer */}
-      <footer style={{
+      <ContentInfo style={{
         padding: '16px 0',
         borderTop: '1px solid var(--border-glass)',
         textAlign: 'center',
         color: 'var(--text-muted)',
         fontSize: '0.78rem'
       }}>
-        <div className="container">
-          <p>© 2026 Lampose — Stay. Eat. Deliver. Live Better.</p>
-        </div>
-      </footer>
+        <Box className="container">
+          <Text>© 2026 Lampose — Stay. Eat. Deliver. Live Better.</Text>
+        </Box>
+      </ContentInfo>
 
       {/* Onboarding Success Modal */}
       {recentlyOnboarded && (
@@ -1145,6 +1088,6 @@ export default function App() {
           onUpdated={handlePropertyUpdated}
         />
       )}
-    </div>
+    </Box>
   );
 }
