@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { propertyApi, Property } from '../api/propertyApi';
-import { PropertyCard } from '../components/onboarding/PropertyCard';
-import { PropertyDetailModal } from '../components/onboarding/PropertyDetailModal';
-import { PropertyFormModal } from '../components/onboarding/PropertyFormModal';
+import { PropertyCard } from '../components/accommodation-properties/organisms/PropertyCard';
+import { PropertyDetailModal } from '../components/accommodation-properties/organisms/PropertyDetailModal';
+import { PropertyFormModal } from '../components/accommodation-properties/organisms/PropertyFormModal';
 import { Search, Plus, Building2, RefreshCw, Home, Sparkles, Filter } from 'lucide-react';
+import { Box, Heading, Inline, Input, PlainButton, Text } from '../components/common/atoms';
 
 export const AccommodationPropertiesPage: React.FC = () => {
   const [properties, setProperties] = useState<Property[]>([]);
@@ -58,45 +59,45 @@ export const AccommodationPropertiesPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <Box className="space-y-6">
       {/* Top Banner Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-50 border border-cyan-200 text-cyan-600 text-xs font-bold mb-2">
+      <Box className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <Box>
+          <Box className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-50 border border-cyan-200 text-cyan-600 text-xs font-bold mb-2">
             <Building2 className="w-3.5 h-3.5" />
-            <span>Accommodation Onboarding Engine</span>
-          </div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Property & Accommodation Explorer</h1>
-          <p className="text-xs text-slate-500">
+            <Inline>Accommodation Onboarding Engine</Inline>
+          </Box>
+          <Heading level={1} className="text-2xl font-extrabold text-slate-900 tracking-tight">Property & Accommodation Explorer</Heading>
+          <Text className="text-xs text-slate-500">
             Browse onboarded PGs, Hostels, Dormitories, and Bachelor Rooms, or onboard a new listing.
-          </p>
-        </div>
+          </Text>
+        </Box>
 
-        <div className="flex items-center gap-3">
-          <button
+        <Box className="flex items-center gap-3">
+          <PlainButton
             onClick={fetchPropertiesData}
             className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer"
             title="Refresh Listings"
           >
             <RefreshCw className="w-4 h-4" />
-          </button>
+          </PlainButton>
 
-          <button
+          <PlainButton
             onClick={() => setShowOnboardModal(true)}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-extrabold shadow-lg shadow-cyan-500/25 transition cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>Onboard New Property</span>
-          </button>
-        </div>
-      </div>
+            <Inline>Onboard New Property</Inline>
+          </PlainButton>
+        </Box>
+      </Box>
 
       {/* Category Filter Pills & Search Bar */}
-      <div className="glass-panel p-4 rounded-2xl flex flex-col md:flex-row gap-4 justify-between items-center">
+      <Box className="glass-panel p-4 rounded-2xl flex flex-col md:flex-row gap-4 justify-between items-center">
         {/* Category Pills */}
-        <div className="flex flex-wrap gap-2 w-full md:w-auto">
+        <Box className="flex flex-wrap gap-2 w-full md:w-auto">
           {categories.map((cat) => (
-            <button
+            <PlainButton
               key={cat}
               onClick={() => setSelectedCategory(cat)}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
@@ -106,45 +107,45 @@ export const AccommodationPropertiesPage: React.FC = () => {
               }`}
             >
               {cat === 'All' ? '🏢 All Properties' : cat}
-            </button>
+            </PlainButton>
           ))}
-        </div>
+        </Box>
 
         {/* Search Input */}
-        <div className="relative w-full md:w-72">
+        <Box className="relative w-full md:w-72">
           <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-          <input
+          <Input
             type="text"
             placeholder="Search property, location, owner..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-10 pr-4 py-2 rounded-xl bg-white border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-cyan-500 transition"
           />
-        </div>
-      </div>
+        </Box>
+      </Box>
 
       {/* Property Cards Grid */}
       {loading ? (
-        <div className="py-20 text-center text-slate-500 text-xs font-semibold">
+        <Box className="py-20 text-center text-slate-500 text-xs font-semibold">
           Loading accommodation properties...
-        </div>
+        </Box>
       ) : properties.length === 0 ? (
-        <div className="glass-panel p-16 rounded-3xl text-center space-y-4">
+        <Box className="glass-panel p-16 rounded-3xl text-center space-y-4">
           <Home className="w-12 h-12 text-slate-400 mx-auto" />
-          <h3 className="text-base font-bold text-slate-900">No Properties Found</h3>
-          <p className="text-xs text-slate-500 max-w-sm mx-auto">
+          <Heading level={3} className="text-base font-bold text-slate-900">No Properties Found</Heading>
+          <Text className="text-xs text-slate-500 max-w-sm mx-auto">
             No accommodation listings matched your search criteria. Click "Onboard New Property" to add a new PG, Hostel, Dormitory, or Bachelor Room!
-          </p>
-          <button
+          </Text>
+          <PlainButton
             onClick={() => setShowOnboardModal(true)}
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-cyan-500 text-white text-xs font-bold shadow-lg shadow-cyan-500/20"
           >
             <Plus className="w-4 h-4" />
-            <span>Onboard First Property</span>
-          </button>
-        </div>
+            <Inline>Onboard First Property</Inline>
+          </PlainButton>
+        </Box>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <Box className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {properties.map((prop) => (
             <PropertyCard
               key={prop._id}
@@ -153,7 +154,7 @@ export const AccommodationPropertiesPage: React.FC = () => {
               onDelete={handleDeleteProperty}
             />
           ))}
-        </div>
+        </Box>
       )}
 
       {/* Property Details Modal Inspector */}
@@ -171,6 +172,6 @@ export const AccommodationPropertiesPage: React.FC = () => {
           onSuccess={fetchPropertiesData}
         />
       )}
-    </div>
+    </Box>
   );
 };

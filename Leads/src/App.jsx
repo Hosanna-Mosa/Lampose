@@ -1,44 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import Navbar from './components/Navbar.jsx';
-import HeroSlider from './components/HeroSlider.jsx';
-import CategorySelector from './components/OnboardingForm/CategorySelector.jsx';
-import BasicDetailsStep from './components/OnboardingForm/BasicDetailsStep.jsx';
-import CategoryFieldsStep from './components/OnboardingForm/CategoryFieldsStep.jsx';
-import PricingAmenitiesStep from './components/OnboardingForm/PricingAmenitiesStep.jsx';
-import FormSuccessModal from './components/OnboardingForm/FormSuccessModal.jsx';
-import FilterBar from './components/Listings/FilterBar.jsx';
-import PropertyCard from './components/Listings/PropertyCard.jsx';
-import PropertyDetailModal from './components/Listings/PropertyDetailModal.jsx';
-import { fetchProperties, onboardProperty, deleteProperty } from './services/api.js';
+import { Navbar } from './components/property-onboarding/organisms/Navbar';
+import { HeroSlider } from './components/property-onboarding/organisms/HeroSlider';
+import { CategorySelector } from './components/property-onboarding/organisms/CategorySelector';
+import { BasicDetailsStep } from './components/property-onboarding/organisms/BasicDetailsStep';
+import { CategoryFieldsStep } from './components/property-onboarding/organisms/CategoryFieldsStep';
+import { PricingAmenitiesStep } from './components/property-onboarding/organisms/PricingAmenitiesStep';
+import { FormSuccessModal } from './components/property-onboarding/organisms/FormSuccessModal';
+import { FilterBar } from './components/property-onboarding/molecules/FilterBar';
+import { PropertyCard } from './components/property-onboarding/organisms/PropertyCard';
+import { PropertyDetailModal } from './components/property-onboarding/organisms/PropertyDetailModal';
+import { fetchProperties, onboardProperty, deleteProperty } from './components/property-onboarding/utils/api.js';
 import { PlusCircle, AlertCircle, Building2 } from 'lucide-react';
+import { INITIAL_FORM_STATE } from './components/property-onboarding/utils/initialFormState';
+import { Box, ContentInfo, Form, Heading, Inline, Main, PlainButton, Text } from './components/common/atoms';
 
-const INITIAL_FORM_STATE = {
-  name: '',
-  place: '',
-  ownerName: '',
-  ownerMobile: '',
-  category: 'PG',
-  stayType: 'Long Stay',
-  shortStayDuration: '1-7 Days',
-  dailyPrice: '',
-  longStayDuration: '1 Month+',
-  monthlyPrice: '',
-  rent: '',
-  deposit: '',
-  address: '',
-  imageUrl: 'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=800&q=80',
-  amenities: ['WiFi', 'AC', 'Food', 'RO Water'],
-  categoryDetails: {
-    foodIncluded: true,
-    foodType: 'Both (Veg & Non-Veg)',
-    sharingTypes: ['Single', '2 Sharing'],
-    acAvailable: true,
-    curfewTime: '10:30 PM',
-    housekeeping: true
-  }
-};
 
-export default function App() {
+export function App() {
   const [activeTab, setActiveTab] = useState('listings'); // 'listings' | 'onboard'
   const [properties, setProperties] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -200,24 +177,24 @@ export default function App() {
   });
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* Header Navigation */}
       <Navbar activeTab={activeTab} setActiveTab={setActiveTab} counts={categoryCounts} />
 
       {/* Main App Workspace */}
-      <main style={{ flex: 1, padding: '16px 0 40px' }}>
-        <div className="container">
+      <Main style={{ flex: 1, padding: '16px 0 40px' }}>
+        <Box className="container">
 
           {/* ==================================================== */}
           {/* TAB 1: EXPLORE / DISPLAY PROPERTIES LISTINGS */}
           {/* ==================================================== */}
           {activeTab === 'listings' && (
-            <div>
+            <Box>
               {/* Interactive Auto-Rotating Hero Carousel Slider - NO GRID LINES BEHIND HERO */}
               <HeroSlider onOnboardClick={() => setActiveTab('onboard')} />
 
               {/* GRID LINES PATTERN STARTS STRICTLY BELOW HERO SECTION */}
-              <div className="grid-lines-below-hero">
+              <Box className="grid-lines-below-hero">
                 {/* Filter & Search Bar */}
                 <FilterBar
                   selectedCategory={selectedCategory}
@@ -229,7 +206,7 @@ export default function App() {
 
                 {/* Error Message */}
                 {errorMsg && (
-                  <div style={{
+                  <Box style={{
                     padding: '14px 16px',
                     borderRadius: 'var(--radius-sm)',
                     background: 'rgba(244, 63, 94, 0.15)',
@@ -242,30 +219,30 @@ export default function App() {
                     fontSize: '0.9rem'
                   }}>
                     <AlertCircle size={18} />
-                    <span>{errorMsg}</span>
-                  </div>
+                    <Inline>{errorMsg}</Inline>
+                  </Box>
                 )}
 
                 {/* Loading Spinner */}
                 {loading ? (
-                  <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
-                    <div style={{ fontSize: '1rem', marginBottom: '8px' }}>Loading Lampose properties...</div>
-                  </div>
+                  <Box style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
+                    <Box style={{ fontSize: '1rem', marginBottom: '8px' }}>Loading Lampose properties...</Box>
+                  </Box>
                 ) : filteredProperties.length === 0 ? (
-                  <div className="glass-card" style={{ textAlign: 'center', padding: '40px 20px' }}>
+                  <Box className="glass-card" style={{ textAlign: 'center', padding: '40px 20px' }}>
                     <Building2 size={40} color="var(--lampose-gold)" style={{ margin: '0 auto 12px' }} />
-                    <h3 style={{ fontSize: '1.2rem', color: '#ffffff', marginBottom: '6px' }}>No Properties Found</h3>
-                    <p style={{ color: 'var(--text-muted)', marginBottom: '16px', fontSize: '0.88rem' }}>
+                    <Heading level={3} style={{ fontSize: '1.2rem', color: '#ffffff', marginBottom: '6px' }}>No Properties Found</Heading>
+                    <Text style={{ color: 'var(--text-muted)', marginBottom: '16px', fontSize: '0.88rem' }}>
                       No accommodations matched your search or category filter. Try clearing filters or onboard a new property!
-                    </p>
-                    <button onClick={() => setActiveTab('onboard')} className="btn btn-primary">
+                    </Text>
+                    <PlainButton onClick={() => setActiveTab('onboard')} className="btn btn-primary">
                       <PlusCircle size={16} />
-                      <span>Onboard Property Now</span>
-                    </button>
-                  </div>
+                      <Inline>Onboard Property Now</Inline>
+                    </PlainButton>
+                  </Box>
                 ) : (
                   /* Properties Grid Display */
-                  <div className="property-grid" style={{
+                  <Box className="property-grid" style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
                     gap: '18px'
@@ -277,18 +254,18 @@ export default function App() {
                         onViewDetails={(p) => setActiveModalProperty(p)}
                       />
                     ))}
-                  </div>
+                  </Box>
                 )}
-              </div>
-            </div>
+              </Box>
+            </Box>
           )}
 
           {/* ==================================================== */}
           {/* TAB 2: PROPERTY ONBOARDING FORM */}
           {/* ==================================================== */}
           {activeTab === 'onboard' && (
-            <div style={{ maxWidth: '840px', margin: '0 auto' }}>
-              <div style={{
+            <Box style={{ maxWidth: '840px', margin: '0 auto' }}>
+              <Box style={{
                 marginBottom: '16px',
                 textAlign: 'center',
                 padding: '16px 14px',
@@ -296,19 +273,19 @@ export default function App() {
                 background: 'rgba(255, 255, 255, 0.08)',
                 border: '1px solid var(--border-gold)'
               }}>
-                <span className="badge badge-pg" style={{ marginBottom: '6px', background: 'rgba(216, 153, 62, 0.25)', color: '#f5b963', borderColor: 'rgba(216, 153, 62, 0.5)' }}>
+                <Inline className="badge badge-pg" style={{ marginBottom: '6px', background: 'rgba(216, 153, 62, 0.25)', color: '#f5b963', borderColor: 'rgba(216, 153, 62, 0.5)' }}>
                   LAMPOSE ONBOARDING PORTAL
-                </span>
-                <h1 style={{ fontSize: 'clamp(1.4rem, 4vw, 2rem)', fontWeight: 800, color: '#ffffff', marginBottom: '4px' }}>
+                </Inline>
+                <Heading level={1} style={{ fontSize: 'clamp(1.4rem, 4vw, 2rem)', fontWeight: 800, color: '#ffffff', marginBottom: '4px' }}>
                   Onboard Your Accommodation
-                </h1>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-sub)' }}>
+                </Heading>
+                <Text style={{ fontSize: '0.85rem', color: 'var(--text-sub)' }}>
                   Collect name, place, owner name, owner mobile number & category-specific attributes for PGs, Hostels, Dormitories, or Bachelor Rooms.
-                </p>
-              </div>
+                </Text>
+              </Box>
 
               {/* Form Container */}
-              <form onSubmit={handleSubmitForm} className="glass-card form-card" style={{ padding: '24px' }}>
+              <Form onSubmit={handleSubmitForm} className="glass-card form-card" style={{ padding: '24px' }}>
                 {/* Step 1: Category Selector */}
                 <CategorySelector
                   selectedCategory={formData.category}
@@ -337,43 +314,43 @@ export default function App() {
                 />
 
                 {/* Submit Button */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'flex-end', paddingTop: '16px', borderTop: '1px solid var(--border-glass)' }}>
-                  <button
+                <Box style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'flex-end', paddingTop: '16px', borderTop: '1px solid var(--border-glass)' }}>
+                  <PlainButton
                     type="button"
                     onClick={() => setActiveTab('listings')}
                     className="btn btn-secondary"
                   >
                     Cancel
-                  </button>
+                  </PlainButton>
 
-                  <button
+                  <PlainButton
                     type="submit"
                     disabled={submitting}
                     className="btn btn-primary"
                     style={{ padding: '12px 28px' }}
                   >
                     {submitting ? 'Saving to MongoDB...' : 'Submit & Onboard Property'}
-                  </button>
-                </div>
-              </form>
-            </div>
+                  </PlainButton>
+                </Box>
+              </Form>
+            </Box>
           )}
 
-        </div>
-      </main>
+        </Box>
+      </Main>
 
       {/* Footer */}
-      <footer style={{
+      <ContentInfo style={{
         padding: '16px 0',
         borderTop: '1px solid var(--border-glass)',
         textAlign: 'center',
         color: 'var(--text-muted)',
         fontSize: '0.78rem'
       }}>
-        <div className="container">
-          <p>© 2026 Lampose — Stay. Eat. Deliver. Live Better.</p>
-        </div>
-      </footer>
+        <Box className="container">
+          <Text>© 2026 Lampose — Stay. Eat. Deliver. Live Better.</Text>
+        </Box>
+      </ContentInfo>
 
       {/* Onboarding Success Modal */}
       {recentlyOnboarded && (
@@ -398,6 +375,6 @@ export default function App() {
           onDelete={handleDeleteProperty}
         />
       )}
-    </div>
+    </Box>
   );
 }
