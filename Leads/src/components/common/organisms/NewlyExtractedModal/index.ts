@@ -1,0 +1,1 @@
+export { NewlyExtractedModal } from './NewlyExtractedModal';
