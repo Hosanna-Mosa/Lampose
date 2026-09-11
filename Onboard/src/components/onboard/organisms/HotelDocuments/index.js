@@ -1,0 +1,1 @@
+export { HotelDocuments } from './HotelDocuments';

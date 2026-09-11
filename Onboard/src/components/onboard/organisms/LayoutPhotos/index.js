@@ -1,0 +1,1 @@
+export { LayoutPhotos } from './LayoutPhotos';
