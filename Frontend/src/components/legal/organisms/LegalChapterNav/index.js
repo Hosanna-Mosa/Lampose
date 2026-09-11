@@ -1,0 +1,1 @@
+export { LegalChapterNav } from './LegalChapterNav';

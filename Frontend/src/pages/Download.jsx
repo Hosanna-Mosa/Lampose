@@ -1,134 +1,61 @@
-import { useEffect, useState } from 'react';
-import SiteBanner from '../components/Banners';
-import Icon from '../components/Icon';
-import { SecHead } from '../components/Chrome';
+import { useState } from 'react';
+import { Banner as SiteBanner } from '../components/common/organisms/Banner/Banner';
+import { Icon } from '../components/common/atoms/Icon/Icon';
+import { SecHead } from '../components/common/molecules/SecHead/SecHead';
+import { APK } from '../components/download/utils/apk';
+import { CARDS } from '../components/download/utils/cards';
+import { PartnerPopup } from '../components/download/organisms/PartnerPopup/PartnerPopup';
+import { Anchor, Box, Emphasis, Heading, Inline, List, ListItem, Region, Small, Strong, Text } from '../components/common/atoms';
 
 /* The partner builds are ~43 MB each and live on the origin, so they are
    served from there rather than committed into this repo. */
-const APK = {
-  food: 'https://lampose.com/apk/Lampose-Food-Partner.apk',
-  stay: 'https://lampose.com/apk/Lampose-Stay-Partner.apk',
-};
 
-const CARDS = [
-  {
-    key: 'user', icon: 'stay', iconBg: 'var(--green-t)',
-    badge: 'Residents', badgeCls: 'dl-badge-user',
-    title: 'The Lampose app',
-    desc: 'Find a verified room, order from the kitchens around it, follow the '
-        + 'rider to your door, and settle everything on one bill.',
-    features: [
-      'Browse rooms a scout has walked',
-      'Mess plans, home kitchens and restaurants',
-      'Live tracking from pickup to gate',
-      'Vouchers and meal plans in one wallet',
-      'QR check-in, and complaints that get answered',
-    ],
-    apkLabel: 'Android APK',
-  },
-  {
-    key: 'partner', icon: 'chart', iconBg: 'var(--amber-t)', cardCls: 'dl-card-partner',
-    badge: 'Owners & kitchens', badgeCls: 'dl-badge-partner',
-    title: 'Lampose Partner',
-    desc: 'Run your property or kitchen from one screen — requests, orders, '
-        + 'menus, payouts and reviews, without a separate system for each.',
-    features: [
-      'Live bookings and orders as they arrive',
-      'Daily payouts with the full history',
-      'Tenants and customers with verified IDs',
-      'Menus and subscription plans you control',
-      'QR check-in and table reservations',
-    ],
-    apkLabel: 'Partner APK', popup: true,
-  },
-  {
-    key: 'delivery', icon: 'delivery', iconBg: '#e8f2ec',
-    badge: 'Riders', badgeCls: 'dl-badge-delivery',
-    title: 'Lampose Rider',
-    desc: 'Take the orders you want, follow a route worth riding, and watch the '
-        + 'earnings add up through the day.',
-    features: [
-      'Orders pushed the moment they are ready',
-      'Batched routes, less distance per drop',
-      'Paid the same day, no minimum',
-      'Weekly bonuses and a leaderboard',
-      'Scan at the door to close the job',
-    ],
-    apkLabel: 'Rider APK',
-  },
-];
 
 /* ══ Partner APK chooser ══════════════════════════════════════════════════
    The partner build ships in two flavours, so the direct-download button asks
    which one before starting the transfer.
    ════════════════════════════════════════════════════════════════════════ */
-function PartnerPopup({ open, onClose }) {
-  useEffect(() => {
-    const esc = e => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', esc);
-    return () => window.removeEventListener('keydown', esc);
-  }, [onClose]);
 
-  return (
-    <div
-      id="partnerPopup" className="popup"
-      style={{ display: open ? 'flex' : 'none' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="popup-content">
-        <h3>Select Partner Type</h3>
-        <button onClick={() => { window.location.href = APK.food; onClose(); }}>
-          Food partner
-        </button>
-        <button onClick={() => { window.location.href = APK.stay; onClose(); }}>
-          Stay partner
-        </button>
-        <button className="close" onClick={onClose}>Cancel</button>
-      </div>
-    </div>
-  );
-}
-
-export default function Download() {
+export function Download() {
   const [popup, setPopup] = useState(false);
 
   return (
-    <section id="download">
-      <div className="sec-inner">
-        <div className="reveal" style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
+    <Region id="download">
+      <Box className="sec-inner">
+        <Box className="reveal" style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
           <SiteBanner set="download" />
-          <span className="sec-tag">Download</span>
-          <h2 className="sec-h2">One account, <em>three apps.</em></h2>
-          <p className="sec-sub" style={{ margin: '0.75rem auto' }}>
+          <Inline className="sec-tag">Download</Inline>
+          <Heading level={2} className="sec-h2">One account, <Emphasis>three apps.</Emphasis></Heading>
+          <Text className="sec-sub" style={{ margin: '0.75rem auto' }}>
             Which one you need depends on which side of Lampose you are on. All three are
             free, and all three talk to each other.
-          </p>
-        </div>
+          </Text>
+        </Box>
 
-        <div className="dl-grid">
+        <Box className="dl-grid">
           {CARDS.map((c, i) => (
-            <div
+            <Box
               className={`dl-card reveal${c.cardCls ? ` ${c.cardCls}` : ''}`}
               key={c.key} style={{ transitionDelay: `${i * 120}ms` }}
             >
-              <div className="dl-card-top">
-                <div className="dl-icon-wrap" style={{ background: c.iconBg }}><Icon name={c.icon} /></div>
-                <div className={`dl-badge ${c.badgeCls}`}>{c.badge}</div>
-              </div>
+              <Box className="dl-card-top">
+                <Box className="dl-icon-wrap" style={{ background: c.iconBg }}><Icon name={c.icon} /></Box>
+                <Box className={`dl-badge ${c.badgeCls}`}>{c.badge}</Box>
+              </Box>
 
-              <h3 className="dl-title">{c.title}</h3>
-              <p className="dl-desc">{c.desc}</p>
+              <Heading level={3} className="dl-title">{c.title}</Heading>
+              <Text className="dl-desc">{c.desc}</Text>
 
-              <ul className="dl-features">
-                {c.features.map((f, k) => <li key={f} style={{ '--i': String(k) }}>{f}</li>)}
-              </ul>
+              <List className="dl-features">
+                {c.features.map((f, k) => <ListItem key={f} style={{ '--i': String(k) }}>{f}</ListItem>)}
+              </List>
 
-              <div className="dl-btns">
-                <a className="dl-btn dl-primary" href="#top" onClick={e => e.preventDefault()}>
-                  <span className="dl-btn-icon"><Icon name="track" /></span>
-                  <div className="dl-btn-text"><small>Get it on</small><strong>Google Play</strong></div>
-                </a>
-                <a
+              <Box className="dl-btns">
+                <Anchor className="dl-btn dl-primary" href="#top" onClick={e => e.preventDefault()}>
+                  <Inline className="dl-btn-icon"><Icon name="track" /></Inline>
+                  <Box className="dl-btn-text"><Small>Get it on</Small><Strong>Google Play</Strong></Box>
+                </Anchor>
+                <Anchor
                   className="dl-btn dl-apk"
                   href={c.popup ? undefined : '#top'}
                   onClick={e => {
@@ -136,37 +63,37 @@ export default function Download() {
                     if (c.popup) setPopup(true);
                   }}
                 >
-                  <span className="dl-btn-icon"><Icon name="orders" /></span>
-                  <div className="dl-btn-text">
-                    <small>Direct Download</small><strong>{c.apkLabel}</strong>
-                  </div>
-                </a>
-              </div>
+                  <Inline className="dl-btn-icon"><Icon name="orders" /></Inline>
+                  <Box className="dl-btn-text">
+                    <Small>Direct Download</Small><Strong>{c.apkLabel}</Strong>
+                  </Box>
+                </Anchor>
+              </Box>
 
-              <p className="dl-note">v1.0 · Android 8.0+ · iOS 14+</p>
-            </div>
+              <Text className="dl-note">v1.0 · Android 8.0+ · iOS 14+</Text>
+            </Box>
           ))}
-        </div>
+        </Box>
 
         <PartnerPopup open={popup} onClose={() => setPopup(false)} />
 
         {/* Hidden on the live site too — kept so the markup stays a match. */}
-        <div className="dl-strip reveal" style={{ transitionDelay: '300ms', display: 'none' }}>
-          <div className="dl-strip-icon"><Icon name="qr" /></div>
-          <div className="dl-strip-text">
-            <strong>Can&apos;t find it on the store?</strong>
-            <span>
+        <Box className="dl-strip reveal" style={{ transitionDelay: '300ms', display: 'none' }}>
+          <Box className="dl-strip-icon"><Icon name="qr" /></Box>
+          <Box className="dl-strip-text">
+            <Strong>Can&apos;t find it on the store?</Strong>
+            <Inline>
               Download APK files directly and install on any Android device —
               no Play Store needed.
-            </span>
-          </div>
-          <div className="dl-strip-btns">
-            <a className="dl-strip-btn" href="#top">User APK ↓</a>
-            <a className="dl-strip-btn" href="#top">Partner APK ↓</a>
-            <a className="dl-strip-btn" href="#top">Delivery APK ↓</a>
-          </div>
-        </div>
-      </div>
-    </section>
+            </Inline>
+          </Box>
+          <Box className="dl-strip-btns">
+            <Anchor className="dl-strip-btn" href="#top">User APK ↓</Anchor>
+            <Anchor className="dl-strip-btn" href="#top">Partner APK ↓</Anchor>
+            <Anchor className="dl-strip-btn" href="#top">Delivery APK ↓</Anchor>
+          </Box>
+        </Box>
+      </Box>
+    </Region>
   );
 }
