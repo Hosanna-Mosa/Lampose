@@ -45,6 +45,7 @@ const {
   registerCustomerDevice, unregisterCustomerDevice,
 } = require('../notifications/device.controller');
 const { getMyCoupon } = require('./foodCoupon.controller');
+const { listMine: listStayCoupons } = require('./stayCoupon.controller');
 const { requireCustomer } = require('./customerAuth.middleware');
 const { makeLogout } = require('../iam/session.controller');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
@@ -245,5 +246,11 @@ router.post('/auth/logout', requireLamposeDb, requireCustomer, makeLogout('custo
    partners/customerReferral.controller.js. Null data, not a 404: not having
    one is the ordinary case for most customers. */
 router.get('/food-coupon', requireLamposeDb, requireCustomer, getMyCoupon);
+
+/* The ₹100 move-in rewards. Plural and a list, unlike `/food-coupon` above,
+   because a student earns one per move-in and may hold several — see
+   `stayCoupon.model.js` for why the two are separate collections. An empty
+   array, never a 404: holding none is the ordinary case. */
+router.get('/stay-coupons', requireLamposeDb, requireCustomer, listStayCoupons);
 
 module.exports = router;

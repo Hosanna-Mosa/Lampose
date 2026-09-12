@@ -34,6 +34,14 @@ import {
   Manrope_600SemiBold,
   Manrope_700Bold,
 } from '@expo-google-fonts/manrope';
+/* The auth screen's footer, and nothing else.
+
+   A script face is a signature, not a text face — it is unreadable below about
+   14px and illegible in a paragraph, so it is deliberately absent from the
+   type scale in `constants/tokens.ts`. It is loaded here because fonts load
+   once for the whole app, and named directly at its one call site rather than
+   given a `face` in the scale, which would invite a second use. */
+import { DancingScript_600SemiBold } from '@expo-google-fonts/dancing-script';
 import { useFonts } from 'expo-font';
 import { StyleSheet, View } from 'react-native';
 import { Stack } from 'expo-router';
@@ -91,6 +99,7 @@ const fonts = {
   Manrope_500Medium,
   Manrope_600SemiBold,
   Manrope_700Bold,
+  DancingScript_600SemiBold,
 };
 
 /**

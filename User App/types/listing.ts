@@ -540,6 +540,10 @@ export type Listing = {
    */
   stayRates?: readonly StayRate[];
 
+  /** Whether the property has been physically verified by a Lampose field partner. */
+  isVerified?: boolean;
+  verificationStatus?: 'pending' | 'verified' | 'rejected' | null;
+
   /** Whether a confirmed visit here is paid for before it completes. */
   visitToken?: VisitToken;
   mess?: MessChoice;

@@ -166,6 +166,24 @@ const ensurePaymentLink = async (doc) => {
 const markVisitPaid = async (doc, paymentId) => {
   if (doc.payment.status === 'paid') return;
 
+  /*
+   * The held ₹100 becomes a spent ₹100.
+   *
+   * Here rather than at request creation, because this is the moment the
+   * discount actually cost anything: a student who opened a Razorpay page and
+   * closed it has not spent their reward, and burning it there would take it
+   * for a booking that never happened.
+   *
+   * Guarded on `reserved` inside `consume`, so a redelivered webhook — the
+   * same redelivery the `status === 'paid'` line above guards the rest of
+   * this function against — cannot spend a coupon twice.
+   */
+  require('../customers/stayCoupon.service')
+    .consume(doc._id)
+    .catch((error) => {
+      console.error('[stay-coupon] payment cleared but the hold was not spent:', error.message);
+    });
+
   doc.payment.status = 'paid';
   doc.payment.paymentId = paymentId ? String(paymentId) : null;
   doc.payment.verifiedAt = new Date();

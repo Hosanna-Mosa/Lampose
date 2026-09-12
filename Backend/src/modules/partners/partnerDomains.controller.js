@@ -278,6 +278,34 @@ const digitsOnly = (value) => String(value || '').replace(/\D/g, '');
  * has no `entryPin`. Those are stamped without a code, as before — the owner
  * typed this guest in themselves and is the only proof there is.
  */
+/**
+ * The move-in reward, minted off to one side.
+ *
+ * A student who actually moves in gets ₹100 off their next hotel booking. It
+ * is granted here because this is the only place that knows a real arrival
+ * happened — an owner typed a code off the student's phone — and it is
+ * granted WITHOUT being awaited for the same reason the push is not: an owner
+ * is standing in a doorway with a person in front of them, and neither a slow
+ * write nor a failed one may hold up letting somebody into their room.
+ *
+ * Idempotent on the booking, so the repeat taps this endpoint is designed to
+ * tolerate cannot mint a second ₹100 — see `grantForMoveIn`.
+ */
+const rewardMoveIn = (booking) => {
+  require('../customers/stayCoupon.service')
+    .grantForMoveIn(booking)
+    .then((coupon) => {
+      if (coupon) {
+        require('../notifications/stayRequest.notifier')
+          .notifyStudentEarnedStayCoupon(booking, coupon)
+          .catch(() => {});
+      }
+    })
+    .catch((error) => {
+      console.error('[stay-coupon] move-in reward not granted:', error.message);
+    });
+};
+
 const checkInBooking = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
@@ -287,9 +315,34 @@ const checkInBooking = async (req, res, next) => {
     const current = await PartnerBooking.findOne({ _id: id, partnerPhoneDigits: key }).lean();
     if (!current) return res.status(404).json({ success: false, message: 'Booking not found' });
 
-    /* Already stamped. Not an error — an owner tapping again should see the
-       same answer, not a failure — and no code is asked for a second time. */
-    if (current.movedInByOwnerAt) return res.json({ success: true, data: forOwner(current) });
+    /*
+     * Already stamped. Not an error — an owner tapping again should see the
+     * same answer, not a failure — and no code is asked for a second time.
+     *
+     * A second tap does repair one thing, though. Bookings stamped before the
+     * owner's code became the whole move-in are sitting with an owner stamp,
+     * no student stamp and a status that never reached `in_house`, because
+     * they were waiting for a tap in the student's app that no longer exists.
+     * Rather than migrate the collection, the next time an owner touches one
+     * of those it completes — the same reasoning as the support module's
+     * `requester` backfill: a migration that fails halfway leaves somebody
+     * locked out of their own stay, and this repairs exactly the rows a human
+     * is standing in front of.
+     */
+    if (current.movedInByOwnerAt) {
+      if (!current.movedInByStudentAt) {
+        const repaired = await PartnerBooking.findOneAndUpdate(
+          { _id: id, partnerPhoneDigits: key, movedInByStudentAt: null },
+          { $set: { movedInByStudentAt: current.movedInByOwnerAt, status: 'in_house' } },
+          { new: true },
+        ).lean();
+        if (repaired) {
+          rewardMoveIn(repaired);
+          return res.json({ success: true, data: forOwner(repaired) });
+        }
+      }
+      return res.json({ success: true, data: forOwner(current) });
+    }
 
     if (current.status === 'cancelled' || current.status === 'completed') {
       return res.status(409).json({
@@ -321,11 +374,40 @@ const checkInBooking = async (req, res, next) => {
       }
     }
 
-    /* Verified. Now stamp — guarded on `movedInByOwnerAt: null` so two taps
-       racing produce one stamp. */
+    /*
+     * Verified. Now stamp — guarded on `movedInByOwnerAt: null` so two taps
+     * racing produce one stamp.
+     *
+     * ## Both stamps, and the status, in one write
+     *
+     * Moving in used to take two confirmations: this one, and a tap in the
+     * student's app afterwards. The second one is gone, and this is where it
+     * went.
+     *
+     * The reason is what the code in `req.body` already proves. The student
+     * reads their entry PIN off their phone and says it out loud; the owner
+     * types it here. A code that matches is the two of them standing in the
+     * same doorway — there is no stronger evidence of a move-in anywhere in
+     * this flow, and certainly not in a second tap by the person who just
+     * read the number out. All the second confirmation ever added was a way
+     * for a real move-in to sit unfinished because somebody walked upstairs
+     * and put their phone down: the room was occupied, the settlement stayed
+     * held, and the booking never reached `in_house`.
+     *
+     * `movedInByStudentAt` is kept rather than dropped. It is the field every
+     * read path, both apps and the settlement queue already agree means "the
+     * student is in", and it is now set from the same evidence at the same
+     * instant. The two timestamps being identical is the record saying the
+     * code matched, which is exactly what happened.
+     *
+     * A walk-in has no PIN (see the header) and is stamped the same way — the
+     * owner typing a guest in by hand has always been the only proof there,
+     * and that has not changed.
+     */
+    const now = new Date();
     const booking = await PartnerBooking.findOneAndUpdate(
       { _id: id, partnerPhoneDigits: key, movedInByOwnerAt: null },
-      { $set: { movedInByOwnerAt: new Date() } },
+      { $set: { movedInByOwnerAt: now, movedInByStudentAt: now, status: 'in_house' } },
       { new: true },
     ).lean();
     if (!booking) {
@@ -333,13 +415,9 @@ const checkInBooking = async (req, res, next) => {
       return res.json({ success: true, data: forOwner(again || current) });
     }
 
-    /* Only both sides together put somebody in house. The student has almost
-       certainly not confirmed yet — they are standing there — but the check
-       belongs here rather than being assumed. */
-    if (booking.movedInByStudentAt) {
-      await PartnerBooking.updateOne({ _id: booking._id }, { $set: { status: 'in_house' } });
-      booking.status = 'in_house';
-    }
+    /* `in_house` was set in the stamp above rather than in a second write.
+       It used to be conditional on the student's confirmation, which is the
+       thing that no longer exists — see the note on that update. */
 
     /*
      * Tell the student.
@@ -352,6 +430,10 @@ const checkInBooking = async (req, res, next) => {
     notifyStudentCheckedIn(booking).catch((error) => {
       console.error('[booking] checked in but the student was not notified:', error.message);
     });
+
+    /* The ₹100 the student earned by turning up. Fire-and-forget for the same
+       reason the push is — see `rewardMoveIn`. */
+    rewardMoveIn(booking);
 
     /*
      * A hotel guest arriving is what unlocks their hotel's money.

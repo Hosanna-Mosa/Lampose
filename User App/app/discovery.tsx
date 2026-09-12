@@ -224,8 +224,16 @@ export default function DiscoveryPreview() {
         {/* ---------------------------------------------------------- *
          * Categories and cards
          * ---------------------------------------------------------- */}
-        <Section title="03 · CategoryTabs" note="Tap a category — the card below changes shape with it.">
+        <Section
+          title="03 · CategoryTabs"
+          note="Two variants of one control. Tap a category — the card below changes shape with it."
+        >
+          {/* `mark`, the default: each category wearing its own taxonomy
+              colour, for the places one has to be recognised out of context. */}
           <CategoryTabs value={category} onChange={setCategory} />
+          {/* `plain`, as the Explore hero draws it: bare pills, one accent
+              fill, plural labels. */}
+          <CategoryTabs value={category} onChange={setCategory} variant="plain" />
           <View style={{ paddingHorizontal: layout.gutter }}>
             <Text variant="body" color="secondary">
               {CATEGORY_BLURB[category]}

@@ -36,42 +36,10 @@ import type { SharingOption } from '@/types/listing';
 export function defaultSharingSelection(options: readonly SharingOption[]): string | null {
   /*
    * One option is not a choice, so it is simply the answer.
-   *
-   * The control below already renders a single option as a read-only fact
-   * rather than a selector — there is nothing to tap. Leaving it unselected
-   * meant the CTA stayed disabled forever on every listing that offers one
-   * room type, with no visible reason: the student had ticked consent, the
-   * bed was on screen, and the button was grey.
-   *
-   * This is not the pre-selection the rule below guards against. That one is
-   * about picking a price on somebody's behalf when alternatives exist; here
-   * there is no alternative to pick instead.
+   * If there are multiple options, the user must explicitly choose.
    */
   if (options.length === 1) return options[0].id;
-
-  /* An unknown bed count does not disqualify the median choice — only a
-     known zero does. Reading `undefined > 0` as false would have meant no
-     listing from the live API ever pre-selects anything, because none of
-     them carry occupancy at all. */
-  const available = (option: SharingOption) => option.bedsLeft !== 0;
-
-  const median = options.find((option) => option.median && available(option));
-  if (median) return median.id;
-
-  /*
-   * Whatever this listing actually offers first.
-   *
-   * Deliberately the first in the panel's own order rather than the cheapest:
-   * the order is how the owner described their property, and re-sorting it to
-   * put the cheapest bed under the student's thumb would be us making a
-   * recommendation while looking like we are just showing a list.
-   *
-   * Sold-out options are skipped — pre-selecting one would arm the CTA for a
-   * bed that does not exist, which is worse than selecting nothing. If every
-   * option is full, nothing is selected and the button stays down, which is
-   * the honest answer.
-   */
-  return options.find(available)?.id ?? null;
+  return null;
 }
 
 /**

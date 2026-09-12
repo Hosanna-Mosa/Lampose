@@ -177,6 +177,9 @@ export const endpoints = {
    * foodCoupon.controller.js`.
    */
   customerFoodCoupon: `${V2}/customers/food-coupon`,
+  /* Plural, and a list — a student earns one per move-in and may hold
+     several, unlike the single referral food coupon above. */
+  customerStayCoupons: `${V2}/customers/stay-coupons`,
 
   /**
    * Support tickets and safety reports.

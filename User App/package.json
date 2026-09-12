@@ -66,6 +66,7 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
+    "@expo-google-fonts/dancing-script": "^0.4.2",
     "@expo-google-fonts/manrope": "^0.4.2",
     "@react-native-community/datetimepicker": "8.4.4",
     "expo-device": "~8.0.10",

@@ -269,6 +269,27 @@ export type BackendFoodCoupon = {
 } | null;
 
 /**
+ * A ₹100 move-in reward, spendable on a hotel booking.
+ *
+ * `spendable` is computed by the SERVER and not derived here from `status`
+ * and `expiresAt`. Three states plus a date is a rule, and a rule evaluated
+ * in both the app and the server is one that will eventually be evaluated two
+ * different ways — the checkout would offer a discount the server then
+ * refuses, which reads as the money being taken back at the till.
+ */
+export type BackendStayCoupon = {
+  id: string;
+  code: string;
+  amountRupees: number;
+  status: 'active' | 'reserved' | 'used';
+  spendable: boolean;
+  propertyName: string;
+  expiresAt: string;
+  usedAt: string | null;
+  earnedAt: string;
+};
+
+/**
  * One alert, derived from a visit request rather than stored.
  *
  * `kind` is drawn from the app's own notification vocabulary so the row's

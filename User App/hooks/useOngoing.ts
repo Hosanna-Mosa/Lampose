@@ -136,26 +136,21 @@ export function useOngoing(): Ongoing {
       }
 
       /*
-       * The last step: the owner has marked them in and is waiting.
+       * Moving in no longer puts a row here, and the row it used to put is
+       * the point.
        *
-       * `awaitingStudent` is the ONLY move-in state worth a row. Before the
-       * owner marks them in there is nothing to do — a move-in date three
-       * weeks out would otherwise sit in the strip for three weeks — and
-       * `complete` means both sides have confirmed and the booking is
-       * finished, which is exactly when this must disappear.
+       * It read "Confirm your move-in" and appeared once the owner had marked
+       * the student in — the strip's whole job being to carry the things the
+       * student still has to DO. The owner entering the entry PIN is now the
+       * entire move-in (see `withMoveIn` on the server), so there is nothing
+       * left for them to do and therefore nothing to put in a strip of
+       * outstanding actions.
        *
-       * `moveIn` is attached to the request by `withMoveIn` on the server,
-       * read off the booking, so the strip and the booking screen cannot
-       * disagree about whether somebody has moved in.
+       * Deliberately not replaced with a "you have moved in" row. This strip
+       * is for work, not for news: a row nobody can act on is one more thing
+       * to scroll past on every screen, and the booking screen already says
+       * it in the place somebody goes to read it.
        */
-      if (request.moveIn?.awaitingStudent && request.bookingId) {
-        items.push({
-          key: `booking-${request.bookingId}`,
-          title: request.propertyName,
-          status: 'Confirm your move-in',
-          tone: 'action',
-        });
-      }
     }
 
     /* One place never occupies two rows. A student can hold at most one live

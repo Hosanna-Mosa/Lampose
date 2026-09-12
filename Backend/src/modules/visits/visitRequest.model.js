@@ -202,6 +202,19 @@ const visitRequestSchema = new mongoose.Schema(
          reprice a request already made. */
       amountPaise: { type: Number, default: null },
       /*
+       * What it would have cost without the move-in reward, and what came off.
+       *
+       * Both null on every request that used no coupon, which is what tells a
+       * receipt whether there is a discount line to draw at all — a
+       * `discountPaise` of 0 and a `discountPaise` of null are different
+       * facts, and only the second means "no coupon was applied".
+       *
+       * `amountPaise` stays the figure actually charged, so nothing that
+       * reads it has to learn about coupons to charge the right amount.
+       */
+      grossAmountPaise: { type: Number, default: null },
+      discountPaise: { type: Number, default: null },
+      /*
        * HOW it was settled, which is not the same question as whether it was.
        *
        * `online` is the only mode that can carry a verified signature, and the
@@ -327,6 +340,22 @@ const visitRequestSchema = new mongoose.Schema(
        who has not written first, so the tick box is evidence and is kept. */
     consentWhatsApp: { type: Boolean, default: false },
     consentAt: { type: Date, default: null },
+
+    /*
+     * The ₹100 move-in reward spent on this booking, if one was.
+     *
+     * A snapshot, like `sharing` above and for the same reason: the coupon row
+     * moves on — reserved, then used, and its own `amountRupees` could in
+     * principle change — and the question this answers is what was taken off
+     * THIS booking at the moment it was priced. `payment.amountPaise` is
+     * already net of it, so without this line there is nothing on the record
+     * that explains why the total is ₹100 less than the room.
+     */
+    stayCoupon: {
+      couponId: { type: String, default: null, index: true },
+      code: { type: String, default: null },
+      amountRupees: { type: Number, default: null },
+    },
 
     status: { type: String, enum: STATUSES, default: 'otp_pending', index: true },
 

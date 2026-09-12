@@ -14,7 +14,7 @@ import { ongoingQueryKey } from '@/hooks/useOngoing';
 import { usePreviewControls } from '@/hooks/useAppEnv';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { useListing, useStayRequest } from '@/services';
+import { useListing, useStayCoupons, useStayRequest } from '@/services';
 import { addAddress } from '@/services/api/addresses.api';
 /* DEVELOPMENT ONLY — remove with the dev bypass button below. */
 import { ApiError } from '@/services/api/client';
@@ -170,6 +170,16 @@ export default function OwnerConfirmation() {
     };
   }, [stayType, units, joinDate, flexibleJoin, checkIn, checkOut, rateStructure, rateQuantity]);
 
+  /*
+   * The best reward available to spend, if any.
+   *
+   * `spendable` is the SERVER's verdict — active, unexpired, not held by
+   * another booking — rather than a rule re-implemented here. See
+   * `BackendStayCoupon`.
+   */
+  const { spendable } = useStayCoupons(true);
+  const reward = spendable[0] ?? null;
+
   /* One shape, two callers: the auto-send effect below, and the "Save and
      send request" button on the profile form, once a PROFILE_INCOMPLETE
      failure is fixed. Kept as one `useMemo` so a retry can never drift from
@@ -186,7 +196,31 @@ export default function OwnerConfirmation() {
      * is the moment a student's name and number reach a stranger.
      */
     consentedTerms: consented === '1',
-  } : null), [listing, sharingId, intent, consented]);
+    /*
+     * The ₹100 move-in reward, applied without being asked for.
+     *
+     * ## Why there is no "apply coupon" control
+     *
+     * This screen sends on its own — there is no review step to hang a picker
+     * off, and adding one would mean stopping an automatic flow to ask a
+     * question with one sensible answer. A discount you have to remember to
+     * apply is one most people do not, and the student already earned this by
+     * moving into somewhere: making them opt in a second time is a second
+     * chance to lose it.
+     *
+     * ## Hotels only
+     *
+     * Gated on the category here as well as on the server, where the coupon
+     * cannot reach the ₹199 assisted-visit fee. Sending it on a PG request
+     * would be harmless — it is simply never reserved — but it would also
+     * mean a coupon briefly appearing to be in play on a booking it can never
+     * discount, which is worse than not sending it.
+     *
+     * The id, never an amount: the server subtracts it from a total it has
+     * just re-derived from the owner's own rates.
+     */
+    couponId: listing.category === 'HOTEL' ? (reward?.id ?? null) : null,
+  } : null), [listing, sharingId, intent, consented, reward]);
 
   /*
    * One request, ever, unless the student asks for another.

@@ -42,10 +42,15 @@ export {
   CategoryTabs,
   CATEGORY_BLURB,
   CATEGORY_TILE_BLURB,
+  CATEGORY_CHIP_LABEL,
   CATEGORY_LABEL,
   CATEGORY_ORDER,
   type CategoryTabsProps,
 } from './CategoryTabs';
+
+export { AirbnbSearchBar, type AirbnbSearchBarProps } from './AirbnbSearchBar';
+
+export { StayHeroSection, type StayHeroSectionProps } from './StayHeroSection';
 
 export {
   ListingCard,
@@ -91,6 +96,11 @@ export {
   type FilterChip,
   type FilterChipRowProps,
 } from './FilterChipRow';
+
+export {
+  QuickFilterDropdown,
+  type QuickFilterDropdownProps,
+} from './QuickFilterDropdown';
 
 
 export { MoveInBreakdown, type MoveInBreakdownProps } from './MoveInBreakdown';

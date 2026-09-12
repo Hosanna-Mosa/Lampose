@@ -4,10 +4,13 @@ import Animated, {
   interpolateColor,
   useAnimatedStyle,
   useDerivedValue,
+  useSharedValue,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 
-import { Text } from '@/components/ui';
+import * as Haptics from 'expo-haptics';
+import { Icon, Text, type IconName } from '@/components/ui';
 import { easing } from '@/constants/motion';
 import { usePressAnimation } from '@/hooks/usePressAnimation';
 import { useTheme } from '@/context/ThemeContext';
@@ -27,6 +30,27 @@ export const CATEGORY_LABEL: Record<StayCategory, string> = {
   BACHELOR: 'Bachelor',
   COLIVE: 'House / Co-live',
   HOTEL: 'Hotel',
+};
+
+/**
+ * The same four, as the Explore hero's pill row says them.
+ *
+ * Plural and spelled out, because a pill row is read as a shelf of things to
+ * browse ("Bachelor Rooms") rather than as a type to classify a listing by
+ * ("Bachelor"). `CATEGORY_LABEL` stays the singular, classifying form: it is
+ * pluralised in sentence copy (`${CATEGORY_LABEL[c].toLowerCase()}s`) and
+ * reused as a heading in the filter sheet, and neither of those survives a
+ * label that is already plural.
+ *
+ * The slash forms are spelled with "&". A slash inside a pill reads as a
+ * divider between two pills at a glance, which is exactly the thing a row of
+ * pills must not be ambiguous about.
+ */
+export const CATEGORY_CHIP_LABEL: Record<StayCategory, string> = {
+  PG_HOSTEL: 'PGs & Hostels',
+  BACHELOR: 'Bachelor Rooms',
+  COLIVE: 'Houses',
+  HOTEL: 'Hotels',
 };
 
 /**
@@ -63,58 +87,48 @@ export type CategoryTabsProps = {
   value: StayCategory;
   onChange: (category: StayCategory) => void;
   categories?: readonly StayCategory[];
+  /**
+   * `airbnb` displays modern Airbnb-style pill tabs with category icons, spring bounce, and active indicators.
+   * `mark` carries each category's monogram tile in its own taxonomy colour.
+   * `plain` drops both: a bare pill, and the ONE accent fill marks the selected one.
+   */
+  variant?: 'mark' | 'plain' | 'airbnb';
+  /** Extra room at the ends of the rail, over the screen gutter. */
+  contentInset?: number;
+};
+
+const CATEGORY_ICON_MAP: Record<StayCategory, IconName> = {
+  PG_HOSTEL: 'sharing',
+  BACHELOR: 'home',
+  COLIVE: 'houseIcon',
+  HOTEL: 'calendar',
 };
 
 /**
  * The category row.
  *
- * There is no travelling indicator, for the same reason the tab bar has none:
- * the four categories are peers, not points on a line, and a sliding pill
- * asserts an adjacency and a direction that moving from PG to Hotels does
- * not have.
- *
- * The monogram tile stays visible in both states. It is the category's
- * identity, not decoration awarded to the active one.
+ * Modernized with Airbnb-style icon pills, spring physics, and tactile haptic feedback.
  */
-export function CategoryTabs({ value, onChange, categories = CATEGORY_ORDER }: CategoryTabsProps) {
+export function CategoryTabs({
+  value,
+  onChange,
+  categories = CATEGORY_ORDER,
+  variant = 'airbnb',
+  contentInset = 0,
+}: CategoryTabsProps) {
   const { space, layout, touch } = useTheme();
 
   return (
-    /*
-     * The host View is load bearing. It is not a wrapper for styling.
-     *
-     * This row is dropped straight into the feed's vertical scroll column, and
-     * React Native's `ScrollView` ships `flexShrink: 1` in its own base style —
-     * so a bare one is the single child of that column the layout is permitted
-     * to squeeze. When the keyboard closes, the column is re-measured against a
-     * bounded height, Yoga takes the shrink out of this row alone, and a 44pt
-     * pill ends up in a 15pt box: the tabs are sliced off halfway down and the
-     * search field below them rides up into the space that was taken away.
-     *
-     * A plain View defaults to `flexShrink: 0` in React Native (unlike the web,
-     * where it is 1), so it absorbs that pressure and the rail keeps its height.
-     * `FilterChipRow` directly below has never shown the bug for exactly this
-     * reason — it happens to wrap its own rail in a View.
-     *
-     * `minHeight` is the second line of defence: even if something else in the
-     * tree ever bounds this row, it cannot collapse past the height of the pill
-     * it exists to show. It is a floor, not a cap, so a larger OS font setting
-     * still grows the row normally.
-     */
     <View style={[styles.host, { minHeight: touch.min }]}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         accessibilityRole="tablist"
         accessibilityLabel="Stay type"
-        /* Neither grows nor shrinks inside the host — its height is the pills'
-           height and nothing is entitled to negotiate it. */
         style={styles.rail}
         contentContainerStyle={{
-          paddingHorizontal: layout.gutter,
+          paddingHorizontal: layout.gutter + contentInset,
           gap: space[2],
-          /* Centred rather than stretched: a pill that stretches to fill a
-             taller row loses its own pill geometry. */
           alignItems: 'center',
         }}
       >
@@ -123,7 +137,13 @@ export function CategoryTabs({ value, onChange, categories = CATEGORY_ORDER }: C
             key={category}
             category={category}
             active={category === value}
-            onPress={() => onChange(category)}
+            variant={variant}
+            onPress={() => {
+              try {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              } catch {}
+              onChange(category);
+            }}
           />
         ))}
       </ScrollView>
@@ -134,27 +154,58 @@ export function CategoryTabs({ value, onChange, categories = CATEGORY_ORDER }: C
 function CategoryTab({
   category,
   active,
+  variant,
   onPress,
 }: {
   category: StayCategory;
   active: boolean;
+  variant: 'mark' | 'plain' | 'airbnb';
   onPress: () => void;
 }) {
-  const { colors, space, radius, touch } = useTheme();
+  const { colors, space, radius, mode, touch } = useTheme();
   const { animatedStyle, onPressIn, onPressOut } = usePressAnimation('chip');
   const set = colors.category[category];
+  const isAirbnb = variant === 'airbnb';
+  const plain = variant === 'plain';
+
+  const label = isAirbnb || plain ? CATEGORY_CHIP_LABEL[category] : CATEGORY_LABEL[category];
+  const iconName = CATEGORY_ICON_MAP[category];
+
+  const scale = useSharedValue(active ? 1.02 : 1);
+
+  React.useEffect(() => {
+    scale.value = withSpring(active ? 1.04 : 1, { damping: 14, stiffness: 220 });
+  }, [active, scale]);
 
   const progress = useDerivedValue(() => withTiming(active ? 1 : 0, CROSSFADE), [active]);
 
-  // Background and border cross to the category's own tint and solid. Both are
-  // colour, so both survive reduced motion.
+  const activeSurface = isAirbnb
+    ? mode === 'dark' ? '#0F4C3A' : '#0B473A'
+    : plain ? colors.brand : set.tint;
+  const activeEdge = isAirbnb
+    ? mode === 'dark' ? '#0F4C3A' : '#0B473A'
+    : plain ? colors.brand : set.mark;
+  const activeInk = isAirbnb
+    ? '#FFFFFF'
+    : plain ? colors.onBrand : set.ink;
+  const restInk = isAirbnb ? (mode === 'dark' ? '#E2E8F0' : '#1E293B') : plain ? colors.textPrimary : colors.textSecondary;
+
   const surfaceStyle = useAnimatedStyle(
     () => ({
-      backgroundColor: interpolateColor(progress.value, [0, 1], [colors.surface, set.tint]),
-      borderColor: interpolateColor(progress.value, [0, 1], [colors.border, set.mark]),
-      borderWidth: active ? 1.5 : 1,
+      backgroundColor: interpolateColor(
+        progress.value,
+        [0, 1],
+        [isAirbnb ? colors.surface : colors.surface, activeSurface]
+      ),
+      borderColor: interpolateColor(
+        progress.value,
+        [0, 1],
+        [isAirbnb ? colors.borderSubtle : colors.border, activeEdge]
+      ),
+      borderWidth: StyleSheet.hairlineWidth,
+      transform: [{ scale: scale.value }],
     }),
-    [colors, set, active],
+    [colors, activeSurface, activeEdge, isAirbnb]
   );
 
   const strongStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
@@ -167,7 +218,7 @@ function CategoryTab({
       onPressOut={onPressOut}
       accessibilityRole="tab"
       accessibilityState={{ selected: active }}
-      accessibilityLabel={CATEGORY_LABEL[category]}
+      accessibilityLabel={label}
       accessibilityHint={CATEGORY_BLURB[category]}
     >
       <Animated.View
@@ -176,41 +227,44 @@ function CategoryTab({
           animatedStyle,
           surfaceStyle,
           {
-            minHeight: touch.min,
+            minHeight: isAirbnb ? 40 : touch.min,
             borderRadius: radius.pill,
-            paddingLeft: space[1] + 2,
-            paddingRight: space[4],
-            gap: space[2],
+            paddingLeft: isAirbnb ? space[3] + 2 : plain ? space[4] + 2 : space[1] + 2,
+            paddingRight: isAirbnb ? space[3] + 4 : plain ? space[4] + 2 : space[4],
+            paddingVertical: isAirbnb ? 8 : 0,
+            gap: isAirbnb ? 6 : plain ? 0 : space[2],
+            shadowColor: '#000000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: active && isAirbnb ? 0.12 : 0,
+            shadowRadius: 6,
+            elevation: active && isAirbnb ? 2 : 0,
           },
         ]}
       >
-        <View style={[styles.monogram, { backgroundColor: set.mark, borderRadius: radius.chip }]}>
-          <Text variant="label" style={{ color: colors.onBrand, letterSpacing: 0 }}>
-            {set.code}
-          </Text>
-        </View>
-
-        {/* Two overlaid label nodes rather than an animated fontWeight, which
-            React Native cannot interpolate. The 600 copy defines the layout
-            box, so the row does not reflow when the selection moves.
-
-            BOTH COPIES MUST BE THE SAME SIZE. The resting copy was `bodyLg`
-            (15pt) sitting in a box measured by `bodyStrong` (13.5pt), so the
-            visible label was wider than the box holding it and got clipped —
-            "Bachelor" rendered as "Bachelo". This pair crossfades WEIGHT and
-            nothing else; a size difference here is always a bug. */}
-        <View>
-          <Animated.View style={strongStyle}>
-            <Text variant="bodyStrong" style={{ color: active ? set.ink : colors.textPrimary }}>
-              {CATEGORY_LABEL[category]}
+        {isAirbnb ? (
+          <Icon
+            name={iconName}
+            size={16}
+            color={active ? activeInk : (mode === 'dark' ? '#94A3B8' : '#1E293B')}
+          />
+        ) : plain ? null : (
+          <View style={[styles.monogram, { backgroundColor: set.mark, borderRadius: radius.chip }]}>
+            <Text variant="label" style={{ color: colors.onBrand, letterSpacing: 0 }}>
+              {set.code}
             </Text>
-          </Animated.View>
-          <Animated.View style={[StyleSheet.absoluteFill, styles.restLabel, restStyle]}>
-            <Text variant="body" color="secondary">
-              {CATEGORY_LABEL[category]}
-            </Text>
-          </Animated.View>
-        </View>
+          </View>
+        )}
+
+        <Text
+          style={{
+            color: active ? activeInk : restInk,
+            fontWeight: active ? '700' : '500',
+            fontSize: 13,
+            letterSpacing: 0.1,
+          }}
+        >
+          {label}
+        </Text>
       </Animated.View>
     </Pressable>
   );
@@ -223,3 +277,4 @@ const styles = StyleSheet.create({
   monogram: { minWidth: 30, height: 30, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 },
   restLabel: { alignItems: 'flex-start', justifyContent: 'center' },
 });
+

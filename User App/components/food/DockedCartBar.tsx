@@ -1,8 +1,17 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, {
+  SlideInDown,
+  SlideOutDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 
-import { Text } from '@/components/ui';
+import { Icon, Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
 import { formatRupees } from '@/utils/money';
 
@@ -15,29 +24,11 @@ export type DockedCartBarProps = {
   onPress: () => void;
   /** Reports its own height so the screen above can clear it. */
   onMeasure?: (height: number) => void;
-  /**
-   * Space reserved below the bar for the safe-area inset. Defaults to the
-   * device's own inset, which is correct when this bar is the last thing on
-   * screen (the kitchen screen's cart bar). Pass 0 when something already
-   * safe-area-aware is stacked directly beneath it instead — the food tab
-   * bar, for one, adds its own inset padding, and stacking both leaves a
-   * band of dead space neither one needed.
-   */
   bottomInset?: number;
 };
 
 /**
- * The cart, docked.
- *
- * Two facts and one action, and the second line is not optional: a bar that
- * says "2 items · ₹210" without saying *lunch* and *Room 214* is a bar a
- * student will tap at 4 pm expecting the lunch they built at 3, or expecting it
- * to arrive at a room they moved out of. The window and the target are what
- * make the number true.
- *
- * It is `graphite` for the same reason the primary CTA is: this is the app's
- * one committing action on the screen, and the inverted surface is how that is
- * said everywhere else in the product.
+ * Animated DockedCartBar with spring slide-in, count pulse and haptics.
  */
 export function DockedCartBar({
   count,
@@ -50,17 +41,32 @@ export function DockedCartBar({
 }: DockedCartBarProps) {
   const { colors, space, layout, radius } = useTheme();
   const insets = useSafeAreaInsets();
+  const pulseScale = useSharedValue(1);
+
+  useEffect(() => {
+    pulseScale.value = withSequence(
+      withSpring(1.2, { damping: 8, stiffness: 320 }),
+      withSpring(1.0, { damping: 12, stiffness: 220 })
+    );
+  }, [count, total, pulseScale]);
+
+  const animatedBadgeStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulseScale.value }],
+  }));
 
   const measure = (event: LayoutChangeEvent) => onMeasure?.(event.nativeEvent.layout.height);
 
+  const handlePress = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+    onPress();
+  };
+
   return (
-    /* The safe-area inset belongs on the BAR, not on the screens that show it.
-       This is the last thing above the gesture bar on a phone drawing
-       edge-to-edge, so without it the tappable row sits underneath the system
-       navigation. Adding it here also keeps the measured height honest: every
-       screen sizes its scroll padding from `onMeasure`, so they all clear the
-       navigation bar without any of them knowing it exists. */
-    <View
+    <Animated.View
+      entering={SlideInDown.springify().damping(16)}
+      exiting={SlideOutDown.duration(200)}
       onLayout={measure}
       style={{
         paddingHorizontal: layout.gutter,
@@ -68,25 +74,32 @@ export function DockedCartBar({
       }}
     >
       <Pressable
-        onPress={onPress}
+        onPress={handlePress}
         accessibilityRole="button"
         accessibilityLabel={`${label}. ${count} ${count === 1 ? 'item' : 'items'}, ${formatRupees(total)}. ${context}`}
         style={({ pressed }) => [
           styles.bar,
           {
             backgroundColor: pressed ? colors.graphiteRaised : colors.graphite,
-            borderRadius: radius.button,
+            borderRadius: radius.button + 2,
             paddingLeft: space[4],
             paddingRight: space[3],
-            paddingVertical: space[3] - 1,
+            paddingVertical: space[3],
             gap: space[3],
+            shadowColor: '#000000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.25,
+            shadowRadius: 10,
+            elevation: 8,
           },
         ]}
       >
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text variant="priceMd" style={{ color: colors.onGraphite }}>
-            {count} {count === 1 ? 'item' : 'items'} · {formatRupees(total)}
-          </Text>
+          <Animated.View style={animatedBadgeStyle}>
+            <Text variant="priceMd" style={{ color: colors.onGraphite, fontWeight: '700' }}>
+              {count} {count === 1 ? 'item' : 'items'} · {formatRupees(total)}
+            </Text>
+          </Animated.View>
           <Text variant="caption" style={{ color: colors.onGraphiteMuted, marginTop: 2 }} numberOfLines={1}>
             {context}
           </Text>
@@ -95,19 +108,25 @@ export function DockedCartBar({
         <View
           style={[
             styles.action,
-            { backgroundColor: colors.onGraphite, borderRadius: radius.chip, paddingHorizontal: space[3] },
+            {
+              backgroundColor: colors.onGraphite,
+              borderRadius: radius.pill,
+              paddingHorizontal: space[3] + 2,
+            },
           ]}
         >
-          <Text variant="title3" style={{ color: colors.graphite }}>
+          <Text variant="title3" style={{ color: colors.graphite, fontWeight: '700', fontSize: 13 }}>
             {label}
           </Text>
+          <Icon name="arrowRight" size={16} color={colors.graphite} />
         </View>
       </Pressable>
-    </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  bar: { flexDirection: 'row', alignItems: 'center', minHeight: 56 },
-  action: { minHeight: 36, alignItems: 'center', justifyContent: 'center' },
+  bar: { flexDirection: 'row', alignItems: 'center', minHeight: 58 },
+  action: { minHeight: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
 });
+
