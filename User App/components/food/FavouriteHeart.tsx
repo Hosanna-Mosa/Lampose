@@ -1,44 +1,19 @@
 import { useRouter } from 'expo-router';
 import React from 'react';
 import { Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 
 import { Icon, Text, type IconSize } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 
-/**
- * The heart on a dish and on a kitchen.
- *
- * ## Why a heart and not the bookmark used on the stay side
- *
- * They are two different lists on the account — `saved` is the stay shortlist,
- * whose whole job is comparing rent over time, and `foodFavourites` is "take me
- * back to this". Giving them one glyph would suggest one list, and a student
- * who hearted a dosa would go looking for it under saved rooms.
- *
- * ## Filled means saved. Nothing else does.
- *
- * The outline/fill pair is the entire state signal, because colour alone is
- * not one: this sits on photographs, and a tinted outline over a bright dish
- * photo is unreadable at a glance. A filled heart reads at any size and on any
- * background.
- *
- * ## It never waits for the network to look pressed
- *
- * `useFoodFavourites` writes its cache first and rolls back on failure, so this
- * button re-renders on the tap. A heart that waits for a round trip reads as a
- * dropped press on a train, which produces a second tap — and a second tap
- * un-hearts. See the hook for the rollback.
- *
- * ## Signed out, the tap is the ask
- *
- * Favourites live on the account, so there is nowhere to put one without a
- * session. Rather than hiding the heart — which would make the feature
- * invisible to exactly the people who have not signed up — it is shown, and
- * tapping it goes to sign-in. The ask lands at the moment of intent instead of
- * as a wall in front of a menu.
- */
 export type FavouriteHeartProps = {
   kind: 'dish' | 'kitchen';
   id: string;
@@ -68,48 +43,60 @@ export function FavouriteHeart({
   const { status } = useAuth();
   const { isFavouriteDish, isFavouriteKitchen, toggleFavouriteDish, toggleFavouriteKitchen } = useFood();
 
+  const scale = useSharedValue(1);
+
   const signedIn = status === 'signedIn';
   const saved = signedIn && (kind === 'dish' ? isFavouriteDish(id) : isFavouriteKitchen(id));
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
 
   const press = () => {
     if (!signedIn) {
       router.push('/(entry)/auth');
       return;
     }
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+    scale.value = withSequence(
+      withSpring(1.38, { damping: 8, stiffness: 350 }),
+      withSpring(1.0, { damping: 12, stiffness: 220 })
+    );
     if (kind === 'dish') toggleFavouriteDish(id);
     else toggleFavouriteKitchen(id);
   };
 
   return (
-    <Pressable
-      onPress={press}
-      /* A heart is a small target on a scrolling list and it sits next to an
-         Add control — a mis-tap that adds food is a mis-tap somebody pays for,
-         so the touch area is grown well past the glyph. */
-      hitSlop={12}
-      accessibilityRole="button"
-      accessibilityState={{ selected: saved }}
-      accessibilityLabel={
-        saved ? `Remove ${label} from favourites` : `Save ${label} to favourites`
-      }
-      style={({ pressed }) => [
-        styles.button,
-        tone === 'overlay' && {
-          backgroundColor: pressed ? colors.surfaceSunken : colors.surface,
-          borderRadius: radius.chip,
-          padding: space[1] + 2,
-        },
-        pressed && tone === 'plain' && { opacity: 0.6 },
-        style,
-      ]}
-    >
-      <Icon
-        name="heart"
-        size={size}
-        color={saved ? colors.danger.ink : colors.textTertiary}
-        fill={saved ? colors.danger.ink : 'none'}
-      />
-    </Pressable>
+    <Animated.View style={animatedStyle}>
+      <Pressable
+        onPress={press}
+        hitSlop={12}
+        accessibilityRole="button"
+        accessibilityState={{ selected: saved }}
+        accessibilityLabel={
+          saved ? `Remove ${label} from favourites` : `Save ${label} to favourites`
+        }
+        style={({ pressed }) => [
+          styles.button,
+          tone === 'overlay' && {
+            backgroundColor: pressed ? colors.surfaceSunken : colors.surface,
+            borderRadius: radius.chip,
+            padding: space[1] + 2,
+          },
+          pressed && tone === 'plain' && { opacity: 0.6 },
+          style,
+        ]}
+      >
+        <Icon
+          name="heart"
+          size={size}
+          color={saved ? colors.danger.ink : colors.textTertiary}
+          fill={saved ? colors.danger.ink : 'none'}
+        />
+      </Pressable>
+    </Animated.View>
   );
 }
 

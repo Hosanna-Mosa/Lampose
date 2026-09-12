@@ -67,8 +67,15 @@ export type ExploreHeaderProps = {
    * what makes one choice work on all of them. A caller that wanted to
    * supply the scrim would have to know the bar's height, which only the
    * bar knows.
+   *
+   * `hero` paints NOTHING and keeps theme ink — the third case, for Explore,
+   * where the bar is the top of a tinted block that also holds the search
+   * field and the category row. The band and its closing hairline belong to
+   * that block, not to the bar: the bar drawing its own opaque surface would
+   * cut the block in two, and drawing its own hairline would put a rule
+   * between the locality and the field it scopes.
    */
-  variant?: 'surface' | 'overlay';
+  variant?: 'surface' | 'overlay' | 'hero';
 };
 
 /**
@@ -107,16 +114,19 @@ export function ExploreHeader({
      the initial. The scrim below is what makes that a safe single choice
      across four banners that do not agree on a background brightness. */
   const over = variant === 'overlay';
+  /* Both non-`surface` variants are transparent and neither draws a rule;
+     only `overlay` also flips the ink, because only it sits on a photograph. */
+  const bare = over || variant === 'hero';
   const ink = over ? '#FFFFFF' : undefined;
 
   return (
     <View
       style={[
-        over ? null : styles.bar,
+        bare ? null : styles.bar,
         {
           paddingTop: insets.top,
-          backgroundColor: over ? 'transparent' : colors.surface,
-          borderBottomColor: over ? undefined : colors.borderSubtle,
+          backgroundColor: bare ? 'transparent' : colors.surface,
+          borderBottomColor: bare ? undefined : colors.borderSubtle,
           paddingHorizontal: layout.gutter,
         },
       ]}

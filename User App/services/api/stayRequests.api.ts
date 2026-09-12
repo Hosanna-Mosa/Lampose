@@ -70,6 +70,19 @@ export type CreateStayRequestInput = {
    * student agreed before their name and number reached a property owner.
    */
   consentedTerms: boolean;
+  /**
+   * A ₹100 move-in reward to spend on this booking, by id.
+   *
+   * The ID and never an amount. The server re-derives the room's price from
+   * the owner's own rates and subtracts the discount from THAT — a rupee
+   * figure sent from here would be a price the client chose, which is the one
+   * thing this flow does not accept (see `paymentForNewRequest`).
+   *
+   * Hotels only in practice: the coupon cannot reach the ₹199 assisted-visit
+   * fee, and a free category has no payment to discount. Sending one on a PG
+   * request is harmless — it is simply never reserved.
+   */
+  couponId?: string | null;
   signal?: AbortSignal;
 };
 
@@ -84,6 +97,7 @@ export async function createStayRequest({
       sharing: input.sharing,
       intent: input.intent ?? undefined,
       consentedTerms: input.consentedTerms === true,
+      couponId: input.couponId ?? undefined,
     },
     { signal },
   );

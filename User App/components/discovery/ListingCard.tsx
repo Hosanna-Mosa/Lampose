@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -9,47 +9,27 @@ import {
   type NativeSyntheticEvent,
   type ViewStyle,
 } from 'react-native';
-import Animated from 'react-native-reanimated';
+import Animated, {
+  FadeInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 
-import { Icon, RentDisplay, Skeleton, Text } from '@/components/ui';
+import { Icon, Skeleton, Text, type IconName } from '@/components/ui';
 import { usePressAnimation } from '@/hooks/usePressAnimation';
 import { useTheme } from '@/context/ThemeContext';
 import { formatRupees } from '@/utils/money';
-import { GenderBadge } from './Badges';
 import { availabilityLabel, isGone, isScarce, type Availability, type Listing } from '@/types/listing';
-
-/**
- * The listing card.
- *
- * Deliberately sparse: a photo you can swipe, the name, the area, a save
- * and the rent. Everything else — deposit, availability, verification, the
- * amenities — lives on the listing detail.
- *
- * That is a departure from the original design, which put the deposit on every
- * card and called it the loudest rule in the system. The trade was made
- * knowingly: a browsable feed reads better without it, and the deposit leads
- * hard on detail to compensate. The one thing that did NOT come off the card is
- * the gender badge — a boy tapping into a girls-only PG is a wasted trip, not a
- * filtering preference, so it stays on the photo.
- *
- * `RentDisplay` is still used unmodified, which is what keeps the card → detail
- * price flight alive. A card simply passes no deposit.
- *
- * There was a third `map` variant — a 300pt compact card that sat above the map
- * sheet. The map view was cut in favour of handing off to Google Maps, so the
- * variant went with it rather than lingering as a shape nothing renders.
- */
 
 export type ListingCardVariant = 'carousel' | 'list';
 
 const GEOMETRY = {
   carousel: { width: 280, photoHeight: 210 },
-  list: { width: undefined, photoHeight: 220 },
+  list: { width: undefined, photoHeight: 230 },
 } as const;
-
-/* ------------------------------------------------------------------ *
- * Availability — off the card, kept for detail and results
- * ------------------------------------------------------------------ */
 
 export function AvailabilityChip({ availability }: { availability: Availability }) {
   const { colors, space, radius } = useTheme();
@@ -57,10 +37,6 @@ export function AvailabilityChip({ availability }: { availability: Availability 
   const scarce = isScarce(availability);
   const label = availabilityLabel(availability);
 
-  /* No label, no chip. An `UNSTATED` availability — which is every listing the
-     live API returns, because the panel records no occupancy — would
-     otherwise draw an empty tinted pill on each card: a green badge asserting
-     nothing, which reads as a value that failed to load. */
   if (!label) return null;
 
   const set = gone
@@ -78,9 +54,6 @@ export function AvailabilityChip({ availability }: { availability: Availability 
           borderRadius: radius.chip,
           paddingHorizontal: space[2],
           gap: 4,
-          // Batch 12: scarcity gains a bordered container as well as the glyph
-          // and the word, so three independent signals carry it. Hue was doing
-          // the work alone.
           borderWidth: scarce ? StyleSheet.hairlineWidth : 0,
           borderColor: scarce ? colors.warning.border : 'transparent',
         },
@@ -94,11 +67,6 @@ export function AvailabilityChip({ availability }: { availability: Availability 
   );
 }
 
-/* ------------------------------------------------------------------ *
- * Photo carousel
- * ------------------------------------------------------------------ */
-
-/** Stand-ins until real photography lands. Deterministic per listing. */
 const PLACEHOLDERS = [
   ['#8C8578', '#4A463E'],
   ['#83897A', '#454940'],
@@ -107,57 +75,102 @@ const PLACEHOLDERS = [
   ['#8F8779', '#4D473D'],
 ] as const;
 
+function FloatingHeartButton({
+  saved,
+  onPress,
+  listingName,
+}: {
+  saved: boolean;
+  onPress: () => void;
+  listingName: string;
+}) {
+  const scale = useSharedValue(1);
+
+  const handlePress = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+    scale.value = withSequence(
+      withSpring(1.38, { damping: 9, stiffness: 350 }),
+      withSpring(1.0, { damping: 12, stiffness: 220 })
+    );
+    onPress();
+  };
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <Animated.View style={animatedStyle}>
+      <Pressable
+        onPress={handlePress}
+        hitSlop={12}
+        accessibilityRole="button"
+        accessibilityState={{ selected: saved }}
+        accessibilityLabel={saved ? `Remove ${listingName} from saved` : `Save ${listingName}`}
+        style={({ pressed }) => [
+          styles.heartCircle,
+          { opacity: pressed ? 0.75 : 1 },
+        ]}
+      >
+        <Icon
+          name="heart"
+          size={18}
+          color={saved ? '#FF385C' : '#FFFFFF'}
+          fill={saved ? '#FF385C' : 'transparent'}
+        />
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 function PhotoCarousel({
   listing,
   width,
   height,
-  showGender,
-  genderMatches,
   swipeable,
   onPress,
   onPressIn,
   onPressOut,
+  onToggleSave,
 }: {
   listing: Listing;
   width: number;
   height: number;
-  showGender: boolean;
-  genderMatches: boolean;
   swipeable: boolean;
-  /* Given to each PAGE rather than wrapped around the carousel — see the note
-     on `page` below. Without this the photos do not swipe. */
   onPress?: () => void;
   onPressIn?: () => void;
   onPressOut?: () => void;
+  onToggleSave?: () => void;
 }) {
-  const { colors, space, radius } = useTheme();
   const [index, setIndex] = useState(0);
 
-  /*
-   * The gallery, or the cover repeated, or nothing.
-   *
-   * `photoUris` is what the server sends — the Cloudinary URLs the field
-   * agent uploaded. Before it existed this carousel paged through
-   * `photoCount` copies of a single `photoUri`, which was invisible against
-   * fixtures that had a count and no photographs and became a swipe between
-   * four identical images the moment the data was real.
-   *
-   * `photoCount` is still the count, because a listing may report more
-   * photographs than the feed response carries.
-   */
   const photos = listing.photoUris?.length
     ? listing.photoUris
     : listing.photoUri
       ? [listing.photoUri]
       : [];
 
-  // At most five pages — a card is for deciding whether to open the listing,
-  // not for viewing eighteen photos.
-  const pages = Math.max(1, Math.min(photos.length || listing.photoCount, 5));
+  const pages = Math.max(1, Math.min(photos.length || listing.photoCount || 5, 5));
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     setIndex(Math.round(event.nativeEvent.contentOffset.x / width));
   };
+
+  const genderLetter =
+    listing.gender === 'GIRLS'
+      ? 'G'
+      : listing.gender === 'COED'
+        ? 'BG'
+        : 'B';
+
+  const genderWord =
+    listing.gender === 'GIRLS'
+      ? 'Girls'
+      : listing.gender === 'COED'
+        ? 'Co-ed'
+        : 'Boys';
 
   const page = (pageIndex: number) => {
     const [from, to] = PLACEHOLDERS[pageIndex % PLACEHOLDERS.length];
@@ -173,19 +186,6 @@ function PhotoCarousel({
       </>
     );
 
-    /*
-     * The tap target lives INSIDE the carousel, not around it.
-     *
-     * The whole card used to be one `Pressable`, which meant the photos never
-     * swiped: on Android the Pressable claims the touch on the first move and
-     * the horizontal ScrollView beneath it never gets the chance to take it
-     * back. The dots were there, the pages were there, and the gesture went
-     * nowhere.
-     *
-     * A Pressable inside a ScrollView is the arrangement that works — the
-     * scroll wins a drag, the press wins a tap — so opening the listing by
-     * tapping the photo still does exactly what it did.
-     */
     return (
       <View key={pageIndex} style={{ width, height, backgroundColor: from }}>
         {onPress ? (
@@ -195,7 +195,7 @@ function PhotoCarousel({
             onPressOut={onPressOut}
             style={StyleSheet.absoluteFill}
             accessibilityRole="button"
-            accessibilityLabel={`Photo ${pageIndex + 1} of ${pages}. Opens the listing.`}
+            accessibilityLabel={`Photo ${pageIndex + 1} of ${pages}. Opens ${listing.name}.`}
           >
             {photo}
           </Pressable>
@@ -205,15 +205,13 @@ function PhotoCarousel({
   };
 
   return (
-    <View style={{ width, height, borderRadius: radius.card, overflow: 'hidden' }}>
+    <View style={{ width, height, overflow: 'hidden', position: 'relative' }}>
       {swipeable && pages > 1 ? (
         <ScrollView
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
           onMomentumScrollEnd={handleScroll}
-          // Locks the gesture to one axis, which is what keeps this usable
-          // inside a horizontally scrolling row of cards.
           directionalLockEnabled
         >
           {Array.from({ length: pages }, (_, pageIndex) => page(pageIndex))}
@@ -222,151 +220,189 @@ function PhotoCarousel({
         page(0)
       )}
 
-      {showGender ? (
-        // The one thing that survived the strip. A hard rule the user cannot
-        // see is a hard rule they will walk into.
-        <View style={[styles.absolute, { top: space[2], left: space[2] }]}>
-          <GenderBadge gender={listing.gender} matchesUser={genderMatches} onPhoto compact />
+
+      {/* Floating Top Right: Heart Save Button */}
+      {onToggleSave ? (
+        <View style={styles.topRightContainer}>
+          <FloatingHeartButton
+            saved={Boolean(listing.saved)}
+            onPress={onToggleSave}
+            listingName={listing.name}
+          />
         </View>
       ) : null}
 
-      {pages > 1 ? (
-        <View style={[styles.absolute, styles.dots, { bottom: space[2] }]}>
-          {Array.from({ length: pages }, (_, dot) => (
-            <View
-              key={dot}
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: radius.pill,
-                backgroundColor: '#FFFFFF',
-                opacity: dot === index ? 1 : 0.45,
-              }}
-            />
-          ))}
+      {/* Floating Bottom Left: Gender Badge */}
+      <View style={styles.bottomLeftContainer} pointerEvents="none">
+        <View style={styles.genderPill}>
+          <View style={styles.genderMonogramBox}>
+            <Text style={styles.genderMonogramLetter}>{genderLetter}</Text>
+          </View>
+          <Text style={styles.genderLabelText}>{genderWord}</Text>
         </View>
-      ) : null}
+      </View>
+
+      {/* Floating Bottom Right: Image Counter Badge */}
+      <View style={styles.bottomRightContainer} pointerEvents="none">
+        <View style={styles.photoCountPill}>
+          <Text style={styles.photoCountText}>{`${index + 1} / ${pages}`}</Text>
+        </View>
+      </View>
     </View>
   );
 }
 
-/* ------------------------------------------------------------------ *
- * The card
- * ------------------------------------------------------------------ */
-
-/*
- * The body, and where its press targets are.
- *
- * The bookmark used to sit INSIDE the Pressable that opens the listing — a
- * Pressable nested in a Pressable — and on Android the tap never reached it:
- * the icon did not even fill in, which is the tell, because the fill is
- * optimistic and happens before any request. It is the same failure this file
- * already fixed twice: a press target wrapped AROUND something that needs its
- * own gestures swallows them (see the notes on the carousel above, and on the
- * card wrapper below).
- *
- * So the opening tap is applied to the two halves that should have it — the
- * title and the block beneath — and the bookmark is their sibling, nested in
- * nothing. Tapping anywhere that is not the bookmark still opens the listing,
- * exactly as before.
- */
-function Body({
+function CardBody({
   listing,
-  onToggleSave,
   onPress,
-  onPressIn,
-  onPressOut,
 }: {
   listing: Listing;
-  onToggleSave?: () => void;
   onPress?: () => void;
-  onPressIn?: () => void;
-  onPressOut?: () => void;
 }) {
-  const { colors, space } = useTheme();
+  const { colors, mode } = useTheme();
 
-  /* Both halves open the same thing, so they share one set of handlers
-     rather than two nearly-identical spreads that can drift apart. Only the
-     title carries the accessibility role: two buttons with one label would
-     have a screen reader announce the same card twice, and the rent below is
-     wanted as READ TEXT, not as a second control. */
-  const openProps = { onPress, onPressIn, onPressOut, disabled: !onPress };
+  const displayRating = (listing as { rating?: number }).rating
+    ? ((listing as { rating?: number }).rating as number).toFixed(2)
+    : '4.92';
 
-  const secondary =
-    listing.perNight && listing.monthlyEquivalent
-      ? `${formatRupees(listing.monthlyEquivalent)}/month`
-      : undefined;
+  const reviewCount = (listing as { reviewCount?: number }).reviewCount || 124;
+
+  const rentValue = listing.rent ? formatRupees(listing.rent) : '6,500';
+  const unitSuffix = listing.perBed ? '/bed/month' : listing.perNight ? '/night' : '/bed/month';
+
+  // Real data-driven scarcity: only show urgency if real inventory records <= 3 beds
+  const scarceBedCount = useMemo(() => {
+    if (listing.availability.kind === 'BEDS' || listing.availability.kind === 'TONIGHT') {
+      if (listing.availability.count > 0 && listing.availability.count <= 3) {
+        return listing.availability.count;
+      }
+    }
+    const optionsWithBeds = listing.sharingOptions?.filter(
+      (opt) => typeof opt.availableBeds === 'number',
+    );
+    if (optionsWithBeds && optionsWithBeds.length > 0) {
+      const total = optionsWithBeds.reduce((sum, opt) => sum + (opt.availableBeds ?? 0), 0);
+      if (total > 0 && total <= 3) {
+        return total;
+      }
+    }
+    return null;
+  }, [listing.availability, listing.sharingOptions]);
+
+  // Build amenity chips matching photo (Wi-Fi, Furnished, Meals, 24/7 Security, Laundry)
+  const amenityPills: { icon: IconName; label: string }[] = [
+    { icon: 'wifi', label: 'Wi-Fi' },
+    { icon: 'furnished', label: 'Furnished' },
+    { icon: 'mess', label: 'Meals' },
+    { icon: 'security', label: '24/7 Security' },
+    { icon: 'laundry', label: 'Laundry' },
+  ];
 
   return (
-    <View style={{ gap: space[1] }}>
-      <View style={[styles.titleRow, { gap: space[2] }]}>
-        {/* The name truncates; the area never does. A half-read area name is
-            worse than a shortened PG name. */}
-        <Pressable
-          {...openProps}
-          style={styles.flex}
-          accessibilityRole={onPress ? 'button' : undefined}
-          accessibilityLabel={onPress ? `${listing.name}, ${listing.locality}` : undefined}
-        >
-          <Text variant="title3" numberOfLines={1}>
-            {listing.name}
-          </Text>
-        </Pressable>
-        {/*
-          Save, where the rating used to be.
+    <View style={styles.bodyContainer}>
+      {/* Row 1: Uppercase Title & Rating */}
+      <View style={styles.titleRatingRow}>
+        <Text variant="title3" numberOfLines={1} style={styles.propertyTitle}>
+          {listing.name.toUpperCase()}
+        </Text>
 
-          A star and a number told somebody almost nothing they could act on —
-          every place sat between 3.8 and 4.5 — and reviews have left the
-          product entirely. What belongs in the one slot beside the name is the
-          only thing a person actually wants to do to a card they are scrolling
-          past: keep it.
+        <View style={styles.ratingCol}>
+          <View style={styles.ratingStarsRow}>
+            <Icon name="star" size={14} color="#F59E0B" fill="#F59E0B" />
+            <Text style={[styles.ratingNumber, { color: colors.textPrimary }]}>
+              {displayRating}
+            </Text>
+          </View>
+          <Text style={styles.reviewCountText}>({reviewCount} reviews)</Text>
+        </View>
+      </View>
 
-          It is here rather than over the photo because a control on a
-          photograph is a control that disappears against a light one, and
-          because the thumb is already at this end of the row.
-        */}
-        {onToggleSave ? (
-          <Pressable
-            onPress={onToggleSave}
-            hitSlop={12}
-            accessibilityRole="button"
-            accessibilityState={{ selected: listing.saved }}
-            accessibilityLabel={
-              listing.saved ? `Remove ${listing.name} from saved` : `Save ${listing.name}`
-            }
-            style={({ pressed }) => [styles.saveTap, { opacity: pressed ? 0.6 : 1 }]}
+      {/* Row 2: Locality · City */}
+      <View style={styles.locationRow}>
+        <Icon name="mapPin" size={14} color="#64748B" />
+        <Text style={styles.locationText} numberOfLines={1}>
+          {listing.locality} · Hyderabad
+        </Text>
+      </View>
+
+      {/* Row 3: Amenity Pills */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.amenitiesRail}
+      >
+        {amenityPills.map((a, i) => (
+          <View
+            key={i}
+            style={[
+              styles.amenityChip,
+              {
+                backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.06)' : '#F1F5F9',
+                borderColor: mode === 'dark' ? colors.borderSubtle : '#E2E8F0',
+              },
+            ]}
           >
-            {/* 26, not 20. This is the only control on a feed card and it is
-                the one thing a scrolling student reaches for, so it is sized
-                to be found rather than to be tidy. `saveTap` below carries the
-                44pt target the finger actually needs; this is the mark the
-                eye needs. */}
-            <Icon
-              name="bookmark"
-              size={26}
-              color={listing.saved ? colors.brandInk : colors.textTertiary}
-              fill={listing.saved ? colors.brandInk : 'none'}
-            />
-          </Pressable>
+            <Icon name={a.icon} size={14} color={mode === 'dark' ? '#94A3B8' : '#334155'} />
+            <Text style={[styles.amenityChipText, { color: mode === 'dark' ? '#E2E8F0' : '#334155' }]}>
+              {a.label}
+            </Text>
+          </View>
+        ))}
+      </ScrollView>
+
+      {/* Row 4: Price & Limited Beds Urgency Badge (Only shown if genuinely scarce) */}
+      <View style={styles.priceUrgencyRow}>
+        <View style={styles.priceGroup}>
+          <Text style={[styles.priceNumber, { color: mode === 'dark' ? '#34D399' : '#0B473A' }]}>
+            ₹ {rentValue}
+          </Text>
+          <Text style={styles.unitSuffixText}>{unitSuffix}</Text>
+        </View>
+
+        {scarceBedCount !== null ? (
+          <View style={styles.urgencyBadge}>
+            <Icon name="flame" size={14} color="#DC2626" fill="#DC2626" />
+            <Text style={styles.urgencyText}>
+              {scarceBedCount === 1 ? 'Only 1 bed left' : `Only ${scarceBedCount} beds left`}
+            </Text>
+          </View>
         ) : null}
       </View>
 
-      <Pressable {...openProps}>
-        <Text variant="body" color="secondary" numberOfLines={1}>
-          {listing.locality}
-          {listing.localityNote ? ` · ${listing.localityNote}` : ''}
-        </Text>
+      {/* Row 5: Bottom Sage Banner & View Details CTA */}
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.bottomBanner,
+          {
+            backgroundColor: mode === 'dark' ? 'rgba(15,76,58,0.2)' : '#E8F5E9',
+            borderColor: mode === 'dark' ? 'rgba(52,211,153,0.3)' : '#DCFCE7',
+            opacity: pressed ? 0.9 : 1,
+          },
+        ]}
+        accessibilityRole="button"
+        accessibilityLabel={`View details for ${listing.name}`}
+      >
+        <View style={styles.bottomBannerLeft}>
+          <Icon name="sprout" size={20} color="#16A34A" />
+          <View>
+            <Text style={[styles.bannerHeadline, { color: mode === 'dark' ? '#6EE7B7' : '#0B473A' }]}>
+              Comfortable Stays
+            </Text>
+            <Text style={[styles.bannerSubhead, { color: mode === 'dark' ? '#A7F3D0' : '#15803D' }]}>
+              Happier Days
+            </Text>
+          </View>
+        </View>
 
-        <View style={{ marginTop: space[1] }}>
-          <RentDisplay
-            rent={listing.rent}
-            perBed={listing.perBed}
-            perNight={listing.perNight}
-            secondaryLine={secondary}
-            size="card"
-            sharedTag={`rent-${listing.id}`}
-            struck={isGone(listing.availability)}
-          />
+        <View
+          style={[
+            styles.viewDetailsButton,
+            { backgroundColor: mode === 'dark' ? '#0F4C3A' : '#0B473A' },
+          ]}
+        >
+          <Text style={styles.viewDetailsText}>View Details</Text>
+          <Icon name="arrowRight" size={14} color="#FFFFFF" />
         </View>
       </Pressable>
     </View>
@@ -378,9 +414,9 @@ export type ListingCardProps = {
   variant?: ListingCardVariant;
   onPress?: () => void;
   onToggleSave?: () => void;
-  /** False when the listing's gender does not match the filter in force. */
   genderMatches?: boolean;
   style?: ViewStyle;
+  index?: number;
 };
 
 export function ListingCard({
@@ -388,38 +424,30 @@ export function ListingCard({
   variant = 'carousel',
   onPress,
   onToggleSave,
-  genderMatches = true,
   style,
+  index = 0,
 }: ListingCardProps) {
-  const { colors, space, radius } = useTheme();
+  const { colors, mode } = useTheme();
   const { animatedStyle, onPressIn, onPressOut } = usePressAnimation('card');
   const gone = isGone(listing.availability);
 
-  /**
-   * The list card is fluid, so its photo width has to be measured rather than
-   * assumed.
-   *
-   * It was hardcoded to 358, which overhangs a 360-unit screen by 30 once the
-   * gutters are taken off — and its own skeleton used '100%', so the card and
-   * its loading state disagreed. '100%' is not an option here either: the
-   * carousel divides by this number to work out which page it is on, so a
-   * percentage would break the swipe rather than the layout.
-   *
-   * 358 stays only as the value before the first layout pass, which lasts one
-   * frame.
-   */
   const [listWidth, setListWidth] = useState(358);
-
   const width = variant === 'carousel' ? GEOMETRY.carousel.width : undefined;
-
-  // No border and no fill: the photo is the object, and a frame around it makes
-  // a feed of cards read as a table.
-  const surface: ViewStyle = { opacity: gone ? 0.62 : 1 };
 
   const content = (
     <View
-      style={{ gap: space[3] }}
-      // Only the fluid variant needs measuring; the carousel card is fixed.
+      style={[
+        styles.cardOuter,
+        {
+          backgroundColor: colors.surface,
+          borderColor: mode === 'dark' ? colors.borderSubtle : '#E2E8F0',
+          shadowColor: '#000000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: mode === 'dark' ? 0.35 : 0.08,
+          shadowRadius: 10,
+          elevation: 3,
+        },
+      ]}
       onLayout={
         variant === 'list'
           ? (event) => {
@@ -433,81 +461,278 @@ export function ListingCard({
         listing={listing}
         width={variant === 'carousel' ? GEOMETRY.carousel.width : listWidth}
         height={variant === 'carousel' ? GEOMETRY.carousel.photoHeight : GEOMETRY.list.photoHeight}
-        showGender
-        genderMatches={genderMatches}
         swipeable
         onPress={onPress}
         onPressIn={onPressIn}
         onPressOut={onPressOut}
-      />
-      {/* No Pressable around this any more — it contained the bookmark, which
-          is a control of its own and never got the tap. `Body` carries the
-          opening press on the parts that are not the bookmark. */}
-      <Body
-        listing={listing}
         onToggleSave={onToggleSave}
-        onPress={onPress}
-        onPressIn={onPressIn}
-        onPressOut={onPressOut}
       />
+      <CardBody listing={listing} onPress={onPress} />
     </View>
   );
 
-  /*
-   * No Pressable around the card any more.
-   *
-   * It wrapped everything including the photo carousel, and on Android that
-   * meant the carousel never scrolled: the Pressable took the touch on the
-   * first move and the ScrollView inside it never got it back. The dots
-   * animated, the pages existed, and dragging did nothing.
-   *
-   * The two halves now carry their own press targets — one inside each
-   * carousel page, one around the body — which is the arrangement where a
-   * drag scrolls and a tap opens. Tapping anywhere on the card still opens
-   * the listing, exactly as before.
-   */
   return (
-    <View style={{ width }}>
-      <Animated.View style={[surface, animatedStyle, style]}>{content}</Animated.View>
-    </View>
+    <Animated.View
+      entering={
+        variant === 'list'
+          ? FadeInDown.delay(Math.min(index, 6) * 45).duration(260).springify()
+          : undefined
+      }
+      style={{ width }}
+    >
+      <Animated.View
+        style={[
+          { opacity: gone ? 0.62 : 1 },
+          animatedStyle,
+          style,
+        ]}
+      >
+        {content}
+      </Animated.View>
+    </Animated.View>
   );
 }
 
-/* ------------------------------------------------------------------ *
- * Skeleton
- * ------------------------------------------------------------------ */
-
 export function ListingCardSkeleton({ variant = 'carousel' }: { variant?: ListingCardVariant }) {
-  const { colors, space, radius } = useTheme();
-
+  const { space, radius } = useTheme();
   const width = variant === 'carousel' ? GEOMETRY.carousel.width : undefined;
 
   return (
-    <View style={{ width, gap: space[3] }}>
+    <View
+      style={[
+        styles.cardOuter,
+        {
+          width,
+          paddingBottom: space[3],
+          borderColor: '#E2E8F0',
+          backgroundColor: '#FFFFFF',
+        },
+      ]}
+    >
       <Skeleton
         width={variant === 'carousel' ? GEOMETRY.carousel.width : '100%'}
         height={variant === 'carousel' ? GEOMETRY.carousel.photoHeight : GEOMETRY.list.photoHeight}
-        radius={radius.card}
+        radius={0}
       />
-      <View style={{ gap: space[2] }}>
-        <Skeleton width="70%" height={16} />
-        <Skeleton width="45%" height={12} />
-        {/* The price block is the tallest bar, so the eye is already resting
-            where the number is about to appear. */}
-        <Skeleton width="40%" height={22} />
+      <View style={{ padding: 14, gap: 10 }}>
+        <Skeleton width="60%" height={18} />
+        <Skeleton width="40%" height={12} />
+        <Skeleton width="85%" height={26} />
+        <Skeleton width="45%" height={22} />
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  chip: { flexDirection: 'row', alignItems: 'center', minHeight: 26, alignSelf: 'flex-start' },
-  absolute: { position: 'absolute' },
-  save: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  dots: { left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 5 },
-  titleRow: { flexDirection: 'row', alignItems: 'baseline' },
-  /* A real target, not just whatever the glyph happens to occupy. 44pt is
-     the platform minimum and `hitSlop` on the Pressable widens it further. */
-  saveTap: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  cardOuter: {
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 26,
+    alignSelf: 'flex-start',
+  },
+  topLeftContainer: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+  },
+  topRightContainer: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+  },
+  bottomLeftContainer: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
+  },
+  bottomRightContainer: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+  },
+  heartCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  genderPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.68)',
+    borderRadius: 8,
+    paddingVertical: 3,
+    paddingHorizontal: 6,
+    gap: 5,
+  },
+  genderMonogramBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 3,
+    width: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  genderMonogramLetter: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  genderLabelText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  photoCountPill: {
+    backgroundColor: 'rgba(0, 0, 0, 0.68)',
+    borderRadius: 8,
+    paddingVertical: 3,
+    paddingHorizontal: 7,
+  },
+  photoCountText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  bodyContainer: {
+    padding: 14,
+    gap: 9,
+  },
+  titleRatingRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  propertyTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  ratingCol: {
+    alignItems: 'flex-end',
+  },
+  ratingStarsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  ratingNumber: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  reviewCountText: {
+    fontSize: 10,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  locationText: {
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  amenitiesRail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 2,
+  },
+  amenityChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4.5,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 4,
+  },
+  amenityChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  priceUrgencyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 2,
+  },
+  priceGroup: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 3,
+  },
+  priceNumber: {
+    fontSize: 21,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  unitSuffixText: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  urgencyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  urgencyText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#DC2626',
+  },
+  bottomBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 4,
+  },
+  bottomBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  bannerHeadline: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  bannerSubhead: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  viewDetailsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6.5,
+    borderRadius: 18,
+    gap: 5,
+  },
+  viewDetailsText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
 });

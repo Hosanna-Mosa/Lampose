@@ -41,34 +41,141 @@ import { locateMe, type LocatedAddress } from './useMyLocation';
 
 /** How confident the match is, so the caller can say so honestly. */
 export type LocalityMatch =
-  /** A named area we cover, found in the geocoded text. */
+  /** A named area we cover in the catalogue, matched via proximity or name. */
   | { kind: 'area'; locality: Locality; placeLabel: string }
-  /** We cover the city but could not place the block within it. */
+  /**
+   * The user's genuine original location detected from GPS, preserved as an
+   * authentic Locality even when not directly in the catalogue.
+   */
+  | { kind: 'original'; locality: Locality; placeLabel: string }
+  /** We cover the city, but only city level was identified. */
   | { kind: 'city'; locality: Locality; placeLabel: string }
-  /** A fix, and nothing in the catalogue near it. */
+  /** A fix, and nothing could be named. */
   | { kind: 'none'; placeLabel: string };
 
 /** Lower-cased, collapsed whitespace. Comparison form, never display form. */
 const norm = (value: string): string => value.trim().toLowerCase().replace(/\s+/g, ' ');
 
+const slugify = (value: string): string =>
+  value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+
+/**
+ * Centroid coordinates for catalogue localities.
+ * Allows instant GPS proximity matching rather than relying solely on geocoder text.
+ */
+const KNOWN_LOCALITY_COORDS: Record<string, { lat: number; lng: number }> = {
+  // Hyderabad
+  'gachibowli': { lat: 17.4401, lng: 78.3489 },
+  'gachibowli outer ring road': { lat: 17.4350, lng: 78.3450 },
+  'financial district': { lat: 17.4156, lng: 78.3425 },
+  'nanakramguda': { lat: 17.4180, lng: 78.3510 },
+  'hitec city': { lat: 17.4435, lng: 78.3772 },
+  'madhapur': { lat: 17.4483, lng: 78.3915 },
+  'madhapur 100ft road': { lat: 17.4490, lng: 78.3920 },
+  'kondapur': { lat: 17.4699, lng: 78.3578 },
+  'near rto kondapur': { lat: 17.4650, lng: 78.3620 },
+  'kphb': { lat: 17.4938, lng: 78.3995 },
+  'kphb colony': { lat: 17.4950, lng: 78.4010 },
+  'kphb road no. 1': { lat: 17.4920, lng: 78.3980 },
+  'kphb roadno:1 behind karur vysya bank': { lat: 17.4925, lng: 78.3985 },
+  'kphb 6th phase nera nexus mall': { lat: 17.4870, lng: 78.3910 },
+  'kukatpally': { lat: 17.4849, lng: 78.4138 },
+  'jubilee hills': { lat: 17.4319, lng: 78.4073 },
+  'jubilee hills road 45': { lat: 17.4340, lng: 78.4060 },
+  'banjara hills': { lat: 17.4156, lng: 78.4350 },
+  'ameerpet': { lat: 17.4375, lng: 78.4482 },
+  'sr nagar': { lat: 17.4430, lng: 78.4440 },
+  'bk guda park , sr nager': { lat: 17.4445, lng: 78.4460 },
+  'koti': { lat: 17.3850, lng: 78.4867 },
+  'shamshabad': { lat: 17.2403, lng: 78.4294 },
+  'quthbullapur': { lat: 17.5025, lng: 78.4682 },
+  'chinthal ganesh nagar': { lat: 17.5120, lng: 78.4550 },
+
+  // Bangalore
+  'hsr layout': { lat: 12.9121, lng: 77.6446 },
+  'hsr layout sector 1': { lat: 12.9160, lng: 77.6520 },
+  'hsr layout sector 3': { lat: 12.9110, lng: 77.6390 },
+  'hsr layout sector 6': { lat: 12.9050, lng: 77.6380 },
+  'koramangala': { lat: 12.9352, lng: 77.6245 },
+  'koramangala 1st block': { lat: 12.9270, lng: 77.6320 },
+  'koramangala 3rd block': { lat: 12.9300, lng: 77.6250 },
+  'koramangala 7th block': { lat: 12.9360, lng: 77.6140 },
+  'whitefield': { lat: 12.9698, lng: 77.7500 },
+  'itpl main road': { lat: 12.9863, lng: 77.7338 },
+  'phase 2 neeladri road': { lat: 12.8450, lng: 77.6620 },
+  'mg road': { lat: 12.9756, lng: 77.6066 },
+
+  // Visakhapatnam
+  'mvp colony': { lat: 17.7447, lng: 83.3342 },
+  'girijan bhavan, back building, sector 4, sector 5, mvp colony, andhra pradesh 530017': { lat: 17.7447, lng: 83.3342 },
+
+  // Chennai
+  't. nagar': { lat: 13.0418, lng: 80.2341 },
+  'velachery': { lat: 12.9815, lng: 80.2180 },
+
+  // Pune
+  'viman nagar': { lat: 18.5679, lng: 73.9143 },
+};
+
+/** Common market aliases and neighborhood equivalents */
+const AREA_SYNONYMS: Record<string, string[]> = {
+  kukatpally: ['kphb', 'kphb colony', 'kukatpally', 'jntu'],
+  kphb: ['kphb', 'kphb colony', 'kukatpally', 'jntu'],
+  'kphb colony': ['kphb', 'kphb colony', 'kukatpally', 'jntu'],
+  madhapur: ['madhapur', 'hitec city', 'cyber towers', 'ayyappa society', 'kavuri hills', '100ft road'],
+  'hitec city': ['hitec city', 'cyber towers', 'madhapur', 'mindspace', 'cyber gateway'],
+  gachibowli: ['gachibowli', 'iiit', 'dlf', 'telecom nagar', 'gachibowli stadium'],
+  kondapur: ['kondapur', 'botanical garden', 'kothaguda', 'hafeezpet', 'rto kondapur'],
+  'financial district': ['financial district', 'nanakramguda', 'waverock', 'isb'],
+  nanakramguda: ['nanakramguda', 'financial district', 'waverock'],
+  ameerpet: ['ameerpet', 'sr nagar', 'sanjeeva reddy nagar', 'maitrivanam', 'bk guda'],
+  'sr nagar': ['sr nagar', 'ameerpet', 'bk guda'],
+  'jubilee hills': ['jubilee hills', 'film nagar', 'road no 36', 'road no 45'],
+  'banjara hills': ['banjara hills', 'road no 1', 'road no 12', 'panjagutta'],
+};
+
+function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Earth radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 /**
  * Everything the geocoder named, as one haystack.
- *
- * Joined rather than searched field by field because the fields are not
- * consistent across platforms — iOS puts the neighbourhood in `subregion` and
- * Android in `district`, and `locateMe` has already folded both into
- * `landmark`. Searching the lot removes the need to care which one it landed
- * in.
  */
 const haystackOf = (found: LocatedAddress): string =>
-  norm([found.fields.line1, found.fields.landmark, found.fields.city, found.fields.state]
-    .filter(Boolean)
-    .join(' · '));
+  norm(
+    [
+      found.fields.area,
+      found.fields.line1,
+      found.fields.landmark,
+      found.fields.city,
+      found.fields.state,
+      found.fields.formattedAddress,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  );
 
-/** What to call the spot on screen. Falls back to the pin when unnamed. */
+/** What to call the spot on screen. */
 const labelOf = (found: LocatedAddress): string => {
-  const named = [found.fields.landmark, found.fields.city].map((p) => p.trim()).filter(Boolean);
-  if (named.length) return named.join(', ');
+  const parts = [found.fields.area || found.fields.landmark, found.fields.city]
+    .map((p) => (p || '').trim())
+    .filter(Boolean)
+    .filter((part, i, all) => all.indexOf(part) === i);
+  if (parts.length) return parts.join(', ');
   return `${found.location.lat.toFixed(3)}, ${found.location.lng.toFixed(3)}`;
 };
 
@@ -77,9 +184,6 @@ const busier = (a: Locality, b: Locality): Locality => (b.listingCount > a.listi
 
 /**
  * Match an already-measured fix against a list of areas.
- *
- * Split out from `findMyLocality` below so it can be reasoned about — and
- * tested — without a device, a permission dialog or a geocoder.
  */
 export function matchLocality(
   found: LocatedAddress,
@@ -88,15 +192,13 @@ export function matchLocality(
   const placeLabel = labelOf(found);
   const haystack = haystackOf(found);
 
-  if (!haystack || !localities.length) return { kind: 'none', placeLabel };
+  if (!haystack && !found.fields.area && !found.fields.city) {
+    return { kind: 'none', placeLabel };
+  }
 
-  /* 1 — a locality's own name, anywhere in what the geocoder said. Short names
-     are not excluded, but they are required to sit on a word boundary: without
-     that, an area called "HSR" would match the word "hsrnagar" and a two-letter
-     one would match almost anything. */
+  // 1. Exact or substring matching by locality name & aliases (High confidence)
   let byName: Locality | null = null;
   let byAlias: Locality | null = null;
-  let byCity: Locality | null = null;
 
   for (const locality of localities) {
     const name = norm(locality.name);
@@ -105,11 +207,10 @@ export function matchLocality(
       continue;
     }
 
-    /* 2 — the aliases `places.adapter.ts` derives from the name, which is what
-       lets a device that only said "HSR Layout" find "HSR Layout Sector 1". */
+    // Check alias list from the adapter
     const alias = (locality.aliases ?? []).find(
       (candidate) =>
-        norm(candidate).length > 3
+        norm(candidate).length > 2
         && new RegExp(`(^|[^a-z0-9])${escapeRe(norm(candidate))}([^a-z0-9]|$)`).test(haystack),
     );
     if (alias) {
@@ -117,16 +218,66 @@ export function matchLocality(
       continue;
     }
 
-    /* 3 — the city. Weaker, and reported as such. */
-    const city = norm(locality.city);
-    if (city && haystack.includes(city)) {
-      byCity = byCity ? busier(byCity, locality) : locality;
+    // Check custom synonym mapping
+    const synonyms = AREA_SYNONYMS[name] ?? [];
+    const matchedSynonym = synonyms.find((syn) =>
+      new RegExp(`(^|[^a-z0-9])${escapeRe(syn)}([^a-z0-9]|$)`).test(haystack),
+    );
+    if (matchedSynonym) {
+      byAlias = byAlias ? busier(byAlias, locality) : locality;
     }
   }
 
   if (byName) return { kind: 'area', locality: byName, placeLabel };
   if (byAlias) return { kind: 'area', locality: byAlias, placeLabel };
-  if (byCity) return { kind: 'city', locality: byCity, placeLabel };
+
+  // 2. Proximity matching by GPS coordinates:
+  // If user coordinates are within a tight neighborhood radius (<= 2.5 km) of a known catalog locality
+  if (found.location?.lat && found.location?.lng && localities.length > 0) {
+    let nearestByCoords: { locality: Locality; dist: number } | null = null;
+    for (const loc of localities) {
+      const coords = KNOWN_LOCALITY_COORDS[norm(loc.name)];
+      if (coords) {
+        const dist = distanceKm(found.location.lat, found.location.lng, coords.lat, coords.lng);
+        if (dist <= 2.5) {
+          if (!nearestByCoords || dist < nearestByCoords.dist) {
+            nearestByCoords = { locality: loc, dist };
+          }
+        }
+      }
+    }
+
+    if (nearestByCoords) {
+      return { kind: 'area', locality: nearestByCoords.locality, placeLabel };
+    }
+  }
+
+  // 3. User's ORIGINAL location:
+  // When the user's area is not directly in the catalogue (e.g. Kukatpally, Miyapur, Nizampet,
+  // Ameerpet, Banjara Hills, Begumpet, Secunderabad, or any other area):
+  // DO NOT fall back to Gachibowli! Return their genuine detected original location!
+  const detectedArea = (found.fields.area || found.fields.landmark || '').trim();
+  const detectedCity = (found.fields.city || '').trim();
+
+  if (detectedArea || detectedCity) {
+    const originalName = detectedArea || detectedCity || 'My Location';
+    const originalCity = detectedCity || (detectedArea ? '' : 'Hyderabad');
+
+    const originalLocality: Locality = {
+      id: `loc-original-${slugify(originalName)}-${slugify(originalCity)}`,
+      name: originalName,
+      city: originalCity,
+      listingCount: 0,
+      medianRent: null,
+    };
+
+    return {
+      kind: 'original',
+      locality: originalLocality,
+      placeLabel: [originalName, originalCity].filter(Boolean).join(', '),
+    };
+  }
+
   return { kind: 'none', placeLabel };
 }
 

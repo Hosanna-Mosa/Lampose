@@ -93,6 +93,7 @@ export const queryKeys = {
 
   /** The food-order discount a referral code may have unlocked. */
   myCoupon: ['myCoupon'] as const,
+  stayCoupons: ['stayCoupons'] as const,
 
   /* The delivery address book. One key, so the profile row's count and the
      book screen itself are the same fetch. */

@@ -112,7 +112,7 @@ export function defaultStayIntent(
     ...current,
     stayType: rate.id as StayTypeId,
     units,
-    sharingId: firstAvailable(sharingOptions),
+    sharingId: null,
     /* Not ours to answer — see the rule at the top. */
     joinDate: current.joinDate,
     flexibleJoin: current.flexibleJoin,
@@ -151,7 +151,7 @@ export function defaultHotelIntent(
   if (current.sharingId !== null || current.rateStructure !== null) return null;
   if (!options?.length) return null;
 
-  const sharingId = firstAvailable(options);
+  const sharingId = options.length === 1 ? options[0].id : null;
   if (!sharingId) return null;
 
   return {

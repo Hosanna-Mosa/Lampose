@@ -1,5 +1,5 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { BottomSheet, Button, Icon, Text } from '@/components/ui';
 // Crossing from discovery into booking, deliberately: there is one calendar in
@@ -308,26 +308,17 @@ type DropdownProps = {
   /** The length dropdown is dead until a stay type is chosen. */
   disabled?: boolean;
   /** The sheet's own title, which is the question being answered. */
-  sheetTitle: string;
+  sheetTitle?: string;
+  isOpen?: boolean;
+  onToggle?: () => void;
 };
 
 /**
- * A closed field with a panel that drops from it.
+ * An inline anchored dropdown field.
  *
- * The panel is drawn in a `Modal` rather than absolutely positioned under the
- * field, and then moved to where the field actually is. Inside a scroll view an
- * absolutely positioned panel is clipped by the scroll container the moment it
- * extends past the visible area, which is most of the time on the second
- * dropdown near the bottom of the screen. A modal has no such parent.
- *
- * Position comes from `measureInWindow` at open time, so the panel lands on the
- * field wherever the page happens to be scrolled. If there is not enough room
- * below — the field is near the bottom, which is the common case here — it
- * flips and drops upward instead of running off the screen.
- *
- * The panel is the width of its field, not the screen. That is what makes it
- * read as belonging to the control it came from rather than as a sheet the
- * whole screen handed up.
+ * Renders the options card directly beneath the field in the layout flow.
+ * This guarantees zero misplacement, perfect alignment, and seamless scrolling
+ * on all screen sizes and platforms (iOS, Android, Web).
  */
 function Dropdown({
   label,
@@ -336,36 +327,23 @@ function Dropdown({
   selectedId,
   onSelect,
   disabled = false,
-  sheetTitle,
+  isOpen: controlledOpen,
+  onToggle,
 }: DropdownProps) {
   const { colors, space, radius, touch, elevation } = useTheme();
-  const { height: windowHeight } = useWindowDimensions();
-  const [open, setOpen] = useState(false);
-  const [anchor, setAnchor] = useState({ x: 0, y: 0, width: 0, height: 0 });
-  const fieldRef = useRef<View>(null);
+  const [internalOpen, setInternalOpen] = useState(false);
 
-  const selected = options.find((option) => option.id === selectedId) ?? null;
-
-  /*
-   * Measured at open time, never cached.
-   *
-   * The page scrolls between opens, so a position captured on layout is stale
-   * by the time it is used. `measureInWindow` is asynchronous, so the modal is
-   * only made visible once the numbers are in — otherwise the panel paints at
-   * the top-left corner for a frame and then jumps.
-   */
-  const openPanel = () => {
-    fieldRef.current?.measureInWindow((x, y, width, height) => {
-      setAnchor({ x, y, width, height });
-      setOpen(true);
-    });
+  const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
+  const toggleOpen = () => {
+    if (disabled) return;
+    if (onToggle) {
+      onToggle();
+    } else {
+      setInternalOpen(!internalOpen);
+    }
   };
 
-  /* Room below the field, minus a margin. Under that, the panel flips up. */
-  const gapBelow = windowHeight - (anchor.y + anchor.height) - space[4];
-  const gapAbove = anchor.y - space[4];
-  const dropUp = gapBelow < 200 && gapAbove > gapBelow;
-  const maxPanelHeight = Math.max(140, Math.min(300, dropUp ? gapAbove : gapBelow));
+  const selected = options.find((option) => option.id === selectedId) ?? null;
 
   return (
     <View style={styles.flex}>
@@ -374,8 +352,7 @@ function Dropdown({
           {label}
         </Text>
         <Pressable
-          ref={fieldRef}
-          onPress={openPanel}
+          onPress={toggleOpen}
           disabled={disabled}
           accessibilityRole="button"
           accessibilityState={{ disabled, expanded: open }}
@@ -393,12 +370,8 @@ function Dropdown({
               gap: space[2],
               opacity: disabled ? 0.45 : pressed ? 0.7 : 1,
               backgroundColor: colors.surface,
-              // A chosen field carries the brand edge, the same signal the
-              // chips used to carry. An empty one takes `borderInput` — still
-              // neutral, but actually visible: `border` is a card hairline at
-              // 1.25:1 and an empty field wearing it reads as flat white space.
-              borderColor: selected ? colors.brand : colors.borderInput,
-              borderWidth: selected ? 1.5 : StyleSheet.hairlineWidth,
+              borderColor: open ? colors.brand : selected ? colors.brand : colors.borderInput,
+              borderWidth: open || selected ? 1.5 : StyleSheet.hairlineWidth,
             },
           ]}
         >
@@ -406,101 +379,93 @@ function Dropdown({
             <Text variant="bodyStrong" color={selected ? 'primary' : 'tertiary'} numberOfLines={1}>
               {selected ? selected.label : placeholder}
             </Text>
-            {/* The price rides the closed field too. Choosing "3 months" and
-                then having to reopen the list to recall what that costs is the
-                exact failure a dropdown is accused of. */}
             {selected?.price ? (
               <Text variant="numMeta" color="secondary" numberOfLines={1}>
                 {selected.price}
               </Text>
             ) : null}
           </View>
-          {/* There is no chevron-down in the set. Rotating the right one is
-              cheaper than a 23rd glyph that means the same thing. */}
           <View style={open ? styles.chevronUp : styles.chevronDown}>
-            <Icon name="chevronRight" size={20} color={colors.textTertiary} />
+            <Icon name="chevronRight" size={20} color={open ? colors.brand : colors.textTertiary} />
           </View>
         </Pressable>
-      </View>
 
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        {/* Tapping anywhere off the panel closes it. A dropdown that needs a
-            second control to dismiss is a dropdown people leave open. */}
-        <Pressable style={styles.backdrop} onPress={() => setOpen(false)} accessibilityLabel="Close" />
-        <View
-          style={[
-            elevation.float,
-            styles.panel,
-            {
-              left: anchor.x,
-              width: anchor.width,
-              maxHeight: maxPanelHeight,
-              backgroundColor: colors.surface,
-              borderColor: colors.border,
-              borderRadius: radius.card,
-            },
-            dropUp
-              ? { bottom: windowHeight - anchor.y + space[1] }
-              : { top: anchor.y + anchor.height + space[1] },
-          ]}
-        >
-          <ScrollView
-            bounces={false}
-            contentContainerStyle={{ padding: space[1] }}
-            accessibilityRole="radiogroup"
+        {open ? (
+          <View
+            style={[
+              elevation.float,
+              styles.inlinePanel,
+              {
+                marginTop: 4,
+                backgroundColor: colors.surface,
+                borderColor: colors.borderSubtle,
+                borderWidth: 1,
+                borderRadius: radius.card,
+                maxHeight: 220,
+              },
+            ]}
           >
-            {options.map((option) => {
-              const active = option.id === selectedId;
-              return (
-                <Pressable
-                  key={option.id}
-                  onPress={() => {
-                    if (option.disabled) return;
-                    onSelect(option.id);
-                    setOpen(false);
-                  }}
-                  disabled={option.disabled}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: active, disabled: option.disabled }}
-                  accessibilityLabel={[option.label, option.price, option.meta]
-                    .filter(Boolean)
-                    .join(', ')}
-                  style={({ pressed }) => [
-                    styles.optionRow,
-                    {
-                      minHeight: touch.min,
-                      borderRadius: radius.button,
-                      paddingHorizontal: space[3],
-                      paddingVertical: space[2],
-                      gap: space[2],
-                      opacity: option.disabled ? 0.45 : 1,
-                      backgroundColor: active
-                        ? colors.surfaceSunken
-                        : pressed
-                          ? colors.surfaceSunken
-                          : 'transparent',
-                    },
-                  ]}
-                >
-                  <View style={styles.flex}>
-                    <Text variant="bodyStrong" numberOfLines={1}>
-                      {option.label}
-                    </Text>
-                    {/* The price is why this list is open — it is what the
-                        options are actually being compared on. */}
-                    {option.price || option.meta ? (
-                      <Text variant="numMeta" color="secondary" numberOfLines={1}>
-                        {[option.price, option.meta].filter(Boolean).join(' · ')}
+            <ScrollView
+              bounces={false}
+              nestedScrollEnabled
+              contentContainerStyle={{ padding: space[1] }}
+              accessibilityRole="radiogroup"
+            >
+              {options.map((option) => {
+                const active = option.id === selectedId;
+                return (
+                  <Pressable
+                    key={option.id}
+                    onPress={() => {
+                      if (option.disabled) return;
+                      onSelect(option.id);
+                      if (onToggle) {
+                        onToggle();
+                      } else {
+                        setInternalOpen(false);
+                      }
+                    }}
+                    disabled={option.disabled}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: active, disabled: option.disabled }}
+                    accessibilityLabel={[option.label, option.price, option.meta]
+                      .filter(Boolean)
+                      .join(', ')}
+                    style={({ pressed }) => [
+                      styles.optionRow,
+                      {
+                        minHeight: touch.min,
+                        borderRadius: radius.button,
+                        paddingHorizontal: space[3],
+                        paddingVertical: space[2],
+                        gap: space[2],
+                        opacity: option.disabled ? 0.45 : 1,
+                        backgroundColor: active
+                          ? colors.brandTint
+                          : pressed
+                            ? colors.surfaceSunken
+                            : 'transparent',
+                      },
+                    ]}
+                  >
+                    <View style={styles.flex}>
+                      <Text variant="bodyStrong" color={active ? 'brand' : 'primary'} numberOfLines={1}>
+                        {option.label}
                       </Text>
-                    ) : null}
-                  </View>
-                  {active ? <Icon name="check" size={16} color={colors.brandInk} /> : null}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-      </Modal>
+                      {option.price || option.meta ? (
+                        <Text variant="numMeta" color={active ? 'brand' : 'secondary'} numberOfLines={1}>
+                          {[option.price, option.meta].filter(Boolean).join(' · ')}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {active ? <Icon name="check" size={16} color={colors.brand} /> : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -663,6 +628,7 @@ export function StayIntentSelector({
   onChange,
 }: StayIntentSelectorProps) {
   const { colors, space, radius, touch } = useTheme();
+  const [openDropdown, setOpenDropdown] = useState<'stayType' | 'units' | 'sharing' | null>(null);
 
   /* Only tracks this listing actually quotes a rate for. A place with no daily
      rate does not get a "Short stay" option it cannot honour. */
@@ -773,13 +739,15 @@ export function StayIntentSelector({
 
       {/* Side by side: two halves of one question, and putting them on one
           line is what makes the dependency between them legible. */}
-      <View style={[styles.row, { gap: space[3] }]}>
+      <View style={[styles.row, { gap: space[3], alignItems: 'flex-start' }]}>
         <Dropdown
           label="Stay type"
           sheetTitle="How long are you staying?"
           placeholder="Select"
           options={typeOptions}
           selectedId={track}
+          isOpen={openDropdown === 'stayType'}
+          onToggle={() => setOpenDropdown(openDropdown === 'stayType' ? null : 'stayType')}
           onSelect={(id) => {
             // Units belong to a rate — 3 days is not 3 months. Switching track
             // clears the length rather than carrying a number that now means
@@ -797,6 +765,7 @@ export function StayIntentSelector({
               units: null,
               sharingId: stillOffered ? value.sharingId : null,
             });
+            setOpenDropdown(null);
           }}
         />
         <Dropdown
@@ -805,7 +774,12 @@ export function StayIntentSelector({
           placeholder={track ? 'Select' : 'Pick stay type'}
           options={lengthOptions}
           selectedId={value.units === null ? null : String(value.units)}
-          onSelect={(id) => onChange({ ...value, units: Number(id) })}
+          isOpen={openDropdown === 'units'}
+          onToggle={() => setOpenDropdown(openDropdown === 'units' ? null : 'units')}
+          onSelect={(id) => {
+            onChange({ ...value, units: Number(id) });
+            setOpenDropdown(null);
+          }}
           disabled={!track}
         />
       </View>
@@ -820,10 +794,15 @@ export function StayIntentSelector({
         <Dropdown
           label="Sharing"
           sheetTitle="Which sharing?"
-          placeholder={track ? 'Select' : 'Pick stay type'}
+          placeholder={track ? 'Select sharing type' : 'Pick stay type first'}
           options={sharingChoiceOptions}
           selectedId={value.sharingId}
-          onSelect={(id) => onChange({ ...value, sharingId: id })}
+          isOpen={openDropdown === 'sharing'}
+          onToggle={() => setOpenDropdown(openDropdown === 'sharing' ? null : 'sharing')}
+          onSelect={(id) => {
+            onChange({ ...value, sharingId: id });
+            setOpenDropdown(null);
+          }}
           disabled={!track}
         />
       ) : null}
@@ -858,14 +837,13 @@ export function StayIntentSelector({
       {mess ? (
         <View style={{ gap: space[2] }}>
           <Text variant="caption" color="secondary">
-            Mess facility
+            Meals
           </Text>
           <View
             style={[
               styles.messRow,
               {
-                minHeight: touch.min,
-                borderRadius: radius.button,
+                borderRadius: radius.card,
                 paddingHorizontal: space[3],
                 paddingVertical: space[2],
                 gap: space[3],
@@ -905,7 +883,7 @@ const styles = StyleSheet.create({
    * inside truncate to one line, which is safe because the price sits on its
    * own line under them.
    */
-  row: { flexDirection: 'row', alignItems: 'stretch' },
+  row: { flexDirection: 'row', alignItems: 'flex-start' },
   headingRow: { flexDirection: 'row', alignItems: 'center' },
   headingChip: { alignItems: 'center', justifyContent: 'center' },
   flex: { flex: 1 },
@@ -914,6 +892,7 @@ const styles = StyleSheet.create({
   chevronUp: { transform: [{ rotate: '-90deg' }] },
   backdrop: { ...StyleSheet.absoluteFillObject },
   panel: { position: 'absolute', borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+  inlinePanel: { overflow: 'hidden' },
   optionRow: { flexDirection: 'row', alignItems: 'center' },
   messRow: { flexDirection: 'row', alignItems: 'center' },
   /* The month name takes the middle and the two steppers hold their size, so

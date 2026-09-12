@@ -45,25 +45,30 @@ export function DirectionsButton({
   };
 
   return (
-    <View style={{ gap: space[2] }}>
+    <View style={{ gap: 10 }}>
       {address || landmark ? (
         <View
           style={{
-            backgroundColor: colors.surfaceSunken,
-            borderRadius: radius.chip,
-            padding: space[3],
-            gap: space[1],
+            backgroundColor: '#F8FAFC',
+            borderRadius: 14,
+            padding: 14,
+            gap: 4,
+            borderWidth: 1,
+            borderColor: '#E2E8F0',
           }}
         >
           {address ? (
-            <Text variant="body" selectable>
+            <Text variant="bodyStrong" selectable style={{ color: colors.textPrimary, fontSize: 14, lineHeight: 20 }}>
               {address}
             </Text>
           ) : null}
           {landmark ? (
-            <Text variant="caption" color="secondary">
-              {landmark}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 }}>
+              <Icon name="mapPin" size={12} color="#64748B" />
+              <Text variant="caption" color="secondary">
+                {landmark}
+              </Text>
+            </View>
           ) : null}
         </View>
       ) : null}
