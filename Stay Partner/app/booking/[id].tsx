@@ -19,7 +19,7 @@ import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 /* DEVELOPMENT ONLY — gates the check-in bypass below. False in any production
    build, so the block it guards is dead code there. */
-import { PREVIEW_CONTROLS } from '@/constants/env';
+import { DEV_BYPASS } from '@/constants/env';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -345,8 +345,8 @@ function PrimaryAction({ booking }: { booking: Booking }) {
    * The disabled button is the real answer and stays exactly as it was — an
    * owner must not be able to check somebody in a fortnight early.
    *
-   * Underneath it, on a build that allows preview controls, is a link to the
-   * real check-in screen, which has its own dev-only bypass now
+   * Underneath it, on a build that opted in with EXPO_PUBLIC_DEV_BYPASS, is
+   * a link to the real check-in screen, which has its own dev-only bypass now
    * (`devForceIn` in `checkin.tsx`) — this button used to claim the date
    * gate was client-side only and that reaching that screen was the whole
    * bypass, which stopped being true the moment `checkInBooking` grew a real
@@ -365,7 +365,7 @@ function PrimaryAction({ booking }: { booking: Booking }) {
         label={`Check-in available ${MONTHS[booking.checkIn.getMonth()]} ${booking.checkIn.getDate()}`}
         disabled
       />
-      {PREVIEW_CONTROLS ? (
+      {DEV_BYPASS ? (
         <>
           <Button
             label="🛠 DEV: open check-in (bypass on the next screen)"

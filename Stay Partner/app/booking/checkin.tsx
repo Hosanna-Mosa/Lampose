@@ -15,8 +15,10 @@ import { useBooking, useBookingActions } from '@/services/hooks/useBookings';
 import { ApiError } from '@/services/api/client';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
-/* DEVELOPMENT ONLY — gates the force-check-in bypass below. */
-import { PREVIEW_CONTROLS } from '@/constants/env';
+/* DEVELOPMENT ONLY — gates the force-check-in bypass below.
+   `DEV_BYPASS`, not `PREVIEW_CONTROLS`: this stamps a real move-in, and
+   preview controls are on in an internal APK pointed at production. */
+import { DEV_BYPASS } from '@/constants/env';
 
 /**
  * The entry PIN is SIX digits.
@@ -200,7 +202,7 @@ export default function CheckInScreen() {
               variant="secondary"
               onPress={() => router.push('/support')}
             />
-            {PREVIEW_CONTROLS ? (
+            {DEV_BYPASS ? (
               <Button
                 label={devForceCheckIn.isPending ? 'Marking in…' : '🛠 DEV: check in now'}
                 variant="secondary"
@@ -340,7 +342,7 @@ export default function CheckInScreen() {
             finishes the job — it does not read the typed code at all, so it
             works whether or not `complete` is true.
           */}
-          {PREVIEW_CONTROLS ? (
+          {DEV_BYPASS ? (
             <>
               <Button
                 label={devForceCheckIn.isPending ? 'Marking in…' : '🛠 DEV: check in now (ignores date & code)'}

@@ -112,6 +112,32 @@ export const IS_PRODUCTION_BUILD = APP_ENV === 'production';
 export const PREVIEW_CONTROLS = !IS_PRODUCTION_BUILD;
 
 /**
+ * Whether the ACTION bypasses render — the DEV-labelled buttons.
+ *
+ * A separate variable from `PREVIEW_CONTROLS`, and it has to be. Preview
+ * controls reach a state the product cannot reach yet and change nothing that
+ * outlives the screen: an outcome switcher on a mock screen, an escape from a
+ * blocking screen, the error stack. The bypasses are a different kind of
+ * thing — they settle the visit token with no payment and stamp both halves
+ * of a move-in, which is what makes a hotel settlement releasable. They write
+ * to real rows in the real database.
+ *
+ * They used to share `PREVIEW_CONTROLS`, so an internal APK built on the EAS
+ * `preview` profile drew them while pointed at the production API, and the
+ * only thing left between a student and "mark payment as done" was the
+ * server's `DEV_ALLOW_MARK_PAID` — which `env.js` refuses under
+ * `NODE_ENV=production`, on a host that was found running
+ * `NODE_ENV=development`. Two gates that fail together are one gate.
+ *
+ * So this one is OPT-IN, and it is the only value in this file that is:
+ * everything else here has a sensible default and this has none. Unset,
+ * misspelt, `1`, `yes`, `TRUE` — all of them mean off. Only the exact string
+ * `true` turns it on, and never in a production build whatever it says.
+ */
+export const DEV_BYPASS =
+  !IS_PRODUCTION_BUILD && process.env.EXPO_PUBLIC_DEV_BYPASS === 'true';
+
+/**
  * Whether the app narrates itself to the console.
  *
  * Off in production for two reasons. The request log prints URLs and a
@@ -160,6 +186,7 @@ export const ENV_SUMMARY = [
   `api=${API_URL ?? '(unset — will be guessed)'}`,
   `food=${FOOD_MODE}`,
   `preview=${PREVIEW_CONTROLS ? 'on' : 'off'}`,
+  `bypass=${DEV_BYPASS ? 'ON' : 'off'}`,
 ].join('  ');
 
 /** Names of the variables this app understands. For `.env.example` and docs. */
@@ -167,4 +194,5 @@ export const ENV_KEYS = [
   'EXPO_PUBLIC_API_URL',
   'EXPO_PUBLIC_APP_ENV',
   'EXPO_PUBLIC_FOOD_MODE',
+  'EXPO_PUBLIC_DEV_BYPASS',
 ] as const;

@@ -38,7 +38,7 @@ import { useRouter } from 'expo-router';
 import { Button, Card, Input, Screen, Text } from '@/components/ui';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { useAlert } from '@/components/ui/AppAlert';
-import { PREVIEW_CONTROLS } from '@/constants/env';
+import { DEV_BYPASS } from '@/constants/env';
 import { useColors } from '@/hooks/useColors';
 import {
   devActivatePayout, fetchPayoutOnboarding, refreshPayoutOnboarding,
@@ -127,8 +127,11 @@ export default function PayoutSetupScreen() {
    * Monitor's Withdraw — is unreachable. This marks the owner payable with an
    * obviously fake account id.
    *
-   * Drawn on a preview build AND only when the server says it allows it, so
-   * it is never a button that can only 404. Delete with `devActivatePayout`.
+   * Drawn on a build that OPTED IN with EXPO_PUBLIC_DEV_BYPASS=true AND only
+   * when the server says it allows it, so it is never a button that can only
+   * 404. Not `PREVIEW_CONTROLS` — that is on in the internal APKs, which
+   * point at the production API, and this writes a payout account.
+   * Delete with `devActivatePayout`.
    */
   const devSkip = async () => {
     const yes = await confirm({
@@ -254,9 +257,9 @@ export default function PayoutSetupScreen() {
           <Text variant="caption" color="errorInk" style={styles.error}>{error}</Text>
         )}
 
-        {/* DEVELOPMENT ONLY — see `devSkip`. Both gates: a preview build, and
-            a server that says it allows it. */}
-        {PREVIEW_CONTROLS && state?.devActivateAllowed && (
+        {/* DEVELOPMENT ONLY — see `devSkip`. Both gates: a build that opted
+            in, and a server that says it allows it. */}
+        {DEV_BYPASS && state?.devActivateAllowed && (
           <View style={styles.dev}>
             <Button
               label="🛠 DEV: skip and mark me payable"

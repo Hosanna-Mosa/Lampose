@@ -14,6 +14,7 @@ import { useSyncExternalStore } from 'react';
 
 import {
   debugLogs,
+  devBypass,
   foodMode,
   getAppEnv,
   previewControls,
@@ -38,6 +39,16 @@ export const usePreviewControls = (): boolean =>
 
 export const useDebugLogs = (): boolean =>
   useSyncExternalStore(subscribeAppEnv, debugLogs, debugLogs);
+
+/**
+ * Whether the DEV-labelled bypass buttons may render.
+ *
+ * Strictly narrower than `usePreviewControls`, and never interchangeable with
+ * it: a preview control changes what this screen shows, a bypass writes a row
+ * that says a student paid. See `DEV_BYPASS` in `constants/env.ts`.
+ */
+export const useDevBypass = (): boolean =>
+  useSyncExternalStore(subscribeAppEnv, devBypass, devBypass);
 
 export const useFoodMode = (): FoodMode =>
   useSyncExternalStore(subscribeAppEnv, foodMode, foodMode);
