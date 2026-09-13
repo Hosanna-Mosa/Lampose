@@ -81,9 +81,33 @@ router.get('/review/:token', async (req, res) => {
     ].filter(Boolean);
 
     const addressLine = [p.address, p.place].filter(Boolean).join(', ');
-    const mapsUrl = addressLine
-      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressLine)}`
-      : '';
+
+    /*
+     * The link under the address, best answer first — the same order
+     * `sendTeamVerificationMessage` uses, because this page and that message
+     * send the same person to the same doorway:
+     *
+     *   1. the pin the agent took at the property
+     *   2. the link they pasted (a share link names the building)
+     *   3. a search for the typed address
+     *
+     * `coordinates` is `[longitude, latitude]`; Google's query wants
+     * `lat,lng`, so the flip is here, at the point of use.
+     */
+    const pin = p.location && Array.isArray(p.location.coordinates) && p.location.coordinates.length === 2
+      ? p.location.coordinates
+      : null;
+    const pastedLink = /^https?:\/\//i.test(String(p.mapLink || '')) ? String(p.mapLink) : '';
+    const mapsUrl = pin
+      ? `https://www.google.com/maps/search/?api=1&query=${pin[1]},${pin[0]}`
+      : (pastedLink
+        || (addressLine
+          ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressLine)}`
+          : ''));
+    /* Named for what it is, because the difference matters to somebody about
+       to drive there: a pin is where the agent stood, a search is a guess at
+       what they typed. */
+    const mapsLabel = pin ? 'open the pin in Google Maps' : pastedLink ? 'open the location link' : 'open in Google Maps';
 
     const images = Array.isArray(p.images) ? p.images.filter((u) => /^https?:\/\//i.test(String(u))) : [];
 
@@ -121,7 +145,7 @@ router.get('/review/:token', async (req, res) => {
 </style></head><body><div class="wrap">
   <span class="status">${esc(statusLabel)}</span>
   <h1>${esc(p.name || 'Property')}</h1>
-  <p class="addr">📍 ${esc(addressLine || 'No address recorded')}${mapsUrl ? ` — <a href="${esc(mapsUrl)}" rel="noopener">open in Google Maps</a>` : ''}</p>
+  <p class="addr">📍 ${esc(addressLine || 'No address recorded')}${mapsUrl ? ` — <a href="${esc(mapsUrl)}" rel="noopener">${mapsLabel}</a>` : ''}</p>
   <div class="card"><h2>Photos (${images.length})</h2>
     ${images.length ? `<div class="grid">${images.map((u) => `<img src="${esc(u)}" alt="Property photo" loading="lazy">`).join('')}</div>` : '<p style="color:#5F6670">No photos were uploaded with this submission.</p>'}
   </div>

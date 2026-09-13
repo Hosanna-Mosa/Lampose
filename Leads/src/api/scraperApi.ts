@@ -17,7 +17,9 @@ export interface AssignedToUser {
 export interface ScrapedLead {
   _id: string;
   jobId: string;
-  source: 'GoogleMaps' | 'JustDial' | 'Web';
+  /** 'Manual' is a person typing, from the onboarding site's Add Lead form.
+   *  Not on StartScrapeParams below — you cannot scrape Manual. */
+  source: 'GoogleMaps' | 'JustDial' | 'Web' | 'Manual';
   businessName: string;
   phone?: string;
   email?: string;
@@ -28,6 +30,9 @@ export interface ScrapedLead {
   reviewsCount?: number;
   category?: string;
   city?: string;
+  /** Who typed this lead in, on a manual one. Null on anything a job found —
+   *  and distinct from assignedTo, which is the agent who will call them. */
+  addedBy?: { userId: string | null; name: string | null; email: string | null } | null;
   landmark?: string;
   latitude?: number;
   longitude?: number;

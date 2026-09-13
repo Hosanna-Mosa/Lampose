@@ -1,7 +1,7 @@
 import React from 'react';
 import { ScrapedLead } from '../../../../api/scraperApi';
 import { MapLocationButton } from '../../../common/molecules/MapLocationButton';
-import { X, Building2, Phone, Mail, Globe, MapPin, Star, Tag, Calendar, ShieldCheck } from 'lucide-react';
+import { X, Building2, Phone, Mail, Globe, MapPin, Star, Tag, Calendar, ShieldCheck, UserPlus } from 'lucide-react';
 import { Box, Heading, Inline, Link, PlainButton, Text } from '../../../common/atoms';
 
 interface LeadDetailModalProps {
@@ -97,8 +97,24 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({ lead, onClose 
           </Box>
         </Box>
 
+        {/* Only on a lead somebody typed. A scraped row has nobody to name, and
+            an "Added by —" tile on every one of them would read as missing
+            data rather than as the honest answer. */}
+        {lead.addedBy?.name && (
+          <Box className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-1">
+            <Box className="flex items-center gap-2 text-xs font-semibold text-emerald-700">
+              <UserPlus className="w-3.5 h-3.5" />
+              <Inline>Added By</Inline>
+            </Box>
+            <Text className="text-sm text-slate-900 font-medium">
+              {lead.addedBy.name}
+              {lead.addedBy.email ? ` · ${lead.addedBy.email}` : ''}
+            </Text>
+          </Box>
+        )}
+
         <Box className="flex items-center justify-between pt-2 text-xs text-slate-400">
-          <Inline>Scraped Date: {lead.scrapedAt ? new Date(lead.scrapedAt).toLocaleString() : 'Recent'}</Inline>
+          <Inline>{lead.addedBy?.name ? 'Added' : 'Scraped'} Date: {lead.scrapedAt ? new Date(lead.scrapedAt).toLocaleString() : 'Recent'}</Inline>
           <Inline>Job ID: {lead.jobId}</Inline>
         </Box>
       </Box>

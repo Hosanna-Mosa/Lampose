@@ -276,12 +276,34 @@ async function sendTeamVerificationMessage(verifierMobile, ownerName, ownerMobil
   const token = (extras && extras.token) || '';
   const requestId = (extras && extras.requestId) || '';
 
-  /* No coordinates are captured at onboarding, so the map link is a search
-     for the typed address — as accurate as the agent's typing, no more. */
+  /*
+   * Where the verifier is being sent, best answer first.
+   *
+   * This is the link a person taps before driving somewhere, so the order is
+   * by how much it can be wrong by:
+   *
+   *   1. the PIN the agent took standing at the property — a fix, not a guess
+   *   2. the LINK they pasted — the owner's own share link, which names the
+   *      building even when it carries no readable coordinates
+   *   3. a search for the typed address, which is as accurate as the typing
+   *
+   * `coordinates` is stored `[longitude, latitude]` and Google's query wants
+   * `lat,lng`. The flip happens here, on the last line before it is read by a
+   * human — getting it backwards does not throw, it sends the verifier to the
+   * Arctic Ocean and the property looks unreachable.
+   */
   const addressLine = addressOneLine(property, 110);
-  const mapsUrl = addressLine
-    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressLine)}`
-    : 'Not available';
+  const pin = property && property.location && Array.isArray(property.location.coordinates)
+    && property.location.coordinates.length === 2
+    ? property.location.coordinates
+    : null;
+  const pastedLink = oneLine((property && property.mapLink) || '', 300);
+  const mapsUrl = pin
+    ? `https://www.google.com/maps/search/?api=1&query=${pin[1]},${pin[0]}`
+    : (pastedLink
+      || (addressLine
+        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressLine)}`
+        : 'Not available'));
 
   /* The token-gated review page served by this process (photos + numbers).
      PUBLIC_BASE_URL makes it absolute in production; localhost otherwise. */
@@ -475,9 +497,11 @@ async function sendVisitOutcomeMessage({
  * already carries the reference. Sending a second, near-identical message
  * was live-tested and read as duplicate spam.
  *
- * The maps link is built from the address rather than stored coordinates —
- * onboarding never captures a pin, so this is a search for the typed address
- * and is only as accurate as what the agent entered.
+ * The maps link is built from the typed address, so it is only as accurate as
+ * what the agent entered. Onboarding can now capture a pin, but this function
+ * is handed an address STRING by its callers rather than the property — the
+ * better link would mean threading the property through the visit flow, which
+ * has not been done. `sendTeamVerificationMessage` above does use the pin.
  */
 async function sendVisitConfirmationToCustomer({
   customerPhone, customerName, propertyName, address, sharingLabel, joiningDate, pin,
