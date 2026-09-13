@@ -11,7 +11,7 @@ import { OwnerStatusTrail, WaitLoader, type TrailStep } from '@/components/reque
 import { errorStates } from '@/constants/copy';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { ongoingQueryKey } from '@/hooks/useOngoing';
-import { usePreviewControls } from '@/hooks/useAppEnv';
+import { useDevBypass } from '@/hooks/useAppEnv';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useListing, useStayCoupons, useStayRequest } from '@/services';
@@ -72,10 +72,12 @@ function stamp(value: string | null | undefined): string | undefined {
 export default function OwnerConfirmation() {
   const { mode, colors, space, layout, radius } = useTheme();
   const { confirm } = useAlert();
-  /* Whether this build may draw developer controls at all — see the note on
-     the dev button below. False on a production build, and it re-renders when
-     the mode is switched. */
-  const previewControls = usePreviewControls();
+  /* Whether this build may draw the payment BYPASS — see the note on the dev
+     button below. Not `usePreviewControls`: that is on in every non-production
+     build, including the internal APKs that point at the production API, and
+     this button settles a real request for a real student. Opt-in only, via
+     EXPO_PUBLIC_DEV_BYPASS=true. Re-renders when the mode is switched. */
+  const devBypassAllowed = useDevBypass();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -1112,12 +1114,18 @@ export default function OwnerConfirmation() {
 
               Two gates, and they do different jobs.
 
-              The BUILD gate (`previewControls`) decides whether the button is
+              The BUILD gate (`useDevBypass`) decides whether the button is
               drawn. It used to be the server's `devMarkPaidAllowed` alone,
               which meant that on a server without `DEV_ALLOW_MARK_PAID` the
               button was simply absent — with nothing on screen to say why, or
               that it existed at all. A developer looking for it concluded it
               had been removed.
+
+              It then shared `previewControls` with the rest of the preview
+              controls, which was too wide: that is on in an internal preview
+              APK, and an internal APK points at the production API like any
+              other. So the gate is its own opt-in variable now, off unless
+              EXPO_PUBLIC_DEV_BYPASS is the exact string `true`.
 
               The SERVER gate is still the one that decides whether it WORKS,
               and it has to be: a client that could settle a payment by asking
@@ -1125,12 +1133,12 @@ export default function OwnerConfirmation() {
               prevent. `env.js` refuses the flag outright under
               NODE_ENV=production.
 
-              So on a dev build with the flag off, the button is visible and
-              says what to switch on — which is the useful state, and the one
-              that used to be invisible. On a production build neither gate is
-              open and none of this renders.
+              So on an opted-in build with the server flag off, the button is
+              visible and says what to switch on — which is the useful state,
+              and the one that used to be invisible. On any build that did not
+              opt in, and on every production build, none of this renders.
             */}
-            {tokenDue && previewControls ? (
+            {tokenDue && devBypassAllowed ? (
               <>
                 {/*
                   NOT disabled by `paying`, unlike the real pay button above.

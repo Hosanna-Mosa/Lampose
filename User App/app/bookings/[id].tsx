@@ -21,7 +21,7 @@ import {
 } from '@/services';
 
 /* DEVELOPMENT ONLY — remove with the dev check-in button below. */
-import { usePreviewControls } from '@/hooks/useAppEnv';
+import { useDevBypass } from '@/hooks/useAppEnv';
 import { formatRupees } from '@/utils/money';
 import { useDepositMark } from '@/components/ui/DepositMark';
 
@@ -231,15 +231,19 @@ export default function BookingDetail() {
    * settlement becoming releasable, which is what the admin Monitor's Withdraw
    * button waits on — impossible to reach before the day arrives.
    *
-   * Drawn on a build that allows preview controls, and it still 404s unless
-   * the SERVER has `DEV_ALLOW_FORCE_CHECKIN` on — so the button says what to
-   * switch on rather than vanishing, the same shape as the payment bypass on
-   * the confirmation screen.
+   * Drawn only on a build that OPTED IN with `EXPO_PUBLIC_DEV_BYPASS=true`,
+   * and it still 404s unless the SERVER has `DEV_ALLOW_FORCE_CHECKIN` on — so
+   * the button says what to switch on rather than vanishing, the same shape as
+   * the payment bypass on the confirmation screen.
+   *
+   * Not `usePreviewControls`: that is on in an internal preview APK, which
+   * points at the production API like any other build, and this stamps a real
+   * move-in — the thing a hotel settlement becoming releasable waits on.
    *
    * Delete this, `devForceCheckIn` and the route it calls once the flow no
    * longer needs walking through by hand.
    */
-  const previewControls = usePreviewControls();
+  const devBypassAllowed = useDevBypass();
   const [forcing, setForcing] = useState(false);
   /* Its own, since the move-in card no longer has an error line to borrow:
      nothing on the student's side of a move-in can fail any more. */
@@ -466,7 +470,7 @@ export default function BookingDetail() {
               </Text>
             </View>
 
-            {previewControls ? (
+            {devBypassAllowed ? (
               <>
                 <Button
                   label={forcing ? 'Checking in…' : '🛠 DEV: force check-in (both sides)'}
