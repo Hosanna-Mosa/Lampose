@@ -151,8 +151,11 @@ import { QueueRow } from '../components/food-orders/molecules/QueueRow';
 import { RefundPanel } from '../components/food-orders/organisms/RefundPanel';
 import { MoneyRow } from '../components/food-orders/molecules/MoneyRow';
 import { PhoneLink } from '../components/food-orders/atoms/PhoneLink';
-import { STATUS_META, PAYMENT_META, PAYMENT_MODE_LABEL, money, dash, when, elapsed } from '../components/food-orders/utils';
-import type { RefundNotice } from '../components/food-orders/utils';
+import {
+  STATUS_META, PAYMENT_META, PAYMENT_MODE_LABEL, money, dash, when, elapsed,
+  NEW_ATTEMPT, canRecordByHand,
+} from '../components/food-orders/utils';
+import type { RefundAttempt } from '../components/food-orders/utils';
 import { Box } from '../components/common/atoms/Box';
 import { Inline } from '../components/common/atoms/Inline';
 import { List } from '../components/common/atoms/List';
@@ -257,65 +260,6 @@ const statusParam = (filter: StatusFilter): FoodOrderQuery['status'] => {
   return filter;
 };
 
-
-/**
- * What is known about the money once nothing is in the air.
- *
- * `unknown` is the one that is easy to get wrong: nothing came back, so the
- * refund may have happened and may not have. It is not a failure and must
- * never be offered a plain retry. See the header.
- */
-type RefundOutcome = 'open' | 'spent' | 'unknown';
-
-interface RefundAttempt {
-  /**
-   * A request for this order is in the air right now. Separate from `outcome`
-   * because a manual record can be written FROM an unknown outcome, and losing
-   * which state that write started from would put the refund button back on
-   * the screen while it was still running.
-   */
-  sending: boolean;
-  /** 'open' only ever appears with `sending` — nothing has come back yet. */
-  outcome: RefundOutcome;
-  /** Shown as a banner above whatever controls are left. */
-  notice: RefundNotice | null;
-  /**
-   * The money may be gone with nothing written against the order — the one
-   * situation in which recording it by hand IS the next action, so the panel
-   * keeps that control instead of hiding it behind the warning that names it.
-   * True for the `recorded: false` answer and for an unknown outcome.
-   */
-  recordByHand: boolean;
-  /** The reference the server named, so nobody retypes it out of a warning. */
-  reference: string;
-  /** Set once somebody has reloaded the order after an unknown outcome. */
-  rechecked: boolean;
-}
-
-/** The blank record every state below is spread from. */
-const NEW_ATTEMPT: RefundAttempt = {
-  sending: false,
-  outcome: 'open',
-  notice: null,
-  recordByHand: false,
-  reference: '',
-  rechecked: false,
-};
-
-/**
- * May a refund still be written down by hand against this order?
- *
- * Yes when nothing has been attempted, and yes for the two outcomes this is
- * the answer to — the money moved without being recorded, and nobody knows
- * whether it moved. No once the question has been closed some other way.
- */
-const canRecordByHand = (attempt?: RefundAttempt): boolean =>
-  !attempt || attempt.outcome === 'unknown' || attempt.recordByHand;
-
-/** Nothing more will be sent for this order from this page: the answer, or the
- *  absence of one, has already arrived. */
-const isClosed = (attempt?: RefundAttempt): boolean =>
-  !!attempt && attempt.outcome !== 'open';
 
 export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
   search,
