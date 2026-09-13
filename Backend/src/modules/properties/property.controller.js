@@ -26,6 +26,7 @@ const Property = require('./property.model');
 const { syncShareTypes } = require('../inventory/inventory.service');
 const { CATEGORIES, normaliseCategory } = require('../../shared/constants/categories');
 const { escapeRegex } = require('../../shared/utils/text');
+const { readMapLink, readPin } = require('./property.util');
 
 const number = (value, fallback = null) => {
   if (value === undefined || value === null || value === '') return fallback;
@@ -136,6 +137,7 @@ const createProperty = async (req, res, next) => {
 
     const images = stringList(body.images);
     const imageUrl = String(body.imageUrl || '').trim();
+    const pin = readPin(body.location);
 
     const property = await Property.create({
       name: String(body.name).trim(),
@@ -152,6 +154,11 @@ const createProperty = async (req, res, next) => {
       ownerMobile: String(body.ownerMobile).trim(),
       ownerAltMobile: String(body.ownerAltMobile || '').trim(),
       address: String(body.address || '').trim(),
+      /* Same two optional location fields the onboarding route accepts, so a
+         property written here is not a shape the other writer cannot produce.
+         The pin is spread in below rather than set to undefined — see the
+         note on `location` in property.model.js. */
+      mapLink: readMapLink(body.mapLink),
       description: String(body.description || '').trim(),
       employeeEmail: String(body.employeeEmail || (req.user && req.user.email) || '').trim(),
       amenities: stringList(body.amenities),
@@ -170,6 +177,7 @@ const createProperty = async (req, res, next) => {
          behaviour the leads panel has always had. */
       isVerified: false,
       verificationStatus: 'pending',
+      ...(pin ? { location: pin } : {}),
     });
 
     /* Bed counts become claimable rows. Awaited but never fatal — a property

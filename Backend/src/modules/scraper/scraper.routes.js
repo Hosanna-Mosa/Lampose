@@ -44,6 +44,10 @@ router.post('/stop/:jobId', protect, scraperController.stopScrape);
  * the scoping in the controller ship together — neither works alone.
  */
 router.get('/leads', protect, scraperController.getLeads);
+/* Adding one by hand, from the onboarding site's Add Lead form. Any signed-in
+   account may add — sales finding a business is the point — but it lands
+   unassigned, so this cannot be used to route work to anybody. */
+router.post('/leads', protect, scraperController.createLead);
 /* Handing work out is the admin's job — it is the one action in this module
    that changes what another person sees. */
 router.post('/assign', protect, protectRole('ADMIN'), scraperController.assignLeads);

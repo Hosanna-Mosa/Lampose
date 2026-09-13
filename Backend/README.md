@@ -6,7 +6,7 @@ One Node process serving every Lampose client, on one MongoDB database.
 | --- | --- | --- |
 | `lampose-frontend` (public site) | lampose.com | `/api/v2/{listings,visit-requests}`, `/api/health` |
 | `leads-frontend` (leads panel) | leads.lampose.com | `/api/v2/{auth,users,scraper}` |
-| `onboards-frontend` (onboarding) | onboard.lampose.com | `/api/v1/{properties,permissions}` + `/api/v2/auth` |
+| `onboards-frontend` (onboarding) | onboard.lampose.com | `/api/v1/{properties,permissions}` + `/api/v2/{auth,scraper/leads}` |
 | admin console | — | `/api/v1/admin` |
 | User App / Stay App | mobile | planned — their APIs will be added to this same process |
 
@@ -108,6 +108,79 @@ the property immediately, behind a bearer token. No Twilio, no approval chain.
 
 Both behaviours are wanted. Neither is a bug. They just cannot share a path.
 
+### Where a property is: one box on the form, three fields in the row
+
+A listing has always carried a `place` (an area) and an `address` (words).
+Neither opens a map, and an address typed at a doorway is only as good as the
+typing.
+
+The onboarding form still asks for the address in **one** field — a second box
+asking for the same place in a different notation is a box most agents leave
+blank — but that field now accepts a pasted map link as well as words, and
+carries a crosshair that takes one browser fix. `Onboard/src/services/mapLink.js`
+splits what was typed on the way out, so a row can carry, all optional:
+
+- **`address`** — the words alone, with any pasted link lifted out of them.
+- **`mapLink`** — the link the agent's phone produced, stored exactly as
+  pasted. A short `maps.app.goo.gl` link keeps its coordinates behind a
+  redirect the browser may not follow, so it carries no readable pin — and it
+  is still worth storing, because it opens on the right building for whoever
+  taps it.
+- **`location`** — a GeoJSON point, `[longitude, latitude]` like every other
+  point here, taken by the browser's own geolocation (the platform's, with no
+  key and no billing — the same thing the mobile apps reach through
+  `expo-location`). **Absent**, never null, when nobody took a fix: a
+  half-written point would break the sparse 2dsphere index the model declares.
+
+Any combination of the three is a real answer — words with no link, a link
+with no words, a pin with neither. That is why they are separate fields in the
+row even though they are one box on the screen: a URL left sitting in
+`address` is printed to a student where the door number belongs, and words are
+no use to somebody trying to open a map. Both write paths accept them and both
+normalise through
+`src/modules/properties/property.util.js`, which does the `{lat, lng}` → `[lng,
+lat]` flip once, on the way in. `PUT /api/v1/properties/:id` hands its body to
+`findByIdAndUpdate` whole, so it normalises the pin before that rather than
+failing a whole edit on a field nobody was editing.
+
+The verifier is the first reader: both the WhatsApp template and the
+token-gated review page link to the pin when there is one, then the pasted
+link, then a search for the typed address — best answer first, because that
+link is what somebody taps before driving there.
+
+### Adding a lead by hand
+
+`POST /api/v2/scraper/leads`, behind the leads panel's own sign-in (`protect`),
+is how the onboarding site's **Add Lead** form files a business somebody met.
+A manual create already existed at `POST /api/v1/admin/scriper-leads`, but
+behind Super Admin — the console's identity, which the onboarding site does not
+hold. This is the same operation behind the guard its caller actually has.
+
+Three things about it are deliberate:
+
+- **`source: 'Manual'`**, a value on the `scriper_leads` enum rather than a
+  lead filed under `Web`. The difference matters to whoever works the row: a
+  scraped listing has never heard of us, a manual one was usually met. Kept in
+  step with the leads panel's source filter — a value the server accepts and
+  the panel omits is a lead nobody can filter to. It is **not** on
+  `scrapeJobSchema.source`: you cannot scrape Manual.
+- **Created UNASSIGNED**, with `addedBy` recording who typed it. Sales adds the
+  lead, an admin then hands it to a calling agent, so those are two different
+  people and the row has to say so. It also means the agent who added it cannot
+  see it in their own queue until it is assigned — an EMPLOYEE is scoped to
+  their assignments — which is why the form says so before they fill it in.
+  `addedBy` is separate from `lastActivityBy`, which the first rep to touch the
+  row overwrites.
+- **A duplicate is a 409, not a silent skip.** `dedupeKey` exists so a rep does
+  not call a business a colleague already called, and a person typing hits that
+  more easily than a re-scrape does. Somebody is standing there waiting to hear
+  what happened to what they typed, so the answer names the business.
+
+A lead's pin is `latitude`/`longitude` as two plain numbers plus a `mapsUrl`
+string — **not** the GeoJSON `[longitude, latitude]` that `properties.location`
+uses. Both are correct for their own collection and readers; converting one to
+the other is the conversion to get right, and getting it wrong does not throw.
+
 ## Route map
 
 ```
@@ -128,7 +201,8 @@ Both behaviours are wanted. Neither is a bug. They just cannot share a path.
 /api/v2/properties          direct property CRUD for the leads panel
 /api/v2/auth                leads panel + onboarding employee login
 /api/v2/users               leads panel team management
-/api/v2/scraper             Google Maps lead scraping, leads, CSV export
+/api/v2/scraper             Google Maps lead scraping, leads, CSV export,
+                            POST /leads — adding one by hand
 /api/v2/customers           mobile app accounts: phone + one-time code, profile
 /api/v2/support             the DINER's support tickets and safety reports
 /api/v2/partners            Stay Partner app: owner accounts, properties, visit requests

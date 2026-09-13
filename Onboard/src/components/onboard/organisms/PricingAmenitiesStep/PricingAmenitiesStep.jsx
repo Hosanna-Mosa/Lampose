@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { IndianRupee, Clock, Calendar, Check, Sparkles, Upload, CloudUpload, AlertCircle, X, CheckCircle2, Plus, Star } from 'lucide-react';
+import { IndianRupee, Clock, Calendar, Check, Sparkles, Upload, CloudUpload, AlertCircle, X, CheckCircle2, Plus, Star, Crosshair, LocateFixed, ExternalLink } from 'lucide-react';
 import { FieldError, errorBorder } from '../../atoms/FieldError/FieldError';
 import { PRESET_IMAGES, ALL_AMENITIES, DEFAULT_FALLBACK_SPLASH } from '../../utils/pricingOptions';
-import { Box, Heading, Image, Inline, Input, Label, Option, PlainButton, Select, Strong, Text } from '../../../common/atoms';
+import { formatPin, geoErrorMessage, isShortMapLink, readPin, splitAddress } from '../../../../services/mapLink';
+import { Box, Heading, Image, Inline, Input, Label, Link, Option, PlainButton, Select, Strong, Text } from '../../../common/atoms';
 
 
 
@@ -39,6 +40,105 @@ export function PricingAmenitiesStep({ formData, onChange, errors = {} }) {
 
   const setStayType = (type) => {
     onChange({ target: { name: 'stayType', value: type } });
+  };
+
+  /* ── Where the property is ────────────────────────────────────────────
+     One box, holding words or a pasted link or both, plus a crosshair. The
+     split into what gets stored is `splitAddress`; see services/mapLink.js. */
+
+  /* Whether the browser is mid-fix, and what to say about the last attempt.
+     Local because neither is part of the property — a denied permission is
+     something to fix in the browser, not something to store on a listing. */
+  const [locating, setLocating] = useState(false);
+  const [locationNote, setLocationNote] = useState(null);
+
+  /* Read on every render rather than kept in state, so what is shown under
+     the box and what App.jsx sends at submit come from the same function and
+     cannot drift apart. */
+  const split = splitAddress(formData.address);
+
+  /*
+   * The pin the crosshair took wins over one read out of a pasted link: it is
+   * a fix taken at the doorway rather than wherever the link's author was
+   * pointing. `formData.location` is only ever written by the crosshair.
+   */
+  const pin = readPin(formData.location) || split.pin;
+
+  const setField = (name, value) => onChange({ target: { name, value } });
+
+  /*
+   * The address is stored exactly as typed. The link is not lifted out of the
+   * box while somebody is still editing it — a field that rearranges itself
+   * mid-sentence is unusable — only at submit, and the line underneath shows
+   * what that will come to.
+   */
+  const handleAddressChange = (e) => {
+    setLocationNote(null);
+    onChange(e);
+  };
+
+  /**
+   * One foreground fix from the browser, kept as the pin.
+   *
+   * `navigator.geolocation` is the PLATFORM's — the same thing the mobile apps
+   * reach through expo-location, with no key, no billing and no request we pay
+   * for, which is what lets this ship with no credential in source.
+   *
+   * It does not touch the address box. A browser has no reverse geocoder, so
+   * there are no words to write there, and appending coordinates to a line
+   * somebody is halfway through typing would only be in the way.
+   */
+  const useMyLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationNote({ tone: 'warn', text: 'This browser cannot read a location. Paste the map link into the address instead.' });
+      return;
+    }
+    /* Chrome and Safari refuse geolocation outside https (localhost aside) and
+       report it as a plain permission denial, which sends an agent into the
+       browser settings looking for a switch that was never the problem. */
+    if (window.isSecureContext === false) {
+      setLocationNote({ tone: 'warn', text: 'Location needs a secure (https) connection. Paste the map link into the address instead.' });
+      return;
+    }
+
+    setLocating(true);
+    setLocationNote(null);
+
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setLocating(false);
+        const found = readPin({ lat: coords.latitude, lng: coords.longitude });
+        if (!found) {
+          setLocationNote({ tone: 'warn', text: 'The device returned a location outside the map. Paste the map link instead.' });
+          return;
+        }
+
+        setField('location', found);
+
+        const metres = Math.round(coords.accuracy || 0);
+        setLocationNote({
+          tone: 'ok',
+          text: metres ? `Pin dropped, accurate to about ${metres}m.` : 'Pin dropped.',
+        });
+      },
+      (error) => {
+        setLocating(false);
+        setLocationNote({ tone: 'warn', text: geoErrorMessage(error) });
+      },
+      /* High accuracy because the whole point is which building this is, not
+         which neighbourhood. 20s because a cold fix indoors is slow and the
+         default (no timeout) leaves the button spinning forever. */
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+    );
+  };
+
+  /* Drops the pin AND the pasted link — the link has to go too, or it would
+     silently put the pin straight back on the next render. What the agent
+     typed as words is left alone. */
+  const clearLocation = () => {
+    setLocationNote(null);
+    setField('location', null);
+    if (split.mapLink) setField('address', split.address);
   };
 
   const isBachelor = formData.category === 'BACHELOR' || formData.category === 'COLIVE';
@@ -456,22 +556,125 @@ export function PricingAmenitiesStep({ formData, onChange, errors = {} }) {
           <FieldError message={errors.deposit} />
         </Box>
 
-        {/* Address */}
+        {/*
+          Address — ONE box, which may hold words, a pasted map link, or both.
+
+          A second field asking for the same place in a different notation is a
+          field most agents leave blank. What the box cannot be is ambiguous
+          once it is stored, because the two halves are read by different
+          people: the words are printed to a student as the street address, the
+          link is what a verifier taps before driving there. So the split
+          happens on the way out (`splitAddress`) and is shown live underneath,
+          rather than being guessed at by whoever reads the row later.
+        */}
         <Box className="form-group" style={{ gridColumn: '1 / -1' }}>
           <Label className="form-label" htmlFor="addressInput" style={{ color: '#181e1b' }}>
             Complete Street Address
           </Label>
-          <Input
-            id="addressInput"
-            type="text"
-            name="address"
-            placeholder="e.g. House No. 42, 1st Cross Road, Opp. Central Park"
-            value={formData.address || ''}
-            onChange={onChange}
-            className="form-input"
-            style={{ borderColor: errorBorder(errors.address) }}
-          />
+
+          <Box style={{ display: 'flex', gap: '8px', alignItems: 'stretch', flexWrap: 'wrap' }}>
+            <Input
+              id="addressInput"
+              type="text"
+              name="address"
+              placeholder="e.g. House No. 42, 1st Cross Road — or paste a Google Maps link"
+              value={formData.address || ''}
+              onChange={handleAddressChange}
+              className="form-input"
+              style={{ flex: '1 1 260px', minWidth: 0, borderColor: errorBorder(errors.address) }}
+            />
+
+            {/* The crosshair. Matched to the input's own height so the two read
+                as one control rather than a button parked beside a box. */}
+            <PlainButton
+              type="button"
+              onClick={useMyLocation}
+              disabled={locating}
+              title="Use my current location"
+              aria-label="Use my current location"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '8px',
+                padding: '12px 16px', borderRadius: '10px',
+                border: `1px solid ${pin ? '#c2e2cc' : '#e2e8f0'}`,
+                background: pin ? '#eaf3ed' : '#ffffff',
+                color: locating ? '#94a3b8' : '#2e5e3e',
+                fontSize: '0.85rem', fontWeight: 600, fontFamily: 'inherit',
+                cursor: locating ? 'progress' : 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'background 0.2s ease, border-color 0.2s ease',
+              }}
+            >
+              {pin && !locating ? <LocateFixed size={17} /> : <Crosshair size={17} />}
+              <Inline>{locating ? 'Locating...' : 'Use my location'}</Inline>
+            </PlainButton>
+          </Box>
+
           <FieldError message={errors.address} />
+
+          {/* What the box will actually be stored as. Shown because the split
+              is otherwise invisible: an agent who pastes a link and sees it
+              vanish from the street address on the listing would reasonably
+              think the form ate it. */}
+          {(pin || split.mapLink) && (
+            <Box style={{
+              display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
+              marginTop: '8px', padding: '8px 12px', borderRadius: '10px',
+              background: '#eaf3ed', border: '1px solid #c2e2cc',
+            }}>
+              {pin && (
+                <Inline style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#2e5e3e', fontWeight: 600 }}>
+                  <LocateFixed size={14} /> Pin: {formatPin(pin)}
+                </Inline>
+              )}
+              {split.mapLink && (
+                <Link
+                  href={split.mapLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.8rem', color: '#45855a', fontWeight: 600, textDecoration: 'none' }}
+                >
+                  <ExternalLink size={13} /> Check the link opens on the property
+                </Link>
+              )}
+              <PlainButton
+                type="button"
+                onClick={clearLocation}
+                style={{
+                  marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '4px',
+                  border: 'none', background: 'transparent', padding: 0,
+                  color: '#64748b', fontSize: '0.75rem', fontWeight: 600,
+                  fontFamily: 'inherit', cursor: 'pointer',
+                }}
+              >
+                <X size={13} /> Clear
+              </PlainButton>
+            </Box>
+          )}
+
+          {locationNote && (
+            <Text style={{
+              marginTop: '6px', fontSize: '0.78rem', lineHeight: 1.45,
+              color: locationNote.tone === 'ok' ? '#45855a' : '#b45309',
+            }}>
+              {locationNote.text}
+            </Text>
+          )}
+
+          {/* A short link is a good answer that simply has no readable pin in
+              it — said out loud so it does not look like the paste failed. */}
+          {!pin && split.mapLink && isShortMapLink(split.mapLink) && (
+            <Text style={{ marginTop: '6px', fontSize: '0.78rem', color: '#64748b', lineHeight: 1.45 }}>
+              Short links keep their coordinates hidden, so this one is stored as a link only. Tap the
+              crosshair while you are at the property to add the pin too.
+            </Text>
+          )}
+
+          {!pin && !split.mapLink && !locationNote && (
+            <Text style={{ marginTop: '6px', fontSize: '0.78rem', color: '#64748b', lineHeight: 1.45 }}>
+              You can paste a Google Maps link in here as well, or tap the crosshair while you are
+              standing at the property.
+            </Text>
+          )}
         </Box>
 
         {/* ==================================================== */}

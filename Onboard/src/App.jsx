@@ -6,6 +6,7 @@ import { BasicDetailsStep } from './components/onboard/organisms/BasicDetailsSte
 import { CategoryFieldsStep } from './components/onboard/organisms/CategoryFieldsStep';
 import { PricingAmenitiesStep } from './components/onboard/organisms/PricingAmenitiesStep';
 import { FormSuccessModal } from './components/onboard/organisms/FormSuccessModal';
+import { AddLeadForm } from './components/leads';
 import { AuthScreen } from './components/auth/organisms/AuthScreen';
 import { FilterBar } from './components/listings/molecules/FilterBar';
 import { PropertyCard } from './components/listings/organisms/PropertyCard';
@@ -20,6 +21,7 @@ import {
 } from './services/api.js';
 import { getCurrentUser, logout, getSavedEmployeeEmail } from './services/auth.js';
 import { validateOnboarding, firstErrorKey, anchorFor } from './services/validation.js';
+import { readPin, splitAddress } from './services/mapLink.js';
 import { PlusCircle, AlertCircle, Building2, Loader2, CloudUpload, Database, ShieldAlert, WifiOff } from 'lucide-react';
 import { INITIAL_FORM_STATE } from './components/onboard/utils/initialFormState';
 import { Box, ContentInfo, Form, Heading, Inline, Main, PlainButton, Strong, Text } from './components/common/atoms';
@@ -29,7 +31,7 @@ export function App() {
   // Authentication State
   const [user, setUser] = useState(getCurrentUser());
 
-  const [activeTab, setActiveTab] = useState('listings'); // 'listings' | 'onboard'
+  const [activeTab, setActiveTab] = useState('listings'); // 'listings' | 'onboard' | 'leads'
   const [properties, setProperties] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
@@ -525,6 +527,31 @@ export function App() {
       };
       delete payload.localImages;
 
+      /*
+       * The one address box, split into the two things that are stored.
+       *
+       * The form asks for the address in a single field, which an agent may
+       * fill with words, a pasted map link, or both. They are separated here
+       * rather than on every keystroke, so the box never rearranges itself
+       * while somebody is typing in it — the step shows the same split live,
+       * from this same function, so nothing about it is a surprise at submit.
+       *
+       * `address` keeps the words alone: a URL left in it would be printed to
+       * a student where the door number belongs.
+       */
+      const { address, mapLink, pin } = splitAddress(formData.address);
+      payload.address = address;
+      payload.mapLink = mapLink;
+
+      /* The crosshair's own fix beats one read out of a pasted link — it was
+         taken at the doorway. No pin at all is an ABSENT field rather than a
+         null one: the backend stores optional GeoJSON, and a null would have
+         to be special-cased there to avoid reading as a point with no
+         coordinates. */
+      const resolvedPin = readPin(formData.location) || pin;
+      if (resolvedPin) payload.location = resolvedPin;
+      else delete payload.location;
+
       /* The File objects never leave this device — only the URLs the upload
          returned do. Sending them would put a base64 PAN in the request body
          and in every log that touches it. Same rule for per-layout photos:
@@ -804,6 +831,36 @@ export function App() {
           {/* ==================================================== */}
           {/* TAB 2: MULTI-STEP ONBOARDING FORM */}
           {/* ==================================================== */}
+          {/* ==================================================== */}
+          {/* TAB 3: ADD A LEAD BY HAND                            */}
+          {/* ==================================================== */}
+          {/*
+            Signed in only — the route behind the form is the leads panel's
+            own, and it identifies the caller to record who brought the lead
+            in. An anonymous visitor is sent to sign in rather than shown a
+            form that would be refused on submit.
+          */}
+          {activeTab === 'leads' && (
+            <Box className="animate-fade-in" style={{ maxWidth: '860px', margin: '0 auto' }}>
+              {user ? (
+                <AddLeadForm user={user} />
+              ) : (
+                <Box style={{
+                  background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px',
+                  padding: '32px 24px', textAlign: 'center',
+                }}>
+                  <ShieldAlert size={26} color="#b45309" />
+                  <Heading level={2} style={{ fontSize: '1.1rem', fontWeight: 700, color: '#181e1b', margin: '10px 0 6px' }}>
+                    Sign in to add a lead
+                  </Heading>
+                  <Text style={{ color: '#64748b', fontSize: '0.88rem', margin: 0 }}>
+                    A lead records who added it, so it needs your account.
+                  </Text>
+                </Box>
+              )}
+            </Box>
+          )}
+
           {activeTab === 'onboard' && (
             <Box className="glass-card form-card animate-fade-in" style={{ maxWidth: '860px', margin: '0 auto', padding: '32px 28px' }}>
               <Box style={{ marginBottom: '24px', textAlign: 'center' }}>

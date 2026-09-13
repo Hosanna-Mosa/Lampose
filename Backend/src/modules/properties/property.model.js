@@ -29,6 +29,34 @@
 const mongoose = require('mongoose');
 const { CATEGORIES } = require('../../shared/constants/categories');
 
+/*
+ * A pin, as its own schema with `default: undefined` — the same shape and the
+ * same reasoning as `shared/utils/address.js`.
+ *
+ * A nested `{ type, coordinates }` written inline would get mongoose's usual
+ * treatment of nested paths and put `{ type: 'Point' }` with no coordinates on
+ * EVERY property, pin or not. That is not a point, and a 2dsphere index
+ * refuses to extract keys from it — so every property without a location would
+ * fail to save the moment the index existed. A sub-schema defaulting to
+ * undefined is simply absent instead, which is what "no pin" should look like.
+ */
+const pointSchema = new mongoose.Schema(
+  {
+    type: { type: String, enum: ['Point'], default: 'Point' },
+    coordinates: {
+      type: [Number],
+      required: true,
+      validate: {
+        validator: (pair) => Array.isArray(pair) && pair.length === 2
+          && Number.isFinite(pair[0]) && Number.isFinite(pair[1])
+          && Math.abs(pair[0]) <= 180 && Math.abs(pair[1]) <= 90,
+        message: 'location.coordinates must be [longitude, latitude] and in range.'
+      }
+    }
+  },
+  { _id: false }
+);
+
 const propertySchema = new mongoose.Schema(
   {
     name: {
@@ -112,6 +140,29 @@ const propertySchema = new mongoose.Schema(
       type: String,
       default: ''
     },
+    /*
+     * Where this is on a map — the link, and the pin, independently.
+     *
+     * Both optional, and one without the other is a normal answer: a short
+     * `maps.app.goo.gl` link hides its coordinates behind a redirect nobody
+     * on the browser side may follow, and a pin taken at the doorway has no
+     * link until one is written for it. See property.util.js.
+     *
+     * `mapLink` is stored exactly as the agent pasted it, because what has to
+     * be right is where it opens for the student who taps it.
+     */
+    mapLink: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    /*
+     * GeoJSON, `[longitude, latitude]` — Mongo's order, unswapped, the same
+     * as every other point in this backend. Absent (not null) when nobody
+     * ever took a fix, which is what keeps it out of a geo query rather than
+     * matching at [0, 0].
+     */
+    location: { type: pointSchema, default: undefined },
     // Written by the leads panel's property form; absent from the original
     // onboarding schema, where strict mode would have dropped it.
     description: {
@@ -207,5 +258,10 @@ propertySchema.index({ name: 'text', place: 'text', ownerName: 'text', employeeE
 /* The Explore grid always sorts newest first and filters by category. */
 propertySchema.index({ createdAt: -1 });
 propertySchema.index({ category: 1, createdAt: -1 });
+/* Sparse, because most rows have no pin and a 2dsphere index that included
+   them would refuse to build. Declared now rather than when the first geo
+   query is written: the index is what makes `$near`/`$geoIntersects` possible
+   at all, and adding it to a collection that has grown is the slow path. */
+propertySchema.index({ location: '2dsphere' }, { sparse: true });
 
 module.exports = mongoose.models.Property || mongoose.model('Property', propertySchema);

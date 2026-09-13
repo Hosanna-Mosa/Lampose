@@ -1,5 +1,5 @@
 import React from 'react';
-import { PlusCircle, LayoutGrid, LogIn, LogOut, User } from 'lucide-react';
+import { PlusCircle, LayoutGrid, LogIn, LogOut, User, UserPlus } from 'lucide-react';
 import { Banner, Box, Image, Inline, PlainButton } from '../../atoms';
 
 export function Navbar({ activeTab, setActiveTab, user, onOpenAuthModal, onLogout }) {
@@ -44,6 +44,24 @@ export function Navbar({ activeTab, setActiveTab, user, onOpenAuthModal, onLogou
             <Inline className="nav-btn-text">Explore</Inline>
           </PlainButton>
  
+          {/* Leads. Only for a signed-in agent: the route behind it needs the
+              leads-panel token, so an anonymous visitor would meet a 401 from
+              a button that looked available. */}
+          {user && (
+            <PlainButton
+              onClick={() => setActiveTab('leads')}
+              className="nav-btn"
+              style={{
+                background: activeTab === 'leads' ? '#f1f5f2' : '#ffffff',
+                borderColor: activeTab === 'leads' ? '#cbd5e1' : '#e2e8f0',
+                fontWeight: 600
+              }}
+            >
+              <UserPlus size={16} />
+              <Inline className="nav-btn-text">Leads</Inline>
+            </PlainButton>
+          )}
+
           <PlainButton
             onClick={() => setActiveTab('onboard')}
             className="nav-btn nav-btn-primary"

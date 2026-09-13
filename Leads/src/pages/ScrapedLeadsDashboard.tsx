@@ -203,6 +203,10 @@ export const ScrapedLeadsDashboard: React.FC<ScrapedLeadsDashboardProps> = ({ cu
             <Option value="ALL">All Providers</Option>
             <Option value="GoogleMaps">Google Maps Only</Option>
             <Option value="JustDial">JustDial Only</Option>
+            {/* Typed in by hand, from the onboarding site. Kept in step with
+                the `source` enum in scriper.model.js — a value the server
+                accepts and this list omits is a lead nobody can filter to. */}
+            <Option value="Manual">Manually Added</Option>
           </Select>
         </Box>
 

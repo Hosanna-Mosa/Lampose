@@ -48,7 +48,17 @@ const scrapeJobSchema = new mongoose.Schema(
 const scrapedLeadSchema = new mongoose.Schema(
   {
     jobId: { type: String, required: true, index: true },
-    source: { type: String, enum: ['GoogleMaps', 'JustDial', 'Web'], required: true },
+    /*
+     * Where this lead came from. `Manual` is not a place a scraper can reach
+     * — it is a person typing, today from the onboarding site's Add Lead form
+     * — and it is on this enum rather than being filed under `Web` because
+     * the difference matters to whoever works the row: a scraped listing is a
+     * business that has not heard of us, while a manual one was usually met.
+     * It pairs with the `jobId: 'manual'` convention that predates it.
+     *
+     * NOT added to `scrapeJobSchema.source` below: you cannot scrape Manual.
+     */
+    source: { type: String, enum: ['GoogleMaps', 'JustDial', 'Web', 'Manual'], required: true },
     businessName: { type: String, required: true, trim: true },
     phone: { type: String, trim: true, default: '' },
     email: { type: String, trim: true, default: '' },
@@ -80,6 +90,24 @@ const scrapedLeadSchema = new mongoose.Schema(
      * thrown.
      */
     dedupeKey: { type: String, default: '', index: true },
+    /*
+     * Who brought this lead in, when a person did.
+     *
+     * Separate from `assignedTo` because they are different people and the
+     * flow depends on it: sales adds the lead through the onboarding site and
+     * an admin then hands it to a calling agent, so on creation this is set
+     * and `assignedTo` is deliberately empty. Separate from `lastActivityBy`
+     * too — that is overwritten by the first rep who touches the row, and
+     * "who sourced this" has to survive being worked.
+     *
+     * Null on every scraped lead, which is the honest answer: nobody added
+     * those, a job found them.
+     */
+    addedBy: {
+      userId: { type: String, default: null },
+      name: { type: String, default: null },
+      email: { type: String, default: null },
+    },
     assignedTo: {
       userId: { type: String, default: null },
       name: { type: String, default: null },

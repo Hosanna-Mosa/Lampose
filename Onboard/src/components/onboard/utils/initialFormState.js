@@ -15,6 +15,11 @@ export const INITIAL_FORM_STATE = {
   rent: '',
   deposit: '',
   address: '',
+  /* The pin, as `{lat, lng}`, when the crosshair took one — null otherwise.
+     There is no `mapLink` here on purpose: a pasted link lives in `address`
+     while it is being typed and is lifted out of it at submit, so the box on
+     screen and the field behind it cannot disagree. See services/mapLink.js. */
+  location: null,
   imageUrl: '',
   images: [],
   localImages: [],

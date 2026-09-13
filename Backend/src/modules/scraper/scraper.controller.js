@@ -340,7 +340,116 @@ const exportLeads = async (req, res, next) => {
   }
 };
 
+/* ── Adding a lead by hand ─────────────────────────────────────────────── */
+
+/** Every string on a lead, trimmed and capped so one paste cannot fill a row. */
+const field = (value, max = 200) => String(value === undefined || value === null ? '' : value)
+  .trim()
+  .slice(0, max);
+
+/**
+ * A lead somebody typed, from the onboarding site's Add Lead form.
+ *
+ * ## Why this is a v2 route and not the console's
+ *
+ * A manual create already existed at `POST /api/v1/admin/scriper-leads`, but
+ * behind Super Admin — the console's identity. The onboarding site signs in as
+ * a `scriper_users` account, the same identity the leads panel uses, so it
+ * could not reach that route without being handed a console login. This is the
+ * same operation behind the guard the caller actually holds.
+ *
+ * ## It is created UNASSIGNED, deliberately
+ *
+ * Sales adds the lead; an admin then hands it to a calling agent. So
+ * `assignedTo` is left empty and `addedBy` records who brought it in — those
+ * are two different people and the row has to be able to say so. Self-assigning
+ * here would also quietly route around `/assign`, which is admin-only because
+ * handing work out is the one action in this module that changes what somebody
+ * else sees.
+ *
+ * ## A duplicate is refused, not silently written
+ *
+ * Deduplication is the whole reason `dedupeKey` exists: without it a rep works
+ * a lead a colleague has already called. A person typing hits that just as
+ * easily as a re-scrape does — more easily, since they are usually entering a
+ * business somebody else may have met — so the same check runs here. It is a
+ * 409 naming the existing lead rather than a silent skip, because somebody is
+ * standing there waiting to hear what happened to what they typed.
+ */
+const createLead = async (req, res, next) => {
+  try {
+    const businessName = field(req.body.businessName, 200);
+    if (!businessName) {
+      return fail(res, 400, 'A business name is required — it is the one thing a lead cannot be worked without.');
+    }
+
+    const website = field(req.body.website, 500);
+    const candidate = {
+      /* The convention that predates this route: a lead with no scrape behind
+         it belongs to no job. */
+      jobId: 'manual',
+      source: 'Manual',
+      businessName,
+      phone: field(req.body.phone, 30),
+      email: field(req.body.email, 200).toLowerCase(),
+      website,
+      hasWebsite: Boolean(website),
+      address: field(req.body.address, 300),
+      city: field(req.body.city, 100),
+      landmark: field(req.body.landmark, 150),
+      category: field(req.body.category, 100),
+      mapsUrl: field(req.body.mapsUrl, 500),
+      /* `rating` and `reviewsCount` are Google's numbers. A person has none to
+         give, and inventing them would make a typed row look scraped. */
+      scrapedAt: new Date(),
+      leadStatus: 'NEW',
+    };
+
+    /*
+     * The pin, when the form got one. Stored as two loose numbers because that
+     * is what this collection has always held and what `getMapsUrl` in the
+     * leads panel reads — NOT the GeoJSON `[lng, lat]` the properties
+     * collection uses. Do not "harmonise" one into the other without moving
+     * every reader: the mistake does not throw, it moves the marker.
+     */
+    const lat = Number(req.body.latitude);
+    const lng = Number(req.body.longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lng)
+      && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0)) {
+      candidate.latitude = lat;
+      candidate.longitude = lng;
+    }
+
+    /* Who brought it in. Left null when REQUIRE_AUTH is off and there is no
+       user, rather than invented. */
+    if (req.user) {
+      candidate.addedBy = {
+        userId: req.user.userId || null,
+        name: req.user.name || null,
+        email: req.user.email || null,
+      };
+    }
+
+    const { fresh } = await dbStore.filterNewLeads([candidate]);
+    if (fresh.length === 0) {
+      return res.status(409).json({
+        success: false,
+        code: 'DUPLICATE_LEAD',
+        message: `"${businessName}" is already in the leads list — somebody may already be working it.`,
+        error: `"${businessName}" is already in the leads list — somebody may already be working it.`,
+      });
+    }
+
+    const created = await dbStore.createLead(fresh[0]);
+    console.log(`✅ [Lead Added] "${businessName}" by ${(req.user && req.user.email) || 'an unidentified caller'}`);
+    return res.status(201).json({ success: true, message: 'Lead added.', data: created });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 module.exports = {
+  createLead,
   startScrape,
   getStatus,
   stopScrape,

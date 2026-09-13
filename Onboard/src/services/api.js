@@ -453,6 +453,23 @@ export const uploadPropertyDocuments = async (items = [], onStage = () => { }) =
   return out;
 };
 
+/* ── Leads ─────────────────────────────────────────────────────────────── */
+
+/**
+ * Add a lead by hand.
+ *
+ * Goes to the leads panel's own v2 surface rather than the admin console's
+ * route, because this site signs in as a `scriper_users` account — the same
+ * identity the panel uses — and the console's create is Super-Admin-only.
+ *
+ * The lead is created UNASSIGNED on purpose: sales adds it here, an admin
+ * hands it to a calling agent afterwards. A 409 back means the business is
+ * already in the list, which is an answer worth showing rather than an error
+ * to swallow — somebody may already be calling them.
+ */
+export const createLead = (lead) =>
+  api.post('/scraper/leads', lead).then(ok).catch(fail);
+
 /* ── Permissions ───────────────────────────────────────────────────────── */
 
 export const ACTION_LABELS = {
