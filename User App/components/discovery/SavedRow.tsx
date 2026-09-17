@@ -126,8 +126,13 @@ export function SavedRow({ entry, onPress, onRemove }: SavedRowProps) {
         ) : null}
       </View>
 
-      {/* The bookmark is the remove control, and it is undoable for six
-          seconds — a mis-tap on a bus is the case undo exists for. */}
+      {/* The filled heart is the remove control, and it is undoable for six
+          seconds — a mis-tap on a bus is the case undo exists for.
+
+          A heart rather than the bookmark this used to draw: it is the same
+          mark the card and the listing header fill when the row was saved in
+          the first place, and this tab now carries one too. Three glyphs for
+          one list taught that they were three lists. */}
       <Pressable
         onPress={onRemove}
         hitSlop={10}
@@ -135,7 +140,7 @@ export function SavedRow({ entry, onPress, onRemove }: SavedRowProps) {
         accessibilityLabel={`Remove ${listing.name} from saved`}
         style={styles.remove}
       >
-        <Icon name="bookmark" size={28} color={colors.brandInk} fill={colors.brandInk} />
+        <Icon name="heart" size={24} color={colors.brandInk} fill={colors.brandInk} />
       </Pressable>
     </Pressable>
   );

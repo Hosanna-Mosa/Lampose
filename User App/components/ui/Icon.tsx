@@ -45,6 +45,7 @@ import {
   Tv,
   UserCheck,
   Users,
+  UtensilsCrossed,
   Wifi,
   X,
   type LucideProps,
@@ -239,12 +240,15 @@ const LUCIDE_GLYPHS = {
   home: House,
   search: Search,
   filters: SlidersHorizontal,
+  /* No longer part of the save affordance anywhere — that is `heart` below,
+     end to end. Kept in the set for a control that means "come back to this"
+     without meaning "I liked this", should one appear. */
   bookmark: Bookmark,
-  /* The favourite mark on food. A HEART rather than the bookmark used on the
-     stay side, and the difference is meant: a bookmark is "come back to this
-     listing", a heart is "I liked this". They are also two different lists on
-     the account — see `foodFavourites` on the customer — and giving them the
-     same glyph would suggest one. */
+  /* The save/favourite mark, everywhere: the stay listing card, its detail
+     header, the Saved tab and the Saved list's own remove control, and food.
+     Two different lists on the account — see `foodFavourites` on the customer
+     for the food side — but one glyph, because the action reads the same in
+     both: "I liked this". */
   heart: Heart,
   phone: Phone,
   calendar: Calendar,
@@ -274,6 +278,11 @@ const LUCIDE_GLYPHS = {
      short `prepMinutes`), not a promise, so it earns an icon of its own
      rather than borrowing one that means something else. */
   zap: Zap,
+  /* A crossed fork and knife — the meal-plan card on listing detail. `mess`
+     (above, in the custom set) stays the amenity-grid glyph everywhere else;
+     this is a clearer, more literally "dining" mark for the one card that
+     leads with meals rather than listing them alongside eighteen others. */
+  dining: UtensilsCrossed,
 
   // Batch 3 — the rest of the 22-icon amenity set. The six market-specific
   // glyphs it also needs are the custom ones above; these are the generic

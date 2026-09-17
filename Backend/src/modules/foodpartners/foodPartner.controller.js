@@ -659,12 +659,25 @@ const submitApplication = async (req, res, next) => {
     /* The one place the plaintext is used. `sanitiseApplication` returns it on
        its own key precisely so that it cannot be spread onto the document by
        accident, and the model has no hashing hook because this controller
-       hashes first — a hook would bcrypt the bcrypt. */
-    const passwordHash = await FoodRestaurant.hashPassword(password);
+       hashes first — a hook would bcrypt the bcrypt.
+     *
+     * A password is OPTIONAL, because an application does not always come from
+     * the person who will sign in. The Onboard console is filled in by a
+     * Lampose employee sitting with the owner, and a password chosen in that
+     * room — by the agent, out loud — is worse than no password at all. Those
+     * applications arrive without one and the field is left unset.
+     *
+     * Unset is SAFE rather than open: `verifyPassword` returns false when there
+     * is no hash to compare against, so a passwordless account cannot be signed
+     * into at all. It is an account waiting for a credential, not one with a
+     * blank one. `hashPassword('')` would be the opposite — a real bcrypt hash
+     * of the empty string, which anybody sending an empty password would match. */
+    const passwordHash = password ? await FoodRestaurant.hashPassword(password) : undefined;
 
     let restaurant;
     try {
-      restaurant = await saveWithNewId({ ...fields, passwordHash });
+      const credential = passwordHash ? { passwordHash } : {};
+      restaurant = await saveWithNewId({ ...fields, ...credential });
     } catch (error) {
       const key = duplicateKeyOf(error);
       if (key === 'ownerEmail' || key === 'ownerPhone' || key === 'phoneKey') {

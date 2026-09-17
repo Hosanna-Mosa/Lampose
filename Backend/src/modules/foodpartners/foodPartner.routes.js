@@ -67,6 +67,11 @@ const {
 const {
   requireFoodPartner, requireFoodPartnerOrVerifiedPhone,
 } = require('./foodPartnerAuth.middleware');
+/* The v2 STAFF guard (`scriper_users`) — the leads panel's and the Onboard
+   console's identity, and a sixth audience on this router. It is imported
+   rather than folded into the food-partner guards on purpose; see the
+   onboarding upload route below. */
+const { protect: requireStaff } = require('../../shared/middleware/authMiddleware');
 const { tagFoodPartnerRequest } = require('./foodPartner.log');
 
 const router = express.Router();
@@ -134,6 +139,35 @@ router.post(
   '/uploads/images',
   requireAuthConfig,
   requireFoodPartnerOrVerifiedPhone,
+  imageUpload.array('images', FOOD_UPLOAD_LIMITS.files),
+  uploadFoodPartnerImages,
+);
+
+/*
+ * The same uploads, for a Lampose onboarding EMPLOYEE.
+ *
+ * A SEPARATE ROUTE WITH ITS OWN GUARD, not a third branch inside
+ * `requireFoodPartnerOrVerifiedPhone`. The rule this module is built on is
+ * that no guard is widened to understand a second audience — the two it
+ * already accepts are the restaurant itself and the owner's phone proof, and
+ * teaching it a third would mean one middleware deciding between three
+ * unrelated identity systems, where a mistake hands a staff token a
+ * restaurant's session. The audiences stay apart and the ROUTES differ.
+ *
+ * Why it has to exist at all: the Onboard console is filled in by an employee
+ * sitting with the owner, so there is no phone proof to upload against — that
+ * flow asks the owner for no code and no password. The employee has their own
+ * `scriper_users` token, which is what `requireStaff` verifies, and the same
+ * token already authorises every property they onboard.
+ *
+ * The handler is shared and needs no change: it folders by the restaurant on
+ * the request, and a staff upload leaves none — so these land in the shared
+ * application folder exactly as a pre-application upload should.
+ */
+router.post(
+  '/uploads/onboarding-images',
+  requireAuthConfig,
+  requireStaff,
   imageUpload.array('images', FOOD_UPLOAD_LIMITS.files),
   uploadFoodPartnerImages,
 );

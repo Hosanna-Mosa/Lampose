@@ -72,8 +72,19 @@ import { useDepositMark } from '@/components/ui/DepositMark';
  * statement about a booking Lampose was told no money about; a filled one with
  * invented numbers is not.
  */
+
+/**
+ * Every boxed container on this screen corners at this.
+ *
+ * One number rather than the 20/16/10 they had drifted to, and tighter than
+ * `radius.card` (16): the screen is a column of five or six bordered cards,
+ * and at 20 the stack read as a pile of lozenges. Badges, chips, dots and
+ * circular icon wells keep their own radii — those are meant to be round.
+ */
+const BOX_RADIUS = 10;
+
 export default function BookingDetail() {
-  const { colors, space, layout, mode, radius } = useTheme();
+  const { colors, space, layout, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -341,12 +352,18 @@ export default function BookingDetail() {
 
         {/* Section: Timeline Progress Card */}
         <View style={styles.sectionCard}>
+          {/* The title shrinks and the chip does not: the chip is one short
+              word and the heading is the line that can afford to give. They
+              also hold a gap between them, so the two can never meet however
+              long the status word or the font scale gets. */}
           <View style={styles.cardHeaderRow}>
-            <View style={styles.cardHeaderLeft}>
+            <View style={[styles.cardHeaderLeft, styles.flex]}>
               <View style={[styles.cardHeaderIconBadge, { backgroundColor: '#ECFDF5' }]}>
                 <Icon name="clock" size={16} color="#059669" />
               </View>
-              <Text variant="title3" style={{ fontWeight: '800' }}>Where this booking is</Text>
+              <Text variant="title3" style={styles.cardHeaderTitle} numberOfLines={1}>
+                Where this booking is
+              </Text>
             </View>
             <View style={styles.statusChip}>
               <View style={styles.statusDot} />
@@ -376,7 +393,7 @@ export default function BookingDetail() {
               <View style={[styles.cardHeaderIconBadge, { backgroundColor: '#EFF6FF' }]}>
                 <Icon name="mapPin" size={16} color="#2563EB" />
               </View>
-              <Text variant="title3" style={{ fontWeight: '800' }}>Where to go</Text>
+              <Text variant="title3" style={styles.cardHeaderTitle}>Where to go</Text>
             </View>
 
             <DirectionsButton
@@ -398,7 +415,7 @@ export default function BookingDetail() {
             <View style={[styles.cardHeaderIconBadge, { backgroundColor: '#F8FAFC' }]}>
               <Icon name="verified" size={16} color="#64748B" />
             </View>
-            <Text variant="title3" style={{ fontWeight: '800' }}>Your terms</Text>
+            <Text variant="title3" style={styles.cardHeaderTitle}>Your terms</Text>
           </View>
 
           <View style={styles.termsBody}>
@@ -605,7 +622,7 @@ export default function BookingDetail() {
           <View
             style={{
               backgroundColor: colors.surfaceSunken,
-              borderRadius: radius.card,
+              borderRadius: BOX_RADIUS,
               padding: space[4],
               gap: space[3],
             }}
@@ -662,7 +679,7 @@ const styles = StyleSheet.create({
   centred: { textAlign: 'center' },
   heroPassCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: BOX_RADIUS,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     padding: 18,
@@ -674,7 +691,7 @@ const styles = StyleSheet.create({
   },
   sectionCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: BOX_RADIUS,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     padding: 18,
@@ -689,11 +706,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    /* The one thing that guarantees the title and the status chip are never
+       touching, whatever either of them says. */
+    gap: 10,
   },
   cardHeaderLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  /* 14 rather than `title3`'s 15: a heading sharing its line with a status
+     chip has less room than one that owns the line, and all three section
+     headings move together so they stay one rank. */
+  cardHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '800',
   },
   cardHeaderIconBadge: {
     width: 28,
@@ -712,6 +739,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#A7F3D0',
+    /* One short word. It keeps its size and the heading beside it shrinks. */
+    flexShrink: 0,
   },
   statusDot: {
     width: 6,
@@ -746,7 +775,7 @@ const styles = StyleSheet.create({
   },
   disclaimerBox: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 10,
+    borderRadius: 8,
     padding: 10,
     borderWidth: 1,
     borderColor: '#F1F5F9',

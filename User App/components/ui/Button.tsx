@@ -1,11 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, type ViewStyle } from 'react-native';
-import Animated, { interpolateColor, useAnimatedStyle } from 'react-native-reanimated';
+import Animated, {
+  cancelAnimation,
+  interpolateColor,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { Icon, type IconName } from './Icon';
 import { Text } from './Text';
+import { ambient } from '@/constants/motion';
 import { usePressAnimation } from '@/hooks/usePressAnimation';
-import { useTheme } from '@/context/ThemeContext';
+import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 
 /**
  * The `onImage` disc and its glyph, as literals rather than tokens.
@@ -32,6 +41,19 @@ export type ButtonProps = {
   fullWidth?: boolean;
   /** Leading only. A trailing icon implies navigation; these buttons commit. */
   icon?: IconName;
+  /**
+   * The leading glyph breathes — out past full size and back, forever.
+   *
+   * This is an INFINITE animation, and they are counted: `ambient.mapsPinPulse`
+   * in `motion.ts` is its declared entry, alongside the waiting halo and the
+   * critical timer breath. A loop added here without one is the thing that
+   * file's rules are looking for, so read the note on `ambient` before
+   * turning this on anywhere new — the bounds it describes (one glyph, a
+   * static screen, never a scrolling list) are what keep it affordable.
+   *
+   * Off under reduced motion, where both `scale` and `loop` are banned.
+   */
+  iconPulse?: boolean;
   loading?: boolean;
   /** Shown in place of `label` while loading — say what is happening. */
   loadingLabel?: string;
@@ -80,6 +102,7 @@ export function Button({
   size = 'md',
   fullWidth = false,
   icon,
+  iconPulse = false,
   loading = false,
   loadingLabel,
   disabled = false,
@@ -88,6 +111,7 @@ export function Button({
   testID,
 }: ButtonProps) {
   const { colors, radius, touch } = useTheme();
+  const reduceMotion = useReduceMotion();
   const { animatedStyle, onPressIn, onPressOut, progress } = usePressAnimation(
     fullWidth ? 'buttonFullWidth' : 'button',
   );
@@ -158,6 +182,39 @@ export function Button({
     [fill.rest, fill.pressed],
   );
 
+  /*
+   * The leading glyph's pulse — see `iconPulse` and `ambient.mapsPinPulse`.
+   *
+   * `cancelAnimation` on the way out matters more here than it would for a
+   * one-shot: an infinite `withRepeat` left running against an unmounted
+   * view's shared value is the leak that shows up as a device warming in a
+   * pocket, not as a broken frame.
+   */
+  const iconScale = useSharedValue(1);
+
+  useEffect(() => {
+    if (!iconPulse || reduceMotion) {
+      cancelAnimation(iconScale);
+      iconScale.value = 1;
+      return;
+    }
+
+    const { duration, easing: curve, scale } = ambient.mapsPinPulse;
+    const half = duration / 2;
+    iconScale.value = withRepeat(
+      withSequence(
+        withTiming(scale[1], { duration: half, easing: curve }),
+        withTiming(scale[0], { duration: half, easing: curve }),
+      ),
+      -1,
+      false,
+    );
+
+    return () => cancelAnimation(iconScale);
+  }, [iconPulse, reduceMotion, iconScale]);
+
+  const iconStyle = useAnimatedStyle(() => ({ transform: [{ scale: iconScale.value }] }));
+
   return (
     <Pressable
       onPress={onPress}
@@ -204,7 +261,9 @@ export function Button({
         ) : icon ? (
           // Down a rung on the grid at `xs` — a 20px glyph fills two thirds of
           // a 30pt box and turns the button into an icon with a caption.
-          <Icon name={icon} size={size === 'xs' ? 16 : 20} color={labelColor} />
+          <Animated.View style={iconPulse ? iconStyle : undefined}>
+            <Icon name={icon} size={size === 'xs' ? 16 : 20} color={labelColor} />
+          </Animated.View>
         ) : null}
 
         {/*

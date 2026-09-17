@@ -914,7 +914,14 @@ const validateApplication = (sanitised = {}) => {
 
   if (!String(restaurant.ownerEmail || '').includes('@')) problems.push('an email address');
 
-  if (String(sanitised.password || '').length < MIN_PASSWORD) {
+  /* A password is optional, and only checked when one was actually sent.
+     The Food-Partner app asks the owner for one; the Onboard console, which a
+     Lampose employee fills in beside the owner, does not ask at all — and an
+     application refused for lacking a credential nobody in that room should be
+     choosing is a refusal with no correct answer. The account is then written
+     without a hash, which `verifyPassword` treats as "cannot sign in yet". */
+  const password = String(sanitised.password || '');
+  if (password && password.length < MIN_PASSWORD) {
     problems.push(`a password of at least ${MIN_PASSWORD} characters`);
   }
 
@@ -991,12 +998,27 @@ const validateApplication = (sanitised = {}) => {
 
   /* ── Menu ─────────────────────────────────────────────────────────────── */
 
-  /* A meat centre's counter is listed with the Lampose team afterwards, which
-     is why the website's own step gate asks a meat partner for hours and no
-     menu. The rule is mirrored rather than reinvented. */
-  if (!products.length && !isMeat) {
-    problems.push('at least one menu item');
-  }
+  /*
+   * AN EMPTY MENU IS A VALID APPLICATION.
+   *
+   * This used to demand at least one item, on the assumption that whoever
+   * filled the form in was the person who knew the prices. That is not how a
+   * restaurant is signed up through the Onboard console: a Lampose employee
+   * sits with the owner, records who they are and where they cook, and the
+   * menu — sixty dishes, each with a photograph — is not something either of
+   * them is going to type on a phone at the counter. So that form sends no
+   * products at all, and the restaurant enters its own menu from the
+   * Food-Partner app once the account is approved.
+   *
+   * Nothing downstream is harmed by the gap. A restaurant with no products is
+   * `isActive: false` until an admin approves it, and the discovery feed
+   * already skips a kitchen with nothing to sell — an empty menu shows an
+   * empty restaurant to nobody.
+   *
+   * The partner app's own signup is unaffected: it still sends a menu, and
+   * items that ARE sent are still checked one by one below. Sending none is
+   * allowed; sending a nameless or unpriced one is not.
+   */
 
   /* Aggregated rather than reported per item: an eighty-line menu pasted
      without categories would otherwise produce eighty fragments and a refusal

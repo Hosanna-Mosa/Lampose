@@ -434,7 +434,7 @@ export type PhotoHeaderProps = {
   scrollY: SharedValue<number>;
   onBack?: () => void;
   onAction?: () => void;
-  actionIcon?: 'bookmark' | 'phone';
+  actionIcon?: 'bookmark' | 'phone' | 'heart';
   actionActive?: boolean;
   heroHeight?: number;
 };

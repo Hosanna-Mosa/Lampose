@@ -51,6 +51,7 @@ export {
 export { AirbnbSearchBar, type AirbnbSearchBarProps } from './AirbnbSearchBar';
 
 export { StayHeroSection, type StayHeroSectionProps } from './StayHeroSection';
+export { DraggableMapPill, type DraggableMapPillProps } from './DraggableMapPill';
 
 export {
   ListingCard,

@@ -77,28 +77,28 @@ export function FilterChipRow({
         style={({ pressed }) => [
           styles.filtersButton,
           {
-            minHeight: 38,
+            minHeight: 32,
             marginLeft: layout.gutter,
             borderRadius: radius.pill,
             borderColor: activeCount > 0 ? (mode === 'dark' ? '#34D399' : '#0F4C3A') : '#E2E8F0',
             borderWidth: 1,
             backgroundColor: activeCount > 0 && mode !== 'dark' ? '#E8F5E9' : colors.surface,
-            paddingHorizontal: space[3] + 2,
-            gap: 6,
+            paddingHorizontal: space[2] + 2,
+            gap: 5,
             opacity: pressed ? 0.75 : 1,
           },
         ]}
-        hitSlop={{ top: (touch.min - 38) / 2, bottom: (touch.min - 38) / 2 }}
+        hitSlop={{ top: (touch.min - 32) / 2, bottom: (touch.min - 32) / 2 }}
       >
         <Icon
           name="filters"
-          size={16}
+          size={14}
           color={activeCount > 0 ? (mode === 'dark' ? '#34D399' : '#0F4C3A') : colors.textPrimary}
         />
         <Text
           variant="bodyStrong"
           style={{
-            fontSize: 13,
+            fontSize: 12,
             fontWeight: '600',
             color: activeCount > 0 ? (mode === 'dark' ? '#34D399' : '#0F4C3A') : colors.textPrimary,
           }}
@@ -112,11 +112,11 @@ export function FilterChipRow({
               {
                 borderRadius: radius.pill,
                 backgroundColor: mode === 'dark' ? '#34D399' : '#0F4C3A',
-                paddingHorizontal: 6,
+                paddingHorizontal: 5,
               },
             ]}
           >
-            <Text variant="numMeta" style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>
+            <Text variant="numMeta" style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '700' }}>
               {activeCount}
             </Text>
           </View>
@@ -142,14 +142,14 @@ export function FilterChipRow({
               style={({ pressed }) => [
                 styles.chipButton,
                 {
-                  minHeight: 38,
+                  minHeight: 32,
                   borderRadius: radius.pill,
                   backgroundColor: isHighlighted && mode !== 'dark' ? '#E8F5E9' : colors.surface,
                   borderColor: isHighlighted ? (mode === 'dark' ? '#34D399' : '#0F4C3A') : '#E2E8F0',
                   borderWidth: isDropdownOpen ? 1.5 : 1,
-                  paddingLeft: iconName ? space[3] : space[4],
-                  paddingRight: space[3],
-                  gap: 6,
+                  paddingLeft: iconName ? space[2] + 2 : space[3],
+                  paddingRight: space[2] + 2,
+                  gap: 5,
                   opacity: pressed ? 0.8 : 1,
                 },
               ]}
@@ -159,7 +159,7 @@ export function FilterChipRow({
               {iconName ? (
                 <Icon
                   name={iconName}
-                  size={16}
+                  size={14}
                   color={isHighlighted ? (mode === 'dark' ? '#34D399' : '#0F4C3A') : colors.textSecondary}
                 />
               ) : null}
@@ -167,7 +167,7 @@ export function FilterChipRow({
               <Text
                 variant="bodyStrong"
                 style={{
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: isHighlighted ? '700' : '500',
                   color: isHighlighted ? (mode === 'dark' ? '#34D399' : '#0F4C3A') : colors.textPrimary,
                 }}
@@ -209,7 +209,7 @@ const styles = StyleSheet.create({
   host: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   filtersButton: {
@@ -217,7 +217,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   count: {
-    minHeight: 18,
+    minHeight: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -226,16 +226,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   removeCircle: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     backgroundColor: 'rgba(0,0,0,0.06)',
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 2,
   },
   chevron: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#64748B',
     marginTop: -2,
     fontWeight: '600',

@@ -12,6 +12,26 @@ import type { HouseRule, MealPlan } from '@/types/listing';
 export type MealPlanCardProps = { plan: MealPlan };
 
 /**
+ * The brand's own yellow — the "o" in the Lampose wordmark (`#FFC93C`, see
+ * `Frontend/src/styles/lampose.css`) — rather than the generic `warning`
+ * semantic token. `warning` was deliberately darkened away from this exact
+ * hue elsewhere in the app for contrast reasons (see its own comment in
+ * `constants/tokens.ts`); this card wants the literal logo colour, not a
+ * caution colour that happens to be warm.
+ *
+ * It paints SURFACES only — `tint` for the card, `border` for its edge and
+ * rule, `base` for the glyph chip, `on` for the icon drawn on that chip. No
+ * text is set in it: every word on the card is theme ink, because a heading
+ * in gold on a pale yellow card is the least legible thing on it. `tint` and
+ * `border` invert for dark the way `warning`'s dark set does — a darker
+ * ground, so the pairing still reads on a dark card.
+ */
+const MEAL_YELLOW = {
+  light: { base: '#FFC93C', tint: '#FFF8E6', border: '#F3DFA0', on: '#3D2900' },
+  dark: { base: '#FFC93C', tint: '#2E2408', border: '#5C4C1E', on: '#201804' },
+} as const;
+
+/**
  * Timings matter more than the meal count.
  *
  * A 7:30 am breakfast is unusable for a student with a 9 am class across town,
@@ -19,7 +39,8 @@ export type MealPlanCardProps = { plan: MealPlan };
  * rather than being left blank for the reader to interpret.
  */
 export function MealPlanCard({ plan }: MealPlanCardProps) {
-  const { colors, space, radius } = useTheme();
+  const { colors, space, radius, mode } = useTheme();
+  const yellow = MEAL_YELLOW[mode];
 
   /* Meals get the warm family — the same one "What guests say" carries
      further down — rather than the plain surface every other card on this
@@ -31,10 +52,12 @@ export function MealPlanCard({ plan }: MealPlanCardProps) {
   return (
     <View
       style={{
-        backgroundColor: included ? colors.warning.tint : colors.surface,
-        borderColor: included ? colors.warning.border : colors.border,
+        backgroundColor: included ? yellow.tint : colors.surface,
+        borderColor: included ? yellow.border : colors.border,
         borderWidth: included ? 1 : StyleSheet.hairlineWidth,
-        borderRadius: radius.card,
+        // 10 rather than `radius.card` (16), matching the boxed sections it
+        // is stacked with on listing detail — see `BOX_RADIUS` there.
+        borderRadius: 10,
         padding: space[4],
         gap: space[3],
       }}
@@ -45,14 +68,18 @@ export function MealPlanCard({ plan }: MealPlanCardProps) {
             styles.mealGlyph,
             {
               width: 36, height: 36, borderRadius: radius.chip,
-              backgroundColor: included ? colors.warning.base : colors.surfaceSunken,
+              backgroundColor: included ? yellow.base : colors.surfaceSunken,
             },
           ]}
         >
-          <Icon name="mess" size={20} color={included ? colors.warning.on : colors.textTertiary} />
+          <Icon name="dining" size={18} color={included ? yellow.on : colors.textTertiary} />
         </View>
         <View style={styles.flex}>
-          <Text variant="title3" style={included ? { color: colors.warning.ink } : undefined}>
+          {/* Ink, not gold. The yellow is the card's FILL — tint, border and
+              the glyph chip — and a heading painted in it too left the one
+              sentence that states the deal as the least legible thing on a
+              pale yellow card. */}
+          <Text variant="title3">
             {!plan.included
               ? 'No meals included'
               : plan.mealsPerDay === undefined
@@ -79,7 +106,7 @@ export function MealPlanCard({ plan }: MealPlanCardProps) {
           <View
             style={{
               height: StyleSheet.hairlineWidth,
-              backgroundColor: included ? colors.warning.border : colors.borderSubtle,
+              backgroundColor: included ? yellow.border : colors.borderSubtle,
             }}
           />
 
@@ -91,8 +118,7 @@ export function MealPlanCard({ plan }: MealPlanCardProps) {
                 </Text>
                 <Text
                   variant={slot.window ? 'priceSm' : 'numMeta'}
-                  style={slot.window && included ? { color: colors.warning.ink } : undefined}
-                  color={!slot.window ? 'tertiary' : included ? undefined : 'primary'}
+                  color={slot.window ? 'primary' : 'tertiary'}
                 >
                   {slot.window ?? 'not served'}
                 </Text>

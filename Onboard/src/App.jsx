@@ -7,6 +7,7 @@ import { CategoryFieldsStep } from './components/onboard/organisms/CategoryField
 import { PricingAmenitiesStep } from './components/onboard/organisms/PricingAmenitiesStep';
 import { FormSuccessModal } from './components/onboard/organisms/FormSuccessModal';
 import { AddLeadForm } from './components/leads';
+import { RestaurantOnboardForm } from './components/restaurant';
 import { AuthScreen } from './components/auth/organisms/AuthScreen';
 import { FilterBar } from './components/listings/molecules/FilterBar';
 import { PropertyCard } from './components/listings/organisms/PropertyCard';
@@ -31,7 +32,7 @@ export function App() {
   // Authentication State
   const [user, setUser] = useState(getCurrentUser());
 
-  const [activeTab, setActiveTab] = useState('listings'); // 'listings' | 'onboard' | 'leads'
+  const [activeTab, setActiveTab] = useState('listings'); // 'listings' | 'onboard' | 'leads' | 'restaurant'
   const [properties, setProperties] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
@@ -858,6 +859,38 @@ export function App() {
                   </Text>
                 </Box>
               )}
+            </Box>
+          )}
+
+          {/*
+            RESTAURANT / MEAT CENTRE ONBOARDING.
+
+            Deliberately NOT a category inside the accommodation form above.
+            The two forms share a tab bar and nothing else: this one verifies
+            the OWNER's mobile with a one-time code, uploads licences against
+            that phone proof, and writes a `food_restaurants` document through
+            `POST /api/v2/food-partners/applications` — a different collection,
+            a different identity system and a different approval queue from a
+            property's WhatsApp verification chain.
+
+            It holds its own state and does its own submitting, so signing out
+            or switching tabs mid-application loses it. That is the same deal
+            the property form offers and is the reason the step rail lets a
+            completed step be reopened: the fix for a mistake is going back,
+            not starting again.
+          */}
+          {activeTab === 'restaurant' && (
+            <Box className="animate-fade-in">
+              <Box style={{ marginBottom: '20px', textAlign: 'center' }}>
+                <Heading level={2} style={{ fontSize: 'clamp(1.4rem, 4vw, 1.9rem)', fontWeight: 800, color: 'var(--text-main)' }}>
+                  Onboard a Restaurant
+                </Heading>
+                <Text style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
+                  Four steps: the restaurant, its opening hours, its papers, and the contract
+                </Text>
+              </Box>
+
+              <RestaurantOnboardForm onDone={() => setActiveTab('listings')} />
             </Box>
           )}
 

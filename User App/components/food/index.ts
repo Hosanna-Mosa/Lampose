@@ -43,6 +43,9 @@ export {
   type SlideRider,
   type SlideSteam,
 } from './PromoBanner';
+export { buildPromoSlides } from './promoSlides';
+/** The Food advert shown while a stay request is with the owner. */
+export { FoodWaitPromo } from './FoodWaitPromo';
 export { CuisineRail, type CuisineRailProps } from './CuisineRail';
 export { CuisineSheet, type CuisineSheetProps } from './CuisineSheet';
 export { RestaurantListCard, type RestaurantListCardProps } from './RestaurantListCard';

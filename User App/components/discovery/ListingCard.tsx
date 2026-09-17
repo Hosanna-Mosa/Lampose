@@ -248,6 +248,28 @@ function PhotoCarousel({
           <Text style={styles.photoCountText}>{`${index + 1} / ${pages}`}</Text>
         </View>
       </View>
+
+      {/* Floating Bottom Center: Carousel Page Dots — the "1 / 5" badge states
+          the count, but a corner label is easy to miss as a cue to swipe.
+          Dots read at a glance as "this scrolls", the way they do everywhere
+          else a photo carousel appears in this app. Only shown once there is
+          more than one page to move between. */}
+      {swipeable && pages > 1 ? (
+        <View style={styles.dotsContainer} pointerEvents="none">
+          {Array.from({ length: pages }, (_, dot) => (
+            <View
+              key={dot}
+              style={[
+                styles.dot,
+                {
+                  width: dot === index ? 14 : 5,
+                  opacity: dot === index ? 1 : 0.55,
+                },
+              ]}
+            />
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -267,7 +289,7 @@ function CardBody({
 
   const reviewCount = (listing as { reviewCount?: number }).reviewCount || 124;
 
-  const rentValue = listing.rent ? formatRupees(listing.rent) : '6,500';
+  const rentValue = formatRupees(listing.rent || 6500);
   const unitSuffix = listing.perBed ? '/bed/month' : listing.perNight ? '/night' : '/bed/month';
 
   // Real data-driven scarcity: only show urgency if real inventory records <= 3 beds
@@ -306,23 +328,23 @@ function CardBody({
           {listing.name.toUpperCase()}
         </Text>
 
-        <View style={styles.ratingCol}>
-          <View style={styles.ratingStarsRow}>
-            <Icon name="star" size={14} color="#F59E0B" fill="#F59E0B" />
-            <Text style={[styles.ratingNumber, { color: colors.textPrimary }]}>
-              {displayRating}
-            </Text>
-          </View>
-          <Text style={styles.reviewCountText}>({reviewCount} reviews)</Text>
+        <View style={styles.ratingStarsRow}>
+          <Icon name="star" size={14} color="#F59E0B" fill="#F59E0B" />
+          <Text style={[styles.ratingNumber, { color: colors.textPrimary }]}>
+            {displayRating}
+          </Text>
         </View>
       </View>
 
-      {/* Row 2: Locality · City */}
+      {/* Row 2: Locality · City  ·  Reviews (same line) */}
       <View style={styles.locationRow}>
-        <Icon name="mapPin" size={14} color="#64748B" />
-        <Text style={styles.locationText} numberOfLines={1}>
-          {listing.locality} · Hyderabad
-        </Text>
+        <View style={styles.locationLeft}>
+          <Icon name="mapPin" size={14} color="#64748B" />
+          <Text style={styles.locationText} numberOfLines={1}>
+            {listing.locality} · Hyderabad
+          </Text>
+        </View>
+        <Text style={styles.reviewCountText}>({reviewCount} reviews)</Text>
       </View>
 
       {/* Row 3: Amenity Pills */}
@@ -354,7 +376,7 @@ function CardBody({
       <View style={styles.priceUrgencyRow}>
         <View style={styles.priceGroup}>
           <Text style={[styles.priceNumber, { color: mode === 'dark' ? '#34D399' : '#0B473A' }]}>
-            ₹ {rentValue}
+            {rentValue}
           </Text>
           <Text style={styles.unitSuffixText}>{unitSuffix}</Text>
         </View>
@@ -384,7 +406,7 @@ function CardBody({
         accessibilityLabel={`View details for ${listing.name}`}
       >
         <View style={styles.bottomBannerLeft}>
-          <Icon name="sprout" size={20} color="#16A34A" />
+          <Icon name="sprout" size={16} color="#16A34A" />
           <View>
             <Text style={[styles.bannerHeadline, { color: mode === 'dark' ? '#6EE7B7' : '#0B473A' }]}>
               Comfortable Stays
@@ -402,7 +424,7 @@ function CardBody({
           ]}
         >
           <Text style={styles.viewDetailsText}>View Details</Text>
-          <Icon name="arrowRight" size={14} color="#FFFFFF" />
+          <Icon name="arrowRight" size={12} color="#FFFFFF" />
         </View>
       </Pressable>
     </View>
@@ -526,7 +548,7 @@ export function ListingCardSkeleton({ variant = 'carousel' }: { variant?: Listin
 
 const styles = StyleSheet.create({
   cardOuter: {
-    borderRadius: 22,
+    borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
   },
@@ -555,6 +577,25 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 12,
     right: 12,
+  },
+  dotsContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+  },
+  dot: {
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.5,
+    shadowRadius: 2,
   },
   heartCircle: {
     width: 34,
@@ -618,9 +659,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.2,
   },
-  ratingCol: {
-    alignItems: 'flex-end',
-  },
   ratingStarsRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -633,12 +671,20 @@ const styles = StyleSheet.create({
   reviewCountText: {
     fontSize: 10,
     color: '#64748B',
-    marginTop: 1,
+    flexShrink: 0,
+    marginLeft: 6,
   },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 4,
+  },
+  locationLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flex: 1,
   },
   locationText: {
     fontSize: 13,
@@ -703,36 +749,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 14,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 12,
     borderWidth: 1,
     marginTop: 4,
   },
   bottomBannerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   bannerHeadline: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
   },
   bannerSubhead: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '500',
   },
   viewDetailsButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6.5,
-    borderRadius: 18,
-    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 16,
+    gap: 4,
   },
   viewDetailsText: {
     color: '#FFFFFF',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
   },
 });

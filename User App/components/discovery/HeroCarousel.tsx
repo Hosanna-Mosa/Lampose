@@ -38,6 +38,16 @@ import { useTheme } from '@/context/ThemeContext';
  * swallowing a scroll that started on the photograph.
  */
 
+/**
+ * How far the dots and the counter float up from the hero's bottom edge.
+ *
+ * The listing screen's details sheet (`mainBodySheet`) is pulled up 22px over
+ * the hero via a negative `marginTop`, so anything sitting at the ordinary
+ * `space[3]` (12px) inset is already behind that overlap. 34px clears the
+ * sheet's top edge with a few pixels of breathing room to spare.
+ */
+const OVERLAY_BOTTOM = 34;
+
 export type HeroCarouselProps = {
   photos: readonly string[];
   /** Matches the hero slot, so the image fills it without letterboxing. */
@@ -105,8 +115,14 @@ export function HeroCarousel({ photos, height, onPressPhoto }: HeroCarouselProps
         six. Both sit over a scrim-darkened photograph, so they are white with
         their own shadow rather than themed — a token colour here would
         disappear against a pale room shot.
+
+        Both float `OVERLAY_BOTTOM` up from the hero's own bottom edge, not
+        `space[3]` — the details sheet below (`mainBodySheet` in the listing
+        screen) overlaps the hero by 22px of its own `marginTop`, and a plain
+        `space[3]` (12px) sat entirely under that overlap, so the counter read
+        as clipped in half.
       */}
-      <View style={[styles.dots, { bottom: space[3], gap: 5 }]} pointerEvents="none">
+      <View style={[styles.dots, { bottom: OVERLAY_BOTTOM, gap: 5 }]} pointerEvents="none">
         {photos.map((uri, dot) => (
           <View
             key={uri}
@@ -122,7 +138,7 @@ export function HeroCarousel({ photos, height, onPressPhoto }: HeroCarouselProps
       </View>
 
       <View
-        style={[styles.counter, { bottom: space[3], right: space[3], borderRadius: radius.chip }]}
+        style={[styles.counter, { bottom: OVERLAY_BOTTOM, right: space[3], borderRadius: radius.chip }]}
         pointerEvents="none"
       >
         <Text variant="numMeta" style={styles.counterText}>
