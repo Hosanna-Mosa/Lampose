@@ -253,6 +253,19 @@ export type PromoBannerProps = {
    *  whatever the screen is — which is what lets one piece of artwork fit
    *  every handset without being re-cropped per device. */
   height?: number;
+  /**
+   * How wide a page is. Defaults to the whole screen, which is what the Food
+   * hero wants — see the note on `cardWidth` below for why full-bleed is the
+   * right call THERE.
+   *
+   * It is a prop because the banner is no longer only a hero: `FoodWaitPromo`
+   * runs the same carousel as an inset card inside a gutter-padded column,
+   * and a page is the unit the pager snaps to. Left hardcoded to the screen,
+   * an inset banner scrolls a screen's width inside a narrower box and lands
+   * between two slides on every swipe. Pass the box's width and the height
+   * follows it at `ASPECT`, so the artwork is never re-cropped.
+   */
+  width?: number;
 };
 
 /* The card is both the animated surface and the tappable one, and the
@@ -324,9 +337,10 @@ const SHINE_MS = 3800;
  * are facts about a feed already on screen, never a discount, and `FoodHome`
  * is the only place that writes their copy.
  */
-export function PromoBanner({ slides, height }: PromoBannerProps) {
+export function PromoBanner({ slides, height, width: widthProp }: PromoBannerProps) {
   const { space, radius } = useTheme();
-  const { width } = useWindowDimensions();
+  const { width: screenWidth } = useWindowDimensions();
+  const width = widthProp ?? screenWidth;
   const reduceMotion = useReduceMotion();
   const [index, setIndex] = useState(0);
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
@@ -527,6 +541,36 @@ function Slide({
   const deep = slide.tone === 'brand' ? colors.brandPressed : colors.warning.ink;
   const ink = slide.tone === 'brand' ? colors.onBrand : colors.warning.on;
 
+  /*
+   * The stage: the artwork at its own ratio, centred in the card and clipped.
+   *
+   * Everything painted ON the picture — the steam, the scooter's route, the
+   * drawn headline — is expressed as a fraction of the box it is given, and
+   * those fractions were measured against the art at `ASPECT`. Hand them a
+   * shorter box and they keep their fractions while `contentFit="cover"`
+   * crops the picture underneath: the plume leaves the air beside the bowl
+   * and the scooter rides off the road, which is the one failure that reads
+   * instantly as broken.
+   *
+   * So a short card does not squash the art, it CROPS it — art and effects
+   * together, in one box at the true ratio, cut by the card's own
+   * `overflow: 'hidden'`. A caller that leaves `height` alone gets
+   * `stageHeight === height` and `stageTop === 0`, which is the same tree
+   * this drew before: the Food hero is untouched by any of it.
+   *
+   * ## The crop is anchored to the BOTTOM
+   *
+   * All four artworks put their subject in the lower half — the biryani, the
+   * road the scooter is on, the chutney bowl and the filter coffee, the chai
+   * glass — and their sky, foliage and painted-out lettering space in the
+   * top. A centred crop spent half its budget taking the food away and the
+   * other half taking scenery nobody would miss. Bottom-anchored, every
+   * point that comes off comes off the top, and the plumes still leave the
+   * bowls they were measured from.
+   */
+  const stageHeight = Math.max(height, Math.round(width / ASPECT));
+  const stageTop = height - stageHeight;
+
   const art = slide.image;
   const hasWords = slide.headline !== undefined || slide.body !== undefined || slide.metric !== undefined;
   /* Over artwork the scrim is black in BOTH themes, so the words are white
@@ -547,6 +591,12 @@ function Slide({
          form together. */
       style={[{ width, height }, styles.card, cardStyle]}
     >
+      {/* Everything from here to the end of the stage crops as one — see the
+          note on `stageHeight`. */}
+      <View
+        style={{ position: 'absolute', left: 0, top: stageTop, width, height: stageHeight }}
+        pointerEvents="box-none"
+      >
       {/* The well, always — see the note on `PromoSlide.image`. Artwork that
           never arrives leaves a finished card rather than a hole. */}
       <LinearGradient
@@ -587,11 +637,11 @@ function Slide({
             <>
               <Blob id={`${slide.id}-a`} ink={ink} size={240} from={{ x: -70, y: -90 }} to={{ x: 20, y: -46 }} period={7200} />
               <Blob id={`${slide.id}-b`} ink={ink} size={190} from={{ x: width - 160, y: 24 }} to={{ x: width - 96, y: -26 }} period={9100} />
-              <Ring ink={ink} size={150} from={{ x: width - 96, y: height - 70 }} to={{ x: width - 132, y: height - 108 }} period={8300} />
+              <Ring ink={ink} size={150} from={{ x: width - 96, y: stageHeight - 70 }} to={{ x: width - 132, y: stageHeight - 108 }} period={8300} />
               <Ring ink={ink} size={86} from={{ x: width - 190, y: -18 }} to={{ x: width - 214, y: 16 }} period={6400} />
             </>
           ) : null}
-          <Shine width={width} height={height} ink={art === undefined ? ink : '#FFFFFF'} />
+          <Shine width={width} height={stageHeight} ink={art === undefined ? ink : '#FFFFFF'} />
         </View>
       ) : null}
 
@@ -605,7 +655,7 @@ function Slide({
           spec={slide.rider}
           active={active}
           width={width}
-          height={height}
+          height={stageHeight}
           reduceMotion={reduceMotion}
         />
       ) : null}
@@ -615,7 +665,7 @@ function Slide({
           spec={slide.headlineArt}
           active={active}
           width={width}
-          height={height}
+          height={stageHeight}
           reduceMotion={reduceMotion}
         />
       ) : null}
@@ -627,10 +677,11 @@ function Slide({
               idPrefix={`${slide.id}-steam-${i}`}
               steam={plume}
               width={width}
-              height={height}
+              height={stageHeight}
             />
           ))
         : null}
+      </View>{/* end of the stage */}
 
       {hasWords ? (
         <Animated.View style={[styles.content, { paddingHorizontal: space[4] }, contentStyle]}>

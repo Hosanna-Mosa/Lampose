@@ -16,6 +16,9 @@ import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 const TICK = { duration: 160, easing: easing.enter };
 const FILL = { duration: 90 };
 
+/** `Checkbox size="sm"` draws at this and buys the 44pt target back with hitSlop. */
+const SM_ROW_HEIGHT = 28;
+
 /* ------------------------------------------------------------------ *
  * Checkbox
  * ------------------------------------------------------------------ */
@@ -40,12 +43,24 @@ export type CheckboxProps = {
   disabled?: boolean;
   /** Explains a disabled row, e.g. "not in this building". */
   note?: string;
+  /**
+   * How big the row is DRAWN. Its 44pt target never changes with it: `sm`
+   * lays out at 32pt and puts the difference back as `hitSlop`, which is the
+   * same trade `touch.iconButtonVisual` documents for icon buttons.
+   *
+   * `sm` is for a row where the box is a formality beside the sentence it
+   * confirms rather than a choice being weighed — the consent line on listing
+   * detail, where a 22px box and a 44pt row next to a two-line sentence read
+   * as the loudest thing in the block.
+   */
+  size?: 'md' | 'sm';
 };
 
-/** A 44pt row around a 22px box — the row is the target, not the box. */
-export function Checkbox({ label, labelNode, checked, onChange, indeterminate = false, disabled = false, note }: CheckboxProps) {
+/** A 44pt row around a 22px box (18px at `sm`) — the row is the target, not the box. */
+export function Checkbox({ label, labelNode, checked, onChange, indeterminate = false, disabled = false, note, size = 'md' }: CheckboxProps) {
   const { colors, space, touch } = useTheme();
   const on = indeterminate || checked;
+  const small = size === 'sm';
 
   const progress = useDerivedValue(() => withTiming(on ? 1 : 0, FILL), [on]);
 
@@ -66,20 +81,34 @@ export function Checkbox({ label, labelNode, checked, onChange, indeterminate = 
       accessibilityRole="checkbox"
       accessibilityState={{ checked: indeterminate ? 'mixed' : checked, disabled }}
       accessibilityLabel={label}
-      style={[styles.row, { minHeight: touch.min, gap: space[3] }]}
+      hitSlop={small ? { top: (touch.min - SM_ROW_HEIGHT) / 2, bottom: (touch.min - SM_ROW_HEIGHT) / 2 } : undefined}
+      style={[
+        styles.row,
+        { minHeight: small ? SM_ROW_HEIGHT : touch.min, gap: small ? 6 : space[3] },
+      ]}
     >
-      <Animated.View style={[styles.box, boxStyle]}>
+      <Animated.View style={[styles.box, small ? styles.boxSm : null, boxStyle]}>
         {/* Indeterminate is a dash, not a cross — a cross reads as "no". */}
         {indeterminate ? (
-          <View style={[styles.dash, { backgroundColor: disabled ? colors.textTertiary : colors.onBrand }]} />
+          <View
+            style={[
+              styles.dash,
+              small ? styles.dashSm : null,
+              { backgroundColor: disabled ? colors.textTertiary : colors.onBrand },
+            ]}
+          />
         ) : checked ? (
-          <Icon name="check" size={16} color={disabled ? colors.textTertiary : colors.onBrand} />
+          <Icon name="check" size={small ? 12 : 16} color={disabled ? colors.textTertiary : colors.onBrand} />
         ) : null}
       </Animated.View>
       {labelNode ? (
         <View style={styles.flex}>{labelNode}</View>
       ) : (
-        <Text variant="bodyLg" color={disabled ? 'tertiary' : 'primary'} style={styles.flex}>
+        <Text
+          variant={small ? 'caption' : 'bodyLg'}
+          color={disabled ? 'tertiary' : 'primary'}
+          style={styles.flex}
+        >
           {label}
         </Text>
       )}
@@ -738,6 +767,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  /* `size="sm"`. The border thins with the box: 1.75 on a 16px square reads
+     heavier than it does on a 22px one, which is the opposite of the point. */
+  boxSm: {
+    width: 16,
+    height: 16,
+    borderRadius: 4,
+    borderWidth: 1.5,
+  },
   radioRing: {
     width: 22,
     height: 22,
@@ -748,6 +785,7 @@ const styles = StyleSheet.create({
   },
   radioDot: { width: 11, height: 11, borderRadius: 999 },
   dash: { width: 10, height: 2, borderRadius: 1 },
+  dashSm: { width: 8 },
   track: { width: 52, height: 32, padding: 3, justifyContent: 'center' },
   thumb: {
     width: 26,

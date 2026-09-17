@@ -255,13 +255,13 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 7,
     paddingHorizontal: 12,
     borderWidth: StyleSheet.hairlineWidth,
   },
   iconButton: {
-    width: 38,
-    height: 38,
+    width: 34,
+    height: 34,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -272,13 +272,13 @@ const styles = StyleSheet.create({
   },
   primaryText: {
     fontWeight: '700',
-    fontSize: 15,
-    lineHeight: 19,
+    fontSize: 14,
+    lineHeight: 18,
   },
   secondaryText: {
-    fontSize: 12,
-    lineHeight: 16,
-    marginTop: 1,
+    fontSize: 11,
+    lineHeight: 14,
+    marginTop: 0,
   },
   inputContainer: {
     flex: 1,
@@ -301,12 +301,12 @@ const styles = StyleSheet.create({
   },
   divider: {
     width: 1,
-    height: 28,
+    height: 24,
     marginHorizontal: 4,
   },
   filterButton: {
-    width: 38,
-    height: 38,
+    width: 34,
+    height: 34,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,

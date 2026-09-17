@@ -1,9 +1,8 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { Switch, Text } from '@/components/ui';
+import { Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
-import { formatRupees } from '@/utils/money';
 
 /**
  * One date, not a range.
@@ -13,9 +12,10 @@ import { formatRupees } from '@/utils/money';
  * whenever they want, which is a different mechanism entirely and belongs on
  * the agreement card rather than in a calendar.
  *
- * The pro-rated first month is computed and shown the moment a date is picked,
- * because a mid-month move-in is the most common source of "why is the first
- * payment different from the rent?"
+ * This used to also carry a "move a few days either side" toggle and, below
+ * it, the pro-rated first-month figure for the picked day. Both were removed
+ * from the sheet itself; `proRatedFirstMonth` stays exported for whatever
+ * screen ends up stating that number.
  */
 
 const WEEKDAY_HEADS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -62,11 +62,8 @@ export function MoveInDatePicker({
   month,
   value,
   onChange,
-  rent,
   earliestDay,
   noticeDays = 0,
-  flexible,
-  onFlexibleChange,
 }: MoveInDatePickerProps) {
   const { colors, space, radius, touch } = useTheme();
 
@@ -81,16 +78,6 @@ export function MoveInDatePicker({
     ...Array.from({ length: leadingBlanks }, () => null),
     ...Array.from({ length: total }, (_, index) => index + 1),
   ];
-
-  const proRated = value !== null ? proRatedFirstMonth(rent, year, month, value) : null;
-  const selectedLabel =
-    value !== null
-      ? new Date(year, month, value).toLocaleDateString('en-IN', {
-          weekday: 'long',
-          day: 'numeric',
-          month: 'long',
-        })
-      : null;
 
   return (
     <View style={{ gap: space[4] }}>
@@ -160,34 +147,6 @@ export function MoveInDatePicker({
           })}
         </View>
       </View>
-
-      <Switch
-        label="I can move a few days either side"
-        value={flexible}
-        onChange={onFlexibleChange}
-      />
-
-      {proRated && selectedLabel ? (
-        <View
-          style={{
-            backgroundColor: colors.surfaceSunken,
-            borderRadius: radius.chip,
-            padding: space[3],
-            gap: space[1],
-          }}
-        >
-          <Text variant="bodyStrong">Moving in on {selectedLabel}</Text>
-          {/* The number people ask about. Stated before they have to ask. */}
-          <Text variant="caption" color="secondary">
-            Your first month is {formatRupees(proRated.amount)}, not {formatRupees(rent)} — you are charged
-            for {proRated.billableDays} of {proRated.total} days. Full rent starts the month after.
-          </Text>
-        </View>
-      ) : (
-        <Text variant="caption" color="tertiary">
-          Pick a date to see what the first month costs.
-        </Text>
-      )}
     </View>
   );
 }

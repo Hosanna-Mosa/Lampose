@@ -1,5 +1,5 @@
 import React from 'react';
-import { PlusCircle, LayoutGrid, LogIn, LogOut, User, UserPlus } from 'lucide-react';
+import { PlusCircle, LayoutGrid, LogIn, LogOut, User, UserPlus, UtensilsCrossed } from 'lucide-react';
 import { Banner, Box, Image, Inline, PlainButton } from '../../atoms';
 
 export function Navbar({ activeTab, setActiveTab, user, onOpenAuthModal, onLogout }) {
@@ -62,21 +62,45 @@ export function Navbar({ activeTab, setActiveTab, user, onOpenAuthModal, onLogou
             </PlainButton>
           )}
 
+          {/* Restaurants. A different application entirely from a property —
+              it verifies the OWNER's phone and writes to `food_restaurants`,
+              not `properties` — so it is its own tab rather than a category
+              inside the accommodation form. */}
+          <PlainButton
+            onClick={() => setActiveTab('restaurant')}
+            className="nav-btn"
+            title="Onboard a restaurant"
+            aria-label="Restaurant"
+            style={{
+              background: activeTab === 'restaurant' ? '#f1f5f2' : '#ffffff',
+              borderColor: activeTab === 'restaurant' ? '#cbd5e1' : '#e2e8f0',
+              fontWeight: 600
+            }}
+          >
+            <UtensilsCrossed size={16} />
+            <Inline className="nav-btn-text">Restaurant</Inline>
+          </PlainButton>
+
           <PlainButton
             onClick={() => setActiveTab('onboard')}
             className="nav-btn nav-btn-primary"
-            style={{ 
+            style={{
               fontWeight: 600
             }}
           >
             <PlusCircle size={16} />
             <Inline className="nav-btn-text">Onboard</Inline>
           </PlainButton>
- 
+
           {/* User Auth Section */}
           {user ? (
             <Box style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '4px' }}>
-              <Box 
+              {/* Hidden below 480px — see index.css. With a fifth tab in the
+                  bar there is no longer room for the agent's own name on a
+                  phone, and of the two the Sign Out button is the one that
+                  has to stay reachable. */}
+              <Box
+                className="user-badge"
                 style={{
                   display: 'flex',
                   alignItems: 'center',

@@ -17,6 +17,7 @@ import { elevation } from '@/constants/tokens';
 import { useBottomBar } from '@/context/BottomBarContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
+import { withAlpha } from '@/utils/color';
 
 /**
  * How far the raised disc stands proud of the bar's top edge.
@@ -578,8 +579,8 @@ function TabButton({
           {
             backgroundColor:
               mode === 'dark'
-                ? 'rgba(52, 211, 153, 0.14)'
-                : 'rgba(15, 76, 58, 0.08)',
+                ? 'rgba(52, 211, 153, 0.16)'
+                : 'rgba(15, 76, 58, 0.10)',
           },
         ],
       ]}
@@ -592,10 +593,29 @@ function TabButton({
             : null,
         ]}
       >
+        {/*
+          The active glyph gains a WASH, not a solid fill.
+
+          Tint alone was carrying the selected state on the icon, and at 24pt a
+          teal outline against a grey one is a difference you have to look for
+          — on a bar read at a glance, mid-scroll, with a thumb over half of
+          it. A wash of the active ink behind the stroke gives the glyph body
+          at a glance without the failure a solid fill has here: `calendar` is
+          a rectangle with its date rules drawn INSIDE it, so filling it solid
+          in the stroke colour swallows them and leaves a blob with two nubs.
+          At a fifth alpha every line survives and the shape still reads
+          heavier than its neighbours.
+
+          Only lucide glyphs take it; the custom ones (`food`, `mess`) draw
+          their own `fill: none` and ignore it — see `Icon`. The raised disc is
+          already a solid fill and stays outlined, or the glyph would disappear
+          into its own disc.
+        */}
         <Icon
           name={tab.icon}
           size={24}
-          color={tab.raised ? discInk : active ? activeInk : colors.textTertiary}
+          color={tab.raised ? discInk : active ? activeInk : colors.textSecondary}
+          fill={!tab.raised && active ? withAlpha(activeInk, 0.2) : undefined}
         />
         {badgeLabel ? (
           <View style={[styles.badge, { backgroundColor: colors.danger.base, borderColor: colors.surface }]}>
@@ -628,8 +648,12 @@ function TabButton({
             {tab.label}
           </Text>
         </Animated.View>
+        {/* Secondary rather than tertiary, matching the resting glyph above
+            it. Tertiary is the app's "this is switched off" ink, and an
+            unselected tab is not disabled — it is the next place you might
+            go, and it has to be readable enough to choose. */}
         <Animated.View style={[StyleSheet.absoluteFill, styles.restLabel, restLabelStyle]}>
-          <Text variant="caption" color="tertiary" style={{ fontSize: 11, fontWeight: '500' }}>
+          <Text variant="caption" color="secondary" style={{ fontSize: 11, fontWeight: '500' }}>
             {tab.label}
           </Text>
         </Animated.View>

@@ -35,7 +35,7 @@ export const easing = {
   exit: Easing.bezier(0.4, 0, 1, 1),
   /** Confirmations only. The single overshoot in the entire app. */
   settle: Easing.bezier(0.18, 0.89, 0.32, 1.05),
-  /** The two ambient loops, and nothing else. */
+  /** The ambient loops, and nothing else. */
   inOut: Easing.bezier(0.4, 0, 0.6, 1),
 } as const;
 
@@ -65,14 +65,22 @@ export const signature = {
 } as const;
 
 /**
- * The only two infinite animations in the app. A third is a bug.
+ * The infinite animations in the app. A fourth is a bug.
  *
  * `criticalBreath` is a warning rather than ambience — it exists to be
  * noticed, and only runs under sixty seconds remaining.
+ *
+ * `mapsPinPulse` was added on request, and it is the one entry here that is a
+ * DRAW rather than a state: it marks the single control on the booking screen
+ * that leaves the app for Google Maps. It is bounded in three ways so it stays
+ * affordable — it runs on one glyph, on a screen of otherwise static cards,
+ * and it is off entirely under reduced motion. Keep those bounds if it moves:
+ * this loop on a scrolling list is the `skeletonShimmer` mistake (see `cut`).
  */
 export const ambient = {
   waitingHalo: { duration: 2400, easing: easing.inOut, opacity: [0.35, 0.6], scale: [1, 1.06] },
   criticalBreath: { duration: 1000, easing: easing.inOut, scale: [1, 1.035] },
+  mapsPinPulse: { duration: 1600, easing: easing.inOut, scale: [1, 1.14] },
 } as const;
 
 /**
@@ -231,8 +239,8 @@ export const reducedMotion = {
 /** Enforce these in review. */
 export const motionRules = [
   'Transform and opacity only. No animated width, height, margin, fontSize, shadow or blur.',
-  'Nothing exceeds 320ms except a camera glide (400ms) and the two ambient loops.',
-  'Exactly two infinite animations exist: the waiting halo and the critical timer breath.',
+  'Nothing exceeds 320ms except a camera glide (400ms) and the ambient loops.',
+  'Exactly three infinite animations exist: the waiting halo, the critical timer breath and the maps pin pulse. Every one of them is in `ambient` — a loop written anywhere else is the bug this rule is looking for.',
   'Every scroll-linked value runs on the UI thread via useAnimatedScrollHandler.',
   'Reduced motion removes movement, never legibility.',
   'No animation may gate an interaction — a user can always tap through it.',

@@ -618,3 +618,144 @@ export const registerUser = async ({ name, email, mobile, password, role }) => {
 
   return { success: false, error: data?.error || data?.message || 'Failed to create account.' };
 };
+
+/* ── Restaurant onboarding ─────────────────────────────────────────────────
+ *
+ * The food-partner surface, written by a LAMPOSE EMPLOYEE rather than by the
+ * restaurant.
+ *
+ * This is the same arrangement as the property form above: an onboarding agent
+ * sits with the owner, fills the form in on their behalf, and the write is
+ * authorised by the agent's own `scriper_users` token and attributed with
+ * `x-employee-email`. The owner is never asked for a one-time code and never
+ * asked to choose a password in front of the agent — the account is created
+ * without a credential and cannot be signed into until one is set, which is
+ * what `verifyPassword` returning false for a missing hash guarantees.
+ *
+ * WHAT IS UPLOADED, AND WHEN
+ *
+ * The PAN card and the FSSAI certificate go to Cloudinary BEFORE the
+ * application is posted, because `POST /applications` stores a document row
+ * only when it carries a URL — the backend refuses to record that a scan
+ * exists on the strength of a file name. So the order is: upload the scans,
+ * then post the form with what came back.
+ *
+ * They go to `/uploads/onboarding-images`, which is the staff-guarded twin of
+ * the app's own `/uploads/images`. A separate route rather than a widened
+ * guard: the food-partner upload accepts a restaurant's session or an owner's
+ * phone proof, and neither is what an employee holds.
+ */
+
+/** One `File` to Cloudinary, as the `kind` the backend files it under. */
+const uploadRestaurantFile = async ({ file, kind }) => {
+  if (!file) return null;
+
+  const form = new FormData();
+  form.append('images', file);
+  form.append('kind', kind);
+
+  /* No `Authorization` here: the request interceptor puts the agent's staff
+     token on it, which is exactly what this route's guard verifies. */
+  const data = await api
+    .post('/v2/food-partners/uploads/onboarding-images', form, { timeout: WRITE_TIMEOUT })
+    .then(ok)
+    .catch(fail);
+
+  const first = data?.success && Array.isArray(data.data) ? data.data[0] : null;
+  if (!first || !first.url) {
+    const reason = data?.error || data?.message || 'the upload did not come back with a URL';
+    throw new Error(`Could not upload the ${kind} file — ${reason}`);
+  }
+
+  return {
+    url: first.url,
+    publicId: first.publicId || first.public_id || '',
+    fileName: first.fileName || file.name || '',
+  };
+};
+
+/**
+ * The whole application: the licences, the menu photographs and the form.
+ *
+ * Resolves like everything else in this file — to an object with `success` —
+ * so the wizard branches on one thing. An upload that fails is reported as a
+ * failure of the SUBMIT, with the file named, because that is what the agent
+ * has to fix; nothing has been written at that point, so pressing the button
+ * again is safe and is what the message asks for.
+ *
+ * @param {object} form        the wizard's state, already shaped by `buildApplicationPayload`
+ * @param {(stage: string) => void} [onStage]
+ */
+export const submitRestaurantApplication = async (form, onStage = () => { }) => {
+  try {
+    /* ── 1. The licences ─────────────────────────────────────────────────── */
+
+    /* Two scans, both mandatory on the form: the PAN card and the FSSAI
+       certificate. The GST certificate and the cancelled cheque were dropped
+       from the console — their NUMBERS are still collected and validated, but
+       an agent standing in a kitchen is not going to be handed a bank
+       statement, and a document row that names a file nobody uploaded is
+       worse than no row (see `sanitiseApplication`). */
+    const docJobs = [
+      { kind: 'pan', file: form.files.pan, number: form.panNumber },
+      { kind: 'fssai', file: form.files.fssai, number: form.fssaiNumber, expiry: form.fssaiExpiry },
+    ].filter((job) => job.file);
+
+    const verificationDocuments = [];
+    for (let i = 0; i < docJobs.length; i += 1) {
+      const job = docJobs[i];
+      onStage(`Uploading ${job.kind.toUpperCase()} document (${i + 1} of ${docJobs.length})...`);
+      // eslint-disable-next-line no-await-in-loop
+      const uploaded = await uploadRestaurantFile({ file: job.file, kind: job.kind });
+      verificationDocuments.push({
+        kind: job.kind,
+        number: job.number || '',
+        expiry: job.expiry || null,
+        url: uploaded.url,
+        publicId: uploaded.publicId,
+        fileName: uploaded.fileName,
+      });
+    }
+
+    /* ── 2. The dish photographs ─────────────────────────────────────────── */
+
+    /* Sent as `products` already flattened, so the two menu-building modes —
+       typed categories and an uploaded sheet — converge here and the upload
+       loop below does not have to know which one the agent used. */
+    const products = form.products.slice();
+    const withPhotos = products.filter((product) => product.photoFile);
+
+    for (let i = 0; i < withPhotos.length; i += 1) {
+      const product = withPhotos[i];
+      onStage(`Uploading item photo ${i + 1} of ${withPhotos.length}...`);
+      // eslint-disable-next-line no-await-in-loop
+      const uploaded = await uploadRestaurantFile({ file: product.photoFile, kind: 'product' });
+      product.productImage = { url: uploaded.url, publicId: uploaded.publicId };
+    }
+
+    /* ── 3. The application ──────────────────────────────────────────────── */
+
+    onStage('Submitting the application...');
+
+    const body = {
+      ...form.restaurant,
+      verificationDocuments,
+      products: products.map(({ photoFile, ...product }) => product),
+    };
+
+    return await api
+      .post('/v2/food-partners/applications', body, { timeout: WRITE_TIMEOUT })
+      .then(ok)
+      .catch(fail);
+  } catch (error) {
+    /* An upload threw rather than resolved, which is the one path in this
+       function that is not already an `ok`/`fail` shape. Nothing was written,
+       so it is safe to say so and safe to retry. */
+    return {
+      success: false,
+      kind: 'upload',
+      reached: false,
+      error: error.message || 'A file could not be uploaded.',
+    };
+  }
+};

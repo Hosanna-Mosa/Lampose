@@ -332,7 +332,19 @@ const foodRestaurantSchema = new mongoose.Schema(
        login route is the one place that asks for it, with an explicit
        `.select('+passwordHash')`, and `toJSON` deletes it even then in case
        somebody adds a second such place. */
-    passwordHash: { type: String, required: true, select: false },
+    /* NOT required, and the absence is meaningful.
+     *
+     * An application filled in by a Lampose onboarding employee, sitting with
+     * the owner, has nobody in the room who should be choosing the owner's
+     * password — so those documents are written without one and the owner sets
+     * it before their first sign-in.
+     *
+     * A missing hash is a CLOSED door, not an open one: `verifyPassword` below
+     * returns false when there is nothing to compare against, so such an
+     * account cannot be signed into until a credential is set on it. Storing a
+     * hash of `''` instead would be an account whose password is the empty
+     * string, which is the failure this is written to avoid. */
+    passwordHash: { type: String, required: false, select: false },
 
     logoImage: { type: imageSchema, default: () => ({}) },
     coverBannerImage: { type: imageSchema, default: () => ({}) },

@@ -358,7 +358,10 @@ export default function AuthScreen() {
                     Boolean(numberError) && styles.phoneInputError,
                   ]}
                 >
-                  <Icon name="phone" size={20} color="#0A5A41" />
+                  {/* The prefix group sits tight against the left edge — it is
+                      a fixed label, not content, and every point it takes is a
+                      point the number and its placeholder do not get. */}
+                  <Icon name="phone" size={18} color="#0A5A41" />
                   <Text style={styles.countryCodeText}>+91</Text>
                   <View style={styles.divider} />
                   <TextInput
@@ -376,7 +379,17 @@ export default function AuthScreen() {
                     textContentType="telephoneNumber"
                     autoComplete="tel"
                     maxLength={10}
-                    style={styles.phoneInput}
+                    /*
+                      Smaller WHILE EMPTY, so the placeholder fits on one line.
+
+                      A `TextInput` draws its placeholder in its own font size,
+                      and at 16 "Enter your mobile number" ran past the field
+                      and clipped to "Enter your mobile" — which reads as the
+                      app not knowing what it wants. Ten digits are far shorter
+                      than that sentence, so the moment anything is typed the
+                      size goes back up and the number is set at full size.
+                    */
+                    style={[styles.phoneInput, digits.length === 0 && styles.phoneInputEmpty]}
                     selectionColor="#0A5A41"
                   />
                 </Pressable>
@@ -618,8 +631,12 @@ const styles = StyleSheet.create({
     borderWidth: 1.2,
     borderColor: '#E6EAE7',
     borderRadius: 30,
-    paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    /* The field is shorter now, so the 44pt floor is stated rather than left
+       to fall out of the padding — at a large OS font scale the padding grows
+       with nothing, while the text inside grows the box past this anyway. */
+    minHeight: 46,
     backgroundColor: '#FFFFFF',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -636,22 +653,30 @@ const styles = StyleSheet.create({
     borderColor: '#EF4444',
   },
   countryCodeText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: '#141A24',
-    marginLeft: 12,
+    marginLeft: 6,
   },
   divider: {
     width: 1,
-    height: 24,
+    height: 20,
     backgroundColor: '#E2E8F0',
-    marginHorizontal: 16,
+    marginHorizontal: 10,
   },
   phoneInput: {
     flex: 1,
     fontSize: 16,
     color: '#141A24',
     fontWeight: '500',
+    /* Android gives a bare `TextInput` its own vertical padding on top of the
+       container's. Left in, it is the reason this field measured taller than
+       its padding said it should. */
+    paddingVertical: 0,
+  },
+  /* The empty state only — see the note at the call site. */
+  phoneInputEmpty: {
+    fontSize: 14,
   },
   errorText: {
     color: '#EF4444',

@@ -77,7 +77,7 @@ export default function ShellPreview() {
               scrollY={scrollY}
               onBack={() => setView('Headers')}
               onAction={() => {}}
-              actionIcon="bookmark"
+              actionIcon="heart"
             />
             <Animated.ScrollView onScroll={onScroll} scrollEventThrottle={16}>
               <PhotoHero scrollY={scrollY}>

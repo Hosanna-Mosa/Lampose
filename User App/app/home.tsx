@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -32,6 +32,7 @@ import {
   AirbnbSearchBar,
   CategoryTabs,
   CATEGORY_LABEL,
+  DraggableMapPill,
   FilterChipRow,
   FilterSheet,
   type FilterChip,
@@ -96,9 +97,13 @@ import { withAlpha } from '@/utils/color';
  */
 const TABS: readonly TabItem[] = [
   { id: 'explore', label: 'Home', icon: 'home' },
-  { id: 'saved', label: 'Saved', icon: 'bookmark' },
+  /* A HEART, matching the control that fills this tab. Saving a stay is a
+     heart on the card and a heart in the listing header; a bookmark on the
+     tab that holds the result made the tab look like a different list from
+     the one the taps were going into. */
+  { id: 'saved', label: 'Saved', icon: 'heart' },
   { id: 'bookings', label: 'Bookings', icon: 'calendar' },
-  // { id: 'food', label: 'Food', icon: 'food', raised: true, tone: 'caution' },
+  { id: 'food', label: 'Food', icon: 'food', raised: true, tone: 'caution' },
 ];
 
 /**
@@ -173,7 +178,19 @@ export default function Home() {
      the one that has to know which of the module's screens is showing. */
   const { foodTab, setFoodTab, liveOrder, foodUnread } = useFood();
 
-  const [tab, setTab] = useState('explore');
+  /*
+   * Which tab a caller asked for, if any.
+   *
+   * The bar's tabs are local state rather than routes, so a screen that wants
+   * to send somebody to Food — the promo on the owner-confirmation wait, for
+   * one — has no href to push. This is that door: `/home?tab=food` opens on
+   * Food instead of Explore. It seeds the state and nothing more, so every
+   * tap on the bar afterwards behaves exactly as it always did.
+   */
+  const { tab: requestedTab } = useLocalSearchParams<{ tab?: string }>();
+  const [tab, setTab] = useState(
+    requestedTab && TABS.some((item) => item.id === requestedTab) ? requestedTab : 'explore',
+  );
   const [undo, setUndo] = useState<SavedEntry | null>(null);
   /**
    * Whether the feed has been widened from the chosen area to its whole city.
@@ -1033,39 +1050,14 @@ export default function Home() {
             )}
           </ScrollView>
 
-          {/* Floating Airbnb-Style Map Pill Button */}
+          {/* Floating Airbnb-Style Map Pill Button — draggable, because it
+              floats over the feed and whichever card it covers is somebody's.
+              See `DraggableMapPill`. */}
           {total > 0 && !feedLoading ? (
-            <View
-              pointerEvents="box-none"
-              style={[
-                styles.floatingMapContainer,
-                { bottom: barHeight + space[3] },
-              ]}
-            >
-              <Pressable
-                onPress={() => router.push('/(entry)/locality')}
-                style={({ pressed }) => [
-                  styles.floatingMapPill,
-                  {
-                    backgroundColor: mode === 'dark' ? colors.brand : colors.graphite,
-                    borderRadius: radius.pill,
-                    opacity: pressed ? 0.85 : 1,
-                    shadowColor: '#000000',
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.28,
-                    shadowRadius: 8,
-                    elevation: 6,
-                  },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Explore map and localities"
-              >
-                <Text variant="bodyStrong" style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 13 }}>
-                  Map
-                </Text>
-                <Icon name="mapPin" size={16} color="#FFFFFF" />
-              </Pressable>
-            </View>
+            <DraggableMapPill
+              onPress={() => router.push('/(entry)/locality')}
+              bottomInset={barHeight + space[3]}
+            />
           ) : null}
         </View>
       ) : tab === 'saved' ? (
@@ -1492,21 +1484,6 @@ const styles = StyleSheet.create({
   identity: { flexDirection: 'row', alignItems: 'center' },
   avatar: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
   couponCard: { padding: 16, gap: 2 },
-  floatingMapContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 20,
-  },
-  floatingMapPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    gap: 6,
-  },
   resultsSortHeader: {
     flexDirection: 'row',
     alignItems: 'center',

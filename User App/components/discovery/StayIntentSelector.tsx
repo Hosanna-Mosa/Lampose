@@ -314,11 +314,18 @@ type DropdownProps = {
 };
 
 /**
- * An inline anchored dropdown field.
+ * A field that opens the app's own `BottomSheet` to choose from.
  *
- * Renders the options card directly beneath the field in the layout flow.
- * This guarantees zero misplacement, perfect alignment, and seamless scrolling
- * on all screen sizes and platforms (iOS, Android, Web).
+ * This used to expand a options card directly beneath the field, in the
+ * layout flow. That guaranteed alignment, but the cost was everything BELOW
+ * it: opening "How many months" pushed Sharing and Joining date down the
+ * screen, and closing it snapped them back — the fields moved under a
+ * student who was still reading them, on every open and close.
+ *
+ * A `BottomSheet` is a native modal, painted in its own layer above the
+ * screen rather than a sibling within it, so nothing below this field
+ * shifts when it opens — the same reason `JoinDateField` below already
+ * reaches for one instead of an inline calendar.
  */
 function Dropdown({
   label,
@@ -327,13 +334,21 @@ function Dropdown({
   selectedId,
   onSelect,
   disabled = false,
+  sheetTitle,
   isOpen: controlledOpen,
   onToggle,
 }: DropdownProps) {
-  const { colors, space, radius, touch, elevation } = useTheme();
+  const { colors, space, radius, touch } = useTheme();
   const [internalOpen, setInternalOpen] = useState(false);
 
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
+  const close = () => {
+    if (onToggle) {
+      onToggle();
+    } else {
+      setInternalOpen(false);
+    }
+  };
   const toggleOpen = () => {
     if (disabled) return;
     if (onToggle) {
@@ -389,83 +404,65 @@ function Dropdown({
             <Icon name="chevronRight" size={20} color={open ? colors.brand : colors.textTertiary} />
           </View>
         </Pressable>
-
-        {open ? (
-          <View
-            style={[
-              elevation.float,
-              styles.inlinePanel,
-              {
-                marginTop: 4,
-                backgroundColor: colors.surface,
-                borderColor: colors.borderSubtle,
-                borderWidth: 1,
-                borderRadius: radius.card,
-                maxHeight: 220,
-              },
-            ]}
-          >
-            <ScrollView
-              bounces={false}
-              nestedScrollEnabled
-              contentContainerStyle={{ padding: space[1] }}
-              accessibilityRole="radiogroup"
-            >
-              {options.map((option) => {
-                const active = option.id === selectedId;
-                return (
-                  <Pressable
-                    key={option.id}
-                    onPress={() => {
-                      if (option.disabled) return;
-                      onSelect(option.id);
-                      if (onToggle) {
-                        onToggle();
-                      } else {
-                        setInternalOpen(false);
-                      }
-                    }}
-                    disabled={option.disabled}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: active, disabled: option.disabled }}
-                    accessibilityLabel={[option.label, option.price, option.meta]
-                      .filter(Boolean)
-                      .join(', ')}
-                    style={({ pressed }) => [
-                      styles.optionRow,
-                      {
-                        minHeight: touch.min,
-                        borderRadius: radius.button,
-                        paddingHorizontal: space[3],
-                        paddingVertical: space[2],
-                        gap: space[2],
-                        opacity: option.disabled ? 0.45 : 1,
-                        backgroundColor: active
-                          ? colors.brandTint
-                          : pressed
-                            ? colors.surfaceSunken
-                            : 'transparent',
-                      },
-                    ]}
-                  >
-                    <View style={styles.flex}>
-                      <Text variant="bodyStrong" color={active ? 'brand' : 'primary'} numberOfLines={1}>
-                        {option.label}
-                      </Text>
-                      {option.price || option.meta ? (
-                        <Text variant="numMeta" color={active ? 'brand' : 'secondary'} numberOfLines={1}>
-                          {[option.price, option.meta].filter(Boolean).join(' · ')}
-                        </Text>
-                      ) : null}
-                    </View>
-                    {active ? <Icon name="check" size={16} color={colors.brand} /> : null}
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </View>
-        ) : null}
       </View>
+
+      <BottomSheet visible={open} onClose={close} title={sheetTitle ?? label}>
+        <ScrollView
+          bounces={false}
+          nestedScrollEnabled
+          style={styles.sheetOptionList}
+          contentContainerStyle={{ paddingVertical: space[1], paddingBottom: space[4] }}
+          accessibilityRole="radiogroup"
+        >
+          {options.map((option) => {
+            const active = option.id === selectedId;
+            return (
+              <Pressable
+                key={option.id}
+                onPress={() => {
+                  if (option.disabled) return;
+                  onSelect(option.id);
+                  close();
+                }}
+                disabled={option.disabled}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: active, disabled: option.disabled }}
+                accessibilityLabel={[option.label, option.price, option.meta]
+                  .filter(Boolean)
+                  .join(', ')}
+                style={({ pressed }) => [
+                  styles.optionRow,
+                  {
+                    minHeight: touch.min,
+                    borderRadius: radius.button,
+                    paddingHorizontal: space[3],
+                    paddingVertical: space[2],
+                    gap: space[2],
+                    opacity: option.disabled ? 0.45 : 1,
+                    backgroundColor: active
+                      ? colors.brandTint
+                      : pressed
+                        ? colors.surfaceSunken
+                        : 'transparent',
+                  },
+                ]}
+              >
+                <View style={styles.flex}>
+                  <Text variant="bodyStrong" color={active ? 'brand' : 'primary'} numberOfLines={1}>
+                    {option.label}
+                  </Text>
+                  {option.price || option.meta ? (
+                    <Text variant="numMeta" color={active ? 'brand' : 'secondary'} numberOfLines={1}>
+                      {[option.price, option.meta].filter(Boolean).join(' · ')}
+                    </Text>
+                  ) : null}
+                </View>
+                {active ? <Icon name="check" size={16} color={colors.brand} /> : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </BottomSheet>
     </View>
   );
 }
@@ -478,10 +475,10 @@ function Dropdown({
  * questions and a differently-shaped control would read as a different kind of
  * thing.
  *
- * What opens is a sheet rather than the drop panel the others use. A month grid
- * is 300 points tall and does not belong in a panel sized to a field; and
- * unlike the other three this control has its own navigation, which needs room
- * for a header.
+ * What opens is its own `BottomSheet` call, separate from `Dropdown`'s, rather
+ * than a shared option-list sheet: a month grid is 300 points tall and does
+ * not belong in a panel sized for a row of text options, and unlike the other
+ * three this control has its own navigation, which needs room for a header.
  *
  * The calendar is the app's one `MoveInDatePicker`, so the pro-rated first
  * month appears here exactly as it does everywhere else.
@@ -890,9 +887,9 @@ const styles = StyleSheet.create({
   field: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   chevronDown: { transform: [{ rotate: '90deg' }] },
   chevronUp: { transform: [{ rotate: '-90deg' }] },
-  backdrop: { ...StyleSheet.absoluteFillObject },
-  panel: { position: 'absolute', borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
-  inlinePanel: { overflow: 'hidden' },
+  /* Caps the option list rather than letting the sheet itself grow unbounded
+     — "How many months" and the sharing list can both run past a screenful. */
+  sheetOptionList: { maxHeight: 360 },
   optionRow: { flexDirection: 'row', alignItems: 'center' },
   messRow: { flexDirection: 'row', alignItems: 'center' },
   /* The month name takes the middle and the two steppers hold their size, so

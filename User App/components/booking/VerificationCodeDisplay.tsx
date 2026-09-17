@@ -86,13 +86,23 @@ export function VerificationCodeDisplay({
         ))}
       </Animated.View>
 
-      {/* Unified Reference & Validity Capsule */}
+      {/*
+        Unified Reference & Validity Capsule.
+
+        The reference never shrinks and never truncates — it is the string
+        somebody reads down a phone line to support, and half of it is worse
+        than none. The validity note is the half that gives way: it is smaller,
+        it is allowed to shrink, and it ellipsizes on one line. Before this
+        the row could only overflow, and it overflowed CENTRED, so a long
+        validity label pushed "Booking LV-672426" out through the capsule's
+        left edge.
+      */}
       <View style={styles.metaBadgeRow}>
-        <Text style={styles.metaRefText}>
+        <Text style={styles.metaRefText} numberOfLines={1}>
           Booking {bookingReference}
         </Text>
         <View style={styles.metaDot} />
-        <Text style={styles.metaValidText}>
+        <Text style={styles.metaValidText} numberOfLines={1}>
           {validLabel}
         </Text>
       </View>
@@ -186,8 +196,10 @@ export function VerificationCodeProblem({
   return (
     <View
       style={{
+        // 10, matching the boxed cards this sits among on the booking screen
+        // — see `BOX_RADIUS` in `app/bookings/[id].tsx`.
         backgroundColor: content.tone.tint,
-        borderRadius: radius.card,
+        borderRadius: 10,
         borderWidth: 1,
         borderColor: content.tone.border,
         padding: space[4],
@@ -281,7 +293,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF3C7',
     borderColor: '#F59E0B',
     borderWidth: 1.5,
-    borderRadius: 14,
+    borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 10,
     alignSelf: 'stretch',
@@ -312,7 +324,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EEF2FF',
     borderColor: '#C7D2FE',
     borderWidth: 1.5,
-    borderRadius: 14,
+    borderRadius: 10,
     shadowColor: '#4338CA',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
@@ -330,33 +342,38 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 6,
     backgroundColor: '#F8FAFC',
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 7,
-    borderRadius: 20,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
+  /* Never shrinks: this is the string read out to support. */
   metaRefText: {
     fontSize: 12,
     fontWeight: '700',
     color: '#0F172A',
+    flexShrink: 0,
   },
   metaDot: {
     width: 4,
     height: 4,
     borderRadius: 2,
     backgroundColor: '#94A3B8',
+    flexShrink: 0,
   },
+  /* Smaller than the reference, and the one allowed to give way. */
   metaValidText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: '#64748B',
+    flexShrink: 1,
   },
   assurancesCard: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 14,
+    borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 10,
     gap: 8,

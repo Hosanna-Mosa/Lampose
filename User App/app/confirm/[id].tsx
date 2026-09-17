@@ -8,6 +8,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, ConfirmModal, InlineAlert, Text, TextField, useAlert } from '@/components/ui';
 import { StandardHeader, StateTemplate } from '@/components/shell';
 import { OwnerStatusTrail, WaitLoader, type TrailStep } from '@/components/request';
+/* Crossing from a stay screen into the food module's components, and only
+   for its banner — see `FoodWaitPromo` for why the wait is where this goes. */
+import { FoodWaitPromo } from '@/components/food';
 import { errorStates } from '@/constants/copy';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { ongoingQueryKey } from '@/hooks/useOngoing';
@@ -1207,9 +1210,21 @@ export default function OwnerConfirmation() {
               onPress={() => router.replace('/home')}
               fullWidth
             />
-            <Text variant="numMeta" color="tertiary" style={styles.centred}>
-              Nothing is charged at any point
-            </Text>
+
+            {/*
+              The wait, spent on something.
+
+              This is the one screen in the app that asks somebody to sit and
+              do nothing — the request is with the owner and no control here
+              changes that. The line that used to close the screen ("Nothing
+              is charged at any point") is already stated at the top of the
+              same flow and left the rest of a tall phone empty. The Food
+              hero's own carousel goes there instead; see `FoodWaitPromo` for
+              why it is that component rather than a smaller copy of it.
+            */}
+            <View style={{ marginTop: space[3] }}>
+              <FoodWaitPromo />
+            </View>
           </View>
         ) : ranOut || cancelled ? (
           <View style={{ gap: space[3] }}>

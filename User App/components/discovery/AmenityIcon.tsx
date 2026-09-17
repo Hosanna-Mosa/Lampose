@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { Icon, Text, type IconName } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
 import { AMENITY_LABEL, type Amenity, type AmenityName } from '@/types/listing';
-import type { StayCategory } from '@/constants/tokens';
+import type { StayCategory, TypeVariant } from '@/constants/tokens';
 
 /**
  * The 22-icon amenity set.
@@ -75,7 +75,7 @@ export const CATEGORY_AMENITY_PRIORITY: Record<StayCategory, readonly AmenityNam
   HOTEL: ['attachedBath', 'hotWater', 'ac', 'wifi', 'cctv', 'housekeeping', 'tv', 'drinkingWater'],
 };
 
-export type AmenityIconSize = 20 | 24 | 28;
+export type AmenityIconSize = 18 | 20 | 24 | 28;
 
 export type AmenityIconProps = {
   name: AmenityName;
@@ -90,6 +90,13 @@ export type AmenityIconProps = {
   label?: string;
   /** Stacks the label under the glyph instead of beside it. */
   stacked?: boolean;
+  /**
+   * Overrides the label's type step. Defaults to `numMeta` when stacked,
+   * `body` otherwise — pass `caption` for a denser layout, e.g. the full
+   * amenities grid, where eighteen-plus rows at `body` size read heavier
+   * than every other section on the screen.
+   */
+  textVariant?: TypeVariant;
   /**
    * How many lines the label may take.
    *
@@ -108,6 +115,7 @@ export function AmenityIcon({
   qualifier,
   label: labelOverride,
   stacked = false,
+  textVariant,
   maxLines,
 }: AmenityIconProps) {
   const { colors, space } = useTheme();
@@ -140,7 +148,7 @@ export function AmenityIcon({
           warning about the place rather than a missing facility. */}
       <Icon name={AMENITY_ICON[name]} size={size} color={colors.textPrimary} />
       <Text
-        variant={stacked ? 'numMeta' : 'body'}
+        variant={textVariant ?? (stacked ? 'numMeta' : 'body')}
         color={absent ? 'tertiary' : 'primary'}
         numberOfLines={maxLines ?? (stacked ? 2 : 1)}
         style={absent ? { textDecorationLine: 'line-through' } : undefined}
@@ -201,41 +209,24 @@ export type AmenityGridProps = {
    * gym.
    */
   category?: StayCategory;
-  /** How many to show before the button. Six is two columns by three rows. */
+  /** How many to show before the button. */
   initial?: number;
 };
 
 /**
  * The detail-screen grid: everything known, including what is absent.
  *
- * Two columns. Twenty-two amenities in one column is a scroll long enough that
- * nobody reaches the house rules under it, and the list is scanned rather than
- * read — two columns halve the travel and let the eye compare present against
- * absent without holding a position in memory.
+ * One column, full width. This used to run two columns, halving the row's
+ * width so a two-line qualifier — "Water · timed 6-9am" beside "Two-wheeler
+ * parking · Covered Parking" — wrapped inside a cramped cell, and (before
+ * that) the short cell's icon could land on top of the tall cell's wrapped
+ * second line. A single column gives every row the full width to lay out in,
+ * so the qualifier reads as one flowing line instead of a wrap fighting the
+ * cell it was squeezed into.
  *
- * The cost of halving the width is the qualifier, which is the half that
- * matters: "Water · timed 6-9am" is a fact, "Water" is a claim. So labels here
- * wrap to two lines rather than truncate, and the glyph pins to the first line.
- *
- * Two columns at every width the app ships to. The cell width comes from the
- * row rather than from the device: `flexBasis: '47%'` puts two per row and
- * `flexGrow: 1` expands them to consume what the column gap leaves over, so a
- * wider phone gets wider cells rather than a different layout.
- *
- * This screen used to consult `useShouldStack()` and collapse to one column
- * below 380dp — which took out 320, 360 and 375, half the target range, even
- * though the narrowest of them still yields a 135dp cell against a 134dp
- * content floor.
- *
- * `minWidth: 134` is that floor, and it is derived from content rather than
- * from a device list: the longest string here is 33 characters, two lines
- * allows about 17 each, and at 11.5pt that is ~102dp of text plus a 24pt icon
- * and its 8pt gap.
- *
- * Labels are allowed THREE lines rather than two. That is what holds the two
- * columns together at large font scales: a cell cannot get wider when text
- * grows, so it gets taller instead, and the qualifier — the half that carries
- * the fact — survives instead of truncating.
+ * Labels are still allowed three lines, which now only matters for a genuinely
+ * long free-text amenity at a large font scale rather than for the ordinary
+ * case.
  */
 export function AmenityGrid({ amenities, category, initial = 6 }: AmenityGridProps) {
   const { colors, space } = useTheme();
@@ -291,7 +282,7 @@ export function AmenityGrid({ amenities, category, initial = 6 }: AmenityGridPro
 
   return (
     <View style={{ gap: space[3] }}>
-      <View style={[styles.grid, { columnGap: space[3], rowGap: space[3] }]}>
+      <View style={{ gap: space[3] }}>
         {/* Keyed on the label rather than the name: every free-text amenity
             shares the name `other`, so a listing advertising both a gaming
             lounge and biometric security would otherwise render two cells
@@ -300,10 +291,11 @@ export function AmenityGrid({ amenities, category, initial = 6 }: AmenityGridPro
           <View key={amenity.label ?? amenity.name} style={styles.cell}>
             <AmenityIcon
               name={amenity.name}
-              size={24}
+              size={18}
               state={amenity.state}
               qualifier={amenity.qualifier}
               label={amenity.label}
+              textVariant="caption"
               maxLines={3}
             />
           </View>
@@ -311,13 +303,14 @@ export function AmenityGrid({ amenities, category, initial = 6 }: AmenityGridPro
       </View>
 
       {/*
-        A text link on the right, not a full-width button.
+        A text link, not a full-width button.
 
         A secondary button spanning the section reads as an action of equal
         weight to the grid above it — it is the widest thing in the block for
         something that only reveals rows already on the page. As text, aligned
-        to the trailing edge where the eye lands after the second column, it
-        reads as what it is: more of the same list.
+        to the leading edge where every row above it starts — the same edge
+        the icons and labels sit on — it reads as what it is: more of the
+        same list, not a separate action pulled off to the side.
 
         The count stays in the label. "See more" makes someone tap to find out
         whether tapping was worth it; "See all 18" lets them decide first.
@@ -346,7 +339,6 @@ const styles = StyleSheet.create({
   inline: { flexDirection: 'row', alignItems: 'center' },
   stacked: { alignItems: 'center', width: 76 },
   wrapRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
-  grid: { flexDirection: 'row', flexWrap: 'wrap' },
-  cell: { flexGrow: 1, flexBasis: '47%', minWidth: 134 },
-  moreLink: { alignSelf: 'flex-end' },
+  cell: { width: '100%' },
+  moreLink: { alignSelf: 'flex-start' },
 });

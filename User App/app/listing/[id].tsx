@@ -63,8 +63,23 @@ import { actions } from '@/constants/actions';
  * absent rather than greyed.
  */
 
+/**
+ * Every boxed section on this screen corners at this.
+ *
+ * One number rather than the 14/18/20 the sections had drifted to, and
+ * tighter than `radius.card` (16) — the page stacks six or seven bordered
+ * blocks down its length, and at 20 the stack read as a pile of pills
+ * rather than a document. Badges, avatars and icon chips keep their own
+ * radii: those are meant to be round.
+ */
+const BOX_RADIUS = 10;
+
+/** The price card's die-cut notch: a coupon's, not a plain rounded box's. */
+const TICKET_NOTCH_DIAMETER = 16;
+const TICKET_NOTCH_RADIUS = TICKET_NOTCH_DIAMETER / 2;
+
 export default function ListingDetail() {
-  const { colors, space, layout, mode, radius } = useTheme();
+  const { colors, space, layout, mode } = useTheme();
   const isDark = mode === 'dark';
   /* The same height PhotoHero measures for this device, so the pager's pages
      fill the slot exactly rather than being sized from a constant that is
@@ -104,6 +119,11 @@ export default function ListingDetail() {
      (`completeProfile`, `addAddress`) — that screen's own form stays in
      place as a safety net, for a request sent some way other than this
      button ever finds one still missing. */
+  /* Where the price card's dashed "tear line" sits, measured rather than
+     guessed — the block above it changes height with the rent's digit count
+     and whether the locality note wraps, so a fixed offset would drift off
+     the seam on some listings. See the price card's notches below. */
+  const [ticketSeamY, setTicketSeamY] = useState(0);
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const [profileName, setProfileName] = useState('');
   const [profileAddress, setProfileAddress] = useState('');
@@ -563,7 +583,7 @@ export default function ListingDetail() {
         scrollY={scrollY}
         onBack={() => router.back()}
         onAction={() => listing && toggleSaved(listing.id)}
-        actionIcon="bookmark"
+        actionIcon="heart"
         actionActive={saved}
       />
 
@@ -648,7 +668,7 @@ export default function ListingDetail() {
           <View style={styles.propertyTitleBlock}>
             <Text
               variant="title1"
-              style={{ color: colors.textPrimary, fontWeight: '800', fontSize: 24, lineHeight: 30 }}
+              style={{ color: colors.textPrimary, fontWeight: '800', fontSize: 17, lineHeight: 22 }}
             >
               {listing.name}
             </Text>
@@ -661,7 +681,21 @@ export default function ListingDetail() {
             </View>
           </View>
 
-          {/* Hero Pricing & Value Studio Card */}
+          {/*
+            Hero Pricing & Value Studio Card — shaped like a coupon rather
+            than a plain rounded box.
+
+            Two semicircular notches bite into the left and right edges at
+            the seam between "what it costs" (top) and "what you get"
+            (bottom), filled with the page's own background so they read as
+            a real die-cut rather than a ring drawn on top — the same cut a
+            physical offer ticket carries at its tear line, with a dashed
+            seam standing in for the perforation. The notches' vertical
+            position is MEASURED (`ticketSeamY`, from the seam's own
+            `onLayout`) rather than guessed, because the block above it
+            changes height with the rent's digit count and whether the
+            locality note wraps.
+          */}
           <View
             style={[
               styles.priceStudioCard,
@@ -700,9 +734,13 @@ export default function ListingDetail() {
             </View>
 
             <View
+              onLayout={(event) => {
+                const { y, height } = event.nativeEvent.layout;
+                setTicketSeamY(y + height / 2);
+              }}
               style={[
                 styles.priceStudioDivider,
-                { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.06)' },
+                { borderTopColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.14)' },
               ]}
             />
 
@@ -718,6 +756,24 @@ export default function ListingDetail() {
                 </Text>
               </View>
             </View>
+
+            {/* The die-cut itself — see the note above the card. */}
+            <View
+              pointerEvents="none"
+              style={[
+                styles.ticketNotch,
+                styles.ticketNotchLeft,
+                { top: ticketSeamY - TICKET_NOTCH_RADIUS, backgroundColor: colors.bg, borderColor: colors.brand },
+              ]}
+            />
+            <View
+              pointerEvents="none"
+              style={[
+                styles.ticketNotch,
+                styles.ticketNotchRight,
+                { top: ticketSeamY - TICKET_NOTCH_RADIUS, backgroundColor: colors.bg, borderColor: colors.brand },
+              ]}
+            />
           </View>
 
           {/* Unavailable Notice & Similar Stays */}
@@ -726,7 +782,7 @@ export default function ListingDetail() {
               <View
                 style={{
                   backgroundColor: colors.surfaceSunken,
-                  borderRadius: radius.card,
+                  borderRadius: BOX_RADIUS,
                   padding: space[4],
                   gap: space[2],
                 }}
@@ -901,20 +957,14 @@ export default function ListingDetail() {
           {/* Meal Plan */}
           {listing.meals ? <MealPlanCard plan={listing.meals} /> : null}
 
-          {/* Guest Reviews & Ratings */}
-          <GuestReviews listingId={listing.id} />
+          {/* Amenities & Facilities Showcase (Single dedicated place).
 
-          {/* Amenities & Facilities Showcase (Single dedicated place) */}
+              Ahead of the reviews deliberately: what a place HAS is a fact
+              the listing can always state, while "what guests say" is empty
+              on most listings today — an empty section between the meals
+              card and the amenities read as the page having run out. */}
           {listing.amenities?.length ? (
-            <View
-              style={[
-                styles.amenitiesCardWrapper,
-                {
-                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : colors.surface,
-                  borderColor: colors.borderSubtle,
-                },
-              ]}
-            >
+            <View style={styles.amenitiesCardWrapper}>
               <View style={styles.amenitiesHeaderRow}>
                 <SectionHeading
                   icon="security"
@@ -932,24 +982,30 @@ export default function ListingDetail() {
             </View>
           ) : null}
 
+          {/* Guest Reviews & Ratings */}
+          <GuestReviews listingId={listing.id} />
+
           {/* Legal Consent Gate */}
           <View
             style={{
               backgroundColor: consented ? colors.brandTint : colors.surface,
               borderColor: consented ? colors.brand : colors.border,
               borderWidth: consented ? 1.5 : StyleSheet.hairlineWidth,
-              borderRadius: radius.card,
-              paddingHorizontal: space[4],
-              paddingVertical: space[3],
-              gap: space[1],
+              borderRadius: BOX_RADIUS,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              gap: 0,
             }}
           >
             <Checkbox
               label="I accept the Privacy Policy and Terms and Conditions"
               checked={consented}
               onChange={setConsented}
+              size="sm"
             />
-            <View style={[styles.legalRow, { gap: space[3], paddingLeft: space[6] }]}>
+            {/* Indented past the box and its gap (16 + 6 at `size="sm"`), so
+                the links line up with the sentence they belong to. */}
+            <View style={[styles.legalRow, { gap: space[2], paddingLeft: 22, paddingBottom: 2 }]}>
               {[
                 { label: 'Privacy Policy', url: 'https://lampose.com/privacy' },
                 { label: 'Terms and Conditions', url: 'https://lampose.com/terms' },
@@ -1190,11 +1246,27 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   priceStudioCard: {
-    borderRadius: 20,
+    borderRadius: BOX_RADIUS,
     borderWidth: 1,
     padding: 16,
     gap: 12,
+    // The notches straddle this card's own edge, half in and half out —
+    // `relative` is what makes them position against IT rather than the
+    // page, and nothing here clips them off, unlike a card that sets
+    // `overflow: 'hidden'` for its rounded corners.
+    position: 'relative',
   },
+  /* The two bites taken out of the card's edges, at the seam's measured Y —
+     see `ticketSeamY` and the note above the card in the JSX. */
+  ticketNotch: {
+    position: 'absolute',
+    width: TICKET_NOTCH_DIAMETER,
+    height: TICKET_NOTCH_DIAMETER,
+    borderRadius: TICKET_NOTCH_RADIUS,
+    borderWidth: 1,
+  },
+  ticketNotchLeft: { left: -TICKET_NOTCH_RADIUS },
+  ticketNotchRight: { right: -TICKET_NOTCH_RADIUS },
   priceStudioTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1207,9 +1279,12 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 20,
   },
+  /* The "tear line" between what it costs and what you get — dashed, like
+     the perforation a real coupon splits along at its own die-cut notches. */
   priceStudioDivider: {
-    height: StyleSheet.hairlineWidth,
     width: '100%',
+    borderTopWidth: 1,
+    borderStyle: 'dashed',
   },
   priceStudioBottom: {
     flexDirection: 'row',
@@ -1223,7 +1298,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   stayConfigSection: {
-    borderRadius: 20,
+    borderRadius: BOX_RADIUS,
     borderWidth: 1,
     padding: 16,
     gap: 14,
@@ -1244,7 +1319,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 14,
-    borderRadius: 18,
+    borderRadius: BOX_RADIUS,
     borderWidth: 1,
   },
   hostAvatar: {
@@ -1261,15 +1336,12 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   amenitiesCardWrapper: {
-    borderRadius: 20,
-    borderWidth: 1,
-    padding: 16,
     gap: 14,
   },
   amenitiesHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 8,
   },
   amenitiesCountPill: {
     paddingHorizontal: 8,
@@ -1299,7 +1371,7 @@ function Stars({ rating }: { rating: number }) {
 }
 
 function GuestReviews({ listingId }: { listingId: string }) {
-  const { colors, space, radius } = useTheme();
+  const { colors, space } = useTheme();
   const { reviews, averageRating, count, isPending } = useListingReviews(listingId);
 
   /* Nothing to say yet, and still loading is not "nothing". */
@@ -1333,7 +1405,7 @@ function GuestReviews({ listingId }: { listingId: string }) {
               backgroundColor: colors.warning.tint,
               borderLeftColor: colors.warning.base,
               borderLeftWidth: 3,
-              borderRadius: radius.card,
+              borderRadius: BOX_RADIUS,
               padding: space[4],
               gap: space[2],
             }}

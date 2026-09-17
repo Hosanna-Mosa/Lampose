@@ -73,7 +73,11 @@ export function DirectionsButton({
         </View>
       ) : null}
 
-      <Button label={label} variant={variant} onPress={open} fullWidth icon="mapPin" />
+      {/* The pin breathes. This is the one control on the screen that leaves
+          the app, and on a booking page of otherwise static cards the movement
+          is what finds it. An infinite loop, and a counted one — see
+          `ambient.mapsPinPulse` in `motion.ts` before repeating it elsewhere. */}
+      <Button label={label} variant={variant} onPress={open} fullWidth icon="mapPin" iconPulse />
 
       {failed ? (
         <View style={[styles.row, { gap: space[2] }]}>
