@@ -1,5 +1,5 @@
 import { StyleSheet, View } from 'react-native';
-import { Text, Input, Select, Segmented, Chip, ChipRow, Checkbox, FieldLabel } from '@/components/ui';
+import { Text, Input, Select, Segmented, Chip, ChipRow, Checkbox, FieldLabel } from '@/components/common';
 import { useColors } from '@/hooks/useColors';
 
 /**

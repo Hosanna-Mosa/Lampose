@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Checkbox, IconButton, Input, Button, Text } from '@/components/ui';
+import { Checkbox, IconButton, Input, Button, Text } from '@/components/common';
 import { useColors } from '@/hooks/useColors';
 
 /**

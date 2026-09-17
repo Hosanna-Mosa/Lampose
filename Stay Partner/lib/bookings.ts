@@ -1,4 +1,4 @@
-import type { BookingStatus, PaymentStatus } from '@/components/ui';
+import type { BookingStatus, PaymentStatus } from '@/components/common';
 import { netOn } from './fees';
 
 /**

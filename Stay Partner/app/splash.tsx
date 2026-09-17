@@ -1,22 +1,8 @@
-import { Pressable, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
-import { SplashView } from '@/components/SplashView';
-
-/**
- * Inspection route for the splash, reachable from Menu → Build reference.
- * The real splash renders from the root layout during boot; this exists so it
- * can be looked at without restarting the app. Tap anywhere to leave.
- * Build-time only; delete before ship.
+/*
+ * Route: /splash.tsx
+ *
+ * The screen lives in components/splash/. This file stays at its route path and keeps
+ * its default export, because with file-based routing the path IS the route --
+ * moving or renaming it deletes the screen behind a green build (M5).
  */
-export default function SplashRoute() {
-  const router = useRouter();
-  return (
-    <Pressable style={styles.fill} onPress={() => router.back()} accessibilityLabel="Close splash preview">
-      <SplashView />
-    </Pressable>
-  );
-}
-
-const styles = StyleSheet.create({
-  fill: { flex: 1 },
-});
+export { SplashRouteScreen as default } from '@/components/splash/SplashRouteScreen';

@@ -1,0 +1,1 @@
+export { BareInput } from './BareInput';

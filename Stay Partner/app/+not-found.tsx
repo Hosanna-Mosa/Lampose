@@ -1,21 +1,8 @@
-import { Stack, useRouter } from 'expo-router';
-import { Screen, EmptyState } from '@/components/ui';
-
-export default function NotFoundScreen() {
-  const router = useRouter();
-
-  return (
-    <>
-      <Stack.Screen options={{ headerShown: false }} />
-      <Screen scroll={false} background="bg">
-        <EmptyState
-            icon="search"
-            title="This screen doesn't exist"
-            body="The link you followed points somewhere that isn't part of the app."
-            actionLabel="Go to Today"
-            onAction={() => router.replace('/')}
-        />
-      </Screen>
-    </>
-  );
-}
+/*
+ * Route: /+not-found.tsx
+ *
+ * The screen lives in components/not-found/. This file stays at its route path and keeps
+ * its default export, because with file-based routing the path IS the route --
+ * moving or renaming it deletes the screen behind a green build (M5).
+ */
+export { NotFoundScreen as default } from '@/components/not-found/NotFoundScreen';

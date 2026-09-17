@@ -9,7 +9,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { StatusBar } from 'expo-status-bar';
-import { Text } from '@/components/ui';
+import { Text } from '@/components/common';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 

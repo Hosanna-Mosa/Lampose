@@ -13,7 +13,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { Button, Icon, Text } from '@/components/ui';
+import { Button, Icon, Text } from '@/components/common';
 import { useColors } from '@/hooks/useColors';
 import { fonts } from '@/constants/typography';
 import type { BackendPartnerRequest } from '@/services/api/types';

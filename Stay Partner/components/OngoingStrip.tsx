@@ -1,10 +1,11 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { Icon, Text, type IconName } from '@/components/ui';
+import { Icon, Text, type IconName } from '@/components/common';
 import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
+import { boldBody } from '@/components/common/utils/styles';
 
 /**
  * What is still open, docked above the tab bar on Today.
@@ -170,6 +171,6 @@ const styles = StyleSheet.create({
   },
   tile: { width: 38, height: 38, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   body: { flex: 1, gap: 1 },
-  name: { fontFamily: fonts.bold, fontSize: 15, lineHeight: 20 },
+  name: { ...boldBody },
   row: { flexDirection: 'row', gap: 12, paddingVertical: 4 },
 });

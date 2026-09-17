@@ -6,7 +6,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { AlertProvider } from '@/components/ui/AppAlert';
+import { AlertProvider } from '@/components/common/organisms/AlertProvider';
 import { SplashView } from '@/components/SplashView';
 import colors from '@/constants/colors';
 import {
