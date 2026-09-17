@@ -1,0 +1,1 @@
+export { ShareTypesBanner } from './ShareTypesBanner';

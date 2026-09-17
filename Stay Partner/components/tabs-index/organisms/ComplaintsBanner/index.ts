@@ -1,0 +1,1 @@
+export { ComplaintsBanner } from './ComplaintsBanner';

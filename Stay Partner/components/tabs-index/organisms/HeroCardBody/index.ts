@@ -1,0 +1,1 @@
+export { HeroCardBody } from './HeroCardBody';

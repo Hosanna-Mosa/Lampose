@@ -1,0 +1,1 @@
+export { AadharUploadTile } from './AadharUploadTile';
