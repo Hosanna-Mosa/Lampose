@@ -1,15 +1,35 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Keyboard,
+  Modal,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from 'react-native';
+import Animated, {
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 
 import {
-  Button, OfflineBanner, SearchField, Snackbar, Text, useAlert,
+  Button, Icon, OfflineBanner, SearchField, Snackbar, Text, useAlert,
 } from '@/components/ui';
 import {
   ExploreHeader, OngoingStrip, StateTemplate, TabBar, type TabItem,
 } from '@/components/shell';
 import {
+  AirbnbSearchBar,
   CategoryTabs,
   CATEGORY_LABEL,
   FilterChipRow,
@@ -17,8 +37,10 @@ import {
   type FilterChip,
   ListingCard,
   ListingCardSkeleton,
+  QuickFilterDropdown,
   SavedRow,
   type SavedEntry,
+  StayHeroSection,
 } from '@/components/discovery';
 import { AppearanceRow, BookingRow, BookingSegments, ProfileGroup, ProfileRow } from '@/components/lifecycle';
 import { FoodComingSoon, FoodModule } from '@/components/food';
@@ -42,9 +64,10 @@ import { BACKEND_CATEGORIES } from '@/services/adapters/listing.adapter';
 import { isAllLocalities } from '@/types/auth';
 import { genderMeta, isGone } from '@/types/listing';
 import {
-  activeFilterCount, applyQuery, EMPTY_QUERY, filterSpecFor, type SearchQuery,
+  activeFilterCount, applyQuery, EMPTY_QUERY, filterSpecFor, type SearchQuery, type SortKey,
 } from '@/types/filters';
 import { ownerWindowLabel } from '@/types/request';
+import { withAlpha } from '@/utils/color';
 
 /**
  * Home — four carousels, one per category.
@@ -75,7 +98,7 @@ const TABS: readonly TabItem[] = [
   { id: 'explore', label: 'Home', icon: 'home' },
   { id: 'saved', label: 'Saved', icon: 'bookmark' },
   { id: 'bookings', label: 'Bookings', icon: 'calendar' },
-  { id: 'food', label: 'Food', icon: 'food', raised: true, tone: 'caution' },
+  // { id: 'food', label: 'Food', icon: 'food', raised: true, tone: 'caution' },
 ];
 
 /**
@@ -194,6 +217,7 @@ export default function Home() {
     [category],
   );
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const FOOD_MODE = useFoodMode();
   const [segment, setSegment] = useState<BookingSegment>('active');
   /*
@@ -597,41 +621,172 @@ export default function Home() {
     setTab(next);
   };
 
-  const header = (
-    <ExploreHeader
-      locality={locality?.name ?? 'Choose an area'}
-      /* The sentinel carries no city, and "All locations · " with nothing
-         after it reads as a bug rather than as a scope. */
-      city={locality && !everywhere ? locality.city : undefined}
-      onPressLocality={() => router.push('/(entry)/locality')}
-      /*
-       * Same two icons, repointed while Food is open — the header pivots
-       * exactly the way the bottom bar already does, just without a swap
-       * animation of its own: nothing here is a set of tabs to cross-fade,
-       * only two destinations that quietly change what they open.
-       *
-       * Alerts is not a tab either side of the pivot — the stay pivot
-       * promoted Saved into the tab bar and this one has no tab to give it.
-       * The bell keeps it one tap from the feed on both sides.
-       */
-      onPressAlerts={() =>
-        router.push(inFoodModule ? foodHref.notifications : '/notifications')
-      }
-      alertCount={inFoodModule ? foodUnread : unread}
-      // Profile lost its tab to Food; the header is its one door on both
-      // sides, and which profile it opens follows the same pivot.
-      onPressProfile={() => (inFoodModule ? router.push(foodHref.profile) : setTab('profile'))}
-      userName={user?.name}
-      variant={headerOverlay ? 'overlay' : 'surface'}
-    />
+  /**
+   * Committing the typed term.
+   *
+   * Typing already filters — `debouncedSearch` follows the field 250ms
+   * behind — so this is not what makes the search happen. It is what lets a
+   * thumb say "that one, now": the pending debounce is flushed and the
+   * keyboard goes away, which on a 5-inch phone is the difference between
+   * seeing one result and seeing four.
+   */
+  const submitSearch = useCallback(() => {
+    Keyboard.dismiss();
+    setDebouncedSearch(searchTerm.trim());
+  }, [searchTerm]);
+
+  const headerProps = {
+    locality: locality?.name ?? 'Choose an area',
+    /* The sentinel carries no city, and "All locations · " with nothing
+       after it reads as a bug rather than as a scope. */
+    city: locality && !everywhere ? locality.city : undefined,
+    onPressLocality: () => router.push('/(entry)/locality'),
+    /*
+     * Same two icons, repointed while Food is open — the header pivots
+     * exactly the way the bottom bar already does, just without a swap
+     * animation of its own: nothing here is a set of tabs to cross-fade,
+     * only two destinations that quietly change what they open.
+     *
+     * Alerts is not a tab either side of the pivot — the stay pivot
+     * promoted Saved into the tab bar and this one has no tab to give it.
+     * The bell keeps it one tap from the feed on both sides.
+     */
+    onPressAlerts: () =>
+      router.push(inFoodModule ? foodHref.notifications : '/notifications'),
+    alertCount: inFoodModule ? foodUnread : unread,
+    // Profile lost its tab to Food; the header is its one door on both
+    // sides, and which profile it opens follows the same pivot.
+    onPressProfile: () => (inFoodModule ? router.push(foodHref.profile) : setTab('profile')),
+    userName: user?.name,
+  };
+
+  const sortDisplayLabel = useMemo(() => {
+    switch (query.sort) {
+      case 'rentLow':
+        return 'Price: Low to High';
+      case 'depositLow':
+        return 'Deposit: Low to High';
+      default:
+        return 'Relevance';
+    }
+  }, [query.sort]);
+
+  const handleToggleSortDropdown = useCallback(() => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    setActiveDropdown((curr) => (curr === 'sort' ? null : 'sort'));
+  }, []);
+
+  const headerLocality = everywhere
+    ? 'All locations'
+    : locality?.name ?? 'Choose an area';
+  const headerCity = everywhere
+    ? undefined
+    : locality?.city ?? undefined;
+
+  const searchBarProps = {
+    locality: headerLocality,
+    city: headerCity,
+    categoryLabel: category ? CATEGORY_LABEL[category] : 'PG / Hostel',
+    value: searchTerm,
+    onChangeText: setSearchTerm,
+    onSubmitEditing: submitSearch,
+    onClear: () => setSearchTerm(''),
+    onPressLocality: () => router.push('/(entry)/locality'),
+    onPressFilters: () => setFiltersOpen(true),
+    activeFilterCount: filterCount,
+  };
+
+  const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
+  const bannerHeight = Math.round((screenWidth * 9) / 16);
+  // Dock cleanly as the hero banner scrolls off-screen under the safe-area
+  const stickyThreshold = Math.max(100, bannerHeight - insets.top - 16);
+
+  const scrollY = useSharedValue(0);
+  const [isScrolledPastHero, setIsScrolledPastHero] = useState(false);
+
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      barScroll(event);
+      const y = event.nativeEvent.contentOffset.y;
+      scrollY.value = y;
+      const shouldDock = y >= stickyThreshold;
+      setIsScrolledPastHero((prev) => (prev !== shouldDock ? shouldDock : prev));
+    },
+    [barScroll, scrollY, stickyThreshold],
+  );
+
+  const dockedHeaderAnimatedStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      scrollY.value,
+      [stickyThreshold - 30, stickyThreshold],
+      [0, 1],
+      'clamp',
+    );
+    const translateY = interpolate(
+      scrollY.value,
+      [stickyThreshold - 30, stickyThreshold],
+      [-8, 0],
+      'clamp',
+    );
+    return {
+      opacity,
+      transform: [{ translateY }],
+    };
+  });
+
+  const header = <ExploreHeader {...headerProps} variant={headerOverlay ? 'overlay' : 'surface'} />;
+
+  const exploreHero = (
+    <View
+      style={{
+        backgroundColor: colors.surface,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.borderSubtle,
+        paddingBottom: space[2],
+        gap: space[2],
+      }}
+    >
+      <ExploreHeader {...headerProps} variant="hero" />
+
+      <View style={{ paddingHorizontal: layout.gutter }}>
+        <AirbnbSearchBar
+          locality={headerLocality}
+          city={headerCity}
+          categoryLabel={category ? CATEGORY_LABEL[category] : undefined}
+          value={searchTerm}
+          onChangeText={setSearchTerm}
+          onSubmitEditing={submitSearch}
+          onClear={() => setSearchTerm('')}
+          onPressLocality={() => router.push('/(entry)/locality')}
+          onPressFilters={() => setFiltersOpen(true)}
+          activeFilterCount={filterCount}
+        />
+      </View>
+
+      {category ? <CategoryTabs value={category} onChange={setCategory} variant="airbnb" /> : null}
+    </View>
   );
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      {/* Light while the bar is over artwork: the banner's own scrim darkens
-          the top of the picture, so the clock and battery follow the header's
-          ink rather than the theme's. */}
-      <StatusBar style={headerOverlay || mode === 'dark' ? 'light' : 'dark'} />
+      {/* Dynamic status bar: 'light' over the dark bedroom hero banner, adapting to theme mode
+          when the docked sticky header is active so icons are always crystal clear */}
+      <StatusBar
+        style={
+          tab === 'explore'
+            ? isScrolledPastHero
+              ? mode === 'dark'
+                ? 'light'
+                : 'dark'
+              : 'light'
+            : headerOverlay || mode === 'dark'
+            ? 'light'
+            : 'dark'
+        }
+      />
 
       {/* The one header, drawn in flow. On Food Home it is NOT drawn here:
           it is the same element, pinned over the banner further down so
@@ -639,7 +794,7 @@ export default function Home() {
           would stack two bars in the same place — two localities, two
           profile marks, and a banner pushed down by a bar that is not
           supposed to occupy any height there. */}
-      {inFoodHome ? null : header}
+      {inFoodHome ? null : tab === 'explore' ? null : header}
 
       {/* Persistent, and it always states the age of what is on screen — a
           stale rent is the dangerous case. The age is only claimed while the
@@ -648,211 +803,271 @@ export default function Home() {
       <OfflineBanner offline={offline} ageLabel={listings.length ? 'last loaded copy' : undefined} />
 
       {tab === 'explore' ? (
-        <ScrollView
-          contentContainerStyle={{
-            paddingTop: space[2],
-            /* `barHeight` on top of the usual tail, because the bar floats over
-               this list rather than sitting under it. */
-            paddingBottom: space[8] + barHeight,
-            gap: space[4],
-          }}
-          showsVerticalScrollIndicator={false}
-          onScroll={barScroll}
-          scrollEventThrottle={16}
-          refreshControl={
-            <RefreshControl
-              refreshing={feedFetching && !feedLoading}
-              onRefresh={() => refetchFeed()}
-              tintColor={colors.brand}
-            />
-          }
-        >
-          {/* Controls section — grouped tightly for a clean header layout */}
-          <View style={{ gap: space[2] }}>
-            {/* No `setQuery(EMPTY_QUERY)` on change any more — each category
-                keeps its own filters, so switching tabs shows that category's
-                feed as it was left rather than wiping what was set. See
-                `queries` above. */}
-            {category ? <CategoryTabs value={category} onChange={setCategory} /> : null}
-
-            <View style={{ paddingHorizontal: layout.gutter }}>
-              <SearchField
-                value={searchTerm}
-                onChangeText={setSearchTerm}
-                onClear={() => setSearchTerm('')}
-                placeholder={total ? `Search ${total} ${total === 1 ? 'place' : 'places'} by name or area…` : 'Search places by name or area…'}
-              />
+        <View style={{ flex: 1 }}>
+          {/* Docked Sticky Header: stays pinned at the very top of the screen when scrolling through listings */}
+          <Animated.View
+            style={[
+              styles.dockedHeader,
+              {
+                paddingTop: insets.top + 4,
+                backgroundColor: colors.bg,
+                borderBottomColor: colors.borderSubtle,
+              },
+              dockedHeaderAnimatedStyle,
+            ]}
+            pointerEvents={isScrolledPastHero ? 'auto' : 'none'}
+          >
+            <View style={{ paddingHorizontal: layout.gutter, paddingBottom: 6 }}>
+              <AirbnbSearchBar {...searchBarProps} />
             </View>
 
+            {category ? (
+              <View style={{ paddingBottom: 6 }}>
+                <CategoryTabs value={category} onChange={setCategory} variant="airbnb" />
+              </View>
+            ) : null}
+          </Animated.View>
+
+          <ScrollView
+            contentContainerStyle={{
+              paddingTop: 0,
+              /* `barHeight` on top of the usual tail, because the bar floats over
+                 this list rather than sitting under it. */
+              paddingBottom: space[8] + barHeight,
+              gap: space[3],
+            }}
+            showsVerticalScrollIndicator={false}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            refreshControl={
+              <RefreshControl
+                refreshing={feedFetching && !feedLoading}
+                onRefresh={() => refetchFeed()}
+                tintColor={colors.brand}
+              />
+            }
+          >
+            {/* Top Lifestyle Bedroom Hero with Looking In, Search & Typography */}
+            <StayHeroSection
+              locality={headerLocality}
+              city={headerCity}
+              onPressLocality={() => router.push('/(entry)/locality')}
+              onPressAlerts={() =>
+                router.push(inFoodModule ? foodHref.notifications : '/notifications')
+              }
+              alertCount={inFoodModule ? foodUnread : unread}
+              onPressProfile={() => (inFoodModule ? router.push(foodHref.profile) : setTab('profile'))}
+              userName={user?.name ?? 'Varun'}
+              searchBarProps={searchBarProps}
+            />
+
+            {/* Category Segment Tabs */}
+            {category ? (
+              <View style={{ marginVertical: 2 }}>
+                <CategoryTabs value={category} onChange={setCategory} variant="airbnb" />
+              </View>
+            ) : null}
+
+            {/* Filter Chips Bar */}
             <FilterChipRow
               chips={quickChips}
               activeCount={filterCount}
               onPressFilters={() => setFiltersOpen(true)}
-              onPressChip={() => setFiltersOpen(true)}
+              onPressChip={(id) => setActiveDropdown((prev) => (prev === id ? null : id))}
               onClearChip={clearChip}
+              activeDropdownId={activeDropdown}
             />
-          </View>
 
-          {feedLoading ? (
-            <View style={{ paddingHorizontal: layout.gutter, gap: space[4] }}>
-              {[0, 1, 2].map((key) => (
-                <ListingCardSkeleton key={key} variant="list" />
-              ))}
-            </View>
-          ) : feedError ? (
-            /*
-             * A failed fetch is not an empty area.
-             *
-             * The empty states below name a locality and a rent ceiling and
-             * invite the student to widen them — advice that is actively
-             * wrong when the truth is that nothing was ever received. This
-             * says what happened and offers the only useful action, which is
-             * to ask again.
-             */
-            <View style={{ paddingHorizontal: layout.gutter, gap: space[3] }}>
-              <Text variant="title2">We could not load places</Text>
-              <Text variant="bodyLg" color="secondary">
-                {feedError.displayMessage}
-              </Text>
-              <Button
-                label={feedFetching ? 'Trying…' : 'Try again'}
-                onPress={() => refetchFeed()}
-                disabled={feedFetching}
-                fullWidth
-              />
-            </View>
-          ) : total === 0 ? (
-            debouncedSearch ? (
-              <View style={{ paddingHorizontal: layout.gutter, gap: space[3], paddingVertical: space[4] }}>
-                <Text variant="title2">No places found for "{debouncedSearch}"</Text>
-                <Text variant="bodyLg" color="secondary">
-                  We couldn't find any property matching your search term. Try searching for a different property name, locality or amenity.
-                </Text>
-                <Button
-                  label="Clear search"
-                  variant="secondary"
-                  onPress={() => setSearchTerm('')}
-                  fullWidth
-                />
+            {feedLoading ? (
+              <View style={{ paddingHorizontal: layout.gutter, gap: space[4] }}>
+                {[0, 1, 2].map((key) => (
+                  <ListingCardSkeleton key={key} variant="list" />
+                ))}
               </View>
-            ) : filterCount === 0 ? (
-              <StateTemplate
-                copy={emptyStates.noneInCategory({
-                  categoryPlural: `${CATEGORY_LABEL[category!].toLowerCase()}s`,
-                  locality: scopeLabel,
-                  otherCategoryCount,
-                })}
-                onPrimary={() => router.push('/(entry)/locality')}
-                onSecondary={() => {}}
-              />
-            ) : (
-            /*
-             * Two shapes, because there are two ways to over-filter.
-             *
-             * The rich copy promises a count and a ceiling, and it can only
-             * be shown when both are counted from the response. A ceiling
-             * with nothing above it, or a filter that is not the ceiling at
-             * all, gets the plain version — a sentence that names what is on
-             * and a button that clears it. Filling the rich template with
-             * placeholders would have the student tap "Raise ceiling to
-             * ₹12,000" and find nothing there.
-             */
-            relaxed && nearby ? (
-              <StateTemplate
-                copy={emptyStates.noSearchResults({
-                  locality: scopeLabel,
-                  rentCeiling: `₹${query.rentCeiling!.toLocaleString('en-IN')}`,
-                  fittingCount: relaxed.count,
-                  suggestedCeiling: `₹${relaxed.ceiling.toLocaleString('en-IN')}`,
-                  nearbyCount: nearby.listingCount,
-                  nearbyLocality: nearby.name,
-                })}
-                onPrimary={() => setQuery({ ...query, rentCeiling: relaxed.ceiling })}
-                onSecondary={() => router.push('/(entry)/locality')}
-              />
-            ) : (
+            ) : feedError ? (
               <View style={{ paddingHorizontal: layout.gutter, gap: space[3] }}>
-                <Text variant="title2">Nothing matches all of this</Text>
+                <Text variant="title2">We could not load places</Text>
                 <Text variant="bodyLg" color="secondary">
-                  {listings.length} {listings.length === 1 ? 'place is' : 'places are'} listed in{' '}
-                  {scopeLabel}, and none of them match every
-                  filter you have set.
+                  {feedError.displayMessage}
                 </Text>
                 <Button
-                  label="Clear all filters"
-                  variant="secondary"
-                  onPress={() => setQuery(EMPTY_QUERY)}
-                  fullWidth
-                />
-                <Button
-                  label="Search another area"
-                  variant="ghost"
-                  onPress={() => router.push('/(entry)/locality')}
+                  label={feedFetching ? 'Trying…' : 'Try again'}
+                  onPress={() => refetchFeed()}
+                  disabled={feedFetching}
                   fullWidth
                 />
               </View>
-            )
-            )
-          ) : (
-            <View style={{ paddingHorizontal: layout.gutter, gap: space[4] }}>
-              {/* The count names the category AND the place it counted in, so
-                  the feed says out loud what it is filtered to. A silent
-                  filter is why people conclude an app "has nothing" — and
-                  naming the wrong place is why a count looks broken. */}
-              <Text variant="caption" color="secondary">
-                {total} {CATEGORY_LABEL[category!].toLowerCase()}
-                {total === 1 ? '' : 's'} in {scopeLabel}
-              </Text>
+            ) : total === 0 ? (
+              debouncedSearch ? (
+                <View style={{ paddingHorizontal: layout.gutter, gap: space[3], paddingVertical: space[4] }}>
+                  <Text variant="title2">No places found for "{debouncedSearch}"</Text>
+                  <Text variant="bodyLg" color="secondary">
+                    We couldn't find any property matching your search term. Try searching for a different property name, locality or amenity.
+                  </Text>
+                  <Button
+                    label="Clear search"
+                    variant="secondary"
+                    onPress={() => setSearchTerm('')}
+                    fullWidth
+                  />
+                </View>
+              ) : filterCount === 0 ? (
+                <StateTemplate
+                  copy={emptyStates.noneInCategory({
+                    categoryPlural: `${CATEGORY_LABEL[category!].toLowerCase()}s`,
+                    locality: scopeLabel,
+                    otherCategoryCount,
+                  })}
+                  onPrimary={() => router.push('/(entry)/locality')}
+                  onSecondary={() => {}}
+                />
+              ) : (
+                relaxed && nearby ? (
+                  <StateTemplate
+                    copy={emptyStates.noSearchResults({
+                      locality: scopeLabel,
+                      rentCeiling: `₹${query.rentCeiling!.toLocaleString('en-IN')}`,
+                      fittingCount: relaxed.count,
+                      suggestedCeiling: `₹${relaxed.ceiling.toLocaleString('en-IN')}`,
+                      nearbyCount: nearby.listingCount,
+                      nearbyLocality: nearby.name,
+                    })}
+                    onPrimary={() => setQuery({ ...query, rentCeiling: relaxed.ceiling })}
+                    onSecondary={() => router.push('/(entry)/locality')}
+                  />
+                ) : (
+                  <View style={{ paddingHorizontal: layout.gutter, gap: space[3] }}>
+                    <Text variant="title2">Nothing matches all of this</Text>
+                    <Text variant="bodyLg" color="secondary">
+                      {listings.length} {listings.length === 1 ? 'place is' : 'places are'} listed in{' '}
+                      {scopeLabel}, and none of them match every
+                      filter you have set.
+                    </Text>
+                    <Button
+                      label="Clear all filters"
+                      variant="secondary"
+                      onPress={() => setQuery(EMPTY_QUERY)}
+                      fullWidth
+                    />
+                    <Button
+                      label="Search another area"
+                      variant="ghost"
+                      onPress={() => router.push('/(entry)/locality')}
+                      fullWidth
+                    />
+                  </View>
+                )
+              )
+            ) : (
+              <View style={{ paddingHorizontal: layout.gutter, gap: space[4] }}>
+                {/* Results Count & Sort Dropdown matching the photo */}
+                <View style={styles.resultsSortHeader}>
+                  <Text
+                    style={[styles.resultsCountText, { color: colors.textPrimary }]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {total} {category === 'PG_HOSTEL' ? 'PG / hostel' : category === 'BACHELOR' ? 'bachelor room' : category === 'HOTEL' ? 'hotel' : 'house'}
+                    {total === 1 ? '' : 's'} in {scopeLabel}
+                  </Text>
+                  <Pressable
+                    onPress={handleToggleSortDropdown}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    style={({ pressed }) => [
+                      styles.sortDropdownButton,
+                      { opacity: pressed ? 0.6 : 1 },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Sort by ${sortDisplayLabel}`}
+                  >
+                    <Text style={[styles.sortPrefixText, { color: colors.textSecondary }]}>Sort by </Text>
+                    <Text
+                      style={[
+                        styles.sortActiveText,
+                        { color: activeDropdown === 'sort' ? colors.brand : colors.textPrimary },
+                      ]}
+                    >
+                      {sortDisplayLabel}
+                    </Text>
+                    <View
+                      style={{
+                        marginLeft: 3,
+                        transform: [{ rotate: activeDropdown === 'sort' ? '-90deg' : '90deg' }],
+                      }}
+                    >
+                      <Icon
+                        name="chevronRight"
+                        size={12}
+                        color={activeDropdown === 'sort' ? colors.brand : colors.textSecondary}
+                      />
+                    </View>
+                  </Pressable>
+                </View>
 
-              {/*
-                One tap wider, with the real figure on it.
+                {canWiden ? (
+                  <Button
+                    label={`See all ${cityTotal} in ${locality?.city}`}
+                    variant="secondary"
+                    size="xs"
+                    onPress={() => setWholeCity(true)}
+                  />
+                ) : wholeCity && locality ? (
+                  <Button
+                    label={`Back to ${locality.name} only`}
+                    variant="ghost"
+                    size="xs"
+                    onPress={() => setWholeCity(false)}
+                  />
+                ) : null}
+                {shown.map((listing, index) => (
+                  <ListingCard
+                    key={listing.id}
+                    listing={{ ...listing, saved: isSaved(listing.id) }}
+                    variant="list"
+                    index={index}
+                    onPress={() => router.push(`/listing/${listing.id}`)}
+                    onToggleSave={() => toggleSaved(listing.id)}
+                  />
+                ))}
+              </View>
+            )}
+          </ScrollView>
 
-                An area holding two places is a thin feed, and the answer is
-                not to quietly show the whole city — that is what made the
-                area counts look wrong. It is to show the area, say so, and
-                offer the city as a choice somebody makes.
-              */}
-              {/* `xs`, because this is an offer sitting between a count and a
-                  feed rather than the thing the screen is asking for. Both
-                  states take the same size — they are one control, and a
-                  button that changed height when you tapped it would read as
-                  the layout jumping. */}
-              {canWiden ? (
-                <Button
-                  label={`See all ${cityTotal} in ${locality?.city}`}
-                  variant="secondary"
-                  size="xs"
-                  onPress={() => setWholeCity(true)}
-                />
-              ) : wholeCity && locality ? (
-                <Button
-                  label={`Back to ${locality.name} only`}
-                  variant="ghost"
-                  size="xs"
-                  onPress={() => setWholeCity(false)}
-                />
-              ) : null}
-              {shown.map((listing) => (
-                <ListingCard
-                  key={listing.id}
-                  /* `saved` drives the filled bookmark, and it comes from the
-                     shortlist query rather than the feed — the listings
-                     endpoint is public and has no idea who is asking. The
-                     bookmark on this card was an empty handler until now. */
-                  listing={{ ...listing, saved: isSaved(listing.id) }}
-                  variant="list"
-                  onPress={() => router.push(`/listing/${listing.id}`)}
-                  onToggleSave={() => toggleSaved(listing.id)}
-                />
-              ))}
+          {/* Floating Airbnb-Style Map Pill Button */}
+          {total > 0 && !feedLoading ? (
+            <View
+              pointerEvents="box-none"
+              style={[
+                styles.floatingMapContainer,
+                { bottom: barHeight + space[3] },
+              ]}
+            >
+              <Pressable
+                onPress={() => router.push('/(entry)/locality')}
+                style={({ pressed }) => [
+                  styles.floatingMapPill,
+                  {
+                    backgroundColor: mode === 'dark' ? colors.brand : colors.graphite,
+                    borderRadius: radius.pill,
+                    opacity: pressed ? 0.85 : 1,
+                    shadowColor: '#000000',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.28,
+                    shadowRadius: 8,
+                    elevation: 6,
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Explore map and localities"
+              >
+                <Text variant="bodyStrong" style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 13 }}>
+                  Map
+                </Text>
+                <Icon name="mapPin" size={16} color="#FFFFFF" />
+              </Pressable>
             </View>
-          )}
-
-          {/* The preview switch that used to sit here is gone. It existed to
-              reach loading, empty and offline states that "are otherwise
-              unreachable without a server" — there is a server now, and all
-              three are reached by unplugging the wifi or over-filtering. */}
-        </ScrollView>
+          ) : null}
+        </View>
       ) : tab === 'saved' ? (
         <ScrollView
           contentContainerStyle={{
@@ -1229,6 +1444,17 @@ export default function Home() {
         offsetBottom={reservedBottom}
       />
 
+      {/* Inline Quick Filter Dropdown (Gender, Price, Sharing, Meals) */}
+      <QuickFilterDropdown
+        visible={activeDropdown !== null}
+        filterId={activeDropdown}
+        query={query}
+        inventory={listings}
+        category={category}
+        onApply={(patch) => setQuery({ ...query, ...patch })}
+        onClose={() => setActiveDropdown(null)}
+      />
+
       <Modal visible={filtersOpen} animationType="slide" onRequestClose={() => setFiltersOpen(false)}>
         <FilterSheet
           query={query}
@@ -1248,9 +1474,63 @@ export default function Home() {
 }
 
 const styles = StyleSheet.create({
+  dockedHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    elevation: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+  },
   pinnedHeader: { position: 'absolute', top: 0, left: 0, right: 0 },
-  dockedBar: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+  dockedBar: { position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center' },
   identity: { flexDirection: 'row', alignItems: 'center' },
   avatar: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
   couponCard: { padding: 16, gap: 2 },
+  floatingMapContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20,
+  },
+  floatingMapPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    gap: 6,
+  },
+  resultsSortHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  resultsCountText: {
+    flex: 1,
+    fontSize: 13.5,
+    fontWeight: '700',
+    marginRight: 8,
+  },
+  sortDropdownButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 0,
+  },
+  sortPrefixText: {
+    fontSize: 13,
+    fontWeight: '400',
+  },
+  sortActiveText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
 });

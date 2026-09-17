@@ -5,22 +5,23 @@ import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { Button, Text } from '@/components/ui';
+import { Button, Icon, Text } from '@/components/ui';
 import { StandardHeader, StateTemplate } from '@/components/shell';
 import { BookingTimeline, VerificationCodeDisplay } from '@/components/booking';
+import { LinearGradient } from 'expo-linear-gradient';
 import { DirectionsButton } from '@/components/discovery';
 import { ActionBar, hasActions } from '@/components/lifecycle';
-import { ongoingQueryKey } from '@/hooks/useOngoing';
 import { errorStates } from '@/constants/copy';
 import { useTheme } from '@/context/ThemeContext';
 import {
   addressVisible, findBooking, fromRealBooking, longDateLabel, type BookingSummary,
 } from '@/data/bookings';
 import {
-  confirmMovedIn, devForceCheckIn, useBooking, useListing, useStayRequest,
+  devForceCheckIn, useBooking, useListing, useStayRequest,
 } from '@/services';
+
 /* DEVELOPMENT ONLY — remove with the dev check-in button below. */
-import { usePreviewControls } from '@/hooks/useAppEnv';
+import { useDevBypass } from '@/hooks/useAppEnv';
 import { formatRupees } from '@/utils/money';
 import { useDepositMark } from '@/components/ui/DepositMark';
 
@@ -192,29 +193,34 @@ export default function BookingDetail() {
   ]);
 
   /*
-   * Moving in, which takes both of them.
+   * Moving in, which is the owner's single act.
    *
-   * The owner marks it first — they check the PIN and open the door — and this
-   * button unlocks only once they have. Before that it says what to do instead
-   * of being greyed out for no stated reason: a disabled control with no
-   * explanation is one people tap repeatedly.
+   * It used to take two confirmations — the owner marked the student in, and
+   * the student then tapped "I have moved in" here. The second one is gone.
+   * The owner typing the entry PIN off the student's phone is the two of them
+   * standing in the same doorway, which is better evidence than a tap by the
+   * person who just read the number out; all the second step reliably
+   * produced was stays that sat unfinished because somebody put their phone
+   * down after being let in.
+   *
+   * So `complete` is read off the OWNER's stamp alone. The server does the
+   * same (`withMoveIn`), and doing it identically here is what settles the
+   * bookings that were mid-flight when this changed: an owner had marked them
+   * in, the student never tapped, and they are moved in.
    *
    * `stay.request.moveIn` only exists on the legacy path (it needs the stay
    * request, which the real-id path never fetches) — a real booking carries
-   * the same two facts directly (`movedInByOwnerAt`/`movedInByStudentAt`),
-   * so this is built from whichever of the two actually resolved.
+   * the timestamps directly — so this is built from whichever resolved.
    */
   const moveIn = real.booking
     ? {
       ownerConfirmedAt: real.booking.movedInByOwnerAt,
       studentConfirmedAt: real.booking.movedInByStudentAt,
-      awaitingStudent: Boolean(real.booking.movedInByOwnerAt) && !real.booking.movedInByStudentAt,
-      complete: Boolean(real.booking.movedInByOwnerAt && real.booking.movedInByStudentAt),
+      complete: Boolean(real.booking.movedInByOwnerAt),
     }
-    : stay.request?.moveIn;
-  const queryClient = useQueryClient();
-  const [confirming, setConfirming] = useState(false);
-  const [moveInError, setMoveInError] = useState<string | null>(null);
+    : stay.request?.moveIn
+      ? { ...stay.request.moveIn, complete: Boolean(stay.request.moveIn.ownerConfirmedAt) }
+      : undefined;
 
   /*
    * DEVELOPMENT ONLY — force both halves of the move-in.
@@ -225,21 +231,28 @@ export default function BookingDetail() {
    * settlement becoming releasable, which is what the admin Monitor's Withdraw
    * button waits on — impossible to reach before the day arrives.
    *
-   * Drawn on a build that allows preview controls, and it still 404s unless
-   * the SERVER has `DEV_ALLOW_FORCE_CHECKIN` on — so the button says what to
-   * switch on rather than vanishing, the same shape as the payment bypass on
-   * the confirmation screen.
+   * Drawn only on a build that OPTED IN with `EXPO_PUBLIC_DEV_BYPASS=true`,
+   * and it still 404s unless the SERVER has `DEV_ALLOW_FORCE_CHECKIN` on — so
+   * the button says what to switch on rather than vanishing, the same shape as
+   * the payment bypass on the confirmation screen.
+   *
+   * Not `usePreviewControls`: that is on in an internal preview APK, which
+   * points at the production API like any other build, and this stamps a real
+   * move-in — the thing a hotel settlement becoming releasable waits on.
    *
    * Delete this, `devForceCheckIn` and the route it calls once the flow no
    * longer needs walking through by hand.
    */
-  const previewControls = usePreviewControls();
+  const devBypassAllowed = useDevBypass();
   const [forcing, setForcing] = useState(false);
+  /* Its own, since the move-in card no longer has an error line to borrow:
+     nothing on the student's side of a move-in can fail any more. */
+  const [forceError, setForceError] = useState<string | null>(null);
 
   const forceCheckIn = async () => {
     if (!realBookingId || forcing) return;
     setForcing(true);
-    setMoveInError(null);
+    setForceError(null);
     try {
       await devForceCheckIn(realBookingId);
       /* Read back rather than assumed — the booking is the server's, and this
@@ -247,7 +260,7 @@ export default function BookingDetail() {
       await real.refetch();
     } catch (error) {
       const failure = error as { status?: number; displayMessage?: string };
-      setMoveInError(
+      setForceError(
         failure?.status === 404
           ? 'The server does not allow this. Set DEV_ALLOW_FORCE_CHECKIN="true" in Backend/.env '
             + '(NODE_ENV must not be production) and restart it.'
@@ -258,39 +271,6 @@ export default function BookingDetail() {
     }
   };
 
-  /* `POST /customers/stay-requests/:id/moved-in` is keyed by the REQUEST id,
-     never the booking id — `CustomerBooking.requestId` is what carries it on
-     the real path; the legacy path already has the request itself. */
-  const confirmMoveInId = real.booking?.requestId ?? stay.request?.id ?? null;
-
-  const onConfirmMovedIn = async () => {
-    if (!confirmMoveInId) return;
-    setConfirming(true);
-    setMoveInError(null);
-    try {
-      await confirmMovedIn(confirmMoveInId);
-      /* Refetched rather than assumed — the booking is the server's, and this
-         screen has just changed it. */
-      if (real.booking) await real.refetch();
-      else await stay.refresh();
-      /*
-       * And the home strip, which is a cache of the same fact.
-       *
-       * This was the last outstanding step of the whole flow, so the row
-       * saying "Confirm your move-in" has to go the moment it is done. Without
-       * this it survived until the query went stale — which is longer than
-       * the two taps it takes to press Done and land on the screen it is
-       * drawn on, so a finished booking sat there still asking to be
-       * finished.
-       */
-      queryClient.invalidateQueries({ queryKey: ongoingQueryKey });
-    } catch (error) {
-      setMoveInError((error as { displayMessage?: string }).displayMessage
-        ?? 'We could not confirm that. Try again in a moment.');
-    } finally {
-      setConfirming(false);
-    }
-  };
   /*
    * The screen reads three fetches — the booking, its property, and (on the
    * legacy `bkg-` path only) the stay request behind it. None of the hooks
@@ -342,35 +322,14 @@ export default function BookingDetail() {
       />
 
       <ScrollView
-        contentContainerStyle={{ padding: layout.gutter, gap: space[5], paddingBottom: space[8] }}
+        contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40 }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand} />
         }
       >
-        {/* The status card that opened this screen is gone — "Where this
-            booking is", immediately below, answers the same question with the
-            same words and a timeline besides. See the note on the component. */}
-
-        {/* Shown directly, no "reveal" tap — the code is the one thing on
-            this screen a student opens it to read out at the door, and
-            burying it behind a button was an extra step to something that
-            is not a secret from either of them. Shown only when the SERVER
-            has issued one and the booking is still awaiting move-in — see
-            the note above. A locally minted code here is a number a student
-            reads out to an owner holding a different one, and both believe
-            it. */}
+        {/* Pass Card: Plain White Card with Highlighted OTP Tiles & Offer Banner */}
         {booking.status === 'CONFIRMED' && entryPin ? (
-          <View
-            style={{
-              backgroundColor: colors.surface,
-              borderColor: colors.border,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderRadius: radius.card,
-              padding: space[4],
-            }}
-          >
-            {/* Six digit tiles with the full `LV-` form beneath — the same
-                two things, in the same order, as both owner screens. */}
+          <View style={styles.heroPassCard}>
             <VerificationCodeDisplay
               code={entryPin.replace(/\D/g, '')}
               bookingReference={entryPin}
@@ -380,32 +339,46 @@ export default function BookingDetail() {
           </View>
         ) : null}
 
-        {/* CONSTANT — always present, always here. */}
-        <View style={{ gap: space[3] }}>
-          <Text variant="title3">Where this booking is</Text>
+        {/* Section: Timeline Progress Card */}
+        <View style={styles.sectionCard}>
+          <View style={styles.cardHeaderRow}>
+            <View style={styles.cardHeaderLeft}>
+              <View style={[styles.cardHeaderIconBadge, { backgroundColor: '#ECFDF5' }]}>
+                <Icon name="clock" size={16} color="#059669" />
+              </View>
+              <Text variant="title3" style={{ fontWeight: '800' }}>Where this booking is</Text>
+            </View>
+            <View style={styles.statusChip}>
+              <View style={styles.statusDot} />
+              <Text style={styles.statusChipText}>
+                {booking.status === 'CONFIRMED'
+                  ? 'Confirmed'
+                  : booking.status === 'ACCEPTED'
+                  ? 'Accepted'
+                  : booking.status === 'REQUESTED'
+                  ? 'Requested'
+                  : booking.status}
+              </Text>
+            </View>
+          </View>
+
           <BookingTimeline
             status={booking.status}
-            /* Real timestamps, from the request and the booking — see
-               `stamps`. The fixture that used to sit here dated every node of
-               every booking to one morning in August. */
             steps={stamps}
-            /* The "Paid" node only on the categories that actually pay us —
-               a bachelor's visit fee or a hotel's stay. See the note on
-               `BookingTimeline`. */
             showPaid={chargesForVisit}
           />
         </View>
 
-        {/* The address, revealed by payment.
-            The public listing shows the locality only; the exact address, the
-            landmark and the pin arrive with a paid booking and live on the
-            booking itself rather than the listing. `addressVisible()` is the
-            one place that decides which states may see it — a privacy rule
-            written at three call sites is a privacy rule that will disagree
-            with itself. */}
+        {/* Section: Destination & Address Card */}
         {addressVisible(booking.status) && booking.address ? (
-          <View style={{ gap: space[3] }}>
-            <Text variant="title3">Where to go</Text>
+          <View style={styles.sectionCard}>
+            <View style={styles.cardHeaderLeft}>
+              <View style={[styles.cardHeaderIconBadge, { backgroundColor: '#EFF6FF' }]}>
+                <Icon name="mapPin" size={16} color="#2563EB" />
+              </View>
+              <Text variant="title3" style={{ fontWeight: '800' }}>Where to go</Text>
+            </View>
+
             <DirectionsButton
               place={{
                 coords: booking.coords,
@@ -419,152 +392,85 @@ export default function BookingDetail() {
           </View>
         ) : null}
 
-        {/* CONSTANT — a student in a dispute finds these in the same place
-            whatever state the booking is in. */}
-        <View
-          style={{
-            backgroundColor: colors.surface,
-            borderColor: colors.border,
-            borderWidth: StyleSheet.hairlineWidth,
-            borderRadius: radius.card,
-            padding: space[4],
-            gap: space[3],
-          }}
-        >
-          <Text variant="title3">Your terms</Text>
+        {/* Section: Terms Summary Card */}
+        <View style={styles.sectionCard}>
+          <View style={styles.cardHeaderLeft}>
+            <View style={[styles.cardHeaderIconBadge, { backgroundColor: '#F8FAFC' }]}>
+              <Icon name="verified" size={16} color="#64748B" />
+            </View>
+            <Text variant="title3" style={{ fontWeight: '800' }}>Your terms</Text>
+          </View>
 
-          {/* The share type as the owner recorded it on the booking. */}
-          <Term label="Sharing" value={booking.sharingLabel} />
+          <View style={styles.termsBody}>
+            {/* The share type as the owner recorded it on the booking. */}
+            <Term label="Sharing" value={booking.sharingLabel} />
 
-          {/*
-            The property's listed rent and deposit.
+            {property.listing?.rent != null ? (
+              <Term label="Listed rent" value={`${formatRupees(property.listing.rent)} /mo`} />
+            ) : null}
+            {property.listing?.deposit != null ? (
+              <Term
+                label="Listed deposit"
+                value={formatRupees(property.listing.deposit)}
+                refundable
+              />
+            ) : null}
 
-            Labelled "listed" rather than "your rent", and that wording is the
-            honest part: these come from the LISTING, which is what the place
-            is advertised at today, and the rent a student actually agreed with
-            an owner is a conversation Lampose was never part of. Stating them
-            as the agreement would be inventing a contract; stating them as the
-            listing is a fact, and it is the figure somebody wants when they
-            are checking whether they are being asked for more than the
-            advertised price.
+            {real.booking && real.booking.totalAmount > 0 ? (
+              <>
+                <Term label="Total agreed with the owner" value={formatRupees(real.booking.totalAmount)} />
+                <Term label="Paid to the owner so far" value={formatRupees(real.booking.paidAmount)} />
+              </>
+            ) : null}
 
-            Absent entirely when the listing has no rent on record, rather than
-            drawn as ₹0.
-          */}
-          {property.listing?.rent != null ? (
-            <Term label="Listed rent" value={`${formatRupees(property.listing.rent)} /mo`} />
-          ) : null}
-          {property.listing?.deposit != null ? (
-            <Term
-              label="Listed deposit"
-              value={formatRupees(property.listing.deposit)}
-              refundable
-            />
-          ) : null}
+            {chargesForVisit && visitPaid && visitPaidRupees > 0 ? (
+              <Term
+                label={visitPurpose === 'stay_booking'
+                  ? 'Stay, paid to Lampose'
+                  : 'Assisted visit, paid to Lampose'}
+                value={formatRupees(visitPaidRupees)}
+              />
+            ) : null}
 
-          {/*
-            What the OWNER has recorded against this stay, when they have
-            recorded anything. Zero and null are different here: an owner who
-            has entered nothing gets no row, and one who has entered ₹0 paid
-            against a ₹40,000 total gets both, because that gap is the thing
-            worth seeing.
-          */}
-          {real.booking && real.booking.totalAmount > 0 ? (
-            <>
-              <Term label="Total agreed with the owner" value={formatRupees(real.booking.totalAmount)} />
-              <Term label="Paid to the owner so far" value={formatRupees(real.booking.paidAmount)} />
-            </>
-          ) : null}
+            <Term label="Move-in date" value={booking.moveInLabel} />
+            {booking.checkOutDate ? (
+              <Term label="Move-out date" value={longDateLabel(booking.checkOutDate)} />
+            ) : null}
 
-          {/* The one payment that came through Lampose. Only the assisted-visit
-              categories have one, and only once it has actually verified — the
-              development bypass is excluded, so a waived visit never prints a
-              receipt for money nobody sent. */}
-          {chargesForVisit && visitPaid && visitPaidRupees > 0 ? (
-            <Term
-              /* A visit fee and a room bill are the same field and completely
-                 different money. Named by what the payment BOUGHT, off the
-                 request's own purpose. */
-              label={visitPurpose === 'stay_booking'
-                ? 'Stay, paid to Lampose'
-                : 'Assisted visit, paid to Lampose'}
-              value={formatRupees(visitPaidRupees)}
-            />
-          ) : null}
+            {property.listing?.noticePeriodDays != null ? (
+              <Term label="Notice period" value={`${property.listing.noticePeriodDays} days`} />
+            ) : null}
+          </View>
 
-          <Term label="Move-in date" value={booking.moveInLabel} />
-          {booking.checkOutDate ? (
-            <Term label="Move-out date" value={longDateLabel(booking.checkOutDate)} />
-          ) : null}
-
-          {/* Notice period and lock-in come from the LISTING where the panel
-              recorded them. Nothing derives either — a notice period guessed
-              from a rent is the kind of number that ends up quoted back to an
-              owner. */}
-          {property.listing?.noticePeriodDays != null ? (
-            <Term label="Notice period" value={`${property.listing.noticePeriodDays} days`} />
-          ) : null}
-
-          {/* Said once, under the figures, so nobody reads the two blocks above
-              as one agreement. */}
-          <Text variant="caption" color="tertiary">
-            Rent and deposit are settled directly with {booking.ownerName ?? 'the owner'} — Lampose
-            does not hold them. Anything shown here is what we were told.
-          </Text>
+          <View style={styles.disclaimerBox}>
+            <Text variant="caption" color="tertiary" style={{ lineHeight: 17 }}>
+              Rent and deposit are settled directly with {booking.ownerName ?? 'the owner'} — Lampose
+              does not hold them. Anything shown here is what we were told.
+            </Text>
+          </View>
         </View>
 
-        {/*
-          Moving in — the second half of it.
-
-          Shown once there is a booking and until both sides have confirmed.
-          Before the owner marks it, this is a SENTENCE rather than a greyed
-          button: "waiting for the owner" tells somebody standing in a room
-          what to do next, and a disabled control with no explanation is one
-          people tap over and over.
-        */}
+        {/* Section: Moving in */}
         {moveIn && !moveIn.complete ? (
           <View
-            style={{
-              backgroundColor: colors.surface,
-              borderColor: moveIn.awaitingStudent ? colors.success.border : colors.border,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderRadius: radius.card,
-              padding: space[4],
-              gap: space[3],
-            }}
+            /* One edge, not two. The border used to go green once the owner
+               had marked the student in, because that was the moment their
+               button woke up; there is no button and no second state now, so
+               the card is simply an instruction until it is a confirmation. */
+            style={[styles.sectionCard, { borderColor: '#E2E8F0' }]}
           >
+            {/* One instruction, and it is the only thing the student has to
+                do: be there and read out the PIN. There is no button under
+                this any more — nothing is waiting on them. */}
             <View style={{ gap: space[1] }}>
-              <Text variant="bodyStrong">
-                {moveIn.awaitingStudent ? 'Confirm you have moved in' : 'Moving in'}
-              </Text>
+              <Text variant="bodyStrong">Moving in</Text>
               <Text variant="caption" color="secondary">
-                {moveIn.awaitingStudent
-                  ? `${booking.ownerName ?? 'The owner'} has marked you in. Confirm from your side and the stay begins.`
-                  : `Show your entry PIN to ${booking.ownerName ?? 'the owner'} when you arrive. Once they mark you in, you confirm here.`}
+                Show your entry PIN to {booking.ownerName ?? 'the owner'} when you arrive. The
+                moment they enter it, your stay starts — there is nothing to confirm here.
               </Text>
             </View>
 
-            {moveInError ? (
-              <Text variant="caption" style={{ color: colors.danger.ink }}>
-                {moveInError}
-              </Text>
-            ) : null}
-
-            <Button
-              label={confirming ? 'Confirming…' : 'I have moved in'}
-              onPress={onConfirmMovedIn}
-              /* Locked until the owner goes first — the server refuses it
-                 anyway, and a button that can only fail is worse than one
-                 that plainly waits. */
-              disabled={!moveIn.awaitingStudent || confirming}
-              fullWidth
-            />
-
-            {/* DEVELOPMENT ONLY — see `forceCheckIn`. Stamps BOTH halves, so
-                it works from either state rather than only unlocking the
-                button above. Labelled loudly enough that it cannot be
-                mistaken for the real control. */}
-            {previewControls ? (
+            {devBypassAllowed ? (
               <>
                 <Button
                   label={forcing ? 'Checking in…' : '🛠 DEV: force check-in (both sides)'}
@@ -573,6 +479,11 @@ export default function BookingDetail() {
                   disabled={forcing}
                   fullWidth
                 />
+                {forceError ? (
+                  <Text variant="caption" style={{ color: colors.danger.ink }}>
+                    {forceError}
+                  </Text>
+                ) : null}
                 <Text variant="numMeta" color="tertiary" style={styles.centred}>
                   Development bypass — marks the owner and you as checked in
                 </Text>
@@ -581,19 +492,36 @@ export default function BookingDetail() {
           </View>
         ) : moveIn?.complete ? (
           <View
-            style={{
-              backgroundColor: colors.success.tint,
-              borderRadius: radius.card,
-              padding: space[4],
-              gap: space[1],
-            }}
+            style={[
+              styles.sectionCard,
+              {
+                backgroundColor: colors.success.tint,
+                borderColor: colors.success.border,
+              },
+            ]}
           >
             <Text variant="bodyStrong" style={{ color: colors.success.ink }}>
               You have moved in
             </Text>
             <Text variant="caption" style={{ color: colors.success.ink }}>
-              Both you and {booking.ownerName ?? 'the owner'} confirmed it. Enjoy the room.
+              {booking.ownerName ?? 'The owner'} entered your code, so your stay has started.
+              Enjoy the room.
             </Text>
+
+            {/* The reward lives on its own screen rather than being repeated
+                here. This card is read every time somebody opens a booking —
+                a ₹100 offer restated on all of them stops being a thank-you
+                and becomes an advert for hotels attached to the room they
+                already live in. */}
+            <Button
+              label="See your move-in reward"
+              variant="secondary"
+              size="xs"
+              onPress={() => router.push({
+                pathname: '/moved-in/[id]',
+                params: { id: String(id), property: booking.propertyName ?? '' },
+              })}
+            />
           </View>
         ) : null}
 
@@ -714,23 +642,15 @@ function Term({
   value: string;
   refundable?: boolean;
 }) {
-  const { colors } = useTheme();
   const depositMark = useDepositMark();
   return (
     <View style={styles.termRow}>
-      {/* The label flexes, the value does not. "Lock-in ends" beside
-          "5 December 2026" had no give at all — and a truncated date in the
-          terms block is exactly the thing a student would be arguing about. */}
-      <Text variant="caption" color="secondary" style={styles.flex}>
+      <Text variant="caption" color="secondary" style={styles.termLabel}>
         {label}
       </Text>
       <Text
-        variant="priceSm"
-        style={
-          refundable
-            ? depositMark
-            : undefined
-        }
+        variant="bodyStrong"
+        style={refundable && depositMark ? [styles.termValue, depositMark] : styles.termValue}
       >
         {value}
       </Text>
@@ -740,6 +660,97 @@ function Term({
 
 const styles = StyleSheet.create({
   centred: { textAlign: 'center' },
-  termRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
+  heroPassCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 18,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  sectionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 18,
+    gap: 14,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  cardHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cardHeaderIconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  statusChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#065F46',
+  },
+  termsBody: {
+    gap: 0,
+  },
+  termRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#F1F5F9',
+    gap: 12,
+  },
+  termLabel: {
+    flex: 1,
+    fontSize: 13,
+  },
+  termValue: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  disclaimerBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    marginTop: 4,
+  },
   flex: { flex: 1 },
 });

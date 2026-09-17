@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   HandCoins,
   History,
+  RefreshCw,
   ShieldCheck,
   TriangleAlert,
   Undo2,
@@ -18,8 +19,8 @@ import type {
   FoodOrderDetail,
 } from '../../../../api/types';
 import { Section } from '../../../common/molecules/Section';
-import { when } from '../../utils';
-import type { RefundNotice } from '../../utils';
+import { canRecordByHand, isClosed, when } from '../../utils';
+import type { RefundAttempt } from '../../utils';
 import { Box } from '../../../common/atoms/Box';
 import { Inline } from '../../../common/atoms/Inline';
 import { Text } from '../../../common/atoms/Text';
@@ -34,14 +35,24 @@ import { Text } from '../../../common/atoms/Text';
 export const RefundPanel: React.FC<{
   order: FoodOrderDetail;
   canRefund: boolean;
-  busy: boolean;
-  notice: RefundNotice | null;
+  /**
+   * Everything known about this order's refund, or undefined when nothing has
+   * been tried. Replaces the `busy` + `notice` pair this took before: those two
+   * could not express the outcome that matters most — nothing came back, so the
+   * money may or may not have moved — and the panel had no way to tell a
+   * finished refund from an unanswered one.
+   */
+  attempt?: RefundAttempt;
   reason: string;
   onReason: (value: string) => void;
   confirming: boolean;
   onAsk: () => void;
   onCancelAsk: () => void;
   onSend: () => void;
+  /** Load the order again, for an outcome nothing came back from. */
+  onRecheck: () => void;
+  /** Put the refund control back, having read the payment. Sends nothing. */
+  onArmAgain: () => void;
   settleOpen: boolean;
   onSettleOpen: (value: boolean) => void;
   reference: string;
@@ -52,14 +63,15 @@ export const RefundPanel: React.FC<{
 }> = ({
   order,
   canRefund,
-  busy,
-  notice,
+  attempt,
   reason,
   onReason,
   confirming,
   onAsk,
   onCancelAsk,
   onSend,
+  onRecheck,
+  onArmAgain,
   settleOpen,
   onSettleOpen,
   reference,
@@ -71,37 +83,53 @@ export const RefundPanel: React.FC<{
   const diner = order.customer.name || 'the diner';
   const settled = order.payment.refund.state === 'settled';
 
-  /* Once anything has come back with a 200 for this order, the control is gone
-     for the rest of the visit — including the shape where the money moved and
-     the save did not. See the header. */
-  if (notice) {
-    return (
-      <Section title="Refund">
-        <Box
-          className={cx(
-            'rounded-control border p-3',
-            notice.tone === 'good' && 'border-good-border bg-good-soft',
-            notice.tone === 'warn' && 'border-warn-border bg-warn-soft',
-            notice.tone === 'crit' && 'border-crit-border bg-crit-soft'
-          )}
-        >
-          <Text className="text-body text-ink break-words">{notice.text}</Text>
-          {notice.tone === 'warn' && (
-            <Text className="text-label text-ink-2 mt-1.5">
-              Do not send this again. Write the reference against the order by hand — the money
-              has already left.
-            </Text>
-          )}
-        </Box>
-      </Section>
-    );
-  }
+  /* All of it derived from the one record the page keeps per order, so the
+     controls on screen and the state the page is latching on cannot disagree. */
+  const busy = attempt?.sending ?? false;
+  const notice = attempt?.notice ?? null;
+  /* Nothing more will be SENT from here. Not the same question as whether it
+     can still be written down by hand, which is why there are two tests. */
+  const closed = isClosed(attempt);
+  const mayRecord = canRecordByHand(attempt);
+  /* Nothing came back. The money may have gone and may not have, so the only
+     honest moves are to look again and — afterwards, deliberately — to put the
+     control back. Never a plain retry. */
+  const unknown = attempt?.outcome === 'unknown';
+
+  /*
+   * A banner ABOVE whatever controls are left, never instead of them.
+   *
+   * This used to return early and render the notice alone, which broke the one
+   * rule the warning depends on: the `recorded: false` warning ends "record it
+   * against the order by hand", and hiding the control that does exactly that
+   * turns the warning into an accusation. The page opens that form and fills in
+   * the gateway's reference at the same moment this text arrives.
+   */
+  const banner = notice ? (
+    <Box
+      className={cx(
+        'rounded-control border p-3 mb-3',
+        notice.tone === 'good' && 'border-good-border bg-good-soft',
+        notice.tone === 'warn' && 'border-warn-border bg-warn-soft',
+        notice.tone === 'crit' && 'border-crit-border bg-crit-soft'
+      )}
+    >
+      <Text className="text-body text-ink break-words">{notice.text}</Text>
+      {notice.tone === 'warn' && (
+        <Text className="text-label text-ink-2 mt-1.5">
+          Do not send this again. Write the reference against the order by hand — the money
+          has already left.
+        </Text>
+      )}
+    </Box>
+  ) : null;
 
   if (settled) {
     /* The record itself is drawn above, in Payment. Repeating it here would
        give the same fact two homes; saying there is nothing to do is useful. */
     return (
       <Section title="Refund">
+        {banner}
         <Text className="text-body text-ink-3">
           This one is settled. Nothing is owed and there is nothing to send.
         </Text>
@@ -112,6 +140,7 @@ export const RefundPanel: React.FC<{
   if (!canRefund) {
     return (
       <Section title="Refund">
+        {banner}
         <Text className="text-body text-ink-3 flex items-start gap-2">
           <ShieldCheck className="size-4 shrink-0 mt-0.5" aria-hidden />
           {order.payment.refundable
@@ -127,6 +156,7 @@ export const RefundPanel: React.FC<{
   if (!order.payment.refundable) {
     return (
       <Section title="Refund">
+        {banner}
         {/* The server's own sentence, verbatim. It knows which of the four
             reasons applies and this page does not re-derive it. */}
         <Text className="text-body text-ink-3">
@@ -138,6 +168,11 @@ export const RefundPanel: React.FC<{
 
   return (
     <Section title="Refund">
+      {banner}
+
+      {/* Gone for the rest of the visit once anything has come back — a second
+          press is the one move that can send the money twice. */}
+      {!closed && (
       <Box className="rounded-control border border-crit-border bg-crit-soft p-3">
         {confirming ? (
           <>
@@ -211,10 +246,47 @@ export const RefundPanel: React.FC<{
           </>
         )}
       </Box>
+      )}
+
+      {/*
+        Nothing came back, so neither "it worked" nor "it failed" is true.
+        A plain retry here is the single most expensive mistake on the page —
+        it is how a diner gets refunded twice — so the only thing offered is to
+        go and look, and the control to send comes back only after somebody has.
+      */}
+      {unknown && (
+        <Box className="mt-3 rounded-control border border-warn-border bg-warn-soft p-3">
+          <Text className="text-body font-medium text-ink">
+            Nobody knows yet whether this one went
+          </Text>
+          <Text className="text-body text-ink-2 mt-1">
+            Nothing came back from the gateway. The money may have left {diner}'s payment and it
+            may not have. Load the order again and read the payment before deciding anything.
+          </Text>
+          <Box className="flex flex-wrap justify-end gap-2 mt-3">
+            <Button variant="secondary" icon={RefreshCw} onClick={onRecheck} disabled={busy}>
+              Look at it again
+            </Button>
+            {attempt?.rechecked && (
+              <Button variant="danger" icon={Undo2} onClick={onArmAgain} disabled={busy}>
+                Let me send it again
+              </Button>
+            )}
+          </Box>
+          {attempt?.rechecked && (
+            <Text className="text-label text-ink-3 mt-2">
+              Only if the payment above still shows nothing refunded. That puts the refund control
+              back — it sends nothing by itself.
+            </Text>
+          )}
+        </Box>
+      )}
 
       {/* A different act with the same ending, so a different frame and a
           different verb. This one moves no money; it writes down that money
-          already moved, which is why the reference is not optional. */}
+          already moved, which is why the reference is not optional. It outlives
+          the control above: an unrecorded refund is exactly when it is needed. */}
+      {mayRecord && (
       <Box className="mt-3 rounded-control border border-line bg-surface-subtle p-3">
         {settleOpen ? (
           <>
@@ -271,6 +343,7 @@ export const RefundPanel: React.FC<{
           </Box>
         )}
       </Box>
+      )}
     </Section>
   );
 };

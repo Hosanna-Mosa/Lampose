@@ -183,7 +183,12 @@ const deadlineFrom = (createdAt = new Date()) => new Date(
  * auto-declined. Holding at creation would make the second request impossible
  * to send and take the choice away from the owner.
  */
-const createStayRequest = async ({ customer, listingId, sharing, intent, consentedTerms, requestIp }) => {
+const createStayRequest = async ({
+  customer, listingId, sharing, intent, consentedTerms, requestIp,
+  /* The ₹100 move-in reward the student chose to spend, by id. Never an
+     amount — see `paymentForNewRequest`. Optional; most bookings send none. */
+  couponId,
+}) => {
   requireDb();
 
   /* Deferred to here rather than required at the top of the file: the
@@ -193,6 +198,7 @@ const createStayRequest = async ({ customer, listingId, sharing, intent, consent
   const Property = require('../properties/property.model');
   const { findRequestableOption } = require('../inventory/inventory.service');
   const { validateIntent } = require('../listings/stayIntent.util');
+  const stayCoupons = require('../customers/stayCoupon.service');
 
   /* 1 — the listing exists. A bad id is a 404, never a cast error. */
   if (!mongoose.isValidObjectId(listingId)) {
@@ -417,7 +423,36 @@ const createStayRequest = async ({ customer, listingId, sharing, intent, consent
   /* 11 & 12 — the server stamps both times, and only the server. */
   const createdAt = new Date();
 
+  /*
+   * 13 — the ₹100 move-in reward, if they asked to spend one.
+   *
+   * ## Why the id is minted here instead of by `create`
+   *
+   * The coupon has to be held AGAINST this request — otherwise two requests
+   * opened in two tabs each reserve the same ₹100 — and the price has to be
+   * net of it BEFORE the request is written, because `payment.amountPaise` is
+   * frozen at creation and is what Razorpay is asked for. Those two facts
+   * need the request's id to exist before the request does, so it is minted
+   * up front and passed in.
+   *
+   * ## A refusal is not an error
+   *
+   * A coupon that has expired, been spent, or is held by another request does
+   * NOT fail the booking — `reserve` returns a reason and the request is
+   * created at full price. Refusing to book a room because a discount could
+   * not be applied would turn a small disappointment into a lost booking, and
+   * the reason travels back on the response so the app can say what happened.
+   */
+  const requestId = new mongoose.Types.ObjectId();
+  const held = await stayCoupons.reserve({
+    customerId: customer.customerId,
+    couponId,
+    requestId,
+  });
+  const discountRupees = held.discountRupees || 0;
+
   const request = await VisitRequest.create({
+    _id: requestId,
     channel: 'app',
     listingId: String(property._id),
     propertyName: property.name,
@@ -451,7 +486,16 @@ const createStayRequest = async ({ customer, listingId, sharing, intent, consent
      * listing's category later cannot make a paid request unpaid or reprice
      * one somebody has already settled.
      */
-    payment: paymentForNewRequest(property.category, checked.intent),
+    payment: paymentForNewRequest(property.category, checked.intent, discountRupees),
+
+    /* What was taken off, snapshotted — see the field on the model. */
+    stayCoupon: held.coupon
+      ? {
+        couponId: String(held.coupon._id),
+        code: held.coupon.code,
+        amountRupees: held.coupon.amountRupees,
+      }
+      : { couponId: null, code: null, amountRupees: null },
 
     consentedTerms: true,
     consentedTermsAt: createdAt,
@@ -465,7 +509,7 @@ const createStayRequest = async ({ customer, listingId, sharing, intent, consent
     requestIp: requestIp || null,
   });
 
-  return { request, owner, property };
+  return { request, owner, property, couponRefusal: held.reason || null };
 };
 
 /* ------------------------------------------------------------------ *
@@ -806,6 +850,19 @@ const withdraw = async (requestId, customer) => {
     }
     await explainFailure(requestId);   // always throws
   }
+
+  /*
+   * The booking is gone, so the ₹100 goes back on the shelf.
+   *
+   * Only ever un-reserves — a coupon already spent stays spent, which
+   * `release` guards on rather than trusting this call site. Fire-and-forget:
+   * a withdrawal that succeeded must not report a failure because a reward
+   * could not be returned, and a coupon stuck in `reserved` is visible and
+   * repairable where a refused withdrawal is neither.
+   */
+  require('../customers/stayCoupon.service').release(requestId).catch((error) => {
+    console.error('[stay-coupon] withdrawal did not release the hold:', error.message);
+  });
 
   return request;
 };

@@ -4,6 +4,7 @@ import {
   AirVent,
   AlertTriangle,
   Archive,
+  ArrowRight,
   ArrowUpDown,
   Ban,
   Bell,
@@ -50,6 +51,10 @@ import {
   Moon,
   Sun,
   Zap,
+  Bed,
+  Flame,
+  Sprout,
+  Building2,
 } from 'lucide-react-native';
 
 import { useTheme } from '@/context/ThemeContext';
@@ -68,12 +73,12 @@ import { useTheme } from '@/context/ThemeContext';
  */
 
 /** Stroke width is tied to size — they are not independently choosable. */
-const STROKE_BY_SIZE: Record<number, number> = { 16: 1.5, 20: 1.5, 24: 1.75, 26: 2, 28: 2 };
+const STROKE_BY_SIZE: Record<number, number> = { 12: 1.5, 14: 1.5, 16: 1.5, 18: 1.5, 20: 1.5, 24: 1.75, 26: 2, 28: 2 };
 
-export type IconSize = 16 | 20 | 24 | 26 | 28;
+export type IconSize = 12 | 14 | 16 | 18 | 20 | 24 | 26 | 28;
 
 function strokeFor(size: number): number {
-  return STROKE_BY_SIZE[size] ?? 1.75;
+  return STROKE_BY_SIZE[size] ?? 1.5;
 }
 
 /* ------------------------------------------------------------------ *
@@ -246,9 +251,20 @@ const LUCIDE_GLYPHS = {
   clock: Clock,
   bell: Bell,
   verified: ShieldCheck,
+  security: ShieldCheck,
+  furnished: Bed,
+  bed: Bed,
+  flame: Flame,
+  sprout: Sprout,
+  houseIcon: Building2,
   chevronLeft: ChevronLeft,
   chevronRight: ChevronRight,
   close: X,
+  /* The search field's "go" disc on the Explore hero. A plain right arrow
+     rather than a second magnifier: the field already carries one on its
+     left, and a bar with the same glyph at both ends says nothing about
+     which end acts. */
+  arrowRight: ArrowRight,
   check: Check,
   alert: AlertTriangle,
   star: Star,

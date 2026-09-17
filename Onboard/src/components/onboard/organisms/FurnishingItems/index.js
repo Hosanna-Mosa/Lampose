@@ -1,0 +1,1 @@
+export { FurnishingItems } from './FurnishingItems';

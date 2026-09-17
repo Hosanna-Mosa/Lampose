@@ -458,6 +458,21 @@ if (String(process.env.DEV_ALLOW_MARK_PAID || '').trim().toLowerCase() === 'true
   );
 }
 
+/* The same shape, and it was missing: this flag unlocks three bypasses across
+   two apps — a move-in stamped with no PIN and no date, and an owner marked
+   payable with an invented fund account — and said nothing at boot. A hole
+   that announces itself is one somebody closes. Refused in production above. */
+if (String(process.env.DEV_ALLOW_FORCE_CHECKIN || '').trim().toLowerCase() === 'true') {
+  configWarnings.push(
+    String(process.env.NODE_ENV || '').trim() === 'production'
+      ? 'DEV_ALLOW_FORCE_CHECKIN is set but NODE_ENV=production — REFUSED. A move-in needs the '
+        + 'real date and the real entry PIN here.'
+      : '⚠️  DEV_ALLOW_FORCE_CHECKIN is ON — a move-in can be stamped WITHOUT the date or the '
+        + 'entry PIN, and an owner marked payable with a fake account. Development only. Unset '
+        + 'it before anybody real uses this server.',
+  );
+}
+
 if (!jwtSecret) {
   configErrors.push(
     'JWT_SECRET is not set. /api/v2/auth and /api/v2/users will answer 503 rather than '

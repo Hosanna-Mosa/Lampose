@@ -1,6 +1,5 @@
-import * as Brightness from 'expo-brightness';
-import React, { useEffect } from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import React from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
 import { Icon, Text } from '@/components/ui';
@@ -13,23 +12,11 @@ import { useReduceMotion, useTheme } from '@/context/ThemeContext';
  * It is generated when the payment settles and cached at that moment, because
  * PG stairwells have no signal and this is the one screen that has to work
  * without any. The owner types it into their app to mark the student moved in.
- *
- * Four digits, not six. It is read aloud across a room and typed by someone
- * else, so every extra character is a cost paid by a 55-year-old owner without
- * their glasses. The numerals use `codeHero`, which is the only style in the
- * type scale that opts out of OS font scaling entirely — a scaled code wraps,
- * and a wrapped code breaks the one thing it is for.
- *
- * Screen brightness is forced to maximum on mount and restored on unmount —
- * and it asks for NOTHING to do it. See the effect below.
  */
 
 export type VerificationCodeDisplayProps = {
   /**
    * Six digits, from the server. Never generated on the device.
-   *
-   * A code the client invents is a code the owner's app cannot verify, so this
-   * is always a value that arrived over the wire.
    */
   code: string;
   bookingReference: string;
@@ -49,155 +36,76 @@ export function VerificationCodeDisplay({
   variant = 'standalone',
   onCodeNotWorking,
 }: VerificationCodeDisplayProps) {
-  const { colors, space, radius } = useTheme();
+  const { space } = useTheme();
   const reduceMotion = useReduceMotion();
-
-  /*
-   * Max brightness, then put it back. An owner reading this at arm's length in
-   * a dim corridor is the case it exists for.
-   *
-   * ## No permission is asked for, and none is needed
-   *
-   * This called `Brightness.requestPermissionsAsync()` first, which on Android
-   * is not a dialog — it throws the student out of the app onto the system's
-   * full-screen "Modify system settings" page. Tapping "View my booking"
-   * landed on an OS permission screen about modifying system settings, which
-   * is alarming, unexplained, and asks for far more than showing a code needs.
-   *
-   * It was never required. That permission gates the SYSTEM brightness
-   * functions (`setSystemBrightnessAsync`), which this has never called.
-   * `setBrightnessAsync` is scoped to the app's own activity — expo's own
-   * words: "this setting only applies to the current activity; it will
-   * override the system brightness value whenever your app is in the
-   * foreground" — and needs no permission on either platform.
-   *
-   * So the request is gone and the behaviour is unchanged. `restoreSystemBrightnessAsync`
-   * hands the window back to the system on Android, which is a truer undo than
-   * writing back a number we captured: the system value may have moved while
-   * the screen was open, and auto-brightness would be stuck at whatever we
-   * restored.
-   *
-   * Wrapped throughout: a device that refuses brightness control must not take
-   * the entry code down with it. The code is the point; the brightness is a
-   * courtesy.
-   */
-  useEffect(() => {
-    if (variant !== 'standalone') return undefined;
-    let previous: number | null = null;
-    let active = true;
-
-    (async () => {
-      try {
-        previous = await Brightness.getBrightnessAsync();
-        if (!active) return;
-        await Brightness.setBrightnessAsync(1);
-      } catch {
-        /* No brightness control on this device. Nothing to undo. */
-        previous = null;
-      }
-    })();
-
-    return () => {
-      active = false;
-      (async () => {
-        try {
-          if (Platform.OS === 'android') await Brightness.restoreSystemBrightnessAsync();
-          else if (previous !== null) await Brightness.setBrightnessAsync(previous);
-        } catch {
-          /* Leaving the screen bright is a poor outcome; crashing on the way
-             out of it is a worse one. */
-        }
-      })();
-    };
-  }, [variant]);
 
   const digits = code.split('');
 
   return (
-    <View style={{ gap: space[4], alignItems: 'center' }}>
-      <View style={{ gap: space[1], alignItems: 'center' }}>
-        <Text variant="title1" style={styles.centred}>
+    <View style={{ gap: 14, alignItems: 'center', alignSelf: 'stretch' }}>
+      {/* Top Pass Category Tag */}
+      <View style={styles.passBadge}>
+        <Icon name="verified" size={12} color="#059669" />
+        <Text style={styles.passBadgeText}>MOVE-IN PASS</Text>
+      </View>
+
+      <View style={{ gap: 4, alignItems: 'center', alignSelf: 'stretch' }}>
+        <Text variant="title2" style={[styles.centred, styles.passTitle]}>
           Show this to {ownerName ?? 'the owner'}
-        </Text>
-        <Text variant="bodyLg" color="secondary" style={styles.centred}>
-          {ownerName ? `${ownerName} types` : 'They type'} it into their app to mark you moved in. Only give
-          it to them once you&apos;re standing in the room.
         </Text>
       </View>
 
+      {/* Particularly Highlighted Offer Banner */}
+      <View style={styles.offerHighlightBox}>
+        <View style={styles.offerBadgeIcon}>
+          <Icon name="verified" size={14} color="#D97706" />
+        </View>
+        <Text style={styles.offerHighlightText}>
+          {ownerName
+            ? `Share this PIN with ${ownerName} to confirm your move-in & get a ₹100 coupon code on hotel stays!`
+            : 'Share this PIN to confirm your move-in & get a ₹100 coupon code on hotel stays!'}
+        </Text>
+      </View>
+
+      {/* 6 Digit Tiles: Highlighted Vibrant OTP Boxes */}
       <Animated.View
         entering={reduceMotion ? FadeIn.duration(120) : FadeIn.duration(240).easing(easing.enter)}
         accessible
         accessibilityLabel={`Your move-in code is ${digits.join(' ')}`}
-        style={[styles.tiles, { gap: space[2] }]}
+        style={[styles.tiles, { gap: 8 }]}
       >
         {digits.map((digit, index) => (
-          /*
-           * Outlined in the accent, not filled in graphite.
-           *
-           * Changed with the Dock repaint to match the reference's gate-code
-           * screen, and it is a legibility change rather than a stylistic one.
-           * Four solid near-black slabs are the heaviest mark this app ever
-           * draws, and they were competing with the confirmation's own
-           * meaning — the code is the *answer*, so it should read as a value
-           * on the page rather than as four buttons.
-           *
-           * The outline also survives the thing this screen is built for. It
-           * runs at forced maximum brightness in a dim corridor, where a large
-           * black field blooms and the white numerals inside it smear; ink on
-           * white does not. 6.25:1 for the numeral, and the accent edge is
-           * what makes the four boxes a set.
-           */
           <View
             key={`${digit}-${index}`}
-            style={[
-              styles.tile,
-              {
-                backgroundColor: colors.surface,
-                borderColor: colors.brand,
-                borderWidth: 1.5,
-                borderRadius: radius.card,
-              },
-            ]}
+            style={styles.tile}
           >
-            {/* codeHero: 50px, DM Mono, tabular, and the only style in the app
-                that never scales with the OS setting. */}
-            <Text variant="codeHero" style={{ color: colors.brandInk }}>
+            <Text style={styles.digitText}>
               {digit}
             </Text>
           </View>
         ))}
       </Animated.View>
 
-      <View style={{ gap: space[1], alignItems: 'center' }}>
-        <Text variant="priceSm" color="secondary">
+      {/* Unified Reference & Validity Capsule */}
+      <View style={styles.metaBadgeRow}>
+        <Text style={styles.metaRefText}>
           Booking {bookingReference}
         </Text>
-        <Text variant="caption" color="secondary">
+        <View style={styles.metaDot} />
+        <Text style={styles.metaValidText}>
           {validLabel}
         </Text>
       </View>
 
+      {/* Assurances: Offline Banner */}
       {variant === 'standalone' ? (
-        <View
-          style={{
-            backgroundColor: colors.surfaceSunken,
-            borderRadius: radius.chip,
-            padding: space[3],
-            gap: space[2],
-            alignSelf: 'stretch',
-          }}
-        >
-          <View style={[styles.row, { gap: space[2] }]}>
-            <Icon name="check" size={16} color={colors.success.base} />
-            <Text variant="caption" color="secondary" style={styles.flex}>
-              Screen brightness turned up for you.
-            </Text>
-          </View>
-          <View style={[styles.row, { gap: space[2] }]}>
-            <Icon name="check" size={16} color={colors.success.base} />
-            <Text variant="caption" color="secondary" style={styles.flex}>
-              Downloaded when you paid, so it works with no signal.
+        <View style={styles.assurancesCard}>
+          <View style={[styles.row, { gap: 10 }]}>
+            <View style={styles.checkCircleBadge}>
+              <Icon name="check" size={12} color="#059669" />
+            </View>
+            <Text variant="caption" style={styles.assuranceText}>
+              Downloaded &amp; works offline with no signal.
             </Text>
           </View>
         </View>
@@ -208,9 +116,9 @@ export function VerificationCodeDisplay({
           onPress={onCodeNotWorking}
           accessibilityRole="button"
           accessibilityLabel="Code not working"
-          style={{ minHeight: 44, justifyContent: 'center' }}
+          style={{ minHeight: 38, justifyContent: 'center' }}
         >
-          <Text variant="bodyStrong" color="brand">
+          <Text variant="bodyStrong" style={{ color: '#4F46E5' }}>
             Code not working?
           </Text>
         </Pressable>
@@ -277,52 +185,62 @@ export function VerificationCodeProblem({
 
   return (
     <View
-      accessibilityRole="alert"
       style={{
         backgroundColor: content.tone.tint,
+        borderRadius: radius.card,
+        borderWidth: 1,
         borderColor: content.tone.border,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderRadius: radius.chip,
-        padding: space[3],
+        padding: space[4],
         gap: space[3],
       }}
     >
-      <View style={[styles.row, { gap: space[3], alignItems: 'flex-start' }]}>
-        <View style={[styles.disc, { borderRadius: radius.pill, backgroundColor: content.tone.base }]}>
-          <Icon name={content.glyph} size={16} color={content.tone.on} />
-        </View>
-        <View style={[styles.flex, { gap: space[1] }]}>
-          <Text variant="bodyStrong" style={{ color: content.tone.ink }}>
-            {content.headline}
-          </Text>
-          <Text variant="caption" style={{ color: content.tone.ink }}>
-            {content.body}
-          </Text>
-        </View>
+      <View style={{ flexDirection: 'row', gap: space[3], alignItems: 'center' }}>
+        <Icon name={content.glyph} size={24} color={content.tone.ink} />
+        <Text variant="title3" style={{ color: content.tone.ink, flex: 1 }}>
+          {content.headline}
+        </Text>
       </View>
 
-      {kind === 'locked' && onCallSupport ? (
+      <Text variant="body" style={{ color: content.tone.ink, lineHeight: 22 }}>
+        {content.body}
+      </Text>
+
+      {kind === 'locked' ? (
         <Pressable
           onPress={onCallSupport}
           accessibilityRole="button"
-          accessibilityLabel="Call LAMPOSE support"
-          style={{ minHeight: 44, justifyContent: 'center' }}
+          accessibilityLabel="Call support to confirm now"
+          style={{
+            backgroundColor: content.tone.ink,
+            borderRadius: radius.button,
+            paddingVertical: space[3],
+            paddingHorizontal: space[4],
+            alignItems: 'center',
+            minHeight: 44,
+            justifyContent: 'center' as never,
+          }}
         >
-          <Text variant="bodyStrong" style={{ color: content.tone.ink, textDecorationLine: 'underline' }}>
-            Call LAMPOSE support
+          <Text variant="bodyStrong" style={{ color: '#FFFFFF' }}>
+            Call support to confirm now
           </Text>
         </Pressable>
-      ) : null}
-
-      {kind === 'wrongDay' && onChangeDate ? (
+      ) : kind === 'wrongDay' ? (
         <Pressable
           onPress={onChangeDate}
           accessibilityRole="button"
-          accessibilityLabel="Change my move-in date"
-          style={{ minHeight: 44, justifyContent: 'center' }}
+          accessibilityLabel="Change move-in date"
+          style={{
+            backgroundColor: content.tone.ink,
+            borderRadius: radius.button,
+            paddingVertical: space[3],
+            paddingHorizontal: space[4],
+            alignItems: 'center',
+            minHeight: 44,
+            justifyContent: 'center' as never,
+          }}
         >
-          <Text variant="bodyStrong" style={{ color: content.tone.ink, textDecorationLine: 'underline' }}>
-            Change my move-in date
+          <Text variant="bodyStrong" style={{ color: '#FFFFFF' }}>
+            Change move-in date
           </Text>
         </Pressable>
       ) : null}
@@ -331,22 +249,135 @@ export function VerificationCodeProblem({
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center' },
-  flex: { flex: 1 },
   centred: { textAlign: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  passBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    marginBottom: 2,
+  },
+  passBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#047857',
+    letterSpacing: 0.8,
+  },
+  passTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  offerHighlightBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#FEF3C7',
+    borderColor: '#F59E0B',
+    borderWidth: 1.5,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    alignSelf: 'stretch',
+  },
+  offerBadgeIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#FDE68A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  offerHighlightText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#92400E',
+    lineHeight: 18,
+    flex: 1,
+  },
   tiles: { flexDirection: 'row', justifyContent: 'center', alignSelf: 'stretch' },
-  /*
-   * Six tiles have to fit the narrowest phone we ship to.
-   *
-   * At the old fixed 72pt this row was 472pt wide against 328pt of usable
-   * width on a 360dp screen — it ran off both edges. The width now comes from
-   * the row: each tile takes an equal share of whatever is there, capped at 72
-   * so four digits do not stretch into slabs, floored at 40 so a 50pt numeral
-   * still has room either side.
-   *
-   * Height stays fixed. The digit does not scale with the OS font setting, so
-   * neither should the box around it.
-   */
-  tile: { flex: 1, maxWidth: 72, minWidth: 40, height: 96, alignItems: 'center', justifyContent: 'center' },
+  tile: {
+    flex: 1,
+    maxWidth: 52,
+    minWidth: 38,
+    height: 62,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF2FF',
+    borderColor: '#C7D2FE',
+    borderWidth: 1.5,
+    borderRadius: 14,
+    shadowColor: '#4338CA',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  digitText: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#3730A3',
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+  },
+  metaBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  metaRefText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  metaDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#94A3B8',
+  },
+  metaValidText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  assurancesCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 8,
+    alignSelf: 'stretch',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  checkCircleBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  assuranceText: {
+    color: '#475569',
+    fontSize: 12,
+    flex: 1,
+  },
   disc: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
 });

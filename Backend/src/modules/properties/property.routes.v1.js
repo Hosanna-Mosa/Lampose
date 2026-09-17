@@ -14,6 +14,7 @@ const { identifyStaffOrAdmin, adminNeeds, bindEmployeeEmail } = require('../iam/
    than either app is built to show. */
 const MAX_PROPERTY_IMAGES = 10;
 const { syncShareTypes } = require('../inventory/inventory.service');
+const { readMapLink, readPin } = require('./property.util');
 
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
@@ -90,7 +91,7 @@ const PENDING_STATUSES = ['sent', 'pending', 'failed'];
 const EDITABLE_PROPERTY_FIELDS = [
   'name', 'place', 'ownerName', 'ownerMobile', 'ownerAltMobile', 'category', 'employeeEmail',
   'stayType', 'shortStayDuration', 'dailyPrice', 'longStayDuration', 'monthlyPrice',
-  'rent', 'deposit', 'address', 'description', 'imageUrl', 'images', 'amenities', 'categoryDetails',
+  'rent', 'deposit', 'address', 'mapLink', 'location', 'description', 'imageUrl', 'images', 'amenities', 'categoryDetails',
   /* Ownership and premises paperwork. Never projected publicly — see the
      schema note on `documents`. */
   'documents',
@@ -495,6 +496,10 @@ router.post('/', requireWriter, async (req, res) => {
       rent,
       deposit,
       address,
+      /* Where it is on a map: the pasted link and the pin, independently.
+         Both optional — see property.util.js. */
+      mapLink,
+      location,
       imageUrl,
       images,
       employeeEmail,
@@ -590,6 +595,7 @@ router.post('/', requireWriter, async (req, res) => {
       rent: determinedRent,
       deposit: Number(deposit || 0),
       address: address || '',
+      mapLink: readMapLink(mapLink),
       imageUrl: determinedImages[0] || imageUrl || '/lampose-logo-splash.png',
       images: determinedImages,
       amenities: Array.isArray(amenities) ? amenities : [],
@@ -599,6 +605,14 @@ router.post('/', requireWriter, async (req, res) => {
       isVerified: false,
       verificationStatus: 'pending'
     };
+
+    /* Assigned rather than written inline: an absent pin has to be an ABSENT
+       key, not an undefined one. `{...newPropertyData}` is what lands in the
+       verification snapshot and is later spread into Property.create(), and an
+       explicit `location: undefined` there is the difference between a
+       property with no pin and one mongoose tries to cast. */
+    const pin = readPin(location);
+    if (pin) newPropertyData.location = pin;
 
     let propertyId;
     let property;
@@ -815,6 +829,28 @@ router.put('/:id', requireWriter, async (req, res) => {
     const gate = await authorizeEmployeeWrite(req, 'edit', id);
     if (!gate.allowed) {
       return res.status(403).json({ success: false, error: gate.message, requiresPermission: true, action: 'edit' });
+    }
+
+    /*
+     * The pin, in whichever shape the caller holds it.
+     *
+     * This body goes to findByIdAndUpdate whole, so an edit sending the
+     * `{lat, lng}` a device returns — the shape the create route accepts —
+     * would otherwise reach the point sub-schema uncast and fail the whole
+     * save on a field nobody was editing. Normalised to GeoJSON here, and an
+     * unreadable one is dropped rather than refused: the location is optional
+     * and a bad pin must not cost somebody their price correction.
+     */
+    if (req.body && req.body.location !== undefined) {
+      const pin = readPin(req.body.location);
+      if (pin) req.body.location = pin;
+      /* `null` is how a caller says "remove the pin"; anything else
+         unreadable is left out of the update entirely. */
+      else if (req.body.location === null) req.body.location = undefined;
+      else delete req.body.location;
+    }
+    if (req.body && req.body.mapLink !== undefined) {
+      req.body.mapLink = readMapLink(req.body.mapLink);
     }
 
     if (getIsInMemory()) {

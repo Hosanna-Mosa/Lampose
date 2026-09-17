@@ -144,9 +144,21 @@ export function BookingTimeline({ status, steps = [], showPaid = false }: Bookin
     previousReached.current = reached;
   }, [status, reached]);
 
+  const NEXT_STEP_LABELS: Record<TimelineStepId, string> = {
+    requested: 'Submit Request',
+    accepted: 'Owner Acceptance',
+    paid: 'Payment',
+    movedIn: 'Move in',
+  };
+
+  const hasNextStep = !stopped && reached < order.length - 1;
+  const nextStepId = hasNextStep ? order[reached + 1] : null;
+
   const headline = stopped
     ? `${descriptor.label}${descriptor.actor ? ` ${descriptor.actor}` : ''}`
-    : DEFAULT_LABELS[order[Math.min(reached, order.length - 1)]];
+    : hasNextStep && nextStepId
+      ? `Next step: ${NEXT_STEP_LABELS[nextStepId] ?? DEFAULT_LABELS[nextStepId]}`
+      : 'All steps completed';
 
   const body = stopped
     ? status === 'EXPIRED'
@@ -156,7 +168,13 @@ export function BookingTimeline({ status, steps = [], showPaid = false }: Bookin
         : 'Nothing was charged. The beds you shortlisted are still there.'
     : retry
       ? 'The payment did not go through, but your bed is still held. You can try again.'
-      : 'Each step is confirmed by the server before it appears here.';
+      : hasNextStep && nextStepId
+        ? nextStepId === 'movedIn'
+          ? 'Show your move-in PIN to the owner once you reach your room.'
+          : nextStepId === 'paid'
+            ? 'Complete your payment to lock your room and get your move-in pass.'
+            : 'Waiting for the owner to confirm your booking request.'
+        : 'You have completed all steps and checked in.';
 
   return (
     <View style={{ gap: space[3] }}>

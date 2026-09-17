@@ -11,9 +11,20 @@ expo-env.d.ts
 
 # Native
 ios/
-android/
 *.orig.*
 *.jks
+
+# `User App/android/` is deliberately NOT ignored — the native project is
+# committed, because it carries hand-edits that `expo prebuild` would destroy
+# (the release signingConfig, and the long-path ninja the Windows build needs).
+# Its own android/.gitignore keeps build/, .gradle/ and .cxx/ out.
+#
+# Two things inside it must still never be committed, and are listed here
+# rather than in that file so they stay excluded no matter what a prebuild
+# rewrites: the upload key (covered by `*.jks` above) and the Gradle properties
+# holding its passwords in plaintext. The passwords' proper home is the
+# user-level ~/.gradle/gradle.properties, outside the repo entirely.
+User App/android/gradle.properties
 *.p8
 *.p12
 *.key

@@ -11,10 +11,10 @@ import { OwnerStatusTrail, WaitLoader, type TrailStep } from '@/components/reque
 import { errorStates } from '@/constants/copy';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { ongoingQueryKey } from '@/hooks/useOngoing';
-import { usePreviewControls } from '@/hooks/useAppEnv';
+import { useDevBypass } from '@/hooks/useAppEnv';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { useListing, useStayRequest } from '@/services';
+import { useListing, useStayCoupons, useStayRequest } from '@/services';
 import { addAddress } from '@/services/api/addresses.api';
 /* DEVELOPMENT ONLY — remove with the dev bypass button below. */
 import { ApiError } from '@/services/api/client';
@@ -72,10 +72,12 @@ function stamp(value: string | null | undefined): string | undefined {
 export default function OwnerConfirmation() {
   const { mode, colors, space, layout, radius } = useTheme();
   const { confirm } = useAlert();
-  /* Whether this build may draw developer controls at all — see the note on
-     the dev button below. False on a production build, and it re-renders when
-     the mode is switched. */
-  const previewControls = usePreviewControls();
+  /* Whether this build may draw the payment BYPASS — see the note on the dev
+     button below. Not `usePreviewControls`: that is on in every non-production
+     build, including the internal APKs that point at the production API, and
+     this button settles a real request for a real student. Opt-in only, via
+     EXPO_PUBLIC_DEV_BYPASS=true. Re-renders when the mode is switched. */
+  const devBypassAllowed = useDevBypass();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -170,6 +172,16 @@ export default function OwnerConfirmation() {
     };
   }, [stayType, units, joinDate, flexibleJoin, checkIn, checkOut, rateStructure, rateQuantity]);
 
+  /*
+   * The best reward available to spend, if any.
+   *
+   * `spendable` is the SERVER's verdict — active, unexpired, not held by
+   * another booking — rather than a rule re-implemented here. See
+   * `BackendStayCoupon`.
+   */
+  const { spendable } = useStayCoupons(true);
+  const reward = spendable[0] ?? null;
+
   /* One shape, two callers: the auto-send effect below, and the "Save and
      send request" button on the profile form, once a PROFILE_INCOMPLETE
      failure is fixed. Kept as one `useMemo` so a retry can never drift from
@@ -186,7 +198,31 @@ export default function OwnerConfirmation() {
      * is the moment a student's name and number reach a stranger.
      */
     consentedTerms: consented === '1',
-  } : null), [listing, sharingId, intent, consented]);
+    /*
+     * The ₹100 move-in reward, applied without being asked for.
+     *
+     * ## Why there is no "apply coupon" control
+     *
+     * This screen sends on its own — there is no review step to hang a picker
+     * off, and adding one would mean stopping an automatic flow to ask a
+     * question with one sensible answer. A discount you have to remember to
+     * apply is one most people do not, and the student already earned this by
+     * moving into somewhere: making them opt in a second time is a second
+     * chance to lose it.
+     *
+     * ## Hotels only
+     *
+     * Gated on the category here as well as on the server, where the coupon
+     * cannot reach the ₹199 assisted-visit fee. Sending it on a PG request
+     * would be harmless — it is simply never reserved — but it would also
+     * mean a coupon briefly appearing to be in play on a booking it can never
+     * discount, which is worse than not sending it.
+     *
+     * The id, never an amount: the server subtracts it from a total it has
+     * just re-derived from the owner's own rates.
+     */
+    couponId: listing.category === 'HOTEL' ? (reward?.id ?? null) : null,
+  } : null), [listing, sharingId, intent, consented, reward]);
 
   /*
    * One request, ever, unless the student asks for another.
@@ -1078,12 +1114,18 @@ export default function OwnerConfirmation() {
 
               Two gates, and they do different jobs.
 
-              The BUILD gate (`previewControls`) decides whether the button is
+              The BUILD gate (`useDevBypass`) decides whether the button is
               drawn. It used to be the server's `devMarkPaidAllowed` alone,
               which meant that on a server without `DEV_ALLOW_MARK_PAID` the
               button was simply absent — with nothing on screen to say why, or
               that it existed at all. A developer looking for it concluded it
               had been removed.
+
+              It then shared `previewControls` with the rest of the preview
+              controls, which was too wide: that is on in an internal preview
+              APK, and an internal APK points at the production API like any
+              other. So the gate is its own opt-in variable now, off unless
+              EXPO_PUBLIC_DEV_BYPASS is the exact string `true`.
 
               The SERVER gate is still the one that decides whether it WORKS,
               and it has to be: a client that could settle a payment by asking
@@ -1091,12 +1133,12 @@ export default function OwnerConfirmation() {
               prevent. `env.js` refuses the flag outright under
               NODE_ENV=production.
 
-              So on a dev build with the flag off, the button is visible and
-              says what to switch on — which is the useful state, and the one
-              that used to be invisible. On a production build neither gate is
-              open and none of this renders.
+              So on an opted-in build with the server flag off, the button is
+              visible and says what to switch on — which is the useful state,
+              and the one that used to be invisible. On any build that did not
+              opt in, and on every production build, none of this renders.
             */}
-            {tokenDue && previewControls ? (
+            {tokenDue && devBypassAllowed ? (
               <>
                 {/*
                   NOT disabled by `paying`, unlike the real pay button above.

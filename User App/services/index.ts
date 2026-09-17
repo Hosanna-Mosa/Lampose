@@ -182,5 +182,6 @@ export { useNotifications, type NotificationDay } from './hooks/useNotifications
 export { useSaved } from './hooks/useSaved';
 export { useAddresses } from './hooks/useAddresses';
 export { useMyCoupon } from './hooks/useMyCoupon';
+export { useStayCoupons } from './hooks/useStayCoupons';
 export { useCreateSupportRequest, useTicket, useTickets } from './hooks/useTickets';
 export { useHealth } from './hooks/useHealth';

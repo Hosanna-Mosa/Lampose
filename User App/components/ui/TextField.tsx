@@ -169,6 +169,27 @@ export function TextField({
 export type SearchFieldProps = Omit<TextInputProps, 'style'> & {
   onClear?: () => void;
   containerStyle?: ViewStyle;
+  /**
+   * `rect` is the field everywhere in the app — see the note below for why
+   * it is not a pill.
+   *
+   * `pill` exists for the ONE place that reason does not hold: the Explore
+   * hero, where the field is the largest thing in a banded header and the
+   * chips beneath it are far enough away in size and position that the two
+   * cannot be mistaken for one family. Nothing else should reach for it.
+   */
+  shape?: 'rect' | 'pill';
+  /**
+   * The trailing "go" disc. Present only where committing the term is a
+   * distinct act — the hero field, where typing filters live but a thumb
+   * still wants somewhere to say "that's the one".
+   *
+   * It has no disabled state on purpose. An empty field still has something
+   * for it to do (put the keyboard away, and commit the emptiness), and a
+   * disc that greys out with nothing typed would be grey on arrival, which
+   * is every time the screen is opened.
+   */
+  onSubmitPress?: () => void;
 };
 
 /**
@@ -188,10 +209,23 @@ export type SearchFieldProps = Omit<TextInputProps, 'style'> & {
  * line of full-round 40pt chips reads as one family of five things rather than
  * one field and four filters.
  */
-export function SearchField({ value, onClear, containerStyle, ...rest }: SearchFieldProps) {
+export function SearchField({
+  value,
+  onClear,
+  containerStyle,
+  shape = 'rect',
+  onSubmitPress,
+  ...rest
+}: SearchFieldProps) {
   const scale = useTypeScale();
   const { colors, space, radius, touch } = useTheme();
   const [focused, setFocused] = useState(false);
+
+  const pill = shape === 'pill';
+  /* The disc is inset rather than gutter-aligned, so the right padding
+     collapses to the inset when one is present. Without this the disc sits a
+     full 16pt in from the edge and the field reads as having a hole in it. */
+  const discInset = 5;
 
   return (
     <View
@@ -199,11 +233,12 @@ export function SearchField({ value, onClear, containerStyle, ...rest }: SearchF
         styles.field,
         {
           minHeight: touch.min + 4,
-          borderRadius: radius.button,
+          borderRadius: pill ? radius.pill : radius.button,
           borderWidth: focused ? 1.5 : 1,
           borderColor: focused ? colors.brand : colors.borderInput,
           backgroundColor: colors.surface,
-          paddingHorizontal: space[4],
+          paddingLeft: pill ? space[4] + 2 : space[4],
+          paddingRight: onSubmitPress ? discInset : space[4],
           alignItems: 'center',
           gap: space[2],
         },
@@ -238,6 +273,28 @@ export function SearchField({ value, onClear, containerStyle, ...rest }: SearchF
           accessibilityLabel="Clear search"
         >
           <Icon name="close" size={20} color={colors.textSecondary} />
+        </Pressable>
+      ) : null}
+
+      {onSubmitPress ? (
+        /* 38pt of visible disc plus `hitSlop` to clear 44 — the same
+           arrangement `IconButton` uses, and for the same reason: a 44pt
+           filled circle inside a 48pt field leaves no field. */
+        <Pressable
+          onPress={onSubmitPress}
+          hitSlop={touch.iconButtonHitSlop + 3}
+          accessibilityRole="button"
+          accessibilityLabel="Search"
+          style={({ pressed }) => ({
+            width: 38,
+            height: 38,
+            borderRadius: radius.pill,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: pressed ? colors.brandPressed : colors.brand,
+          })}
+        >
+          <Icon name="arrowRight" size={20} color={colors.onBrand} />
         </Pressable>
       ) : null}
     </View>

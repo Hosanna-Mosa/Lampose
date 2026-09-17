@@ -34,6 +34,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   APP_ENV as BUILD_APP_ENV,
+  DEV_BYPASS as DEV_BYPASS_CONFIGURED,
   FOOD_MODE_CONFIGURED,
   IS_PRODUCTION_BUILD,
   type AppEnv,
@@ -71,6 +72,19 @@ export const previewControls = (): boolean => getAppEnv() !== 'production';
 
 /** True when the app may narrate itself to the console. */
 export const debugLogs = (): boolean => getAppEnv() !== 'production';
+
+/**
+ * True when the DEV-labelled bypass buttons may render.
+ *
+ * Two conditions, both required, and deliberately narrower than
+ * `previewControls`: the build was explicitly opted in with
+ * `EXPO_PUBLIC_DEV_BYPASS=true`, AND the mode in force is not production.
+ * Switching this build to development does not conjure the opt-in; switching
+ * it to production takes the buttons away without a rebuild. Same shape as
+ * `foodMode` below, for the same reason.
+ */
+export const devBypass = (): boolean =>
+  DEV_BYPASS_CONFIGURED && getAppEnv() !== 'production';
 
 /**
  * Which Food module the tab opens.

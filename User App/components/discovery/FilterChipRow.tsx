@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { Chip, Icon, Text } from '@/components/ui';
+import { Icon, Text, type IconName } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
 
 export type FilterChip = {
@@ -12,19 +12,13 @@ export type FilterChip = {
   clearable?: boolean;
 };
 
-/**
- * The default chip order.
- *
- * Ordered by how often each one changes a result set, not alphabetically. Rent
- * and sharing move the list most, so they sit where the thumb starts; gym is
- * last because almost nobody filters on it and it never empties a list.
- */
 export const DEFAULT_FILTER_ORDER: readonly string[] = [
+  'gender',
   'rent',
   'sharing',
-  'gender',
-  'deposit',
+  'furnishing',
   'meals',
+  'deposit',
   'distance',
   'attachedBath',
   'ac',
@@ -32,89 +26,180 @@ export const DEFAULT_FILTER_ORDER: readonly string[] = [
   'gym',
 ];
 
+const CHIP_ICON_MAP: Record<string, IconName> = {
+  gender: 'visitors',
+  rent: 'rupee',
+  sharing: 'sharing',
+  furnishing: 'furnished',
+  meals: 'mess',
+  deposit: 'rupee',
+  ac: 'ac',
+  parking: 'parking',
+  gym: 'gym',
+  attachedBath: 'attachedBath',
+};
+
 export type FilterChipRowProps = {
   chips: readonly FilterChip[];
   onPressChip: (id: string) => void;
   onClearChip?: (id: string) => void;
   onPressFilters: () => void;
-  /** Active filter count. Brand, not red — five filters is a state, not a problem. */
   activeCount?: number;
+  activeDropdownId?: string | null;
 };
 
-/**
- * Sticky under the search header.
- *
- * The Filters button is first and never scrolls out of reach: a user who has
- * over-filtered themselves into an empty list needs the way out to be where
- * they last saw it, not two swipes to the left.
- */
 export function FilterChipRow({
   chips,
   onPressChip,
   onClearChip,
   onPressFilters,
   activeCount = 0,
+  activeDropdownId,
 }: FilterChipRowProps) {
-  const { colors, space, radius, layout, touch } = useTheme();
+  const { colors, space, radius, layout, touch, mode } = useTheme();
 
   return (
     <View
       style={[
         styles.host,
-        { backgroundColor: colors.surface, borderBottomColor: colors.borderSubtle, gap: space[2] },
+        {
+          backgroundColor: colors.surface,
+          borderBottomColor: mode === 'dark' ? colors.borderSubtle : '#F1F5F9',
+          gap: space[2],
+        },
       ]}
     >
+      {/* Primary "Filters" Button */}
       <Pressable
         onPress={onPressFilters}
         accessibilityRole="button"
         accessibilityLabel={activeCount ? `Filters, ${activeCount} active` : 'Filters'}
-        style={[
+        style={({ pressed }) => [
           styles.filtersButton,
           {
-            minHeight: 40,
+            minHeight: 38,
             marginLeft: layout.gutter,
             borderRadius: radius.pill,
-            borderColor: activeCount ? colors.brand : colors.border,
-            borderWidth: activeCount ? 1.5 : 1,
-            backgroundColor: colors.surface,
-            paddingHorizontal: space[3],
-            gap: space[2],
+            borderColor: activeCount > 0 ? (mode === 'dark' ? '#34D399' : '#0F4C3A') : '#E2E8F0',
+            borderWidth: 1,
+            backgroundColor: activeCount > 0 && mode !== 'dark' ? '#E8F5E9' : colors.surface,
+            paddingHorizontal: space[3] + 2,
+            gap: 6,
+            opacity: pressed ? 0.75 : 1,
           },
         ]}
-        hitSlop={{ top: (touch.min - 40) / 2, bottom: (touch.min - 40) / 2 }}
+        hitSlop={{ top: (touch.min - 38) / 2, bottom: (touch.min - 38) / 2 }}
       >
-        <Icon name="filters" size={20} color={activeCount ? colors.brandInk : colors.textPrimary} />
-        <Text variant="bodyStrong" style={{ color: activeCount ? colors.brandInk : colors.textPrimary }}>
+        <Icon
+          name="filters"
+          size={16}
+          color={activeCount > 0 ? (mode === 'dark' ? '#34D399' : '#0F4C3A') : colors.textPrimary}
+        />
+        <Text
+          variant="bodyStrong"
+          style={{
+            fontSize: 13,
+            fontWeight: '600',
+            color: activeCount > 0 ? (mode === 'dark' ? '#34D399' : '#0F4C3A') : colors.textPrimary,
+          }}
+        >
           Filters
         </Text>
-        {activeCount ? (
+        {activeCount > 0 ? (
           <View
             style={[
               styles.count,
-              { borderRadius: radius.pill, backgroundColor: colors.brandTint, paddingHorizontal: space[2] },
+              {
+                borderRadius: radius.pill,
+                backgroundColor: mode === 'dark' ? '#34D399' : '#0F4C3A',
+                paddingHorizontal: 6,
+              },
             ]}
           >
-            <Text variant="numMeta" style={{ color: colors.info.ink }}>
+            <Text variant="numMeta" style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>
               {activeCount}
             </Text>
           </View>
         ) : null}
       </Pressable>
 
+      {/* Dimension Chips with Icon, Label, and Dropdown Chevron */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingRight: layout.gutter, gap: space[2] }}
+        contentContainerStyle={{ paddingRight: layout.gutter, gap: space[2], alignItems: 'center' }}
       >
-        {chips.map((chip) => (
-          <Chip
-            key={chip.id}
-            label={chip.label}
-            selected={chip.active}
-            onPress={() => onPressChip(chip.id)}
-            onRemove={chip.active && chip.clearable && onClearChip ? () => onClearChip(chip.id) : undefined}
-          />
-        ))}
+        {chips.map((chip) => {
+          const iconName = CHIP_ICON_MAP[chip.id];
+          const isSelected = Boolean(chip.active);
+          const isDropdownOpen = activeDropdownId === chip.id;
+          const isHighlighted = isSelected || isDropdownOpen;
+
+          return (
+            <Pressable
+              key={chip.id}
+              onPress={() => onPressChip(chip.id)}
+              style={({ pressed }) => [
+                styles.chipButton,
+                {
+                  minHeight: 38,
+                  borderRadius: radius.pill,
+                  backgroundColor: isHighlighted && mode !== 'dark' ? '#E8F5E9' : colors.surface,
+                  borderColor: isHighlighted ? (mode === 'dark' ? '#34D399' : '#0F4C3A') : '#E2E8F0',
+                  borderWidth: isDropdownOpen ? 1.5 : 1,
+                  paddingLeft: iconName ? space[3] : space[4],
+                  paddingRight: space[3],
+                  gap: 6,
+                  opacity: pressed ? 0.8 : 1,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={`${chip.label} filter`}
+            >
+              {iconName ? (
+                <Icon
+                  name={iconName}
+                  size={16}
+                  color={isHighlighted ? (mode === 'dark' ? '#34D399' : '#0F4C3A') : colors.textSecondary}
+                />
+              ) : null}
+
+              <Text
+                variant="bodyStrong"
+                style={{
+                  fontSize: 13,
+                  fontWeight: isHighlighted ? '700' : '500',
+                  color: isHighlighted ? (mode === 'dark' ? '#34D399' : '#0F4C3A') : colors.textPrimary,
+                }}
+              >
+                {chip.label}
+              </Text>
+
+              {isSelected && chip.clearable && onClearChip && !isDropdownOpen ? (
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onClearChip(chip.id);
+                  }}
+                  hitSlop={6}
+                  style={styles.removeCircle}
+                >
+                  <Icon name="close" size={12} color={colors.textSecondary} />
+                </Pressable>
+              ) : (
+                <Text
+                  style={
+                    isDropdownOpen
+                      ? [styles.chevron, { color: mode === 'dark' ? '#34D399' : '#0F4C3A' }]
+                      : styles.chevron
+                  }
+                >
+                  {isDropdownOpen ? '⌃' : '⌵'}
+                </Text>
+              )}
+            </Pressable>
+          );
+        })}
       </ScrollView>
     </View>
   );
@@ -127,6 +212,32 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  filtersButton: { flexDirection: 'row', alignItems: 'center' },
-  count: { minHeight: 20, alignItems: 'center', justifyContent: 'center' },
+  filtersButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  count: {
+    minHeight: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  removeCircle: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(0,0,0,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 2,
+  },
+  chevron: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: -2,
+    fontWeight: '600',
+  },
 });

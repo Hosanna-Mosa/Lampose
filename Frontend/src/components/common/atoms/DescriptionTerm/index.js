@@ -1,0 +1,1 @@
+export { DescriptionTerm } from './DescriptionTerm';

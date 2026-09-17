@@ -65,6 +65,7 @@ import { actions } from '@/constants/actions';
 
 export default function ListingDetail() {
   const { colors, space, layout, mode, radius } = useTheme();
+  const isDark = mode === 'dark';
   /* The same height PhotoHero measures for this device, so the pager's pages
      fill the slot exactly rather than being sized from a constant that is
      wrong on a short screen. */
@@ -208,6 +209,7 @@ export default function ListingDetail() {
   const [consented, setConsented] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [ctaHeight, setCtaHeight] = useState(96);
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
   // Scroll-linked, on the UI thread. A JS round trip per frame tears on the
   // hardware this app targets, so no threshold logic touches component state.
@@ -359,6 +361,8 @@ export default function ListingDetail() {
   const groups: readonly PhotoGroup[] = photos.length
     ? [{ id: 'all', label: 'Photos', count: photos.length, uris: photos }]
     : [];
+
+
 
   // No sign-in check: auth is the first gate in the app, so anyone on this
   // screen already has an account.
@@ -618,62 +622,105 @@ export default function ListingDetail() {
           paints, so nothing changes visually except that the photo stops
           showing through.
         */}
-        <View style={{ padding: layout.gutter, gap: space[4], backgroundColor: colors.bg }}>
-          {/* Identity */}
-          <View style={{ gap: space[2] }}>
-            <GenderBadge gender={listing.gender} />
-            <Text variant="title1">{listing.name}</Text>
-            <View style={[styles.row, { gap: space[2] }]}>
-              <Text variant="body" color="secondary">
+        <View
+          style={[
+            styles.mainBodySheet,
+            {
+              paddingHorizontal: layout.gutter,
+              paddingTop: space[4],
+              paddingBottom: space[6],
+              gap: space[5],
+              backgroundColor: colors.bg,
+            },
+          ]}
+        >
+          {/* Top Sheet Drag Handle Indicator */}
+          <View style={[styles.sheetGrabHandle, { backgroundColor: colors.borderSubtle }]} />
+
+          {/* Status Badge Row */}
+          {listing.gender ? (
+            <View style={styles.statusBadgeRow}>
+              <GenderBadge gender={listing.gender} />
+            </View>
+          ) : null}
+
+          {/* Identity & Locality */}
+          <View style={styles.propertyTitleBlock}>
+            <Text
+              variant="title1"
+              style={{ color: colors.textPrimary, fontWeight: '800', fontSize: 24, lineHeight: 30 }}
+            >
+              {listing.name}
+            </Text>
+            <View style={[styles.row, { gap: 6, alignItems: 'center' }]}>
+              <Icon name="mapPin" size={16} color={colors.brand} />
+              <Text variant="body" color="secondary" style={{ fontWeight: '500' }}>
                 {listing.locality}
                 {listing.localityNote ? ` · ${listing.localityNote}` : ''}
               </Text>
             </View>
           </View>
 
-          {/* Money, and the deposit immediately under it — the whole reason
-              this screen can afford a sparse card.
-
-              Tinted rather than plain, and the one section that carries the
-              accent at full strength rather than a chip: everything above
-              this point is identity (what the place is called, where it is);
-              this is the number the whole page exists to answer, and it
-              should not read as one more grey block among several. */}
+          {/* Hero Pricing & Value Studio Card */}
           <View
-            style={{
-              backgroundColor: colors.brandTint,
-              borderRadius: radius.card,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: colors.brand,
-              padding: space[4],
-              gap: space[3],
-            }}
+            style={[
+              styles.priceStudioCard,
+              {
+                backgroundColor: isDark ? 'rgba(15, 118, 110, 0.18)' : '#F0FDF4',
+                borderColor: colors.brand,
+              },
+            ]}
           >
-            <RentDisplay
-              rent={shownRent}
-              deposit={undefined}
-              perBed={listing.perBed}
-              perNight={totals ? totals.rate.id === 'DAILY' : listing.perNight}
-              size="detail"
-              sharedTag={`rent-${listing.id}`}
+            <View style={styles.priceStudioTop}>
+              <View style={{ flex: 1 }}>
+                <Text
+                  variant="caption"
+                  color="secondary"
+                  style={{ textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: '600' }}
+                >
+                  Starting Rent
+                </Text>
+                <Text
+                  variant="title1"
+                  style={{ color: colors.brand, fontWeight: '800', fontSize: 28, marginTop: 2 }}
+                >
+                  ₹{shownRent ? shownRent.toLocaleString('en-IN') : '—'}
+                  <Text variant="body" color="secondary" style={{ fontWeight: '500' }}>
+                    {totals && totals.rate.id === 'DAILY' ? ' / night' : ' / month'}
+                  </Text>
+                </Text>
+              </View>
+
+              <View style={[styles.zeroBrokeragePill, { backgroundColor: colors.brand }]}>
+                <Icon name="check" size={12} color="#FFFFFF" />
+                <Text variant="caption" style={{ color: '#FFFFFF', fontWeight: '700', marginLeft: 4 }}>
+                  Zero Brokerage
+                </Text>
+              </View>
+            </View>
+
+            <View
+              style={[
+                styles.priceStudioDivider,
+                { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.06)' },
+              ]}
             />
 
-            {/* The one thing the screen cannot otherwise tell you: whether
-                anybody else is looking. The window travels with the number —
-                128 views is a lot this week and nothing at all since March. */}
-            {listing.viewCount !== undefined ? (
-              <Text variant="numMeta" style={{ color: colors.brandInk }}>
-                {listing.viewCount.toLocaleString('en-IN')} viewed
-                {listing.viewWindow ? ` in ${listing.viewWindow}` : ''}
-              </Text>
-            ) : null}
+            <View style={styles.priceStudioBottom}>
+              <View style={styles.priceMetaItem}>
+                <Icon name="security" size={14} color={colors.brand} />
+                <Text variant="caption" color="secondary" style={{ marginLeft: 6 }}>
+                  Deposit:{' '}
+                  <Text variant="caption" style={{ color: colors.textPrimary, fontWeight: '700' }}>
+                    {shownDeposit ? `₹${shownDeposit.toLocaleString('en-IN')}` : 'Nil'}
+                  </Text>
+                  {shownDepositMonths ? ` (${shownDepositMonths} mo)` : ''}
+                </Text>
+              </View>
+            </View>
           </View>
 
-          {/* Screen 33. Not a 404: the page still resolves, because a saved
-              link a student sent their parent must not break. It states plainly
-              why and when it filled, and then turns the dead end into live
-              matches — an unavailable screen with no way forward is where a
-              session ends. */}
+          {/* Unavailable Notice & Similar Stays */}
           {gone ? (
             <View style={{ gap: space[4] }}>
               <View
@@ -689,8 +736,6 @@ export default function ListingDetail() {
                   {availabilityLabel(listing.availability)}. We keep this page so a saved link still
                   works, but you cannot request it right now.
                 </Text>
-                {/* The demand signal, and the only useful thing to offer for
-                    this particular place. */}
                 <Button label="Notify me if a bed opens" variant="secondary" onPress={() => {}} />
               </View>
 
@@ -712,38 +757,115 @@ export default function ListingDetail() {
             </View>
           ) : null}
 
-          {/* PG and hostel: how long, not which bed.
-              Bed choice moves to the request, where it is being committed to
-              rather than browsed — and where the owner needs it. Bachelor and
-              dormitory keep the sharing selector, because a whole unit and a
-              dormitory bed are chosen, not scheduled. */}
+          {/* Stay & Room Configuration Studio */}
           {isHotel && listing.sharingOptions?.length ? (
-            <HotelStaySelector
-              options={listing.sharingOptions}
-              value={hotelIntent}
-              onChange={setHotelIntent}
-            />
+            <View
+              style={[
+                styles.stayConfigSection,
+                {
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : colors.surface,
+                  borderColor: colors.borderSubtle,
+                },
+              ]}
+            >
+              <View style={styles.stayConfigHeader}>
+                <View style={[styles.stayConfigIconWrap, { backgroundColor: colors.brandTint }]}>
+                  <Icon name="calendar" size={18} color={colors.brand} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodyStrong" style={{ color: colors.textPrimary, fontWeight: '700' }}>
+                    Hotel Stay Dates & Room
+                  </Text>
+                  <Text variant="caption" color="secondary">
+                    Select check-in, duration and room structure.
+                  </Text>
+                </View>
+              </View>
+              <HotelStaySelector
+                options={listing.sharingOptions}
+                value={hotelIntent}
+                onChange={setHotelIntent}
+              />
+            </View>
           ) : byStay ? (
-            <StayIntentSelector
-              rates={byStay}
-              sharingOptions={listing.sharingOptions}
-              mess={listing.mess}
-              value={intent}
-              onChange={setIntent}
-            />
+            <View
+              style={[
+                styles.stayConfigSection,
+                {
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : colors.surface,
+                  borderColor: colors.borderSubtle,
+                },
+              ]}
+            >
+              <StayIntentSelector
+                rates={byStay}
+                sharingOptions={listing.sharingOptions}
+                mess={listing.mess}
+                value={intent}
+                onChange={setIntent}
+              />
+            </View>
           ) : listing.sharingOptions?.length ? (
-            <SharingTypeSelector
-              options={listing.sharingOptions}
-              value={sharing}
-              onChange={setSharing}
-              note="Every price is per person, per month."
-            />
+            <View
+              style={[
+                styles.stayConfigSection,
+                {
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : colors.surface,
+                  borderColor: colors.borderSubtle,
+                },
+              ]}
+            >
+              <View style={styles.stayConfigHeader}>
+                <View style={[styles.stayConfigIconWrap, { backgroundColor: colors.brandTint }]}>
+                  <Icon name="bed" size={18} color={colors.brand} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodyStrong" style={{ color: colors.textPrimary, fontWeight: '700' }}>
+                    Room & Sharing Type
+                  </Text>
+                  <Text variant="caption" color="secondary">
+                    Every price is per person, per month.
+                  </Text>
+                </View>
+              </View>
+              <SharingTypeSelector
+                options={listing.sharingOptions}
+                value={sharing}
+                onChange={setSharing}
+                note="Every price is per person, per month."
+              />
+            </View>
           ) : null}
 
-          {/* What the owner wrote, where they wrote one. It sits under the
-              choice and above the facilities: a student who has decided how
-              long they want reads the description to decide whether to keep
-              reading at all. */}
+          {/* Verified Host / Property Management Card */}
+          <View
+            style={[
+              styles.hostCard,
+              {
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : colors.surface,
+                borderColor: colors.borderSubtle,
+              },
+            ]}
+          >
+            <View style={[styles.hostAvatar, { backgroundColor: colors.brand }]}>
+              <Text variant="title3" style={{ color: '#FFFFFF', fontWeight: '700' }}>
+                {(listing.ownerName ? listing.ownerName.charAt(0) : 'L').toUpperCase()}
+              </Text>
+            </View>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text variant="bodyStrong" style={{ color: colors.textPrimary, fontWeight: '700' }}>
+                  {listing.ownerName ?? 'Lampose Stay Partner'}
+                </Text>
+                {listing.isVerified ? <Icon name="verified" size={14} color={colors.brand} /> : null}
+              </View>
+              <Text variant="caption" color="secondary" style={{ marginTop: 2 }}>
+                {listing.isVerified ? 'Verified Property Partner' : 'Property Partner'}
+              </Text>
+            </View>
+          </View>
+
+          {/* About this place (Expandable) */}
           {listing.description ? (
             <View style={{ gap: space[2] }}>
               <SectionHeading
@@ -752,117 +874,102 @@ export default function ListingDetail() {
                 tint={colors.surfaceRaised}
                 ink={colors.textPrimary}
               />
-              <Text variant="body" color="secondary">
+              <Text
+                variant="body"
+                color="secondary"
+                numberOfLines={descriptionExpanded ? undefined : 4}
+                style={{ lineHeight: 22 }}
+              >
                 {listing.description}
               </Text>
-              <Text variant="caption" color="tertiary">
-                Written by the owner.
+              {listing.description.length > 180 ? (
+                <Pressable
+                  onPress={() => setDescriptionExpanded(!descriptionExpanded)}
+                  style={styles.readMoreBtn}
+                >
+                  <Text variant="bodyStrong" style={{ color: colors.brand, fontWeight: '600' }}>
+                    {descriptionExpanded ? 'Show less ⌃' : 'Read more ⌄'}
+                  </Text>
+                </Pressable>
+              ) : null}
+              <Text variant="caption" color="tertiary" style={{ marginTop: 2 }}>
+                Written by the property owner.
               </Text>
             </View>
           ) : null}
 
-          {/* The meal plan, whenever there is one. It used to be hidden when
-              "without mess" was selected; there is no selection any more, so
-              the serving windows are simply a fact about the place. */}
+          {/* Meal Plan */}
           {listing.meals ? <MealPlanCard plan={listing.meals} /> : null}
 
-          {/*
-            What guests said, and what the owner answered.
-
-            Under the description and above the facilities, because it is the
-            other half of "should I keep reading": the owner's words above,
-            the guests' words here. A place nobody has reviewed says so rather
-            than showing an invented average — a rating that does not exist is
-            worse than none on the screen a student decides on.
-          */}
+          {/* Guest Reviews & Ratings */}
           <GuestReviews listingId={listing.id} />
 
+          {/* Amenities & Facilities Showcase (Single dedicated place) */}
           {listing.amenities?.length ? (
-            <View style={{ gap: space[3] }}>
-              <SectionHeading
-                icon="verified"
-                title="What's here"
-                tint={colors.success.tint}
-                ink={colors.success.ink}
-              />
-              <AmenityGrid amenities={listing.amenities} category={listing.category} />
-              <Text variant="caption" color="tertiary">
-                What is missing is listed as plainly as what is present — you find out here, not on the
-                visit.
-              </Text>
-            </View>
-          ) : null}
-
-          {/*
-            The consent gate, on the last block before the action.
-
-            It moved out of the sticky bar: a bar carrying a checkbox, a rate, a
-            multiplier, a button and a note is five things in a strip sized for
-            one thumb, and the checkbox was the one being tapped by accident.
-            Here it is full width, at the end of the reading order, and still on
-            screen when the thumb reaches the button below it.
-
-            The button stays gated on it — see `disabled` on the bar.
-
-            Shown for EVERY category. It used to be gated on `byStay`, which
-            meant a bachelor, co-live or hotel request went to an owner with no
-            record that the person agreed to anything — the same name and
-            number, the same stranger, and nothing behind it. The gate was
-            about the pricing path and had spread to the consent by proximity.
-          */}
-          {true ? (
             <View
-              style={{
-                backgroundColor: consented ? colors.brandTint : colors.surface,
-                borderColor: consented ? colors.brand : colors.border,
-                borderWidth: consented ? 1.5 : StyleSheet.hairlineWidth,
-                borderRadius: radius.card,
-                paddingHorizontal: space[4],
-                paddingVertical: space[3],
-                gap: space[1],
-              }}
+              style={[
+                styles.amenitiesCardWrapper,
+                {
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : colors.surface,
+                  borderColor: colors.borderSubtle,
+                },
+              ]}
             >
-              <Checkbox
-                label="I accept the Privacy Policy and Terms and Conditions"
-                checked={consented}
-                onChange={setConsented}
-              />
-              {/*
-                The documents themselves, one tap away.
-
-                The line above names two agreements and, until now, was the
-                only mention of them anywhere in this flow — a student ticking
-                a box about terms they had no way to read. These open the real
-                pages on lampose.com (`/privacy`, `/terms` — see
-                Frontend/src/App.jsx), in the browser rather than a WebView:
-                these are documents to read and possibly keep, not a step in
-                the flow, and the back gesture should return to this screen
-                with the tick untouched.
-
-                Separate from the Checkbox's own label so that tapping a link
-                does not toggle the box, which is what putting them inside the
-                label would do.
-              */}
-              <View style={[styles.legalRow, { gap: space[3], paddingLeft: space[6] }]}>
-                {[
-                  { label: 'Privacy Policy', url: 'https://lampose.com/privacy' },
-                  { label: 'Terms and Conditions', url: 'https://lampose.com/terms' },
-                ].map((doc) => (
-                  <Pressable
-                    key={doc.url}
-                    onPress={() => { Linking.openURL(doc.url).catch(() => {}); }}
-                    hitSlop={8}
-                    accessibilityRole="link"
-                    accessibilityLabel={`Read the ${doc.label}`}
-                  >
-                    <Text variant="caption" color="brand" style={styles.underline}>
-                      {doc.label}
-                    </Text>
-                  </Pressable>
-                ))}
+              <View style={styles.amenitiesHeaderRow}>
+                <SectionHeading
+                  icon="security"
+                  title="Amenities & Facilities"
+                  tint={colors.brandTint}
+                  ink={colors.brand}
+                />
+                <View style={[styles.amenitiesCountPill, { backgroundColor: colors.brandTint }]}>
+                  <Text variant="caption" style={{ color: colors.brand, fontWeight: '700' }}>
+                    {listing.amenities.length} {listing.amenities.length === 1 ? 'amenity' : 'amenities'}
+                  </Text>
+                </View>
               </View>
+              <AmenityGrid amenities={listing.amenities} category={listing.category} />
             </View>
           ) : null}
+
+          {/* Legal Consent Gate */}
+          <View
+            style={{
+              backgroundColor: consented ? colors.brandTint : colors.surface,
+              borderColor: consented ? colors.brand : colors.border,
+              borderWidth: consented ? 1.5 : StyleSheet.hairlineWidth,
+              borderRadius: radius.card,
+              paddingHorizontal: space[4],
+              paddingVertical: space[3],
+              gap: space[1],
+            }}
+          >
+            <Checkbox
+              label="I accept the Privacy Policy and Terms and Conditions"
+              checked={consented}
+              onChange={setConsented}
+            />
+            <View style={[styles.legalRow, { gap: space[3], paddingLeft: space[6] }]}>
+              {[
+                { label: 'Privacy Policy', url: 'https://lampose.com/privacy' },
+                { label: 'Terms and Conditions', url: 'https://lampose.com/terms' },
+              ].map((doc) => (
+                <Pressable
+                  key={doc.url}
+                  onPress={() => {
+                    Linking.openURL(doc.url).catch(() => {});
+                  }}
+                  hitSlop={8}
+                  accessibilityRole="link"
+                  accessibilityLabel={`Read the ${doc.label}`}
+                >
+                  <Text variant="caption" color="brand" style={styles.underline}>
+                    {doc.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
         </View>
       </Animated.ScrollView>
 
@@ -1051,6 +1158,124 @@ const styles = StyleSheet.create({
   sectionHead: { flexDirection: 'row', alignItems: 'center' },
   sectionRule: { width: 3, alignSelf: 'stretch', borderRadius: 2 },
   glyphChip: { alignItems: 'center', justifyContent: 'center' },
+
+  // Luxury Layout Styles
+  mainBodySheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    marginTop: -22,
+  },
+  sheetGrabHandle: {
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 4,
+  },
+  statusBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  verifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  propertyTitleBlock: {
+    gap: 6,
+  },
+  priceStudioCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 16,
+    gap: 12,
+  },
+  priceStudioTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  zeroBrokeragePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  priceStudioDivider: {
+    height: StyleSheet.hairlineWidth,
+    width: '100%',
+  },
+  priceStudioBottom: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  priceMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  stayConfigSection: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 16,
+    gap: 14,
+  },
+  stayConfigHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  stayConfigIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hostCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+  },
+  hostAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  readMoreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    paddingVertical: 4,
+  },
+  amenitiesCardWrapper: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 16,
+    gap: 14,
+  },
+  amenitiesHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  amenitiesCountPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
 });
 
 

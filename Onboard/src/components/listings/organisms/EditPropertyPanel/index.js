@@ -1,0 +1,1 @@
+export { EditPropertyPanel } from './EditPropertyPanel';

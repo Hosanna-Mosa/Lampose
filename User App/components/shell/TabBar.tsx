@@ -137,7 +137,7 @@ type BarFrame = {
  * that happen to have the same answer.
  */
 export function TabBar({ tabs, activeId, onChange, collapsedTo, setId }: TabBarProps) {
-  const { colors, space, layout } = useTheme();
+  const { colors, space, layout, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const reduceMotion = useReduceMotion();
 
@@ -210,7 +210,7 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId }: TabBarP
      one render where it changes rather than being read from the UI thread. */
   const { hidden, height, setHeight } = useBottomBar();
   const slide = useAnimatedStyle(() => ({
-    transform: [{ translateY: hidden.value * (height + RAISED_LIFT + RAISED_SHADOW) }],
+    transform: [{ translateY: hidden.value * (height + RAISED_LIFT + RAISED_SHADOW + 20) }],
   }));
 
   const measure = (event: LayoutChangeEvent) => {
@@ -228,37 +228,65 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId }: TabBarP
 
   return (
     <Animated.View
-      // Not a tablist when it is holding one button: a screen reader that
-      // announces "tab 4 of 4" for a lone way-out control is describing a bar
-      // that is not on screen.
       accessibilityRole={collapsedNow ? undefined : 'tablist'}
       onLayout={measure}
       style={[
-        styles.bar,
-        collapsedNow
-          ? styles.barCollapsed
-          : { backgroundColor: colors.surface, borderTopColor: colors.borderSubtle },
-        { paddingBottom: insets.bottom + layout.bottomInsetExtra },
+        styles.floatingWrapper,
+        {
+          paddingBottom: Math.max(insets.bottom, 12) + 4,
+        },
         slide,
       ]}
+      pointerEvents="box-none"
     >
-      {/*
-        The three flat tabs on their way out, converging on the disc.
+      <View
+        style={[
+          styles.bar,
+          collapsedNow
+            ? styles.barCollapsed
+            : [
+                styles.floatingBar,
+                {
+                  backgroundColor: mode === 'dark' ? '#121E1A' : '#FFFFFF',
+                  borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
+                  shadowColor: '#000000',
+                  shadowOpacity: mode === 'dark' ? 0.45 : 0.12,
+                },
+              ],
+        ]}
+      >
+        {/*
+          The three flat tabs on their way out, converging on the disc.
 
-        `pointerEvents="none"` and never the other way round: the motion rules
-        forbid an animation gating an interaction, so the arriving tabs are
-        tappable from their first frame while these are already untouchable.
-      */}
-      {outgoing ? (
-        <View
-          pointerEvents="none"
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={styles.overlayRow}
-        >
+          `pointerEvents="none"` and never the other way round: the motion rules
+          forbid an animation gating an interaction, so the arriving tabs are
+          tappable from their first frame while these are already untouchable.
+        */}
+        {outgoing ? (
+          <View
+            pointerEvents="none"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={styles.overlayRow}
+          >
+            <FlatCells
+              frame={outgoing}
+              mode="leaving"
+              progress={swap}
+              barWidth={barWidth}
+              moves={moves}
+              onChange={onChange}
+              gap={gap}
+            />
+          </View>
+        ) : null}
+
+        {/* The live three. In normal flow, so this row is what gives the bar its
+            height — the overlays above and below it are all absolute. */}
+        <View style={styles.row}>
           <FlatCells
-            frame={outgoing}
-            mode="leaving"
+            frame={live}
+            mode="arriving"
             progress={swap}
             barWidth={barWidth}
             moves={moves}
@@ -266,37 +294,23 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId }: TabBarP
             gap={gap}
           />
         </View>
-      ) : null}
 
-      {/* The live three. In normal flow, so this row is what gives the bar its
-          height — the overlays above and below it are all absolute. */}
-      <View style={styles.row}>
-        <FlatCells
-          frame={live}
-          mode="arriving"
-          progress={swap}
-          barWidth={barWidth}
-          moves={moves}
-          onChange={onChange}
-          gap={gap}
-        />
-      </View>
+        {/*
+          The disc, and only the disc — stationary, and drawn last so the flat
+          tabs pass UNDERNEATH it on their way in and out. That is the whole
+          illusion: they are going into the door, not past it.
 
-      {/*
-        The disc, and only the disc — stationary, and drawn last so the flat
-        tabs pass UNDERNEATH it on their way in and out. That is the whole
-        illusion: they are going into the door, not past it.
+          It swaps its icon and its tone the instant it is pressed rather than
+          crossfading. Two filled discs of different colours dissolved through
+          each other spend 100ms as a muddy brown, and an instant change on the
+          thing under the thumb reads as a response to the press.
 
-        It swaps its icon and its tone the instant it is pressed rather than
-        crossfading. Two filled discs of different colours dissolved through
-        each other spend 100ms as a muddy brown, and an instant change on the
-        thing under the thumb reads as a response to the press.
-
-        `box-none` so only the disc itself catches a touch; the empty slots
-        beside it let taps fall through to the live row underneath.
-      */}
-      <View pointerEvents="box-none" style={styles.overlayRow}>
-        <RaisedCell frame={live} onChange={onChange} gap={gap} />
+          `box-none` so only the disc itself catches a touch; the empty slots
+          beside it let taps fall through to the live row underneath.
+        */}
+        <View pointerEvents="box-none" style={styles.overlayRow}>
+          <RaisedCell frame={live} onChange={onChange} gap={gap} />
+        </View>
       </View>
     </Animated.View>
   );
@@ -502,7 +516,7 @@ function TabButton({
   emphasised?: boolean;
   role?: 'tab' | 'button';
 }) {
-  const { colors } = useTheme();
+  const { colors, mode } = useTheme();
   const reduceMotion = useReduceMotion();
   const scale = useSharedValue(1);
 
@@ -556,7 +570,19 @@ function TabButton({
       accessibilityRole={role}
       accessibilityState={role === 'tab' ? { selected: active } : undefined}
       accessibilityLabel={accessibilityLabel}
-      style={[styles.tab, { gap }]}
+      style={[
+        styles.tab,
+        { gap },
+        active && !tab.raised && [
+          styles.activeTabPill,
+          {
+            backgroundColor:
+              mode === 'dark'
+                ? 'rgba(52, 211, 153, 0.14)'
+                : 'rgba(15, 76, 58, 0.08)',
+          },
+        ],
+      ]}
     >
       <Animated.View
         style={[
@@ -598,12 +624,12 @@ function TabButton({
           backwards — uppercasing and tracking are part of the width. */}
       <View>
         <Animated.View style={activeLabelStyle}>
-          <Text variant="label" style={{ color: activeInk, letterSpacing: 0 }}>
+          <Text variant="label" style={{ color: activeInk, letterSpacing: 0, fontSize: 11, fontWeight: '700' }}>
             {tab.label}
           </Text>
         </Animated.View>
         <Animated.View style={[StyleSheet.absoluteFill, styles.restLabel, restLabelStyle]}>
-          <Text variant="caption" color="tertiary">
+          <Text variant="caption" color="tertiary" style={{ fontSize: 11, fontWeight: '500' }}>
             {tab.label}
           </Text>
         </Animated.View>
@@ -613,9 +639,32 @@ function TabButton({
 }
 
 const styles = StyleSheet.create({
-  bar: { borderTopWidth: StyleSheet.hairlineWidth },
+  floatingWrapper: {
+    width: '100%',
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bar: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 36,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    position: 'relative',
+  },
+  floatingBar: {
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 18,
+    elevation: 12,
+  },
   /* One set of tabs. Two of these exist during a swap, stacked. */
-  row: { flexDirection: 'row' },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+  },
   /*
      A row stacked over the live one — the leaving tabs, and the disc.
 
@@ -625,11 +674,31 @@ const styles = StyleSheet.create({
      cross axis — would sit taller and lower than the ones they line up with.
      Every layer has to be pixel-aligned or the swap reads as a jump.
   */
-  overlayRow: { position: 'absolute', left: 0, right: 0, top: 0, flexDirection: 'row' },
+  overlayRow: {
+    position: 'absolute',
+    left: 8,
+    right: 8,
+    top: 5,
+    bottom: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   /* The whole bar, minus the bar: no fill and no edge, so what is left is the
      page showing through and one button standing on it. */
-  barCollapsed: { backgroundColor: 'transparent', borderTopWidth: 0 },
-  tab: { flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center' },
+  barCollapsed: { backgroundColor: 'transparent', borderWidth: 0 },
+  tab: {
+    flex: 1,
+    minHeight: 52,
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 22,
+  },
+  activeTabPill: {
+    borderRadius: 22,
+    paddingVertical: 4,
+    marginHorizontal: 2,
+  },
   /*
      The cell a tab sits in, and the thing that gets translated.
 
@@ -638,15 +707,15 @@ const styles = StyleSheet.create({
      the cell, quietly shrinking a 97pt touch target to the width of the word
      "Bookings". The button already centres its own contents.
   */
-  cell: { flex: 1, minHeight: 56 },
+  cell: { flex: 1, minHeight: 52, justifyContent: 'center' },
   /* 46pt disc lifted `RAISED_LIFT` above the bar, ringed in `surface` so it
      reads as punched through the edge rather than pasted on top of it. */
   raisedDisc: {
-    width: 46,
-    height: 46,
+    width: 44,
+    height: 44,
     borderRadius: 999,
-    borderWidth: 3,
-    marginTop: -RAISED_LIFT,
+    borderWidth: 2.5,
+    marginTop: -16,
     alignItems: 'center',
     justifyContent: 'center',
   },

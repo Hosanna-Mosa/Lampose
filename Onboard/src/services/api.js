@@ -70,7 +70,7 @@ const CONFIGURED_BASE = normaliseBase(
 /* A dev machine with no .env still runs. A production build with no .env is
    a deployment mistake, and silently falling back to localhost turns it into
    "the site loads but nothing saves" — so it is said out loud instead. */
-const DEV_FALLBACK = 'http://localhost:5001/api';
+const DEV_FALLBACK = 'http://localhost:8026/api';
 
 if (!CONFIGURED_BASE) {
   const message =
@@ -308,7 +308,7 @@ export const deleteProperty = (id) =>
  * @param {(File|{file?: File, url?: string})[]} items
  * @param {(stage: string) => void} [onStage] Progress, for the submit button.
  */
-export const uploadPropertyImages = async (items = [], onStage = () => {}) => {
+export const uploadPropertyImages = async (items = [], onStage = () => { }) => {
   const list = items
     .map((item) => (item instanceof File ? { file: item } : item))
     .filter((item) => item && (item.file || item.url));
@@ -371,7 +371,7 @@ export const uploadPropertyImages = async (items = [], onStage = () => {}) => {
  * @returns {Promise<Record<string, string[]>>} label -> uploaded URLs, only
  *   for labels that actually had something to upload.
  */
-export const uploadSharingImages = async (mapOfLabelToItems = {}, onStage = () => {}) => {
+export const uploadSharingImages = async (mapOfLabelToItems = {}, onStage = () => { }) => {
   const out = {};
   const labels = Object.keys(mapOfLabelToItems);
 
@@ -382,7 +382,7 @@ export const uploadSharingImages = async (mapOfLabelToItems = {}, onStage = () =
 
     onStage(`Uploading photos for "${label}" (${i + 1}/${labels.length})...`);
     // eslint-disable-next-line no-await-in-loop
-    const urls = await uploadPropertyImages(items, () => {});
+    const urls = await uploadPropertyImages(items, () => { });
     if (urls.length) out[label] = urls;
   }
 
@@ -427,7 +427,7 @@ export const updatePropertyImages = (id, images) =>
  * @param {{kind: string, docType?: string, file: File}[]} items
  * @param {(stage: string) => void} [onStage]
  */
-export const uploadPropertyDocuments = async (items = [], onStage = () => {}) => {
+export const uploadPropertyDocuments = async (items = [], onStage = () => { }) => {
   const list = items.filter((item) => item && item.file);
   if (list.length === 0) return [];
 
@@ -452,6 +452,23 @@ export const uploadPropertyDocuments = async (items = [], onStage = () => {}) =>
   }
   return out;
 };
+
+/* ── Leads ─────────────────────────────────────────────────────────────── */
+
+/**
+ * Add a lead by hand.
+ *
+ * Goes to the leads panel's own v2 surface rather than the admin console's
+ * route, because this site signs in as a `scriper_users` account — the same
+ * identity the panel uses — and the console's create is Super-Admin-only.
+ *
+ * The lead is created UNASSIGNED on purpose: sales adds it here, an admin
+ * hands it to a calling agent afterwards. A 409 back means the business is
+ * already in the list, which is an answer worth showing rather than an error
+ * to swallow — somebody may already be calling them.
+ */
+export const createLead = (lead) =>
+  api.post('/scraper/leads', lead).then(ok).catch(fail);
 
 /* ── Permissions ───────────────────────────────────────────────────────── */
 

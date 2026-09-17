@@ -32,6 +32,8 @@
  * input it belongs to instead of in a list at the top of the page.
  */
 
+import { splitAddress } from './mapLink';
+
 /* ------------------------------------------------------------------ *
  * Limits
  * ------------------------------------------------------------------ */
@@ -337,7 +339,12 @@ export function validateOnboarding(formData = {}) {
      standing outside a building does not always have the door number. But a
      three-character address is someone starting to type and being interrupted,
      and that is worse than a blank. */
-  const address = text(formData.address);
+  /* Judged on the WORDS, which is what the split leaves behind — a box
+     holding nothing but a pasted link has no street address in it at all, and
+     that is a complete answer rather than a two-character one. Without the
+     split, "Room 4 https://maps.app.goo.gl/..." would sail past on the length
+     of the URL while the address itself is four characters. */
+  const { address } = splitAddress(formData.address);
   if (address && address.length < 8) {
     errs.address = 'Give the full street address, or leave it blank';
   }

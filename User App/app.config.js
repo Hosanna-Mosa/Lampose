@@ -56,7 +56,7 @@ export default {
   expo: {
     name: 'Lampose',
     slug: 'lampose',
-    version: '1.0.0',
+    version: '1.0.2',
     orientation: 'portrait',
     icon: './assets/images/icon.jpeg',
     scheme: 'lampose',
@@ -69,7 +69,7 @@ export default {
     },
     ios: {
       supportsTablet: false,
-      bundleIdentifier: 'com.lampose.user',
+      bundleIdentifier: 'com.lampose.users.com',
       infoPlist: {
         UIBackgroundModes: ['remote-notification'],
       },
@@ -84,7 +84,16 @@ export default {
       },
     },
     android: {
-      package: 'com.lampose.user',
+      package: 'com.lampose.users.com',
+      /* Play Store identity. `versionCode` is the integer Google Play orders
+         releases by: it must rise on every upload and is never reused. 2 was
+         published as 1.0.1, so this release is 3.
+
+         NOTE: eas.json sets `cli.appVersionSource: "remote"`, which makes EAS's
+         own server the source of truth and ignores the number below. Set that
+         to "local" (and drop `autoIncrement`) for this value to be the one
+         that ships. */
+      versionCode: 4,
       ...(googleServicesFile ? { googleServicesFile } : {}),
       adaptiveIcon: {
         foregroundImage: adaptiveIcon || './assets/images/icon.jpeg',

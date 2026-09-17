@@ -1,32 +1,12 @@
 import { useState } from 'react';
-import Icon from '../components/Icon';
-import { SecHead } from '../components/Chrome';
+import { Icon } from '../components/common/atoms/Icon/Icon';
+import { SecHead } from '../components/common/molecules/SecHead/SecHead';
+import { INFO, TYPES } from '../components/contact/utils/contactInfo';
+import { Anchor, Box, Input, Label, Option, PlainButton, Region, Select, Text, TextArea } from '../components/common/atoms';
 
-const INFO = [
-  {
-    icon: 'orders', label: 'Email', value: 'hello@lampose.com',
-    href: 'mailto:hello@lampose.com', sub: 'Answered within a day, usually sooner',
-  },
-  {
-    icon: 'bell', label: 'Phone', value: '+91 63023 21942',
-    href: 'tel:+916302321942', sub: 'Monday to Saturday, 9am to 7pm IST',
-  },
-  {
-    icon: 'pin', label: 'Where we are', value: 'Visakhapatnam, Andhra Pradesh',
-    sub: 'Come and see us if you are nearby',
-  },
-  {
-    icon: 'users', label: 'Partnerships', value: 'hello@lampose.com',
-    href: 'mailto:hello@lampose.com', sub: 'Rooms, kitchens, riders, press',
-  },
-];
 
-const TYPES = [
-  'User / Tenant', 'Hostel / PG Owner', 'Restaurant / Food Partner',
-  'Delivery Partner', 'Investor / Media', 'Other',
-];
 
-export default function Contact() {
+export function Contact() {
   const [form, setForm] = useState({
     name: '', phone: '', email: '', type: '', message: '',
   });
@@ -59,84 +39,84 @@ export default function Contact() {
   };
 
   return (
-    <section id="contact">
-      <div className="sec-inner">
+    <Region id="contact">
+      <Box className="sec-inner">
         <SecHead
           tag="Get in touch" title="Talk to a person," em="not a form."
           sub="A booking gone wrong, a kitchen you want listed, or a question about a city — it reaches the same small team either way."
         />
 
-        <div className="contact-wrap">
-          <div className="contact-info reveal-l">
+        <Box className="contact-wrap">
+          <Box className="contact-info reveal-l">
             {INFO.map((i, n) => (
-              <div className="cinfo-item" key={i.label} style={{ '--i': String(n) }}>
-                <div className="cinfo-icon"><Icon name={i.icon} /></div>
-                <div className="cinfo-body">
-                  <div className="cinfo-lbl">{i.label}</div>
-                  <div className="cinfo-val">
-                    {i.href ? <a href={i.href}>{i.value}</a> : i.value}
-                  </div>
-                  <div className="cinfo-sub">{i.sub}</div>
-                </div>
-              </div>
+              <Box className="cinfo-item" key={i.label} style={{ '--i': String(n) }}>
+                <Box className="cinfo-icon"><Icon name={i.icon} /></Box>
+                <Box className="cinfo-body">
+                  <Box className="cinfo-lbl">{i.label}</Box>
+                  <Box className="cinfo-val">
+                    {i.href ? <Anchor href={i.href}>{i.value}</Anchor> : i.value}
+                  </Box>
+                  <Box className="cinfo-sub">{i.sub}</Box>
+                </Box>
+              </Box>
             ))}
-          </div>
+          </Box>
 
-          <div className="contact-form reveal-r">
-            <div className="cf-title">Send a Message</div>
-            <div className="cf-sub">
+          <Box className="contact-form reveal-r">
+            <Box className="cf-title">Send a Message</Box>
+            <Box className="cf-sub">
               Tell us what happened and we will come back to you, usually the same day.
-            </div>
+            </Box>
 
-            <div className="cf-row">
-              <div className="cf-field">
-                <label htmlFor="name">Full Name</label>
-                <input
+            <Box className="cf-row">
+              <Box className="cf-field">
+                <Label htmlFor="name">Full Name</Label>
+                <Input
                   id="name" type="text" placeholder="Your name"
                   value={form.name} onChange={set('name')}
                 />
-              </div>
-              <div className="cf-field">
-                <label htmlFor="phone">Phone Number</label>
-                <input
+              </Box>
+              <Box className="cf-field">
+                <Label htmlFor="phone">Phone Number</Label>
+                <Input
                   id="phone" type="tel" placeholder="+91 XXXXX XXXXX"
                   value={form.phone} onChange={set('phone')}
                 />
-              </div>
-            </div>
+              </Box>
+            </Box>
 
-            <div className="cf-field">
-              <label htmlFor="email">Email Address</label>
-              <input
+            <Box className="cf-field">
+              <Label htmlFor="email">Email Address</Label>
+              <Input
                 id="email" type="email" placeholder="you@example.com"
                 value={form.email} onChange={set('email')}
               />
-            </div>
+            </Box>
 
-            <div className="cf-field">
-              <label htmlFor="type">I&apos;m reaching out as a</label>
-              <select id="type" value={form.type} onChange={set('type')}>
-                <option value="" disabled>Select type</option>
-                {TYPES.map(t => <option key={t}>{t}</option>)}
-              </select>
-            </div>
+            <Box className="cf-field">
+              <Label htmlFor="type">I&apos;m reaching out as a</Label>
+              <Select id="type" value={form.type} onChange={set('type')}>
+                <Option value="" disabled>Select type</Option>
+                {TYPES.map(t => <Option key={t}>{t}</Option>)}
+              </Select>
+            </Box>
 
-            <div className="cf-field">
-              <label htmlFor="message">Message</label>
-              <textarea
+            <Box className="cf-field">
+              <Label htmlFor="message">Message</Label>
+              <TextArea
                 id="message" rows="4" placeholder="Tell us what's on your mind..."
                 value={form.message} onChange={set('message')}
               />
-            </div>
+            </Box>
 
-            <button className="btn-submit" onClick={send}>Send Message →</button>
+            <PlainButton className="btn-submit" onClick={send}>Send Message →</PlainButton>
 
-            <p className="cf-note" style={note?.err ? { color: 'var(--amber)' } : undefined}>
+            <Text className="cf-note" style={note?.err ? { color: 'var(--amber)' } : undefined}>
               {note?.text || 'We respect your privacy. Your details are never shared.'}
-            </p>
-          </div>
-        </div>
-      </div>
-    </section>
+            </Text>
+          </Box>
+        </Box>
+      </Box>
+    </Region>
   );
 }

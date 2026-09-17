@@ -47,6 +47,10 @@ export type LocatedAddress = {
     city: string;
     state: string;
     pincode: string;
+    /** Distinct sub-locality or neighborhood (e.g. "Kukatpally", "Madhapur", "HSR Layout") */
+    area: string;
+    /** Formatted address line if returned by platform */
+    formattedAddress: string;
   };
   /** True when the geocoder gave nothing back, so a caller can say so. */
   namedNothing: boolean;
@@ -86,13 +90,25 @@ export async function locateMe(): Promise<LocatedAddress> {
 
   let fix: Location.LocationObject;
   try {
+    // Prefer High accuracy to get the true pin and neighborhood rather than a distant cell tower
     fix = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Balanced,
+      accuracy: Location.Accuracy.High,
     });
   } catch {
-    throw new LocationRefused(
-      'We could not get a fix. Move somewhere with a clearer view of the sky, or type the address.',
-    );
+    try {
+      fix = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+    } catch {
+      const lastKnown = await Location.getLastKnownPositionAsync();
+      if (lastKnown) {
+        fix = lastKnown;
+      } else {
+        throw new LocationRefused(
+          'We could not get a fix. Move somewhere with a clearer view of the sky, or type the address.',
+        );
+      }
+    }
   }
 
   const location = { lat: fix.coords.latitude, lng: fix.coords.longitude };
@@ -112,23 +128,82 @@ export async function locateMe(): Promise<LocatedAddress> {
   if (!first) {
     return {
       location,
-      fields: { line1: '', landmark: '', city: '', state: '', pincode: '' },
+      fields: { line1: '', landmark: '', city: '', state: '', pincode: '', area: '', formattedAddress: '' },
       namedNothing: true,
     };
   }
 
+  const rawCity = (first.city || '').trim();
+  const rawState = (first.region || '').trim();
+  const rawDistrict = (first.district || '').trim();
+  const rawSubregion = (first.subregion || '').trim();
+  const rawName = (first.name || '').trim();
+  const rawStreet = (first.street || '').trim();
+  const formattedAddress = (first.formattedAddress || '').trim();
+
+  // Test if a string is a broad administrative region rather than a specific neighbourhood
+  const isGenericDistrictOrState = (val: string) => {
+    if (!val) return true;
+    const v = val.toLowerCase().trim();
+    const c = rawCity.toLowerCase().trim();
+    const s = rawState.toLowerCase().trim();
+    return (
+      v === c ||
+      v === s ||
+      v === 'hyderabad' ||
+      v === 'ranga reddy' ||
+      v === 'rangareddy' ||
+      v === 'medchal' ||
+      v === 'medchal-malkajgiri' ||
+      v === 'bengaluru urban' ||
+      v === 'bangalore urban' ||
+      v === 'telangana' ||
+      v === 'karnataka' ||
+      v === 'andhra pradesh'
+    );
+  };
+
+  // Find candidate neighbourhood / area
+  let detectedArea = '';
+
+  if (rawSubregion && !isGenericDistrictOrState(rawSubregion)) {
+    detectedArea = rawSubregion;
+  } else if (rawDistrict && !isGenericDistrictOrState(rawDistrict)) {
+    detectedArea = rawDistrict;
+  } else if (rawName && !isGenericDistrictOrState(rawName) && !/^#?\d+[\/\-A-Za-z0-9]*$/.test(rawName)) {
+    detectedArea = rawName;
+  } else if (rawStreet && !isGenericDistrictOrState(rawStreet)) {
+    detectedArea = rawStreet;
+  }
+
+  // If still empty and we have formattedAddress, parse before city
+  if (!detectedArea && formattedAddress) {
+    const parts = formattedAddress.split(',').map((p) => p.trim()).filter(Boolean);
+    const cityIdx = parts.findIndex((p) => rawCity && p.toLowerCase().includes(rawCity.toLowerCase()));
+    if (cityIdx > 0) {
+      for (let i = cityIdx - 1; i >= 0; i--) {
+        const candidate = parts[i];
+        if (!isGenericDistrictOrState(candidate) && !/^#?\d+[\/\-A-Za-z0-9]*$/.test(candidate)) {
+          detectedArea = candidate;
+          break;
+        }
+      }
+    }
+  }
+
+  const landmark = detectedArea || clean(rawDistrict || rawSubregion || rawStreet);
+  const resolvedCity = rawCity || rawSubregion || rawDistrict || '';
+
   return {
     location,
     fields: {
-      /* The door, as closely as the platform will say it. `name` is usually
-         the building or house number and `street` the road. */
       line1: clean(first.name, first.street),
-      /* `district` is the neighbourhood on Android; iOS puts it in
-         `subregion`. Whichever came back is the landmark a rider recognises. */
-      landmark: clean(first.district || first.subregion),
-      city: (first.city || first.subregion || '').trim(),
-      state: (first.region || '').trim(),
+      landmark,
+      city: resolvedCity,
+      state: rawState,
       pincode: (first.postalCode || '').trim(),
+      area: detectedArea,
+      formattedAddress,
     },
     namedNothing: false,
   };

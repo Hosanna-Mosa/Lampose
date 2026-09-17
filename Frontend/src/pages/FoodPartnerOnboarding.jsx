@@ -1,4 +1,4 @@
-import ComingSoon from '../components/ComingSoon';
+import { ComingSoon } from '../components/common/organisms/ComingSoon/ComingSoon';
 
 /* ==========================================================================
    ORIGINAL FOOD PARTNER ONBOARDING CODE (COMMENTED OUT TEMPORARILY)
@@ -1246,7 +1246,7 @@ import ComingSoon from '../components/ComingSoon';
 // }
 // 
 
-export default function FoodPartnerOnboarding() {
+export function FoodPartnerOnboarding() {
   return <ComingSoon />;
 }
 

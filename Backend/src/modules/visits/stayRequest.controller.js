@@ -70,9 +70,27 @@ const fail = (res, error, next) => {
  * The move-in state, folded onto a confirmed request.
  *
  * The student has no bookings endpoint — the request is their only handle on
- * any of this — so the two confirmations have to reach them through it. One
- * extra read, and only on a request that has a booking: a pending one has
- * nothing to say and is the one being polled every three seconds.
+ * any of this — so this has to reach them through it. One extra read, and only
+ * on a request that has a booking: a pending one has nothing to say and is the
+ * one being polled every three seconds.
+ *
+ * ## It is one confirmation now, not two
+ *
+ * The owner typing the student's entry code IS the move-in — see
+ * `checkInBooking`. So `complete` is read off the owner's stamp alone, and
+ * `awaitingStudent` is permanently false.
+ *
+ * Both fields are kept rather than removed. `awaitingStudent` is read by the
+ * customer app's ongoing strip and its booking screen, and an app already on
+ * a phone will keep asking for it for as long as that build is installed —
+ * a field that vanishes from the response turns into `undefined` on a screen
+ * that expected a boolean. It reports false, which is true: there is nothing
+ * the student is being waited on for.
+ *
+ * Reading `complete` off the owner's stamp is also what settles the bookings
+ * that were mid-flight when this changed. A student whose owner had marked
+ * them in, and who never tapped the button that has now gone, is moved in —
+ * which is both what the record should say and what actually happened.
  */
 const withMoveIn = async (request) => {
   const view = request.toPublic();
@@ -90,11 +108,9 @@ const withMoveIn = async (request) => {
       moveIn: {
         ownerConfirmedAt: booking.movedInByOwnerAt || null,
         studentConfirmedAt: booking.movedInByStudentAt || null,
-        /* What the student's button reads. The owner goes first, so this is
-           the difference between "show them your PIN" and "you can confirm
-           now" — two quite different sentences on the same screen. */
-        awaitingStudent: Boolean(booking.movedInByOwnerAt && !booking.movedInByStudentAt),
-        complete: Boolean(booking.movedInByOwnerAt && booking.movedInByStudentAt),
+        /* Nothing is waited on from the student any more — see above. */
+        awaitingStudent: false,
+        complete: Boolean(booking.movedInByOwnerAt),
       },
     };
   } catch (error) {
@@ -112,12 +128,16 @@ const createRequest = async (req, res, next) => {
   try {
     const body = req.body || {};
 
-    const { request } = await createStayRequest({
+    const { request, couponRefusal } = await createStayRequest({
       customer: req.customer,
       listingId: body.listingId,
       sharing: body.sharing,
       intent: body.intent,
       consentedTerms: body.consentedTerms,
+      /* The move-in reward they chose to spend, by id. An amount is never
+         accepted from a client — the discount is applied to a total the
+         server has just re-derived. See `paymentForNewRequest`. */
+      couponId: body.couponId,
       /* Kept for rate limiting and abuse investigation only, and never
          projected back to any client. */
       requestIp: req.ip,
@@ -131,7 +151,16 @@ const createRequest = async (req, res, next) => {
     /* 201, and the whole request rather than an id: the app draws a countdown
        the instant this returns, and a second round trip to fetch `expiresAt`
        would be a second trip during the only three minutes that matter. */
-    return res.status(201).json({ success: true, data: request.toPublic() });
+    /* `couponRefusal` rides along on the 201 rather than turning the booking
+       into a 4xx. The request was created and the room is held; what failed
+       is the ₹100, and the app says so on the confirmation screen instead of
+       the student losing the booking over a discount. Null on the ordinary
+       path — no coupon asked for, or one applied. */
+    return res.status(201).json({
+      success: true,
+      data: request.toPublic(),
+      couponRefusal: couponRefusal === 'NONE_REQUESTED' ? null : couponRefusal,
+    });
   } catch (error) {
     return fail(res, error, next);
   }

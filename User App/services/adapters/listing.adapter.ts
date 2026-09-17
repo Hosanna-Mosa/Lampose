@@ -499,12 +499,30 @@ export function toListing(doc: BackendListing): Listing {
        statistic nothing computes yet, and without it the "high for this
        area" variant is withheld rather than guessed. */
 
-    availability: { kind: 'UNSTATED' },
+    availability: (() => {
+      const optionsWithCounts = sharingOptions.filter(
+        (opt) => typeof opt.availableBeds === 'number',
+      );
+      if (optionsWithCounts.length > 0) {
+        const totalFree = optionsWithCounts.reduce(
+          (sum, opt) => sum + (opt.availableBeds ?? 0),
+          0,
+        );
+        if (totalFree <= 0) {
+          return { kind: 'FILLED', minutesAgo: 0 };
+        }
+        return { kind: 'BEDS', count: totalFree };
+      }
+      return { kind: 'UNSTATED' };
+    })(),
 
     meals: toMealPlan(doc),
     gateTime: details.curfewTime,
     furnishing: details.furnishing,
     sharingLabel: sharingOptions.length === 1 ? sharingOptions[0].label : undefined,
+
+    isVerified: doc.isVerified === true,
+    verificationStatus: doc.verificationStatus || null,
 
     amenities: toAmenities(doc.amenities ?? []),
     sharingOptions: sharingOptions.length ? sharingOptions : undefined,

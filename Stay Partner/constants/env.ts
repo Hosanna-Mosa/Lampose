@@ -91,6 +91,32 @@ export const DEBUG_LOGS = !IS_PRODUCTION_BUILD;
 /** Whether controls that reach otherwise-unreachable states may render. */
 export const PREVIEW_CONTROLS = !IS_PRODUCTION_BUILD;
 
+/**
+ * Whether the DEV-labelled BYPASS buttons render.
+ *
+ * A separate variable from `PREVIEW_CONTROLS`, and it has to be. A preview
+ * control changes what a screen shows and nothing that outlives it — the
+ * error stack, a link to another screen. The bypasses here write real rows:
+ * one marks this owner payable with an invented fund account, the other two
+ * stamp a move-in with no PIN and no regard for the check-in date, which is
+ * what makes a hotel settlement releasable and the admin Monitor's Withdraw
+ * button live.
+ *
+ * They used to share `PREVIEW_CONTROLS`, so an internal APK built on the EAS
+ * `preview` profile drew them while pointed at the production API, and the
+ * only thing left underneath was the server's `DEV_ALLOW_FORCE_CHECKIN` —
+ * which `env.js` refuses under `NODE_ENV=production`, on a host that was
+ * found running `NODE_ENV=development`. Two gates that fail together are one
+ * gate.
+ *
+ * So this one is OPT-IN, and it is the only value in this file that is.
+ * Unset, misspelt, `1`, `yes`, `TRUE` — all of them mean off. Only the exact
+ * string `true` turns it on, and never in a production build whatever it
+ * says. Kept in step with the student app's copy of this, deliberately.
+ */
+export const DEV_BYPASS =
+  !IS_PRODUCTION_BUILD && process.env.EXPO_PUBLIC_DEV_BYPASS === 'true';
+
 /* ------------------------------------------------------------------ *
  * What is set, for a dev banner or a bug report
  * ------------------------------------------------------------------ */
@@ -99,7 +125,12 @@ export const ENV_SUMMARY = [
   `env=${APP_ENV}`,
   `api=${API_URL ?? '(unset)'}`,
   `logs=${DEBUG_LOGS ? 'on' : 'off'}`,
+  `bypass=${DEV_BYPASS ? 'ON' : 'off'}`,
 ].join('  ');
 
 /** Names of the variables this app understands. For `.env.example` and docs. */
-export const ENV_KEYS = ['EXPO_PUBLIC_API_URL', 'EXPO_PUBLIC_APP_ENV'] as const;
+export const ENV_KEYS = [
+  'EXPO_PUBLIC_API_URL',
+  'EXPO_PUBLIC_APP_ENV',
+  'EXPO_PUBLIC_DEV_BYPASS',
+] as const;

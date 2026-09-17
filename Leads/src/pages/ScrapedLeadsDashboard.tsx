@@ -1,12 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { scraperApi, ScrapedLead, ScrapeJob } from '../api/scraperApi';
 import { User } from '../api/userApi';
-import { AssignLeadsModal } from '../components/AssignLeadsModal';
-import { LeadDetailModal } from '../components/LeadDetailModal';
+import { AssignLeadsModal } from '../components/common/organisms/AssignLeadsModal';
+import { LeadDetailModal } from '../components/scraped-leads/organisms/LeadDetailModal';
 import { leadStatusMeta, timeAgo } from '../api/leadStatus';
-import { Pagination } from '../components/Pagination';
-import { MapLocationButton } from '../components/MapLocationButton';
-import { Search, Download, Star, Eye, RefreshCw, Building2, UserCheck, CheckSquare, Square, Filter } from 'lucide-react';
+import { Pagination } from '../components/common/molecules/Pagination';
+import { MapLocationButton } from '../components/common/molecules/MapLocationButton';
+import { Search, Download, Eye, RefreshCw, UserCheck, Filter } from 'lucide-react';
+import { Box, Heading, Inline, Input, Option, PlainButton, Select, Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow, Text } from '../components/common/atoms';
+import { SelectionToggle } from '../components/common/molecules/SelectionToggle';
+import { useLeadSelection } from '../components/common/hooks/useLeadSelection';
+import { LeadIdentity } from '../components/common/molecules/LeadIdentity';
+import { LeadPhone, LeadRating, LeadAssignee } from '../components/common/molecules/LeadCells';
 
 interface ScrapedLeadsDashboardProps {
   currentUser: User;
@@ -27,7 +32,7 @@ export const ScrapedLeadsDashboard: React.FC<ScrapedLeadsDashboardProps> = ({ cu
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(25);
   const [pageInfo, setPageInfo] = useState({ total: 0, pages: 1 });
-  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  const { selectedLeadIds, setSelectedLeadIds, toggleSelectLead, toggleSelectAll } = useLeadSelection(leads);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedLead, setSelectedLead] = useState<ScrapedLead | null>(null);
 
@@ -90,22 +95,6 @@ export const ScrapedLeadsDashboard: React.FC<ScrapedLeadsDashboardProps> = ({ cu
     setPage(1);
   }, [search, selectedJobId, sourceFilter, phoneFilter, websiteFilter, statusFilter, limit]);
 
-  const toggleSelectLead = (id: string) => {
-    if (selectedLeadIds.includes(id)) {
-      setSelectedLeadIds(selectedLeadIds.filter(i => i !== id));
-    } else {
-      setSelectedLeadIds([...selectedLeadIds, id]);
-    }
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedLeadIds.length === leads.length) {
-      setSelectedLeadIds([]);
-    } else {
-      setSelectedLeadIds(leads.map(l => l._id));
-    }
-  };
-
   const handleExportCSV = () => {
     const url = scraperApi.getExportUrl('csv', {
       jobId: selectedJobId !== 'ALL' ? selectedJobId : undefined,
@@ -129,242 +118,215 @@ export const ScrapedLeadsDashboard: React.FC<ScrapedLeadsDashboardProps> = ({ cu
   };
 
   return (
-    <div className="space-y-6">
+    <Box className="space-y-6">
       {/* Header Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Scraped Leads Explorer</h1>
-          <p className="text-xs text-slate-500">
+      <Box className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <Box>
+          <Heading level={1} className="text-2xl font-extrabold text-slate-900 tracking-tight">Scraped Leads Explorer</Heading>
+          <Text className="text-xs text-slate-500">
             View all generated leads, assign them to employees, or export data.
-          </p>
-        </div>
+          </Text>
+        </Box>
 
-        <div className="flex items-center gap-2">
+        <Box className="flex items-center gap-2">
           {isAdmin && selectedLeadIds.length > 0 && (
-            <button
+            <PlainButton
               onClick={() => setShowAssignModal(true)}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white text-xs font-extrabold shadow-lg shadow-amber-500/20 transition cursor-pointer"
             >
               <UserCheck className="w-4 h-4" />
-              <span>Assign {selectedLeadIds.length} Selected Leads</span>
-            </button>
+              <Inline>Assign {selectedLeadIds.length} Selected Leads</Inline>
+            </PlainButton>
           )}
 
-          <button
+          <PlainButton
             onClick={fetchLeads}
             className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer"
             title="Refresh Data"
           >
             <RefreshCw className="w-4 h-4" />
-          </button>
-          <button
+          </PlainButton>
+          <PlainButton
             onClick={handleExportCSV}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-500/20 transition cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Export CSV</span>
-          </button>
-          <button
+            <Inline>Export CSV</Inline>
+          </PlainButton>
+          <PlainButton
             onClick={handleExportJSON}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold border border-slate-300 transition cursor-pointer"
           >
             <Download className="w-3.5 h-3.5 text-cyan-600" />
-            <span>JSON</span>
-          </button>
-        </div>
-      </div>
+            <Inline>JSON</Inline>
+          </PlainButton>
+        </Box>
+      </Box>
 
       {/* Search & Filters */}
-      <div className="glass-panel p-4 rounded-2xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <Box className="glass-panel p-4 rounded-2xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Search */}
-        <div className="relative col-span-1 sm:col-span-2 lg:col-span-1">
+        <Box className="relative col-span-1 sm:col-span-2 lg:col-span-1">
           <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-          <input
+          <Input
             type="text"
             placeholder="Search business, city, phone..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-10 pr-4 py-2 rounded-xl bg-white border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-cyan-500 transition"
           />
-        </div>
+        </Box>
 
         {/* Mission / Job Filter */}
-        <div>
-          <select
+        <Box>
+          <Select
             value={selectedJobId}
             onChange={(e) => setSelectedJobId(e.target.value)}
             className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs text-cyan-600 font-semibold focus:outline-none focus:border-cyan-500 transition cursor-pointer"
           >
-            <option value="ALL">All Scrape Missions (Combined)</option>
+            <Option value="ALL">All Scrape Missions (Combined)</Option>
             {jobsList.map(j => (
-              <option key={j.jobId} value={j.jobId}>
+              <Option key={j.jobId} value={j.jobId}>
                 🎯 {j.name} ({j.resultCount || 0} leads)
-              </option>
+              </Option>
             ))}
-          </select>
-        </div>
+          </Select>
+        </Box>
 
         {/* Source Filter */}
-        <div>
-          <select
+        <Box>
+          <Select
             value={sourceFilter}
             onChange={(e) => setSourceFilter(e.target.value)}
             className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-cyan-500 transition cursor-pointer"
           >
-            <option value="ALL">All Providers</option>
-            <option value="GoogleMaps">Google Maps Only</option>
-            <option value="JustDial">JustDial Only</option>
-          </select>
-        </div>
+            <Option value="ALL">All Providers</Option>
+            <Option value="GoogleMaps">Google Maps Only</Option>
+            <Option value="JustDial">JustDial Only</Option>
+            {/* Typed in by hand, from the onboarding site. Kept in step with
+                the `source` enum in scriper.model.js — a value the server
+                accepts and this list omits is a lead nobody can filter to. */}
+            <Option value="Manual">Manually Added</Option>
+          </Select>
+        </Box>
 
         {/* Phone Filter */}
-        <div>
-          <select
+        <Box>
+          <Select
             value={phoneFilter}
             onChange={(e) => setPhoneFilter(e.target.value)}
             className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-cyan-500 transition cursor-pointer"
           >
-            <option value="ALL">All Leads (Phone)</option>
-            <option value="YES">Has Phone Number</option>
-          </select>
-        </div>
+            <Option value="ALL">All Leads (Phone)</Option>
+            <Option value="YES">Has Phone Number</Option>
+          </Select>
+        </Box>
 
         {/* Lead Status Filter */}
-        <div>
-          <select
+        <Box>
+          <Select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-cyan-500 transition cursor-pointer"
           >
-            <option value="ALL">All Statuses</option>
-            <option value="NEW">🆕 New Leads</option>
-            <option value="CONTACTED">📞 Contacted</option>
-            <option value="QUALIFIED">⭐ Qualified</option>
-            <option value="CLOSED_WON">🎉 Closed Won</option>
-          </select>
-        </div>
-      </div>
+            <Option value="ALL">All Statuses</Option>
+            <Option value="NEW">🆕 New Leads</Option>
+            <Option value="CONTACTED">📞 Contacted</Option>
+            <Option value="QUALIFIED">⭐ Qualified</Option>
+            <Option value="CLOSED_WON">🎉 Closed Won</Option>
+          </Select>
+        </Box>
+      </Box>
 
       {/* Leads Table */}
-      <div className="glass-panel rounded-2xl overflow-hidden shadow-2xl">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider bg-slate-50">
+      <Box className="glass-panel rounded-2xl overflow-hidden shadow-2xl">
+        <Box className="overflow-x-auto">
+          <Table className="w-full text-left text-xs">
+            <TableHead>
+              <TableRow className="border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider bg-slate-50">
                 {isAdmin && (
-                  <th className="py-3.5 px-4 w-10">
-                    <button onClick={toggleSelectAll} className="text-slate-500 hover:text-cyan-600">
-                      {selectedLeadIds.length > 0 && selectedLeadIds.length === leads.length ? (
-                        <CheckSquare className="w-4 h-4 text-cyan-600" />
-                      ) : (
-                        <Square className="w-4 h-4" />
-                      )}
-                    </button>
-                  </th>
+                  <TableHeaderCell className="py-3.5 px-4 w-10">
+                    <SelectionToggle
+                      checked={selectedLeadIds.length > 0 && selectedLeadIds.length === leads.length}
+                      onToggle={toggleSelectAll}
+                    />
+                  </TableHeaderCell>
                 )}
-                <th className="py-3.5 px-4">Business Name</th>
-                <th className="py-3.5 px-4">Phone</th>
-                <th className="py-3.5 px-4">City / Address</th>
-                <th className="py-3.5 px-4">Assigned To</th>
-                <th className="py-3.5 px-4">Status</th>
-                <th className="py-3.5 px-4">Rating</th>
-                <th className="py-3.5 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
+                <TableHeaderCell className="py-3.5 px-4">Business Name</TableHeaderCell>
+                <TableHeaderCell className="py-3.5 px-4">Phone</TableHeaderCell>
+                <TableHeaderCell className="py-3.5 px-4">City / Address</TableHeaderCell>
+                <TableHeaderCell className="py-3.5 px-4">Assigned To</TableHeaderCell>
+                <TableHeaderCell className="py-3.5 px-4">Status</TableHeaderCell>
+                <TableHeaderCell className="py-3.5 px-4">Rating</TableHeaderCell>
+                <TableHeaderCell className="py-3.5 px-4 text-right">Actions</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody className="divide-y divide-slate-200">
               {loading ? (
-                <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-500">
+                <TableRow>
+                  <TableCell colSpan={8} className="py-12 text-center text-slate-500">
                     Loading extracted leads...
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : leads.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                <TableRow>
+                  <TableCell colSpan={8} className="py-12 text-center text-slate-400">
                     No leads found matching current search or filters.
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : (
                 leads.map((l) => (
-                  <tr key={l._id} className="hover:bg-slate-50 transition">
+                  <TableRow key={l._id} className="hover:bg-slate-50 transition">
                     {isAdmin && (
-                      <td className="py-3.5 px-4">
-                        <button onClick={() => toggleSelectLead(l._id)} className="text-slate-500 hover:text-cyan-600">
-                          {selectedLeadIds.includes(l._id) ? (
-                            <CheckSquare className="w-4 h-4 text-cyan-600" />
-                          ) : (
-                            <Square className="w-4 h-4" />
-                          )}
-                        </button>
-                      </td>
+                      <TableCell className="py-3.5 px-4">
+                        <SelectionToggle
+                          checked={selectedLeadIds.includes(l._id)}
+                          onToggle={() => toggleSelectLead(l._id)}
+                        />
+                      </TableCell>
                     )}
 
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded-lg bg-cyan-50 text-cyan-600 flex items-center justify-center shrink-0">
-                          <Building2 className="w-3.5 h-3.5" />
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-900 leading-tight">{l.businessName}</p>
-                          <span className="text-3xs text-slate-500">{l.category || 'Business'}</span>
-                        </div>
-                      </div>
-                    </td>
+                    <TableCell className="py-3.5 px-4">
+                      <LeadIdentity businessName={l.businessName} category={l.category} />
+                    </TableCell>
 
-                    <td className="py-3.5 px-4">
-                      {l.phone ? (
-                        <span className="font-mono text-slate-800">{l.phone}</span>
-                      ) : (
-                        <span className="text-slate-400 italic">No Phone</span>
-                      )}
-                    </td>
+                    <TableCell className="py-3.5 px-4">
+                      <LeadPhone phone={l.phone} />
+                    </TableCell>
 
-                    <td className="py-3.5 px-4 text-slate-600">
-                      <div className="flex items-center gap-2">
+                    <TableCell className="py-3.5 px-4 text-slate-600">
+                      <Box className="flex items-center gap-2">
                         <MapLocationButton lead={l} />
-                        <span className="max-w-[180px] truncate">{l.address || l.city || '-'}</span>
-                      </div>
-                    </td>
+                        <Inline className="max-w-[180px] truncate">{l.address || l.city || '-'}</Inline>
+                      </Box>
+                    </TableCell>
 
-                    <td className="py-3.5 px-4">
-                      {l.assignedTo && l.assignedTo.name ? (
-                        <span className="px-2.5 py-0.5 rounded-full bg-cyan-50 text-cyan-600 text-3xs font-bold border border-cyan-200">
-                          👤 {l.assignedTo.name}
-                        </span>
-                      ) : (
-                        <span className="text-slate-400 italic">Unassigned</span>
-                      )}
-                    </td>
+                    <TableCell className="py-3.5 px-4">
+                      <LeadAssignee name={l.assignedTo && l.assignedTo.name} />
+                    </TableCell>
 
-                    <td className="py-3.5 px-4">
+                    <TableCell className="py-3.5 px-4">
                       {/* The rep's own colour, not a generic grey one — this cell
                           is the admin's view of what the employee did. */}
-                      <span className={`px-2 py-0.5 rounded-md border text-3xs font-bold whitespace-nowrap ${leadStatusMeta(l.leadStatus).chip}`}>
+                      <Inline className={`px-2 py-0.5 rounded-md border text-3xs font-bold whitespace-nowrap ${leadStatusMeta(l.leadStatus).chip}`}>
                         {leadStatusMeta(l.leadStatus).short}
-                      </span>
+                      </Inline>
                       {l.lastActivityAt && (
-                        <div className="mt-1 text-3xs text-slate-400 whitespace-nowrap">
+                        <Box className="mt-1 text-3xs text-slate-400 whitespace-nowrap">
                           {l.lastActivityBy?.name ? `by ${l.lastActivityBy.name} · ` : ''}
                           {timeAgo(l.lastActivityAt)}
-                        </div>
+                        </Box>
                       )}
-                    </td>
+                    </TableCell>
 
-                    <td className="py-3.5 px-4">
-                      {l.rating ? (
-                        <div className="flex items-center gap-1 text-amber-600 font-bold">
-                          <Star className="w-3 h-3 fill-amber-400" />
-                          <span>{l.rating}</span>
-                        </div>
-                      ) : (
-                        <span className="text-slate-400">-</span>
-                      )}
-                    </td>
+                    <TableCell className="py-3.5 px-4">
+                      <LeadRating rating={l.rating} />
+                    </TableCell>
 
-                    <td className="py-3.5 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
+                    <TableCell className="py-3.5 px-4 text-right">
+                      <Box className="flex items-center justify-end gap-1.5">
                         {isAdmin && (
-                          <button
+                          <PlainButton
                             onClick={() => {
                               setSelectedLeadIds([l._id]);
                               setShowAssignModal(true);
@@ -373,23 +335,23 @@ export const ScrapedLeadsDashboard: React.FC<ScrapedLeadsDashboardProps> = ({ cu
                             title="Assign to Employee"
                           >
                             <UserCheck className="w-4 h-4" />
-                          </button>
+                          </PlainButton>
                         )}
-                        <button
+                        <PlainButton
                           onClick={() => setSelectedLead(l)}
                           className="p-1.5 rounded-lg bg-slate-100 hover:bg-cyan-100 hover:text-cyan-600 text-slate-500 transition cursor-pointer"
                           title="View Details"
                         >
                           <Eye className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                        </PlainButton>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
                 ))
               )}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </Box>
 
         <Pagination
           page={page}
@@ -401,7 +363,7 @@ export const ScrapedLeadsDashboard: React.FC<ScrapedLeadsDashboardProps> = ({ cu
           onLimitChange={setLimit}
           noun="leads"
         />
-      </div>
+      </Box>
 
       {/* Assign Modal */}
       {showAssignModal && (
@@ -420,6 +382,6 @@ export const ScrapedLeadsDashboard: React.FC<ScrapedLeadsDashboardProps> = ({ cu
       {selectedLead && (
         <LeadDetailModal lead={selectedLead} onClose={() => setSelectedLead(null)} />
       )}
-    </div>
+    </Box>
   );
 };

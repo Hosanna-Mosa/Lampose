@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Icon from '../components/Icon';
-import { SecHead } from '../components/Chrome';
-import ListingCard, { rupees } from '../components/ListingCard';
-import ConnectionError from '../components/ConnectionError';
+import { Icon } from '../components/common/atoms/Icon/Icon';
+import { SecHead } from '../components/common/molecules/SecHead/SecHead';
+import { ListingCard, rupees } from '../components/common/organisms/ListingCard/ListingCard';
+import { ConnectionError } from '../components/common/organisms/ConnectionError/ConnectionError';
 import { byCategoryOrder, iconForCategory, labelForCategory } from '../data/categories';
 import listingsApi from '../api/listingsApi';
 import { useReveals } from '../hooks/useSite';
+import { OptionRow } from '../components/explore/molecules/OptionRow/OptionRow';
+import { SORTS, PAGE, EMPTY_FILTERS } from '../components/explore/utils/exploreFilters';
+import { Aside, Box, Emphasis, Heading, Inline, Input, Label, Option, PlainButton, Region, Select, Strong, Text } from '../components/common/atoms';
 
 /* ══ Explore ══════════════════════════════════════════════════════════════
    A sticky filter rail beside a results column.
@@ -21,31 +24,16 @@ import { useReveals } from '../hooks/useSite';
    out by a stale ceiling or missing from a hardcoded dropdown.
    ═══════════════════════════════════════════════════════════════════════ */
 
-const SORTS = [
-  { id: 'recent', label: 'Recently listed' },
-  { id: 'price-asc', label: 'Rent: low to high' },
-  { id: 'price-desc', label: 'Rent: high to low' },
-  { id: 'name', label: 'Name: A to Z' },
-];
 
 /* How many cards are drawn before "Show more". Filtering is instant on the
    whole set; this only bounds how much the browser paints at once, so a
    collection of a few hundred rows stays as quick as one of twenty. */
-const PAGE = 12;
 
 const ceilTo500 = n => Math.max(500, Math.ceil(n / 500) * 500);
 const rentOf = item => Number(item.rent) || 0;
 
-const EMPTY_FILTERS = {
-  q: '',
-  category: 'all',
-  city: 'all',
-  stay: 'all',
-  amenities: [],
-  maxPrice: null,        // null = no ceiling, so it follows the data
-};
 
-export default function Explore() {
+export function Explore() {
   const [listingsData, setListingsData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -187,8 +175,8 @@ export default function Explore() {
     : [...filters.amenities, a]);
 
   return (
-    <section id="explore">
-      <div className="sec-inner">
+    <Region id="explore">
+      <Box className="sec-inner">
         <SecHead
           tag="Explore" title="Rooms on Lampose," em="straight from our owners."
           sub="Every listing below is a live property from the Lampose onboarding panel — the rent, the facilities and the contact are exactly what the owner filed."
@@ -200,35 +188,35 @@ export default function Explore() {
         {error ? (
           <ConnectionError error={error} onRetry={() => load()} busy={loading} />
         ) : (
-        <div className={`xp-shell${railOpen ? ' is-open' : ''}`}>
+        <Box className={`xp-shell${railOpen ? ' is-open' : ''}`}>
           {/* ── Filter rail ──────────────────────────────────────────── */}
-          <button
+          <PlainButton
             className="xp-scrim"
             aria-label="Close filters"
             tabIndex={railOpen ? 0 : -1}
             onClick={() => setRailOpen(false)}
           />
 
-          <aside className="xp-rail" aria-label="Filters">
-            <div className="xp-rail__head">
-              <span className="exp-lbl">Filters</span>
-              <div className="xp-rail__headActions">
+          <Aside className="xp-rail" aria-label="Filters">
+            <Box className="xp-rail__head">
+              <Inline className="exp-lbl">Filters</Inline>
+              <Box className="xp-rail__headActions">
                 {activeChips.length > 0 && (
-                  <button className="xp-linkbtn" onClick={resetFilters}>Clear all</button>
+                  <PlainButton className="xp-linkbtn" onClick={resetFilters}>Clear all</PlainButton>
                 )}
-                <button
+                <PlainButton
                   className="xp-rail__close"
                   onClick={() => setRailOpen(false)}
                   aria-label="Close filters"
                 >
                   ✕
-                </button>
-              </div>
-            </div>
+                </PlainButton>
+              </Box>
+            </Box>
 
-            <div className="xp-search">
+            <Box className="xp-search">
               <Icon name="search" className="exp-ico" />
-              <input
+              <Input
                 type="search"
                 aria-label="Search listings"
                 placeholder="Property, locality, owner…"
@@ -236,15 +224,15 @@ export default function Explore() {
                 onChange={e => set('q', e.target.value)}
               />
               {filters.q && (
-                <button className="xp-clear" onClick={() => set('q', '')} aria-label="Clear search">
+                <PlainButton className="xp-clear" onClick={() => set('q', '')} aria-label="Clear search">
                   ✕
-                </button>
+                </PlainButton>
               )}
-            </div>
+            </Box>
 
-            <div className="xp-group">
-              <span className="exp-lbl">Property type</span>
-              <div className="xp-opts" role="radiogroup" aria-label="Property type">
+            <Box className="xp-group">
+              <Inline className="exp-lbl">Property type</Inline>
+              <Box className="xp-opts" role="radiogroup" aria-label="Property type">
                 <OptionRow
                   icon="grid" label="All listings"
                   count={countWith({ category: 'all' })}
@@ -262,55 +250,55 @@ export default function Explore() {
                     onClick={() => set('category', cat)}
                   />
                 ))}
-              </div>
-            </div>
+              </Box>
+            </Box>
 
-            <div className="xp-group">
-              <label className="exp-lbl" htmlFor="xp-city">City</label>
-              <select
+            <Box className="xp-group">
+              <Label className="exp-lbl" htmlFor="xp-city">City</Label>
+              <Select
                 id="xp-city"
                 className="xp-select"
                 value={filters.city}
                 onChange={e => set('city', e.target.value)}
               >
-                <option value="all">All cities ({countWith({ city: 'all' })})</option>
+                <Option value="all">All cities ({countWith({ city: 'all' })})</Option>
                 {facets.cities.map(city => (
-                  <option key={city} value={city}>
+                  <Option key={city} value={city}>
                     {city} ({countWith({ city })})
-                  </option>
+                  </Option>
                 ))}
-              </select>
-            </div>
+              </Select>
+            </Box>
 
             {facets.stays.length > 1 && (
-              <div className="xp-group">
-                <span className="exp-lbl">Stay length</span>
-                <div className="xp-seg" role="group" aria-label="Stay length">
-                  <button
+              <Box className="xp-group">
+                <Inline className="exp-lbl">Stay length</Inline>
+                <Box className="xp-seg" role="group" aria-label="Stay length">
+                  <PlainButton
                     className={`xp-seg__btn${filters.stay === 'all' ? ' active' : ''}`}
                     onClick={() => set('stay', 'all')}
                   >
                     Any
-                  </button>
+                  </PlainButton>
                   {facets.stays.map(stay => (
-                    <button
+                    <PlainButton
                       key={stay}
                       className={`xp-seg__btn${filters.stay === stay ? ' active' : ''}`}
                       onClick={() => set('stay', stay)}
                       disabled={countWith({ stay }) === 0}
                     >
                       {stay.replace(' Stay', '')}
-                    </button>
+                    </PlainButton>
                   ))}
-                </div>
-              </div>
+                </Box>
+              </Box>
             )}
 
-            <div className="xp-group">
-              <span className="exp-lbl">
-                Max rent <strong>{rupees(priceCap)}</strong>
-              </span>
-              <input
+            <Box className="xp-group">
+              <Inline className="exp-lbl">
+                Max rent <Strong>{rupees(priceCap)}</Strong>
+              </Inline>
+              <Input
                 className="xp-range"
                 type="range"
                 min="0"
@@ -320,21 +308,21 @@ export default function Explore() {
                 aria-label="Maximum rent"
                 onChange={e => set('maxPrice', Number(e.target.value))}
               />
-              <div className="xp-range__ends">
-                <span>₹0</span>
-                <span>{rupees(facets.priceMax)}+</span>
-              </div>
-            </div>
+              <Box className="xp-range__ends">
+                <Inline>₹0</Inline>
+                <Inline>{rupees(facets.priceMax)}+</Inline>
+              </Box>
+            </Box>
 
             {facets.amenities.length > 0 && (
-              <div className="xp-group">
-                <span className="exp-lbl">Facilities</span>
-                <div className="xp-checks">
+              <Box className="xp-group">
+                <Inline className="exp-lbl">Facilities</Inline>
+                <Box className="xp-checks">
                   {facets.amenities.map(a => {
                     const n = countWith({ amenities: [...new Set([...filters.amenities, a])] });
                     const on = filters.amenities.includes(a);
                     return (
-                      <button
+                      <PlainButton
                         key={a}
                         className={`xp-check${on ? ' active' : ''}`}
                         aria-pressed={on}
@@ -342,92 +330,92 @@ export default function Explore() {
                         onClick={() => toggleAmenity(a)}
                       >
                         {a}
-                        <em>{n}</em>
-                      </button>
+                        <Emphasis>{n}</Emphasis>
+                      </PlainButton>
                     );
                   })}
-                </div>
-              </div>
+                </Box>
+              </Box>
             )}
 
-            <button className="xp-rail__apply" onClick={() => setRailOpen(false)}>
+            <PlainButton className="xp-rail__apply" onClick={() => setRailOpen(false)}>
               Show {filtered.length} {filtered.length === 1 ? 'stay' : 'stays'}
-            </button>
-          </aside>
+            </PlainButton>
+          </Aside>
 
           {/* ── Results ──────────────────────────────────────────────── */}
-          <div className="xp-results">
-            <div className="xp-toolbar">
-              <button className="xp-filterbtn" onClick={() => setRailOpen(true)}>
+          <Box className="xp-results">
+            <Box className="xp-toolbar">
+              <PlainButton className="xp-filterbtn" onClick={() => setRailOpen(true)}>
                 <Icon name="filters" className="exp-ico" />
                 Filters
-                {activeChips.length > 0 && <em>{activeChips.length}</em>}
-              </button>
+                {activeChips.length > 0 && <Emphasis>{activeChips.length}</Emphasis>}
+              </PlainButton>
 
-              <p className="xp-tally">
-                <strong>{filtered.length}</strong>
-                <span>
+              <Text className="xp-tally">
+                <Strong>{filtered.length}</Strong>
+                <Inline>
                   {filtered.length === listingsData.length
                     ? ` ${filtered.length === 1 ? 'stay' : 'stays'} on Lampose`
                     : ` of ${listingsData.length} stays`}
-                </span>
-                <span className="xp-dot is-live" title="Live from the onboarding panel" />
-              </p>
+                </Inline>
+                <Inline className="xp-dot is-live" title="Live from the onboarding panel" />
+              </Text>
 
-              <div className="xp-toolbar__right">
-                <div className="xp-viewtoggle" role="group" aria-label="Layout">
-                  <button
+              <Box className="xp-toolbar__right">
+                <Box className="xp-viewtoggle" role="group" aria-label="Layout">
+                  <PlainButton
                     className={`xp-viewtoggle__btn${view === 'grid' ? ' active' : ''}`}
                     onClick={() => setView('grid')}
                     aria-label="Grid view"
                     aria-pressed={view === 'grid'}
                   >
                     <Icon name="grid" className="exp-ico" />
-                  </button>
-                  <button
+                  </PlainButton>
+                  <PlainButton
                     className={`xp-viewtoggle__btn${view === 'list' ? ' active' : ''}`}
                     onClick={() => setView('list')}
                     aria-label="List view"
                     aria-pressed={view === 'list'}
                   >
                     <Icon name="filters" className="exp-ico" />
-                  </button>
-                </div>
+                  </PlainButton>
+                </Box>
 
-                <label className="xp-sort">
-                  <span className="exp-lbl">Sort</span>
-                  <select
+                <Label className="xp-sort">
+                  <Inline className="exp-lbl">Sort</Inline>
+                  <Select
                     className="xp-select"
                     value={sortBy}
                     onChange={e => setSortBy(e.target.value)}
                   >
-                    {SORTS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                  </select>
-                </label>
-              </div>
-            </div>
+                    {SORTS.map(o => <Option key={o.id} value={o.id}>{o.label}</Option>)}
+                  </Select>
+                </Label>
+              </Box>
+            </Box>
 
             {activeChips.length > 0 && (
-              <div className="xp-chips">
+              <Box className="xp-chips">
                 {activeChips.map(chip => (
-                  <button key={chip.key} className="xp-chip" onClick={chip.clear}>
-                    {chip.label} <span aria-hidden="true">✕</span>
-                  </button>
+                  <PlainButton key={chip.key} className="xp-chip" onClick={chip.clear}>
+                    {chip.label} <Inline aria-hidden="true">✕</Inline>
+                  </PlainButton>
                 ))}
-                <button className="xp-linkbtn" onClick={resetFilters}>Clear all</button>
-              </div>
+                <PlainButton className="xp-linkbtn" onClick={resetFilters}>Clear all</PlainButton>
+              </Box>
             )}
 
             {loading && (
-              <div className="xp-grid">
+              <Box className="xp-grid">
                 {Array.from({ length: 6 }, (_, i) => (
-                  <div className="xp-skel" key={i} style={{ '--i': String(i) }}>
-                    <div className="xp-skel__media" />
-                    <div className="xp-skel__line" />
-                    <div className="xp-skel__line xp-skel__line--short" />
-                  </div>
+                  <Box className="xp-skel" key={i} style={{ '--i': String(i) }}>
+                    <Box className="xp-skel__media" />
+                    <Box className="xp-skel__line" />
+                    <Box className="xp-skel__line xp-skel__line--short" />
+                  </Box>
                 ))}
-              </div>
+              </Box>
             )}
 
             {!loading && filtered.length > 0 && (
@@ -435,22 +423,22 @@ export default function Explore() {
                 {/* No `reveal` here: the grid swaps in and out as you filter,
                     and the observer only sees what was in the DOM at mount.
                     The cards animate themselves in CSS instead. */}
-                <div className={view === 'list' ? 'xp-list' : 'xp-grid'}>
+                <Box className={view === 'list' ? 'xp-list' : 'xp-grid'}>
                   {filtered.slice(0, visible).map((item, i) => (
                     <ListingCard key={item.id} item={item} index={i % PAGE} view={view} />
                   ))}
-                </div>
+                </Box>
 
                 {visible < filtered.length && (
-                  <div className="xp-loadmore">
-                    <button className="exp-more" onClick={() => setVisible(v => v + PAGE)}>
+                  <Box className="xp-loadmore">
+                    <PlainButton className="exp-more" onClick={() => setVisible(v => v + PAGE)}>
                       Show {Math.min(PAGE, filtered.length - visible)} more
-                      <span aria-hidden="true">→</span>
-                    </button>
-                    <p className="xp-loadmore__note">
+                      <Inline aria-hidden="true">→</Inline>
+                    </PlainButton>
+                    <Text className="xp-loadmore__note">
                       Showing {visible} of {filtered.length}
-                    </p>
-                  </div>
+                    </Text>
+                  </Box>
                 )}
               </>
             )}
@@ -458,51 +446,36 @@ export default function Explore() {
             {/* An empty collection and an over-tight filter are different
                 facts, and only one of them is the visitor's doing. */}
             {!loading && filtered.length === 0 && (
-              <div className="exp-empty">
+              <Box className="exp-empty">
                 <Icon name="search" className="exp-empty__ico" />
                 {listingsData.length === 0 ? (
                   <>
-                    <h3>No rooms listed yet</h3>
-                    <p>
+                    <Heading level={3}>No rooms listed yet</Heading>
+                    <Text>
                       Nothing has been published here so far. Rooms are added as our
                       scouts finish walking them, so it is worth looking again soon.
-                    </p>
-                    <button className="exp-more" onClick={() => load()}>
-                      Check again <span aria-hidden="true">→</span>
-                    </button>
+                    </Text>
+                    <PlainButton className="exp-more" onClick={() => load()}>
+                      Check again <Inline aria-hidden="true">→</Inline>
+                    </PlainButton>
                   </>
                 ) : (
                   <>
-                    <h3>Nothing matches those filters</h3>
-                    <p>Widen the rent ceiling, pick another city, or clear the search.</p>
-                    <button className="exp-more" onClick={resetFilters}>Reset filters</button>
+                    <Heading level={3}>Nothing matches those filters</Heading>
+                    <Text>Widen the rent ceiling, pick another city, or clear the search.</Text>
+                    <PlainButton className="exp-more" onClick={resetFilters}>Reset filters</PlainButton>
                   </>
                 )}
-              </div>
+              </Box>
             )}
-          </div>
-        </div>
+          </Box>
+        </Box>
         )}
-      </div>
-    </section>
+      </Box>
+    </Region>
   );
 }
 
 /* One row of the type list: glyph, label, and how many listings survive if you
    pick it. Zero means the row cannot help, so it is disabled rather than
    hidden — a filter list that reshuffles as you type is hard to aim at. */
-function OptionRow({ icon, label, count, active, onClick }) {
-  return (
-    <button
-      className={`xp-opt${active ? ' active' : ''}`}
-      role="radio"
-      aria-checked={active}
-      disabled={!active && count === 0}
-      onClick={onClick}
-    >
-      <Icon name={icon} className="exp-ico" />
-      <span>{label}</span>
-      <em>{count}</em>
-    </button>
-  );
-}

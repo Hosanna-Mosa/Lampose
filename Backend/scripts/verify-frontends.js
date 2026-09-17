@@ -3722,6 +3722,134 @@ const run = async () => {
       + 'the runtime toggle cannot escalate a production build, and no screen writes it';
   });
 
+  await check('the DEV bypass buttons are opt-in, and no EAS profile opts in', async () => {
+    const fs = require('fs');
+    const path = require('path');
+    const root = path.join(__dirname, '..', '..');
+
+    /*
+     * A preview control and a BYPASS are not the same thing, and they used to
+     * share one switch.
+     *
+     * A preview control changes what a screen shows and nothing that outlives
+     * it — an outcome switcher on a mock screen, an escape from a blocking
+     * screen, the error stack. A bypass writes real rows: the visit token
+     * settled with no payment, a move-in stamped with no PIN and no date, an
+     * owner marked payable with an invented fund account.
+     *
+     * Gating both on `PREVIEW_CONTROLS` meant the bypasses were drawn in every
+     * internal preview APK — and an internal APK points at the production API
+     * like any other build. The only thing left underneath was the server's
+     * DEV_ALLOW_* flags, which `config/env.js` refuses under
+     * NODE_ENV=production — on a host that was found running
+     * NODE_ENV=development. Two gates that fail together are one gate.
+     *
+     * So the bypasses have their own opt-in variable with no safe default,
+     * and this asserts the three things that make it one.
+     */
+    const BYPASS_SCREENS = {
+      'User App': [
+        'app/confirm/[id].tsx',         // mark the visit token paid
+        'app/bookings/[id].tsx',        // force both halves of the move-in
+      ],
+      'Stay Partner': [
+        'app/(auth)/payout-setup.tsx',  // mark this owner payable
+        'app/booking/checkin.tsx',      // stamp a move-in, no PIN, no date
+        'app/booking/[id].tsx',         // the link to that screen
+      ],
+    };
+
+    for (const app of Object.keys(BYPASS_SCREENS)) {
+      const dir = path.join(root, app);
+
+      /* 1. The flag exists, is tied to the build, and only the exact string
+            `true` turns it on. `1`, `yes` and `TRUE` must all read as off — a
+            typo must never be the difference. */
+      const env = fs.readFileSync(path.join(dir, 'constants/env.ts'), 'utf8');
+      expect(
+        /export const DEV_BYPASS =\s*\n?\s*!IS_PRODUCTION_BUILD && process\.env\.EXPO_PUBLIC_DEV_BYPASS === 'true';/
+          .test(env),
+        `${app} has no DEV_BYPASS tied to both IS_PRODUCTION_BUILD and an exact 'true'`,
+      );
+
+      /* 2. No EAS profile may opt in — including `preview`, which is the whole
+            reason this flag exists. A build that needs it sets it locally. */
+      const eas = JSON.parse(fs.readFileSync(path.join(dir, 'eas.json'), 'utf8'));
+      for (const [profile, profileConfig] of Object.entries(eas.build || {})) {
+        expect(
+          !profileConfig.env || profileConfig.env.EXPO_PUBLIC_DEV_BYPASS !== 'true',
+          `${app} eas.json "${profile}" profile turns EXPO_PUBLIC_DEV_BYPASS on — `
+          + 'every build from it would ship the payment and check-in bypasses',
+        );
+      }
+
+      /* 3. And every screen that draws one gates on it rather than on the
+            wider preview-control switch. Checked per screen, because this is
+            the mistake the split was made to prevent. */
+      for (const screen of BYPASS_SCREENS[app]) {
+        const body = fs.readFileSync(path.join(dir, screen), 'utf8');
+        const label = `${app}/${screen}`;
+
+        /* The marker the buttons carry. If it is gone the bypass was deleted,
+           which is a better outcome than any gate — nothing left to check. */
+        if (!/\u{1F6E0} DEV:/u.test(body)) continue;
+
+        const gate = app === 'User App' ? /useDevBypass\(\)/ : /\bDEV_BYPASS\b/;
+        expect(gate.test(body), `${label} draws a DEV bypass without reading the bypass flag`);
+
+        /* Comments may still name the old switch — the argument for the split
+           lives beside the code it explains. Only a read counts. */
+        const wide = app === 'User App' ? /usePreviewControls\(\)/ : /\{\s*PREVIEW_CONTROLS\b/;
+        expect(
+          !wide.test(body),
+          `${label} still reads the preview-control switch — that is on in internal `
+          + 'APKs, which point at the production API',
+        );
+      }
+    }
+
+    /*
+     * And the server half, which is the second gate and not the first.
+     *
+     * Both flags must be AND-ed with NODE_ENV, and both must say so at boot.
+     * DEV_ALLOW_FORCE_CHECKIN had neither a warning nor a line in
+     * .env.example, so a deployer copying the example never learned it
+     * existed — which is how a flag stays on.
+     */
+    const backendEnv = fs.readFileSync(
+      path.join(__dirname, '..', 'src/config/env.js'), 'utf8');
+    const example = fs.readFileSync(path.join(__dirname, '..', '.env.example'), 'utf8');
+
+    for (const flag of ['DEV_ALLOW_MARK_PAID', 'DEV_ALLOW_FORCE_CHECKIN']) {
+      /* The flag's resolution and the NODE_ENV clause that narrows it are one
+         expression, so the whole thing is read as one slice rather than
+         pattern-matched — an escape miscounted in a regex here passes
+         silently, which is the failure mode this check exists to catch. */
+      const at = backendEnv.indexOf('process.env.' + flag);
+      expect(at !== -1, flag + ' is not read by config/env.js at all');
+
+      const clause = backendEnv.slice(at, at + 200);
+      expect(
+        clause.includes('NODE_ENV') && clause.includes("!== 'production'"),
+        flag + ' is not refused under NODE_ENV=production',
+      );
+      expect(
+        backendEnv.includes(flag + ' is ON'),
+        flag + ' can be on without saying so in the boot banner',
+      );
+      expect(
+        /* Split on a newline without writing an escape, and trim, so this
+           holds whether the file has CRLF or LF endings. */
+        example.split(String.fromCharCode(10))
+          .some((line) => line.trim().startsWith(flag + '=')),
+        flag + ' is not in .env.example — a deployer copying it never learns it exists',
+      );
+    }
+
+    return 'both apps: DEV_BYPASS is opt-in and exact, no EAS profile sets it, every bypass '
+      + 'screen gates on it, and both server flags are NODE_ENV-refused and announced';
+  });
+
   section('CORS preflight from each production origin');
 
   const preflight = async (origin, path = '/api/v2/auth/login') => {

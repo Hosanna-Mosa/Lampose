@@ -362,8 +362,45 @@ const notifyStudentCheckedIn = async (booking) => {
 
   return pushTo(Customer(), { customerId: booking.customerId }, {
     title: "You're checked in",
-    body: `${booking.propertyName} marked you checked in.`
-      + (booking.movedInByStudentAt ? '' : ' Confirm your move-in in the app.'),
+    /* It used to add "Confirm your move-in in the app." when the student's
+       stamp was missing. The owner's code entry now sets both, so there is
+       nothing left to ask for and the notification is the whole news. */
+    body: `${booking.propertyName} marked you checked in. Your stay has started.`,
+    data,
+  });
+};
+
+/**
+ * "You earned ₹100 off your next hotel."
+ *
+ * A separate notification from the check-in one, deliberately, and sent a
+ * moment after it. They are two different pieces of news — one is "you are
+ * in", which the student wants while standing in the doorway, and the other
+ * is a reward they will act on weeks later. Folding the reward into the
+ * check-in body would bury the thing that matters now under the thing that
+ * matters later, and a single notification cannot deep-link to two screens.
+ *
+ * Fire-and-forget like every notifier here: a reward that was granted but not
+ * announced is still in the student's account and still visible on the
+ * coupons screen. A push that throws must never unwind a coupon.
+ */
+const notifyStudentEarnedStayCoupon = async (booking, coupon) => {
+  if (!booking || !booking.customerId || !coupon) return null;
+  say(`[notify] stay coupon ${coupon.code} → student ${booking.customerId}`);
+
+  const data = {
+    kind: 'coupon.earned',
+    couponId: String(coupon._id),
+    code: coupon.code,
+    amountRupees: coupon.amountRupees,
+    bookingId: String(booking._id),
+  };
+  emitLive('customer', booking.customerId, 'stay_coupon_earned', data);
+
+  return pushTo(Customer(), { customerId: booking.customerId }, {
+    title: `₹${coupon.amountRupees} off your next hotel`,
+    body: `Thanks for moving into ${booking.propertyName}. Use code ${coupon.code} `
+      + 'on your next hotel booking.',
     data,
   });
 };
@@ -559,6 +596,7 @@ module.exports = {
   notifyStudentBookingCancelled,
   notifyStudentRefundPaid,
   notifyStudentCheckedIn,
+  notifyStudentEarnedStayCoupon,
   notifyStudentCheckedOut,
   notifyStudentExpired,
   notifyOwnerOfWithdrawal,

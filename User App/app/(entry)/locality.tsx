@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 
 import { Button, Divider, Icon, SearchField, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
@@ -155,37 +156,38 @@ export default function LocalityPickerScreen() {
   /** What the row says under its label. Null means "not asked yet". */
   const [fixNote, setFixNote] = useState<string | null>(null);
   const [fixFailed, setFixFailed] = useState(false);
-  /** The area the fix resolved to, waiting for a second tap to apply it. */
-  const [fixMatch, setFixMatch] = useState<Locality | null>(null);
 
   const locateAndSuggest = useCallback(async () => {
-    /* A second tap on a resolved row is the student accepting the answer.
-       Applying it on the first tap would let a bad geocode filter the whole
-       feed without anybody agreeing to it. */
-    if (fixMatch) {
-      void choose(fixMatch);
-      return;
-    }
+    if (locating) return;
+
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
 
     setLocating(true);
     setFixFailed(false);
+    setFixNote('Detecting your location…');
     try {
       const match = await findMyLocality(localities);
 
-      if (match.kind === 'area') {
-        setFixMatch(match.locality);
-        setFixNote(`You look like you are in ${match.locality.name}. Tap again to use it.`);
+      if (match.kind === 'area' || match.kind === 'original') {
+        try {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch {}
+        // Instantly select the resolved authentic locality on a single tap!
+        await choose(match.locality);
+        return;
       } else if (match.kind === 'city') {
-        setFixMatch(match.locality);
-        setFixNote(
-          `We could not place your block, but we cover ${match.locality.city}. `
-          + `Tap again for ${match.locality.name}, or pick an area below.`,
-        );
+        try {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch {}
+        await choose(match.locality);
+        return;
       } else {
         setFixFailed(true);
         setFixNote(
           `We found you${match.placeLabel ? ` near ${match.placeLabel}` : ''}, `
-          + 'but we do not list anywhere there yet. Try All locations, or search below.',
+          + 'but we could not determine your area. Try All locations, or search below.',
         );
       }
     } catch (caught) {
@@ -198,8 +200,7 @@ export default function LocalityPickerScreen() {
     } finally {
       setLocating(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localities, fixMatch]);
+  }, [localities, locating, choose]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
@@ -274,7 +275,7 @@ export default function LocalityPickerScreen() {
               tone={fixFailed ? 'problem' : 'normal'}
               subtitle={
                 fixNote
-                ?? 'We will find your area and suggest it — nothing is applied until you tap again.'
+                ?? 'Use GPS to automatically detect your area and show nearby stays'
               }
               onPress={locateAndSuggest}
             />
