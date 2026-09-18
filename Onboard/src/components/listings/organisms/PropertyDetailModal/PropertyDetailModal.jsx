@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { labelForCategory } from '../../../../data/categories';
+import { tenantList } from '../../../onboard/utils/categoryFieldOptions';
 import {
   X, MapPin, User, Phone, ShieldCheck, Trash2, CheckCircle2, Clock, Calendar,
   ChevronLeft, ChevronRight, Pencil, Lock, KeyRound, Loader2, Hourglass, ShieldX, Save,
@@ -748,7 +749,12 @@ export function PropertyDetailModal({ property, onClose, onDelete, onUpdated }) 
                     />
                   ) : null}
                   <SpecItem label="Furnishing" value={categoryDetails.furnishing || 'Semi-Furnished'} />
-                  <SpecItem label="Allowed Tenants" value={categoryDetails.allowedTenants || 'Bachelors'} />
+                  {/* A list now, and a bare string on any row onboarded before
+                      it was one — `tenantList` answers both. */}
+                  <SpecItem
+                    label="Allowed Tenants"
+                    value={tenantList(categoryDetails.allowedTenants).join(' · ') || 'Bachelors'}
+                  />
                   <SpecItem label="Kitchen Facility" value={categoryDetails.kitchenAvailable ? 'Kitchen & Gas Allowed' : 'No Kitchen'} />
                   <SpecItem label="Water Supply" value={categoryDetails.waterSupply || '24/7 Water'} />
                 </>

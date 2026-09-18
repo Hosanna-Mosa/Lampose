@@ -90,15 +90,40 @@ const ALLOWED_TENANTS = [
   'Bachelors Female Only',
 ] as const;
 
+/* Co-live takes families, which the field agents' console has always offered
+   and this screen did not. An owner editing a family-let flat here could see
+   the saved value but not choose it again. */
 const TENANTS_BY_CATEGORY: Record<string, readonly string[]> = {
   BACHELOR: ['Bachelors Male Only', 'Bachelors Female Only'],
-  COLIVE: ALLOWED_TENANTS,
+  COLIVE: [...ALLOWED_TENANTS, 'Family'],
 };
 
 const TENANT_LABEL: Record<string, string> = {
   'Bachelors Male / Female': 'Male / Female (mixed)',
   'Bachelors Male Only': 'Male Only',
   'Bachelors Female Only': 'Female Only',
+};
+
+/**
+ * Who a layout may be let to, as a LIST.
+ *
+ * Several answers are commonly all true at once — a 2 BHK offered to families
+ * and to working women — so the field agents' console records a list, and
+ * this screen edits the same documents. Rows written before it was a list
+ * carry one string and are not migrated, so both shapes are read.
+ *
+ * This matters more here than anywhere else that reads the field: a single
+ * select on this screen would have shown one of the two and written one back,
+ * so an owner correcting their rent would have silently dropped the other
+ * kind of tenant from their own listing.
+ *
+ * Mirrors `tenantList` in `Onboard/src/components/onboard/utils/categoryFieldOptions.js`
+ * — there is no shared package between these apps, so change one, change the
+ * other.
+ */
+const tenantList = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.filter(Boolean).map(String);
+  return value ? [String(value)] : [];
 };
 
 function YesNo({
@@ -434,11 +459,33 @@ export function PropertyCategoryFields({
       : [];
     const baseTenants = TENANTS_BY_CATEGORY[category] ?? ALLOWED_TENANTS;
 
-    /* A value saved before the list was narrowed stays selectable, so editing
+    /* Values saved before the list was narrowed stay selectable, so editing
        an old listing cannot silently change who it is let to. */
     const tenantOptionsFor = (layout: string): readonly string[] => {
-      const saved = String((details.allowedTenantsByLayout || {})[layout] ?? '');
-      return saved && !baseTenants.includes(saved) ? [...baseTenants, saved] : baseTenants;
+      const saved = tenantList((details.allowedTenantsByLayout || {})[layout]);
+      const extras = saved.filter((t) => !baseTenants.includes(t));
+      return extras.length ? [...baseTenants, ...extras] : baseTenants;
+    };
+
+    /* Kept in the option list's order rather than the order they were tapped,
+       so the summary the listing prints does not reshuffle between two edits
+       that chose the same people. */
+    const toggleTenant = (layout: string, id: string) => {
+      const current = tenantList((details.allowedTenantsByLayout || {})[layout]);
+      const next = current.includes(id)
+        ? current.filter((t) => t !== id)
+        : [...current, id];
+      const order = tenantOptionsFor(layout);
+      onChange({
+        ...details,
+        allowedTenantsByLayout: {
+          ...(details.allowedTenantsByLayout || {}),
+          [layout]: [
+            ...order.filter((t) => next.includes(t)),
+            ...next.filter((t) => !order.includes(t)),
+          ],
+        },
+      });
     };
 
     return (
@@ -516,16 +563,19 @@ export function PropertyCategoryFields({
                     });
                   }}
                 />
-                <Select
-                  label={`${type} allowed tenants`}
-                  options={tenantOptionsFor(type)}
-                  format={(t) => TENANT_LABEL[t] ?? t}
-                  value={String((details.allowedTenantsByLayout || {})[type] ?? baseTenants[0])}
-                  onChange={(next) => onChange({
-                    ...details,
-                    allowedTenantsByLayout: { ...(details.allowedTenantsByLayout || {}), [type]: next },
-                  })}
-                />
+                <View style={styles.subField}>
+                  <FieldLabel>{`${type} allowed tenants`}</FieldLabel>
+                  <ChipRow>
+                    {tenantOptionsFor(type).map((t) => (
+                      <Chip
+                        key={t}
+                        label={TENANT_LABEL[t] ?? t}
+                        selected={tenantList((details.allowedTenantsByLayout || {})[type]).includes(t)}
+                        onPress={() => toggleTenant(type, t)}
+                      />
+                    ))}
+                  </ChipRow>
+                </View>
                 <YesNo
                   label={`${type} kitchen / cooking provision?`}
                   value={(details.kitchenByLayout || {})[type] !== false}

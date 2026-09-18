@@ -5,8 +5,9 @@ import {
 import {
   Box, Inline, Input, PlainButton, Text,
 } from '../../../common/atoms';
-import { Field, Note, SectionHead } from '../../molecules/Field/Field';
+import { Field, FieldError, Note, SectionHead } from '../../molecules/Field/Field';
 import { COPY, DAYS } from '../../utils/restaurantOptions';
+import { hoursKey } from '../../utils/validateRestaurant';
 
 /*
  * Step 2 — when the kitchen is open. That is all.
@@ -37,15 +38,38 @@ import { COPY, DAYS } from '../../utils/restaurantOptions';
  * the days are ticked first, then one of them is selected and its slots are
  * edited below — which is also how a restaurant actually differs: the same
  * hours all week, and something else on Sunday.
+ *
+ * ## Which is why a problem with a day is printed with the DAY in it
+ *
+ * Only one day's slots are on screen, so "opening and closing are the same"
+ * under the editor would be read as being about the day being edited. Every
+ * hours message names its own day, and each day holding one is listed
+ * together below the editor rather than only when that day is selected —
+ * otherwise the agent has to tap through seven chips to find the one Continue
+ * is refusing to move past.
+ *
+ * Every edit here marks its day as spoken for, so a slot broken by an edit is
+ * reported as it is broken. There is no "left the field" moment to wait for:
+ * a time picker and a tick box are done the instant they are touched, and the
+ * hours all start out valid, so anything wrong with them was just typed.
  */
 
-export function OperationsStep({ form, set }) {
+export function OperationsStep({ form, set, errors = {}, touch = () => {} }) {
   const copy = COPY;
+
+  /* Every day still holding a problem, in week order rather than the order
+     they were ticked. */
+  const hourProblems = DAYS
+    .filter((day) => errors[hoursKey(day)])
+    .map((day) => ({ day, message: errors[hoursKey(day)] }));
 
   const toggleDay = (day) => {
     const next = form.selectedDays.includes(day)
       ? form.selectedDays.filter((entry) => entry !== day)
       : [...form.selectedDays, day];
+
+    touch('selectedDays');
+    touch(hoursKey(day));
 
     set({
       selectedDays: next,
@@ -57,6 +81,7 @@ export function OperationsStep({ form, set }) {
   };
 
   const setSlots = (day, slots) => {
+    touch(hoursKey(day));
     set({ dayTimeSlots: { ...form.dayTimeSlots, [day]: slots } });
   };
 
@@ -90,7 +115,7 @@ export function OperationsStep({ form, set }) {
         <SectionHead icon={<Clock size={16} color="#45855a" />} title="Operational Timings" />
 
         <Box className="rst-card">
-          <Field label="Days of Operation" required>
+          <Field label="Days of Operation" required error={errors.selectedDays}>
             <Box style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
               <PlainButton
                 type="button"
@@ -103,7 +128,7 @@ export function OperationsStep({ form, set }) {
                 {form.selectedDays.length === 7 ? 'Deselect All' : 'Select All'}
               </PlainButton>
             </Box>
-            <Box className="rst-days">
+            <Box className="rst-days" id="rst-days" tabIndex={-1}>
               {DAYS.map((day) => (
                 <PlainButton
                   key={day}
@@ -119,7 +144,7 @@ export function OperationsStep({ form, set }) {
           </Field>
 
           {form.selectedDays.length > 0 && (
-            <Box className="rst-divide">
+            <Box className="rst-divide" id="rst-hours" tabIndex={-1}>
               <Field label="Opening & Closing Hours" hint={copy.operatingHelp}>
                 <Box className="rst-chips" style={{ marginBottom: '12px' }}>
                   {form.selectedDays.map((day) => (
@@ -127,7 +152,7 @@ export function OperationsStep({ form, set }) {
                       key={day}
                       type="button"
                       onClick={() => set({ activeTimingDay: day })}
-                      className={`rst-chip${form.activeTimingDay === day ? ' is-on' : ''}`}
+                      className={`rst-chip${form.activeTimingDay === day ? ' is-on' : ''}${errors[hoursKey(day)] ? ' is-bad' : ''}`}
                     >
                       {day}
                     </PlainButton>
@@ -180,6 +205,10 @@ export function OperationsStep({ form, set }) {
                   <Plus size={15} />
                   Add another slot for {form.activeTimingDay}
                 </PlainButton>
+
+                {hourProblems.map((problem) => (
+                  <FieldError key={problem.day} message={problem.message} />
+                ))}
               </Field>
             </Box>
           )}

@@ -55,6 +55,27 @@ const mealSchedule = (provided, timings) => {
   return meals.map(m => (at[m] ? `${m} ${at[m]}` : m)).join(' · ');
 };
 
+/*
+ * "Let to", from a list or from one string.
+ *
+ * `allowedTenants` is a LIST — a flat is commonly offered to families and to
+ * single women both — and every row onboarded before it was one carries a
+ * bare string. Neither is migrated, so both are read here.
+ *
+ * The "Bachelors " prefix is stripped from EVERY entry rather than only the
+ * front of the whole value. `String(list).replace(/^Bachelors /, '')` — which
+ * is what this was — printed "Male Only, Bachelors Female Only": the anchor
+ * only ever reaches the first one, and the comma `String()` puts between them
+ * has no space after it.
+ */
+const tenantsLabel = (value) => {
+  const list = Array.isArray(value) ? value : (value ? [value] : []);
+  const words = list
+    .map(t => String(t).replace(/^Bachelors /, '').trim())
+    .filter(Boolean);
+  return words.length ? words.join(' · ') : null;
+};
+
 const categoryFacts = (category, d = {}) => {
   const rows = [];
   const add = (label, value) => {
@@ -82,7 +103,7 @@ const categoryFacts = (category, d = {}) => {
     /* Who it is let to leads, because it is a gate rather than a detail: a
        flat that will not take the person reading it wastes their whole visit,
        and "bachelors allowed" is the field renters filter on first. */
-    add('Let to', String(d.allowedTenants || '').replace(/^Bachelors /, '') || null);
+    add('Let to', tenantsLabel(d.allowedTenants));
     add('Furnishing', d.furnishing);
     add('What is included', Array.isArray(d.furnishingItems) ? d.furnishingItems.join(', ') : null);
     add('Kitchen', d.kitchenAvailable);

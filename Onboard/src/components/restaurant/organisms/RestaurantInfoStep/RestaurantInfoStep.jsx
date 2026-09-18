@@ -29,9 +29,17 @@ import { formatPin, geoErrorMessage, readPin, splitAddress } from '../../../../s
  * fix from the browser, or a pasted Google Maps link that the link parser
  * reads a pin out of. Both end in the same two read-only boxes, which are the
  * same two fields the form has always had.
+ *
+ * ## The problems are handed in, not worked out here
+ *
+ * `errors` arrives already filtered to what the agent should be seeing — a
+ * field they have left, or anything at all once Continue has been pressed and
+ * refused. The step neither decides that nor holds it, so the same rules
+ * decide what greys the button out and what is printed under the box, and the
+ * two can never say different things.
  */
 
-export function RestaurantInfoStep({ form, set }) {
+export function RestaurantInfoStep({ form, set, errors = {}, touch = () => {} }) {
   const copy = COPY;
 
   const [locating, setLocating] = useState(false);
@@ -148,8 +156,6 @@ export function RestaurantInfoStep({ form, set }) {
     else setLocationError('No coordinates in that link. Open the place in Google Maps and use Share → Copy link.');
   };
 
-  const phoneShort = form.ownerPhone.length > 0 && form.ownerPhone.length < 10;
-
   return (
     <Box className="animate-fade-in">
       <Box className="rst-step-head">
@@ -167,24 +173,26 @@ export function RestaurantInfoStep({ form, set }) {
             hint="The public name displayed to customers"
             required
             htmlFor="rst-name"
+            error={errors.restaurantName}
           >
             <Input
               id="rst-name"
-              className="rst-input"
+              className={`rst-input${errors.restaurantName ? ' is-bad' : ''}`}
               type="text"
               value={form.restaurantName}
               onChange={(event) => set({ restaurantName: event.target.value })}
+              onBlur={() => touch('restaurantName')}
               placeholder={copy.businessPlaceholder}
             />
           </Field>
 
-          <Field label={copy.categoryLabel} hint={copy.categoryHelp} required>
-            <Box className="rst-chips">
+          <Field label={copy.categoryLabel} hint={copy.categoryHelp} required error={errors.cuisines}>
+            <Box className="rst-chips" id="rst-cuisines" tabIndex={-1}>
               {CUISINE_OPTIONS.map((option) => (
                 <PlainButton
                   key={option}
                   type="button"
-                  onClick={() => toggleCuisine(option)}
+                  onClick={() => { toggleCuisine(option); touch('cuisines'); }}
                   className={`rst-chip${form.cuisines.includes(option) ? ' is-on' : ''}`}
                   aria-pressed={form.cuisines.includes(option)}
                 >
@@ -207,26 +215,28 @@ export function RestaurantInfoStep({ form, set }) {
 
         <Box className="rst-card">
           <Box className="rst-grid-2">
-            <Field label="Full Name" required htmlFor="rst-owner">
+            <Field label="Full Name" required htmlFor="rst-owner" error={errors.ownerName}>
               <Input
                 id="rst-owner"
-                className="rst-input"
+                className={`rst-input${errors.ownerName ? ' is-bad' : ''}`}
                 type="text"
                 value={form.ownerName}
                 onChange={(event) => set({ ownerName: event.target.value })}
+                onBlur={() => touch('ownerName')}
                 placeholder="Owner's full name"
               />
             </Field>
 
-            <Field label="Email Address" required htmlFor="rst-email">
+            <Field label="Email Address" required htmlFor="rst-email" error={errors.ownerEmail}>
               <Input
                 id="rst-email"
-                className="rst-input"
+                className={`rst-input${errors.ownerEmail ? ' is-bad' : ''}`}
                 type="email"
                 inputMode="email"
                 autoComplete="email"
                 value={form.ownerEmail}
                 onChange={(event) => set({ ownerEmail: event.target.value })}
+                onBlur={() => touch('ownerEmail')}
                 placeholder="owner@business.com"
               />
             </Field>
@@ -249,12 +259,13 @@ export function RestaurantInfoStep({ form, set }) {
               hint="The number Lampose and the delivery riders will call. Ten digits."
               required
               htmlFor="rst-phone"
+              error={errors.ownerPhone}
             >
               <Box className="rst-input-row">
                 <Inline className="rst-prefix">+91</Inline>
                 <Input
                   id="rst-phone"
-                  className={`rst-input${phoneShort ? ' is-bad' : ''}`}
+                  className={`rst-input${errors.ownerPhone ? ' is-bad' : ''}`}
                   type="tel"
                   inputMode="numeric"
                   autoComplete="tel"
@@ -262,16 +273,10 @@ export function RestaurantInfoStep({ form, set }) {
                   onChange={(event) => set({
                     ownerPhone: event.target.value.replace(/\D/g, '').slice(0, 10),
                   })}
+                  onBlur={() => touch('ownerPhone')}
                   placeholder="Enter phone number"
                 />
               </Box>
-              {phoneShort && (
-                <Box style={{ marginTop: '8px' }}>
-                  <Note tone="bad" icon={<AlertCircle size={14} />}>
-                    An Indian mobile number is ten digits.
-                  </Note>
-                </Box>
-              )}
             </Field>
           </Box>
 
@@ -281,7 +286,9 @@ export function RestaurantInfoStep({ form, set }) {
             <Field
               label="Primary Contact Number"
               hint="Used for customer/driver support"
+              required={!form.sameAsOwner}
               htmlFor="rst-contact"
+              error={errors.primaryContact}
             >
               <Label className="rst-check" style={{ marginBottom: '10px' }}>
                 <Input
@@ -296,13 +303,14 @@ export function RestaurantInfoStep({ form, set }) {
               </Label>
               <Input
                 id="rst-contact"
-                className="rst-input"
+                className={`rst-input${errors.primaryContact ? ' is-bad' : ''}`}
                 type="tel"
                 inputMode="numeric"
                 value={form.sameAsOwner ? form.ownerPhone : form.primaryContact}
                 onChange={(event) => set({
                   primaryContact: event.target.value.replace(/\D/g, '').slice(0, 10),
                 })}
+                onBlur={() => touch('primaryContact')}
                 disabled={form.sameAsOwner}
                 placeholder="Primary contact number"
               />
@@ -332,14 +340,15 @@ export function RestaurantInfoStep({ form, set }) {
             </PlainButton>
           </Field>
 
-          <Field label="Or paste a Google Maps link" optional htmlFor="rst-maplink">
+          <Field label="Or paste a Google Maps link" optional htmlFor="rst-maplink" error={errors.mapLink}>
             <Input
               id="rst-maplink"
-              className="rst-input"
+              className={`rst-input${errors.mapLink ? ' is-bad' : ''}`}
               type="url"
               inputMode="url"
               value={form.mapLink}
               onChange={(event) => readLink(event.target.value)}
+              onBlur={() => touch('mapLink')}
               placeholder="https://maps.app.goo.gl/..."
             />
           </Field>
@@ -414,25 +423,27 @@ export function RestaurantInfoStep({ form, set }) {
             </Field>
           </Box>
 
-          <Field label="Area / Sector / Locality" required htmlFor="rst-area">
+          <Field label="Area / Sector / Locality" required htmlFor="rst-area" error={errors.area}>
             <Input
               id="rst-area"
-              className="rst-input"
+              className={`rst-input${errors.area ? ' is-bad' : ''}`}
               type="text"
               value={form.area}
               onChange={(event) => set({ area: event.target.value })}
+              onBlur={() => touch('area')}
               placeholder="e.g. HSR Layout, Sector 1"
             />
           </Field>
 
           <Box className="rst-grid-2">
-            <Field label="City" required htmlFor="rst-city">
+            <Field label="City" required htmlFor="rst-city" error={errors.city}>
               <Input
                 id="rst-city"
-                className="rst-input"
+                className={`rst-input${errors.city ? ' is-bad' : ''}`}
                 type="text"
                 value={form.city}
                 onChange={(event) => set({ city: event.target.value })}
+                onBlur={() => touch('city')}
                 placeholder="e.g. Mumbai"
               />
             </Field>
@@ -441,13 +452,15 @@ export function RestaurantInfoStep({ form, set }) {
               hint="Please ensure this matches the FSSAI registration"
               required
               htmlFor="rst-landmark"
+              error={errors.landmark}
             >
               <Input
                 id="rst-landmark"
-                className="rst-input"
+                className={`rst-input${errors.landmark ? ' is-bad' : ''}`}
                 type="text"
                 value={form.landmark}
                 onChange={(event) => set({ landmark: event.target.value })}
+                onBlur={() => touch('landmark')}
                 placeholder="e.g. Near City Mall"
               />
             </Field>

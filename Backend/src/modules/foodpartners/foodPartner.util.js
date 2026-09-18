@@ -814,6 +814,14 @@ const sanitiseApplication = (body) => {
 
   const accepted = bool(pick(contractIn, 'accepted')) === true
     || bool(pick(r, 'acceptedTos')) === true;
+
+  /* Ticked on the documents step of the Onboard console, against the policy
+     printed in full on that screen. Read from either place a client might put
+     it, and timestamped on the server clock for the same reason `acceptedAt`
+     is: a client-set date is a client deciding when it agreed. */
+  const refundAccepted = bool(pick(contractIn, 'refundPolicyAccepted')) === true
+    || bool(pick(r, 'refundPolicyAccepted')) === true;
+
   restaurant.contract = {
     accepted,
     signature: str(pick(contractIn, 'signature') || pick(r, 'signature')),
@@ -822,6 +830,8 @@ const sanitiseApplication = (body) => {
     acceptedAt: accepted ? new Date() : null,
     commission: num(pick(contractIn, 'commission')) ?? 0,
     platformFee: num(pick(contractIn, 'platformFee')) ?? 0,
+    refundPolicyAccepted: refundAccepted,
+    refundPolicyAcceptedAt: refundAccepted ? new Date() : null,
   };
 
   /* ── Products ─────────────────────────────────────────────────────────── */
@@ -941,11 +951,31 @@ const validateApplication = (sanitised = {}) => {
     problems.push('an FSSAI licence that has not already expired');
   }
 
+  /*
+   * A GSTIN is OPTIONAL, and only its SHAPE is checked.
+   *
+   * It used to be one or the other — a number, or the exempt box ticked — and
+   * that reads as a complete rule until you stand at a counter with the owner.
+   * The composition scheme and small turnovers are ordinary, plenty of
+   * kitchens have not registered at all, and a partner who does not know
+   * which of those describes them has no true answer to give: what the rule
+   * actually bought was a made-up fifteen characters, which is the one thing
+   * the verification queue cannot tell from a real registration. So an absent
+   * GSTIN is accepted and recorded as absent.
+   *
+   * Both at once is still refused, because that is a contradiction rather than
+   * a gap — `gstExempt` says there is no registration and the number says
+   * there is, and nothing downstream can decide which to believe.
+   *
+   * The Onboard console's `validateRestaurant.js` says exactly this, in the
+   * same words; the two have to agree or the agent meets a 400 at the end of a
+   * twenty-minute form.
+   */
   const gstNumber = String(restaurant.gstNumber || '');
   if (restaurant.gstExempt === true && gstNumber) {
     problems.push('either a GSTIN or the GST-exempt box ticked, not both');
-  } else if (restaurant.gstExempt !== true && gstNumber.length !== GSTIN_LENGTH) {
-    problems.push(`a ${GSTIN_LENGTH}-character GSTIN, or the GST-exempt box ticked`);
+  } else if (gstNumber && gstNumber.length !== GSTIN_LENGTH) {
+    problems.push(`a ${GSTIN_LENGTH}-character GSTIN, or no GSTIN at all`);
   }
 
   /* Optional by the field spec, so only its shape is checked, and only when
@@ -1116,6 +1146,7 @@ const APPLICATION_SECTIONS = {
     fields: [
       'contract.accepted', 'contract.signature', 'contract.acceptedAt',
       'contract.commission', 'contract.platformFee',
+      'contract.refundPolicyAccepted',
     ],
   },
 };

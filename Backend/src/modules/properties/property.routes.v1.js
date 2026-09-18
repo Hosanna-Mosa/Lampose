@@ -5,10 +5,10 @@ const mongoose = require('mongoose');
 const Property = require('./property.model');
 const VerificationRequest = require('../verification/verificationRequest.model');
 const crypto = require('crypto');
-const { sendVerificationMessage } = require('../../infrastructure/twilio/twilio');
+const { sendVerificationMessage, formatWhatsAppNumber } = require('../../infrastructure/twilio/twilio');
 const { getIsInMemory, getMemoryStore } = require('../../infrastructure/database/db');
 const permissionStore = require('../permissions/permission.store');
-const { identifyStaffOrAdmin, adminNeeds, bindEmployeeEmail } = require('../iam/iam.middleware');
+const { identifyStaffOrAdmin, adminNeeds, bindEmployeeEmail, can } = require('../iam/iam.middleware');
 
 /* Matches the partner edit surface, so a listing cannot hold more photos
    than either app is built to show. */
@@ -97,7 +97,20 @@ const EDITABLE_PROPERTY_FIELDS = [
   'documents',
 ];
 
-const findPendingVerification = async (id) => {
+/*
+ * The statuses a verification may be RESTARTED from, which is a wider set than
+ * the ones the console lists as pending.
+ *
+ * `owner_approved` is the addition: that request is stalled waiting on the
+ * verification team, and starting again from the owner is exactly what the
+ * console's button says it does. Nothing lists such a request as a pending
+ * property today, so the route is stricter than it needs to be rather than
+ * looser — but a resend that silently refused the one case somebody actually
+ * wants restarted would be the wrong way round.
+ */
+const RESENDABLE_STATUSES = [...PENDING_STATUSES, 'owner_approved'];
+
+const findPendingVerification = async (id, statuses = PENDING_STATUSES) => {
   if (!id) return null;
   const idStr = String(id).trim();
   const matchCriteria = [{ 'pendingPropertyData._id': idStr }];
@@ -106,7 +119,7 @@ const findPendingVerification = async (id) => {
   }
   return VerificationRequest.findOne({
     $or: matchCriteria,
-    status: { $in: PENDING_STATUSES },
+    status: { $in: statuses },
   });
 };
 
@@ -700,6 +713,183 @@ router.post('/', requireWriter, async (req, res) => {
       return res.status(400).json({ success: false, error: messages.join(', ') });
     }
     res.status(500).json({ success: false, error: 'Server Error onboarding property', message: err.message });
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Send the owner's approval message again.
+
+   ## Why it starts at the OWNER, always
+
+   The chain has two stages: the owner replies YES, and only then is a
+   `VERIFICATION_TEAM_NUMBERS` member asked to confirm. A listing sitting in
+   the console marked "Awaiting verification" can be stuck at either — and in
+   both cases the thing to do is ask the owner again, because the owner's YES
+   is what the second stage is built on. Resending the TEAM message to a
+   request the owner never answered would ask somebody to confirm a listing
+   its owner has not agreed to.
+
+   So this route only ever re-sends stage one, and a request that had already
+   reached `owner_approved` is put back to `sent`: the owner's earlier YES is
+   superseded by the message they are about to get, not carried past it.
+
+   ## The id is the property's, not the request's
+
+   An unverified listing is a `pendingPropertyData` snapshot on its
+   VerificationRequest, and the console holds the id that snapshot carries —
+   the same id PUT and DELETE already resolve through `findPendingVerification`.
+   That is why this lives here beside them rather than on the verifications
+   router: it is the same id space and the same buttons.
+
+   ## What is re-read, and why it matters
+
+   The owner's number is taken from the SNAPSHOT rather than from
+   `ownerMobileE164` on the request. A wrong number is the single commonest
+   reason a verification goes unanswered, and the fix is to correct it in the
+   console's edit form — which writes the snapshot. Reading the request's own
+   copy would resend to the number that was already not working.
+
+   The button payload keeps the SAME request id, so the new message's buttons
+   and any older message still on the owner's phone resolve to one request.
+   Minting a second one would let two taps approve two listings.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Long enough that a double tap on a slow connection cannot put two identical
+   messages on an owner's phone, short enough that a genuine second attempt is
+   never blocked. Cheap insurance: every send is a real WhatsApp to a real
+   person and is billed. */
+const RESEND_COOLDOWN_MS = 60 * 1000;
+/* The same 48 hours the first send gets. A resend that inherited the original
+   window could expire an hour after it arrived. */
+const VERIFICATION_TTL_MS = 48 * 60 * 60 * 1000;
+
+// @route   POST /api/properties/:id/resend-verification
+// @desc    Re-send the owner's WhatsApp approval message for a pending listing
+router.post('/:id/resend-verification', can('verifications.manage'), async (req, res) => {
+  const { id } = req.params;
+  console.log(`\n🔁 [API POST /properties/${id}/resend-verification] Restarting owner verification...`);
+
+  /* The in-memory failover holds pending listings in a process-local array
+     with no VerificationRequest behind them, so the buttons on a message sent
+     from here would carry an id that resolves to nothing the moment the owner
+     taps one. Refused with the reason rather than sent into a void. */
+  if (getIsInMemory()) {
+    return res.status(503).json({
+      success: false,
+      error: 'The database is offline, so pending onboarding requests are held in memory only. A resent message would carry buttons that lead nowhere — try again once the database is back.',
+    });
+  }
+
+  try {
+    const verification = await findPendingVerification(id, RESENDABLE_STATUSES);
+
+    if (!verification || !verification.pendingPropertyData) {
+      return res.status(404).json({
+        success: false,
+        error: 'No onboarding request is awaiting verification for that listing. It may already be verified, or the request may have been cancelled.',
+      });
+    }
+
+    const snapshot = verification.pendingPropertyData;
+
+    /* Counted from the last message that actually went out. A failed send
+       leaves `sentAt` alone, so a retry after a Twilio outage is never held
+       back by the attempt that did not reach anybody. */
+    const lastSentAt = verification.sentAt ? new Date(verification.sentAt).getTime() : 0;
+    const waited = Date.now() - lastSentAt;
+    if (lastSentAt && waited < RESEND_COOLDOWN_MS) {
+      const seconds = Math.ceil((RESEND_COOLDOWN_MS - waited) / 1000);
+      return res.status(429).json({
+        success: false,
+        error: `The last message went out moments ago. Wait ${seconds} more second${seconds === 1 ? '' : 's'} before sending another — the owner has one on their phone already.`,
+      });
+    }
+
+    const ownerMobile = String(snapshot.ownerMobile || '').trim() || verification.ownerMobileE164;
+    if (!ownerMobile) {
+      return res.status(400).json({
+        success: false,
+        error: "This request has no owner mobile number on it. Add one with Edit, then resend.",
+      });
+    }
+
+    console.log(`   💬 [Twilio Verification] Re-sending owner template to ${ownerMobile} (attempt ${(verification.attempts || 1) + 1})...`);
+    const twilioResult = await sendVerificationMessage(
+      ownerMobile,
+      snapshot.ownerName,
+      snapshot.name,
+      snapshot,
+      String(verification._id),
+    );
+
+    /* Written whether or not the send worked: a failed attempt is part of this
+       request's history and `lastError` is where the console reads why. */
+    verification.ownerMobileE164 = formatWhatsAppNumber(ownerMobile) || ownerMobile;
+    verification.status = twilioResult.success ? 'sent' : 'failed';
+    verification.attempts = (verification.attempts || 1) + 1;
+    verification.contentSid = process.env.TWILIO_VERIFY_CONTENT_SID || verification.contentSid || '';
+    verification.lastError = twilioResult.success ? '' : (twilioResult.error || 'Twilio send failed');
+    /* Belonged to the previous message. Left in place it would describe a
+       delivery that has nothing to do with the one just sent. */
+    verification.lastDeliveryStatus = '';
+
+    if (twilioResult.success) {
+      verification.outboundMessageSid = twilioResult.messageSid || '';
+      verification.sentAt = new Date();
+      verification.expiresAt = new Date(Date.now() + VERIFICATION_TTL_MS);
+      /* Back to stage one. A request that had the owner's YES is being asked
+         for it again, so the answer it held is no longer the current one. */
+      verification.respondedAt = null;
+
+      /*
+       * And no verifier is assigned at stage one — which is a correctness
+       * matter, not tidiness.
+       *
+       * The webhook picks a team member at random when the OWNER approves, so
+       * a request waiting on the owner has never had one. Leaving the previous
+       * assignment on a request we have just put back to `sent` would create a
+       * state that could not otherwise exist: a team member holding a live
+       * Accept button for a request at stage one. Their tap would pass the
+       * "is this yours" check on `assignedVerifierMobileE164`, fail the
+       * verifier branch (which requires `owner_approved`), and fall through to
+       * the OWNER branch — where a tagged tap is taken as the owner's YES.
+       * A verifier would have approved the listing on the owner's behalf.
+       *
+       * Cleared, their old button matches neither role and the webhook's
+       * "not linked to this number" guard stops it dead. The team is asked
+       * again, and reassigned, when the owner actually replies.
+       */
+      verification.assignedVerifierMobileE164 = '';
+    }
+
+    await verification.save();
+
+    if (!twilioResult.success) {
+      console.error(`   ❌ [Resend Failed] ${verification.lastError}`);
+      return res.status(502).json({
+        success: false,
+        error: `WhatsApp would not take the message: ${verification.lastError}. Nothing reached the owner — it is safe to try again.`,
+      });
+    }
+
+    console.log(`   ✅ [Resend Sent] Message SID ${twilioResult.messageSid}, expires ${verification.expiresAt.toISOString()}`);
+
+    res.json({
+      success: true,
+      message: 'The owner has been sent the approval message again.',
+      data: {
+        ...snapshot,
+        verificationStatus: 'pending',
+        isVerified: false,
+      },
+      attempts: verification.attempts,
+      sentAt: verification.sentAt,
+      expiresAt: verification.expiresAt,
+      ownerMobile: verification.ownerMobileE164,
+    });
+  } catch (err) {
+    console.error(`   ❌ [POST /properties/${id}/resend-verification Error]:`, err.message);
+    res.status(500).json({ success: false, error: 'Server error resending the verification', message: err.message });
   }
 });
 
