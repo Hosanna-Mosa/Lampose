@@ -206,7 +206,6 @@ export const PROFILE_ROWS: ProfileRow[] = [
   { route: "/profile-details", t: "Personal information", meta: "", icon: "profile" },
   { route: "/vehicle", t: "Vehicle", meta: "", icon: "vehicle" },
   { route: "/documents", t: "Documents", meta: "", icon: "documents" },
-  { route: "/zones", t: "Service area", meta: "", icon: "mapPin" },
   { route: "/bank-details", t: "Bank details", meta: "", icon: "bank" },
   { route: "/earnings", t: "Earnings", meta: "", icon: "trendingUp" },
   { route: "/orders", t: "Delivery history", meta: "", icon: "orders" },
