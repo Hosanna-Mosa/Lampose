@@ -52,25 +52,31 @@ export const STATS = [
   { target: 8,     suffix: '',  pct: 40, ring: '8',   label: 'Cities live today' },
 ];
 
+/*
+ * The deck at the foot of the home page.
+ *
+ * `href`, not `to`. These used to be three routes; two of them are now
+ * sections of the page the deck sits on, so a router link would re-render the
+ * page somebody is already reading in order to land them a screen above.
+ * An anchor scrolls, which is what the card promises.
+ *
+ * The third card was Our Cities, and it went with its page. Two cards rather
+ * than an invented third: the deck is a shortcut back to what the page
+ * already said, and there is no third thing it said.
+ */
 export const SERVICES = [
   {
-    to: '/services', no: '01', color: '#17803d', icon: 'grid',
+    href: '#services', no: '01', color: '#17803d', icon: 'grid',
     iconBg: '#e9f5ed', iconHover: '#d3ecdd',
     title: 'Services', cta: 'See all services',
     body: 'Verified stays, mess and home-kitchen food, and tracked delivery — '
         + 'the three things Lampose actually runs.',
   },
   {
-    to: '/how', no: '02', color: '#b8860b', icon: 'steps',
+    href: '#how', no: '02', color: '#b8860b', icon: 'steps',
     iconBg: '#fff8e6', iconHover: '#ffeeb8',
     title: 'How It Works', cta: 'See the steps',
     body: 'Search, book, check in with a QR, then order your first meal — the '
         + 'whole flow in four steps.',
-  },
-  {
-    to: '/cities', no: '03', color: '#101312', icon: 'map',
-    iconBg: '#eef0f3', iconHover: '#e2e5ea',
-    title: 'Our Cities', cta: "See where we're live",
-    body: 'Live in Visakhapatnam and opening city by city across Andhra Pradesh.',
   },
 ];

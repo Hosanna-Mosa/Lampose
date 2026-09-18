@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import { Banner as SiteBanner } from '../components/common/organisms/Banner/Banner';
-import { SecHead } from '../components/common/molecules/SecHead/SecHead';
+import { Banner as SiteBanner } from '../../../common/organisms/Banner/Banner';
+import { SecHead } from '../../../common/molecules/SecHead/SecHead';
 import {
   CARDS, FEAT_HEAD, HEAD, PANELS, TABS, TAB_FEATURES,
-} from '../data/services';
-import { ServiceCard } from '../components/services/molecules/ServiceCard/ServiceCard';
-import { DetailPanel } from '../components/services/organisms/DetailPanel/DetailPanel';
-import { FeatureTabs } from '../components/services/organisms/FeatureTabs/FeatureTabs';
-import { Box, Break, Emphasis, Heading, Inline, Region, Text } from '../components/common/atoms';
+} from '../../../../data/services';
+import { ServiceCard } from '../../../services/molecules/ServiceCard/ServiceCard';
+import { DetailPanel } from '../../../services/organisms/DetailPanel/DetailPanel';
+import { FeatureTabs } from '../../../services/organisms/FeatureTabs/FeatureTabs';
+import { Box, Break, Emphasis, Heading, Inline, Region, Text } from '../../../common/atoms';
 
 /* ══ Service card ═════════════════════════════════════════════════════════
    Clicking a card opens the shared detail panel below the grid and tints it

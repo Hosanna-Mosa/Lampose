@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../atoms/Icon/Icon';
 import visitRequestsApi from '../../../../api/visitRequestsApi';
-import { sessionUser, clearSession } from '../../../../auth/session';
+import { sessionUser } from '../../../../auth/session';
+import { useAuth } from '../../../../auth/AuthProvider';
 import { TEN_DIGITS } from '../../utils/visitRequest';
 import { Box, Emphasis, Form, Heading, Inline, Input, Label, Masthead, PlainButton, Small, Strong, Text } from '../../atoms';
 
@@ -17,10 +18,11 @@ import { Box, Emphasis, Form, Heading, Inline, Input, Label, Masthead, PlainButt
 
    ## Coming back
 
-   Step 2 leaves a session behind, good for a day. A visitor who returns
-   inside that day has already done both steps, so the dialog opens on a
-   confirm-and-send panel instead: their name, their number, the consent tick,
-   one button. No form, no second SMS.
+   Step 2 leaves a session behind. A visitor who is signed in — from here, or
+   from the Sign in in the bar, which is the same account either way — has
+   already done both steps, so the dialog opens on a confirm-and-send panel
+   instead: their name, their number, the consent tick, one button. No form,
+   no second SMS.
 
    The rule is not weakened by this — the number is still proven by a code
    before an owner is told, just not necessarily a code from today. The server
@@ -29,6 +31,19 @@ import { Box, Emphasis, Form, Heading, Inline, Input, Label, Masthead, PlainButt
    any reason — the session expired in the meantime, the number did not match,
    auth is not configured — the dialog falls into step 2 and asks for a code.
    That is why there is no "am I still signed in" check anywhere below.
+
+   ## Signed in means the request IS yours
+
+   There is no way to send a request as somebody else while signed in as
+   yourself. There was one for a moment — a link that swapped the panel for
+   the blank form and left the account alone — and it was taken out: a dialog
+   that can send as either of two people is one where the name the owner is
+   about to be given is not necessarily the name on screen, and this panel is
+   the only thing that says which it is.
+
+   Asking as a different person is signing out and signing in as them. That is
+   one sentence, it is the same sentence everywhere else on the site, and it
+   cannot be half-done.
    ══════════════════════════════════════════════════════════════════════════ */
 
 
@@ -46,6 +61,13 @@ export function VisitRequestDialog({ listing, sharing, intent, onClose, onVerifi
    * code, which is the correct outcome and one they can act on.
    */
   const [known] = useState(() => sessionUser());
+
+  /* Only `signOut` is taken from the provider. `known` above is still read
+     once from storage rather than from the context, so a token expiring
+     mid-flow cannot swap the panel out from under somebody halfway through —
+     their request simply gets asked for a code, which is the correct outcome
+     and one they can act on. */
+  const { signOut, openSignIn } = useAuth();
 
   /* Only skipped when the session carries BOTH halves of what the form asks
      for. A session opened before the name was recorded still needs the form —
@@ -216,14 +238,34 @@ export function VisitRequestDialog({ listing, sharing, intent, onClose, onVerifi
     return startRequest({ name: known.name, phone: known.phone });
   };
 
-  /* "Not you?" — drop the session and ask properly. Deliberately available on
-     every request: a shared laptop at a property viewing is a real place for
-     this dialog to be, and the way out has to be one click. */
-  const useAnotherNumber = () => {
-    clearSession();
-    setForm({ name: '', phone: '', consent: form.consent });
-    setErr(null);
-    setStep('form');
+  /*
+   * "Not you?" — sign out, and close.
+   *
+   * There is no longer a way to request as somebody else while signed in as
+   * yourself. There was, briefly: a link that swapped this panel for the blank
+   * form and left the account alone. It was removed on purpose — one dialog
+   * that can send a request as either of two people is a dialog where the name
+   * an owner is about to be given is not the name on screen, and the panel
+   * above is the only thing saying which it is.
+   *
+   * So the account IS the request. Somebody who needs to ask as a different
+   * person signs out and signs in as them, which is the same sentence
+   * everywhere else on the site and cannot be half-done.
+   *
+   * It closes as well as signing out, because this dialog is modal: the bar
+   * behind it is under an overlay and cannot be tapped, so leaving it open on
+   * a panel describing an account that no longer exists would be a dead end.
+   *
+   * And it opens the sign-in on the way out rather than leaving the page bare.
+   * "Sign out" here is never the destination — somebody taps it because they
+   * want to ask as a different person, so the next thing they need is the
+   * number box. Closing onto the listing would make them find the bar and tap
+   * again to get where they were already going.
+   */
+  const signOutAndClose = () => {
+    signOut();
+    onClose();
+    openSignIn();
   };
 
   /*
@@ -331,8 +373,11 @@ export function VisitRequestDialog({ listing, sharing, intent, onClose, onVerifi
             </PlainButton>
 
             <Box className="vr-resend">
-              <PlainButton type="button" className="vr-linkbtn" onClick={useAnotherNumber}>
-                Not you? Use another number
+              {/* The only way off this panel, and it is the honest one: the
+                  request is sent as whoever is signed in, so asking as
+                  somebody else means being somebody else. */}
+              <PlainButton type="button" className="vr-linkbtn" onClick={signOutAndClose}>
+                Not you? Sign out and use another number
               </PlainButton>
             </Box>
 

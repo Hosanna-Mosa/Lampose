@@ -32,6 +32,7 @@
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 
+const config = require('../../config/env');
 const Customer = require('./customer.model');
 const { signCustomerToken } = require('./customerAuth.middleware');
 const { redeemCustomerReferralCode } = require('../partners/customerReferral.controller');
@@ -252,7 +253,7 @@ const verifyAuth = async (req, res, next) => {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
 
     const {
-      otp, name, email, category, referralCode,
+      otp, name, email, category, referralCode, client,
     } = req.body || {};
     const phone = readPhone(req.body);
     if (!phone) {
@@ -377,10 +378,29 @@ const verifyAuth = async (req, res, next) => {
 
     await customer.save();
 
+    /*
+     * A browser gets its own session length, which today equals the app's.
+     *
+     * `auth.webJwtExpiresIn` is the one knob for "how long does a browser stay
+     * signed in", read here and by `visitRequest.controller.js` when it opens
+     * a session off a visit request — so the two ways onto the website cannot
+     * give the same person two different answers. It defaults to the app's
+     * week; setting `WEB_JWT_EXPIRES_IN` shortens the web alone.
+     *
+     * Said by the CALLER rather than sniffed from the Origin header. A header
+     * is set by a browser for a browser and absent everywhere else, so reading
+     * it would silently hand the app's life to anything that did not happen to
+     * send one. An unknown or absent `client` means the app, which is what
+     * every caller written before this field already gets.
+     */
+    const isWeb = String(client || '').trim().toLowerCase() === 'web';
+    const expiresIn = isWeb ? config.auth.webJwtExpiresIn : config.auth.jwtExpiresIn;
+
     return res.json({
       success: true,
       data: {
-        token: signCustomerToken(customer),
+        token: signCustomerToken(customer, { expiresIn }),
+        expiresIn,
         customer: customer.toPublic(),
         ...(referral ? { referral } : {}),
       },
