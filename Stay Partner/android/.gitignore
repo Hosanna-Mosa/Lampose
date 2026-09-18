@@ -1,0 +1,21 @@
+# OSX
+#
+.DS_Store
+
+# Android/IntelliJ
+#
+build/
+.idea
+.gradle
+local.properties
+*.iml
+*.hprof
+.cxx/
+
+# Bundle artifacts
+*.jsbundle
+
+# Signing material. The Play upload key and its passwords live in
+# ~/.gradle/gradle.properties, outside every repo. debug.keystore is the
+# public Android debug key and IS committed on purpose.
+*.jks

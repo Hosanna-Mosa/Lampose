@@ -5,6 +5,7 @@
      npm run partner:password -- --email you@example.com --password 'secret' \
                                  --phone +919876543210 --name 'Anjali Rao'
      npm run partner:password -- --email you@example.com --password 'secret'                                  --phone +919876543210 --verified
+     npm run partner:password -- --email you@example.com --clear
      npm run partner:password -- --email you@example.com --dry
 
    ## Why a script and not a route
@@ -68,6 +69,35 @@ async function main() {
   const dry = has('dry');
 
   if (!EMAIL_RE.test(email)) return fail('Pass a valid --email.');
+
+  /*
+   * --clear: take the password OFF an account.
+   *
+   * The counterpart to setting one, and it exists for the case that made it
+   * necessary: a password that has been hard-coded into a shipped build must
+   * not also open the real account. Clearing the hash makes `verifyPassword`
+   * fail closed again, so the account reverts to phone-and-OTP only and the
+   * string in the bundle opens nothing.
+   */
+  if (has('clear')) {
+    await connectDB();
+    const target = await Partner.findOne({ email }).select('+passwordHash');
+    if (!target) return fail(`No partner has the email ${email}.`);
+    const had = Boolean(target.passwordHash);
+    target.passwordHash = '';
+    await target.save();
+
+    const after = await Partner.findOne({ email }).select('+passwordHash');
+    const gone = !after.passwordHash;
+    console.log('');
+    console.log(`  partner          : ${target.partnerId}`);
+    console.log(`  had a password   : ${had ? 'yes' : 'no'}`);
+    console.log(`  ✓ password ${gone ? 'REMOVED' : 'STILL PRESENT — investigate'}.`);
+    console.log(`  ✓ sign-in falls back to phone and OTP for ${email}
+`);
+    if (!gone) process.exitCode = 1;
+    return;
+  }
   if (!dry && !password) return fail('Pass --password, or --dry to look without writing.');
   if (password && password.length < MIN_PASSWORD) {
     return fail(`--password must be at least ${MIN_PASSWORD} characters.`);

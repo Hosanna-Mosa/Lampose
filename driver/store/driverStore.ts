@@ -7,6 +7,9 @@ import type { ChatMessage } from "@/utils/chatMessages";
 import { getPushToken } from "@/services/offerAlerts";
 import { playOfferAlert } from "@/services/alertSound";
 import { socketService } from "@/utils/socketService";
+import {
+  isDemoCredentials, enterDemo, exitDemo, demoDriver, DEMO_TOKEN,
+} from "@/constants/demoMode";
 
 /**
  * The rider's session and their work.
@@ -517,6 +520,8 @@ type DriverState = {
   startSignIn: (phone: string) => Promise<void>;
   resendCode: () => Promise<void>;
   verifyCode: (code: string, name?: string) => Promise<DriverProfile>;
+  /** Demo sign-in for Play Console review. See `constants/demoMode.ts`. */
+  signInWithPassword: (email: string, password: string) => Promise<DriverProfile>;
   refreshProfile: () => Promise<boolean>;
   updateProfile: (patch: ProfilePatch) => Promise<DriverProfile>;
   /**
@@ -629,6 +634,30 @@ export const useDriverStore = create<DriverState>()(
         } finally {
           set({ otpSending: false });
         }
+      },
+
+      signInWithPassword: async (email, password) => {
+        /*
+         * DEMO ONLY — this never reaches the network.
+         *
+         * There is no password route for riders on the server and there is not
+         * meant to be one (see `app/auth.tsx`). The credentials are checked
+         * here, against `constants/demoMode.ts`, and a wrong pair is refused
+         * with the same sentence either way so the form cannot be used to
+         * learn anything.
+         *
+         * `socketService.connect` is deliberately NOT called: the token is not
+         * a JWT, so the handshake would be rejected and the app would sit in a
+         * reconnect loop for the whole demo.
+         */
+        if (!isDemoCredentials(email, password)) {
+          throw new ApiError("That email address and password do not match.", 401);
+        }
+
+        enterDemo();
+        const profile = demoDriver as unknown as DriverProfile;
+        set({ token: DEMO_TOKEN, profile, otpPhone: null, isOnline: false });
+        return profile;
       },
 
       verifyCode: async (code, name) => {
@@ -772,6 +801,10 @@ export const useDriverStore = create<DriverState>()(
       },
 
       logout: async () => {
+        /* Demo mode ends with the session it belonged to. Left on, the next
+           person at the sign-in screen would still be served canned data. */
+        exitDemo();
+
         /* The handset is unregistered FIRST, and its failure is ignored.
            Without this, signing out on a shared phone leaves the previous
            rider's offers ringing on it — somebody else's work on a screen

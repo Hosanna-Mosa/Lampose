@@ -36,10 +36,10 @@ export default {
     },
     ios: {
       supportsTablet: false,
-      bundleIdentifier: 'com.lampose.partner',
+      bundleIdentifier: 'com.lampose.foodpartner.com',
     },
     android: {
-      package: 'com.lampose.partner',
+      package: 'com.lampose.foodpartner.com',
       ...(googleServicesFile ? { googleServicesFile } : {}),
       adaptiveIcon: {
         foregroundImage: './assets/images/adaptive-icon.png',

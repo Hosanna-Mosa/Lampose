@@ -11,7 +11,12 @@ expo-env.d.ts
 
 # Native
 ios/
-android/
+# android/ is TRACKED — the native project is committed so a release build is
+# reproducible from a fresh clone without `expo prebuild`, which would
+# regenerate app/build.gradle and wipe the release signing config and the
+# long-path ninja workaround. Signing material is NOT tracked: *.jks below
+# keeps the upload key out, and its passwords live in
+# ~/.gradle/gradle.properties, never in android/gradle.properties.
 *.orig.*
 *.jks
 *.p8
@@ -42,3 +47,9 @@ yarn-error.*
 
 # Snapshot harness (gate A) — cache only; snapshots/ IS committed on purpose.
 .jest-cache/
+
+# Firebase, per environment. Download it from the console rather than sharing
+# one — a committed file is the wrong project on somebody else's machine, and
+# it is regenerated whenever an app is re-registered.
+google-services.json
+GoogleService-Info.plist

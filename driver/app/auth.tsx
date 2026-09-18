@@ -45,9 +45,14 @@ export default function AuthScreen() {
   const startSignIn = useDriverStore((s) => s.startSignIn);
   const resendCode = useDriverStore((s) => s.resendCode);
   const verifyCode = useDriverStore((s) => s.verifyCode);
+  const signInWithPassword = useDriverStore((s) => s.signInWithPassword);
   const otpSending = useDriverStore((s) => s.otpSending);
 
-  const [step, setStep] = useState<"phone" | "code">("phone");
+  /* "password" is the third step and the odd one out: it is the Play Console
+     review sign-in, not a rider's. See `constants/demoMode.ts`. */
+  const [step, setStep] = useState<"phone" | "code" | "password">("phone");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
@@ -93,6 +98,21 @@ export default function AuthScreen() {
     }
   };
 
+  const signInPassword = async () => {
+    setError("");
+    setBusy(true);
+    try {
+      const profile = await signInWithPassword(email, password);
+      /* Same fork as `verify`: the SERVER decides where a rider lands, and the
+         demo profile answers it the same way a real one does. */
+      router.replace(profile.hasCompletedOnboarding ? "/(tabs)" : "/onboarding");
+    } catch (err) {
+      setError(readError(err, "That email address and password do not match."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const verify = async () => {
     setError("");
     setBusy(true);
@@ -117,14 +137,14 @@ export default function AuthScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <TopBar
-        title={step === "phone" ? "" : "Enter the code"}
+        title={step === "code" ? "Enter the code" : ""}
         subtitle={step === "code" ? `Sent to +91 ${tenDigits}` : undefined}
         back={step === "code" ? "Your number" : null}
         onBack={step === "code" ? () => { setStep("phone"); setError(""); } : undefined}
       />
 
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: step === "phone" ? insets.top + space[4] : space[5] }]}
+        contentContainerStyle={[styles.content, { paddingTop: step === "code" ? space[5] : insets.top + space[4] }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -183,6 +203,76 @@ export default function AuthScreen() {
               style={{ marginTop: space[5] }}
             />
             {(busy || otpSending) && <ActivityIndicator style={{ marginTop: space[3] }} />}
+
+            {/* The review sign-in. Riders use the number above; this is here
+                because Play Console's reviewers cannot receive an Indian SMS. */}
+            <Btn
+              label="Log in with email and password"
+              variant="ghost"
+              disabled={busy}
+              onPress={() => { setStep("password"); setError(""); }}
+              style={{ marginTop: space[4] }}
+            />
+          </>
+        ) : step === "password" ? (
+          <>
+            <Text variant="display1">Log in</Text>
+            <Text variant="bodyLg" color="secondary" style={{ marginTop: space[2] }}>
+              Enter the email address and password for your account.
+            </Text>
+
+            <View style={styles.field}>
+              <TextInput
+                style={styles.input}
+                value={email}
+                onChangeText={(v) => { setEmail(v); setError(""); }}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                textContentType="emailAddress"
+                autoComplete="email"
+                placeholder="you@email.com"
+                placeholderTextColor={colors.textTertiary}
+                returnKeyType="next"
+              />
+            </View>
+
+            <View style={styles.field}>
+              <TextInput
+                style={styles.input}
+                value={password}
+                onChangeText={(v) => { setPassword(v); setError(""); }}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                textContentType="password"
+                autoComplete="current-password"
+                placeholder="Your password"
+                placeholderTextColor={colors.textTertiary}
+                returnKeyType="go"
+                onSubmitEditing={signInPassword}
+              />
+            </View>
+
+            {!!error && <Notice tone="danger" title={error} glyph="alert" style={{ marginTop: space[4] }} />}
+
+            <Btn
+              label={busy ? "Signing in…" : "Log in"}
+              variant="ink"
+              large
+              disabled={!email.trim() || !password || busy}
+              onPress={signInPassword}
+              style={{ marginTop: space[5] }}
+            />
+            {busy && <ActivityIndicator style={{ marginTop: space[3] }} />}
+
+            <Btn
+              label="Use my mobile number instead"
+              variant="ghost"
+              disabled={busy}
+              onPress={() => { setStep("phone"); setError(""); }}
+              style={{ marginTop: space[4] }}
+            />
           </>
         ) : (
           <>

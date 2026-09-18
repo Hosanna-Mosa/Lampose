@@ -37,7 +37,7 @@ export default {
     },
     ios: {
       supportsTablet: false,
-      bundleIdentifier: 'com.driver.app',
+      bundleIdentifier: 'com.lampose.driver.com',
       infoPlist: {
         UIBackgroundModes: ['location', 'remote-notification'],
       },
@@ -52,11 +52,20 @@ export default {
       },
     },
     android: {
-      package: 'com.driver.app',
+      package: 'com.lampose.driver.com',
+      /* Kept in step with android/app/build.gradle by hand. Play rejects a
+         versionCode it has already accepted. */
+      versionCode: 2,
       ...(googleServicesFile ? { googleServicesFile } : {}),
       adaptiveIcon: {
         foregroundImage: './assets/images/adaptive-icon.png',
-        backgroundColor: BRAND.background,
+        /* The LOGO's own ground, sampled from the artwork, not BRAND.background.
+           The foreground is inset inside Android's 66% safe circle rather than
+           full-bleed — the wordmark spans most of its width and a circular or
+           teardrop mask would otherwise slice both ends off — so whatever sits
+           behind it is visible around the art. A light ground here would ring
+           the dark logo. */
+        backgroundColor: '#241E20',
       },
       permissions: [
         'ACCESS_COARSE_LOCATION',
