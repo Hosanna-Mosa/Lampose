@@ -35,10 +35,16 @@ TARGETS = [
     ('driver/assets/images/adaptive-icon.png',          'sq', 1024, 1024),
     ('driver/assets/images/splash-icon.png',            'sq', 1024, 1024),
     ('driver/assets/images/favicon.png',                'sq',   48,   48),
-    ('Stay Partner/assets/images/icon.png',             'sq', 1600, 1600),
-    ('Stay Partner/assets/images/adaptive-icon.png',    'sq', 1600, 1600),
-    ('Stay Partner/assets/images/icon.jpeg',            'sq', 1600, 1600),
-    ('Stay Partner/assets/images/adaptive-icon.jpeg',   'sq', 1600, 1600),
+    # 1024, like the other two Expo apps and like Expo's own guidance — these
+    # four were 1600 only because an older master happened to be that big.
+    # Nothing asks for it: `Stay Partner/app.config.js` just points at the
+    # files. Left at 1600 they were the four slots no master could fill, so
+    # they sat on whatever logo shipped last while the rest of the monorepo
+    # moved on — which is the drift this script exists to stop.
+    ('Stay Partner/assets/images/icon.png',             'sq', 1024, 1024),
+    ('Stay Partner/assets/images/adaptive-icon.png',    'sq', 1024, 1024),
+    ('Stay Partner/assets/images/icon.jpeg',            'sq', 1024, 1024),
+    ('Stay Partner/assets/images/adaptive-icon.jpeg',   'sq', 1024, 1024),
     ('User App/assets/images/icon.png',                 'sq',  640,  640),
     ('User App/assets/images/adaptive-icon.png',        'sq',  640,  640),
     ('User App/assets/images/icon.jpeg',                'sq',  640,  640),
@@ -84,9 +90,11 @@ def wordmark_box(img, bg, tol=60):
     """
     Tightest box holding everything that is not the background.
 
-    `tol` is generous because the master is a JPEG: its "flat" green ground
-    actually carries thousands of compression-noise colours, and a tight
-    threshold picks that noise up as artwork and returns the whole canvas.
+    `tol` is generous because a master may be a JPEG: a "flat" green ground
+    saved that way actually carries thousands of compression-noise colours,
+    and a tight threshold picks that noise up as artwork and returns the whole
+    canvas. The current master is a lossless PNG built by `build-master.py`
+    and does not need the slack, but an artwork dropped in by hand might.
     """
     rgb = img.convert('RGB')
     w, h = rgb.size
