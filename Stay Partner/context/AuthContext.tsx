@@ -24,7 +24,7 @@ import {
   resendAuthCode,
   startAuth,
   updateMe,
-  verifyAuth,
+  verifyAuth, loginWithPassword,
   type UpdateMeInput,
 } from '@/services/api/auth.api';
 import type { BackendOtpChallenge, BackendPartner } from '@/services/api/types';
@@ -71,6 +71,14 @@ export type AuthStatus = 'loading' | 'signedOut' | 'signedIn';
 /** Why a code could not be sent. Each one gets different copy on the screen. */
 export type SendFailure = 'network' | 'rateLimited' | 'badNumber' | 'unavailable' | null;
 
+/** What a password sign-in can answer. Deliberately flatter than
+ *  `VerifyResult`: there is no lockout clock and no attempts counter to show,
+ *  because the server answers a wrong address and a wrong password with the
+ *  same single sentence on purpose. */
+type PasswordResult =
+  | { ok: true; profileComplete: boolean }
+  | { ok: false; message: string };
+
 export type VerifyResult =
   | { ok: true; profileComplete: boolean }
   | { ok: false; reason: 'wrong'; attemptsLeft: number }
@@ -98,6 +106,8 @@ type AuthValue = {
   sendCode: (phone: string) => Promise<'sent' | 'pending' | 'failed'>;
   resendCode: () => Promise<'sent' | 'failed'>;
   verifyCode: (otp: string, profile?: UpdateMeInput) => Promise<VerifyResult>;
+  /** Email and password. Only for accounts that have been given one. */
+  signInWithPassword: (email: string, password: string) => Promise<PasswordResult>;
   changeNumber: () => void;
 
   saveProfile: (input: UpdateMeInput) => Promise<void>;
@@ -386,6 +396,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [pendingPhone]);
 
+  /**
+   * Email and password.
+   *
+   * Establishes the SAME session `verifyCode` does — same token, same partner,
+   * same `attachDevice()` — because everything behind the login screen reads
+   * one session shape and a second one would be the case nobody tested.
+   *
+   * It does not touch `pendingPhone` or the OTP challenge: this route never
+   * sent a code, so there is nothing to clear, and clearing them would wipe a
+   * code somebody is part-way through typing if they switched tabs to try a
+   * password instead.
+   */
+  const signInWithPassword = useCallback<AuthValue['signInWithPassword']>(
+    async (email, password) => {
+      setSubmitting(true);
+      try {
+        const session = await loginWithPassword({ email, password });
+
+        setAuthToken(session.token);
+        setPartner(session.partner);
+        setStatus('signedIn');
+        await saveSession(session.token, session.partner);
+
+        /* Fired, not awaited — same reason as `verifyCode`: the OS permission
+           dialog must not sit on top of a sign-in transition. */
+        attachDevice().catch(() => {});
+
+        return { ok: true, profileComplete: session.partner.profileComplete };
+      } catch (error) {
+        if (!(error instanceof ApiError)) {
+          return { ok: false, message: 'Something went wrong. Please try again.' };
+        }
+        /* The server's own sentence. It says the same thing for a wrong
+           address and a wrong password by design, and rewording it here would
+           either lose that or invent a distinction the server refused to make. */
+        return { ok: false, message: error.displayMessage };
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [],
+  );
+
   const changeNumber = useCallback(() => {
     setPendingPhone(null);
     setChallenge(null);
@@ -423,6 +476,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     sendCode,
     resendCode,
     verifyCode,
+    signInWithPassword,
     changeNumber,
     saveProfile,
     signOut,
