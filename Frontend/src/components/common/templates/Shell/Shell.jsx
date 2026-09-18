@@ -19,6 +19,7 @@ import { Contact } from '../../../../pages/Contact';
 import { Privacy } from '../../../../pages/Privacy';
 import { Terms } from '../../../../pages/Terms';
 import { ChildSafety } from '../../../../pages/ChildSafety';
+import { DeleteAccount } from '../../../../pages/DeleteAccount';
 import { Main } from '../../atoms';
 
 export function Shell() {
@@ -77,6 +78,11 @@ export function Shell() {
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/child-safety" element={<ChildSafety />} />
+          {/* Public and unguarded, and it has to be: Google Play requires that
+              a rider be able to reach account-deletion information and ask for
+              deletion from the open web, without the app and without signing
+              in. Nothing on this route reads a session. */}
+          <Route path="/delete-account" element={<DeleteAccount />} />
           {Object.entries(LEGACY).map(([from, to]) => (
             <Route key={from} path={from} element={<Navigate to={to} replace />} />
           ))}

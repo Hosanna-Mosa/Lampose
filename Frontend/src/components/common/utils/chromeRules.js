@@ -1,7 +1,7 @@
 /* Which routes sit on light ground, which one drops the footer, and where the
    old .html URLs now point. Lifted out of App.jsx unchanged. */
 
-export const LIGHT_TOP = ['/', '/explore', '/partners', '/food-partner', '/contact', '/privacy', '/terms', '/child-safety'];
+export const LIGHT_TOP = ['/', '/explore', '/partners', '/food-partner', '/contact', '/privacy', '/terms', '/child-safety', '/delete-account'];
 
 export const isLightTop = p => LIGHT_TOP.some(r => p === r || p.startsWith(`${r}/`));
 

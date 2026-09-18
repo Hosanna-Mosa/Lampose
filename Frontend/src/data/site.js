@@ -53,6 +53,10 @@ export const FOOTER_COLS = [
       { label: 'Privacy Policy', to: '/privacy' },
       { label: 'Terms and Conditions', to: '/terms' },
       { label: 'Child Safety', to: '/child-safety' },
+      /* Linked rather than only routed: a Play reviewer checking that account
+         deletion is reachable from the web looks for a way to GET there, not
+         just for a URL that answers. */
+      { label: 'Delete Account', to: '/delete-account' },
     ],
   },
   {
