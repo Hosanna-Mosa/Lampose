@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react';
-import { Icon } from '../components/common/atoms/Icon/Icon';
-import { SecHead } from '../components/common/molecules/SecHead/SecHead';
-import { REDUCED } from '../hooks/useSite';
-import { STEPS } from '../components/how/utils/steps';
-import { QR_STEPS } from '../components/how/utils/qrSteps';
-import { VOUCHERS } from '../components/how/utils/vouchers';
-import { HEAD, QR_HEAD, CARDS } from '../components/how/utils/howCopy';
-import { Box, Emphasis, Heading, Image, Inline, PlainButton, Region, Text } from '../components/common/atoms';
+import { Icon } from '../../../common/atoms/Icon/Icon';
+import { SecHead } from '../../../common/molecules/SecHead/SecHead';
+import { REDUCED } from '../../../../hooks/useSite';
+import { STEPS } from '../../../how/utils/steps';
+import { QR_STEPS } from '../../../how/utils/qrSteps';
+import { VOUCHERS } from '../../../how/utils/vouchers';
+import { HEAD, QR_HEAD, CARDS } from '../../../how/utils/howCopy';
+import { Box, Emphasis, Heading, Image, Inline, PlainButton, Region, Text } from '../../../common/atoms';
 
 /* Content says what actually happens at each step, in the order it happens,
    rather than naming the stage and leaving the reader to fill it in. */

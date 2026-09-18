@@ -75,6 +75,9 @@ export async function apiRequest(endpoint, options = {}) {
          every call passes through, so the next render already knows it is
          signed out instead of retrying with a token that cannot work. The
          error still propagates: the caller decides what to show. */
+      /* `clearSession` tells everything drawn from a session that it is gone,
+         so the bar signs out on the 401 rather than at the next page load —
+         see `onSessionChange` in auth/session.js. */
       if (response.status === 401) clearSession();
 
       throw error;
@@ -117,6 +120,13 @@ export const apiClient = {
 
   put(endpoint, body) {
     return apiRequest(endpoint, { method: 'PUT', body });
+  },
+
+  /* The v2 profile routes are PATCH — a partial update, where an absent field
+     means "leave it alone" and a present one is an instruction. PUT was the
+     only verb here and it is the wrong one for that. */
+  patch(endpoint, body) {
+    return apiRequest(endpoint, { method: 'PATCH', body });
   },
 
   delete(endpoint) {

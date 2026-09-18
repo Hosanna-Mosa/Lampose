@@ -413,6 +413,102 @@ nav.scrolled .btn-nav-ghost:hover {
         transform: translateY(-2px);
         box-shadow: 0 8px 20px rgba(46, 94, 64, 0.25);
       }
+/* ── The account control ─────────────────────────────────────────────────
+   Sits in `.nav-actions` beside Download App, and inherits the bar's two
+   grounds: cream-on-forest over the hero, ink on the scrolled cream bar.
+
+   Hidden below 900px, where `.nav-links` goes and the hamburger arrives —
+   three controls plus a burger do not fit a phone bar, so the sheet carries
+   signing in at that width instead. */
+.nav-signin {
+        background: transparent;
+        border: 1px solid rgba(248, 246, 241, 0.35);
+        color: #f8f6f1;
+        padding: 0.5rem 1.2rem;
+        border-radius: 100px;
+        font-family: var(--font-body);
+        font-size: 0.78rem;
+        font-weight: 500;
+        cursor: none;
+        transition: all 0.3s;
+      }
+.nav-signin:hover {
+        background: rgba(248, 246, 241, 0.1);
+      }
+nav.scrolled .nav-signin {
+        border-color: var(--border);
+        color: var(--ink-mid);
+      }
+nav.scrolled .nav-signin:hover {
+        background: var(--bg2);
+      }
+
+/* Signed in, the same control says who you are and what tapping it does. The
+   name is the label and "Sign out" is what happens — one button rather than a
+   menu, because there is exactly one thing to do from here. */
+.nav-account {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 0.5rem;
+        background: transparent;
+        border: 1px solid rgba(248, 246, 241, 0.35);
+        color: #f8f6f1;
+        padding: 0.5rem 1.2rem;
+        border-radius: 100px;
+        font-family: var(--font-body);
+        font-size: 0.78rem;
+        cursor: none;
+        transition: all 0.3s;
+      }
+.nav-account:hover {
+        background: rgba(248, 246, 241, 0.1);
+      }
+.nav-account__name {
+        font-weight: 600;
+        max-width: 9ch;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+.nav-account__out {
+        font-size: 0.68rem;
+        opacity: 0.7;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+nav.scrolled .nav-account {
+        border-color: var(--border);
+        color: var(--ink-mid);
+      }
+nav.scrolled .nav-account:hover {
+        background: var(--bg2);
+      }
+
+@media (max-width: 900px) {
+  .nav-signin,
+  .nav-account {
+    display: none;
+  }
+}
+
+/* The sheet's own entry. Drawn as one of the sheet's links rather than as a
+   button, because that is what everything else in there looks like. */
+.mob-menu__signin {
+        background: none;
+        border: none;
+        font-family: var(--font-head);
+        font-size: clamp(1.15rem, 5vw, 1.45rem);
+        line-height: 1.25;
+        font-weight: 600;
+        color: #f8f6f1;
+        letter-spacing: -0.01em;
+        cursor: none;
+        transition: color 0.3s;
+      }
+.mob-menu__signin:hover {
+        color: var(--amber-l);
+      }
+
 .hamburger {
         display: none;
         flex-direction: column;
