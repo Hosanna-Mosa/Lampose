@@ -73,6 +73,9 @@ const ALLOWED_ORIGINS = [
   'http://localhost:5173',
   'http://localhost:5174',
   'http://localhost:5175',
+  /* Vite picks the next free port when 5173-5175 are taken, which is most
+     days on a machine running three of these frontends at once. */
+  'http://localhost:5180',
   'http://localhost:8004',
   'http://localhost:8020',
   'http://127.0.0.1:3000',

@@ -690,6 +690,10 @@ const logApplicationSteps = safely((payload, meta = {}) => {
     field('acceptedAt', contract.acceptedAt),
     field('commission', contract.commission, Number.isFinite(Number(contract.commission)) ? `${Number(contract.commission)}%` : EMPTY),
     field('platformFee', contract.platformFee, rupees(contract.platformFee)),
+    /* Printed beside the agreement it is not part of. An application that
+       reaches the queue with this false was filled in by something that is
+       not the Onboard console, and the reviewer should see that. */
+    field('refundPolicyAccepted', contract.refundPolicyAccepted),
   ]));
 
   /* The menu's tally counts items rather than fields, so it is left out of

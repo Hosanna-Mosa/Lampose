@@ -1,12 +1,14 @@
 import React from 'react';
-import { TENANT_OPTIONS, ROOM_LAYOUTS, FURNISHING_ITEMS } from '../../utils/categoryFieldOptions';
+import {
+  TENANT_OPTIONS, ROOM_LAYOUTS, FURNISHING_ITEMS, orderTenants, tenantList,
+} from '../../utils/categoryFieldOptions';
 import { errorBorder, FieldError } from '../../atoms/FieldError/FieldError';
-import { sharingPriceKey, roomCountKey, furnishingKey } from '../../../../services/validation.js';
-import { Key } from 'lucide-react';
+import { sharingPriceKey, roomCountKey, furnishingKey, tenantsKey } from '../../../../services/validation.js';
+import { Check, Key } from 'lucide-react';
 import { ChipPicker } from '../../molecules/ChipPicker';
 import { FurnishingItems } from '../FurnishingItems';
 import { LayoutPhotos } from '../LayoutPhotos';
-import { Box, Inline, Input, Option, Select } from '../../../common/atoms';
+import { Box, Inline, Input, Option, PlainButton, Select } from '../../../common/atoms';
 
 export function RoomLayouts({ category, details, onChangeDetails, errors }) {
   const tenantOptions = TENANT_OPTIONS[category] || TENANT_OPTIONS.COLIVE;
@@ -60,7 +62,11 @@ export function RoomLayouts({ category, details, onChangeDetails, errors }) {
          usually furnished to one standard throughout. */
       const last = selected.length ? selected[selected.length - 1] : null;
       setMap('furnishingByLayout', layout, (last && byLayout[last]) || 'Semi-Furnished');
-      setMap('allowedTenantsByLayout', layout, (last && tenantsByLayout[last]) || tenantOptions[0].id);
+      /* Inherits the previous layout's whole LIST, not its first entry — a
+         building let to families and single women lets every flat in it that
+         way far more often than it changes the answer per layout. */
+      const inherited = last ? tenantList(tenantsByLayout[last]) : [];
+      setMap('allowedTenantsByLayout', layout, inherited.length ? inherited : [tenantOptions[0].id]);
       setMap('kitchenByLayout', layout, last && kitchenByLayout[last] !== undefined
         ? kitchenByLayout[last]
         : true);
@@ -68,6 +74,33 @@ export function RoomLayouts({ category, details, onChangeDetails, errors }) {
 
     onChangeDetails('roomTypes', next);
     onChangeDetails('roomType', next[0] || '');
+  };
+
+  /*
+   * The options one layout may choose from.
+   *
+   * Anything already saved against it that the preset list does not offer is
+   * appended rather than hidden — a value written before this list was
+   * narrowed stays visible and untickable-off-able, so editing an old listing
+   * cannot silently change who it is let to.
+   */
+  const tenantChoices = (layout) => {
+    const ids = tenantOptions.map((option) => option.id);
+    const extras = tenantList(tenantsByLayout[layout])
+      .filter((id) => !ids.includes(id))
+      .map((id) => ({ id, label: id }));
+    return [...tenantOptions, ...extras];
+  };
+
+  /* Kept in the option list's order rather than the order the chips were
+     tapped in, so the summary the listing prints does not reshuffle itself
+     between two edits that chose the same people. */
+  const toggleTenant = (layout, id) => {
+    const current = tenantList(tenantsByLayout[layout]);
+    const next = current.includes(id)
+      ? current.filter((entry) => entry !== id)
+      : [...current, id];
+    setMap('allowedTenantsByLayout', layout, orderTenants(next, tenantChoices(layout)));
   };
 
   const customLayouts = Array.isArray(details.customRoomTypes) ? details.customRoomTypes : [];
@@ -188,25 +221,59 @@ export function RoomLayouts({ category, details, onChangeDetails, errors }) {
                 <FieldError message={errors[furnishingKey(layout.id)]} />
               </Box>
 
+              {/*
+                  Allowed tenants — a MULTI-select, and chips rather than a
+                  `<select multiple>`.
+
+                  Several answers because several are true: a flat offered to
+                  families and to working women is one flat with two kinds of
+                  tenant, and the dropdown this replaced forced the agent to
+                  pick the one they thought mattered more. A native multiple
+                  select is the wrong control for it on a phone — it needs a
+                  modifier key nobody has, shows two rows of a scrolling list,
+                  and gives no sign that a second value is selected below the
+                  fold. Chips show every option and every choice at once.
+              */}
               <Box>
-                <Inline style={{ fontSize: '0.75rem', color: '#45855a', fontWeight: 600 }}>Allowed Tenants</Inline>
-                <Select
-                  className="form-select"
-                  value={tenantsByLayout[layout.id] || tenantOptions[0].id}
-                  onChange={(e) => setMap('allowedTenantsByLayout', layout.id, e.target.value)}
-                  style={{ marginTop: '4px', padding: '8px 12px', fontSize: '0.85rem' }}
+                <Inline style={{ fontSize: '0.75rem', color: '#45855a', fontWeight: 600 }}>
+                  Allowed Tenants * <Inline style={{ fontWeight: 500, color: '#94a3b8' }}>(pick any that apply)</Inline>
+                </Inline>
+                {/* `tabIndex={-1}` so that "jump to the first problem" can
+                    focus the block as well as scroll to it — a chip row has no
+                    input for the focus to land on. It stays out of the tab
+                    order; the chips themselves are buttons and are reachable. */}
+                <Box
+                  id={`allowedTenants-${layout.id}`}
+                  tabIndex={-1}
+                  style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px', outline: 'none' }}
                 >
-                  {tenantOptions.map((option) => (
-                    <Option key={option.id} value={option.id}>{option.label}</Option>
-                  ))}
-                  {/* A value saved before this list was narrowed stays
-                      selectable, so editing an old listing cannot silently
-                      change who it is let to. */}
-                  {tenantsByLayout[layout.id]
-                    && !tenantOptions.some((o) => o.id === tenantsByLayout[layout.id]) ? (
-                      <Option value={tenantsByLayout[layout.id]}>{tenantsByLayout[layout.id]}</Option>
-                    ) : null}
-                </Select>
+                  {tenantChoices(layout.id).map((option) => {
+                    const on = tenantList(tenantsByLayout[layout.id]).includes(option.id);
+                    return (
+                      <PlainButton
+                        key={option.id}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => toggleTenant(layout.id, option.id)}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '16px',
+                          fontSize: '0.78rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          background: on ? 'rgba(16, 185, 129, 0.16)' : '#ffffff',
+                          border: `1px solid ${on ? '#10b981' : (errorBorder(errors[tenantsKey(layout.id)]) || '#cbd5e1')}`,
+                          color: on ? '#1f7a53' : '#64748b',
+                          display: 'flex', alignItems: 'center', gap: '5px',
+                        }}
+                      >
+                        {on && <Check size={12} />}
+                        <Inline>{option.label}</Inline>
+                      </PlainButton>
+                    );
+                  })}
+                </Box>
+                <FieldError message={errors[tenantsKey(layout.id)]} />
               </Box>
 
               <Box>

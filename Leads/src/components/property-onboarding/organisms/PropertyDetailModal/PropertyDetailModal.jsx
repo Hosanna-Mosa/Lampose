@@ -251,7 +251,16 @@ export function PropertyDetailModal({ property, onClose, onDelete }) {
                 <>
                   <SpecItem label="Room Layout" value={categoryDetails.roomType || '1 BHK'} />
                   <SpecItem label="Furnishing" value={categoryDetails.furnishing || 'Semi-Furnished'} />
-                  <SpecItem label="Allowed Tenants" value={categoryDetails.allowedTenants || 'Bachelors'} />
+                  {/* A list on anything onboarded by a field agent since the
+                      control became multi-select, one string on everything
+                      before it. React would render the array as "AB" with no
+                      separator at all, so it is joined here. */}
+                  <SpecItem
+                    label="Allowed Tenants"
+                    value={(Array.isArray(categoryDetails.allowedTenants)
+                      ? categoryDetails.allowedTenants.join(' · ')
+                      : categoryDetails.allowedTenants) || 'Bachelors'}
+                  />
                   <SpecItem label="Kitchen Facility" value={categoryDetails.kitchenAvailable ? 'Kitchen & Gas Allowed' : 'No Kitchen'} />
                   <SpecItem label="Water Supply" value={categoryDetails.waterSupply || '24/7 Water'} />
                 </>

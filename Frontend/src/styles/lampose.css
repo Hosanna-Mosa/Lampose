@@ -413,6 +413,102 @@ nav.scrolled .btn-nav-ghost:hover {
         transform: translateY(-2px);
         box-shadow: 0 8px 20px rgba(46, 94, 64, 0.25);
       }
+/* ── The account control ─────────────────────────────────────────────────
+   Sits in `.nav-actions` beside Download App, and inherits the bar's two
+   grounds: cream-on-forest over the hero, ink on the scrolled cream bar.
+
+   Hidden below 900px, where `.nav-links` goes and the hamburger arrives —
+   three controls plus a burger do not fit a phone bar, so the sheet carries
+   signing in at that width instead. */
+.nav-signin {
+        background: transparent;
+        border: 1px solid rgba(248, 246, 241, 0.35);
+        color: #f8f6f1;
+        padding: 0.5rem 1.2rem;
+        border-radius: 100px;
+        font-family: var(--font-body);
+        font-size: 0.78rem;
+        font-weight: 500;
+        cursor: none;
+        transition: all 0.3s;
+      }
+.nav-signin:hover {
+        background: rgba(248, 246, 241, 0.1);
+      }
+nav.scrolled .nav-signin {
+        border-color: var(--border);
+        color: var(--ink-mid);
+      }
+nav.scrolled .nav-signin:hover {
+        background: var(--bg2);
+      }
+
+/* Signed in, the same control says who you are and what tapping it does. The
+   name is the label and "Sign out" is what happens — one button rather than a
+   menu, because there is exactly one thing to do from here. */
+.nav-account {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 0.5rem;
+        background: transparent;
+        border: 1px solid rgba(248, 246, 241, 0.35);
+        color: #f8f6f1;
+        padding: 0.5rem 1.2rem;
+        border-radius: 100px;
+        font-family: var(--font-body);
+        font-size: 0.78rem;
+        cursor: none;
+        transition: all 0.3s;
+      }
+.nav-account:hover {
+        background: rgba(248, 246, 241, 0.1);
+      }
+.nav-account__name {
+        font-weight: 600;
+        max-width: 9ch;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+.nav-account__out {
+        font-size: 0.68rem;
+        opacity: 0.7;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+nav.scrolled .nav-account {
+        border-color: var(--border);
+        color: var(--ink-mid);
+      }
+nav.scrolled .nav-account:hover {
+        background: var(--bg2);
+      }
+
+@media (max-width: 900px) {
+  .nav-signin,
+  .nav-account {
+    display: none;
+  }
+}
+
+/* The sheet's own entry. Drawn as one of the sheet's links rather than as a
+   button, because that is what everything else in there looks like. */
+.mob-menu__signin {
+        background: none;
+        border: none;
+        font-family: var(--font-head);
+        font-size: clamp(1.15rem, 5vw, 1.45rem);
+        line-height: 1.25;
+        font-weight: 600;
+        color: #f8f6f1;
+        letter-spacing: -0.01em;
+        cursor: none;
+        transition: color 0.3s;
+      }
+.mob-menu__signin:hover {
+        color: var(--amber-l);
+      }
+
 .hamburger {
         display: none;
         flex-direction: column;
@@ -11619,4 +11715,433 @@ footer {
   .vn__list li { font-size: 0.88rem; }
   .vn__split-row { font-size: 0.85rem; }
   .vn__consent { font-size: 0.84rem; }
+}
+
+/* ══ Delete account ═══════════════════════════════════════════════════════
+   The public account-deletion page, at /delete-account.
+
+   Its own block rather than reused page styles: it is the one page on this
+   site a Google Play reviewer reads end to end, and it has to stay legible on
+   a 320px phone with the app's three colours and nothing else — black, green,
+   white. Everything below is scoped under `.da-page`, so nothing here can
+   reach the marketing pages.
+
+   Mobile first. The desktop layout is one widening at 720px, because the page
+   is a single column of prose and a form at every width — there is no second
+   arrangement of it worth having.
+   ════════════════════════════════════════════════════════════════════════ */
+
+.da-page {
+  background: #ffffff;
+  padding: 6.5rem 1rem 3.5rem;
+  color: var(--ink);
+}
+
+.da-inner {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+/* -- Heading ------------------------------------------------------------- */
+
+.da-head { margin-bottom: 1.75rem; }
+
+.da-tag {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--green);
+  background: #eaf5ee;
+  border: 1px solid #cfe7d8;
+  border-radius: 100px;
+  padding: 0.3rem 0.8rem;
+  margin-bottom: 0.9rem;
+}
+
+.da-h1 {
+  font-family: var(--font-head);
+  font-size: clamp(1.6rem, 6vw, 2.4rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--forest);
+  margin: 0 0 0.9rem;
+}
+
+.da-h1 em { color: var(--green); font-style: normal; }
+
+.da-lede {
+  font-size: 1rem;
+  line-height: 1.65;
+  color: var(--ink-mid);
+  margin: 0 0 0.75rem;
+}
+
+.da-note {
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--ink-light);
+  border-left: 3px solid var(--green);
+  padding-left: 0.85rem;
+  margin: 0;
+}
+
+/* -- Cards --------------------------------------------------------------- */
+
+.da-card {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+/* The one somebody came here to use. Black, because it is the action the page
+   exists for and every other block on the page is prose. */
+.da-card--form {
+  border: 1px solid var(--forest);
+  box-shadow: 0 10px 30px rgba(16, 19, 18, 0.07);
+}
+
+.da-card--support { background: #f7faf8; border-color: #cfe7d8; }
+
+.da-h2 {
+  font-family: var(--font-head);
+  font-size: clamp(1.05rem, 4vw, 1.3rem);
+  line-height: 1.25;
+  color: var(--forest);
+  margin: 0 0 0.75rem;
+}
+
+.da-p {
+  font-size: 0.92rem;
+  line-height: 1.7;
+  color: var(--ink-mid);
+  margin: 0 0 0.75rem;
+}
+
+.da-p:last-child { margin-bottom: 0; }
+
+.da-list, .da-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.da-list li, .da-steps li {
+  position: relative;
+  padding-left: 1.4rem;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  color: var(--ink-mid);
+  margin-bottom: 0.6rem;
+}
+
+.da-list li:last-child, .da-steps li:last-child { margin-bottom: 0; }
+
+.da-list li::before {
+  content: "";
+  position: absolute;
+  left: 0.15rem;
+  top: 0.62rem;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+/* Numbered, because these are an order of events rather than a set. */
+.da-steps { counter-reset: da-step; }
+
+.da-steps li { counter-increment: da-step; padding-left: 1.9rem; }
+
+.da-steps li::before {
+  content: counter(da-step);
+  position: absolute;
+  left: 0;
+  top: 0.1rem;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 50%;
+  background: var(--forest);
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.da-card strong { color: var(--ink); font-weight: 700; }
+
+/* -- Form ---------------------------------------------------------------- */
+
+.da-form { display: block; }
+
+.da-form__intro {
+  font-size: 0.9rem;
+  line-height: 1.65;
+  color: var(--ink-mid);
+  margin: 0 0 1rem;
+}
+
+.da-field { display: block; margin-bottom: 1rem; }
+
+.da-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--forest);
+  margin-bottom: 0.4rem;
+}
+
+.da-req { color: #b91c1c; }
+.da-opt { color: var(--ink-light); font-weight: 500; text-transform: none; letter-spacing: 0; }
+
+/* 16px, so iOS Safari does not zoom the page when one is focused. */
+.da-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.8rem 0.9rem;
+  font-family: inherit;
+  font-size: 16px;
+  color: var(--ink);
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.da-input:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(23, 128, 61, 0.12);
+}
+
+.da-textarea { resize: vertical; min-height: 84px; line-height: 1.5; }
+
+.da-input--code {
+  letter-spacing: 0.4em;
+  text-align: center;
+  font-weight: 700;
+  font-size: 1.15rem;
+}
+
+.da-phone { display: flex; align-items: stretch; gap: 0.5rem; }
+
+.da-phone__cc {
+  display: flex;
+  align-items: center;
+  padding: 0 0.8rem;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--ink-mid);
+  flex-shrink: 0;
+}
+
+.da-phone .da-input { flex: 1; min-width: 0; }
+
+.da-hint {
+  display: block;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--ink-light);
+  margin-top: 0.4rem;
+}
+
+.da-hint--foot { margin-top: 0.75rem; text-align: center; }
+
+/* -- Buttons ------------------------------------------------------------- */
+
+.da-btn {
+  width: 100%;
+  padding: 0.9rem 1.2rem;
+  border-radius: 100px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.2s, transform 0.15s, opacity 0.2s;
+}
+
+.da-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Black rather than red. The action is serious but it is not an error, and a
+   red button on a page that is trying to be calm reads as a warning about the
+   page rather than about the choice. */
+.da-btn--danger { background: var(--forest); color: #ffffff; }
+.da-btn--danger:hover:not(:disabled) { background: #000000; transform: translateY(-1px); }
+
+.da-btn--ghost { background: #ffffff; color: var(--ink-mid); border-color: var(--border); }
+.da-btn--ghost:hover { background: var(--bg2); }
+
+.da-linkbtn {
+  display: block;
+  width: 100%;
+  margin-top: 0.75rem;
+  padding: 0.4rem;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--green);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* -- Messages ------------------------------------------------------------ */
+
+.da-err, .da-notice, .da-warn {
+  display: block;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 0.7rem 0.85rem;
+  margin: 0 0 0.85rem;
+}
+
+.da-err { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
+.da-notice { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
+.da-warn { background: #fffbeb; border: 1px solid #fde68a; color: #b45309; margin: 0.85rem 0 0; }
+
+/* -- Done ---------------------------------------------------------------- */
+
+.da-done { text-align: left; }
+
+.da-done__mark {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background: #eaf5ee;
+  border: 1px solid #cfe7d8;
+  color: var(--green);
+  font-size: 1.2rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.85rem;
+}
+
+.da-done__title {
+  font-family: var(--font-head);
+  font-size: 1.15rem;
+  color: var(--forest);
+  margin: 0 0 0.6rem;
+}
+
+.da-done__body, .da-done__after {
+  font-size: 0.92rem;
+  line-height: 1.65;
+  color: var(--ink-mid);
+  margin: 0 0 0.85rem;
+}
+
+.da-done__after { margin: 0.85rem 0 0; font-size: 0.85rem; }
+
+.da-done__facts {
+  margin: 0;
+  padding: 0.85rem;
+  list-style: none;
+  background: #f7faf8;
+  border: 1px solid #cfe7d8;
+  border-radius: 12px;
+}
+
+.da-done__facts li {
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--ink-mid);
+  margin-bottom: 0.35rem;
+}
+
+.da-done__facts li:last-child { margin-bottom: 0; }
+
+/* -- Links --------------------------------------------------------------- */
+
+.da-links {
+  text-align: center;
+  padding: 1.25rem 0 0;
+  font-size: 0.88rem;
+}
+
+.da-links a {
+  color: var(--green);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.da-links a:hover { text-decoration: underline; }
+
+.da-dot { color: var(--ink-light); margin: 0 0.5rem; }
+
+.da-mail { color: var(--green); font-weight: 700; }
+
+/* -- The confirmation ---------------------------------------------------- */
+
+.da-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background: rgba(16, 19, 18, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.da-modal {
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 1.5rem 1.25rem;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
+}
+
+.da-modal__title {
+  font-family: var(--font-head);
+  font-size: 1.2rem;
+  color: var(--forest);
+  margin: 0 0 0.7rem;
+}
+
+.da-modal__body {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--ink);
+  font-weight: 600;
+  margin: 0 0 0.7rem;
+}
+
+.da-modal__sub {
+  font-size: 0.83rem;
+  line-height: 1.55;
+  color: var(--ink-light);
+  margin: 0 0 1.1rem;
+}
+
+/* Stacked on a phone so neither button is a 40px target beside another. */
+.da-modal__actions { display: flex; flex-direction: column; gap: 0.6rem; }
+
+@media (min-width: 480px) {
+  .da-modal__actions { flex-direction: row-reverse; }
+  .da-modal__actions .da-btn { flex: 1; }
+}
+
+@media (min-width: 720px) {
+  .da-page { padding: 7.5rem 2rem 4.5rem; }
+  .da-card { padding: 1.75rem; }
 }

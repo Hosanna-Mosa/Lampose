@@ -12,6 +12,12 @@ import { Box, Inline, Input, Text } from '../../../common/atoms';
  * Drag-and-drop is kept for the desktop case, but it is an addition rather
  * than the mechanism: `dragover` never fires on a touch screen, so nothing
  * about choosing a file may depend on it.
+ *
+ * The outer box carries `<id>-field`, and that — not the `<input>` — is what
+ * "attach the PAN card" scrolls to when the form points at a missing scan:
+ * the input itself is `display: none`, so scrolling to it moves nothing and
+ * focusing it focuses nothing. Both branches below render it, so the anchor
+ * survives a file being picked and removed again.
  */
 export function FileDrop({
   label,
@@ -29,7 +35,7 @@ export function FileDrop({
 
   if (file) {
     return (
-      <Box>
+      <Box id={id ? `${id}-field` : undefined} tabIndex={-1}>
         {label && <Text className="rst-label">{label}</Text>}
         <Box className="rst-file">
           <CheckCircle2 size={17} color="#45855a" />
@@ -48,7 +54,7 @@ export function FileDrop({
   }
 
   return (
-    <Box>
+    <Box id={id ? `${id}-field` : undefined} tabIndex={-1}>
       {label && <Text className="rst-label">{label}</Text>}
       <label
         className={`rst-drop${dragOver ? ' is-over' : ''}`}

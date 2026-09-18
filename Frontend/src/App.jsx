@@ -2,6 +2,7 @@ import {
   BrowserRouter, Navigate, Route, Routes, useLocation,
 } from 'react-router-dom';
 import { Shell } from './components/common/templates/Shell/Shell';
+import { AuthProvider } from './auth/AuthProvider';
 
 /* Routes whose first section sits on a light ground need the solid navbar
    immediately — the transparent bar is only legible over the forest hero. */
@@ -22,7 +23,13 @@ import { Shell } from './components/common/templates/Shell/Shell';
 export function App() {
   return (
     <BrowserRouter>
-      <Shell />
+      {/* Inside the router, because the navbar reads both and a provider above
+          it would still work — but every future screen that wants the session
+          also wants the route, and keeping them in one order means there is
+          only one answer to "which wraps which". */}
+      <AuthProvider>
+        <Shell />
+      </AuthProvider>
     </BrowserRouter>
   );
 }

@@ -105,6 +105,8 @@ export const sharingAcPriceKey = (type) => `sharingAcPrice:${type}`;
 /** Per-layout furnishing level and unit count, for the whole-property lets. */
 export const furnishingKey = (layout) => `furnishing:${layout}`;
 export const roomCountKey = (layout) => `roomCount:${layout}`;
+/** Per-layout allowed tenants — a list, so "none ticked" is a real state. */
+export const tenantsKey = (layout) => `tenants:${layout}`;
 
 /* ------------------------------------------------------------------ *
  * Where each message is printed
@@ -174,6 +176,7 @@ export const anchorFor = (key) => {
   if (key.startsWith('sharingAcPrice:')) return `sharingAcPrice-${key.slice('sharingAcPrice:'.length)}`;
   if (key.startsWith('furnishing:')) return `sharingPrice-${key.slice('furnishing:'.length)}`;
   if (key.startsWith('roomCount:')) return `sharingRooms-${key.slice('roomCount:'.length)}`;
+  if (key.startsWith('tenants:')) return `allowedTenants-${key.slice('tenants:'.length)}`;
   /* The optional hotel rate grids: `monthlyPrices:Single` → `monthlyPrices-Single`. */
   const rateGrid = key.match(/^((?:monthly|flexible)(?:Ac)?Prices):(.+)$/);
   if (rateGrid) return `${rateGrid[1]}-${rateGrid[2]}`;
@@ -604,6 +607,21 @@ function validateCategory(category, details, { isShortStay, documents }) {
         if (!Array.isArray(items) || items.length === 0) {
           errs[furnishingKey(layout)] = `Tick what the ${level.toLowerCase()} ${layout} includes`;
         }
+      }
+
+      /*
+       * Who the layout may be let to. At least one, and it is a LIST.
+       *
+       * Required rather than optional because the public listing leads with
+       * it — "who it is let to" is the gate a renter reads before anything
+       * else, and a flat that will not take them wastes their whole visit.
+       * The control offers several answers now, which is what makes "none"
+       * reachable at all: the dropdown it replaced could not be empty.
+       */
+      const tenants = (details.allowedTenantsByLayout || {})[layout];
+      const chosen = Array.isArray(tenants) ? tenants.filter(Boolean) : (tenants ? [tenants] : []);
+      if (chosen.length === 0) {
+        errs[tenantsKey(layout)] = `Choose who the ${layout} may be let to`;
       }
 
       /* Counts are optional — an agent outside a building does not always know

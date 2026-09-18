@@ -51,7 +51,9 @@ export function DetailPanel({ activeKey, color }) {
 
             <Box className="svcd-foot">
               <Text className="svcd-note">{p.note}</Text>
-              <Link className="svcd-cta" to="/download">{p.cta} →</Link>
+              {/* The download page is gone; the thing this panel is selling
+                  is a room, and Explore is where one is found. */}
+              <Link className="svcd-cta" to="/explore">{p.cta} →</Link>
             </Box>
           </Box>
         ))}

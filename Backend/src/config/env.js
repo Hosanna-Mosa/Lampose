@@ -388,12 +388,25 @@ const config = {
        user routes answer 503 instead of issuing a forgeable token. */
     configured: Boolean(jwtSecret),
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
-    /* The website's sessions are deliberately shorter than the app's.
-       A phone is a personal device someone unlocks; a browser may be a shared
-       or public machine, and `localStorage` survives closing the tab. One day
-       means a forgotten session on someone else's computer is dead by
-       tomorrow, and a regular visitor still signs in at most once a day. */
-    webJwtExpiresIn: process.env.WEB_JWT_EXPIRES_IN || '1d',
+    /*
+     * The website's sessions, now the same length as the app's.
+     *
+     * They were a day, on the reasoning that a phone is a personal device
+     * somebody unlocks while a browser may be shared, and `localStorage`
+     * survives closing the tab. That is still true, and it is the argument
+     * for shortening this again — but it was decided the other way: the
+     * website asks people to sign in with an SMS, and a day means a regular
+     * visitor pays for that SMS every day. Signing out is the answer to the
+     * shared-machine case, and it is one tap in the bar.
+     *
+     * Kept as its own knob rather than folded into `jwtExpiresIn`, because
+     * the two are separate decisions that happen to agree today. Shortening
+     * the web back to a day is `WEB_JWT_EXPIRES_IN=1d` and nothing else —
+     * both places that open a browser session read this one value: the
+     * sign-in on lampose.com and the session a visit request opens off its
+     * own one-time code.
+     */
+    webJwtExpiresIn: process.env.WEB_JWT_EXPIRES_IN || process.env.JWT_EXPIRES_IN || '7d',
     /* The admin console's session. A browser on a desk, not a phone in a
        pocket: twelve hours outlives a working day and not a machine somebody
        walked away from. Revocation does not wait for this — see

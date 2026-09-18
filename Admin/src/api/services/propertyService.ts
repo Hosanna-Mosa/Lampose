@@ -81,4 +81,25 @@ export const propertyService = {
   async deleteProperty(id: string): Promise<ApiResponse<{ success: boolean }>> {
     return api.delete<{ success: boolean }>(`/properties/${id}`);
   },
+
+  /**
+   * Send the owner's WhatsApp approval message again, for a listing still
+   * awaiting verification.
+   *
+   * Always restarts at the OWNER's stage, never the verification team's — the
+   * team is only asked once the owner has replied YES, so resending to them
+   * would ask somebody to confirm a listing its owner never agreed to. The
+   * route re-reads the owner's number from the pending snapshot, which is what
+   * makes "correct the number with Edit, then resend" work.
+   *
+   * `id` is the property id the grid already holds. An unverified listing has
+   * no `properties` document behind it, so that id resolves to the snapshot on
+   * its verification request — the same id Edit and Delete use.
+   */
+  async resendVerification(id: string): Promise<ApiResponse<{ attempts?: number; expiresAt?: string } | null>> {
+    const res = await api.post<any>(`/properties/${id}/resend-verification`, {});
+    return res.success
+      ? { ...res, data: { attempts: res.data?.attempts, expiresAt: res.data?.expiresAt } }
+      : { ...res, data: null };
+  },
 };

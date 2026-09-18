@@ -43,7 +43,10 @@ export function Partners() {
                   <List className="p-list">
                     {p.points.map((pt, k) => <ListItem key={pt} style={{ '--i': String(k) }}>{pt}</ListItem>)}
                   </List>
-                  <Link to="/download" className="btn-p" onClick={e => e.stopPropagation()}><Inline>{p.cta}</Inline></Link>
+                  {/* "List a property", "Cook with us", "Start riding" — all
+                      of them begin with a conversation, and none of them
+                      began with the download page they used to point at. */}
+                  <Link to="/contact" className="btn-p" onClick={e => e.stopPropagation()}><Inline>{p.cta}</Inline></Link>
                 </Box>
               ))}
             </Box>

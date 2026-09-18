@@ -1,15 +1,21 @@
 /* Shared chrome content — navigation and footer, used by every route. */
 
+/*
+ * Five links, down from ten.
+ *
+ * Services and How It Works are sections of the home page now, so they are
+ * not routes to navigate to — anybody who lands on Home scrolls past both,
+ * which is the whole reason they were moved. Cities, Food and Download are
+ * gone from the site.
+ *
+ * A bar listing ten destinations is a bar nobody reads, and half of these
+ * pointed at pages that repeated what the home page already said.
+ */
 export const NAV_LINKS = [
   { label: 'Home', to: '/' },
   { label: 'Explore', to: '/explore' },
-  { label: 'Services', to: '/services' },
-  { label: 'How It Works', to: '/how' },
-  { label: 'Cities', to: '/cities' },
   { label: 'Partners', to: '/partners' },
-  { label: 'Food', to: '/food' },
   { label: 'Food Partner', to: '/food-partner' },
-  { label: 'Download', to: '/download' },
   { label: 'Contact', to: '/contact' },
 ];
 
@@ -17,9 +23,12 @@ export const FOOTER_COLS = [
   {
     title: 'Product',
     links: [
-      { label: 'Stay Booking', to: '/services' },
-      { label: 'Food Ordering', to: '/food' },
-      { label: 'Delivery', to: '/services' },
+      /* The three things Lampose runs are one section of the home page, so
+         all three point at it rather than at three pages that no longer
+         exist. */
+      { label: 'Stay Booking', to: '/#services' },
+      { label: 'Food Ordering', to: '/#services' },
+      { label: 'Delivery', to: '/#services' },
       { label: 'Complaints', to: '/contact' },
       { label: 'Pricing', to: '/partners' },
     ],
@@ -30,18 +39,24 @@ export const FOOTER_COLS = [
       { label: 'Hostel Owners', to: '/partners' },
       { label: 'Restaurants', to: '/food-partner' },
       { label: 'Delivery Partners', to: '/partners' },
-      { label: 'Partner Login', to: '/download' },
+      /* There is no download page any more, and the apps are not linked from
+         the site yet. Partners are onboarded by talking to us. */
+      { label: 'Partner Login', to: '/contact' },
     ],
   },
   {
     title: 'Company',
     links: [
-      { label: 'About Us', to: '/cities' },
+      { label: 'About Us', to: '/contact' },
       { label: 'Careers', href: '#top' },
       { label: 'Blog', href: '#top' },
       { label: 'Privacy Policy', to: '/privacy' },
       { label: 'Terms and Conditions', to: '/terms' },
       { label: 'Child Safety', to: '/child-safety' },
+      /* Linked rather than only routed: a Play reviewer checking that account
+         deletion is reachable from the web looks for a way to GET there, not
+         just for a URL that answers. */
+      { label: 'Delete Account', to: '/delete-account' },
     ],
   },
   {

@@ -3,7 +3,7 @@ import { ClipboardCheck, PenLine, Receipt } from 'lucide-react';
 import {
   Box, Inline, Input, Label, Strong, Text,
 } from '../../../common/atoms';
-import { Field, SectionHead } from '../../molecules/Field/Field';
+import { Field, FieldError, SectionHead } from '../../molecules/Field/Field';
 import { COMMERCIAL_TERMS, COPY } from '../../utils/restaurantOptions';
 
 /*
@@ -15,7 +15,14 @@ import { COMMERCIAL_TERMS, COPY } from '../../utils/restaurantOptions';
  * what gets submitted is worse than no summary at all.
  */
 
-export function ContractReviewStep({ form, set }) {
+/** What the summary says about GST — a number, a declared exemption, or neither. */
+const gstSummary = (form) => {
+  if (form.gstExempt) return 'GST exempt';
+  if (String(form.gstin || '').trim()) return 'GSTIN recorded';
+  return 'No GSTIN given';
+};
+
+export function ContractReviewStep({ form, set, errors = {}, touch = () => {} }) {
   const copy = COPY;
 
   const summary = [
@@ -45,7 +52,13 @@ export function ContractReviewStep({ form, set }) {
          summary that implied otherwise would tell the verification queue to
          expect files that were never asked for. */
       value: 'PAN & FSSAI scans attached',
-      detail: `${form.gstExempt ? 'GST exempt' : 'GSTIN recorded'} · bank details recorded`,
+      /* Three states, not two: a GSTIN is optional now, so "no GSTIN" is an
+         ordinary answer and the summary has to be able to say it. Reading
+         "GSTIN recorded" against an empty field is how an agent signs off an
+         application believing they entered a number they never had. */
+      detail: `${gstSummary(form)} · bank details recorded · ${
+        form.refundPolicyAccepted ? 'refund policy accepted' : 'REFUND POLICY NOT ACCEPTED'
+      }`,
     },
   ];
 
@@ -137,12 +150,12 @@ export function ContractReviewStep({ form, set }) {
           </Field>
         </Box>
 
-        <Box className="rst-card">
+        <Box className={`rst-card${errors.acceptedTos ? ' is-bad' : ''}`} id="rst-tos" tabIndex={-1}>
           <Label className="rst-check">
             <Input
               type="checkbox"
               checked={form.acceptedTos}
-              onChange={() => set({ acceptedTos: !form.acceptedTos })}
+              onChange={() => { set({ acceptedTos: !form.acceptedTos }); touch('acceptedTos'); }}
             />
             <Box>
               <Text style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-main)' }}>
@@ -153,6 +166,7 @@ export function ContractReviewStep({ form, set }) {
                 By accepting, you agree to all the terms outlined in the partner merchant
                 agreement above.
               </Text>
+              <FieldError message={errors.acceptedTos} />
             </Box>
           </Label>
         </Box>
@@ -163,13 +177,15 @@ export function ContractReviewStep({ form, set }) {
             hint="Type the owner's full name below as the digital signature. This serves as legal acceptance of the agreement."
             required
             htmlFor="rst-signature"
+            error={errors.signature}
           >
             <Input
               id="rst-signature"
-              className="rst-input"
+              className={`rst-input${errors.signature ? ' is-bad' : ''}`}
               type="text"
               value={form.signature}
               onChange={(event) => set({ signature: event.target.value })}
+              onBlur={() => touch('signature')}
               placeholder="Type the full legal name"
               style={{ fontWeight: 700 }}
             />
