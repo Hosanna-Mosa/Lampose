@@ -10,7 +10,7 @@
 export const STEPS = [
   { num: 1, label: 'Restaurant Information', sub: 'Name, owner, location' },
   { num: 2, label: 'Operational Details', sub: 'Opening hours' },
-  { num: 3, label: 'Documents & Legal', sub: 'PAN, FSSAI, GST, bank' },
+  { num: 3, label: 'Documents & Legal', sub: 'PAN, FSSAI, bank, refunds' },
   { num: 4, label: 'Contract & Review', sub: 'Terms and signature' },
 ];
 
@@ -34,6 +34,19 @@ export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Sa
 export const CONTRACT_COMMISSION = 15;
 export const CONTRACT_PLATFORM_FEE = 3;
 
+/*
+ * The two numbers in the refund rule, declared rather than typed into
+ * sentences twice.
+ *
+ * The same rule is said in two places — the commercial summary on step 4 and
+ * the policy the owner actually TICKS on step 3 — and a screen that promises
+ * five minutes' grace while the acceptance beside it says ten is the one
+ * disagreement in this form that ends up in front of a lawyer. Both read from
+ * here.
+ */
+export const CANCELLATION_GRACE_MINUTES = 5;
+export const LATE_CANCELLATION_PERCENT = 10;
+
 export const COMMERCIAL_TERMS = [
   {
     label: 'Delivery Commission',
@@ -49,11 +62,41 @@ export const COMMERCIAL_TERMS = [
   },
   {
     label: 'Cancellation Policy',
-    value: 'Free cancellation up to 5 mins. Late cancellations charged 10% of order value.',
+    value: `Free cancellation up to ${CANCELLATION_GRACE_MINUTES} mins. Late cancellations charged ${LATE_CANCELLATION_PERCENT}% of order value.`,
   },
   {
     label: 'Promotional Contribution',
     value: 'Optional. Shared cost for discounts & free delivery campaigns.',
+  },
+];
+
+/*
+ * The refund side of the agreement, shown on step 3 and ticked there.
+ *
+ * Printed in full rather than linked or summarised in one line, because the
+ * tick underneath it is the record that the owner was told: an acceptance of
+ * something the screen never said is worth nothing to the person who has to
+ * defend a deduction three months later. Four points, because that is what
+ * actually takes money off a settlement — and the last of them is what makes
+ * the tick a fair one to ask for, since a refund caused by a late rider is
+ * not the kitchen's fault and this says so.
+ */
+export const REFUND_POLICY_POINTS = [
+  {
+    label: 'Cancellations',
+    value: `Free for the first ${CANCELLATION_GRACE_MINUTES} minutes after an order is placed. A cancellation by the restaurant after that is charged ${LATE_CANCELLATION_PERCENT}% of the order value.`,
+  },
+  {
+    label: 'Wrong or missing items',
+    value: 'Refunded to the customer in full and deducted from the restaurant\'s weekly settlement.',
+  },
+  {
+    label: 'Quality complaints',
+    value: 'Investigated case by case. A complaint that is upheld is refunded from the settlement; one that is not costs the restaurant nothing.',
+  },
+  {
+    label: 'Late delivery',
+    value: 'A refund caused by a rider or by the platform is borne by Lampose, never by the restaurant.',
   },
 ];
 
@@ -78,6 +121,10 @@ export const COPY = {
   categoryHelp: 'Select all that apply to this restaurant',
   operatingHelp: 'Add multiple time slots if the restaurant has break times.',
   gstExemptLabel: 'This restaurant is exempt / Composition scheme',
+  refundTitle: 'Refund & Cancellation Policy',
+  refundIntro: 'Read this to the owner before ticking the box.',
+  refundAcceptLabel: 'The owner accepts the refund and cancellation policy.',
+  refundAcceptHelp: 'Refunds upheld under this policy come out of the weekly settlement — they are not invoiced separately.',
   safetyTitle: 'Food Safety License',
   safetyUploadDescription: 'Upload a clear scan or photo of the FSSAI license',
   contractServiceText: 'the sale and delivery of food items',
@@ -125,11 +172,21 @@ export const INITIAL_RESTAURANT_STATE = {
 
   /* Step 3 — tax and identity.
      Two scans are collected, the PAN card and the FSSAI certificate. The GST
-     certificate and the cancelled cheque are recorded by NUMBER only. */
+     certificate and the cancelled cheque are recorded by NUMBER only — and the
+     GSTIN is optional, because plenty of these kitchens have no registration
+     to record. `validateRestaurant.js` has the reasoning. */
   panNumber: '',
   panFile: null,
   gstin: '',
   gstExempt: false,
+
+  /* Step 3 — the refund and cancellation policy.
+     Its own acceptance, deliberately not folded into `acceptedTos` on step 4:
+     that one is the whole merchant agreement signed by name at the end, and
+     this is the single rule that takes money off a settlement, ticked on the
+     screen that prints it while the owner is still in the room. One tick
+     covering both would make it impossible to say which was actually read. */
+  refundPolicyAccepted: false,
 
   // Step 3 — safety
   fssaiNumber: '',

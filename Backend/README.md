@@ -103,6 +103,28 @@ owner a WhatsApp template through Twilio. The listing only reaches the
 `x-employee-email` header are refused unless an administrator has granted that
 employee permission for that listing, and a grant is single-use.
 
+`POST /api/v1/properties/:id/resend-verification` sends that owner template
+again, and always **stage one**: a listing stuck in the console as "Awaiting
+verification" may be waiting on the owner or on the team, and in both cases the
+answer is to ask the owner, because the team stage is built on the owner's YES.
+A request that already reached `owner_approved` goes back to `sent`. The `:id`
+is the PROPERTY id the console holds — the snapshot's, resolved the same way
+`PUT` and `DELETE` resolve it — and the owner's number is re-read from that
+snapshot, so correcting a wrong number with Edit and then resending actually
+reaches the new one. The button payload keeps the same request id, so an older
+message still on the owner's phone cannot approve a second listing. Admin only
+(`verifications.manage`), one message a minute, and the 48-hour window restarts
+on each send.
+
+It also clears `assignedVerifierMobileE164`, which is correctness rather than
+tidiness: a request waiting on the owner has never had a verifier, and leaving
+one on a request just put back to `sent` would hand a team member a live Accept
+button for stage one. Their tap passes the webhook's "is this yours" check,
+fails the verifier branch (which needs `owner_approved`) and falls into the
+OWNER branch, where a tagged tap is read as the owner's YES — a verifier
+approving on the owner's behalf. Cleared, the old button matches neither role
+and is refused.
+
 **v2 — the public site and the leads panel.** `POST /api/v2/properties` writes
 the property immediately, behind a bearer token. No Twilio, no approval chain.
 

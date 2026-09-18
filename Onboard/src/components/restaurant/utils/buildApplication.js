@@ -1,12 +1,15 @@
 /*
  * The wizard's state, turned into the body `POST /api/v2/food-partners/applications`
- * reads — and the gates that decide when each step may be left.
+ * reads.
  *
- * Both live here, together, because they are two halves of one agreement with
- * the backend: `validateApplication` on the server refuses an application the
- * gates below should never have let through, and when the two disagree the
- * agent meets a 400 at the END of a twenty-minute form. Keeping them in one
- * file is what makes a drift between them visible.
+ * The step gates used to live here too, beside it, because they are two halves
+ * of one agreement with the backend: `validateApplication` on the server
+ * refuses an application the gates should never have let through, and when the
+ * two disagree the agent meets a 400 at the END of a twenty-minute form. They
+ * now live in `validateRestaurant.js` — same agreement, same reasoning written
+ * out there, but a message per field rather than one boolean per step, because
+ * a greyed-out Continue button cannot say which of step 3's dozen fields is
+ * the one holding it shut.
  *
  * The payload keys are deliberately the ones the backend's `sanitiseApplication`
  * already names — `selectedDays` and `dayTimeSlots` as siblings, `shopNo` and
@@ -18,79 +21,6 @@
 import { CONTRACT_COMMISSION, CONTRACT_PLATFORM_FEE } from './restaurantOptions';
 
 const trim = (value) => String(value ?? '').trim();
-
-/* ── The step gates ───────────────────────────────────────────────────────── */
-
-/*
- * The owner's mobile is checked for SHAPE, not for possession.
- *
- * There is no one-time code: the agent is standing with the owner and reads
- * the number off their phone. Ten digits is still enforced, because the
- * backend refuses anything that is not an Indian mobile — that number is what
- * a rider rings from outside the shutter.
- */
-export const canProceedStep1 = (form) => (
-  trim(form.restaurantName).length > 0
-  && form.cuisines.length > 0
-  && trim(form.ownerName).length > 0
-  && trim(form.ownerEmail).includes('@')
-  && form.ownerPhone.replace(/\D/g, '').length === 10
-  && trim(form.area).length > 0
-  && trim(form.city).length > 0
-  && trim(form.landmark).length > 0
-);
-
-/*
- * Hours, and nothing else.
- *
- * There is no menu to gate on: the restaurant adds it from the Food-Partner
- * app after approval. The backend agrees — the rule demanding at least one
- * item was removed from `validateApplication` for the same reason, so this
- * gate and that validator still say the same thing.
- */
-export const canProceedStep2 = (form) => (
-  form.selectedDays.length > 0
-  && form.selectedDays.every((day) => (form.dayTimeSlots[day] || [])
-    .some((slot) => slot.open && slot.close))
-);
-
-/*
- * Two scans, both mandatory: the PAN card and the FSSAI certificate.
- *
- * The GST certificate and the cancelled cheque are no longer asked for as
- * IMAGES — their numbers still are, and are still validated, but an agent in
- * a kitchen is not going to be handed a bank statement, and a form that will
- * not move on until they are is a form abandoned on the doorstep.
- *
- * The bank block stays all-or-nothing rather than optional-per-field: the
- * backend refuses a half-filled payout ("an account number with no IFSC is
- * money that cannot be sent"), so the gate mirrors that rule rather than
- * letting the agent discover it at submit.
- */
-export const canProceedStep3 = (form) => (
-  trim(form.panNumber).length === 10
-  && form.panFile !== null
-  && (form.gstExempt || trim(form.gstin).length === 15)
-  && trim(form.fssaiNumber).length === 14
-  && trim(form.fssaiExpiry).length > 0
-  && form.fssaiFile !== null
-  && trim(form.accountHolderName).length > 0
-  && form.bankAccount.length >= 9
-  && form.bankAccount === form.bankConfirm
-  && trim(form.ifsc).length === 11
-  && form.ifscFetched
-);
-
-export const canSubmit = (form) => (
-  form.acceptedTos && trim(form.signature).length > 0
-);
-
-export const canProceed = (form, step) => {
-  if (step === 1) return canProceedStep1(form);
-  if (step === 2) return canProceedStep2(form);
-  if (step === 3) return canProceedStep3(form);
-  return canSubmit(form);
-};
 
 /* ── The payload ──────────────────────────────────────────────────────────── */
 
@@ -165,6 +95,12 @@ export const buildApplicationPayload = (form) => {
       signature: trim(form.signature),
       commission: CONTRACT_COMMISSION,
       platformFee: CONTRACT_PLATFORM_FEE,
+      /* Ticked on step 3, stored with the rest of what was agreed. Its own
+         flag rather than folded into `accepted`, because the two were ticked
+         at different moments against different words and the settlement
+         dispute this exists for turns on which one was read. The server sets
+         the timestamp beside it. */
+      refundPolicyAccepted: form.refundPolicyAccepted,
     },
   };
 

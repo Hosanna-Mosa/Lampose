@@ -21,7 +21,10 @@ export interface PropertyCategoryDetails {
   checkInTime?: string;
   roomType?: string;
   furnishing?: string;
-  allowedTenants?: string;
+  /* A LIST on anything the field agents' console has written since the
+     control became multi-select; one string on everything before it, and on
+     what this panel's own simpler form writes. Both are read everywhere. */
+  allowedTenants?: string | string[];
   kitchenAvailable?: boolean;
   waterSupply?: string;
   [key: string]: any;

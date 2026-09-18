@@ -25,6 +25,7 @@ import { validateOnboarding, firstErrorKey, anchorFor } from './services/validat
 import { readPin, splitAddress } from './services/mapLink.js';
 import { PlusCircle, AlertCircle, Building2, Loader2, CloudUpload, Database, ShieldAlert, WifiOff } from 'lucide-react';
 import { INITIAL_FORM_STATE } from './components/onboard/utils/initialFormState';
+import { tenantList } from './components/onboard/utils/categoryFieldOptions';
 import { Box, ContentInfo, Form, Heading, Inline, Main, PlainButton, Strong, Text } from './components/common/atoms';
 
 
@@ -225,10 +226,16 @@ export function App() {
         furnishingItemsByLayout: {},
         /* Who may take it, and whether it has a kitchen, are per layout too:
            a building commonly lets its 1 RKs to men and its 2 BHKs to women.
-           The flat fields below are derived summaries. */
+           The flat fields below are derived summaries.
+
+           Tenants are a LIST per layout — several answers are commonly all
+           true at once — seeded with the one the category implies. Rows
+           written before it was a list carry a bare string, which every
+           reader still accepts; see `tenantList` in categoryFieldOptions.js. */
         allowedTenantsByLayout: {
-          [cat === 'COLIVE' ? '2 BHK' : '1 BHK']:
+          [cat === 'COLIVE' ? '2 BHK' : '1 BHK']: [
             cat === 'COLIVE' ? 'Bachelors Male / Female' : 'Bachelors Male Only',
+          ],
         },
         kitchenByLayout: { [cat === 'COLIVE' ? '2 BHK' : '1 BHK']: true },
         furnishing: 'Semi-Furnished',
@@ -238,8 +245,9 @@ export function App() {
         furnishingItems: [],
         customFurnishingItems: [],
         /* A bachelor let is single-gender by definition, so the mixed option
-           is not offered for it and cannot be the default. */
-        allowedTenants: cat === 'COLIVE' ? 'Bachelors Male / Female' : 'Bachelors Male Only',
+           is not offered for it and cannot be the default. The flat field is
+           the union across layouts, so it is a list like the per-layout one. */
+        allowedTenants: [cat === 'COLIVE' ? 'Bachelors Male / Female' : 'Bachelors Male Only'],
         kitchenAvailable: true,
         waterSupply: '24 Hours'
       };
@@ -374,22 +382,57 @@ export function App() {
         const tenantsByLayout = updatedDetails.allowedTenantsByLayout || {};
         const kitchenByLayout = updatedDetails.kitchenByLayout || {};
 
+        /*
+         * These four summaries go into `updatedDetails`, NOT `extraFields`.
+         *
+         * `extraFields` is spread over the TOP LEVEL of the form, which is
+         * right for a top-level column like `rent` and wrong for anything the
+         * listing reads out of `categoryDetails`. They were written to
+         * `extraFields` here, and the consequence was silent in a way worth
+         * spelling out: `property.model.js` is `strict: true` and has no
+         * `allowedTenants` column, so the derived value was dropped by
+         * mongoose on arrival, while `categoryDetails.allowedTenants` kept the
+         * value SEEDED when the category was picked. A co-live flat let to a
+         * family was stored, listed and shown to renters as "Bachelors Male /
+         * Female" — the seed — no matter what the agent chose in the dropdown.
+         *
+         * The hotel block above already writes its summaries to
+         * `updatedDetails` for this reason.
+         *
+         * `amenities` is the exception and stays in `extraFields`: that one IS
+         * a top-level column (`amenities: [String]`), and the general amenity
+         * picker is hidden for these two categories, so without this line it
+         * would sit at whatever it was seeded with and no agent could change
+         * it.
+         */
         const levels = [...new Set(layouts.map(l => byLayout[l]).filter(Boolean))];
-        extraFields.furnishing = levels.length === 1 ? levels[0] : (levels.length ? 'Mixed' : '');
+        updatedDetails.furnishing = levels.length === 1 ? levels[0] : (levels.length ? 'Mixed' : '');
 
         const union = [...new Set(layouts.flatMap(l => itemsByLayout[l] || []))];
-        extraFields.furnishingItems = union;
+        updatedDetails.furnishingItems = union;
         extraFields.amenities = union;
 
-        const tenants = [...new Set(layouts.map(l => tenantsByLayout[l]).filter(Boolean))];
-        extraFields.allowedTenants = tenants.length === 1 ? tenants[0] : (tenants.length ? 'Mixed' : '');
+        /*
+         * The union, not "Mixed".
+         *
+         * This used to collapse to the word 'Mixed' the moment two layouts
+         * disagreed, which threw away the only thing a renter wanted from it.
+         * A building letting its 1 BHKs to men and its 2 BHKs to families is
+         * let to men and to families — both, said plainly — and now that each
+         * layout holds a LIST the union is the honest summary of the lot.
+         *
+         * `tenantList` rather than a bare read, because a row onboarded before
+         * the control became multi-select holds one string per layout.
+         */
+        const tenants = [...new Set(layouts.flatMap(l => tenantList(tenantsByLayout[l])))];
+        updatedDetails.allowedTenants = tenants;
 
         /* `some` rather than `every`, because this summary answers "does this
            building have kitchen-equipped units". A property with three
            kitchens and one without would otherwise be listed as having none,
            which is the more misleading of the two — and the per-layout truth
            is right there for anybody choosing a flat. */
-        extraFields.kitchenAvailable = layouts.some(l => kitchenByLayout[l] !== false);
+        updatedDetails.kitchenAvailable = layouts.some(l => kitchenByLayout[l] !== false);
       }
 
       if (['sharingPrices', 'sharingAcPrices', 'sharingTypes', 'roomTypes', 'bedTypes'].includes(field)) {

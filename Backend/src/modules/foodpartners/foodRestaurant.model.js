@@ -542,12 +542,29 @@ const foodRestaurantSchema = new mongoose.Schema(
      * what was accepted and by whom, not a cryptographic signature, and nothing
      * should treat it as one.
      */
+    /*
+     * `refundPolicyAccepted` is its own flag rather than part of `accepted`.
+     *
+     * The merchant agreement is accepted once, by signature, at the end of the
+     * onboarding form. The refund and cancellation rule is ticked separately,
+     * on the screen that prints it in full beside the bank details it will be
+     * deducted from — and the dispute this record exists for ("nobody told us
+     * we would be charged for a late cancellation") turns on exactly which of
+     * those two the owner was read. One boolean covering both could not
+     * answer it.
+     *
+     * Not required by `validateApplication`, the same way `panNumber` is not:
+     * a rule there refuses every client that predates the field. The Onboard
+     * console insists on it, which is where it is asked for.
+     */
     contract: {
       accepted: { type: Boolean, default: false },
       signature: { type: String, default: '', trim: true },
       acceptedAt: { type: Date, default: null },
       commission: { type: Number, default: 0, min: 0 },
       platformFee: { type: Number, default: 0, min: 0 },
+      refundPolicyAccepted: { type: Boolean, default: false },
+      refundPolicyAcceptedAt: { type: Date, default: null },
     },
 
     /*

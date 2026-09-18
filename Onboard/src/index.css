@@ -791,6 +791,29 @@ body {
   color: var(--text-sub);
 }
 
+/* The one problem, under the control it belongs to. `is-bad` above colours
+   the border; this says why, and the two are always rendered together. */
+.rst-err {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #b91c1c;
+}
+
+.rst-err svg { flex-shrink: 0; margin-top: 2px; }
+
+/* A section that failed a check — a tinted rail down its left edge, so an
+   agent scrolling a long step can find the block that is holding it up
+   without reading every label. */
+.rst-card.is-bad {
+  border-color: #fecaca;
+  box-shadow: inset 3px 0 0 #fca5a5;
+}
+
 .rst-input.is-bad { border-color: #fca5a5; }
 .rst-input.is-bad:focus { box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1); }
 .rst-input.is-good { border-color: var(--lampose-green-border); }
@@ -849,6 +872,13 @@ textarea.rst-input { resize: vertical; min-height: 78px; }
 }
 
 .rst-chip:hover { border-color: var(--lampose-green-border); }
+
+/* A day whose hours will not do. Tinted rather than filled, because the chip
+   also carries the is-on state and the two have to stay distinguishable. */
+.rst-chip.is-bad {
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
 
 .rst-chip.is-on {
   background: var(--lampose-green);
@@ -1055,6 +1085,34 @@ textarea.rst-input { resize: vertical; min-height: 78px; }
   font-weight: 600;
   line-height: 1.45;
 }
+
+/* The containers that are scrolled to and focused when a problem is pointed
+   at — the cuisine chips, the day picker, the hours block, a drop zone. They
+   take focus programmatically only (`tabIndex={-1}`), and the message printed
+   under them is the signal, so the browser's default ring would be a second
+   one landing on a whole block rather than a control. */
+.rst-shell [tabindex="-1"]:focus { outline: none; }
+
+/* One line of the "what is in the way" list. A button rather than text,
+   because the whole point of the list is getting to the field it names —
+   styled as the sentence it reads as, not as a control. */
+.rst-err-jump {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(185, 28, 28, 0.35);
+  text-underline-offset: 2px;
+}
+
+.rst-err-jump + .rst-err-jump { margin-top: 4px; }
+.rst-err-jump:hover { text-decoration-color: currentColor; }
 
 .rst-note-ok { background: var(--lampose-green-light); border: 1px solid var(--lampose-green-border); color: #2f6b45; }
 .rst-note-info { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }

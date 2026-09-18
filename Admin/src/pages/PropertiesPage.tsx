@@ -10,6 +10,7 @@ import {
   Phone,
   Plus,
   RefreshCw,
+  Send,
   Trash2,
   User,
   X,
@@ -79,6 +80,27 @@ const KNOWN_DETAIL_KEYS = new Set([
 const humanizeKey = (key: string): string =>
   key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
 
+/**
+ * Who a layout is let to, as one phrase.
+ *
+ * `allowedTenantsByLayout` holds a LIST per layout — a flat offered to
+ * families and to single women is one flat with two kinds of tenant — while
+ * every row onboarded before the control became multi-select holds a bare
+ * string. Both are read; nothing was migrated.
+ *
+ * This is also why it is a function rather than `tenants[l]?.replace(...)`,
+ * which is what it was: `String.prototype.replace` on an array is a
+ * TypeError, so the first multi-value listing would have taken the whole
+ * drawer down.
+ */
+const tenantNote = (value: unknown): string | null => {
+  const list = Array.isArray(value) ? value : value ? [value] : [];
+  const words = list
+    .map((t) => String(t).replace(/^Bachelors /, '').trim())
+    .filter(Boolean);
+  return words.length ? words.join(' / ') : null;
+};
+
 interface DetailRow {
   key: string;
   label: string;
@@ -115,7 +137,7 @@ const describeCategoryDetails = (details: Record<string, unknown>): DetailRow[] 
        a semi-furnished 1 BHK and a fully-furnished 2 BHK. */
     const byLayout = (details.furnishingByLayout ?? {}) as Record<string, string>;
     const counts = (details.sharingRooms ?? {}) as Record<string, number>;
-    const tenants = (details.allowedTenantsByLayout ?? {}) as Record<string, string>;
+    const tenants = (details.allowedTenantsByLayout ?? {}) as Record<string, string | string[]>;
     const kitchens = (details.kitchenByLayout ?? {}) as Record<string, boolean>;
     rows.push({
       key: 'roomTypes',
@@ -126,7 +148,7 @@ const describeCategoryDetails = (details: Record<string, unknown>): DetailRow[] 
           if (counts[l]) bits.push(`×${counts[l]}`);
           const notes = [
             byLayout[l],
-            tenants[l]?.replace(/^Bachelors /, ''),
+            tenantNote(tenants[l]),
             kitchens[l] === false ? 'no kitchen' : null,
           ].filter(Boolean);
           if (notes.length) bits.push(`(${notes.join(', ')})`);
@@ -225,6 +247,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
   const [selected, setSelected] = useState<PropertyEntity | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PropertyEntity | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [resending, setResending] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -301,6 +324,37 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
     } else {
       setToast({ tone: 'crit', message: res.message || 'Delete failed.' });
       setPendingDelete(null);
+    }
+  };
+
+  /**
+   * Ask the owner again.
+   *
+   * No confirmation dialog, unlike Delete: this is not destructive, and the
+   * server refuses a second send within a minute, so the double tap a dialog
+   * would be guarding against cannot put two messages on an owner's phone.
+   * The refusals worth reading — a wrong number, WhatsApp down, the cooldown —
+   * come back as sentences and are shown as they are.
+   *
+   * `reload()` afterwards because a request that had failed to send now reads
+   * as sent, and the grid should not still be showing the old state.
+   */
+  const handleResend = async (property: PropertyEntity) => {
+    setResending(true);
+    const res = await propertyService.resendVerification(property.id);
+    setResending(false);
+
+    if (res.success) {
+      const attempts = res.data?.attempts;
+      setToast({
+        tone: 'good',
+        message: `Approval message sent to ${property.ownerName || 'the owner'} on WhatsApp${
+          attempts ? ` — attempt ${attempts}` : ''
+        }. They have 48 hours to reply YES.`,
+      });
+      reload();
+    } else {
+      setToast({ tone: 'crit', message: res.message || 'The message could not be sent.' });
     }
   };
 
@@ -651,10 +705,35 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
             </Box>
 
             {!selected.isVerified && (
-              <Text className="px-4 pt-3 text-label text-ink-3 leading-relaxed">
-                Not yet a live listing — this is a snapshot from an onboarding request still awaiting owner or
-                verifier confirmation on WhatsApp. Editing or deleting it updates or cancels that request.
-              </Text>
+              <Box className="px-4 pt-3 space-y-2">
+                <Text className="text-label text-ink-3 leading-relaxed">
+                  Not yet a live listing — this is a snapshot from an onboarding request still awaiting owner or
+                  verifier confirmation on WhatsApp. Editing or deleting it updates or cancels that request.
+                </Text>
+
+                {/* Always the OWNER's message, never the verification team's.
+                    The team is only asked once the owner has replied YES, so a
+                    listing stuck at either stage is answered by asking the
+                    owner again — and resending to the team would ask somebody
+                    to confirm a listing its owner never agreed to.
+
+                    Sits here rather than in the footer beside Edit and Delete
+                    because it only exists while this paragraph does, and
+                    because three buttons do not fit the footer at this width. */}
+                <Button
+                  variant="secondary"
+                  icon={Send}
+                  loading={resending}
+                  onClick={() => handleResend(selected)}
+                >
+                  Resend verification to owner
+                </Button>
+                <Text className="text-micro text-ink-3 leading-relaxed">
+                  Sends the approval message to {selected.ownerMobile || 'the owner'} again and restarts the
+                  48-hour window. Correct the number with Edit first if it is wrong — the resend reads it back
+                  from this snapshot.
+                </Text>
+              </Box>
             )}
 
             <Box className="flex-1 overflow-y-auto">
