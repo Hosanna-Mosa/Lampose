@@ -255,7 +255,9 @@ export default function AuthScreen() {
       }
       /* The same destination a verified code reaches. `next` is honoured so a
          reviewer who deep-linked somewhere lands back there. */
-      router.replace((next as string) || '/');
+      /* `as never` because typedRoutes cannot know a runtime `next`; the same
+         cast the rest of this app uses for a computed path. */
+      router.replace(((next as string) || '/') as never);
     } finally {
       setPasswordBusy(false);
     }
