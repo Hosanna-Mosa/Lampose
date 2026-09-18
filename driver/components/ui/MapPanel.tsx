@@ -245,6 +245,9 @@ export function MapPanel({
   heading,
   pickedUp = false,
   eta,
+  mapType = "standard",
+  allowPan = false,
+  onMapRef,
 }: {
   height: number;
   /** "To restaurant" / "To customer" — which leg this is. Leave unset outside
@@ -261,6 +264,12 @@ export function MapPanel({
   pickedUp?: boolean;
   /** Optional, and left empty rather than guessed — nothing computes an ETA. */
   eta?: string;
+  /** Map type style ('standard' | 'satellite'). Default 'standard'. */
+  mapType?: "standard" | "satellite" | "hybrid" | "terrain";
+  /** Whether to allow scroll/pan when in solo mode. */
+  allowPan?: boolean;
+  /** Callback to expose MapView reference. */
+  onMapRef?: (ref: MapView | null) => void;
 }) {
   /** Whether there is a journey at all — the one flag every "which mode is
    *  this" decision below reduces to. */
@@ -353,12 +362,17 @@ export function MapPanel({
         ? bearingBetween(me, legTarget)
         : 0;
 
+  useEffect(() => {
+    onMapRef?.(mapRef.current);
+  }, [onMapRef]);
+
   return (
     <View style={[styles.wrap, { height }]}>
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFill}
         provider={PROVIDER_GOOGLE}
+        mapType={mapType}
         initialRegion={
           pickup
             ? { ...toLatLng(pickup), latitudeDelta: 0.02, longitudeDelta: 0.02 }
@@ -366,15 +380,8 @@ export function MapPanel({
               ? { ...toLatLng(me), latitudeDelta: 0.01, longitudeDelta: 0.01 }
               : undefined
         }
-        /*
-         * Solo mode is a live snapshot of where the rider is, not a map to go
-         * exploring in — there is nothing here to navigate to yet. Locking
-         * pan and zoom is what makes that true rather than asserted: without
-         * it a rider could drag the one thing on screen answering "can they
-         * see me" away from themselves.
-         */
-        scrollEnabled={hasJourney}
-        zoomEnabled={hasJourney}
+        scrollEnabled={hasJourney || allowPan}
+        zoomEnabled={hasJourney || allowPan}
         rotateEnabled={false}
         pitchEnabled={false}
         toolbarEnabled={false}

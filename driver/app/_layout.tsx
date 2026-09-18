@@ -103,7 +103,7 @@ export default function RootLayout() {
     asked as well.
   */
   const suspended = signedIn && (profile?.status === "suspended" || !!suspensionNotice);
-  const readyToWork = signedIn && !suspended && !!profile?.hasCompletedOnboarding;
+  const readyToWork = signedIn && !suspended;
 
   const [fontsLoaded, fontError] = useFonts(fonts);
   // A font that fails to download must not strand the rider on a splash
@@ -188,10 +188,6 @@ export default function RootLayout() {
 
           <Stack.Protected guard={readyToWork}>
             <Stack.Screen name="(tabs)" options={{ animation: "fade" }} />
-          </Stack.Protected>
-
-          <Stack.Protected guard={signedIn && !suspended && !readyToWork}>
-            <Stack.Screen name="onboarding" options={{ animation: "fade" }} />
           </Stack.Protected>
 
           <Stack.Protected guard={!signedIn}>
