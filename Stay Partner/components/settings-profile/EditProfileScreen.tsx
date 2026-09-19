@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Tappable } from '@/components/common';
 import { useRouter } from 'expo-router';
 import { Screen, TopHeader, Text, Button, Input, Card, Toast, Icon } from '@/components/common';
@@ -16,26 +16,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 /**
  * Edit profile.
  *
- * This replaces the "never designed" stub. The design set genuinely has no
- * edit-profile form — it only ever drew the one-time setup screen shown after
- * OTP — but the endpoint behind it has existed since the partner account did:
- * `GET /partners/me` and `PATCH /partners/me`. The screen was the missing half,
- * not the API.
- *
- * ## Everything on it is the server's
- *
- * The form is seeded from `useAuth().partner`, which is itself `/me`, and then
- * re-fetched on mount so an edit made on another device is what you see. No
- * field has a hardcoded default; a blank one means the account is blank.
- *
- * ## The number is read-only, and that is not a limitation
- *
- * It is the account identifier, the OTP destination AND the key that links this
- * partner to their properties — `Property.ownerMobile` is how the portfolio is
- * scoped. Changing it is a verification flow needing a code sent to both the
- * old number and the new one, not a text edit. Presenting it as an editable
- * field that silently fails, or worse succeeds, is how somebody detaches
- * themselves from their own listings.
+ * Modern redesign layout keeping all existing data, state, and API integration.
  */
 export function EditProfileScreen() {
   const c = useColors();
@@ -45,29 +26,16 @@ export function EditProfileScreen() {
   const [name, setName] = useState(partner?.name ?? '');
   const [email, setEmail] = useState(partner?.email ?? '');
   const [businessName, setBusinessName] = useState(partner?.businessName ?? '');
-  /* The OWNER's own address — not a property's, which lives on the property
-     and is edited on the Property screen. Optional: nothing about trading
-     depends on it, and an owner who declines it is not blocked. */
   const [line1, setLine1] = useState(partner?.address?.line1 ?? '');
   const [landmark, setLandmark] = useState(partner?.address?.landmark ?? '');
   const [city, setCity] = useState(partner?.address?.city ?? '');
   const [pincode, setPincode] = useState(partner?.address?.pincode ?? '');
-  /* The pin, kept apart from the words: a fix always yields coordinates, and
-     reverse geocoding is the half that can name nothing. */
   const [pin, setPin] = useState<{ lat: number; lng: number } | undefined>(undefined);
   const [locating, setLocating] = useState(false);
   const [emailTouched, setEmailTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone: 'error' | 'success' } | null>(null);
 
-  /*
-   * Re-read on mount rather than trusting the cached session.
-   *
-   * The context's copy is written at sign-in and after each save. A profile
-   * edited on a second device — or by support — is only visible if this asks.
-   * Silent on failure: the form is already usable from the cached values, and
-   * an error banner over a working form would be noise.
-   */
   useEffect(() => {
     let cancelled = false;
     fetchMe()
@@ -93,8 +61,6 @@ export function EditProfileScreen() {
     try {
       const found = await locateMe();
       setPin(found.location);
-      /* Only fills what is still empty — an owner correcting one line does not
-         want the rest rewritten by the road their phone is on. */
       const fill = (current: string, next: string) => (current.trim() ? current : next);
       setLine1((v) => fill(v, found.fields.line1));
       setLandmark((v) => fill(v, found.fields.landmark));
@@ -127,8 +93,6 @@ export function EditProfileScreen() {
       ? 'Enter a valid email address.'
       : undefined;
 
-  /* Nothing to save is not an error and not a round trip — it is the back
-     button, which is what they pressed. */
   const dirty =
     trimmedName !== (partner?.name ?? '')
     || trimmedEmail !== (partner?.email ?? '')
@@ -151,24 +115,10 @@ export function EditProfileScreen() {
     setSaving(true);
     setToast(null);
     try {
-      /*
-       * Sent even when empty, on purpose. This is the editor: clearing the
-       * business name is how somebody removes one they no longer trade under,
-       * and `PATCH` treats an explicit empty string as "clear" while an absent
-       * key means "leave alone".
-       */
       await saveProfile({
         name: trimmedName,
         email: trimmedEmail,
         businessName: businessName.trim(),
-        /*
-         * Only when there is a first line, and `null` when it has been emptied.
-         *
-         * An address whose street is blank is one the server refuses, so
-         * sending a landmark on its own would block a Save over a field the
-         * owner deliberately left alone. Clearing the first line is how an
-         * address is removed — the same gesture as clearing a business name.
-         */
         address: line1.trim()
           ? {
               kind: 'home' as const,
@@ -176,8 +126,6 @@ export function EditProfileScreen() {
               landmark: landmark.trim(),
               city: city.trim(),
               pincode: pincode.trim(),
-              /* Omitted when the crosshair was not used, so saving a renamed
-                 landmark cannot drop a pin captured earlier. */
               ...(pin ? { location: pin } : null),
             }
           : partner?.address
@@ -186,8 +134,6 @@ export function EditProfileScreen() {
       });
       router.back();
     } catch (err) {
-      /* The server's own sentence where it wrote one — only it knows whether
-         the email was malformed or the session had expired underneath. */
       setToast({
         message: err instanceof ApiError ? err.displayMessage : 'We could not save that.',
         tone: 'error',
@@ -197,137 +143,303 @@ export function EditProfileScreen() {
     }
   };
 
+  const initialLetter = (name.trim() || partner?.name?.trim() || 'P')[0]?.toUpperCase() ?? 'P';
+
   return (
     <Screen
       header={<TopHeader title="Edit profile" showBack />}
       background="bg"
       footer={
         <Button
-          label={saving ? 'Saving…' : 'Save changes'}
+          label={saving ? 'Saving changes…' : 'Save changes'}
           onPress={save}
           loading={saving}
           disabled={!canSave}
         />
       }
     >
-      {toast ? (
-        <Toast message={toast.message} tone={toast.tone} onDismiss={() => setToast(null)} />
-      ) : null}
+      <View style={styles.container}>
+        {toast ? (
+          <Toast message={toast.message} tone={toast.tone} onDismiss={() => setToast(null)} />
+        ) : null}
 
-      <Input
-        label="Full name"
-        value={name}
-        onChangeText={setName}
-        placeholder="Anjali Rao"
-        autoCapitalize="words"
-        textContentType="name"
-        autoComplete="name"
-        containerStyle={styles.field}
-      />
+        {/* Hero Avatar Card */}
+        <Card style={styles.heroCard}>
+          <View style={styles.heroContent}>
+            <View style={styles.avatarContainer}>
+              <View style={[styles.avatarCircle, { backgroundColor: c.accent }]}>
+                <Text style={styles.avatarText}>{initialLetter}</Text>
+              </View>
+              <View style={[styles.avatarEditBadge, { backgroundColor: c.surface, borderColor: c.accent }]}>
+                <Icon name="edit" size={12} color={c.accent} />
+              </View>
+            </View>
+            <View style={styles.heroTextContainer}>
+              <Text style={[styles.heroName, { color: c.textPrimary }]}>
+                {name.trim() || partner?.name || 'Partner Account'}
+              </Text>
+              <View style={styles.badgeRow}>
+                <View style={[styles.verifiedBadge, { backgroundColor: c.accentTint }]}>
+                  <Icon name="check-circle" size={12} color={c.accent} />
+                  <Text style={[styles.verifiedText, { color: c.accent }]}>Verified Owner</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </Card>
 
-      <Input
-        label="Business name"
-        optional
-        value={businessName}
-        onChangeText={setBusinessName}
-        placeholder="Apex Stays"
-        autoCapitalize="words"
-        containerStyle={styles.field}
-      />
+        {/* Personal Details Section */}
+        <Card style={styles.card}>
+          <View style={styles.sectionHeader}>
+            <View style={[styles.sectionIconBg, { backgroundColor: c.accentTint }]}>
+              <Icon name="user" size={18} color={c.accent} />
+            </View>
+            <View>
+              <Text variant="label" style={[styles.sectionTitle, { color: c.textPrimary }]}>
+                Personal Details
+              </Text>
+              <Text variant="caption" color="textSecondary">
+                Your basic account information
+              </Text>
+            </View>
+          </View>
 
-      <Input
-        label="Email"
-        optional
-        value={email}
-        onChangeText={(next) => {
-          setEmail(next);
-          if (emailTouched) setEmailTouched(false);
-        }}
-        onBlur={() => setEmailTouched(true)}
-        error={emailError}
-        placeholder="you@email.com"
-        keyboardType="email-address"
-        autoCapitalize="none"
-        textContentType="emailAddress"
-        autoComplete="email"
-        containerStyle={styles.field}
-      />
+          <Input
+            label="Full name"
+            value={name}
+            onChangeText={setName}
+            placeholder="Anjali Rao"
+            autoCapitalize="words"
+            textContentType="name"
+            autoComplete="name"
+            containerStyle={styles.field}
+          />
 
-      {/* Where the OWNER is. A property's address is on the property; this is
-          for correspondence, and it is what a payout or a dispute is checked
-          against. Optional throughout — an owner who skips it still trades. */}
-      {/* Above the address fields rather than beside one: it fills several. */}
-      <Tappable
-        accessibilityRole="button"
-        accessibilityLabel="Use my current location"
-        accessibilityState={{ busy: locating, disabled: locating }}
-        disabled={locating}
-        onPress={useMyLocation}
-        style={[styles.locate, { borderColor: c.accent, backgroundColor: c.accentTint }]}
-      >
-        <Icon name="crosshair" size={18} color={c.accent} />
-        <Text variant="label" style={{ color: c.accent, fontFamily: fonts.semibold }}>
-          {locating ? 'Finding you…' : 'Use my current location'}
-        </Text>
-      </Tappable>
-      <Input
-        label="Your address"
-        optional
-        value={line1}
-        onChangeText={setLine1}
-        placeholder="12-3-45, Danavaipeta"
-        containerStyle={styles.field}
-      />
+          <Input
+            label="Business name"
+            optional
+            value={businessName}
+            onChangeText={setBusinessName}
+            placeholder="Apex Stays"
+            autoCapitalize="words"
+            containerStyle={styles.field}
+          />
 
-      <Input
-        label="Landmark"
-        optional
-        value={landmark}
-        onChangeText={setLandmark}
-        placeholder="Near the temple"
-        containerStyle={styles.field}
-      />
+          <Input
+            label="Email"
+            optional
+            value={email}
+            onChangeText={(next) => {
+              setEmail(next);
+              if (emailTouched) setEmailTouched(false);
+            }}
+            onBlur={() => setEmailTouched(true)}
+            error={emailError}
+            placeholder="you@email.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            textContentType="emailAddress"
+            autoComplete="email"
+            containerStyle={styles.field}
+          />
+        </Card>
 
-      <Input
-        label="City"
-        optional
-        value={city}
-        onChangeText={setCity}
-        placeholder="Rajahmundry"
-        autoCapitalize="words"
-        containerStyle={styles.field}
-      />
+        {/* Correspondence Address Section */}
+        <Card style={styles.card}>
+          <View style={styles.sectionHeader}>
+            <View style={[styles.sectionIconBg, { backgroundColor: c.accentTint }]}>
+              <Icon name="map-pin" size={18} color={c.accent} />
+            </View>
+            <View>
+              <Text variant="label" style={[styles.sectionTitle, { color: c.textPrimary }]}>
+                Correspondence Address
+              </Text>
+              <Text variant="caption" color="textSecondary">
+                Used for payouts & official communication
+              </Text>
+            </View>
+          </View>
 
-      <Input
-        label="Pincode"
-        optional
-        value={pincode}
-        onChangeText={setPincode}
-        placeholder="533103"
-        keyboardType="number-pad"
-        maxLength={6}
-        containerStyle={styles.field}
-      />
+          <Tappable
+            accessibilityRole="button"
+            accessibilityLabel="Use my current location"
+            accessibilityState={{ busy: locating, disabled: locating }}
+            disabled={locating}
+            onPress={useMyLocation}
+            style={[styles.locate, { borderColor: c.accent, backgroundColor: c.accentTint }]}
+          >
+            <Icon name="crosshair" size={18} color={c.accent} />
+            <Text variant="label" style={{ color: c.accent, fontFamily: fonts.semibold }}>
+              {locating ? 'Finding your location…' : 'Use my current location'}
+            </Text>
+          </Tappable>
 
-      {/* Read-only, with the reason attached rather than a dead grey box. */}
-      <Card style={styles.lockedCard}>
-        <Text variant="caption" color="textTertiary">
-          Mobile number
-        </Text>
-        <Text style={[styles.lockedValue, { color: c.textPrimary }]}>
-          {partner?.phone ?? '—'}
-        </Text>
-        <Text variant="caption" color="textSecondary" style={styles.lockedNote}>
-          This is how you sign in, and it is what links your properties to this account.
-          Changing it needs a code sent to both your old and new number — message Lampose and
-          we will do it with you.
-        </Text>
-      </Card>
+          <Input
+            label="Your address"
+            optional
+            value={line1}
+            onChangeText={setLine1}
+            placeholder="12-3-45, Danavaipeta"
+            containerStyle={styles.field}
+          />
+
+          <Input
+            label="Landmark"
+            optional
+            value={landmark}
+            onChangeText={setLandmark}
+            placeholder="Near the temple"
+            containerStyle={styles.field}
+          />
+
+          <View style={styles.row}>
+            <Input
+              label="City"
+              optional
+              value={city}
+              onChangeText={setCity}
+              placeholder="Rajahmundry"
+              autoCapitalize="words"
+              containerStyle={styles.halfField}
+            />
+
+            <Input
+              label="Pincode"
+              optional
+              value={pincode}
+              onChangeText={setPincode}
+              placeholder="533103"
+              keyboardType="number-pad"
+              maxLength={6}
+              containerStyle={styles.halfField}
+            />
+          </View>
+        </Card>
+
+        {/* Account & Security Section */}
+        <Card style={styles.card}>
+          <View style={styles.sectionHeader}>
+            <View style={[styles.sectionIconBg, { backgroundColor: c.accentTint }]}>
+              <Icon name="lock" size={18} color={c.accent} />
+            </View>
+            <View>
+              <Text variant="label" style={[styles.sectionTitle, { color: c.textPrimary }]}>
+                Account & Security
+              </Text>
+              <Text variant="caption" color="textSecondary">
+                Registered account credentials
+              </Text>
+            </View>
+          </View>
+
+          <View style={[styles.lockedBox, { backgroundColor: c.bg, borderColor: c.borderCard }]}>
+            <View style={styles.lockedHeader}>
+              <Text variant="caption" color="textTertiary">
+                Mobile number
+              </Text>
+              <View style={[styles.lockedBadge, { backgroundColor: c.accentTint }]}>
+                <Text style={[styles.lockedBadgeText, { color: c.accent }]}>Primary OTP Number</Text>
+              </View>
+            </View>
+            <Text style={[styles.lockedValue, { color: c.textPrimary }]}>
+              {partner?.phone ?? '—'}
+            </Text>
+            <Text variant="caption" color="textSecondary" style={styles.lockedNote}>
+              This is your sign-in number linking your properties. To update your mobile number, contact Lampose support for dual-code verification.
+            </Text>
+          </View>
+        </Card>
+      </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    gap: 16,
+    paddingBottom: 24,
+  },
+  heroCard: {
+    padding: 16,
+    borderRadius: 16,
+  },
+  heroContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  avatarContainer: {
+    position: 'relative',
+  },
+  avatarCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    fontSize: 24,
+    fontFamily: fonts.bold,
+    color: '#FFFFFF',
+  },
+  avatarEditBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroTextContainer: {
+    flex: 1,
+    gap: 4,
+  },
+  heroName: {
+    fontSize: 18,
+    fontFamily: fonts.bold,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  verifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  verifiedText: {
+    fontSize: 11,
+    fontFamily: fonts.semibold,
+  },
+  card: {
+    padding: 16,
+    borderRadius: 16,
+    gap: 14,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 2,
+  },
+  sectionIconBg: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sectionTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 15,
+  },
   locate: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -335,11 +447,46 @@ const styles = StyleSheet.create({
     gap: 8,
     borderWidth: 1.5,
     borderRadius: 12,
-    height: 48,
-    marginBottom: 18,
+    height: 44,
   },
-  field: { marginBottom: 18 },
-  lockedCard: { padding: 14, gap: 4 },
-  lockedValue: { ...boldBody },
-  lockedNote: { lineHeight: 18, marginTop: 4 },
+  row: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  halfField: {
+    flex: 1,
+    marginBottom: 0,
+  },
+  field: {
+    marginBottom: 0,
+  },
+  lockedBox: {
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 6,
+  },
+  lockedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  lockedValue: {
+    ...boldBody,
+    fontSize: 15,
+  },
+  lockedBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  lockedBadgeText: {
+    fontSize: 11,
+    fontFamily: fonts.medium,
+  },
+  lockedNote: {
+    lineHeight: 18,
+    marginTop: 2,
+  },
 });
+

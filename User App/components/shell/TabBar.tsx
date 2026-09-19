@@ -574,15 +574,6 @@ function TabButton({
       style={[
         styles.tab,
         { gap },
-        active && !tab.raised && [
-          styles.activeTabPill,
-          {
-            backgroundColor:
-              mode === 'dark'
-                ? 'rgba(52, 211, 153, 0.16)'
-                : 'rgba(15, 76, 58, 0.10)',
-          },
-        ],
       ]}
     >
       <Animated.View

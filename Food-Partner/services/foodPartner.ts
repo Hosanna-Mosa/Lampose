@@ -350,6 +350,19 @@ export const login = async (identifier: string, password: string): Promise<Login
   return (res.data ?? res) as LoginResult;
 };
 
+export const resetPassword = async (
+  phone: string,
+  newPassword: string,
+  verificationToken?: string,
+  otp?: string,
+): Promise<{ success: boolean; message?: string }> => {
+  const res = await api<Envelope<unknown>>(`${BASE}/auth/forgot-password/reset`, {
+    method: "POST",
+    body: { phone, newPassword, verificationToken, otp },
+  });
+  return { success: res.success, message: res.message };
+};
+
 /**
  * The signed-in restaurant.
  *

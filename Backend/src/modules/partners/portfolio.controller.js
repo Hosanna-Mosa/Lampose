@@ -446,12 +446,9 @@ const getSummary = async (req, res, next) => {
         status: { $in: ['open', 'awaiting_customer'] },
       }).select('_id').lean()
       : [];
-    /* Not derived from `PartnerShareType` — nothing in this codebase ever
-       creates one of those documents (only `find`/`updateMany` exist), so
-       deriving "accepting bookings" from it was always reading an empty
-       collection. It's a real flag on the partner record now; see the note
-       on `acceptingBookings` in `partner.model.js` for why. */
-    const isAvailable = Boolean(partner.acceptingBookings);
+    const { PartnerShareType } = require('./partnerDomains.model');
+    const hasActiveShareType = key ? Boolean(await PartnerShareType.exists({ partnerPhoneDigits: key, isAvailable: true })) : false;
+    const isAvailable = Boolean(partner.acceptingBookings || hasActiveShareType);
 
     return res.json({
       success: true,

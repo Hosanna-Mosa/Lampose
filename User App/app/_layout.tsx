@@ -5,6 +5,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { SystemNavigationBar } from '@/components/shell';
 import { AlertProvider } from '@/components/ui';
 import { AppStateProvider } from '@/context/AppStateContext';
 import { BottomBarProvider } from '@/context/BottomBarContext';
@@ -164,6 +165,9 @@ function Shell() {
   return (
     <View style={styles.root}>
       <RootLayoutNav />
+      {/* Last, so it paints over every screen and over the Dock. Android only:
+          the ground the system's buttons or gesture pill sit on. */}
+      <SystemNavigationBar />
     </View>
   );
 }

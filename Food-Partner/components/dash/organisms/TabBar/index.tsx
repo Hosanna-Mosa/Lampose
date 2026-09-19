@@ -1,37 +1,21 @@
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
+import React from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Icon, Text, type IconName } from "@/components/common";
+import { Icon, Text } from "@/components/common";
 import { colors, layout, radius, space, touch } from "@/theme";
 import { TABS } from "@/components/dash/utils/shared";
-
-const styles = StyleSheet.create({
-  bar: {
-    flexDirection: "row",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingTop: space[2],
-    paddingHorizontal: space[2],
-  },
-  glyph: {
-    width: 48,
-    height: 28,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  item: { flex: 1, alignItems: "center", gap: 3, minHeight: touch.min, paddingVertical: space[1] },
-});
 
 export function TabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, space[3]) + layout.bottomInsetExtra }]}>
+    <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, space[2]) }]}>
       {TABS.map((tab, index) => {
         const focused = state.index === index;
-        const ink = focused ? colors.brandInk : colors.textTertiary;
+        const ink = focused ? "#FF5200" : "#6B7280";
+        const hasBadge = tab.name === "orders";
+        const badgeCount = 0;
 
         return (
           <Pressable
@@ -49,10 +33,17 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
             }}
             style={styles.item}
           >
-            <View style={[styles.glyph, focused && { backgroundColor: colors.brandTint }]}>
-              <Icon name={tab.icon} size={20} color={ink} />
+            <View style={[styles.glyphContainer]}>
+              <View style={[styles.glyph]}>
+                <Icon name={tab.icon} size={22} color={ink} strokeWidth={focused ? 2.3 : 1.75} />
+              </View>
+              {hasBadge && badgeCount > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{badgeCount}</Text>
+                </View>
+              )}
             </View>
-            <Text variant="numMeta" style={{ color: ink }}>
+            <Text style={[styles.label, { color: ink, fontWeight: focused ? "800" : "500" }]}>
               {tab.label}
             </Text>
           </Pressable>
@@ -61,3 +52,53 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  bar: {
+    flexDirection: "row",
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+    backgroundColor: "#FFFFFF",
+    paddingTop: 8,
+    paddingHorizontal: 8,
+  },
+  item: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: 2,
+  },
+  glyphContainer: {
+    position: "relative",
+  },
+  glyph: {
+    width: 48,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "transparent",
+  },
+  badge: {
+    position: "absolute",
+    top: -2,
+    right: 2,
+    backgroundColor: "#EF4444",
+    borderRadius: 9,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
+  },
+  badgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  label: {
+    fontSize: 12,
+  },
+});

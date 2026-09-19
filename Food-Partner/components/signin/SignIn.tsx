@@ -23,6 +23,7 @@ import { API_URL } from "@/services/api";
 import { login as loginRequest } from "@/services/foodPartner";
 import { usePartnerStore, type ApplicationStatus } from "@/store/partnerStore";
 import { colors, layout, space, touch } from "@/theme";
+import { ForgotPasswordModal } from "./ForgotPasswordModal";
 
 export function SignIn() {
   const signIn = usePartnerStore((s) => s.signIn);
@@ -32,11 +33,14 @@ export function SignIn() {
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [error, setError] = useState("");
+  const [successNote, setSuccessNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showForgotModal, setShowForgotModal] = useState(false);
 
   const attempt = async () => {
     setBusy(true);
     setError("");
+    setSuccessNote("");
     try {
       const { token, restaurant } = await loginRequest(identifier.trim(), password);
 
@@ -64,12 +68,12 @@ export function SignIn() {
 
   return (
     <Box style={{ flex: 1, backgroundColor: colors.bg }}>
-      <TopBar back="the start" title="Sign in" />
+      <TopBar back={null} title="Sign in" />
 
       <Scroller contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-        <Text variant="display2">Welcome back</Text>
+        <Text variant="display2">Partner Sign In</Text>
         <Text variant="body" color="secondary">
-          Use the email or phone number and the password you set when you applied.
+          Enter your registered email or phone number and password to access your kitchen dashboard.
         </Text>
 
         <Field label="Email or phone number" required>
@@ -102,6 +106,13 @@ export function SignIn() {
           />
         </Field>
 
+        <Tappable onPress={() => setShowForgotModal(true)} style={styles.forgotPassRow}>
+          <Text variant="body" color="brand" style={{ fontWeight: "600" }}>
+            Forgot password?
+          </Text>
+        </Tappable>
+
+        {!!successNote && <Note tone="ok">{successNote}</Note>}
         {!!error && <Note tone="bad">{error}</Note>}
 
         {/* Not a fallback — a configuration problem the person holding the
@@ -118,20 +129,19 @@ export function SignIn() {
           loading={busy}
           disabled={!identifier.trim() || !password}
         />
-
-        <Tappable
-          accessibilityRole="button"
-          onPress={() => router.replace("/onboarding/restaurant")}
-          style={styles.link}
-        >
-          <Text variant="body" color="secondary">
-            No account yet?
-          </Text>
-          <Text variant="bodyStrong" color="brand">
-            Apply to become a partner
-          </Text>
-        </Tappable>
       </Scroller>
+
+      <ForgotPasswordModal
+        visible={showForgotModal}
+        onDismiss={() => setShowForgotModal(false)}
+        onSuccess={(phone) => {
+          setShowForgotModal(false);
+          setIdentifier(phone);
+          setPassword("");
+          setError("");
+          setSuccessNote("Password reset successfully! Please log in with your new password.");
+        }}
+      />
     </Box>
   );
 }
@@ -139,4 +149,9 @@ export function SignIn() {
 const styles = StyleSheet.create({
   body: { padding: layout.gutter, gap: space[4] },
   link: centredLinkRow,
+  forgotPassRow: {
+    alignSelf: "flex-end",
+    marginTop: -space[2],
+    paddingVertical: space[1],
+  },
 });

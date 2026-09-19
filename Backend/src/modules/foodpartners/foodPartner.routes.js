@@ -44,7 +44,7 @@ const { requireAuthConfig, requireLamposeDb } = require('../../shared/middleware
 
 const {
   startPhoneOtp, verifyPhoneOtp, submitApplication,
-  login, getMe, updateMe, setAvailability,
+  login, resetPassword, getMe, updateMe, setAvailability,
 } = require('./foodPartner.controller');
 const {
   listMyProducts, createProduct, updateProduct, deleteProduct, setProductAvailability,
@@ -128,6 +128,14 @@ router.post(
   requireLamposeDb,
   requireAuthConfig,
   login,
+);
+
+router.post(
+  '/auth/forgot-password/reset',
+  byIp('fp-reset-ip', 15 * 60 * 1000, 20),
+  requireLamposeDb,
+  requireAuthConfig,
+  resetPassword,
 );
 
 /* ── Uploads ─────────────────────────────────────────────────────────────── */

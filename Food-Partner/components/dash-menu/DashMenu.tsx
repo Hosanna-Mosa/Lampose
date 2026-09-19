@@ -1,23 +1,20 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   The menu manager.
-
-   Reads `GET /me/products` — the restaurant's real rows out of
-   `food_products` — grouped by category the way the partner arranged them.
-
-   The availability toggle writes straight through on its own endpoint rather
-   than opening the editor. That is the action a kitchen takes twenty times a
-   service, from this list, with one hand: making it a round trip through a
-   form is the difference between a control that gets used and one that does
-   not. It updates optimistically and rolls back if the server refuses.
+   Food Partner — Redesigned Menu Screen
    ══════════════════════════════════════════════════════════════════════════ */
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
+  Image,
+  Pressable,
+  ScrollView,
   StyleSheet,
+  Switch,
+  View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Box, Note, Picture, Refresher, Scroller, Tappable, TextField } from "@/components/common";
-import { Btn, Card, Chip, Icon, Seg, Text, Toggle, TopBar } from "@/components/common";
+import { Box, Note, Refresher, Scroller, TextField } from "@/components/common";
+import { Icon, Text } from "@/components/common";
 import { rupees } from "@/lib/money";
 import {
   listMyProducts,
@@ -25,11 +22,11 @@ import {
   type ServerProduct,
 } from "@/services/foodPartner";
 import { usePartnerStore } from "@/store/partnerStore";
-import { colors, layout, radius, space, touch } from "@/theme";
 
 type Filter = "all" | "available" | "unavailable";
 
 export function DashMenu() {
+  const insets = useSafeAreaInsets();
   const session = usePartnerStore((s) => s.session);
 
   const [products, setProducts] = useState<ServerProduct[]>([]);
@@ -37,13 +34,10 @@ export function DashMenu() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [pending, setPending] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
-    /* A missing session must END the loading state, never skip past it — the
-       same bug fixed in `(dash)/orders.tsx`: `loading` starts `true`, so an
-       early return leaves a spinner turning over a blank screen with nothing
-       saying why. Either the screen has data, or it says what is wrong. */
     if (!session?.token) {
       setLoading(false);
       setError("You are signed out. Sign in again to continue.");
@@ -69,15 +63,16 @@ export function DashMenu() {
     if (!session?.token) return;
     const next = !product.isAvailable;
 
-    // Optimistic: the point of this control is that it feels instant.
-    setProducts((list) => list.map((p) => (p.productId === product.productId ? { ...p, isAvailable: next } : p)));
+    setProducts((list) =>
+      list.map((p) => (p.productId === product.productId ? { ...p, isAvailable: next } : p))
+    );
     setPending((p) => ({ ...p, [product.productId]: true }));
 
     try {
       await setProductAvailability(session.token, product.productId, next);
     } catch (err) {
       setProducts((list) =>
-        list.map((p) => (p.productId === product.productId ? { ...p, isAvailable: !next } : p)),
+        list.map((p) => (p.productId === product.productId ? { ...p, isAvailable: !next } : p))
       );
       setError((err as Error)?.message || "That did not save.");
     } finally {
@@ -85,152 +80,250 @@ export function DashMenu() {
     }
   };
 
-  const groups = useMemo(() => {
+  // Categories extracted dynamically from products
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    products.forEach((p) => {
+      if (p.category) set.add(p.category);
+    });
+    return ["All", ...Array.from(set)];
+  }, [products]);
+
+  const filteredProducts = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    const filtered = products.filter((p) => {
+    return products.filter((p) => {
       if (filter === "available" && !p.isAvailable) return false;
       if (filter === "unavailable" && p.isAvailable) return false;
+      if (selectedCategory !== "All" && p.category !== selectedCategory) return false;
       if (needle && !`${p.productName} ${p.category}`.toLowerCase().includes(needle)) return false;
       return true;
     });
+  }, [products, search, filter, selectedCategory]);
 
-    return filtered.reduce<{ category: string; items: ServerProduct[] }[]>((acc, product) => {
-      const bucket = acc.find((g) => g.category === product.category);
+  const grouped = useMemo(() => {
+    return filteredProducts.reduce<{ category: string; items: ServerProduct[] }[]>((acc, product) => {
+      const bucket = acc.find((g) => g.category === (product.category || "General"));
       if (bucket) bucket.items.push(product);
-      else acc.push({ category: product.category, items: [product] });
+      else acc.push({ category: product.category || "General", items: [product] });
       return acc;
     }, []);
-  }, [products, search, filter]);
+  }, [filteredProducts]);
+
+  const availableCount = products.filter((p) => p.isAvailable).length;
+  const outOfStockCount = products.filter((p) => !p.isAvailable).length;
 
   return (
-    <Box style={{ flex: 1, backgroundColor: colors.bg }}>
-      <TopBar
-        back={null}
-        title="Menu"
-        subtitle={`${products.length} item${products.length === 1 ? "" : "s"}`}
-        actionGlyph="plus"
-        onAction={() => router.push("/product/new")}
-      />
+    <Box style={{ flex: 1, backgroundColor: "#F4F6F8" }}>
+      {/* ── TOP HEADER ────────────────────────────────────────────────── */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
+        <View>
+          <Text style={styles.headerTitle}>Menu Management</Text>
+          <Text style={styles.headerSub}>
+            {products.length} Dish{products.length === 1 ? "" : "es"} · {availableCount} Active
+          </Text>
+        </View>
+
+        <Pressable
+          style={styles.addDishBtn}
+          onPress={() => router.push("/product/new")}
+        >
+          <Icon name="plus" size={16} color="#FFFFFF" strokeWidth={2.5} />
+          <Text style={styles.addDishText}>Add Dish</Text>
+        </Pressable>
+      </View>
 
       <Scroller
-        contentContainerStyle={styles.body}
+        contentContainerStyle={styles.scrollContent}
         refreshControl={<Refresher refreshing={loading} onRefresh={load} />}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         {!!error && <Note tone="bad">{error}</Note>}
 
-        <TextField
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Search the menu"
-          right={<Icon name="search" size={16} color={colors.textTertiary} />}
-        />
+        {/* ── SEARCH BAR ──────────────────────────────────────────────── */}
+        <View style={styles.searchBox}>
+          <Icon name="search" size={18} color="#9CA3AF" />
+          <TextField
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search dishes or categories..."
+            style={styles.searchInput}
+          />
+          {!!search && (
+            <Pressable onPress={() => setSearch("")}>
+              <Icon name="close" size={16} color="#9CA3AF" />
+            </Pressable>
+          )}
+        </View>
 
-        <Seg
-          options={["all", "available", "unavailable"] as const}
-          value={filter}
-          onChange={setFilter}
-          labels={{ all: "All", available: "Available", unavailable: "Out of stock" }}
-        />
-
-        {!loading && products.length === 0 && (
-          <Card style={{ alignItems: "center", gap: space[2], paddingVertical: space[6] }}>
-            <Icon name="menu" size={26} color={colors.textTertiary} />
-            <Text variant="title1">No dishes yet</Text>
-            <Text variant="caption" color="tertiary" style={{ textAlign: "center" }}>
-              Nothing is stored against this restaurant. Add your first dish and it goes straight into
-              the menu diners see.
+        {/* ── STATUS FILTER PILLS ─────────────────────────────────────── */}
+        <View style={styles.filterRow}>
+          <Pressable
+            style={[styles.filterPill, filter === "all" && styles.filterPillActive]}
+            onPress={() => setFilter("all")}
+          >
+            <Text style={[styles.filterText, filter === "all" && styles.filterTextActive]}>
+              All ({products.length})
             </Text>
-            <Btn label="Add a dish" glyph="plus" onPress={() => router.push("/product/new")} />
-          </Card>
+          </Pressable>
+
+          <Pressable
+            style={[styles.filterPill, filter === "available" && styles.filterPillActive]}
+            onPress={() => setFilter("available")}
+          >
+            <Text style={[styles.filterText, filter === "available" && styles.filterTextActive]}>
+              Available ({availableCount})
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.filterPill, filter === "unavailable" && styles.filterPillActive]}
+            onPress={() => setFilter("unavailable")}
+          >
+            <Text style={[styles.filterText, filter === "unavailable" && styles.filterTextActive]}>
+              Out of Stock ({outOfStockCount})
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* ── CATEGORY HORIZONTAL SCROLL ──────────────────────────────── */}
+        {categories.length > 2 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoryBar}
+          >
+            {categories.map((cat) => (
+              <Pressable
+                key={cat}
+                style={[styles.catChip, selectedCategory === cat && styles.catChipActive]}
+                onPress={() => setSelectedCategory(cat)}
+              >
+                <Text style={[styles.catText, selectedCategory === cat && styles.catTextActive]}>
+                  {cat}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
         )}
 
-        {groups.map((group) => (
-          <Box key={group.category} style={{ gap: space[2] }}>
-            <Text variant="eyebrow" color="tertiary">
-              {group.category} · {group.items.length}
+        {/* ── NO DISHES EMPTY STATE ────────────────────────────────────── */}
+        {!loading && products.length === 0 && (
+          <View style={styles.emptyCard}>
+            <View style={styles.emptyIconCircle}>
+              <Icon name="utensils" size={32} color="#059669" />
+            </View>
+            <Text style={styles.emptyTitle}>No Dishes in Menu Yet</Text>
+            <Text style={styles.emptySub}>
+              Add your first dish to make your food menu live for hungry customers.
             </Text>
+            <Pressable
+              style={styles.emptyAddBtn}
+              onPress={() => router.push("/product/new")}
+            >
+              <Icon name="plus" size={16} color="#FFFFFF" />
+              <Text style={styles.emptyAddText}>Add Your First Dish</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {/* ── GROUPED DISH LIST ────────────────────────────────────────── */}
+        {grouped.map((group) => (
+          <View key={group.category} style={styles.groupContainer}>
+            <View style={styles.groupHeader}>
+              <Text style={styles.groupTitle}>{group.category}</Text>
+              <Text style={styles.groupCount}>{group.items.length} items</Text>
+            </View>
 
             {group.items.map((item) => (
-              <Card key={item.productId} style={styles.row}>
-                <Tappable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Edit ${item.productName}`}
+              <View key={item.productId} style={styles.dishCard}>
+                <Pressable
+                  style={styles.dishMain}
                   onPress={() => router.push(`/product/${item.productId}`)}
-                  style={styles.rowMain}
                 >
+                  {/* Dish Image */}
                   {item.productImage?.url ? (
-                    <Picture source={{ uri: item.productImage.url }} style={styles.thumb} resizeMode="cover" />
+                    <Image source={{ uri: item.productImage.url }} style={styles.dishImage} />
                   ) : (
-                    <Box style={[styles.thumb, styles.thumbEmpty]}>
-                      <Icon name="image" size={16} color={colors.textTertiary} />
-                    </Box>
+                    <View style={styles.dishImageFallback}>
+                      <Icon name="image" size={20} color="#9CA3AF" />
+                    </View>
                   )}
 
-                  <Box style={{ flex: 1, minWidth: 0, gap: 3 }}>
-                    <Box style={{ flexDirection: "row", alignItems: "center", gap: space[1] }}>
-                      <Box
+                  {/* Dish Details */}
+                  <View style={styles.dishDetails}>
+                    <View style={styles.dishTitleRow}>
+                      {/* Veg / Non-Veg Indicator */}
+                      <View
                         style={[
-                          styles.veg,
-                          { borderColor: item.isVeg === "veg" ? colors.success.base : colors.danger.base },
+                          styles.vegSquare,
+                          { borderColor: item.isVeg === "veg" ? "#16A34A" : "#DC2626" },
                         ]}
                       >
-                        <Box
+                        <View
                           style={[
-                            styles.vegDot,
-                            { backgroundColor: item.isVeg === "veg" ? colors.success.base : colors.danger.base },
+                            styles.vegCircle,
+                            { backgroundColor: item.isVeg === "veg" ? "#16A34A" : "#DC2626" },
                           ]}
                         />
-                      </Box>
-                      <Text variant="title2" style={{ flex: 1 }} numberOfLines={1}>
+                      </View>
+                      <Text style={styles.dishName} numberOfLines={1}>
                         {item.productName}
                       </Text>
-                    </Box>
+                    </View>
 
-                    <Box style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
-                      <Text variant="priceMd">{rupees(item.discountedPrice || item.price)}</Text>
+                    {/* Price Row */}
+                    <View style={styles.priceRow}>
+                      <Text style={styles.priceText}>
+                        {rupees(item.discountedPrice || item.price)}
+                      </Text>
                       {!!item.discountedPrice && (
-                        <Text
-                          variant="priceSm"
-                          color="tertiary"
-                          style={{ textDecorationLine: "line-through" }}
-                        >
-                          {rupees(item.price)}
-                        </Text>
+                        <Text style={styles.originalPrice}>{rupees(item.price)}</Text>
                       )}
-                      {!item.isAvailable && <Chip label="Out of stock" tone="muted" />}
-                    </Box>
+                    </View>
 
-                    {!!item.tags?.length && (
-                      <Text variant="caption" color="brand" numberOfLines={1}>
-                        {item.tags.join(" · ")}
+                    {/* Description or Tags */}
+                    {!!item.description && (
+                      <Text style={styles.dishDesc} numberOfLines={1}>
+                        {item.description}
                       </Text>
                     )}
-                  </Box>
+                  </View>
 
-                  <Icon name="chevronRight" size={16} color={colors.textTertiary} />
-                </Tappable>
+                  <View style={{ alignSelf: "flex-start", marginTop: 4 }}>
+                    <Icon name="edit" size={16} color="#059669" />
+                  </View>
+                </Pressable>
 
-                <Box style={styles.toggleRow}>
-                  <Text variant="caption" color="tertiary" style={{ flex: 1 }}>
-                    {pending[item.productId] ? "Saving…" : item.isAvailable ? "Available" : "Out of stock"}
+                {/* Footer Switch Row */}
+                <View style={styles.dishFooter}>
+                  <Text
+                    style={[
+                      styles.statusLabel,
+                      { color: item.isAvailable ? "#059669" : "#DC2626" },
+                    ]}
+                  >
+                    {pending[item.productId]
+                      ? "Saving..."
+                      : item.isAvailable
+                      ? "● Available in menu"
+                      : "○ Out of stock"}
                   </Text>
-                  <Toggle
+
+                  <Switch
                     value={item.isAvailable}
-                    onChange={() => toggle(item)}
-                    accessibilityLabel={`${item.productName} availability`}
+                    onValueChange={() => toggle(item)}
+                    trackColor={{ false: "#E5E7EB", true: "#A7F3D0" }}
+                    thumbColor={item.isAvailable ? "#059669" : "#9CA3AF"}
                   />
-                </Box>
-              </Card>
+                </View>
+              </View>
             ))}
-          </Box>
+          </View>
         ))}
 
-        {products.length > 0 && groups.length === 0 && (
-          <Text variant="body" color="tertiary" style={{ textAlign: "center" }}>
-            Nothing matches that filter.
-          </Text>
+        {products.length > 0 && grouped.length === 0 && (
+          <Text style={styles.noMatchText}>No dishes match your search or filter.</Text>
         )}
       </Scroller>
     </Box>
@@ -238,24 +331,271 @@ export function DashMenu() {
 }
 
 const styles = StyleSheet.create({
-  body: { padding: layout.gutter, gap: space[3], paddingBottom: space[10] },
-  row: { padding: space[3], gap: space[2] },
-  rowMain: { flexDirection: "row", alignItems: "center", gap: space[3] },
-  thumb: { width: 52, height: 52, borderRadius: radius.chip },
-  thumbEmpty: {
-    backgroundColor: colors.surfaceSunken,
+  header: {
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#111827",
+  },
+  headerSub: {
+    fontSize: 13,
+    color: "#6B7280",
+    fontWeight: "500",
+    marginTop: 2,
+  },
+  addDishBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#059669",
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 20,
+  },
+  addDishText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  scrollContent: {
+    padding: 16,
+    gap: 16,
+    paddingBottom: 40,
+  },
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: "#111827",
+  },
+  filterRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  filterPill: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  filterPillActive: {
+    backgroundColor: "#ECFDF5",
+    borderColor: "#10B981",
+  },
+  filterText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#4B5563",
+  },
+  filterTextActive: {
+    color: "#047857",
+    fontWeight: "700",
+  },
+  categoryBar: {
+    flexDirection: "row",
+    gap: 8,
+    paddingVertical: 2,
+  },
+  catChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: "#E5E7EB",
+  },
+  catChipActive: {
+    backgroundColor: "#059669",
+  },
+  catText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  catTextActive: {
+    color: "#FFFFFF",
+  },
+
+  /* EMPTY CARD */
+  emptyCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+    gap: 12,
+    marginTop: 20,
+  },
+  emptyIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#ECFDF5",
     alignItems: "center",
     justifyContent: "center",
   },
-  veg: { width: 13, height: 13, borderWidth: 1.5, borderRadius: 3, alignItems: "center", justifyContent: "center" },
-  vegDot: { width: 5, height: 5, borderRadius: radius.pill },
-  toggleRow: {
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  emptySub: {
+    fontSize: 13,
+    color: "#6B7280",
+    textAlign: "center",
+  },
+  emptyAddBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: space[2],
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.borderSubtle,
-    paddingTop: space[2],
-    minHeight: touch.min - 8,
+    gap: 8,
+    backgroundColor: "#059669",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 24,
+    marginTop: 6,
+  },
+  emptyAddText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+
+  /* GROUP CONTAINER */
+  groupContainer: {
+    gap: 10,
+  },
+  groupHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 4,
+  },
+  groupTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#111827",
+  },
+  groupCount: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+
+  /* DISH CARD */
+  dishCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 14,
+    gap: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  dishMain: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  dishImage: {
+    width: 64,
+    height: 64,
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
+  },
+  dishImageFallback: {
+    width: 64,
+    height: 64,
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dishDetails: {
+    flex: 1,
+    gap: 4,
+  },
+  dishTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  vegSquare: {
+    width: 14,
+    height: 14,
+    borderWidth: 1.5,
+    borderRadius: 3,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  vegCircle: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  dishName: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111827",
+    flex: 1,
+  },
+  priceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  priceText: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#059669",
+  },
+  originalPrice: {
+    fontSize: 12,
+    color: "#9CA3AF",
+    textDecorationLine: "line-through",
+  },
+  dishDesc: {
+    fontSize: 12,
+    color: "#6B7280",
+  },
+  dishFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+    paddingTop: 10,
+    marginTop: 2,
+  },
+  statusLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  noMatchText: {
+    fontSize: 13,
+    color: "#6B7280",
+    textAlign: "center",
+    marginTop: 20,
   },
 });

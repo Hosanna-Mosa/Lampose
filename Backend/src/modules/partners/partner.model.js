@@ -216,6 +216,9 @@ const partnerSchema = new mongoose.Schema(
        this is null, so it is a gate rather than a statistic. */
     profileCompletedAt: { type: Date, default: null },
 
+    /* The phone digits of the partner who referred this owner, if any. */
+    referredByPartner: { type: String, default: null },
+
     /* Their read watermark on the requests screen — the same shape the
        customer app uses for alerts, and for the same reason: the alerts are
        derived from visit requests rather than stored, so there is no per-item

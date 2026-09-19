@@ -14,6 +14,7 @@ const {
   PartnerShareType,
 } = require('./partnerDomains.model');
 const { withStage } = require('./bookingStage.util');
+const { generateUniquePartnerCode } = require('./partnerReferral.util');
 
 /**
  * A booking as the OWNER'S app may see it.
@@ -1200,24 +1201,25 @@ const getReferralInfo = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
     const key = getDigits(req.partner);
-    let ref = await PartnerReferral.findOne({ partnerPhoneDigits: key }).lean();
+    let ref = await PartnerReferral.findOne({ partnerPhoneDigits: key });
     if (!ref) {
-      /* Zero, not a stand-in — same rule `getEarningsSummary` follows above.
-         This used to seed 500 points, ₹500 and 5 invites on a partner's very
-         first visit to this screen, which is fabricated history for an owner
-         who has referred nobody. A partner who has actually earned points
-         gets here through the `findOne` above and never touches this branch. */
+      const code = await generateUniquePartnerCode(req.partner?.name, key);
       ref = await PartnerReferral.create({
         partnerPhoneDigits: key,
-        code: `PAR-${key.slice(-4)}`,
+        code,
         points: 0,
         earningsRupees: 0,
         invitedCount: 0,
         history: [],
       });
-      ref = ref.toObject();
+    } else if (req.partner?.name && (ref.code.startsWith('PAR-') || !ref.code)) {
+      // Upgrade legacy PAR-XXXX code to name-based unique code
+      const newCode = await generateUniquePartnerCode(req.partner.name, key);
+      ref.code = newCode;
+      await ref.save();
     }
-    return res.json({ success: true, data: { ...ref, id: String(ref._id) } });
+    const data = ref.toObject ? ref.toObject() : ref;
+    return res.json({ success: true, data: { ...data, id: String(data._id) } });
   } catch (error) {
     return next(error);
   }
@@ -1368,6 +1370,16 @@ const updateOneShareTypeAvailability = async (req, res, next) => {
       return res.status(404).json({
         success: false, code: 'NOT_FOUND', message: 'That room type was not found on your account.',
       });
+    }
+
+    /* Keep partner.acceptingBookings in sync with active share types */
+    if (isAvailable) {
+      req.partner.acceptingBookings = true;
+      await req.partner.save();
+    } else {
+      const remainingActive = await PartnerShareType.exists({ partnerPhoneDigits: key, isAvailable: true });
+      req.partner.acceptingBookings = Boolean(remainingActive);
+      await req.partner.save();
     }
 
     return res.json({

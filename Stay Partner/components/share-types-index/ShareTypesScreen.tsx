@@ -130,13 +130,12 @@ export function ShareTypesScreen() {
       await Promise.all(changed.map((t) => setShareTypeAvailability(t.id, draft[t.id])));
       saveShareTypes(draft);
 
-      /* "Confirm & go online" only raises the partner-wide flag from here —
-         it must not bulk-write every row back on, which would undo the
-         per-row save just above. */
-      if (confirming) {
-        await toggleShareTypesAvailabilityApi(true);
-        setAvailable(true);
-      }
+      /* Sync overall partner online availability:
+         If at least one room type is enabled in draft, set partner acceptingBookings = true.
+         If all room types are disabled, set partner acceptingBookings = false. */
+      const anyAvailable = Object.values(draft).some(Boolean);
+      await toggleShareTypesAvailabilityApi(anyAvailable);
+      setAvailable(anyAvailable);
     } catch (err) {
       logWarn('Failed to save share types availability:', err);
     }

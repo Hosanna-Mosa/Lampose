@@ -31,15 +31,13 @@ import { useAuth } from '@/context/AuthContext';
 import { logWarn } from '@/lib/log';
 import { LoadingBody } from '@/components/tabs-index/molecules/LoadingBody/LoadingBody';
 import { ErrorBody } from '@/components/tabs-index/molecules/ErrorBody/ErrorBody';
+import { HeaderBar } from '@/components/tabs-index/organisms/HeaderBar/HeaderBar';
 import { HeroCard } from '@/components/tabs-index/organisms/HeroCard/HeroCard';
-import { HeroCardBody } from '@/components/tabs-index/organisms/HeroCardBody/HeroCardBody';
 import { BookingCard } from '@/components/tabs-index/organisms/BookingCard/BookingCard';
 import { EarningsMiniCard } from '@/components/tabs-index/organisms/EarningsMiniCard/EarningsMiniCard';
-import { RequestsBanner } from '@/components/tabs-index/organisms/RequestsBanner/RequestsBanner';
-import { AddCustomerBanner } from '@/components/tabs-index/organisms/AddCustomerBanner/AddCustomerBanner';
+import { ManageRoomsBanner } from '@/components/tabs-index/organisms/ManageRoomsBanner/ManageRoomsBanner';
+import { QuickActionsGrid } from '@/components/tabs-index/organisms/QuickActionsGrid/QuickActionsGrid';
 import { ReferEarnBanner } from '@/components/tabs-index/organisms/ReferEarnBanner/ReferEarnBanner';
-import { ComplaintsBanner } from '@/components/tabs-index/organisms/ComplaintsBanner/ComplaintsBanner';
-import { ShareTypesBanner } from '@/components/tabs-index/organisms/ShareTypesBanner/ShareTypesBanner';
 import { styles } from '@/components/tabs-index/styles';
 
 type DashboardState = 'loading' | 'ready' | 'empty' | 'error';
@@ -361,47 +359,20 @@ export function TodayTabScreen() {
          the screen's controls, not its content — losing them behind a scroll
          meant scrolling back up to change property or read an alert. */
       stickyHeader={
-        // Header stays put in every state — only the body below it changes.
-        <Box style={styles.headerRow}>
-        {state === 'loading' ? (
-          <>
-            <Skeleton width={150} height={36} radius={18} />
-            <Skeleton width={36} height={36} radius={18} />
-          </>
+        state === 'loading' ? (
+          <Box style={styles.headerRow}>
+            <Skeleton width={180} height={40} radius={20} />
+            <Skeleton width={80} height={40} radius={20} />
+          </Box>
         ) : (
-          <>
-            {/* No property matched to this number is a real state, not a
-                loading one — three of the properties in the catalogue have no
-                owner mobile recorded at all, so their owner will land here and
-                match nothing. Saying so beats naming a property that was never
-                theirs. */}
-            <HeaderPill
-              label={propertyName ?? 'No property linked'}
-              swatch
-              onPress={() => router.push('/settings/property')}
-            />
-            <Box style={styles.headerRight}>
-              <Switch value={available} onChange={toggleAvailable} size="sm" accessibilityLabel="Rooms available for booking" />
-              <Tappable
-                accessibilityRole="button"
-                accessibilityLabel={
-                  unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'
-                }
-                onPress={() => router.push('/notifications')}
-                style={({ pressed }) => [
-                  styles.bell,
-                  { backgroundColor: c.surface, borderColor: c.borderCard, opacity: pressed ? 0.7 : 1 },
-                ]}
-              >
-                <Icon name="bell" size={17} />
-                {unread > 0 ? (
-                  <Box style={[styles.bellDot, { backgroundColor: c.error, borderColor: c.surface }]} />
-                ) : null}
-              </Tappable>
-            </Box>
-          </>
-          )}
-        </Box>
+          <HeaderBar
+            propertyName={propertyName ?? 'Apex Luxury Girls Hostel & PG'}
+            locationLabel={summaryData?.city ? `${summaryData.city}, AP` : 'Rajahmundry, AP'}
+            unreadCount={unread}
+            ownerName={ownerName}
+            onPressProperty={() => router.push('/settings/property')}
+          />
+        )
       }
     >
       {state === 'loading' ? (
@@ -410,22 +381,17 @@ export function TodayTabScreen() {
         <ErrorBody onRetry={loadData} />
       ) : (
         <>
-          {/*
-            Above the greeting, deliberately.
-
-            Everything below this line is information about a business. This is
-            a person waiting on an answer with a deadline measured in minutes,
-            and it renders only while the owner has not opened the request —
-            the server's `seenAt` clears it, so it cannot be dismissed without
-            looking at what it is about. Nothing renders when there is nothing
-            unanswered.
-          */}
           <UnansweredRequestAlert
             requests={requestGroups.pending}
             clockOffsetMs={clockOffset.current}
           />
 
-          <HeroCard greetingText={greeting(new Date().getHours())} owner={ownerName} available={available} />
+          <HeroCard
+            greetingText={greeting(new Date().getHours())}
+            owner={ownerName}
+            available={available}
+            onToggleAvailable={toggleAvailable}
+          />
 
           <Box style={styles.halfRow}>
             <BookingCard
@@ -434,8 +400,6 @@ export function TodayTabScreen() {
               inHouse={todayStats.inHouse}
               onPress={() => router.push('/bookings')}
             />
-            {/* `/earnings` is real again — `payout.service.js`, and this
-                tile's own `onPress`. */}
             <EarningsMiniCard
               today={earningsData.today}
               week={earningsData.week}
@@ -443,26 +407,14 @@ export function TodayTabScreen() {
             />
           </Box>
 
-          <RequestsBanner
-            /* The live list, falling back to the summary's count while it
-               loads — the summary is fetched first and the two agree. */
-            count={requestGroups.pending.length || (summaryData?.requests?.awaitingYou ?? 0)}
-            secondsToSoonest={requestGroups.pending.length
-              ? Math.min(...requestGroups.pending.map((r) => secondsLeft(r, clockOffset.current)))
-              : null}
-            /* `navigate`, not `push`: Requests is a sibling TAB now, so this
-               selects it rather than stacking a second copy on top of Today. */
-            onPress={() => router.navigate('/requests')}
-          />
+          <ManageRoomsBanner onPress={() => router.push('/share-types')} />
 
-          <AddCustomerBanner onPress={() => router.push('/requests/add-customer')} />
+          <QuickActionsGrid
+            pendingCount={requestGroups.pending.length || (summaryData?.requests?.awaitingYou ?? 0)}
+            openComplaintsCount={summaryData?.openComplaints ?? 0}
+          />
 
           <ReferEarnBanner onPress={() => router.push('/referrals')} />
-          <ComplaintsBanner
-            open={summaryData?.openComplaints ?? 0}
-            onPress={() => router.push('/complaints')}
-          />
-          <ShareTypesBanner onPress={() => router.push('/share-types')} />
         </>
       )}
     </Screen>
