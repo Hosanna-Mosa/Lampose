@@ -57,7 +57,7 @@ const propertyImageUpload = multer({
 });
 
 const {
-  startAuth, resendAuth, verifyAuth, getMe, updateMe,
+  startAuth, resendAuth, verifyAuth, loginWithPassword, getMe, updateMe,
 } = require('./partner.controller');
 const {
   getMyProperties, getMyRequests, getMyRequest, markRequestsRead, getSummary,
@@ -102,6 +102,22 @@ const verifyByPhone = rateLimit({
   name: 'partner-verify-phone', windowMs: 15 * 60 * 1000, max: 15, keyOf: phoneKey,
 });
 
+/*
+ * Password sign-in, limited by IP and again by the email being tried.
+ *
+ * The per-email limit is the one that matters: without it this route is an
+ * offline-speed password oracle against a known owner's address, and the IP
+ * limit alone is worth little to anybody who can change IP. Keyed off the
+ * BODY's email, which on this route is the identity being claimed — unlike
+ * `phoneKey` above, there is no second party whose allowance could be burned
+ * by typing their address.
+ */
+const loginEmailKey = (req) => String((req.body || {}).email || '').trim().toLowerCase() || req.ip;
+const loginByIp = rateLimit({ name: 'partner-login-ip', windowMs: 15 * 60 * 1000, max: 40 });
+const loginByEmail = rateLimit({
+  name: 'partner-login-email', windowMs: 15 * 60 * 1000, max: 10, keyOf: loginEmailKey,
+});
+
 const {
   getBookings,
   getBookingById,
@@ -141,6 +157,12 @@ const {
 router.post('/auth/start', requireLamposeDb, startByIp, startByPhone, startAuth);
 router.post('/auth/resend', requireLamposeDb, resendByIp, resendByPhone, resendAuth);
 router.post('/auth/verify', requireLamposeDb, verifyByIp, verifyByPhone, verifyAuth);
+
+/* Email and password, for accounts that have been GIVEN a password. Beside the
+   three above rather than replacing them: an account with no `passwordHash`
+   cannot be signed into here at all, so this takes nothing away from the
+   phone-and-OTP route every other owner uses. */
+router.post('/auth/login', requireLamposeDb, loginByIp, loginByEmail, loginWithPassword);
 
 /* Counted per signed-in owner, and declared here because the limiters below
    close over it. `phoneKey` above reads the number out of the BODY, which is

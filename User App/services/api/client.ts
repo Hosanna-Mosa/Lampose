@@ -10,6 +10,7 @@ import {
 } from './config';
 import { debugLogs } from '@/services/runtimeEnv';
 import { IS_PRODUCTION_BUILD } from '@/constants/env';
+import { demoRespond } from '@/services/demoMode';
 
 /**
  * The one place in this app that calls `fetch`.
@@ -260,6 +261,17 @@ export async function apiRequest<T = unknown>(
   } = options;
 
   const url = buildUrl(path, query);
+  /*
+   * DEMO MODE — before the base-URL check, the headers and the fetch, because
+   * in demo mode none of those should happen.
+   *
+   * Off unless somebody signed in with the demo credentials this launch, so a
+   * real student's session never touches it. See `services/demoMode.ts`, and
+   * delete that file when the demo build is no longer needed.
+   */
+  const demo = demoRespond(method, path);
+  if (demo.handled) return demo.payload as T;
+
   const requestId = newRequestId();
 
   const headers: Record<string, string> = {

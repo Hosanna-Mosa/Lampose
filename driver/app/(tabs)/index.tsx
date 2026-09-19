@@ -531,7 +531,7 @@ export default function HomeScreen() {
                   {STAGES[stage]}
                 </RNText>
                 <RNText style={styles.activeAddressText} numberOfLines={1}>
-                  {currentJob?.drop.address || "Delivery"}
+                  {currentJob?.drop?.address || "Delivery"}
                 </RNText>
                 <RNText style={styles.activeSubtext} numberOfLines={1}>
                   {currentJob?.itemCount} item{currentJob?.itemCount === 1 ? "" : "s"} · ₹

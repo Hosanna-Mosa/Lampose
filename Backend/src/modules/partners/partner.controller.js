@@ -34,6 +34,7 @@ const {
   AddressInputError, buildAddress, makeAddressId,
 } = require('../../shared/utils/address');
 
+const config = require('../../config/env');
 const Partner = require('./partner.model');
 const { signPartnerToken } = require('./partnerAuth.middleware');
 const { sendOtpSms, smsConfigProblem } = require('../../infrastructure/sms/sms');
@@ -359,6 +360,150 @@ const verifyAuth = async (req, res, next) => {
   }
 };
 
+/* ── POST /auth/login ─────────────────────────────────────────────────────── */
+
+/*
+ * ONE sentence for "no such account" and for "wrong password".
+ *
+ * Two would make this endpoint an oracle for which email addresses belong to
+ * Lampose owners, which is exactly the list the phone-and-OTP pair above goes
+ * out of its way not to hand out. The same reasoning, the same wording as
+ * `foodPartner.controller.js`.
+ */
+const WRONG_CREDENTIALS = 'That email address and password do not match.';
+
+/**
+ * Email and password, for the accounts that have been given one.
+ *
+ * ## Why this exists beside the OTP pair, rather than replacing it
+ *
+ * Phone-and-OTP remains how owners sign in, and nothing here changes that: an
+ * account with no `passwordHash` — which is nearly all of them — cannot be
+ * signed into through this route at all, because `verifyPassword` fails
+ * closed. What this adds is a way in for an account somebody has deliberately
+ * provisioned a password for: a Play Store reviewer who cannot receive an
+ * Indian SMS, a demo handset, a support engineer reproducing a fault.
+ *
+ * ## It issues the SAME session as `verifyAuth`
+ *
+ * Same `signPartnerToken`, same `{ token, partner }` envelope. A second
+ * session shape would mean every screen behind the login had two cases to
+ * understand, and the second one would be the one nobody tested.
+ *
+ * ## What it deliberately does NOT do
+ *
+ * It never creates an account. `verifyAuth` may, because proving a phone
+ * number proves the person holds it; typing an email address proves nothing,
+ * and a route that registered on first sight would let anyone mint owners.
+ * It also does not set `phoneVerifiedAt` — that fact is about SMS, and
+ * claiming it here would quietly widen what a password can vouch for.
+ */
+const loginWithPassword = async (req, res, next) => {
+  try {
+    if (mongoose.connection.readyState !== 1) return dbDown(res);
+    if (!config.auth.configured) {
+      /* Loudly, per-route, and still serving: no token can be issued without
+         the secret, but nothing else in this process stops working for it. */
+      console.error(
+        '[partners] JWT_SECRET missing — POST /api/v2/partners/auth/login cannot issue a session',
+      );
+      return res.status(503).json({
+        success: false,
+        code: 'AUTH_NOT_CONFIGURED',
+        message: 'Sign-in is unavailable on this server right now.',
+      });
+    }
+
+    const body = req.body || {};
+    const email = String(body.email || '').trim().toLowerCase();
+    const password = String(body.password || '');
+
+    /* A 400 rather than the generic refusal: an empty box depends on nothing
+       stored, so it leaks nothing, and "enter your email" beats "those do not
+       match" when the person simply has not typed yet. */
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        code: 'MISSING_CREDENTIALS',
+        message: 'Enter your email address and your password.',
+      });
+    }
+    if (!EMAIL_RE.test(email)) {
+      return res.status(400).json({
+        success: false,
+        code: 'BAD_EMAIL',
+        message: 'Please enter a valid email address.',
+      });
+    }
+
+    /* The one read in this module that asks for the hash back. It is
+       `select: false` everywhere else, and `toPublic()` is a whitelist that
+       cannot carry it out regardless. */
+    const partner = await Partner.findOne({ email }).select('+passwordHash');
+
+    const ok = partner ? await partner.verifyPassword(password) : false;
+    if (!ok) {
+      /* 401 and the same sentence whichever it was. */
+      return res.status(401).json({
+        success: false,
+        code: 'INVALID_CREDENTIALS',
+        message: WRONG_CREDENTIALS,
+      });
+    }
+
+    /*
+     * Refused HERE rather than a screen later. A blocked owner handed a token
+     * would be thrown out by `requirePartner` on the very next call, and that
+     * loop — sign in, get a session, bounce back to the login screen — is what
+     * the support call describes as "it just logs me out".
+     */
+    if (partner.status === 'blocked') {
+      return res.status(403).json({
+        success: false,
+        code: 'ACCOUNT_BLOCKED',
+        message: 'This account has been blocked. Please contact Lampose.',
+      });
+    }
+
+    /*
+     * An account that has never proved its phone number is refused HERE.
+     *
+     * `requirePartner` demands `phoneVerifiedAt` on every guarded request, and
+     * for a reason that is not a formality: a partner's properties are derived
+     * from their phone number, so a session on an unproved number would hand
+     * somebody a stranger's listings. This route cannot set that fact — a
+     * password says nothing about who holds a SIM — so the only honest thing
+     * left is to refuse.
+     *
+     * Refusing here rather than letting the token out is the whole point. A
+     * session that every subsequent call rejects produces the loop the support
+     * line knows as "it just logs me out", and the person has no idea why.
+     * This says why, and names the fix.
+     */
+    if (!partner.phoneVerifiedAt) {
+      return res.status(403).json({
+        success: false,
+        code: 'PHONE_NOT_VERIFIED',
+        message: 'This account has not verified its mobile number yet. '
+          + 'Sign in with your number and the code once, then the password will work.',
+      });
+    }
+
+    partner.lastLoginAt = new Date();
+    await partner.save();
+
+    return res.json({
+      success: true,
+      data: {
+        token: signPartnerToken(partner),
+        partner: partner.toPublic(),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 /* ── GET /me ──────────────────────────────────────────────────────────────── */
 
 const getMe = async (req, res) => res.json({ success: true, data: req.partner.toPublic() });
@@ -444,4 +589,6 @@ const updateMe = async (req, res, next) => {
   }
 };
 
-module.exports = { startAuth, resendAuth, verifyAuth, getMe, updateMe };
+module.exports = {
+  startAuth, resendAuth, verifyAuth, loginWithPassword, getMe, updateMe,
+};

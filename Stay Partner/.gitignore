@@ -11,7 +11,10 @@ expo-env.d.ts
 
 # Native
 ios/
-android/
+# android/ is TRACKED — the native project is committed so a release build
+# is reproducible without `expo prebuild`. Signing material is not: *.jks
+# below keeps the upload key out, and its passwords live in
+# ~/.gradle/gradle.properties, never in android/gradle.properties.
 *.orig.*
 *.jks
 *.p8

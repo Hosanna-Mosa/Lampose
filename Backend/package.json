@@ -17,6 +17,8 @@
     "clone:db": "node scripts/clone-db.js",
     "seed:booking": "node scripts/seed-booking-dev.js",
     "seed:sunand": "node scripts/seed-sunand-properties.js",
+    "partner:password": "node scripts/set-partner-password.js",
+    "verify:partner-login": "node scripts/verify-partner-login.js",
     "export:listings": "node scripts/export-listings.js",
     "export:listings:clean": "node scripts/export-listings.js --clean",
     "migrate:json": "node scripts/migrate-json-store.js",

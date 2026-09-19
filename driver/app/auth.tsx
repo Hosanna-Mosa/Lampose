@@ -48,6 +48,7 @@ export default function AuthScreen() {
   const resendCode = useDriverStore((s) => s.resendCode);
   const verifyCode = useDriverStore((s) => s.verifyCode);
   const otpSending = useDriverStore((s) => s.otpSending);
+  const signInWithPassword = useDriverStore((s) => s.signInWithPassword);
 
   // Phone Step State
   const [digits, setDigits] = useState("");
@@ -80,6 +81,15 @@ export default function AuthScreen() {
   // 3D Flip Shared Value (0 = Phone, 180 = OTP)
   const flipValue = useSharedValue(0);
   const [isFlipped, setIsFlipped] = useState(false);
+
+  /* The Play Console review sign-in. A separate panel rather than a third face
+     of the flip card: that animation interpolates between exactly two sides,
+     and threading a third through it would risk the real sign-in for the sake
+     of a temporary one. See `constants/demoMode.ts`. */
+  const [showPassword, setShowPassword] = useState(false);
+  const [emailValue, setEmailValue] = useState("");
+  const [passwordValue, setPasswordValue] = useState("");
+  const [pwError, setPwError] = useState("");
 
   // CTA Button Scale
   const buttonScale = useSharedValue(1);
@@ -256,6 +266,95 @@ export default function AuthScreen() {
     flipValue.value = withSpring(0, { damping: 18, stiffness: 120 });
     setTimeout(() => phoneInputRef.current?.focus(), 400);
   };
+
+  const submitPassword = async () => {
+    if (!emailValue.trim() || !passwordValue || busy) return;
+    setBusy(true);
+    setPwError("");
+    try {
+      const profile = await signInWithPassword(emailValue, passwordValue);
+      /* The SERVER decides where a rider lands, exactly as after a code. */
+      router.replace(profile.hasCompletedOnboarding ? "/(tabs)" : "/onboarding");
+    } catch (err) {
+      setPwError(readError(err, "That email address and password do not match."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (showPassword) {
+    return (
+      <View style={styles.rootContainer}>
+        <StatusBar style="dark" />
+        <ScrollView
+          contentContainerStyle={styles.pwScroll}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.pwTitle}>Log in</Text>
+          <Text style={styles.pwSubtitle}>
+            Enter the email address and password for your account.
+          </Text>
+
+          <TextInput
+            style={styles.pwInput}
+            value={emailValue}
+            onChangeText={(v) => { setEmailValue(v); setPwError(""); }}
+            placeholder="you@email.com"
+            placeholderTextColor="#9AA0A6"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            textContentType="emailAddress"
+            autoComplete="email"
+            returnKeyType="next"
+          />
+
+          <TextInput
+            style={styles.pwInput}
+            value={passwordValue}
+            onChangeText={(v) => { setPasswordValue(v); setPwError(""); }}
+            placeholder="Your password"
+            placeholderTextColor="#9AA0A6"
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+            textContentType="password"
+            autoComplete="current-password"
+            returnKeyType="go"
+            onSubmitEditing={submitPassword}
+          />
+
+          {pwError ? <Text style={styles.pwError}>{pwError}</Text> : null}
+
+          <Pressable
+            onPress={submitPassword}
+            disabled={!emailValue.trim() || !passwordValue || busy}
+            style={[styles.primaryButtonPress, { marginTop: 24 }]}
+          >
+            <LinearGradient
+              colors={["#1E7B4C", "#0E6342", "#0A563A"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.primaryButton}
+            >
+              {busy ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.primaryButtonText}>Log in</Text>
+              )}
+            </LinearGradient>
+          </Pressable>
+
+          <Pressable
+            onPress={() => { setShowPassword(false); setPwError(""); }}
+            style={{ marginTop: 18, alignItems: "center" }}
+          >
+            <Text style={styles.pwLink}>Use my mobile number instead</Text>
+          </Pressable>
+        </ScrollView>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.rootContainer}>
@@ -448,6 +547,14 @@ export default function AuthScreen() {
                     </Pressable>
                   </Animated.View>
 
+                  {/* The review sign-in. Riders use the number above. */}
+                  <Pressable
+                    onPress={() => setShowPassword(true)}
+                    style={{ marginTop: 14, alignItems: "center" }}
+                  >
+                    <Text style={styles.pwLink}>Log in with email and password</Text>
+                  </Pressable>
+
                   {/* Terms & Conditions */}
                   <Text style={styles.termsText}>
                     By continuing, you agree to our{"\n"}
@@ -594,6 +701,24 @@ function readError(err: unknown, fallback: string): string {
 }
 
 const styles = StyleSheet.create({
+  /* The review sign-in panel. Plain on purpose — it is temporary, and styling
+     it to match the animated card would make it harder to delete cleanly. */
+  pwScroll: { paddingHorizontal: 24, paddingTop: 96, paddingBottom: 48 },
+  pwTitle: { fontSize: 30, fontWeight: "700", color: "#141A24" },
+  pwSubtitle: { fontSize: 15, color: "#5B6B63", marginTop: 8, marginBottom: 28, lineHeight: 21 },
+  pwInput: {
+    borderWidth: 1,
+    borderColor: "#D7DEDA",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: "#141A24",
+    backgroundColor: "#FFFFFF",
+    marginBottom: 14,
+  },
+  pwError: { color: "#B3261E", fontSize: 14, marginTop: 4 },
+  pwLink: { color: "#0E6342", fontSize: 15, fontWeight: "600" },
   rootContainer: {
     flex: 1,
     backgroundColor: "#FFFFFF",
