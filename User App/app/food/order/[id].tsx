@@ -23,6 +23,7 @@ import { TIMELINE_STEP, useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import { formatRupees } from '@/utils/money';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
+import { connectSupportSocket, watchOrder, type FoodOrderLocationEvent } from '@/services';
 
 const CANCEL_REASONS = [
   'Ordered by mistake',
@@ -116,6 +117,58 @@ export default function OrderScreen() {
   const rider = order?.rider ?? null;
 
   /*
+    A live fix between polls — ONLY for the map's position and heading, and
+    only because a rider's DIRECTION lagging the usual five-to-eight seconds
+    read as visibly wrong in a way distance and status catching up that slow
+    never did: a marker pointing the way someone was heading several seconds
+    ago is actively misleading about which way they're turning right now,
+    where a distance figure that's a few seconds stale is just a number that
+    is very slightly out of date. See `services/support.socket.ts`'s own
+    comment on `watchOrder` for why this is a narrow exception to — not a
+    reversal of — the "no socket on this screen" reasoning below: the poll
+    is still what drives everything else on this screen, unchanged, and
+    still what this falls back to the moment the socket is down.
+
+    `liveFix.at` is compared against the polled `rider.at` below rather than
+    trusted outright, so a fix that arrived over the socket before a drop —
+    now stale — never wins against a fresher one the poll picked back up in
+    the meantime.
+  */
+  const [liveFix, setLiveFix] = useState<{
+    location: readonly [number, number];
+    heading: number | null;
+    at: string;
+  } | null>(null);
+
+  useEffect(() => {
+    // A different order, or no rider (yet, or any more) to watch — drop
+    // whatever live fix belonged to the previous one rather than let it
+    // leak onto this screen's next rider.
+    setLiveFix(null);
+    if (!id || !rider) return;
+    connectSupportSocket();
+    const unwatch = watchOrder(id, (event: FoodOrderLocationEvent) => {
+      if (!Number.isFinite(event.lat) || !Number.isFinite(event.lng)) return;
+      setLiveFix((prev) => ({
+        location: [event.lng, event.lat] as const,
+        // Omitted on the wire when the driver's phone had no bearing for
+        // this fix — hold whatever heading the last live fix carried
+        // rather than reading absence as "facing nowhere".
+        heading: typeof event.heading === 'number' ? event.heading : (prev?.heading ?? null),
+        at: event.at,
+      }));
+    });
+    return unwatch;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, !!rider]);
+
+  const liveIsFresher =
+    !!liveFix && (!rider?.at || new Date(liveFix.at).getTime() >= new Date(rider.at).getTime());
+  const riderLocation = (liveIsFresher ? liveFix!.location : rider?.location) ?? null;
+  const riderHeading = (liveIsFresher ? liveFix!.heading : rider?.heading) ?? null;
+  const riderAt = (liveIsFresher ? liveFix!.at : rider?.at) ?? null;
+
+  /*
     Resume the payment on an order that was left held.
 
     The order exists and is priced; only the money is missing. Re-opening mints
@@ -159,15 +212,20 @@ export default function OrderScreen() {
   /*
     Re-read the order on a timer while it is moving.
 
-    This is how the diner learns a rider was found AND where that rider is.
-    There is no socket on THIS screen on purpose: the realtime layer exists for
-    the RIDER's fifteen-second offer, where a poll would be too slow to be
-    usable, and a tracking screen is well served by a request that works on any
-    network. (Support is the one exception in this app — `services/
-    support.socket.ts` — because the other end of a support thread is a person
-    typing, and a poll interval there is the gap in which somebody decides
-    nobody is listening. A marker that moves eight seconds late says nothing
-    about whether anyone is there.)
+    This is how the diner learns a rider was found, everything about the
+    order's own status, and — until a socket connects, or if it never does —
+    where the rider is too. Polling is still the ONLY thing this screen
+    depends on: every socket-delivered fact is also readable on the very
+    next poll, unchanged from before. What changed is `liveFix` above, a
+    narrow, additive exception carved out for direction specifically — see
+    its own comment for why "the marker points the wrong way for several
+    seconds after every turn" turned out to bother a rider watching it more
+    than "the marker's numbers are a few seconds stale" ever did, which is
+    what kept this screen poll-only for everything else. (Support was the
+    original exception in this app — `services/support.socket.ts` — because
+    the other end of a support thread is a person typing, and a poll
+    interval there is the gap in which somebody decides nobody is
+    listening.)
 
     The interval TIGHTENS to five seconds once a rider is carrying it, because
     that is the only phase where something on screen is actually moving. Before
@@ -480,18 +538,22 @@ export default function OrderScreen() {
           a map of two static pins is decoration that teaches somebody to keep
           checking a screen that will not change.
 
-          It renders even when `rider.location` is null — the server drops a fix
+          It renders even when `riderLocation` is null — the server drops a fix
           older than two minutes, and the map says "we cannot see your rider"
           over the two ends of the journey rather than leaving a marker sitting
           still, which reads as a rider who has stopped.
+
+          `riderLocation`/`riderHeading`/`riderAt`, not `rider.location`
+          directly — see the comment on `liveFix` above: whichever of the
+          polled fix and the live socket fix is actually newer.
         */}
         {rider && (order.pickupLocation || order.dropLocation) ? (
           <DeliveryMap
             restaurant={order.pickupLocation}
             drop={order.dropLocation}
-            rider={rider.location ?? null}
-            heading={rider.heading ?? null}
-            riderAt={rider.at ?? null}
+            rider={riderLocation}
+            heading={riderHeading}
+            riderAt={riderAt}
             pickedUp={!!rider.pickedUpAt}
           />
         ) : null}

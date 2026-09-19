@@ -1,11 +1,27 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Animated, Easing, StyleSheet, View } from "react-native";
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type Camera } from "react-native-maps";
-import Svg, { Circle, Path, Polygon } from "react-native-svg";
+import MapView, {
+  AnimatedRegion,
+  Marker,
+  MarkerAnimated,
+  Polyline,
+  PROVIDER_GOOGLE,
+  type Camera,
+} from "react-native-maps";
+import MapViewDirections from "react-native-maps-directions";
+import Svg, { Circle, Path } from "react-native-svg";
 import { colors, elevation, radius, space } from "@/theme";
 import { Icon } from "./Icon";
 import { Text } from "./Text";
 import { Chip } from "./primitives";
+
+/** The same public key `app.config.js` bakes into the native Maps SDK,
+    reused here as the Directions API key — one Google Cloud key, both
+    APIs enabled on it. If the Directions API specifically isn't enabled
+    for this key (a Cloud Console setting, not something this file can
+    detect in advance), every route request fails and the map quietly
+    falls back to the straight line below; nothing crashes either way. */
+const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
 
 /* ── Geometry ─────────────────────────────────────────────────────────────
    Kept in step with the customer app's `components/food/DeliveryMap.tsx`,
@@ -37,6 +53,41 @@ export function readableDistance(metres: number): string {
 /** `[lng, lat]` — this file's order, GeoJSON's and MongoDB's — to what
     `react-native-maps` wants. The one place the pair is flipped. */
 const toLatLng = ([lng, lat]: LngLat) => ({ latitude: lat, longitude: lng });
+
+/* Don't ask the Directions API for a fresh route on every fix — this app's
+   own `useDriverLocation` watches position at five metres or two seconds
+   (see the comment above `LOCATION_MISSES_BEFORE_STALE` in
+   `driverStore.ts`), so binding a request straight to `me` could fire one
+   several times a SECOND while actually riding. Twenty seconds or sixty
+   metres, whichever comes first, keeps the ROUTE itself reasonably current
+   without multiplying Directions requests by the fix rate — the marker
+   still glides every fix either way (see `meRegion`); only how often the
+   route line gets RECOMPUTED is throttled. */
+const ROUTE_MIN_INTERVAL_MS = 20000;
+const ROUTE_MIN_MOVE_METRES = 60;
+
+/** Returns `point`, but only once it has moved far enough AND enough time
+    has passed since the last value this returned — otherwise it keeps
+    returning the previous one. Computed directly during render (mutating
+    the ref is safe here: it only ever narrows what gets returned, never
+    triggers a render of its own) rather than in an effect, so it settles
+    in the same pass as everything else that already re-renders whenever
+    `me` does. */
+function useThrottledRoutePoint(point: LngLat | null | undefined): LngLat | null {
+  const stable = useRef<{ at: number; p: LngLat } | null>(null);
+  if (!point) return stable.current?.p ?? null;
+  const prev = stable.current;
+  if (!prev) {
+    stable.current = { at: Date.now(), p: point };
+    return point;
+  }
+  const now = Date.now();
+  if (now - prev.at >= ROUTE_MIN_INTERVAL_MS && metresBetween(prev.p, point) >= ROUTE_MIN_MOVE_METRES) {
+    stable.current = { at: now, p: point };
+    return point;
+  }
+  return prev.p;
+}
 
 /**
  * True geographic bearing from `a` to `b`, for the rider chevron's fallback
@@ -97,24 +148,95 @@ function RingIcon({ filled }: { filled: boolean }) {
   );
 }
 
-/** The rider, rotated to face the way they are actually heading. Rotation is
-    applied by hand — via `transform`, same as the SVG this replaces — rather
-    than through `Marker`'s own `rotation` prop, which only turns the built-in
-    marker image and leaves a custom child view like this one facing north. */
-function ChevronIcon({ heading }: { heading: number }) {
-  const size = 26;
-  return (
-    <Svg width={size} height={size}>
-      <Polygon
-        points="13,2 21,20 13,16 5,20"
-        fill={colors.brand}
-        stroke={colors.surface}
-        strokeWidth={2}
-        strokeLinejoin="round"
-        transform={`rotate(${heading} 13 13)`}
-      />
-    </Svg>
-  );
+/** The signed difference from `fromDeg` to `toDeg`, in (-180, 180] — the
+    SHORT way round a compass, so a turn that crosses 0°/360° never reads
+    as a near-full spin the long way instead. */
+function shortestAngleDelta(fromDeg: number, toDeg: number): number {
+  let diff = (toDeg - fromDeg) % 360;
+  if (diff > 180) diff -= 360;
+  if (diff < -180) diff += 360;
+  return diff;
+}
+
+/** The rider's own marker icon: Lucide's actual "Navigation" glyph — the
+    same dart-shaped compass arrow `<Icon name="navigate">` already draws
+    for the recentre button lower in this file — filled solid, brand green
+    with a white outline, rather than hand-drawn from scratch. (Two earlier
+    hand-drawn attempts, a compass-needle silhouette and a plain triangle,
+    both read as "not quite a real icon" — reusing Lucide's own path data
+    is what actually looks right, and keeps this app's one navigation glyph
+    consistent between the button and the map.) Not the illustrated
+    scooter: a rider glancing at their own dot to check which way they're
+    facing found a plain arrow read faster than the scooter, whose own
+    "front" isn't obvious at a glance the way a literal arrow's tip is.
+
+    Lucide draws this glyph's tip pointing north-east by default (its path
+    is `m3 11 19-9-9 19-2-8z`, transcribed in `Icon.tsx`); the baked PNG is
+    that same path rotated -45° so the tip points due north instead,
+    matching this file's own "0° = up" heading convention.
+
+    Handed to `Marker`'s own `image` prop and rotated by its own
+    `rotation`/`flat` props rather than drawn as a React child view — the
+    native Google Maps SDK rotates its own bitmap directly, with no React
+    Native view layout, transform or snapshot step in the path at all. (An
+    earlier custom-child-view attempt at the scooter kept rendering
+    incompletely on-device with no way to inspect why from here; switching
+    to native rotation sidestepped that whole class of bug, and this arrow
+    keeps using it for the same reason.)
+
+    The source PNG's pixel dimensions (60×77) are deliberately exactly its
+    intended on-screen size: a `require()`d asset with no `@2x`/`@3x`
+    sibling is registered at scale 1, so it renders at `pixelSize / 1` dp
+    on every device rather than at a size that depends on guessing which
+    density bucket the marker bitmap path picks. To resize it, regenerate
+    the PNG at a different pixel size rather than looking for a style prop
+    — there isn't one, by design. */
+const RIDER_MARKER_IMAGE = require("../../assets/images/rider_heading_arrow.png");
+/* A sharp arrowhead makes a turn far more visually obvious than the
+   illustrated scooter it replaced did — the same rotation SPEED now reads
+   as faster simply because the shape sweeps a bold point across the
+   screen instead of a soft silhouette. Slower here than that version
+   used, to bring the PERCEIVED speed back down to what it was. */
+const RIDER_ROTATE_MS = 700;
+
+/** Eases a stream of raw heading readings into one that changes smoothly,
+    for a marker's `rotation` prop.
+
+    `heading` comes from `Location.watchHeadingAsync` (`useDriverLocation`),
+    which fires on close to every degree the compass reports — unthrottled
+    and, held to a phone's hand, noisy. Passing it straight through snaps
+    the marker to each reading the instant it arrives, so turning the phone
+    makes it twitch through a dozen tiny jumps a second rather than read as
+    one smooth turn. This animates toward each new reading instead, over a
+    fixed duration — there is nothing to throttle upstream without also
+    slowing how current the heading itself is. The animation target is
+    accumulated as a plain, unwrapped number (can run past 360 or below 0)
+    rather than reset into 0–360 each time, so a turn through north keeps
+    animating the short way instead of snapping backward across the dial;
+    the returned value is only normalised into [0, 360) at the end, for the
+    `rotation` prop itself. */
+function useEasedHeading(heading: number): number {
+  const target = useRef(heading);
+  const rotAnim = useRef(new Animated.Value(heading)).current;
+  const [display, setDisplay] = useState(heading);
+
+  useEffect(() => {
+    const id = rotAnim.addListener(({ value }) => setDisplay(value));
+    return () => rotAnim.removeListener(id);
+  }, [rotAnim]);
+
+  useEffect(() => {
+    const next = target.current + shortestAngleDelta(target.current % 360, heading);
+    target.current = next;
+    Animated.timing(rotAnim, {
+      toValue: next,
+      duration: RIDER_ROTATE_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [heading, rotAnim]);
+
+  return ((display % 360) + 360) % 360;
 }
 
 /**
@@ -214,11 +336,16 @@ export function PulseRing({
  * `app.config.js` and `.env.example`), so this is the promised upgrade: the
  * projection and the markers are gone, the props are exactly the same.
  *
- * Turn-by-turn routing is still a separate decision. The line between two
- * points below is still a STRAIGHT line, not a road-following route — this
- * only replaced the canvas underneath it, not the geometry drawn on top —
- * and a rider still taps through to their own maps app for actual
- * navigation, same as before.
+ * The line between two points now follows actual roads — `MapViewDirections`
+ * asks Google's Directions API for the real route and draws THAT, solid,
+ * instead of a straight line pretending to be one. A straight, DASHED line
+ * is still what draws when a route genuinely isn't available (no API key,
+ * the Directions API not enabled for it, or a failed request) — dashed for
+ * the same reason it always was: so a line that is NOT a real route never
+ * looks like one. See `ROUTE_MIN_INTERVAL_MS` for why the route itself
+ * doesn't refetch on every single fix. Turn-by-turn, spoken navigation is
+ * still a separate decision — a rider still taps through to their own maps
+ * app for that, same as before.
  *
  * ## A position it does not have is drawn as one it does not have
  *
@@ -301,6 +428,17 @@ export function MapPanel({
   const legTarget = pickedUp ? drop : pickup;
   const legMetres = me && legTarget ? metresBetween(me, legTarget) : null;
 
+  /* The route for the leg actually being ridden. Origin is throttled (see
+     `useThrottledRoutePoint`); `legRouteFailed` starts false optimistically
+     on every new request (`onStart`) and only the most recent request's own
+     `onError` can set it, so a failure on the pickup leg doesn't linger as
+     a false failure once the leg target has moved on to the drop. */
+  const routeOrigin = useThrottledRoutePoint(me);
+  const [legRouteFailed, setLegRouteFailed] = useState(false);
+  /* `pickup`/`drop` never move once a job is assigned, so this route is
+     fetched exactly once — no throttling needed, unlike the leg above. */
+  const [journeyRouteFailed, setJourneyRouteFailed] = useState(false);
+
   /*
    * Frame the camera to whatever is on screen, the same job the old
    * projection's bounding box did. Keyed on the points' own values rather
@@ -361,6 +499,49 @@ export function MapPanel({
       : me && legTarget
         ? bearingBetween(me, legTarget)
         : 0;
+  const riderRotation = useEasedHeading(rotation);
+
+  /* The rider's own position glides between GPS fixes instead of
+     snapping — the same technique `DeliveryMap.tsx` uses for the rider on
+     the diner's side, tuned to THIS app's own, much faster update cadence.
+     `useDriverLocation` watches position at five metres or two seconds
+     (see the comment above `LOCATION_MISSES_BEFORE_STALE` in
+     `driverStore.ts`), so while actually riding a fix can arrive under a
+     second apart — snapping straight to each one was always happening,
+     it just wasn't very noticeable until the marker above got bigger.
+     Slightly under that typical gap, so one glide usually finishes before
+     the next fix lands; when a fix arrives sooner anyway, retargeting an
+     `AnimatedRegion` mid-glide steers it toward the new point rather than
+     restarting, so riding fast still reads as one continuous motion. */
+  const ME_GLIDE_MS = 1000;
+  const meRegion = useRef<AnimatedRegion | null>(null);
+  if (me && !meRegion.current) {
+    meRegion.current = new AnimatedRegion({
+      latitude: me[1],
+      longitude: me[0],
+      latitudeDelta: 0,
+      longitudeDelta: 0,
+    });
+  }
+  useEffect(() => {
+    if (!me || !meRegion.current) return;
+    meRegion.current
+      .timing({
+        latitude: me[1],
+        longitude: me[0],
+        latitudeDelta: 0,
+        longitudeDelta: 0,
+        duration: ME_GLIDE_MS,
+        useNativeDriver: false,
+        /* react-native-maps' own `.d.ts` demands a `toValue` here, but its
+           actual implementation only ever reads latitude/longitude/deltas
+           off this object — satisfies the type without pretending the
+           number means anything (same as `DeliveryMap.tsx`'s `riderRegion`). */
+        toValue: 0,
+      })
+      .start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me?.[0], me?.[1]]);
 
   useEffect(() => {
     onMapRef?.(mapRef.current);
@@ -386,9 +567,23 @@ export function MapPanel({
         pitchEnabled={false}
         toolbarEnabled={false}
       >
-        {/* The whole journey, faint. It stays visible on both legs so
-            progress reads against something fixed. */}
-        {pickup && drop ? (
+        {/* The whole journey, faint, along actual roads. It stays visible on
+            both legs so progress reads against something fixed. Fixed
+            endpoints, so this fetches once and never refetches for the life
+            of the job. */}
+        {pickup && drop && GOOGLE_MAPS_API_KEY ? (
+          <MapViewDirections
+            origin={toLatLng(pickup)}
+            destination={toLatLng(drop)}
+            apikey={GOOGLE_MAPS_API_KEY}
+            mode="DRIVING"
+            strokeColor={colors.borderInput}
+            strokeWidth={2}
+            onStart={() => setJourneyRouteFailed(false)}
+            onError={() => setJourneyRouteFailed(true)}
+          />
+        ) : null}
+        {pickup && drop && (!GOOGLE_MAPS_API_KEY || journeyRouteFailed) ? (
           <Polyline
             coordinates={[toLatLng(pickup), toLatLng(drop)]}
             strokeColor={colors.borderInput}
@@ -396,9 +591,25 @@ export function MapPanel({
           />
         ) : null}
 
-        {/* The leg being travelled, dashed BECAUSE it is a straight line and
-            not a route — a solid line would read as "this is the road". */}
-        {me && legTarget ? (
+        {/* The leg being ridden right now, along actual roads — solid,
+            because unlike the straight line it can fall back to, this
+            really IS "the road". The straight DASHED line below only draws
+            when this one could not: dashed for the same reason it always
+            was, so a line that is NOT a real route never looks like one. */}
+        {me && legTarget && routeOrigin && GOOGLE_MAPS_API_KEY ? (
+          <MapViewDirections
+            origin={toLatLng(routeOrigin)}
+            destination={toLatLng(legTarget)}
+            apikey={GOOGLE_MAPS_API_KEY}
+            mode="DRIVING"
+            precision="high"
+            strokeColor={colors.brand}
+            strokeWidth={4}
+            onStart={() => setLegRouteFailed(false)}
+            onError={() => setLegRouteFailed(true)}
+          />
+        ) : null}
+        {me && legTarget && (!GOOGLE_MAPS_API_KEY || legRouteFailed) ? (
           <Polyline
             coordinates={[toLatLng(me), toLatLng(legTarget)]}
             strokeColor={colors.brand}
@@ -419,13 +630,23 @@ export function MapPanel({
           </Marker>
         ) : null}
 
-        {/* The rider. The pulse rides in a sibling `Marker` at the same
-            coordinate rather than inside this one, so its own Animated loop
-            does not force the chevron's marker to keep re-snapshotting. */}
-        {me ? (
-          <Marker coordinate={toLatLng(me)} anchor={{ x: 0.5, y: 0.5 }} zIndex={2}>
-            <ChevronIcon heading={rotation} />
-          </Marker>
+        {/* The rider — a native image marker, rotated by the SDK itself
+            (`image` + `rotation` + `flat`) rather than a custom React child
+            view, so there is no React Native layout/snapshot step that
+            could clip it. `coordinate` is `meRegion`, not a plain LngLat,
+            so it GLIDES to each new fix — see the long comment above. The
+            pulse rides in a sibling `MarkerAnimated` sharing that same
+            region, so the two move together rather than the ring lagging
+            behind or racing ahead of the icon. */}
+        {me && meRegion.current ? (
+          <MarkerAnimated
+            coordinate={meRegion.current}
+            anchor={{ x: 0.5, y: 0.5 }}
+            zIndex={2}
+            image={RIDER_MARKER_IMAGE}
+            rotation={riderRotation}
+            flat
+          />
         ) : null}
         {/*
           Solo mode draws its pulse OUTSIDE the map entirely now — see the
@@ -437,8 +658,13 @@ export function MapPanel({
           far: a native-driven change never reaches React, and Android will
           not re-rasterise a marker for a change it never heard about.
         */}
-        {hasJourney && me ? (
-          <Marker coordinate={toLatLng(me)} anchor={{ x: 0.5, y: 0.5 }} zIndex={1} tracksViewChanges>
+        {hasJourney && me && meRegion.current ? (
+          <MarkerAnimated
+            coordinate={meRegion.current}
+            anchor={{ x: 0.5, y: 0.5 }}
+            zIndex={1}
+            tracksViewChanges
+          >
             <Animated.View
               pointerEvents="none"
               style={[
@@ -449,7 +675,7 @@ export function MapPanel({
                 },
               ]}
             />
-          </Marker>
+          </MarkerAnimated>
         ) : null}
 
         {/*

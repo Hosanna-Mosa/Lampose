@@ -119,8 +119,9 @@ export {
  * is written instead of on the next fetch. It is an optimisation and nothing
  * on any screen depends on it; `support.socket.ts` explains why support is
  * the app's own connection to earn — and, on the same file now, why a stay
- * request's countdown and a booking's owner-driven status reuse it rather
- * than opening a second one.
+ * request's countdown, a booking's owner-driven status, and (most recently)
+ * a food order's rider `heading` between polls all reuse it rather than
+ * opening a second one.
  */
 export {
   connectSupportSocket,
@@ -130,9 +131,11 @@ export {
   onBookingEvent,
   referenceOf,
   watchTicket,
+  watchOrder,
   SUPPORT_SOCKET_ORIGIN,
   type SupportSocketEvent,
   type StayEvent,
+  type FoodOrderLocationEvent,
 } from './support.socket';
 
 export type {

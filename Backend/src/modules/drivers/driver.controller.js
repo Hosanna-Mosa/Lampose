@@ -738,7 +738,15 @@ const updateLocation = async (req, res, next) => {
 
     /* Relayed to whoever is watching the order this rider is carrying. Only
        while they are actually carrying one — a position broadcast between jobs
-       is a rider's movements going to nobody who should have them. */
+       is a rider's movements going to nobody who should have them.
+
+       `heading` rides along whenever this update carried one — same
+       `update.heading` just computed above, not re-derived — so a diner's
+       socket-fed map can turn the marker the moment a fix arrives instead
+       of waiting for their next poll to read it back off `GET .../orders/:id`.
+       Omitted (not sent as `null`) when this update had none, so the client
+       side's existing "hold the last known heading" behaviour is what
+       applies rather than every client having to special-case a `null`. */
     if (req.driver.currentOrderNumber) {
       const realtime = require('../../infrastructure/realtime/realtime');
       realtime.toOrder(req.driver.currentOrderNumber, 'driver_location', {
@@ -746,6 +754,7 @@ const updateLocation = async (req, res, next) => {
         driverId: req.driver.driverId,
         lat,
         lng,
+        ...(Number.isFinite(update.heading) ? { heading: update.heading } : null),
         at: new Date().toISOString(),
       });
     }

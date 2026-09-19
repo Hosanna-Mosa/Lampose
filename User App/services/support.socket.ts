@@ -141,6 +141,12 @@ const listeners = new Map<string, Set<Listener>>();
 
 /** The per-thread rooms to re-join after a drop. */
 const tracked = new Set<string>();
+/** The per-ORDER rooms to re-join after a drop — kept separate from
+    `tracked` above because the two re-join with different event names
+    (`track_ticket` vs `track_order`) on reconnect; conflating them would
+    mean an order re-joined as a ticket reference and never actually
+    re-subscribed. */
+const trackedOrders = new Set<string>();
 
 /** Reconnection is infinite; only the first failure of an outage is logged. */
 let warnedOffline = false;
@@ -224,10 +230,11 @@ export function connectSupportSocket(): Socket | null {
 
   socket.on('connect', () => {
     warnedOffline = false;
-    /* Re-join the per-thread rooms. Membership lives on the connection, so a
-       thread watched before a tunnel is a thread nobody is watching after it
-       unless this runs. */
+    /* Re-join the per-thread AND per-order rooms. Membership lives on the
+       connection, so a thread or an order watched before a tunnel is one
+       nobody is watching after it unless this runs. */
     tracked.forEach((reference) => socket?.emit('track_ticket', { reference }));
+    trackedOrders.forEach((orderNumber) => socket?.emit('track_order', { orderNumber }));
   });
 
   socket.on('connect_error', (error: Error) => {
@@ -273,8 +280,9 @@ export function connectSupportSocket(): Socket | null {
 export function disconnectSupportSocket(): void {
   teardown();
   /* The rooms belonged to the account that just left. A reconnect for the
-     next person must not re-join a thread of theirs. */
+     next person must not re-join a thread — or an order — of theirs. */
   tracked.clear();
+  trackedOrders.clear();
   warnedOffline = false;
 }
 
@@ -335,6 +343,76 @@ export function onStayRequestEvent(handler: (event: StayEvent) => void): () => v
 export function onBookingEvent(handler: (event: StayEvent) => void): () => void {
   attach('booking_updated', handler);
   return () => detach('booking_updated', handler);
+}
+
+/* ------------------------------------------------------------------ *
+ * The food-order-tracking side
+ * ------------------------------------------------------------------ *
+ *
+ * A THIRD reason to reuse this one connection, after support and stay.
+ * `app/food/order/[id].tsx` used to explain, at length, why it deliberately
+ * had no socket: a tracking screen is well served by a request that works
+ * on any network, and "a marker that moves eight seconds late says nothing
+ * about whether anyone is there." That reasoning was sound and is still why
+ * the poll stays — nothing here removes it, and everything this delivers is
+ * also readable on the next poll, same as support and stay. What changed is
+ * that the person asking judged eight seconds of visible lag on a MOVING
+ * marker worse than the poll interval's inherent staleness, for this one
+ * value specifically — direction, not position, distance or status, all of
+ * which are still perfectly well served by the existing poll. `watchOrder`
+ * exists to narrow the win to exactly that: a live `heading` (and the fix
+ * it came with) between polls, nothing broader.
+ */
+
+export type FoodOrderLocationEvent = {
+  orderNumber?: string;
+  driverId?: string;
+  lat: number;
+  lng: number;
+  /** Omitted, not `null`, on a fix the driver's phone had no bearing for —
+      see `driver.controller.js`'s own comment on why, and hold the last
+      known heading rather than reading this as "facing nowhere" when it's
+      absent. */
+  heading?: number;
+  at: string;
+};
+
+/**
+ * Watch ONE order's live position/heading — the same shape as `watchTicket`,
+ * the same rule: the client names an order number, the server reads the
+ * document and decides whether this socket's identity is actually a party
+ * to it before joining `order:<orderNumber>`.
+ *
+ * Filtered by `orderNumber` on the payload, same as `watchTicket` filters by
+ * reference — `track_order` scopes which ROOM this socket is in, but this
+ * app can still ask to watch a second order (a diner backing out of one
+ * tracking screen into another without the first ever unmounting) while the
+ * listener registry above stays a single global map per event name, so the
+ * filter is what stops order B's fixes from being handed to order A's
+ * screen rather than room membership alone.
+ */
+export function watchOrder(
+  orderNumber: string,
+  handler: (event: FoodOrderLocationEvent) => void,
+): () => void {
+  const wanted = (orderNumber ?? '').trim().toUpperCase();
+  if (!wanted) return () => {};
+
+  const filtered: Listener = (event: FoodOrderLocationEvent) => {
+    if ((event?.orderNumber ?? '').trim().toUpperCase() !== wanted) return;
+    handler(event);
+  };
+
+  attach('driver_location', filtered);
+
+  trackedOrders.add(wanted);
+  socket?.emit('track_order', { orderNumber: wanted });
+
+  return () => {
+    detach('driver_location', filtered);
+    trackedOrders.delete(wanted);
+    socket?.emit('untrack_order', { orderNumber: wanted });
+  };
 }
 
 /**
