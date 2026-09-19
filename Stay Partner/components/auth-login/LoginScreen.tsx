@@ -27,9 +27,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { Icon } from '@/components/common/atoms/Icon';
 import { OTPInput } from '@/components/common/molecules/OTPInput';
-import {
-  Screen, Text, Button, IconButton, PhoneField, PHONE_LENGTH, Input, TextButton,
-} from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
 import { isValidIndianMobile, phoneError, sendFailureCopy } from './authHelpers';
 
@@ -57,8 +54,7 @@ export function LoginScreen() {
     resendCode,
     verifyCode,
     changeNumber,
-  const {
-    sendCode, signInWithPassword, isSubmitting, sendFailure, failureMessage,
+    signInWithPassword,
   } = useAuth();
 
   // Front Form State (Phone)
@@ -74,25 +70,26 @@ export function LoginScreen() {
       : digits.length < 10
       ? 'Please enter a 10-digit mobile number.'
       : phoneError(digits)
+    : undefined;
+
   /*
-   * Which way in this screen is showing.
+   * Which door the front of the card is showing.
    *
-   * Phone is the default and stays the default: it is how every owner who has
-   * not been handed a password signs in, and the server cannot sign the rest
-   * of them in this way at all. The password form is the second door, not the
-   * front one.
+   * Phone stays the default: it is how every owner who has not been handed a
+   * password signs in, and the server cannot sign the rest of them in that way
+   * at all. The password form is the second door, not the front one — and it
+   * lives on this same face, so a flip to the back is still only ever
+   * something a sent code does.
    */
   const [mode, setMode] = useState<'phone' | 'password'>('phone');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [pwError, setPwError] = useState<string | undefined>(undefined);
+  const [emailFocused, setEmailFocused] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
+  const passwordRef = useRef<TextInput>(null);
 
-  const complete = digits.length === PHONE_LENGTH;
-  // Only complain once they've left the field, and never about an empty one —
-  // erroring at digit three while someone is still typing is just noise.
-  const localError = touched && !complete && digits.length > 0
-    ? `Enter a valid ${PHONE_LENGTH}-digit mobile number.`
-    : undefined;
+  const canSubmitPassword = email.trim().length > 0 && password.length > 0;
 
   // Back Form State (OTP)
   const [code, setCode] = useState('');
@@ -190,6 +187,45 @@ export function LoginScreen() {
     if (result === 'failed') return;
   };
 
+  const signIn = async () => {
+    if (!canSubmitPassword || isSubmitting) return;
+    setPwError(undefined);
+
+    Keyboard.dismiss();
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+
+    const result = await signInWithPassword(email, password);
+    if (!result.ok) {
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      } catch {}
+      setPwError(result.message);
+      return;
+    }
+
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {}
+
+    /* The same fork `verifyCode`'s caller takes. An account provisioned
+       without a name has never filled the profile in, and the dashboard reads
+       fields that setup writes — so it goes there first, exactly as a new
+       owner does after a code. */
+    router.replace(result.profileComplete ? '/' : '/profile-setup');
+  };
+
+  const switchMode = (next: 'phone' | 'password') => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    Keyboard.dismiss();
+    setMode(next);
+    setPwError(undefined);
+    setTouched(false);
+  };
+
   const submitOtp = async (value: string) => {
     if (value.length !== otpLength || isSubmitting) return;
     setProblem(null);
@@ -254,6 +290,11 @@ export function LoginScreen() {
       (attemptsLeft !== null
         ? `That code is wrong — ${attemptsLeft} ${attemptsLeft === 1 ? 'try' : 'tries'} left.`
         : undefined);
+
+  // The one CTA drives both doors, so its disabled state has to read both.
+  const ctaDisabled = mode === 'phone'
+    ? isSubmitting
+    : isSubmitting || !canSubmitPassword;
 
   const displayPhone = pendingPhoneMasked ?? (pendingPhone ? `+91 ${pendingPhone.replace(/\D/g, '').slice(-10)}` : 'your phone');
 
@@ -371,59 +412,138 @@ export function LoginScreen() {
 
               {/* Form Area */}
               <View style={styles.formArea}>
-                <Pressable
-                  onPress={() => inputRef.current?.focus()}
-                  style={[
-                    styles.phoneInputContainer,
-                    isFocused && styles.phoneInputFocused,
-                    Boolean(numberError) && styles.phoneInputError,
-                  ]}
-                >
-                  <Icon name="phone" size={18} color="#0A5A41" />
-                  <Text style={styles.countryCodeText}>+91</Text>
-                  <View style={styles.divider} />
-                  <TextInput
-                    ref={inputRef}
-                    value={digits}
-                    onChangeText={handlePhoneChange}
-                    onFocus={() => setIsFocused(true)}
-                    onBlur={() => {
-                      setIsFocused(false);
-                      setTouched(true);
-                    }}
-                    placeholder="Enter your mobile number"
-                    placeholderTextColor="#94A3B8"
-                    keyboardType="number-pad"
-                    textContentType="telephoneNumber"
-                    autoComplete="tel"
-                    maxLength={10}
-                    style={[styles.phoneInput, digits.length === 0 && styles.phoneInputEmpty]}
-                    selectionColor="#0A5A41"
-                  />
-                </Pressable>
+                {mode === 'phone' ? (
+                  <>
+                    <Pressable
+                      onPress={() => inputRef.current?.focus()}
+                      style={[
+                        styles.phoneInputContainer,
+                        isFocused && styles.phoneInputFocused,
+                        Boolean(numberError) && styles.phoneInputError,
+                      ]}
+                    >
+                      <Icon name="phone" size={18} color="#0A5A41" />
+                      <Text style={styles.countryCodeText}>+91</Text>
+                      <View style={styles.divider} />
+                      <TextInput
+                        ref={inputRef}
+                        value={digits}
+                        onChangeText={handlePhoneChange}
+                        onFocus={() => setIsFocused(true)}
+                        onBlur={() => {
+                          setIsFocused(false);
+                          setTouched(true);
+                        }}
+                        placeholder="Enter your mobile number"
+                        placeholderTextColor="#94A3B8"
+                        keyboardType="number-pad"
+                        textContentType="telephoneNumber"
+                        autoComplete="tel"
+                        maxLength={10}
+                        style={[styles.phoneInput, digits.length === 0 && styles.phoneInputEmpty]}
+                        selectionColor="#0A5A41"
+                      />
+                    </Pressable>
 
-                {numberError ? (
-                  <Text style={styles.errorText}>{numberError}</Text>
-                ) : null}
+                    {numberError ? (
+                      <Text style={styles.errorText}>{numberError}</Text>
+                    ) : null}
 
-                {failure ? (
-                  <View style={styles.alertBanner}>
-                    <Text style={styles.alertTitle}>{failure.headline}</Text>
-                    <Text style={styles.alertBody}>{failureMessage ?? failure.body}</Text>
-                  </View>
-                ) : null}
+                    {failure ? (
+                      <View style={styles.alertBanner}>
+                        <Text style={styles.alertTitle}>{failure.headline}</Text>
+                        <Text style={styles.alertBody}>{failureMessage ?? failure.body}</Text>
+                      </View>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <View
+                      style={[
+                        styles.phoneInputContainer,
+                        emailFocused && styles.phoneInputFocused,
+                        Boolean(pwError) && styles.phoneInputError,
+                      ]}
+                    >
+                      <Icon name="user" size={18} color="#0A5A41" />
+                      <View style={styles.divider} />
+                      <TextInput
+                        value={email}
+                        onChangeText={(next) => {
+                          setEmail(next);
+                          if (pwError) setPwError(undefined);
+                        }}
+                        onFocus={() => setEmailFocused(true)}
+                        onBlur={() => setEmailFocused(false)}
+                        placeholder="you@email.com"
+                        placeholderTextColor="#94A3B8"
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        textContentType="emailAddress"
+                        autoComplete="email"
+                        returnKeyType="next"
+                        onSubmitEditing={() => passwordRef.current?.focus()}
+                        editable={!isSubmitting}
+                        style={[styles.phoneInput, email.length === 0 && styles.phoneInputEmpty]}
+                        selectionColor="#0A5A41"
+                      />
+                    </View>
+
+                    <View
+                      style={[
+                        styles.phoneInputContainer,
+                        styles.fieldSpacing,
+                        passwordFocused && styles.phoneInputFocused,
+                        Boolean(pwError) && styles.phoneInputError,
+                      ]}
+                    >
+                      <Icon name="lock" size={18} color="#0A5A41" />
+                      <View style={styles.divider} />
+                      <TextInput
+                        ref={passwordRef}
+                        value={password}
+                        onChangeText={(next) => {
+                          setPassword(next);
+                          if (pwError) setPwError(undefined);
+                        }}
+                        onFocus={() => setPasswordFocused(true)}
+                        onBlur={() => setPasswordFocused(false)}
+                        placeholder="Your password"
+                        placeholderTextColor="#94A3B8"
+                        secureTextEntry
+                        autoCapitalize="none"
+                        textContentType="password"
+                        autoComplete="current-password"
+                        returnKeyType="go"
+                        onSubmitEditing={signIn}
+                        editable={!isSubmitting}
+                        style={[styles.phoneInput, password.length === 0 && styles.phoneInputEmpty]}
+                        selectionColor="#0A5A41"
+                      />
+                    </View>
+
+                    {/* The server's sentence, and it is the same one for a wrong
+                        address as for a wrong password — on purpose, so this
+                        screen cannot be used to find out which owners Lampose
+                        has. */}
+                    {pwError ? (
+                      <Text style={styles.errorText}>{pwError}</Text>
+                    ) : null}
+                  </>
+                )}
 
                 {/* Continue Button: Rich vibrant emerald gradient */}
                 <Animated.View style={[buttonAnimatedStyle, styles.primaryButtonWrap]}>
                   <Pressable
-                    onPress={submitPhone}
-                    disabled={isSubmitting}
+                    onPress={mode === 'phone' ? submitPhone : signIn}
+                    disabled={ctaDisabled}
                     style={({ pressed }) => [
                       styles.primaryButtonPress,
-                      pressed && !isSubmitting ? { opacity: 0.92 } : null,
+                      ctaDisabled && { opacity: 0.6 },
+                      pressed && !ctaDisabled ? { opacity: 0.92 } : null,
                     ]}
                     accessibilityRole="button"
-                    accessibilityLabel="Continue"
+                    accessibilityLabel={mode === 'phone' ? 'Continue' : 'Log in'}
                     accessibilityState={{ busy: isSubmitting }}
                   >
                     <LinearGradient
@@ -436,13 +556,30 @@ export function LoginScreen() {
                         <ActivityIndicator size="small" color="#FFFFFF" />
                       ) : (
                         <View style={styles.primaryButtonRow}>
-                          <Text style={styles.primaryButtonText}>Continue</Text>
+                          <Text style={styles.primaryButtonText}>
+                            {mode === 'phone' ? 'Continue' : 'Log in'}
+                          </Text>
                           <Icon name="arrow-right" size={20} color="#FFFFFF" />
                         </View>
                       )}
                     </LinearGradient>
                   </Pressable>
                 </Animated.View>
+
+                {/* The second door. Phone is still the way in; this is the
+                    way in for the owners who were handed a password instead. */}
+                <Pressable
+                  onPress={() => switchMode(mode === 'phone' ? 'password' : 'phone')}
+                  disabled={isSubmitting}
+                  style={[styles.ghostButton, styles.switchModeButton]}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.ghostButtonText}>
+                    {mode === 'phone'
+                      ? 'Log in with email and password'
+                      : 'Use my mobile number instead'}
+                  </Text>
+                </Pressable>
 
                 {/* Terms and Privacy Policy */}
                 <Text style={styles.termsText}>
@@ -549,143 +686,6 @@ export function LoginScreen() {
         </Text>
       </View>
     </View>
-  const canSubmitPassword = email.trim().length > 0 && password.length > 0;
-
-  const signIn = async () => {
-    if (!canSubmitPassword || isSubmitting) return;
-    setPwError(undefined);
-
-    const result = await signInWithPassword(email, password);
-    if (!result.ok) {
-      setPwError(result.message);
-      return;
-    }
-
-    /* The same fork `verifyCode`'s caller takes. An account provisioned
-       without a name has never filled the profile in, and the dashboard reads
-       fields that setup writes — so it goes there first, exactly as a new
-       owner does after a code. */
-    router.replace(result.profileComplete ? '/' : '/profile-setup');
-  };
-
-  return (
-    <Screen
-      scroll={false} padX={24} contentStyle={styles.fill}
-      stickyHeader={
-        <>
-          <Box style={styles.backRow}>
-            {router.canGoBack() ? (
-              <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
-            ) : null}
-          </Box>
-        </>
-      }
-    >
-
-      <Text variant="pageTitle" style={styles.title}>
-        Log in
-      </Text>
-      <Text variant="bodySm" color="textSecondary" style={styles.subtitle}>
-        {mode === 'phone'
-          ? 'Enter the mobile number linked to your host account.'
-          : 'Enter the email address and password for your host account.'}
-      </Text>
-
-      {mode === 'password' ? (
-        <>
-          <Input
-            label="Email"
-            value={email}
-            onChangeText={(next) => {
-              setEmail(next);
-              if (pwError) setPwError(undefined);
-            }}
-            placeholder="you@email.com"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            textContentType="emailAddress"
-            autoComplete="email"
-            returnKeyType="next"
-            disabled={isSubmitting}
-            containerStyle={styles.field}
-            autoFocus
-          />
-
-          <Input
-            label="Password"
-            value={password}
-            onChangeText={(next) => {
-              setPassword(next);
-              if (pwError) setPwError(undefined);
-            }}
-            placeholder="Your password"
-            secureTextEntry
-            autoCapitalize="none"
-            textContentType="password"
-            autoComplete="current-password"
-            returnKeyType="go"
-            onSubmitEditing={signIn}
-            disabled={isSubmitting}
-            /* The server's sentence, and it is the same one for a wrong
-               address as for a wrong password — on purpose, so this screen
-               cannot be used to find out which owners Lampose has. */
-            error={pwError}
-            containerStyle={styles.field}
-          />
-
-          <Button
-            label={isSubmitting ? 'Signing in…' : 'Log in'}
-            onPress={signIn}
-            loading={isSubmitting}
-            disabled={!canSubmitPassword}
-            style={styles.cta}
-          />
-
-          <TextButton
-            label="Use my mobile number instead"
-            onPress={() => { setMode('phone'); setPwError(undefined); }}
-            disabled={isSubmitting}
-          />
-        </>
-      ) : (
-        <>
-      <PhoneField
-        value={digits}
-        onChangeText={(next) => {
-          setDigits(next);
-          if (next.length === PHONE_LENGTH) setTouched(false);
-        }}
-        onBlur={() => setTouched(true)}
-        error={error}
-        disabled={isSubmitting}
-        autoFocus
-      />
-
-      {/* Right under the field, not pinned to the bottom of the screen — a
-          bottom-pinned button on a `scroll={false}` screen sits exactly
-          where the keyboard covers it the moment the field is focused,
-          since nothing here resizes for the keyboard. Sitting in the normal
-          flow means it's always above it, autofocus or not. */}
-      <Button
-        label={isSubmitting ? 'Sending code…' : 'Send code'}
-        onPress={send}
-        loading={isSubmitting}
-        disabled={!complete}
-        style={styles.cta}
-      />
-
-          <TextButton
-            label="Log in with email and password"
-            onPress={() => setMode('password')}
-            disabled={isSubmitting}
-          />
-        </>
-      )}
-
-      <Text variant="badge" color="textCaption" center style={styles.legal}>
-        By continuing you agree to the Partner Terms and Privacy Policy.
-      </Text>
-    </Screen>
   );
 }
 
@@ -788,6 +788,12 @@ const styles = StyleSheet.create({
   },
   phoneInputError: {
     borderColor: '#EF4444',
+  },
+  fieldSpacing: {
+    marginTop: 12,
+  },
+  switchModeButton: {
+    marginTop: 14,
   },
   countryCodeText: {
     fontSize: 15,
@@ -918,9 +924,4 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginHorizontal: 8,
   },
-  title: { marginBottom: 8 },
-  subtitle: { lineHeight: 21, marginBottom: 28 },
-  field: { marginBottom: 16 },
-  cta: { marginTop: 12, marginBottom: 14 },
-  legal: { lineHeight: 17 },
 });
