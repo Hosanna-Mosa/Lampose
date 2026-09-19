@@ -661,6 +661,10 @@ export interface FoodRestaurantRow {
     line2?: string;
     city?: string;
     state?: string;
+    /* The FoSCoS district, which is not always a revenue district — the
+       portal's list carries municipal corporations too. Half of the pair a
+       licence is looked up by; see the FSSAI block on the review drawer. */
+    district?: string;
     pincode?: string;
     landmark?: string;
   };
@@ -703,6 +707,10 @@ export interface FoodProductRow {
 export interface FoodRestaurantDetail {
   restaurant: FoodRestaurantRow & {
     fssaiLicenseNumber?: string;
+    /* The name the licence is HELD in, which is not always `restaurantName`.
+       Absent on applications filed before the field existed, and on every
+       one from the Food-Partner app — the drawer falls back accordingly. */
+    fssaiCompanyName?: string;
     fssaiExpiry?: string | null;
     gstNumber?: string;
     gstExempt?: boolean;

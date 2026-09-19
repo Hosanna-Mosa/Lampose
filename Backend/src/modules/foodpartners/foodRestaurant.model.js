@@ -361,6 +361,13 @@ const foodRestaurantSchema = new mongoose.Schema(
        number is stored here for search and printing; the scan of it is a
        `verificationDocuments` entry of kind `fssai`. */
     fssaiLicenseNumber: { type: String, required: true, trim: true },
+    /* The name the LICENCE is held in, which is not always `restaurantName`.
+       A licence is issued to the registered entity — "Bhargavi Foods Pvt Ltd"
+       against a board reading "Bhargavi Home Foods" — and the FoSCoS lookup
+       matches on this one. Collected by the Onboard console, so like
+       `panNumber` it is checked for shape and never for presence: the
+       Food-Partner app's own signup has no such field. */
+    fssaiCompanyName: { type: String, default: '', trim: true },
     fssaiExpiry: { type: Date, default: null },
 
     /* Optional, and `gstExempt` is why: the composition scheme and small
@@ -371,6 +378,35 @@ const foodRestaurantSchema = new mongoose.Schema(
     gstExempt: { type: Boolean, default: false },
     panNumber: { type: String, default: '', trim: true, uppercase: true },
 
+    /*
+     * The owner's Aadhaar, and the mobile it is registered against.
+     *
+     * Collected by the Onboard console, which is the only surface that asks
+     * for it. `validateApplication` therefore checks its SHAPE and never its
+     * presence, exactly the way it treats `panNumber` — the Food-Partner
+     * app's own signup predates this field, and a presence rule there would
+     * refuse every client that has not shipped it yet.
+     *
+     * `verifiedAt` is DERIVED SERVER-SIDE from the proof token that
+     * `/auth/otp/verify` issues for `phone`, and is never read from the
+     * request body. The same reasoning as `hasCompletedOnboarding` on a
+     * rider: a client that could set this could file an application against
+     * a stranger's Aadhaar by sending one boolean.
+     *
+     * `number` is `select: false`, like `payout.bankAccountNumber` and
+     * `passwordHash`. An Aadhaar number is the most restricted identifier
+     * this platform stores, and nothing on an ordinary read — a listing, the
+     * partner's dashboard, the admin queue — has a reason to receive it.
+     * `last4` is stored plainly beside it so a queue can SHOW which document
+     * was given without the full number leaving the database.
+     */
+    aadhaar: {
+      number: { type: String, default: '', trim: true, select: false },
+      last4: { type: String, default: '', trim: true },
+      phone: { type: String, default: '', trim: true },
+      verifiedAt: { type: Date, default: null },
+    },
+
     /* ── B. Location & contact ──────────────────────────────────────────── */
 
     address: {
@@ -378,6 +414,13 @@ const foodRestaurantSchema = new mongoose.Schema(
       line2: { type: String, default: '', trim: true },
       city: { type: String, default: '', trim: true },
       state: { type: String, default: '', trim: true },
+      /* The FoSCoS district, which is NOT always a revenue district: the
+         portal's own list carries municipal corporations ("Greater Hyderabad
+         Municipal Corporation") beside ordinary districts, and a licence is
+         looked up against whichever of those it was issued under. Stored as
+         the words the agent picked rather than a code, because the only thing
+         that ever reads it is a human typing it back into that portal. */
+      district: { type: String, default: '', trim: true },
       pincode: { type: String, default: '', trim: true },
       /* What a delivery rider is actually told. "Opposite the Reliance Fresh"
          finds a door that a pincode never will. */

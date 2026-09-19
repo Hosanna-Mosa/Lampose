@@ -32,7 +32,9 @@ import { SupportPage } from './pages/SupportPage';
 import { insightsService } from './api/services/insightsService';
 import { permissionService } from './api/services/permissionService';
 import { foodOrderService } from './api/services/foodOrderService';
-import type { UserEntity } from './api/types';
+import { foodAdminService } from './api/services/foodAdminService';
+import { driverAdminService } from './api/services/driverAdminService';
+import type { ApiResponse, UserEntity } from './api/types';
 import { useFetch } from './lib/useFetch';
 
 const VALID_TABS = [
@@ -181,6 +183,57 @@ const AppContent: React.FC = () => {
     [isAuthenticated, activeTab]
   );
 
+  /*
+   * The two APPROVAL badges: applications and riders waiting for a person.
+   *
+   * They answer the question somebody opens this console to ask — "is there
+   * anything new for me?" — which until now had no answer until you clicked
+   * into each queue and counted what was there.
+   *
+   * `limit: 1`, and the count is taken from `counts` rather than from the rows.
+   * Both endpoints compute `counts` as an UNFILTERED `$group` over the whole
+   * collection, in parallel with the page rather than from it, so one row
+   * carries the true tally and the badge does not drag a hundred applications
+   * across the wire to render a number.
+   *
+   * The loader is wrapped because `useFetch` keeps `res.data` and nothing else
+   * — `counts` would be dropped on the way through. Mapping it into `data`
+   * here means the badge reads one number rather than reaching into a shape
+   * the hook never promised to keep.
+   *
+   * Refetched on tab change, deliberately NOT on a timer. This console does
+   * not poll for record counts, and a second mechanism beside the one it has
+   * is how two readings of one fact end up disagreeing three feet apart on the
+   * same screen — the note above `foodOrderCounts` records where that was
+   * learnt. A badge one click stale is right often enough; a badge that
+   * disagrees with the queue it points at is worse than no badge.
+   */
+  /* Asked for only by a role whose nav actually has the row, and decided by
+     `tabAllowedFor` — the SAME derivation the sidebar and the tab router use,
+     rather than a third copy of the role list to keep in step. A Support agent
+     has no Food group, so asking would be a 403 on every tab change for a
+     badge they would never see. `zero` is a real answer rather than an error,
+     so a refused role renders no badge instead of a broken one. */
+  const zero = (): ApiResponse<number> => ({ success: true, status: 200, data: 0 });
+
+  const pendingRestaurants = useFetch<number>(
+    async () => {
+      if (!tabAllowedFor('food-restaurants', user?.role)) return zero();
+      const res = await foodAdminService.getRestaurants({ status: 'pending', limit: 1 });
+      return { ...res, data: res.counts?.pending ?? 0 };
+    },
+    [isAuthenticated, activeTab, user?.role]
+  );
+
+  const pendingDrivers = useFetch<number>(
+    async () => {
+      if (!tabAllowedFor('drivers', user?.role)) return zero();
+      const res = await driverAdminService.getDrivers({ status: 'pending', limit: 1 });
+      return { ...res, data: res.counts?.pending ?? 0 };
+    },
+    [isAuthenticated, activeTab, user?.role]
+  );
+
   if (!isAuthenticated) {
     return authView === 'register' ? (
       <RegisterPage onSwitchToLogin={() => setAuthView('login')} />
@@ -199,6 +252,13 @@ const AppContent: React.FC = () => {
     ...(foodOrderCounts.data && {
       'food-orders': foodOrderCounts.data.needsHuman,
     }),
+    /* Only when something is actually waiting. A nav row reading "0" is a row
+       that has to be read before it can be dismissed, on every screen, for
+       ever — and being noticed is the whole job of these two. An absent key
+       renders no badge; `Sidebar.tsx` tests for a number rather than for
+       truthiness, so a genuine zero elsewhere still shows if it wants to. */
+    ...(pendingRestaurants.data ? { 'food-restaurants': pendingRestaurants.data } : {}),
+    ...(pendingDrivers.data ? { drivers: pendingDrivers.data } : {}),
   };
 
   const renderPage = () => {

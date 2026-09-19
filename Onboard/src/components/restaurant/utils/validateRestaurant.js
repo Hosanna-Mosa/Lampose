@@ -28,7 +28,7 @@
  * rather than "Invalid".
  */
 
-import { DAYS } from './restaurantOptions';
+import { DAYS, INDIAN_STATES } from './restaurantOptions';
 
 /* ------------------------------------------------------------------ *
  * Limits
@@ -42,6 +42,7 @@ import { DAYS } from './restaurantOptions';
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 const FSSAI_DIGITS = 14;
+const AADHAAR_DIGITS = 12;
 const MIN_ACCOUNT_DIGITS = 9;
 const MAX_ACCOUNT_DIGITS = 18;
 
@@ -99,6 +100,36 @@ const isGstStateCode = (code) => {
   return (number >= 1 && number <= 38) || number === 97 || number === 99;
 };
 
+/**
+ * Did anybody actually START the bank block?
+ *
+ * Exported because TWO files have to agree on it and they used not to. The
+ * rules below read it to decide whether to demand the rest of the block, and
+ * `buildApplication.js` reads it to decide whether to SEND the block at all —
+ * and the second one is the reason this is a function rather than four lines
+ * repeated twice.
+ *
+ * `accountHolderName` is deliberately not part of the test. It is pre-filled
+ * from the owner's name the moment step 1 is filled in, so it is present on
+ * every form that has never been near this section; counting it would make
+ * "the bank details are optional" a promise the form cannot keep.
+ *
+ * The backend's `validateApplication` DOES count a holder name — its
+ * `payoutStarted` is `accountNumber || ifsc || accountHolderName`. That is not
+ * a disagreement to fix there: a payout arriving with a name and no account is
+ * genuinely half a payout, and the server is right to say so. It is this form's
+ * job not to send one, which is what `buildApplication.js` now uses this for.
+ * Before that it sent the pre-filled name with an empty account and the
+ * application was refused at the very end with a message about bank details
+ * the agent had deliberately skipped.
+ */
+export const hasBankDetails = (form = {}) => {
+  const digits = (value) => String(value ?? '').replace(/\D/g, '');
+  return Boolean(
+    digits(form.bankAccount) || digits(form.bankConfirm) || String(form.ifsc ?? '').trim(),
+  );
+};
+
 /** The per-day key for a problem with that day's opening hours. */
 export const hoursKey = (day) => `hours:${day}`;
 
@@ -122,18 +153,23 @@ const FIELD_ANCHORS = {
   selectedDays: 'rst-days',
 
   panNumber: 'rst-pan',
+  aadhaarNumber: 'rst-aadhaar',
+  aadhaarPhone: 'rst-aadhaar-phone',
+  aadhaarOtp: 'rst-aadhaar-otp',
   /* The drop zone's wrapper, not the `<input type="file">` inside it — that
      input is `display: none`, so scrolling to it moves nothing. */
   panFile: 'rst-pan-file-field',
   gstin: 'rst-gstin',
   fssaiNumber: 'rst-fssai',
+  fssaiCompanyName: 'rst-fssai-company',
+  state: 'rst-state',
+  district: 'rst-district',
   fssaiExpiry: 'rst-fssai-expiry',
   fssaiFile: 'rst-fssai-file-field',
   accountHolderName: 'rst-holder',
   bankAccount: 'rst-acct',
   bankConfirm: 'rst-acct2',
   ifsc: 'rst-ifsc',
-  refundPolicyAccepted: 'rst-refund',
 
   acceptedTos: 'rst-tos',
   signature: 'rst-signature',
@@ -162,9 +198,10 @@ export const STEP_FIELDS = {
   2: ['selectedDays', ...DAYS.map(hoursKey)],
   3: [
     'panNumber', 'panFile', 'gstin',
+    'aadhaarNumber', 'aadhaarPhone', 'aadhaarOtp',
     'fssaiNumber', 'fssaiExpiry', 'fssaiFile',
+    'fssaiCompanyName', 'state', 'district',
     'accountHolderName', 'bankAccount', 'bankConfirm', 'ifsc',
-    'refundPolicyAccepted',
   ],
   4: ['acceptedTos', 'signature'],
 };
@@ -398,11 +435,19 @@ function validateStep3(form) {
   else if (pan.length !== 10) errs.panNumber = `A PAN is 10 characters — you have typed ${pan.length}`;
   else if (!PAN_RE.test(pan)) errs.panNumber = 'A PAN reads five letters, four digits, one letter, e.g. ABCDE1234F';
 
-  if (!form.panFile) errs.panFile = 'Attach a photo or scan of the PAN card';
-  else {
-    const problem = fileProblem(form.panFile, 'PAN scan');
-    if (problem) errs.panFile = problem;
-  }
+  /*
+   * The scan is OPTIONAL — the NUMBER is not.
+   *
+   * An agent is often given a number off a card that is in a drawer at home,
+   * or photographs it in light that produces an unreadable file. Refusing the
+   * application for it stops an onboarding that is otherwise complete, and the
+   * verification queue can ask for the scan afterwards against a restaurant
+   * that already exists. What is still enforced is that anything ATTACHED can
+   * actually be uploaded: a 30MB photograph fails at submit, after the rest of
+   * the form has been filled in, which is the worst possible moment to hear it.
+   */
+  const panProblem = fileProblem(form.panFile, 'PAN scan');
+  if (panProblem) errs.panFile = panProblem;
 
   /*
    * GSTIN is OPTIONAL.
@@ -421,6 +466,66 @@ function validateStep3(form) {
     if (gstin.length !== 15) errs.gstin = `A GSTIN is 15 characters — you have typed ${gstin.length}`;
     else if (!GSTIN_RE.test(gstin)) errs.gstin = 'A GSTIN reads two digits, a PAN, then three more characters, e.g. 22AAAAA0000A1Z5';
     else if (!isGstStateCode(gstin.slice(0, 2))) errs.gstin = 'The first two digits are the state code — 22AAAAA0000A1Z5 style. Check them.';
+  }
+
+  /*
+   * The owner's Aadhaar, and the mobile it is registered against.
+   *
+   * ## Shape only, and deliberately so
+   *
+   * Nothing in this process can ask UIDAI whether a number exists. What is
+   * checked is what a card can be read against: twelve digits, and the two
+   * impossibilities that catch a slipped hand — a repeated digit, and a
+   * leading 0 or 1, which UIDAI never issues. A checksum would refuse the
+   * occasional real number typed correctly, and a partner who cannot be
+   * onboarded at all is a worse failure than one the verification queue
+   * catches beside the scan.
+   *
+   * ## The mobile IS proven, and it is the only field here that is
+   *
+   * Every other box on this form is read off a document the agent is holding.
+   * This one cannot be: a number that reaches nobody looks exactly like a
+   * number that reaches the owner. So a code goes to it and has to come back,
+   * and until it does, step 3 does not open. `aadhaarToken` is the signed
+   * proof the backend issued and the thing the backend will actually re-check
+   * — the booleans are for the screen.
+   *
+   * `aadhaarVerifiedPhone` is compared rather than trusted, because the
+   * commonest way this goes wrong is innocent: verify, notice a typo, correct
+   * the number, and walk on carrying a proof for a handset that is no longer
+   * on the form.
+   */
+  const aadhaar = onlyDigits(form.aadhaarNumber);
+  if (!aadhaar) {
+    errs.aadhaarNumber = 'Enter the 12-digit Aadhaar number';
+  } else if (aadhaar.length !== AADHAAR_DIGITS) {
+    errs.aadhaarNumber = `An Aadhaar number is ${AADHAAR_DIGITS} digits — you have typed ${aadhaar.length}`;
+  } else if (/^(\d)\1{11}$/.test(aadhaar)) {
+    errs.aadhaarNumber = 'That is the same digit twelve times — read the number off the card again';
+  } else if (aadhaar[0] === '0' || aadhaar[0] === '1') {
+    errs.aadhaarNumber = 'An Aadhaar number never begins with 0 or 1 — check the first digit';
+  }
+
+  const aadhaarPhone = onlyDigits(form.aadhaarPhone);
+  if (!aadhaarPhone) {
+    errs.aadhaarPhone = 'Enter the mobile number registered against this Aadhaar';
+  } else if (aadhaarPhone.length !== 10) {
+    errs.aadhaarPhone = `Enter all 10 digits — you have typed ${aadhaarPhone.length}`;
+  } else if (!isIndianMobile(aadhaarPhone)) {
+    errs.aadhaarPhone = 'Enter a real 10-digit mobile number starting 6, 7, 8 or 9';
+  }
+
+  /* Only once there is a number worth sending a code to. Asking for the code
+     while the number is still half-typed is a second red message about a box
+     the agent has not finished with. */
+  if (!errs.aadhaarPhone) {
+    if (!form.aadhaarVerified || !form.aadhaarToken) {
+      errs.aadhaarOtp = form.aadhaarOtpSent
+        ? 'Enter the 6-digit code sent to the Aadhaar mobile, then tap Verify'
+        : 'Tap "Send code" and enter the one-time code sent to the Aadhaar mobile';
+    } else if (onlyDigits(form.aadhaarVerifiedPhone) !== aadhaarPhone) {
+      errs.aadhaarOtp = 'This number changed after it was verified — send a new code to it';
+    }
   }
 
   const fssai = onlyDigits(form.fssaiNumber);
@@ -452,57 +557,111 @@ function validateStep3(form) {
     }
   }
 
-  if (!form.fssaiFile) errs.fssaiFile = 'Attach a photo or scan of the FSSAI licence';
-  else {
-    const problem = fileProblem(form.fssaiFile, 'FSSAI scan');
-    if (problem) errs.fssaiFile = problem;
+  /*
+   * The state and the district, which are FSSAI fields before they are
+   * address fields.
+   *
+   * FoSCoS looks a licence up by company name, licence number, state AND
+   * district together. A verifier holding three of those four cannot run the
+   * check at all — they can only guess, or ring the restaurant back — so both
+   * are required here even though the backend, which has to keep accepting
+   * the Food-Partner app's own signup, asks for neither.
+   *
+   * The state is checked against the list the dropdown is built from rather
+   * than merely for being non-empty. That catches the one case a dropdown
+   * still lets through: a value restored from an older draft, or renamed
+   * upstream, which looks filled in and returns nothing on the portal.
+   */
+  /* The name the licence is HELD in, which is not always the name over the
+     door — the portal matches on the registered entity. Its own field rather
+     than `restaurantName` for that reason, and checked the same way every
+     other name on this form is. */
+  const company = text(form.fssaiCompanyName);
+  if (!company) {
+    errs.fssaiCompanyName = 'Enter the company name as it reads on the licence';
+  } else if (company.length < 3) {
+    errs.fssaiCompanyName = 'Give the full company name from the certificate';
+  } else if (!hasLetters(company)) {
+    errs.fssaiCompanyName = 'A company name needs letters, not only numbers';
   }
 
+  const stateName = text(form.state);
+  if (!stateName) {
+    errs.state = 'Pick the state on the licence — FoSCoS cannot look it up without one';
+  } else if (!INDIAN_STATES.includes(stateName)) {
+    errs.state = 'Pick a state from the list';
+  }
+
+  /* Free text, so the check is that somebody typed a place rather than a
+     placeholder. See INDIAN_STATES for why this is not a dropdown. */
+  const district = text(form.district);
+  if (!district) {
+    errs.district = 'Enter the district exactly as it reads on the licence';
+  } else if (district.length < 3) {
+    errs.district = 'Give the full district name as FoSCoS spells it, e.g. Greater Hyderabad Municipal Corporation';
+  } else if (!hasLetters(district)) {
+    errs.district = 'A district name needs letters, not only numbers';
+  }
+
+  /* Optional for the same reason the PAN scan is, and for the same reason
+     the NUMBER and the EXPIRY above it are not: the backend refuses an
+     application with no FSSAI number or an expired licence, so those two are
+     the ones that have to be right here. */
+  const fssaiProblem = fileProblem(form.fssaiFile, 'FSSAI scan');
+  if (fssaiProblem) errs.fssaiFile = fssaiProblem;
+
   /*
-   * The payout block is all-or-nothing on the backend ("an account number with
-   * no IFSC is money that cannot be sent"), and this console asks for all of
-   * it: a settlement that cannot be paid is discovered a week later by the
-   * restaurant, not by us.
+   * The payout block is OPTIONAL, and all-or-nothing.
+   *
+   * Optional because a bank account is the one thing on this form the owner
+   * frequently cannot produce in the room — the passbook is at home, the
+   * current account is being opened, the account is in a partner's name and
+   * nobody wants to guess. The first settlement is a week away, and the
+   * backend says the same thing in the same words: "a partner may finish the
+   * bank details later... so an empty payout is not a refusal."
+   *
+   * All-or-nothing because the backend's next sentence is "a HALF one is": an
+   * account number with no IFSC is money that cannot be sent, and it is
+   * discovered a week later by the restaurant rather than by us.
+   *
+   * `accountHolderName` deliberately does NOT open the block. It is
+   * pre-filled from the owner's name the moment step 1 is filled in, so
+   * counting it would make a form that has never been near this section look
+   * like one where somebody started typing bank details — and would make the
+   * whole "optional" promise a lie. The three fields below are the ones
+   * nobody fills in by accident.
    */
   const holder = text(form.accountHolderName);
-  if (!holder) errs.accountHolderName = "Enter the account holder's name exactly as the bank holds it";
-  else if (holder.length < 3) errs.accountHolderName = 'Give the full name on the account';
-  else if (!hasLetters(holder)) errs.accountHolderName = 'A name needs letters, not only numbers';
-
   const account = onlyDigits(form.bankAccount);
-  if (!account) {
-    errs.bankAccount = 'Enter the bank account number';
-  } else if (account.length < MIN_ACCOUNT_DIGITS || account.length > MAX_ACCOUNT_DIGITS) {
-    errs.bankAccount = `A bank account number is ${MIN_ACCOUNT_DIGITS} to ${MAX_ACCOUNT_DIGITS} digits — you have typed ${account.length}`;
-  }
-
-  /* Typed twice on purpose, so the two are compared rather than trusted. */
   const confirm = onlyDigits(form.bankConfirm);
-  if (!confirm) errs.bankConfirm = 'Type the account number again';
-  else if (account && confirm !== account) errs.bankConfirm = 'The two account numbers do not match';
-
   const ifsc = text(form.ifsc).toUpperCase();
-  if (!ifsc) {
-    errs.ifsc = 'Enter the IFSC code';
-  } else if (ifsc.length !== 11) {
-    errs.ifsc = `An IFSC is 11 characters — you have typed ${ifsc.length}`;
-  } else if (!IFSC_RE.test(ifsc)) {
-    errs.ifsc = 'An IFSC reads four letters, a zero, then six characters, e.g. HDFC0001234';
-  } else if (!form.ifscFetched) {
-    errs.ifsc = 'Tap Confirm IFSC to check this is the branch you mean';
-  }
 
-  /*
-   * The refund policy, ticked on the screen that prints it.
-   *
-   * Required here and nowhere else: the backend stores the acknowledgement but
-   * does not refuse an application without it, the same way it treats the PAN
-   * number, because a rule added to `validateApplication` refuses every client
-   * that predates the field. The form is the place this is asked for, so the
-   * form is the place it is insisted on.
-   */
-  if (!form.refundPolicyAccepted) {
-    errs.refundPolicyAccepted = 'Read the refund and cancellation policy to the owner and tick the box';
+  const bankStarted = hasBankDetails(form);
+
+  if (bankStarted) {
+    if (!holder) errs.accountHolderName = "Enter the account holder's name exactly as the bank holds it";
+    else if (holder.length < 3) errs.accountHolderName = 'Give the full name on the account';
+    else if (!hasLetters(holder)) errs.accountHolderName = 'A name needs letters, not only numbers';
+
+    if (!account) {
+      errs.bankAccount = 'Enter the bank account number, or clear the other bank boxes to skip this section';
+    } else if (account.length < MIN_ACCOUNT_DIGITS || account.length > MAX_ACCOUNT_DIGITS) {
+      errs.bankAccount = `A bank account number is ${MIN_ACCOUNT_DIGITS} to ${MAX_ACCOUNT_DIGITS} digits — you have typed ${account.length}`;
+    }
+
+    /* Typed twice on purpose, so the two are compared rather than trusted. */
+    if (!confirm) errs.bankConfirm = 'Type the account number again';
+    else if (account && confirm !== account) errs.bankConfirm = 'The two account numbers do not match';
+
+    if (!ifsc) {
+      errs.ifsc = 'Enter the IFSC code, or clear the other bank boxes to skip this section';
+    } else if (ifsc.length !== 11) {
+      errs.ifsc = `An IFSC is 11 characters — you have typed ${ifsc.length}`;
+    } else if (!IFSC_RE.test(ifsc)) {
+      errs.ifsc = 'An IFSC reads four letters, a zero, then six characters, e.g. HDFC0001234';
+    } else if (!form.ifscFetched) {
+      errs.ifsc = 'Tap Confirm IFSC to check this is the branch you mean';
+    }
   }
 
   return errs;

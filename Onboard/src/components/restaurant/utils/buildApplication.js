@@ -18,7 +18,7 @@
  * form, so the form sends what it reads rather than a shape it has to guess at.
  */
 
-import { CONTRACT_COMMISSION, CONTRACT_PLATFORM_FEE } from './restaurantOptions';
+import { hasBankDetails } from './validateRestaurant';
 
 const trim = (value) => String(value ?? '').trim();
 
@@ -70,6 +70,13 @@ export const buildApplicationPayload = (form) => {
       floor: trim(form.floor),
       area: trim(form.area),
       city: trim(form.city),
+      /* Asked for on the FSSAI step, because FoSCoS needs them beside the
+         licence number — but sent HERE, because a state and a district are
+         parts of an address and the schema has exactly one place for them.
+         Two homes for one value is how a console ends up showing a state that
+         disagrees with the certificate it was read off. */
+      state: trim(form.state),
+      district: trim(form.district),
       landmark: trim(form.landmark),
     },
 
@@ -80,27 +87,57 @@ export const buildApplicationPayload = (form) => {
     gstin: trim(form.gstin).toUpperCase(),
     gstExempt: form.gstExempt,
 
+    /*
+     * The Aadhaar, and the proof that its mobile answered.
+     *
+     * `verificationToken` is what the backend re-checks; it is deliberately
+     * NOT a `verified: true`. The server compares the number inside the token
+     * against `phone` beside it and stamps `aadhaar.verifiedAt` itself, so
+     * nothing sent from here can assert a verification that never happened.
+     *
+     * It travels in the BODY rather than the Authorization header because
+     * that header already carries the AGENT's staff token: an application is
+     * signed by two identities at once and they cannot share one header.
+     */
+    aadhaar: {
+      number: trim(form.aadhaarNumber).replace(/\D/g, ''),
+      phone: trim(form.aadhaarPhone).replace(/\D/g, ''),
+      verificationToken: trim(form.aadhaarToken),
+    },
+
     fssaiNumber: trim(form.fssaiNumber),
     fssaiExpiry: trim(form.fssaiExpiry),
+    /* The licence holder's registered name. Sent beside the number rather than
+       folded into `restaurantName`, because the two legitimately differ and the
+       FoSCoS lookup matches on this one. */
+    fssaiCompanyName: trim(form.fssaiCompanyName),
 
-    bank: {
-      accountHolderName: trim(form.accountHolderName),
-      accountNumber: trim(form.bankAccount),
-      accountType: form.accountType,
-      ifsc: trim(form.ifsc).toUpperCase(),
-    },
+    /*
+     * All of it, or NONE of it.
+     *
+     * `accountHolderName` is pre-filled from the owner's name, so it is on
+     * every form whether or not anybody opened this section — and the backend
+     * reads a holder name as proof the payout was started, then refuses the
+     * application for the account number and IFSC that are missing beside it.
+     * Sending the name on its own therefore turned an optional section into a
+     * refusal at the end of a twenty-minute form, with a message naming two
+     * boxes the agent had skipped on purpose.
+     *
+     * `hasBankDetails` is the same predicate the form's own rules gate on, so
+     * what is VALIDATED as started and what is SENT as started cannot drift.
+     */
+    bank: hasBankDetails(form)
+      ? {
+        accountHolderName: trim(form.accountHolderName),
+        accountNumber: trim(form.bankAccount),
+        accountType: form.accountType,
+        ifsc: trim(form.ifsc).toUpperCase(),
+      }
+      : {},
 
     contract: {
       accepted: form.acceptedTos,
       signature: trim(form.signature),
-      commission: CONTRACT_COMMISSION,
-      platformFee: CONTRACT_PLATFORM_FEE,
-      /* Ticked on step 3, stored with the rest of what was agreed. Its own
-         flag rather than folded into `accepted`, because the two were ticked
-         at different moments against different words and the settlement
-         dispute this exists for turns on which one was read. The server sets
-         the timestamp beside it. */
-      refundPolicyAccepted: form.refundPolicyAccepted,
     },
   };
 

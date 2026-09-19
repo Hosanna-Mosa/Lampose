@@ -201,8 +201,6 @@ export const DEMO_OTP = "1234";
 
 /** Shown on the contract step AND quoted on the pitch. One source, so they cannot drift. */
 export const COMMERCIALS: { label: string; value: string }[] = [
-  { label: "Delivery commission", value: "15% per order, negotiable for high-volume partners" },
-  { label: "Platform fee", value: "₹3 per order, capped at ₹10 a month" },
   { label: "Payment cycle", value: "Weekly settlements — every Monday, for the week before" },
   { label: "Cancellation policy", value: "Free up to 5 minutes. Later cancellations are charged 10% of order value." },
   { label: "Promotional contribution", value: "Optional. Shared cost on discounts and free-delivery campaigns." },
