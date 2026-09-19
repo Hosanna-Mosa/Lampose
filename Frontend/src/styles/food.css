@@ -1,0 +1,1908 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   FOOD ORDERING — the diner's surface (/food and everything under it).
+
+   Its own stylesheet rather than another twelve hundred lines of
+   lampose.css, for the same reason partner.css is its own file: this is a
+   whole section of the product, and a section that can be read in one sitting
+   is a section that can be changed without reading the rest.
+
+   It adds no tokens. Every colour, radius and shadow below is one of the
+   variables declared at the top of lampose.css, so the food pages follow the
+   site's theme automatically — including the day the ground stops being grey.
+
+   Class prefix `fd-`, the way Explore uses `xp-`.
+
+   ── The three colours, and what each means ──
+   Near-black (--forest)  the primary action, one per screen
+   Green (--green)        food that is veg, money saved, a step that is done
+   Amber (--amber)        a warning that is not a failure — held, not charged
+   Red (#b3261e)          a refusal: sold out, rejected, removed
+
+   Nothing is coloured for decoration. A chip that is green means something
+   different from a chip that is grey, everywhere on these pages.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+#food {
+  background: var(--bg);
+  padding-top: 7.5rem;              /* clears the fixed navbar */
+  padding-bottom: 4rem;
+}
+
+/* ── Shared type and marks ──────────────────────────────────────────── */
+.fd-lbl {
+  display: block;
+  font-family: var(--font-body);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-light);
+  margin: 0;
+}
+.fd-h1 {
+  font-family: var(--font-head);
+  font-size: clamp(1.75rem, 3.4vw, 2.15rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: var(--ink);
+  margin: 0.6rem 0 0;
+}
+.fd-h2 {
+  font-family: var(--font-head);
+  font-size: 1.3rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin: 0;
+}
+.fd-note {
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--ink-light);
+  margin: 0;
+}
+.fd-note--warn { color: #8a6409; }
+.fd-note--center { text-align: center; }
+.fd-strong { font-weight: 700; color: var(--ink); }
+.fd-rule {
+  height: 1px;
+  background: var(--border-l);
+  margin: 0.2rem 0;
+}
+.fd-divider {
+  width: 1px;
+  height: 1.6rem;
+  background: var(--border-l);
+  flex: none;
+}
+
+/* Visually hidden, still read aloud. Every search box and radio group on
+   these pages has a real label; this is where the ones with no room for a
+   visible one keep it. */
+.fd-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.fd-ico {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.fd-diet { flex: none; }
+
+.fd-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 0;
+  padding: 0;
+  background: none;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--green);
+  text-decoration: none;
+  cursor: pointer;
+}
+.fd-link:hover { color: var(--ink); }
+.fd-link--bad { color: #b3261e; }
+
+/* ── Buttons ────────────────────────────────────────────────────────── */
+.fd-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  height: 2.9rem;
+  padding: 0 1.4rem;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+.fd-btn--dark { background: var(--forest); color: #fff; }
+.fd-btn--dark:hover { background: #000; color: #fff; transform: translateY(-1px); }
+.fd-btn--light { background: #fff; color: var(--ink); }
+.fd-btn--light:hover { background: var(--bg2); color: var(--ink); }
+.fd-btn--ghost { background: #fff; border-color: var(--border); color: var(--ink); }
+.fd-btn--ghost:hover { border-color: var(--ink-ghost); color: var(--ink); }
+.fd-btn--outline { background: #fff; border-color: var(--forest); color: var(--ink); }
+.fd-btn--outline:hover { background: var(--forest); color: #fff; }
+.fd-btn--dashed {
+  background: var(--surface2);
+  border: 1px dashed var(--border);
+  color: var(--ink-mid);
+}
+.fd-btn--dashed:hover { border-color: var(--ink-ghost); color: var(--ink); }
+.fd-btn--bad { color: #b3261e; }
+.fd-btn--sm { height: 2.5rem; padding: 0 1rem; font-size: 0.82rem; }
+.fd-btn--lg { height: 3.4rem; font-size: 0.95rem; font-weight: 700; }
+.fd-btn--full { width: 100%; }
+.fd-btn[disabled],
+.fd-btn.is-off {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  pointer-events: none;
+}
+
+/* ADD, and the stepper it becomes. Same footprint either way, so a row does
+   not reflow the moment somebody taps it. */
+.fd-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 5.2rem;
+  height: 2.5rem;
+  padding: 0 1.1rem;
+  border: 1px solid var(--green);
+  border-radius: 11px;
+  background: #fff;
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #146b34;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.fd-add:hover { background: var(--green-t); }
+.fd-add--dead {
+  border-color: var(--border);
+  background: var(--bg);
+  color: var(--ink-light);
+  font-weight: 600;
+  letter-spacing: 0;
+  cursor: default;
+}
+.fd-qty {
+  display: inline-flex;
+  align-items: center;
+  min-width: 5.2rem;
+  height: 2.5rem;
+  border: 1px solid var(--green);
+  border-radius: 11px;
+  background: #fff;
+  overflow: hidden;
+}
+.fd-qty button {
+  width: 2.1rem;
+  height: 100%;
+  border: 0;
+  background: #fff;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #146b34;
+  cursor: pointer;
+}
+.fd-qty button:hover { background: var(--green-t); }
+.fd-qty__n {
+  flex: 1;
+  text-align: center;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #146b34;
+}
+.fd-qty--lg { height: 3.1rem; min-width: 7rem; border-color: var(--border); }
+.fd-qty--lg button { width: 2.6rem; font-size: 1.2rem; color: var(--ink); }
+.fd-qty--lg button:hover { background: var(--bg2); }
+.fd-qty--lg .fd-qty__n { font-size: 1rem; color: var(--ink); }
+
+.fd-iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: #fff;
+  color: var(--ink-mid);
+}
+.fd-iconBtn:hover { border-color: var(--ink-ghost); color: var(--ink); }
+
+/* ── Chips, tags and pills ──────────────────────────────────────────── */
+.fd-chipBtn {
+  height: 2.6rem;
+  padding: 0 1.15rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  font-family: var(--font-body);
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--ink-mid);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+.fd-chipBtn:hover { border-color: var(--ink-ghost); color: var(--ink); }
+.fd-chipBtn.is-on {
+  background: var(--forest);
+  border-color: var(--forest);
+  color: #fff;
+  font-weight: 600;
+}
+.fd-chipBtn.is-green {
+  background: var(--green-t);
+  border-color: var(--green-p);
+  color: #146b34;
+  font-weight: 600;
+}
+.fd-chipBtn--sm { height: 2.25rem; padding: 0 0.95rem; font-size: 0.8rem; }
+
+.fd-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 1.45rem;
+  padding: 0 0.6rem;
+  border-radius: 7px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.fd-chip--good { background: var(--green-t); color: #146b34; }
+.fd-chip--neutral { background: var(--bg2); color: var(--ink-mid); }
+.fd-chip--bad { background: #fbeceb; color: #8e1d16; }
+.fd-chip--start { align-self: flex-start; }
+
+.fd-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 1.3rem;
+  margin-left: 0.5rem;
+  padding: 0 0.55rem;
+  border: 1px solid var(--green-p);
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: #146b34;
+}
+.fd-tag--plain { border-color: var(--border); color: var(--ink-mid); }
+
+.fd-flag {
+  display: inline-flex;
+  align-items: center;
+  height: 1.35rem;
+  padding: 0 0.55rem;
+  border-radius: 6px;
+  background: var(--amber-t);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #6b4c07;
+}
+
+.fd-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #fff;
+  font-size: 0.76rem;
+  color: var(--ink-mid);
+}
+
+/* The rating is a fact the restaurant earned, so it is filled, not outlined —
+   and it drops to grey under 4.2 rather than being hidden. */
+.fd-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.18rem 0.55rem;
+  border-radius: 8px;
+  background: var(--green);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #fff;
+}
+.fd-rating--soft { background: var(--bg2); color: var(--ink-mid); }
+.fd-rating--lg { font-size: 0.95rem; padding: 0.4rem 0.75rem; }
+
+/* ── Photo tiles ────────────────────────────────────────────────────────
+   Where a photograph goes. Roughly half of what onboarding collects from
+   kitchens this size has no usable picture, so this is the ordinary state:
+   a flat tint that differs per kitchen, a bowl, and the word "Photo" so the
+   tile is honest about being a placeholder rather than a broken image. */
+.fd-tile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg3);
+  overflow: hidden;
+}
+.fd-tile--stone { background: #e7e9ec; }
+.fd-tile--clay { background: #ece7e3; }
+.fd-tile--sage { background: #e6ece7; }
+.fd-tile--sand { background: #ece9e3; }
+.fd-tile--lilac { background: #e9e7ec; }
+.fd-tile--blush { background: #eceaea; }
+.fd-tile__glyph {
+  width: 34%;
+  max-width: 3.4rem;
+  min-width: 1.4rem;
+  aspect-ratio: 1;
+  fill: none;
+  stroke: rgba(16, 18, 20, 0.22);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+.fd-tile__label {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.6rem;
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: var(--ink-light);
+}
+
+/* ── The deliver-to bar ─────────────────────────────────────────────── */
+.fd-bar {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  padding: 0.85rem 1.2rem;
+  margin-bottom: 1.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--rl);
+  box-shadow: var(--shadow);
+}
+.fd-bar__where {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-right: 1.2rem;
+  border-right: 1px solid var(--border-l);
+}
+.fd-bar__pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  flex: none;
+  border-radius: 12px;
+  background: var(--green-t);
+  color: var(--green);
+}
+.fd-bar__addr { display: flex; flex-direction: column; }
+.fd-bar__addrName {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.fd-search {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 1;
+  min-width: 0;
+  height: 2.9rem;
+  padding: 0 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface2);
+  color: var(--ink-light);
+}
+.fd-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  color: var(--ink);
+}
+.fd-search--sm { flex: none; width: 15rem; height: 2.5rem; background: #fff; }
+
+/* ── Segmented controls ─────────────────────────────────────────────── */
+.fd-seg {
+  display: inline-flex;
+  flex: none;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--bg2);
+}
+.fd-seg--full { display: flex; }
+.fd-seg--full .fd-seg__btn { flex: 1; }
+.fd-seg__btn {
+  height: 2.4rem;
+  padding: 0 1.15rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--ink-mid);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.fd-seg__btn:hover { color: var(--ink); }
+.fd-seg__btn.is-on { background: var(--forest); color: #fff; }
+.fd-seg__btn.is-green { background: var(--green); color: #fff; }
+.fd-seg--sm .fd-seg__btn { height: 2.05rem; padding: 0 0.9rem; font-size: 0.8rem; }
+
+/* ── Feed: intro, rails, filters ────────────────────────────────────── */
+.fd-intro {
+  display: flex;
+  align-items: flex-end;
+  gap: 2.5rem;
+  margin-bottom: 1.6rem;
+}
+.fd-intro__head { flex: 1; min-width: 0; }
+.fd-zone {
+  flex: none;
+  width: 18rem;
+  padding: 1.1rem 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--rl);
+}
+.fd-zone__body {
+  margin: 0.4rem 0 0.6rem;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.fd-rail {
+  display: flex;
+  gap: 0.7rem;
+  margin-bottom: 1.1rem;
+  overflow-x: auto;
+  padding-bottom: 0.3rem;
+  scrollbar-width: thin;
+}
+.fd-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  padding: 0.85rem 1.1rem;
+  margin-bottom: 1.6rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+}
+.fd-filters__spacer { flex: 1; }
+.fd-filters__count {
+  font-size: 0.82rem;
+  color: var(--ink-light);
+  white-space: nowrap;
+}
+.fd-select {
+  height: 2.25rem;
+  padding: 0 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.fd-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.5rem;
+}
+
+/* ── Kitchen card ───────────────────────────────────────────────────── */
+.fd-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--rl);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  transition-delay: calc(var(--i, 0) * 40ms);
+}
+.fd-card:hover { box-shadow: var(--shadow-lg); }
+.fd-card__media {
+  position: relative;
+  display: block;
+  text-decoration: none;
+}
+.fd-card__media .fd-tile { height: 10rem; }
+.fd-card__offer,
+.fd-card__eta {
+  position: absolute;
+  left: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem 0.65rem;
+  border-radius: 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.fd-card__offer { top: 0.85rem; background: var(--forest); color: #fff; }
+.fd-card__eta { bottom: 0.85rem; background: #fff; color: var(--ink); }
+.fd-card__shut {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  background: rgba(16, 19, 18, 0.68);
+  text-align: center;
+  padding: 0 1rem;
+}
+.fd-card__shutTitle { font-size: 0.9rem; font-weight: 700; color: #fff; }
+.fd-card__shutSub { font-size: 0.78rem; color: var(--bg3); }
+
+.fd-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 1.1rem 1.25rem 1.25rem;
+  flex: 1;
+}
+.fd-card__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+.fd-card__head .fd-diet { margin-top: 0.22rem; }
+.fd-card__name {
+  flex: 1;
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.fd-card__meta {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--ink-light);
+}
+.fd-card__facts {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border-l);
+  font-size: 0.78rem;
+  color: var(--ink-mid);
+}
+.fd-card__facts span[aria-hidden] { color: var(--bg3); }
+.fd-card__cta { margin-top: auto; width: 100%; }
+
+/* ── Mini dish card (the rails) ─────────────────────────────────────── */
+.fd-section { margin-top: 2.5rem; }
+.fd-section__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.fd-section__sub { font-size: 0.82rem; color: var(--ink-light); }
+.fd-dishGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 1.15rem;
+}
+.fd-mini {
+  display: flex;
+  gap: 0.85rem;
+  padding: 0.85rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+}
+.fd-mini__thumb {
+  width: 4.6rem;
+  height: 4.6rem;
+  flex: none;
+  border-radius: 14px;
+}
+.fd-mini__text { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 0; }
+.fd-mini__head { display: flex; align-items: center; gap: 0.45rem; }
+.fd-mini__name {
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.fd-mini__meta { margin: 0; font-size: 0.76rem; color: var(--ink-light); }
+.fd-mini__foot {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: auto;
+  padding-top: 0.35rem;
+}
+.fd-mini__price { font-size: 0.88rem; font-weight: 700; color: var(--ink); }
+.fd-mini__foot .fd-add { margin-left: auto; min-width: 0; height: 2.1rem; padding: 0 0.85rem; }
+
+/* ── Docked cart ────────────────────────────────────────────────────── */
+.fd-dock {
+  position: sticky;
+  bottom: 1.25rem;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  margin-top: 2rem;
+  padding: 0.9rem 1.25rem;
+  background: var(--forest);
+  border-radius: 18px;
+  box-shadow: var(--shadow-lg);
+}
+.fd-dock__badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: none;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.fd-dock__text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.fd-dock__title { font-size: 0.9rem; font-weight: 700; color: #fff; }
+.fd-dock__sub { font-size: 0.78rem; color: #b0b6bb; }
+.fd-dock__cta { flex: none; }
+/* Only where the page has no cart panel of its own. */
+@media (min-width: 1181px) {
+  .fd-dock--narrow { display: none; }
+}
+
+/* ── The live order, wherever you wander ────────────────────────────────
+   Placed, being cooked, on its way: the bar that says so sits at the top of
+   every food page. Dark like the docked cart, because they are the same kind
+   of thing — the state of an order, pinned where it cannot be missed. */
+.fd-active {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.8rem 1.1rem;
+  margin-bottom: 1.25rem;
+  background: var(--forest);
+  border-radius: 16px;
+}
+.fd-active__dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--green-m);
+  box-shadow: 0 0 0 4px rgba(34, 163, 85, 0.22);
+}
+.fd-active__text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.fd-active__title { font-size: 0.9rem; font-weight: 700; color: #fff; }
+.fd-active__meta { font-size: 0.78rem; color: #b0b6bb; }
+.fd-active__more {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.fd-active__more:hover { color: var(--green-m); }
+.fd-active .fd-btn--sm { flex: none; }
+
+/* The bar's cart pill, on the food routes only — and the live-order pill,
+   which follows the visitor onto every other route. */
+/* The site's navbar CTA is a plain block link with centred text, and its
+   underline is the browser's default (the mobile sheet's copy is the one
+   that says `none`). Neither suits a pill with an icon in it: `gap` needs a
+   flex box to mean anything, and on a solid black pill the underline reads
+   as an accident. */
+.nav-cart {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-decoration: none;
+}
+.nav-cart__dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--green-m);
+}
+.nav-cart__ico {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ── Empty and not-found states ─────────────────────────────────────── */
+.fd-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 3rem 1.5rem;
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--rl);
+}
+.fd-empty--page { margin-top: 1rem; padding: 5rem 1.5rem; }
+.fd-empty__mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.6rem;
+  height: 3.6rem;
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--ink-ghost);
+}
+.fd-empty__mark .fd-ico { width: 22px; height: 22px; }
+.fd-empty__title {
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+.fd-empty__body {
+  max-width: 34rem;
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  color: var(--ink-light);
+}
+.fd-empty .fd-btn { margin-top: 0.4rem; }
+
+/* ══ KITCHEN PAGE ═════════════════════════════════════════════════════ */
+
+.fd-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.8rem;
+  color: var(--ink-light);
+}
+.fd-crumbs a { color: var(--ink-light); text-decoration: none; }
+.fd-crumbs a:hover { color: var(--green); }
+.fd-crumbs__here { font-weight: 600; color: var(--ink); }
+
+.fd-head {
+  display: flex;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--rx);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  margin-bottom: 1.5rem;
+}
+.fd-head__photo { width: 18rem; flex: none; }
+.fd-head__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  flex: 1;
+  min-width: 0;
+  padding: 1.6rem 1.75rem;
+}
+.fd-head__top { display: flex; align-items: flex-start; gap: 1.2rem; }
+.fd-head__title {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+.fd-head__name {
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: clamp(1.5rem, 2.6vw, 1.85rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+.fd-head__cuisine { margin: 0.5rem 0 0; font-size: 0.92rem; color: var(--ink-mid); }
+.fd-head__where { margin: 0.35rem 0 0; font-size: 0.84rem; color: var(--ink-light); }
+.fd-head__score {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+  flex: none;
+}
+.fd-head__scoreCount { font-size: 0.78rem; color: var(--ink-light); }
+
+/* The four figures a diner checks before ordering, in one strip. */
+.fd-facts {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  border: 1px solid var(--border-l);
+  border-radius: 16px;
+  background: var(--surface2);
+  overflow: hidden;
+}
+.fd-facts__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1;
+  min-width: 8rem;
+  padding: 0.8rem 1.1rem;
+  border-right: 1px solid var(--border-l);
+}
+.fd-facts__cell:last-child { border-right: 0; }
+.fd-facts__val { font-size: 0.95rem; font-weight: 700; color: var(--ink); }
+.fd-facts__val--good { color: #146b34; }
+
+.fd-offers { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+.fd-offer {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 15rem;
+  padding: 0.75rem 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  background: var(--surface2);
+  color: var(--ink-light);
+}
+.fd-offer.is-live,
+.fd-offer.is-applied {
+  border-style: dashed;
+  border-color: var(--green-p);
+  background: var(--green-t);
+  color: #146b34;
+}
+.fd-offer.is-applied { border-style: solid; border-width: 1.5px; border-color: var(--green); }
+.fd-offer.is-blocked { border-color: var(--border); background: var(--bg); }
+.fd-offer.is-dashed { background: var(--surface2); }
+.fd-offer__text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.fd-offer__code { display: block; font-size: 0.85rem; font-weight: 700; color: var(--ink); }
+.fd-offer__body { display: block; font-size: 0.78rem; font-weight: 400; color: var(--ink-mid); }
+
+/* ── The menu: sections rail, dishes, cart ──────────────────────────── */
+.fd-menu {
+  display: grid;
+  grid-template-columns: 13.5rem minmax(0, 1fr) 19rem;
+  gap: 1.75rem;
+  align-items: start;
+}
+.fd-menu__rail,
+.fd-menu__cart {
+  position: sticky;
+  top: 6.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-height: calc(100vh - 8rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.fd-menu__list { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+.fd-menu__tools {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+}
+.fd-menu__section { display: flex; flex-direction: column; gap: 0.9rem; }
+/* The navbar is fixed and about 85px tall, so a heading scrolled to the top
+   of the window lands UNDER it. Every jump target keeps that much clear
+   above itself, plus a little air. */
+.fd-menu__list h2[id] { scroll-margin-top: 7.5rem; }
+
+.fd-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.15rem 1.3rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--rl);
+}
+.fd-panel--lift { box-shadow: var(--shadow); }
+.fd-panel--list { gap: 0; padding: 0.25rem 1.5rem; }
+.fd-panel--flush { padding: 0; gap: 0; }
+.fd-panel--row { flex-direction: row; align-items: flex-start; gap: 0.75rem; color: var(--ink-mid); }
+.fd-panel__head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.fd-panel__title {
+  flex: 1;
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+.fd-panel__body { margin: 0; font-size: 0.85rem; line-height: 1.6; color: var(--ink-mid); }
+.fd-sticky { position: sticky; top: 6.5rem; }
+
+.fd-jump {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
+  font-size: 0.86rem;
+  font-weight: 500;
+  color: var(--ink-mid);
+  text-decoration: none;
+}
+/* Hovering must not look like being selected, or the rail shows two chosen
+   sections at once — the one under the pointer and the one being read. So
+   the pointer only warms the row, and the selection owns the fill, the
+   weight and a green edge no hover ever gets. */
+.fd-jump:hover:not(.is-on) { background: var(--surface2); color: var(--ink); }
+.fd-jump.is-on {
+  background: var(--bg2);
+  box-shadow: inset 2px 0 0 var(--green);
+  font-weight: 700;
+  color: var(--ink);
+}
+.fd-jump__n { color: var(--ink-ghost); font-weight: 500; }
+.fd-jump.is-on .fd-jump__n { color: var(--ink-mid); }
+
+.fd-check {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.86rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+.fd-check input { width: 1.05rem; height: 1.05rem; accent-color: var(--green); }
+.fd-check input:disabled { cursor: not-allowed; }
+
+/* ── Dish row ───────────────────────────────────────────────────────── */
+.fd-dish {
+  display: flex;
+  gap: 1.4rem;
+  padding: 1.35rem 0;
+  border-bottom: 1px solid var(--border-l);
+}
+.fd-dish:last-child { border-bottom: 0; }
+.fd-dish--out { opacity: 0.62; }
+.fd-dish__text { display: flex; flex-direction: column; gap: 0.4rem; flex: 1; min-width: 0; }
+.fd-dish__marks { display: flex; align-items: center; gap: 0.55rem; }
+.fd-dish__name {
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.fd-dish__price { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.fd-dish__rupees { font-size: 0.98rem; font-weight: 700; color: var(--ink); }
+.fd-dish__rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #146b34;
+}
+.fd-dish__ratingCount { font-weight: 400; color: var(--ink-light); }
+.fd-dish__desc {
+  max-width: 34rem;
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.65;
+  color: var(--ink-mid);
+}
+.fd-dish__serves { margin: 0; font-size: 0.78rem; color: var(--ink-light); }
+.fd-dish__side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 9.25rem;
+  flex: none;
+}
+.fd-dish__photoBtn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.fd-dish__photo {
+  width: 100%;
+  height: 8rem;
+  border-radius: 16px;
+}
+.fd-dish__add {
+  /* Lifted onto the photo. Positioned, because the photo above it is a
+     button: without a stacking order of its own the ADD is painted under
+     that button and every tap opens the sheet instead of adding. */
+  position: relative;
+  z-index: 1;
+  margin-top: -1.25rem;
+}
+.fd-dish__add .fd-add,
+.fd-dish__add .fd-qty {
+  box-shadow: 0 4px 14px rgba(16, 18, 20, 0.1);
+}
+.fd-dish__custom { margin-top: 0.45rem; font-size: 0.72rem; color: var(--ink-light); }
+
+/* ── The cart panel beside the menu ─────────────────────────────────── */
+.fd-sum { display: flex; align-items: flex-start; gap: 0.6rem; }
+.fd-sum .fd-diet { margin-top: 0.2rem; }
+.fd-sum__text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.fd-sum__name { font-size: 0.84rem; font-weight: 600; color: var(--ink); }
+.fd-sum__note { font-size: 0.75rem; color: var(--ink-light); }
+.fd-sum__qty { font-size: 0.8rem; color: var(--ink-light); }
+.fd-sum__price { font-size: 0.84rem; font-weight: 600; color: var(--ink); }
+
+/* ── Bill ───────────────────────────────────────────────────────────── */
+.fd-bill { display: flex; flex-direction: column; gap: 0.6rem; }
+.fd-bill__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.86rem;
+  color: var(--ink-mid);
+}
+.fd-bill__row--save { color: #146b34; }
+.fd-bill__val { color: var(--ink); font-weight: 500; }
+.fd-bill__row--save .fd-bill__val { color: #146b34; font-weight: 600; }
+.fd-bill__total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+.fd-bill__big {
+  font-family: var(--font-head);
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* ══ CART, CHECKOUT ═══════════════════════════════════════════════════ */
+
+.fd-pageHead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+.fd-pageHead__note {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.4rem;
+  font-size: 0.82rem;
+  color: var(--ink-light);
+}
+.fd-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-light);
+  text-decoration: none;
+}
+.fd-back:hover { color: var(--ink); }
+
+.fd-two {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 23rem;
+  gap: 1.75rem;
+  align-items: start;
+}
+.fd-two__main { display: flex; flex-direction: column; gap: 1.1rem; min-width: 0; }
+.fd-two__side { display: flex; flex-direction: column; gap: 1rem; }
+
+/* ── Cart ───────────────────────────────────────────────────────────── */
+.fd-cart__head {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 1.15rem 1.4rem;
+  border-bottom: 1px solid var(--border-l);
+}
+.fd-cart__head--tight { padding: 0; border-bottom: 0; }
+.fd-cart__thumb { width: 2.75rem; height: 2.75rem; flex: none; border-radius: 13px; }
+.fd-cart__headText { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.fd-cart__name { font-size: 0.95rem; font-weight: 700; color: var(--ink); }
+.fd-cart__meta { font-size: 0.8rem; color: var(--ink-light); }
+.fd-cart__lines { padding: 0 1.4rem; }
+.fd-cart__foot {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 1rem 1.4rem;
+  border-top: 1px solid var(--border-l);
+  background: var(--surface2);
+  border-radius: 0 0 var(--rl) var(--rl);
+  color: var(--ink-light);
+}
+.fd-cart__foot p { margin: 0; font-size: 0.78rem; line-height: 1.6; color: var(--ink-mid); }
+
+.fd-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.15rem 0;
+  border-bottom: 1px solid var(--border-l);
+}
+.fd-line:last-child { border-bottom: 0; }
+.fd-line .fd-diet { margin-top: 0.25rem; }
+.fd-line__text { display: flex; flex-direction: column; gap: 0.3rem; flex: 1; min-width: 0; }
+.fd-line__name {
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.fd-line__choices { margin: 0; font-size: 0.8rem; color: var(--ink-light); }
+.fd-line__actions { display: flex; gap: 1rem; margin-top: 0.2rem; }
+.fd-line__price {
+  width: 4.75rem;
+  flex: none;
+  text-align: right;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.fd-codeRow { display: flex; gap: 0.7rem; }
+.fd-codeRow input {
+  flex: 1;
+  min-width: 0;
+  height: 2.9rem;
+  padding: 0 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  color: var(--ink);
+}
+.fd-codeRow input:focus { outline: none; border-color: var(--ink-ghost); }
+
+.fd-addons { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.85rem; }
+.fd-addon {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+}
+.fd-addon__thumb { width: 2.85rem; height: 2.85rem; flex: none; border-radius: 12px; }
+.fd-addon__text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.fd-addon__name { font-size: 0.84rem; font-weight: 600; color: var(--ink); }
+.fd-addon__price { font-size: 0.78rem; color: var(--ink-light); }
+.fd-addon .fd-add { min-width: 0; height: 2.1rem; padding: 0 0.8rem; font-size: 0.75rem; }
+
+.fd-addr {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: var(--surface2);
+  color: var(--green);
+}
+.fd-addr__text { display: flex; flex-direction: column; gap: 0.15rem; flex: 1; min-width: 0; }
+.fd-addr__title { font-size: 0.85rem; font-weight: 700; color: var(--ink); }
+.fd-addr__detail { font-size: 0.78rem; line-height: 1.5; color: var(--ink-light); }
+
+/* ── Checkout ───────────────────────────────────────────────────────── */
+.fd-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+.fd-step2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--ink-ghost);
+}
+.fd-step2__n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ink-light);
+}
+.fd-step2.is-done { color: var(--ink-light); font-weight: 600; }
+.fd-step2.is-done .fd-step2__n { border-color: var(--green-p); background: var(--green-t); color: #146b34; }
+.fd-step2.is-now { color: var(--ink); font-weight: 700; }
+.fd-step2.is-now .fd-step2__n { border-color: var(--forest); background: var(--forest); color: #fff; }
+.fd-step2__line { width: 2.2rem; height: 1px; background: var(--bg3); }
+
+.fd-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.fd-field > label,
+.fd-field > legend {
+  padding: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.fd-field__opt { font-weight: 500; color: var(--ink-light); }
+.fd-field input[type="text"],
+.fd-field input[type="tel"] {
+  height: 2.9rem;
+  padding: 0 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+.fd-field input[type="text"]:focus,
+.fd-field input[type="tel"]:focus { outline: none; border-color: var(--ink-ghost); }
+.fd-fieldRow { display: flex; gap: 0.9rem; flex-wrap: wrap; }
+.fd-fieldRow .fd-field { flex: 1; min-width: 12rem; }
+.fd-field--narrow { flex: none; width: 15rem; }
+.fd-textarea {
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface2);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--ink);
+  resize: none;
+}
+.fd-textarea:focus { outline: none; border-color: var(--ink-ghost); }
+
+/* A choice is a real radio or checkbox inside a real label: the whole card
+   is clickable because the label is, not because a div has an onClick. */
+.fd-choices { display: flex; flex-direction: column; gap: 0.6rem; }
+.fd-choices--row { flex-direction: row; flex-wrap: wrap; }
+.fd-choices--row .fd-choice { flex: 1; min-width: 8rem; }
+.fd-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.8rem 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: #fff;
+  font-size: 0.88rem;
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.fd-choice:hover { border-color: var(--ink-ghost); }
+.fd-choice input { width: 1.05rem; height: 1.05rem; flex: none; accent-color: var(--green); }
+.fd-choice.is-on {
+  border: 1.5px solid var(--green);
+  background: var(--green-t);
+  font-weight: 600;
+}
+.fd-choice.is-off {
+  border-color: var(--border-l);
+  background: var(--surface2);
+  color: var(--ink-light);
+  cursor: not-allowed;
+}
+.fd-choice--wide .fd-choice__label { flex: 1; }
+.fd-choice--wide .fd-choice__price { font-weight: 600; }
+.fd-choice--block { align-items: flex-start; }
+.fd-choice--block input { margin-top: 0.2rem; }
+.fd-choice__text { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 0; }
+.fd-choice__title { font-size: 0.92rem; font-weight: 700; color: var(--ink); }
+.fd-choice__detail {
+  font-size: 0.82rem;
+  font-weight: 400;                 /* is-on bolds the card; the body stays body */
+  line-height: 1.6;
+  color: var(--ink-mid);
+}
+.fd-choice__hint { font-size: 0.76rem; font-weight: 400; color: var(--ink-light); }
+.fd-choice__badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  flex: none;
+  border-radius: 11px;
+  background: var(--bg);
+  color: var(--ink-mid);
+}
+.fd-choice.is-on .fd-choice__badge { background: #fff; border: 1px solid var(--green-p); color: #146b34; }
+.fd-choice__tag { font-size: 0.75rem; font-weight: 600; color: #146b34; }
+
+.fd-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.8rem 0.95rem;
+  border: 1px solid var(--border-l);
+  border-radius: 14px;
+  background: var(--surface2);
+  color: var(--ink-light);
+}
+.fd-callout p { margin: 0; font-size: 0.8rem; line-height: 1.65; color: var(--ink-mid); }
+.fd-callout--warn { border-color: #f0e2bb; background: var(--amber-t); color: #6b4c07; }
+.fd-callout--warn p { color: #5b4206; }
+.fd-callout--bad { border-color: #f3d6d3; background: #fbeceb; color: #8e1d16; }
+.fd-callout--bad p { color: #6e1811; }
+
+.fd-otp { display: flex; align-items: center; gap: 0.85rem; }
+.fd-otp__boxes { display: flex; gap: 0.4rem; }
+.fd-otp__boxes span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 2.4rem;
+  border-radius: 8px;
+  background: var(--bg);
+  font-family: var(--font-head);
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--ink-ghost);
+}
+
+/* ══ TRACKING ═════════════════════════════════════════════════════════ */
+
+.fd-hero {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  flex-wrap: wrap;
+  padding: 1.75rem 2rem;
+  margin-bottom: 1.25rem;
+  background: var(--forest);
+  border-radius: var(--rx);
+}
+.fd-hero.is-closed { background: var(--ink-mid); }
+.fd-hero__text { flex: 1; min-width: 16rem; }
+.fd-hero__live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 1.75rem;
+  padding: 0 0.8rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #fff;
+}
+.fd-hero__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--green-m);
+  flex: none;
+}
+.fd-hero__title {
+  margin: 0.85rem 0 0.5rem;
+  font-family: var(--font-head);
+  font-size: clamp(1.5rem, 3.2vw, 2rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: #fff;
+}
+.fd-hero__sub { margin: 0; font-size: 0.95rem; color: #b0b6bb; }
+.fd-hero__eta { flex: none; text-align: right; }
+.fd-hero__etaLbl {
+  margin: 0 0 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #8d9399;
+}
+.fd-hero__etaVal {
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: 2.25rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: #fff;
+}
+.fd-hero__etaRef { margin: 0.3rem 0 0; font-size: 0.8rem; color: #b0b6bb; }
+
+.fd-rider { display: flex; align-items: center; gap: 1.1rem; flex-wrap: wrap; }
+.fd-rider__avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.3rem;
+  height: 3.3rem;
+  flex: none;
+  border-radius: 999px;
+  background: var(--green-t);
+  font-family: var(--font-head);
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #146b34;
+}
+.fd-rider__avatar--wait { background: var(--bg2); color: var(--ink-mid); }
+.fd-rider__text { display: flex; flex-direction: column; gap: 0.2rem; flex: 1; min-width: 10rem; }
+.fd-rider__name { font-size: 1.05rem; font-weight: 700; color: var(--ink); }
+.fd-rider__meta { font-size: 0.84rem; color: var(--ink-light); }
+
+/* Not a credential and not treated as one: it opens nothing. It is a value
+   the diner and the rider compare out loud, which is what a hand-over is. */
+.fd-code {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  flex: none;
+  padding: 0.7rem 1.35rem;
+  border: 1.5px solid var(--forest);
+  border-radius: 16px;
+}
+.fd-code__digits {
+  font-family: var(--font-head);
+  font-size: 1.7rem;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-indent: 0.22em;
+  color: var(--ink);
+}
+
+.fd-tracks { display: flex; gap: 1.25rem; flex-wrap: wrap; }
+.fd-track {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  flex: 1;
+  min-width: 15rem;
+  padding: 1.1rem;
+  border: 1px solid var(--border-l);
+  border-radius: 18px;
+  background: var(--surface2);
+}
+.fd-step { display: flex; gap: 0.8rem; }
+.fd-step__rail { display: flex; flex-direction: column; align-items: center; flex: none; }
+.fd-step__dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: none;
+  border: 2px dashed var(--bg3);
+  border-radius: 999px;
+  background: #fff;
+}
+.fd-step__dot.is-done { border: 0; background: var(--green); }
+.fd-step__dot.is-now { border: 3px solid var(--green); background: #fff; }
+.fd-step__dot svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.fd-step__line {
+  width: 2px;
+  flex: 1;
+  min-height: 1.4rem;
+  background: var(--border);
+}
+.fd-step__line.is-done { background: var(--green-p); }
+.fd-step__text { display: flex; flex-direction: column; gap: 0.1rem; padding-bottom: 0.2rem; }
+.fd-step__label { font-size: 0.86rem; font-weight: 700; color: var(--ink); }
+.fd-step__label.is-ahead { color: var(--ink-light); }
+.fd-step__at { font-size: 0.78rem; color: var(--ink-light); }
+.fd-step__at.is-now { color: #146b34; font-weight: 600; }
+
+/* ══ ORDERS ═══════════════════════════════════════════════════════════ */
+
+.fd-liveCard {
+  display: flex;
+  align-items: center;
+  gap: 1.15rem;
+  padding: 1.25rem 1.4rem;
+  background: var(--forest);
+  border-radius: var(--rl);
+  text-decoration: none;
+}
+.fd-liveCard:hover { background: #000; }
+.fd-liveCard__badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.9rem;
+  height: 2.9rem;
+  flex: none;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--green-m);
+}
+.fd-liveCard__text { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 0; }
+.fd-liveCard__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #8d9399;
+}
+.fd-liveCard__name { font-size: 1.05rem; font-weight: 700; color: #fff; }
+.fd-liveCard__meta { font-size: 0.82rem; color: #b0b6bb; }
+
+.fd-month { display: flex; flex-direction: column; gap: 1rem; }
+.fd-month__title {
+  margin: 0.6rem 0 0;
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--ink-light);
+}
+
+.fd-order {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.15rem;
+  padding: 1.25rem 1.4rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--rl);
+}
+.fd-order__thumb { width: 3.25rem; height: 3.25rem; flex: none; border-radius: 14px; }
+.fd-order__text { display: flex; flex-direction: column; gap: 0.4rem; flex: 1; min-width: 0; }
+.fd-order__head { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
+.fd-order__name {
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.fd-order__lines { margin: 0; font-size: 0.85rem; color: var(--ink-mid); }
+.fd-order__trail { margin: 0; font-size: 0.78rem; line-height: 1.55; color: var(--ink-light); }
+.fd-order__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.7rem;
+  flex: none;
+}
+.fd-order__amount { font-size: 1.05rem; font-weight: 800; color: var(--ink); }
+.fd-order__amount.is-nil { color: var(--ink-light); }
+.fd-order__actions { display: flex; gap: 0.6rem; }
+.fd-order__hint { font-size: 0.7rem; color: var(--ink-light); }
+
+.fd-usual {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-decoration: none;
+}
+.fd-usual__thumb { width: 2.5rem; height: 2.5rem; flex: none; border-radius: 11px; }
+.fd-usual__text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.fd-usual__name { font-size: 0.84rem; font-weight: 700; color: var(--ink); }
+.fd-usual__meta { font-size: 0.74rem; color: var(--ink-light); }
+.fd-usual__add { font-size: 0.78rem; font-weight: 700; color: #146b34; }
+.fd-usual:hover .fd-usual__add { color: var(--ink); }
+
+.fd-spend {
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: 1.7rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+/* ══ DIALOGS ══════════════════════════════════════════════════════════ */
+
+.fd-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 8000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(16, 19, 18, 0.55);
+  backdrop-filter: blur(2px);
+  overflow-y: auto;
+}
+.fd-sheet {
+  display: flex;
+  width: min(61rem, 100%);
+  max-height: min(52rem, 92vh);
+  background: var(--surface);
+  border-radius: var(--rx);
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(16, 18, 20, 0.05), 0 24px 60px rgba(16, 18, 20, 0.28);
+}
+.fd-sheet__left {
+  display: flex;
+  flex-direction: column;
+  width: 24rem;
+  flex: none;
+  background: var(--bg);
+  overflow-y: auto;
+}
+.fd-sheet__photo { height: 19rem; flex: none; }
+.fd-sheet__aside { display: flex; flex-direction: column; gap: 0.75rem; padding: 1.35rem; }
+.fd-sheet__kitchen {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #fff;
+  text-decoration: none;
+}
+.fd-sheet__kitchenThumb { width: 2.6rem; height: 2.6rem; flex: none; border-radius: 12px; }
+.fd-sheet__kitchenName { display: block; font-size: 0.88rem; font-weight: 700; color: var(--ink); }
+.fd-sheet__kitchenMeta { display: block; font-size: 0.78rem; color: var(--ink-light); }
+.fd-sheet__facts { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+.fd-sheet__right { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.fd-sheet__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.5rem 1.75rem 1.1rem;
+  border-bottom: 1px solid var(--border-l);
+}
+.fd-sheet__headText { flex: 1; min-width: 0; }
+.fd-sheet__name {
+  margin: 0.6rem 0 0.5rem;
+  font-family: var(--font-head);
+  font-size: 1.55rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+.fd-sheet__rupees { font-size: 1.2rem; font-weight: 700; color: var(--ink); }
+.fd-sheet__desc {
+  max-width: 32rem;
+  margin: 0.75rem 0 0;
+  font-size: 0.88rem;
+  line-height: 1.7;
+  color: var(--ink-mid);
+}
+.fd-sheet__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  font-size: 0.9rem;
+  color: var(--ink-mid);
+  cursor: pointer;
+}
+.fd-sheet__close:hover { border-color: var(--ink-ghost); color: var(--ink); }
+.fd-sheet__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.35rem;
+  flex: 1;
+  padding: 1.35rem 1.75rem;
+  overflow-y: auto;
+}
+.fd-sheet__foot {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  flex-wrap: wrap;
+  padding: 1.1rem 1.75rem 1.35rem;
+  border-top: 1px solid var(--border-l);
+  background: var(--surface2);
+}
+.fd-sheet__ready { display: flex; flex-direction: column; flex: 1; min-width: 8rem; }
+.fd-sheet__ready span:first-child { font-size: 0.78rem; color: var(--ink-light); }
+.fd-sheet__ready span:last-child { font-size: 0.82rem; color: var(--ink-mid); }
+
+.fd-ask {
+  width: min(30rem, 100%);
+  padding: 1.75rem;
+  background: var(--surface);
+  border-radius: var(--rx);
+  box-shadow: 0 24px 60px rgba(16, 18, 20, 0.28);
+}
+.fd-ask__title {
+  margin: 0 0 0.6rem;
+  font-family: var(--font-head);
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+.fd-ask__body { margin: 0 0 1.35rem; font-size: 0.9rem; line-height: 1.7; color: var(--ink-mid); }
+.fd-ask__actions { display: flex; gap: 0.75rem; justify-content: flex-end; flex-wrap: wrap; }
+
+/* ══ NARROWER SCREENS ═════════════════════════════════════════════════
+   Most of this site's traffic is a phone, and a student ordering dinner is
+   the most likely of all of it to be on one. The three-column menu collapses
+   first (the cart panel is the docked bar's job at that width), then the
+   two-column pages, then the bars stack. */
+
+@media (max-width: 1180px) {
+  .fd-menu { grid-template-columns: 12rem minmax(0, 1fr); }
+  .fd-menu__cart { display: none; }
+  .fd-two { grid-template-columns: minmax(0, 1fr) 20rem; }
+}
+
+@media (max-width: 980px) {
+  .fd-bar { flex-wrap: wrap; }
+  .fd-bar__where { border-right: 0; padding-right: 0; width: 100%; }
+  .fd-intro { flex-direction: column; align-items: stretch; gap: 1.25rem; }
+  .fd-zone { width: 100%; }
+  .fd-head { flex-direction: column; }
+  .fd-head__photo { width: 100%; height: 12rem; }
+  .fd-menu { grid-template-columns: minmax(0, 1fr); }
+  .fd-menu__rail { position: static; max-height: none; overflow: visible; }
+  /* Stacked, the section list and the dish filters turn sideways: a column of
+     seven section links is a screen and a half of scrolling before the first
+     dish, which is the one thing this page is for. */
+  .fd-menu__rail .fd-lbl { display: none; }
+  .fd-menu__rail .fd-panel {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .fd-menu__rail .fd-jump {
+    flex: none;
+    gap: 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .fd-menu__rail .fd-jump.is-on {
+    background: var(--forest);
+    border-color: var(--forest);
+    color: #fff;
+    /* Sideways the selection is a filled black chip, which nothing else on
+       the row resembles; the green edge the column version needs shows here
+       as a sliver behind the pill's curve. */
+    box-shadow: none;
+  }
+  .fd-menu__rail .fd-jump.is-on .fd-jump__n { color: #b0b6bb; }
+  .fd-menu__rail .fd-check { flex: none; white-space: nowrap; }
+  .fd-menu__rail .fd-note { display: none; }
+  .fd-two { grid-template-columns: minmax(0, 1fr); }
+  /* Stacked, the bill follows what it is billing. It led for a while, which
+     put ₹189 above the food it was charging for. */
+  .fd-sticky { position: static; }
+  .fd-sheet { flex-direction: column; max-height: 94vh; overflow-y: auto; }
+  .fd-sheet__left { width: 100%; }
+  .fd-sheet__photo { height: 13rem; }
+  .fd-hero { padding: 1.5rem; }
+  .fd-hero__eta { text-align: left; }
+}
+
+@media (max-width: 720px) {
+  #food { padding-top: 6rem; }
+  .fd-bar { padding: 0.75rem 0.9rem; gap: 0.75rem; }
+  /* At this width the search and the delivery switch were sharing one row,
+     which left the search box too narrow to read its own placeholder. */
+  .fd-bar .fd-search { flex: 1 1 100%; }
+  .fd-bar .fd-seg { width: 100%; }
+  .fd-bar .fd-seg__btn { flex: 1; }
+  .fd-seg--full { flex-wrap: wrap; }
+  .fd-filters { gap: 0.55rem; }
+  .fd-filters__spacer { display: none; }
+  .fd-grid { grid-template-columns: minmax(0, 1fr); }
+  .fd-dish { gap: 1rem; }
+  .fd-dish__side { width: 7rem; }
+  .fd-dish__photo { height: 6rem; }
+  .fd-order { flex-wrap: wrap; }
+  .fd-order__side { align-items: flex-start; width: 100%; }
+  .fd-liveCard { flex-wrap: wrap; }
+  .fd-line { flex-wrap: wrap; }
+  .fd-line__price { width: auto; margin-left: auto; }
+  .fd-dock { flex-wrap: wrap; gap: 0.75rem; }
+  .fd-dock__cta { width: 100%; }
+  .fd-active { gap: 0.7rem; }
+  .fd-active .fd-btn--sm { width: 100%; }
+  .fd-hero__etaVal { font-size: 1.8rem; }
+  .fd-sheet__head,
+  .fd-sheet__body,
+  .fd-sheet__foot { padding-left: 1.1rem; padding-right: 1.1rem; }
+  .fd-sheet__foot .fd-btn--lg { width: 100%; }
+  .fd-panel--list { padding: 0.25rem 1rem; }
+}

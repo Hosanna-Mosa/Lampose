@@ -1,0 +1,1 @@
+export { DishRow } from './DishRow';

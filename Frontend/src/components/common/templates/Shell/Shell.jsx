@@ -14,6 +14,12 @@ import { Explore } from '../../../../pages/Explore';
 import { Listing } from '../../../../pages/Listing';
 import { Partners } from '../../../../pages/Partners';
 import { FoodPartner } from '../../../../pages/FoodPartner';
+import { FoodOrder } from '../../../../pages/FoodOrder';
+import { FoodKitchen } from '../../../../pages/FoodKitchen';
+import { FoodCart } from '../../../../pages/FoodCart';
+import { FoodCheckout } from '../../../../pages/FoodCheckout';
+import { FoodOrders } from '../../../../pages/FoodOrders';
+import { FoodTrack } from '../../../../pages/FoodTrack';
 import { FoodPartnerOnboarding } from '../../../../pages/FoodPartnerOnboarding';
 import { Contact } from '../../../../pages/Contact';
 import { Privacy } from '../../../../pages/Privacy';
@@ -72,6 +78,26 @@ export function Shell() {
           <Route path="/explore" element={<Explore />} />
           <Route path="/explore/:id" element={<Listing />} />
           <Route path="/partners" element={<Partners />} />
+
+          {/* Ordering food, for the diner. Six routes, one flow: the feed,
+              a kitchen's menu, the cart, the payment step, the history and
+              one order while it is happening.
+
+              `/food/dish/:dishId` is the kitchen page with that dish's sheet
+              already open — a shared dish link has to land somewhere a person
+              can order from, and a dish away from its kitchen's timings and
+              minimum is not that place.
+
+              These sit above `/food-partner` in the file only for reading
+              order; the router matches on the full path, and `/food-partner`
+              is not a child of `/food`. */}
+          <Route path="/food" element={<FoodOrder />} />
+          <Route path="/food/kitchen/:id" element={<FoodKitchen />} />
+          <Route path="/food/dish/:dishId" element={<FoodKitchen />} />
+          <Route path="/food/cart" element={<FoodCart />} />
+          <Route path="/food/checkout" element={<FoodCheckout />} />
+          <Route path="/food/orders" element={<FoodOrders />} />
+          <Route path="/food/orders/:reference" element={<FoodTrack />} />
           <Route path="/food-partner" element={<FoodPartner />} />
           <Route path="/food-partner/onboarding" element={<FoodPartnerOnboarding />} />
           <Route path="/contact" element={<Contact />} />
