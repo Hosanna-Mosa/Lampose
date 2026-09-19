@@ -10,6 +10,10 @@ import { socketService } from "@/utils/socketService";
 import {
   isDemoCredentials, enterDemo, exitDemo, demoDriver, DEMO_TOKEN,
 } from "@/constants/demoMode";
+/* Importing this REGISTERS the background location task: `defineTask` runs at
+   module scope there, and it has to have run before Android can hand the task
+   a batch — including on a headless relaunch. See `services/backgroundLocation.ts`. */
+import { startDeliveryTracking, stopDeliveryTracking } from "@/services/backgroundLocation";
 
 /**
  * The rider's session and their work.
@@ -805,6 +809,12 @@ export const useDriverStore = create<DriverState>()(
            person at the sign-in screen would still be served canned data. */
         exitDemo();
 
+        /* Same reasoning as the device unregister below: on a shared handset a
+           service left running would keep reporting the PREVIOUS rider's
+           position, under their token, with a notification the next person can
+           read. */
+        stopDeliveryTracking().catch(() => {});
+
         /* The handset is unregistered FIRST, and its failure is ignored.
            Without this, signing out on a shared phone leaves the previous
            rider's offers ringing on it — somebody else's work on a screen
@@ -1041,6 +1051,12 @@ export const useDriverStore = create<DriverState>()(
           supersedeJobReads();
           set({ offer: null, currentJob: job, jobEndedNote: "", activeChat: [], unreadCount: 0 });
           socketService.trackOrder(job.orderNumber);
+          /* Fired, not awaited. Background permission can send the rider to a
+             settings screen on Android 11+, and holding the accept behind that
+             would leave them looking at a spinner with a countdown running. A
+             refusal is not fatal — `useDriverLocation` still reports while the
+             app is on screen. */
+          startDeliveryTracking().catch(() => {});
           return job;
         } finally {
           set({ busy: false });
@@ -1121,6 +1137,19 @@ export const useDriverStore = create<DriverState>()(
           });
           if (job) socketService.trackOrder(job.orderNumber);
           else if (held) socketService.untrackOrder(held.orderNumber);
+
+          /*
+           * The server's answer is the authority on whether the service should
+           * be running, so it is reconciled against here rather than assumed.
+           *
+           * This is also what replaces the boot receiver. A phone that
+           * rebooted mid-delivery starts nothing on its own; the rider opens
+           * the app, this call runs, and tracking resumes for a job that is
+           * genuinely still theirs. A job that ended while the app was closed
+           * stops a service that would otherwise have been left running.
+           */
+          if (job) startDeliveryTracking().catch(() => {});
+          else stopDeliveryTracking().catch(() => {});
         } catch {
           /* Leaves whatever was persisted. A rider mid-delivery on no signal
              keeps their job on screen. */
@@ -1154,6 +1183,9 @@ export const useDriverStore = create<DriverState>()(
 
           if (status === "delivered") {
             socketService.untrackOrder(currentJob.orderNumber);
+            /* The delivery is over: the service, its notification and the GPS
+               drain all stop here. */
+            stopDeliveryTracking().catch(() => {});
             set((s) => ({
               currentJob: null,
               history: [job, ...s.history].slice(0, 100),

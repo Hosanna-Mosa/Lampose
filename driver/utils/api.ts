@@ -43,7 +43,7 @@ export async function api<T = unknown>(
    * real rider's session never touches it. See `constants/demoMode.ts`, and
    * delete that file when the demo build is no longer needed.
    */
-  const demo = demoRespond(method, path);
+  const demo = demoRespond(method, path, body);
   if (demo.handled) return demo.payload as T;
 
   if (!API_URL) {

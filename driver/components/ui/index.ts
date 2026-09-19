@@ -28,3 +28,6 @@ export { Sheet, Toast } from "./Sheet";
 export type { SheetSpec } from "./Sheet";
 export { TopBar, HEADER_HEIGHT } from "./TopBar";
 export { MapPanel, PulseRing } from "./MapPanel";
+export { ScooterRiderGraphic } from "./ScooterRiderGraphic";
+export { IncentiveBagGraphic } from "./IncentiveBagGraphic";
+

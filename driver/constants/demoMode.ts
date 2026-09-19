@@ -92,8 +92,8 @@ export const demoDriver = {
   canGoOnline: true,
   blockedReason: "",
   locationFresh: true,
-  isOnline: false,
-  isAvailable: false,
+  isOnline: false as boolean,
+  isAvailable: false as boolean,
   currentOrderNumber: null,
 };
 
@@ -108,18 +108,53 @@ export const demoDriver = {
  * what a rider sees for most of a shift.
  */
 const demoActiveJob = null;
+/*
+ * Shaped to `EarningsSummary` EXACTLY, not approximately.
+ *
+ * The first version of this invented its own field names — `total`,
+ * `currency`, `trips`, `items` — none of which the type has. The earnings
+ * screen reads `weekly` and maps it for the bar chart, so a missing array
+ * there is a crash, not a blank chart. Canned data has to match the shape the
+ * screens read, not the shape that seemed reasonable.
+ */
 const demoEarnings = {
-  today: 0, week: 0, month: 0, total: 0,
-  currency: "INR",
-  trips: 0,
-  items: [] as unknown[],
+  today: 0,
+  week: 0,
+  month: 0,
+  todayTrips: 0,
+  weekTrips: 0,
+  onlineMinutes: 0,
+  weekly: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => ({ day, amount: 0 })),
 };
 
 const ROUTES: Array<[RegExp, unknown]> = [
   [/\/drivers\/me$/, demoDriver],
+  /*
+   * The active-order route, answered EXPLICITLY as null.
+   *
+   * Without this it fell through to the unmatched-GET default, which returns
+   * an empty ARRAY — and `fetchActiveJob` does `res?.data ?? null`, so `[]`
+   * survives as a truthy "job". The home screen then reads `currentJob.drop`
+   * on something with no `drop` and the app dies the moment a demo sign-in
+   * lands on the tabs. Those are the Play reviewer's credentials, so this
+   * path is the first thing Google sees.
+   */
+  [/\/drivers\/me\/orders\/active$/, null],
   [/\/drivers\/active-job$/, demoActiveJob],
   [/\/drivers\/jobs\/active$/, demoActiveJob],
+  [/\/drivers\/me\/earnings$/, demoEarnings],
   [/\/drivers\/earnings/, demoEarnings],
+  /*
+   * The offer poll, answered as NO OFFER.
+   *
+   * `pollOffer` does `if (res?.data) receiveOffer(res.data)`, and the
+   * unmatched-GET default returns an empty ARRAY, which is truthy. Going on
+   * duty starts this poll on a four-second tick, so a reviewer would be handed
+   * a fieldless "offer" within seconds of tapping Go online.
+   */
+  [/\/drivers\/me\/offer$/, null],
+  /* History. An array IS the right shape here. */
+  [/\/drivers\/me\/orders$/, []],
   [/\/drivers\/orders/, []],
   [/\/drivers\/jobs/, []],
   [/\/drivers\/notifications/, []],
@@ -144,8 +179,31 @@ const ROUTES: Array<[RegExp, unknown]> = [
 export function demoRespond(
   method: string,
   path: string,
+  body?: unknown,
 ): { handled: false } | { handled: true; payload: unknown } {
   if (!active) return { handled: false };
+
+  /*
+   * Duty, answered with the state the app just ASKED for.
+   *
+   * `setOnline` reads `res.data.isOnline` and sets `isOnline: !!that`. The
+   * unmatched-write default below returns `data: null`, so every tap of "Go
+   * online" resolved to false and the switch sprang back to OFFLINE — a
+   * reviewer tapping the app's primary control and seeing nothing happen.
+   *
+   * `locationFresh: true` because the home screen warns about a stale
+   * position otherwise, and in demo mode there is no position pipeline to be
+   * stale.
+   */
+  if (/\/drivers\/me\/duty$/.test(path) && method === "POST") {
+    const wanted = Boolean((body as { online?: boolean } | undefined)?.online);
+    demoDriver.isOnline = wanted;
+    demoDriver.isAvailable = wanted;
+    return {
+      handled: true,
+      payload: { success: true, data: { isOnline: wanted, note: "", locationFresh: true } },
+    };
+  }
 
   const found = ROUTES.find(([pattern]) => pattern.test(path));
   if (found) return { handled: true, payload: { success: true, data: found[1] } };

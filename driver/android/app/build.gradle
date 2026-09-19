@@ -92,10 +92,44 @@ android {
         applicationId 'com.lampose.driver.com'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
+        versionCode 5
         versionName "1.0.0"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
+
+        /*
+         * The Google Maps key, injected as a manifest placeholder.
+         *
+         * `react-native-maps` on Android draws NOTHING without
+         * com.google.android.geo.API_KEY in the manifest -- the Maps SDK
+         * throws `RuntimeException: API key not found` and the process dies
+         * the instant a MapView renders. That is a crash on the first screen
+         * after sign-in, because Home draws a map.
+         *
+         * Normally `expo prebuild` writes this from app.config.js. This
+         * project cannot run prebuild: android/ is committed and carries
+         * hand-edits prebuild would destroy (the release signingConfig, the
+         * long-path ninja, the foreground-service removals). So the value is
+         * read here, from the same .env app.config.js reads.
+         *
+         * .env is gitignored, so the key stays out of the repo even though
+         * android/ is tracked. Hardcoding it in AndroidManifest.xml would
+         * commit it.
+         *
+         * Empty when unset: the build still succeeds and fails the same loud
+         * way at runtime, rather than silently baking in the string "null".
+         */
+        def mapsKey = ""
+        def envFile = rootProject.file('../.env')
+        if (envFile.exists()) {
+            envFile.eachLine { line ->
+                def m = (line =~ /^\s*EXPO_PUBLIC_GOOGLE_MAPS_API_KEY\s*=\s*(.+)\s*$/)
+                if (m.matches()) mapsKey = m[0][1].trim().replaceAll("[\"']", "")
+            }
+        }
+        if (!mapsKey) mapsKey = System.getenv('EXPO_PUBLIC_GOOGLE_MAPS_API_KEY') ?: ""
+        manifestPlaceholders = [GOOGLE_MAPS_API_KEY: mapsKey]
+        println "google maps key: " + (mapsKey ? "present (${mapsKey.length()} chars)" : "MISSING - maps will crash")
 
         /*
          * Windows MAX_PATH. Same fix as the User App and Stay Partner, needed

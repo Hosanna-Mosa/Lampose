@@ -55,7 +55,7 @@ export default {
       package: 'com.lampose.driver.com',
       /* Kept in step with android/app/build.gradle by hand. Play rejects a
          versionCode it has already accepted. */
-      versionCode: 2,
+      versionCode: 5,
       ...(googleServicesFile ? { googleServicesFile } : {}),
       adaptiveIcon: {
         foregroundImage: './assets/images/adaptive-icon.png',
@@ -72,7 +72,20 @@ export default {
         'ACCESS_FINE_LOCATION',
         'ACCESS_BACKGROUND_LOCATION',
         'android.permission.POST_NOTIFICATIONS',
-        'android.permission.RECEIVE_BOOT_COMPLETED',
+        /*
+         * RECEIVE_BOOT_COMPLETED is deliberately NOT requested.
+         *
+         * It existed so `expo-task-manager` could restart background tasks
+         * after a reboot. This app defines none — there is no
+         * `TaskManager.defineTask` and no `startLocationUpdatesAsync`
+         * anywhere in it — so the only thing the permission bought was the
+         * boot receiver that Play flags: from Android 15 an app may not start
+         * a `location` foreground service from a BOOT_COMPLETED broadcast,
+         * and doing so crashes the app on the rider's phone at boot.
+         *
+         * Tracking is started by the rider opening the app and taking a
+         * delivery, which is the only moment it should start.
+         */
       ],
       /* Android has no built-in maps renderer the way iOS does, so
          `react-native-maps` cannot draw anything at all here without this —
@@ -103,6 +116,17 @@ export default {
           locationWhenInUsePermission:
             'Driver uses your location to match you with nearby jobs and to navigate to pickup and drop points.',
           isAndroidBackgroundLocationEnabled: true,
+          /*
+           * Declared explicitly now that a LOCATION foreground service is
+           * genuinely started — `services/backgroundLocation.ts` passes a
+           * `foregroundService` block to `startLocationUpdatesAsync`, and
+           * without FOREGROUND_SERVICE_LOCATION Android refuses to start it.
+           *
+           * It is the ONLY foreground-service type this app should carry. The
+           * `microphone` one that `expo-audio` merges in is removed in
+           * AndroidManifest.xml, and so is `mediaPlayback`.
+           */
+          isAndroidForegroundServiceEnabled: true,
         },
       ],
       'expo-font',

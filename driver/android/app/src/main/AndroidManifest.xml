@@ -1,4 +1,48 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+  <!--
+    FOREGROUND_SERVICE_MEDIA_PLAYBACK, removed.
+
+    Neither this app nor its code ever asked for it. `expo-audio` declares it,
+    together with `AudioControlsService`, in its OWN manifest, and the Gradle
+    merger folds that into every app that depends on the library:
+
+      uses-permission#android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK
+      ADDED from [expo.modules.audio:expo.modules.audio:1.1.1]
+
+    Google Play flags it as an undeclared foreground-service permission, and
+    declaring it would be a false claim: `services/alertSound.ts` plays one
+    short bundled alert tone and sets `shouldPlayInBackground: false`. There is
+    no background player, no lock-screen controls and no media session. The
+    tone plays while the app is foregrounded, which needs no foreground service
+    at all.
+
+    The service is removed alongside the permission — left behind it would be a
+    declared component with no permission to run under.
+
+    Editing this file by hand is safe here BECAUSE android/ is committed.
+    `expo prebuild` regenerates it, so if anyone ever runs that, this block has
+    to be put back.
+  -->
+  <!--
+    RECEIVE_BOOT_COMPLETED, removed.
+
+    `expo-notifications` and `expo-task-manager` each merge in a
+    BOOT_COMPLETED receiver, so dropping it from app.config.js is not enough;
+    the merger would put it back. Removed here as well.
+
+    Play's warning is specific: from Android 15 an app cannot start a
+    RESTRICTED foreground service type (`location` is one) from a
+    BOOT_COMPLETED receiver. Android throws
+    ForegroundServiceStartNotAllowedException and the process dies, at boot,
+    where the rider cannot see why.
+
+    Nothing here needs it. This app defines no TaskManager task, so there is
+    nothing to restart, and its one `scheduleNotificationAsync` call fires
+    immediately rather than at a future time, so there is nothing to re-arm.
+    A rider starts tracking by opening the app and taking a delivery.
+  -->
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" tools:node="remove"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" tools:node="remove"/>
   <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
   <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
   <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
@@ -8,7 +52,6 @@
   <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
   <uses-permission android:name="android.permission.RECORD_AUDIO"/>
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
   <uses-permission android:name="android.permission.VIBRATE"/>
@@ -40,5 +83,30 @@
         <data android:scheme="driver"/>
       </intent-filter>
     </activity>
-  </application>
+      <service android:name="expo.modules.audio.service.AudioControlsService" tools:node="remove"/>
+    <!-- The boot receiver itself. Belt and braces beside the permission
+         above: with neither, nothing can run at boot. -->
+    <receiver android:name="expo.modules.taskManager.TaskBroadcastReceiver" tools:node="remove"/>
+
+    <!--
+      AudioRecordingService, removed - it declares
+      android:foregroundServiceType="microphone".
+
+      `expo-audio` ships it for recording. This app never records: it PLAYS one
+      short offer tone (`services/alertSound.ts`). A microphone
+      foreground-service type on a delivery app is both an unnecessary Play
+      declaration and a permission users are right to question.
+
+      The LOCATION service is deliberately NOT touched:
+      expo.modules.location.services.LocationTaskService stays, and it is what
+      provides the only foreground-service type this app should have.
+    -->
+    <service android:name="expo.modules.audio.service.AudioRecordingService" tools:node="remove"/>
+    <!-- Google Maps. The VALUE is a Gradle manifestPlaceholder fed from .env
+         (see android/app/build.gradle) so the key is never committed, even
+         though this folder is tracked. Without it react-native-maps throws
+         `RuntimeException: API key not found` and the app dies on the first
+         screen that draws a map. -->
+    <meta-data android:name="com.google.android.geo.API_KEY" android:value="${GOOGLE_MAPS_API_KEY}"/>
+</application>
 </manifest>

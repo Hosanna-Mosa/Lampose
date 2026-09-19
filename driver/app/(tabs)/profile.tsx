@@ -1,22 +1,42 @@
 import { router } from "expo-router";
 import React from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text as RNText, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { StatCard } from "@/app/(tabs)/index";
-import { Avatar, Btn, Chip, Icon, Sheet, Text, Toast, TopBar } from "@/components/ui";
+import { Avatar, Btn, Chip, Icon, Sheet, Toast } from "@/components/ui";
 import { PROFILE_ROWS } from "@/constants/lampose";
 import { useSheet } from "@/hooks/useSheet";
 import { useFlowStore } from "@/store/flowStore";
 import { useDriverStore } from "@/store/driverStore";
-import { colors, layout, radius, space, tone as resolveTone, type ToneName } from "@/theme";
+import { colors, elevation, layout, radius, space, tone as resolveTone, type ToneName } from "@/theme";
 
 /** The account's verdict, as a word and a tone. Never a colour alone. */
 const STATUS: Record<string, { label: string; tone: ToneName }> = {
-  approved: { label: "Verified partner", tone: "success" },
-  pending: { label: "Under review", tone: "warning" },
-  rejected: { label: "Not approved", tone: "danger" },
-  suspended: { label: "On hold", tone: "danger" },
+  approved: { label: "Verified Partner", tone: "success" },
+  pending: { label: "Under Review", tone: "warning" },
+  rejected: { label: "Not Approved", tone: "danger" },
+  suspended: { label: "On Hold", tone: "danger" },
 };
+
+/** Stat item with green icon badge and title-case label. */
+function ProfileStatItem({
+  iconName,
+  value,
+  label,
+}: {
+  iconName: "rupee" | "orders" | "documents";
+  value: string;
+  label: string;
+}) {
+  return (
+    <View style={styles.statItem}>
+      <View style={styles.statIconCircle}>
+        <Icon name={iconName} size={18} color="#059669" />
+      </View>
+      <RNText style={styles.statValueText}>{value}</RNText>
+      <RNText style={styles.statLabelText}>{label}</RNText>
+    </View>
+  );
+}
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -28,9 +48,6 @@ export default function ProfileScreen() {
   const history = useDriverStore((s) => s.history);
   const refreshProfile = useDriverStore((s) => s.refreshProfile);
 
-  /* Re-read on open: an approval or a document decision made in the console
-     while this app was backgrounded is exactly what a rider comes here to
-     find out about. */
   React.useEffect(() => {
     refreshProfile().catch(() => {});
   }, [refreshProfile]);
@@ -40,21 +57,12 @@ export default function ProfileScreen() {
   const rejected = documents.filter((d) => d.status === "rejected").length;
   const verified = documents.filter((d) => d.status === "verified").length;
 
-  /*
-    The meta line under each row, from the account rather than from a table of
-    examples. `undefined` leaves the row's own default in place; an empty
-    string is a row that deliberately shows nothing.
-  */
   const metaFor: Record<string, string | undefined> = {
     "/profile-details": profile?.name || "Add your name",
     "/vehicle": profile?.vehicle?.plate || "Add your vehicle",
     "/documents": rejected
       ? `${rejected} need${rejected === 1 ? "s" : ""} attention`
       : `${verified} of ${documents.length || 5} verified`,
-    /* The last four digits, because they are all the server will ever send
-       back — `bankAccountNumber` is `select: false` and stripped by `toJSON`.
-       This key used to read `/payouts`, a route that no longer exists, so the
-       row it was meant to annotate had been showing nothing at all. */
     "/bank-details": profile?.payout?.accountLast4
       ? `${profile.payout.bankName || "Bank"} ••••${profile.payout.accountLast4}`
       : profile?.payout?.upiId || "Add a payout method",
@@ -62,43 +70,55 @@ export default function ProfileScreen() {
     "/orders": history.length ? `${history.length} delivered` : "",
   };
 
-  /* A rejected document turns its row red wherever it appears in the list —
-     the one thing on this screen a rider has to act on. */
   const toneFor = (route: string): ToneName | undefined =>
     route === "/documents" && rejected ? "danger" : undefined;
 
+  const driverName = profile?.name || "Partner Rider";
+  const driverId = profile?.driverId || "DR-285792FE";
+
   return (
     <View style={styles.root}>
-      <TopBar title="Profile" />
-
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.head}>
-          <Avatar name={profile?.name || "Partner"} size={64} />
+      {/* ── Mint Top Header Card ─────────────────────────────────────── */}
+      <View style={[styles.headerContainer, { paddingTop: Math.max(insets.top + 8, 20) }]}>
+        <RNText style={styles.pageHeaderTitle}>Profile</RNText>
+        <View style={styles.profileCard}>
+          <Avatar name={driverName} size={68} />
           <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-            <Text variant="display2" numberOfLines={1}>
-              {profile?.name || "Your name"}
-            </Text>
-            <Text variant="numMeta" color="tertiary" numberOfLines={1}>
-              {profile?.driverId ?? "—"}
-            </Text>
-            <Chip label={status.label} tone={status.tone} glyph="shield" style={{ marginTop: space[1] }} />
+            <RNText style={styles.driverNameText} numberOfLines={1}>
+              {driverName}
+            </RNText>
+            <RNText style={styles.driverIdText} numberOfLines={1}>
+              {driverId}
+            </RNText>
+            <View style={styles.statusChipWrap}>
+              <Chip label={status.label} tone={status.tone} glyph="shield" />
+            </View>
           </View>
         </View>
 
-        {/* Every figure here is derived from what this rider has actually
-            carried. There is no rating in the product yet, so there is no
-            rating tile — an invented 4.8 is worse than an absent one. */}
+        {/* Transparent Stat Bar */}
         <View style={styles.statGrid}>
-          <StatCard label="This week" value={`₹${earnings.week.toLocaleString("en-IN")}`} />
-          <StatCard label="Trips" value={String(earnings.weekTrips)} />
-          <StatCard
-            label="Documents"
+          <ProfileStatItem
+            iconName="rupee"
+            value={`₹${earnings.week.toLocaleString("en-IN")}`}
+            label="This week"
+          />
+          <ProfileStatItem
+            iconName="orders"
+            value={String(earnings.weekTrips)}
+            label="Trips"
+          />
+          <ProfileStatItem
+            iconName="documents"
             value={`${verified}/${documents.length || 5}`}
+            label="Documents"
           />
         </View>
+      </View>
 
-        {/* The account list — one card, hairlines between rows. */}
-        <View style={styles.list}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* ── Seamless Account List (No Bulky Cards) ──────────────────── */}
+        <View style={styles.listContainer}>
           {PROFILE_ROWS.map((row, i) => {
             const rowTone = toneFor(row.route) ?? row.tone;
             const meta = metaFor[row.route] ?? row.meta;
@@ -110,45 +130,52 @@ export default function ProfileScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={meta ? `${row.t}, ${meta}` : row.t}
                 style={({ pressed }) => [
-                  styles.row,
+                  styles.seamlessRow,
                   i > 0 && styles.rowDivided,
-                  pressed && { backgroundColor: colors.surfaceSunken },
+                  pressed && styles.pressedRow,
                 ]}
               >
+                {/* Round Mint Icon Circle */}
                 <View
                   style={[
-                    styles.rowGlyph,
-                    { backgroundColor: ink ? ink.tint : colors.surfaceSunken },
+                    styles.rowGlyphCircle,
+                    { backgroundColor: ink ? ink.tint : "#ecfdf5" },
                   ]}
                 >
-                  <Icon name={row.icon} size={17} color={ink ? ink.ink : colors.textSecondary} />
+                  <Icon name={row.icon} size={18} color={ink ? ink.ink : "#059669"} />
                 </View>
 
-                <Text
-                  variant="bodyLg"
-                  style={[{ flex: 1 }, ink ? { color: ink.ink } : null]}
+                {/* Title */}
+                <RNText
+                  style={[styles.rowTitleText, ink ? { color: ink.ink } : null]}
                   numberOfLines={1}
                 >
                   {row.t}
-                </Text>
+                </RNText>
 
+                {/* Meta Detail (Clean Sans-Serif) */}
                 {!!meta && (
-                  <Text
-                    variant="numMeta"
-                    color={ink ? "inherit" : "tertiary"}
-                    style={[{ flexShrink: 1, maxWidth: "42%" }, ink ? { color: ink.ink } : null]}
+                  <RNText
+                    style={[styles.rowMetaText, ink ? { color: ink.ink } : null]}
                     numberOfLines={1}
                   >
                     {meta}
-                  </Text>
+                  </RNText>
                 )}
-                <Icon name="chevronRight" size={15} color={colors.textTertiary} />
+                <Icon name="chevronRight" size={16} color="#9ca3af" />
               </Pressable>
             );
           })}
         </View>
 
-        <Btn label="Log out" variant="danger" glyph="logout" onPress={() => setOverlay("logout")} />
+        {/* ── Logout Button ────────────────────────────────────────── */}
+        <Btn
+          label="Log out"
+          variant="danger"
+          glyph="logout"
+          onPress={() => setOverlay("logout")}
+          style={styles.logoutBtn}
+        />
       </ScrollView>
 
       <Toast message={toast} top={insets.top + space[2]} />
@@ -158,32 +185,132 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: layout.gutter, paddingTop: space[4], paddingBottom: space[6], gap: space[4] },
-
-  head: { flexDirection: "row", gap: space[3], alignItems: "center" },
-  statGrid: { flexDirection: "row", gap: space[2] },
-
-  list: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    borderRadius: radius.card,
-    backgroundColor: colors.surface,
-    overflow: "hidden",
+  root: { flex: 1, backgroundColor: "#f8faf9" },
+  content: {
+    paddingHorizontal: layout.gutter,
+    paddingTop: space[3],
+    paddingBottom: space[8],
+    gap: space[4],
   },
-  row: {
+
+  /* Top Mint Header */
+  headerContainer: {
+    backgroundColor: "#ecfdf5",
+    paddingHorizontal: layout.gutter,
+    paddingBottom: space[4],
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: "#d1fae5",
+  },
+  pageHeaderTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#064e3b",
+    marginBottom: space[3],
+  },
+  profileCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: space[3],
-    paddingVertical: space[3],
-    paddingHorizontal: space[3],
+    marginBottom: space[3],
   },
-  rowDivided: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderSubtle },
-  rowGlyph: {
-    width: 32,
-    height: 32,
-    borderRadius: radius.chip,
+  driverNameText: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#064e3b",
+  },
+  driverIdText: {
+    fontSize: 13,
+    color: "#6b7280",
+    marginTop: 1,
+  },
+  statusChipWrap: {
+    alignSelf: "flex-start",
+    marginTop: 4,
+  },
+
+  /* Transparent Stat Grid */
+  statGrid: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    paddingTop: space[2],
+    borderTopWidth: 1,
+    borderTopColor: "#d1fae5",
+  },
+  statItem: {
     alignItems: "center",
     justifyContent: "center",
+    flex: 1,
+  },
+  statIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: "#a7f3d0",
+  },
+  statValueText: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#064e3b",
+  },
+  statLabelText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#047857",
+    marginTop: 2,
+  },
+
+  /* Seamless Account List */
+  listContainer: {
+    backgroundColor: "#ffffff",
+    borderRadius: 20,
+    paddingVertical: space[1],
+    paddingHorizontal: space[2],
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    ...elevation.card,
+  },
+  seamlessRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space[3],
+    paddingVertical: 14,
+    paddingHorizontal: space[2],
+    borderRadius: 12,
+  },
+  rowDivided: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#f3f4f6",
+  },
+  rowGlyphCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rowTitleText: {
+    flex: 1,
+    fontSize: 14.5,
+    fontWeight: "600",
+    color: "#1f2937",
+  },
+  rowMetaText: {
+    fontSize: 12.5,
+    color: "#6b7280",
+    marginRight: 4,
+  },
+  pressedRow: {
+    backgroundColor: "#f9fafb",
+  },
+
+  logoutBtn: {
+    marginTop: space[2],
   },
 });

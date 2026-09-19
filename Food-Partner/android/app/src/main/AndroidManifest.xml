@@ -1,4 +1,29 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+  <!--
+    FOREGROUND_SERVICE_MEDIA_PLAYBACK, removed.
+
+    Neither this app nor its code ever asked for it. `expo-audio` declares it,
+    together with `AudioControlsService`, in its OWN manifest, and the Gradle
+    merger folds that into every app that depends on the library:
+
+      uses-permission#android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK
+      ADDED from [expo.modules.audio:expo.modules.audio:1.1.1]
+
+    Google Play flags it as an undeclared foreground-service permission, and
+    declaring it would be a false claim: `services/alertSound.ts` plays one
+    short bundled alert tone and sets `shouldPlayInBackground: false`. There is
+    no background player, no lock-screen controls and no media session. The
+    tone plays while the app is foregrounded, which needs no foreground service
+    at all.
+
+    The service is removed alongside the permission — left behind it would be a
+    declared component with no permission to run under.
+
+    Editing this file by hand is safe here BECAUSE android/ is committed.
+    `expo prebuild` regenerates it, so if anyone ever runs that, this block has
+    to be put back.
+  -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" tools:node="remove"/>
   <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
   <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
   <uses-permission android:name="android.permission.CAMERA"/>
@@ -38,5 +63,6 @@
         <data android:scheme="lamposepartner"/>
       </intent-filter>
     </activity>
-  </application>
+      <service android:name="expo.modules.audio.service.AudioControlsService" tools:node="remove"/>
+</application>
 </manifest>
