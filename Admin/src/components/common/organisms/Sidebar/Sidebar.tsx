@@ -99,10 +99,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <ListItem key={item.id}>
                       <PlainButton
                         onClick={() => handleNavClick(item.id)}
-                        title={collapsed ? item.label : undefined}
+                        title={
+                          collapsed
+                            ? `${item.label}${count ? ` — ${count} waiting` : ''}`
+                            : undefined
+                        }
                         aria-current={isActive ? 'page' : undefined}
                         className={cx(
-                          'w-full flex items-center rounded-control transition-colors duration-120 h-9',
+                          'relative w-full flex items-center rounded-control transition-colors duration-120 h-9',
                           collapsed ? 'justify-center px-0' : 'gap-2.5 px-2.5',
                           isActive
                             ? 'bg-brand-soft text-brand-ink font-medium'
@@ -110,6 +114,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         )}
                       >
                         <Icon className="size-4 shrink-0" strokeWidth={isActive ? 2 : 1.75} />
+
+                        {/* Collapsed, the number has nowhere to go — the label
+                            it sits beside is not rendered. Without this, the
+                            one state where the sidebar is deliberately out of
+                            the way is also the one state that cannot tell you
+                            something is waiting, which is backwards: a rail
+                            you have collapsed is a rail you are not reading,
+                            so it has to be able to catch the eye on its own.
+
+                            A dot rather than a shrunken number, because four
+                            and fourteen call for the same action and neither
+                            is legible at this size anyway. `title` already
+                            carries the label on a collapsed row; it carries
+                            the count too, so the exact figure is one hover
+                            away. */}
+                        {collapsed && typeof count === 'number' && count > 0 && (
+                          <Inline
+                            aria-hidden
+                            className="absolute top-1.5 right-1.5 size-2 rounded-full bg-brand ring-2 ring-surface"
+                          />
+                        )}
                         {!collapsed && (
                           <>
                             <Inline className="text-body truncate flex-1 text-left">{item.label}</Inline>

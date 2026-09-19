@@ -60,6 +60,13 @@ const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
    which stays permissive for exactly that reason. */
 const INDIAN_MOBILE = /^\+91[6-9]\d{9}$/;
 
+/* An Aadhaar number is twelve digits. Only the LENGTH is checked, here and
+   in `validateApplication`: nothing in this process can ask UIDAI whether a
+   number exists, and the verification queue reads the scan beside it. A
+   checksum would refuse the occasional real number typed correctly, which is
+   a partner who cannot be onboarded at all. */
+const AADHAAR_DIGITS = 12;
+
 const ACCOUNT_TYPES = ['savings', 'current'];
 
 /* ── Small readers ────────────────────────────────────────────────────────
@@ -663,10 +670,38 @@ const sanitiseApplication = (body) => {
 
   restaurant.fssaiLicenseNumber = str(pick(r, 'fssaiLicenseNumber', 'fssaiNumber', 'fssai'));
   restaurant.fssaiExpiry = date(pick(r, 'fssaiExpiry'));
+  restaurant.fssaiCompanyName = str(pick(r, 'fssaiCompanyName', 'licenceCompanyName'));
   restaurant.gstNumber = str(pick(r, 'gstNumber', 'gstin', 'gst')).toUpperCase();
   const gstExempt = bool(pick(r, 'gstExempt'));
   if (gstExempt !== undefined) restaurant.gstExempt = gstExempt;
   restaurant.panNumber = str(pick(r, 'panNumber', 'pan')).toUpperCase();
+
+  /*
+   * The Aadhaar, read but never TRUSTED.
+   *
+   * `number` and `phone` are what was typed; `verifiedAt` is deliberately not
+   * read here at all. The controller sets it from the proof token that
+   * `/auth/otp/verify` issued, which is the only thing that can say the code
+   * actually reached that handset. A body claiming `aadhaar.verifiedAt` is
+   * ignored the same way `verificationStatus` and `isActive` are.
+   *
+   * `last4` is derived rather than accepted, so it cannot disagree with the
+   * number it is supposed to be the tail of.
+   */
+  const aadhaarIn = r.aadhaar || root.aadhaar || {};
+  const aadhaarDigits = str(pick(aadhaarIn, 'number', 'aadhaarNumber')).replace(/\D/g, '');
+  const aadhaarPhone = normalisePhone(str(pick(aadhaarIn, 'phone', 'aadhaarPhone')));
+
+  if (aadhaarDigits && aadhaarDigits.length !== AADHAAR_DIGITS) {
+    errors.push(`"${aadhaarDigits}" is not a ${AADHAAR_DIGITS}-digit Aadhaar number; it was not stored.`);
+  }
+
+  restaurant.aadhaar = {
+    number: aadhaarDigits.length === AADHAAR_DIGITS ? aadhaarDigits : '',
+    last4: aadhaarDigits.length === AADHAAR_DIGITS ? aadhaarDigits.slice(-4) : '',
+    phone: aadhaarPhone || '',
+    verifiedAt: null,
+  };
 
   /* ── B. Location & contact ────────────────────────────────────────────── */
 
@@ -679,6 +714,7 @@ const sanitiseApplication = (body) => {
     line2: str(pick(addressIn, 'line2', 'addressLine2', 'area')),
     city: str(pick(addressIn, 'city')),
     state: str(pick(addressIn, 'state')),
+    district: str(pick(addressIn, 'district')),
     pincode: str(pick(addressIn, 'pincode', 'pin', 'postalCode')),
     landmark: str(pick(addressIn, 'landmark')),
   };
@@ -985,6 +1021,29 @@ const validateApplication = (sanitised = {}) => {
     problems.push(`a ${PAN_LENGTH}-character PAN number`);
   }
 
+  /*
+   * The Aadhaar, checked for SHAPE and never for PRESENCE.
+   *
+   * The Onboard console requires it and verifies the registered mobile with a
+   * one-time code before it will let the agent past that step — that console
+   * is where it is asked for, so that is where it is insisted on. A presence
+   * rule HERE would refuse every application from the Food-Partner app, whose
+   * own signup has no Aadhaar field at all. The same division `panNumber` and
+   * `refundPolicyAccepted` already use.
+   *
+   * The phone is checked only when one was sent, and only as a mobile: a
+   * number that could not receive the code it was supposed to have received
+   * is a number typed into the wrong box.
+   */
+  const aadhaar = restaurant.aadhaar || {};
+  const aadhaarDigits = String(aadhaar.number || '').replace(/\D/g, '');
+  if (aadhaarDigits && aadhaarDigits.length !== AADHAAR_DIGITS) {
+    problems.push(`a ${AADHAAR_DIGITS}-digit Aadhaar number`);
+  }
+  if (aadhaar.phone && !isIndianMobile(aadhaar.phone)) {
+    problems.push('an Indian mobile number for the Aadhaar — it has to receive the one-time code');
+  }
+
   /* ── Payout ───────────────────────────────────────────────────────────── */
 
   /* A partner may finish the bank details later — settlement is weekly and the
@@ -1114,7 +1173,7 @@ const APPLICATION_SECTIONS = {
     title: 'Location & contact',
     fields: [
       'address.line1', 'address.line2', 'address.city', 'address.state',
-      'address.pincode', 'address.landmark', 'location', 'contactNumber',
+      'address.district', 'address.pincode', 'address.landmark', 'location', 'contactNumber',
     ],
   },
   operations: {
@@ -1128,8 +1187,8 @@ const APPLICATION_SECTIONS = {
   documents: {
     title: 'Documents & legal',
     fields: [
-      'fssaiLicenseNumber', 'fssaiExpiry', 'gstNumber', 'gstExempt',
-      'panNumber', 'verificationDocuments',
+      'fssaiLicenseNumber', 'fssaiExpiry', 'fssaiCompanyName', 'gstNumber', 'gstExempt',
+      'panNumber', 'aadhaar.number', 'aadhaar.phone', 'verificationDocuments',
     ],
   },
   payout: {

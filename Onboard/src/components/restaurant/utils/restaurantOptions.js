@@ -23,16 +23,39 @@ export const CUISINE_OPTIONS = [
 export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 /*
- * The commercial terms, shown on step 4 and sent with the contract.
+ * The states, as a CLOSED list, and the district as free text beside it.
  *
- * `commission` and `platformFee` are the two the backend stores as numbers on
- * `contract`, so they are declared here as numbers and rendered into the
- * sentences below rather than typed twice — a screen that promises 15% while
- * the document records 18 is the one disagreement in this form that ends up
- * in front of a lawyer.
+ * Both exist for one job: an FSSAI licence is looked up on FoSCoS by company
+ * name, licence number, STATE and DISTRICT together, and a verifier with three
+ * of those four cannot run the check at all. They are asked for on the FSSAI
+ * step for that reason, and stored on the address, which is where a state and
+ * a district actually belong — one home for the value, not two.
+ *
+ * The state is a dropdown because it is a genuinely closed list of 36 that
+ * changes about once a decade, and because "Telengana" typed by hand returns
+ * no licence on a portal that has never heard of it.
+ *
+ * The district is deliberately NOT a dropdown. FoSCoS's own district list is
+ * around eight hundred entries, is not a list of revenue districts — it
+ * carries municipal corporations like "Greater Hyderabad Municipal
+ * Corporation" beside ordinary districts — and it changes without telling us.
+ * A copy of it here would be wrong within a year, and a required dropdown
+ * missing the right entry is an onboarding that cannot be completed at all.
+ * Free text is checked for being present and plausible, and the verifier
+ * reads it against the licence in front of them.
  */
-export const CONTRACT_COMMISSION = 15;
-export const CONTRACT_PLATFORM_FEE = 3;
+export const INDIAN_STATES = [
+  'Andaman and Nicobar Islands', 'Andhra Pradesh', 'Arunachal Pradesh', 'Assam',
+  'Bihar', 'Chandigarh', 'Chhattisgarh', 'Dadra and Nagar Haveli and Daman and Diu',
+  'Delhi', 'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jammu and Kashmir',
+  'Jharkhand', 'Karnataka', 'Kerala', 'Ladakh', 'Lakshadweep', 'Madhya Pradesh',
+  'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha',
+  'Puducherry', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana',
+  'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
+];
+
+/** Where a verifier checks the licence. Opened from the admin console too. */
+export const FSSAI_PORTAL_URL = 'https://foscos.fssai.gov.in/';
 
 /*
  * The two numbers in the refund rule, declared rather than typed into
@@ -47,15 +70,8 @@ export const CONTRACT_PLATFORM_FEE = 3;
 export const CANCELLATION_GRACE_MINUTES = 5;
 export const LATE_CANCELLATION_PERCENT = 10;
 
+/* The commercial terms, shown on step 4 of the form. */
 export const COMMERCIAL_TERMS = [
-  {
-    label: 'Delivery Commission',
-    value: `${CONTRACT_COMMISSION}% per order (negotiable for high-volume partners)`,
-  },
-  {
-    label: 'Platform Fee',
-    value: `₹${CONTRACT_PLATFORM_FEE} per order (capped at ₹10/month)`,
-  },
   {
     label: 'Payment Cycle',
     value: 'Weekly settlements — every Monday for the prior week',
@@ -67,36 +83,6 @@ export const COMMERCIAL_TERMS = [
   {
     label: 'Promotional Contribution',
     value: 'Optional. Shared cost for discounts & free delivery campaigns.',
-  },
-];
-
-/*
- * The refund side of the agreement, shown on step 3 and ticked there.
- *
- * Printed in full rather than linked or summarised in one line, because the
- * tick underneath it is the record that the owner was told: an acceptance of
- * something the screen never said is worth nothing to the person who has to
- * defend a deduction three months later. Four points, because that is what
- * actually takes money off a settlement — and the last of them is what makes
- * the tick a fair one to ask for, since a refund caused by a late rider is
- * not the kitchen's fault and this says so.
- */
-export const REFUND_POLICY_POINTS = [
-  {
-    label: 'Cancellations',
-    value: `Free for the first ${CANCELLATION_GRACE_MINUTES} minutes after an order is placed. A cancellation by the restaurant after that is charged ${LATE_CANCELLATION_PERCENT}% of the order value.`,
-  },
-  {
-    label: 'Wrong or missing items',
-    value: 'Refunded to the customer in full and deducted from the restaurant\'s weekly settlement.',
-  },
-  {
-    label: 'Quality complaints',
-    value: 'Investigated case by case. A complaint that is upheld is refunded from the settlement; one that is not costs the restaurant nothing.',
-  },
-  {
-    label: 'Late delivery',
-    value: 'A refund caused by a rider or by the platform is borne by Lampose, never by the restaurant.',
   },
 ];
 
@@ -121,10 +107,6 @@ export const COPY = {
   categoryHelp: 'Select all that apply to this restaurant',
   operatingHelp: 'Add multiple time slots if the restaurant has break times.',
   gstExemptLabel: 'This restaurant is exempt / Composition scheme',
-  refundTitle: 'Refund & Cancellation Policy',
-  refundIntro: 'Read this to the owner before ticking the box.',
-  refundAcceptLabel: 'The owner accepts the refund and cancellation policy.',
-  refundAcceptHelp: 'Refunds upheld under this policy come out of the weekly settlement — they are not invoiced separately.',
   safetyTitle: 'Food Safety License',
   safetyUploadDescription: 'Upload a clear scan or photo of the FSSAI license',
   contractServiceText: 'the sale and delivery of food items',
@@ -180,20 +162,41 @@ export const INITIAL_RESTAURANT_STATE = {
   gstin: '',
   gstExempt: false,
 
-  /* Step 3 — the refund and cancellation policy.
-     Its own acceptance, deliberately not folded into `acceptedTos` on step 4:
-     that one is the whole merchant agreement signed by name at the end, and
-     this is the single rule that takes money off a settlement, ticked on the
-     screen that prints it while the owner is still in the room. One tick
-     covering both would make it impossible to say which was actually read. */
-  refundPolicyAccepted: false,
+  /* Step 3 — the owner's Aadhaar, and the mobile it is registered against.
+
+     Seven fields for one question, because "is this number proven?" cannot be
+     one boolean. `aadhaarToken` is the signed proof the backend issued and the
+     only thing that actually convinces it — the booleans beside it exist to
+     drive the screen. `aadhaarVerifiedPhone` records WHICH number was proven,
+     so that editing the number after verifying it silently un-verifies it
+     rather than carrying a proof for a handset nobody typed. */
+  aadhaarNumber: '',
+  aadhaarPhone: '',
+  aadhaarOtp: '',
+  aadhaarOtpSent: false,
+  aadhaarVerified: false,
+  aadhaarVerifiedPhone: '',
+  aadhaarToken: '',
 
   // Step 3 — safety
   fssaiNumber: '',
   fssaiExpiry: '',
   fssaiFile: null,
 
-  // Step 3 — payout
+  /* Asked for on the FSSAI step because that is the check they exist for —
+     FoSCoS needs the state and district alongside the licence number — but
+     SENT as `address.state` and `address.district`, which is the one place a
+     state and a district live. See INDIAN_STATES for why one is a dropdown
+     and the other is not. */
+  fssaiCompanyName: '',
+  state: '',
+  district: '',
+
+  /* Step 3 — payout. All of it OPTIONAL, and all-or-nothing: the backend
+     accepts an application with no bank details at all (the first settlement
+     is a week away) but refuses a HALF one, because an account number with no
+     IFSC is money that cannot be sent. `validateRestaurant.js` enforces the
+     same pair of rules so the two cannot disagree. */
   accountHolderName: '',
   bankAccount: '',
   bankConfirm: '',

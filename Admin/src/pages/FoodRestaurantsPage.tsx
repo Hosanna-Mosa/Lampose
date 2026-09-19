@@ -102,6 +102,16 @@ const money = (value: number | undefined | null): string =>
 const when = (iso: string | null | undefined): string =>
   iso ? new Date(iso).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 
+/*
+ * Where an FSSAI licence is actually verified.
+ *
+ * FoSCoS asks for four things at once — company name, licence number, state
+ * and district — which is why the Onboard form now collects the last two on
+ * its FSSAI step and why the review drawer prints all four together. Without
+ * the district a verifier can open this portal and still not run the check.
+ */
+const FSSAI_PORTAL_URL = 'https://foscos.fssai.gov.in/';
+
 export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search }) => {
   const { user } = useAuth();
   const canDecide = DECIDING_ROLES.has(user?.role ?? '');
@@ -192,9 +202,23 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
         title="Restaurant applications"
         description="Applications from the Food Partner app. Approving one is what lists it to diners."
         actions={
-          <Button variant="ghost" icon={RefreshCw} onClick={queue.reload} disabled={queue.refreshing}>
-            Refresh
-          </Button>
+          <>
+            {/* FoSCoS is where an FSSAI licence is actually checked, and the
+                review drawer prints the four values that check needs. The link
+                is here so verifying one does not start with finding the portal
+                again — `noopener` because this opens a government site in a
+                tab that would otherwise keep a handle on the console. */}
+            <Button
+              variant="ghost"
+              icon={ExternalLink}
+              onClick={() => window.open(FSSAI_PORTAL_URL, '_blank', 'noopener,noreferrer')}
+            >
+              FSSAI portal
+            </Button>
+            <Button variant="ghost" icon={RefreshCw} onClick={queue.reload} disabled={queue.refreshing}>
+              Refresh
+            </Button>
+          </>
         }
       />
 
@@ -457,7 +481,21 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
             </Section>
 
             <Section title="Documents">
+              {/* ── What FoSCoS asks for, in the order it asks ─────────────
+
+                  Printed as a set rather than scattered through the drawer,
+                  because verifying a licence means typing these four into one
+                  form: the name, the number, the state and the district. The
+                  state and district are read off the CERTIFICATE on the
+                  onboarding form, not off the address, so they can legitimately
+                  differ from where the kitchen stands. */}
+              <DataRow
+                label="Licence holder"
+                value={dash(open.restaurant.fssaiCompanyName || open.restaurant.restaurantName)}
+              />
               <DataRow label="FSSAI" value={dash(open.restaurant.fssaiLicenseNumber)} mono />
+              <DataRow label="Licence state" value={dash(open.restaurant.address?.state)} />
+              <DataRow label="Licence district" value={dash(open.restaurant.address?.district)} />
               <DataRow
                 label="FSSAI expiry"
                 value={
@@ -472,6 +510,15 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
                 mono
               />
               <DataRow label="PAN" value={dash(open.restaurant.panNumber)} mono />
+              <Box className="pt-2">
+                <Button
+                  variant="ghost"
+                  icon={ExternalLink}
+                  onClick={() => window.open(FSSAI_PORTAL_URL, '_blank', 'noopener,noreferrer')}
+                >
+                  Check this licence on FoSCoS
+                </Button>
+              </Box>
               <DataRow
                 label="Uploaded"
                 value={
