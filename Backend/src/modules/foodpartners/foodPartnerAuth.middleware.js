@@ -281,6 +281,35 @@ async function requireFoodPartner(req, res, next) {
 }
 
 /**
+ * Reads a phone proof that did NOT arrive in the Authorization header.
+ *
+ * `requireVerifiedPhone` is the middleware form and reads `Authorization`,
+ * which the Onboard console cannot use: that header already carries the
+ * AGENT's staff token, and an application carries both identities at once —
+ * the member of staff filling the form in, and the one-time code that reached
+ * the owner's Aadhaar-registered handset. So that proof travels in the body
+ * and is read here.
+ *
+ * Returns the proven number in E.164, or null for anything else — no token, a
+ * token of the wrong type, an expired one, a forged one. Null is not an error
+ * here: the caller decides whether an unproven number is a refusal or simply
+ * a `verifiedAt` that stays empty.
+ */
+function readPhoneProof(token) {
+  if (!config.auth.configured) return null;
+  if (!token || typeof token !== 'string') return null;
+
+  try {
+    const decoded = jwt.verify(token, config.auth.jwtSecret);
+    if (decoded.typ !== PHONE_TOKEN_TYPE) return null;
+    if (!decoded.sub) return null;
+    return String(decoded.sub);
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
  * Requires proof of a phone number, and puts it on `req.verifiedPhone`.
  *
  * No database read, because there is nothing to read: this runs before the
@@ -403,6 +432,7 @@ module.exports = {
   signPhoneVerificationToken,
   verifyPhoneToken,
   requireVerifiedPhone,
+  readPhoneProof,
 
   requireFoodPartnerOrVerifiedPhone,
 };

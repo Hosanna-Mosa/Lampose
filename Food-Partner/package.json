@@ -21,6 +21,7 @@
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "8.4.4",
     "expo": "~54.0.36",
+    "expo-asset": "~12.0.13",
     "expo-audio": "~1.1.1",
     "expo-constants": "~18.0.11",
     "expo-device": "~8.0.10",
@@ -31,6 +32,7 @@
     "expo-location": "~19.0.8",
     "expo-notifications": "^0.32.17",
     "expo-router": "~6.0.24",
+    "expo-secure-store": "~15.0.8",
     "expo-splash-screen": "~31.0.12",
     "expo-status-bar": "~3.0.9",
     "expo-system-ui": "~6.0.9",
@@ -60,5 +62,8 @@
     "jest-expo": "~54.0.18",
     "react-test-renderer": "19.1.0",
     "typescript": "~5.9.2"
+  },
+  "overrides": {
+    "expo-asset": "~12.0.13"
   }
 }

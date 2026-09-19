@@ -24,7 +24,11 @@
    ══════════════════════════════════════════════════════════════════════════ */
 const config = require('../src/config/env');
 const { connectDB, closeConnections } = require('../src/infrastructure/database/db');
-const { initStore } = require('../src/modules/scraper/scraper.store');
+/* The store itself, not just its boot helper: the leads-panel session below
+   is minted through `registerUser` directly, because the HTTP route that
+   used to mint it now requires the token it was minting. */
+const dbStore = require('../src/modules/scraper/scraper.store');
+const { initStore } = dbStore;
 /* The app server.js built — same CORS allowlist a browser hits in
    production, so the preflight checks below test the real policy. */
 const { app } = require('../server');
@@ -239,27 +243,73 @@ const run = async () => {
 
   section('leads.lampose.com   (leads-frontend/src/api/authApi.ts  →  v2)');
 
-  await check('authApi.register()  →  POST /api/v2/auth/register', async () => {
-    const { status, body } = await call('POST', '/api/v2/auth/register', {
-      body: {
-        name: 'Verify Admin', email: adminEmail, password: 'verify123', role: 'ADMIN', adminCode: config.auth.adminSecretKey,
-      },
+  /*
+   * ══════════════════════════════════════════════════════════════════════
+   * `/auth/register` is an ADMIN action. These assertions are the LOCK.
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * This block used to assert that an anonymous POST here returned 201 — it
+   * was a passing test over an unauthenticated staff-account factory, which
+   * is how the hole survived so long. It now asserts the refusal instead, so
+   * the protection is the thing under test: anybody who reopens the route
+   * fails the suite rather than fixing it.
+   *
+   * The leads-panel session below is minted DIRECTLY and then signed in for
+   * real, exactly the way the console's Super Admin session is further down.
+   * It has to be: the route that used to bootstrap it now requires the very
+   * token it was bootstrapping.
+   */
+  await check('POST /api/v2/auth/register  refuses an anonymous caller', async () => {
+    const { status } = await call('POST', '/api/v2/auth/register', {
+      body: { name: 'x', email: `nope_${stamp}@example.invalid`, password: 'verify123' },
     });
-    expect([200, 201].includes(status), `expected 201, got ${status}: ${body.error}`);
-    expect(body.success === true, 'AuthContext.register checks res.success');
-    token = body.data && body.data.token;
-    adminUserId = body.data && body.data.user && body.data.user.userId;
-    created.userIds.push(adminUserId);
-    expect(token, 'res.data.token is missing — AuthContext stores this as scriper_token');
-    return expectFields(body.data.user, ['userId', 'name', 'email', 'role', 'avatar'], 'res.data.user');
+    expect(status === 401, `expected 401, got ${status} — is the guard still on?`);
+    return 'refused (401)';
   });
 
-  await check('authApi.register()  ADMIN without adminCode must be refused', async () => {
-    const { status } = await call('POST', '/api/v2/auth/register', {
-      body: { name: 'x', email: `nope_${stamp}@example.invalid`, password: 'verify123', role: 'ADMIN' },
+  await check('a leads-panel ADMIN — minted directly, signed in for real', async () => {
+    const made = await dbStore.registerUser({
+      name: 'Verify Admin', email: adminEmail, password: 'verify123', role: 'ADMIN',
     });
-    expect(status === 403, `expected 403, got ${status}`);
-    return 'refused';
+    adminUserId = made.userId;
+    created.userIds.push(adminUserId);
+
+    const { status, body } = await call('POST', '/api/v2/auth/login', {
+      body: { email: adminEmail, password: 'verify123' },
+    });
+    expect(status === 200, `expected 200, got ${status}`);
+    token = body.data && body.data.token;
+    expect(token, 'res.data.token is missing — AuthContext stores this as scriper_token');
+    return expectFields(body.data.user, ['userId', 'name', 'email', 'role'], 'res.data.user');
+  });
+
+  await check('POST /api/v2/auth/register  refuses an EMPLOYEE token', async () => {
+    const employee = await dbStore.registerUser({
+      name: 'Verify Emp Probe', email: `probe_${stamp}@example.invalid`, password: 'verify123', role: 'EMPLOYEE',
+    });
+    created.userIds.push(employee.userId);
+    const signedIn = await call('POST', '/api/v2/auth/login', {
+      body: { email: `probe_${stamp}@example.invalid`, password: 'verify123' },
+    });
+    const empOnly = signedIn.body.data && signedIn.body.data.token;
+    expect(empOnly, 'could not sign the probe employee in');
+
+    const { status } = await call('POST', '/api/v2/auth/register', {
+      token: empOnly,
+      body: { name: 'x', email: `esc_${stamp}@example.invalid`, password: 'verify123' },
+    });
+    expect(status === 403, `expected 403, got ${status} — an EMPLOYEE must not create accounts`);
+    return 'refused (403)';
+  });
+
+  await check('POST /api/v2/auth/register  accepts an ADMIN token', async () => {
+    const { status, body } = await call('POST', '/api/v2/auth/register', {
+      token,
+      body: { name: 'Verify Made', email: `made_${stamp}@example.invalid`, password: 'verify123' },
+    });
+    expect([200, 201].includes(status), `expected 201, got ${status}: ${body.error}`);
+    created.userIds.push(body.data && body.data.user && body.data.user.userId);
+    return 'created by an ADMIN';
   });
 
   await check('authApi.login()  →  POST /api/v2/auth/login', async () => {

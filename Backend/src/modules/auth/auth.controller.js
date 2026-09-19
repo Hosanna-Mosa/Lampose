@@ -16,6 +16,10 @@ const fail = (res, status, message, extra = {}) => res.status(status).json({
 });
 
 // @route POST /api/v2/auth/register
+/* The shared floor for every password this module sets. Kept equal to the
+   one in `users/user.controller.js` and `scraper/scriperUser.admin.routes.js`. */
+const MIN_PASSWORD = 8;
+
 const register = async (req, res, next) => {
   try {
     const { name, email, password, role = 'EMPLOYEE', adminCode } = req.body || {};
@@ -23,8 +27,11 @@ const register = async (req, res, next) => {
     if (!name || !email || !password) {
       return fail(res, 400, 'Name, email, and password are required.');
     }
-    if (String(password).length < 6) {
-      return fail(res, 400, 'Password must be at least 6 characters long.');
+    /* One floor across every account-creation path — `POST /api/v2/users`,
+       `POST /api/admin/scriper-users` and here. The weakest of them is the
+       real minimum, so they have to agree. */
+    if (String(password).length < MIN_PASSWORD) {
+      return fail(res, 400, `Password must be at least ${MIN_PASSWORD} characters long.`);
     }
 
     /* An ADMIN account is created straight from the public form, so the only

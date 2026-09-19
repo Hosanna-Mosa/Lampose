@@ -19,11 +19,19 @@ const dbStore = require('../../modules/scraper/scraper.store');
 const JWT_SECRET = config.auth.jwtSecret;
 
 const signToken = (user) => jwt.sign(
-  { userId: user.userId, email: user.email, role: user.role },
+  {
+    userId: user.userId,
+    email: user.email,
+    role: user.role,
+    /* The session generation this token belongs to. `|| 0` rather than a bare
+       read, because an account created before `sessionVersion` existed has the
+       field absent rather than zero, and `undefined` in a claim would fail the
+       comparison against a stored 0 and sign that person out. */
+    ver: user.sessionVersion || 0,
+  },
   JWT_SECRET,
   { expiresIn: config.auth.jwtExpiresIn },
 );
-
 const readToken = (req) => {
   const header = req.headers.authorization || '';
   if (header.startsWith('Bearer ')) return header.slice(7).trim();
@@ -52,6 +60,24 @@ async function authMiddleware(req, res, next) {
        access for the remaining week of their token's life. */
     const user = await dbStore.findUserById(decoded.userId);
     if (!user) return deny(res, 'This account no longer exists.');
+
+    /*
+     * Is this token from the CURRENT generation of the account's sessions?
+     *
+     * What makes a leaked or handed-over token killable without deleting the
+     * account: bumping `sessionVersion` retires every token minted before it,
+     * at the next request each one makes.
+     *
+     * Compared through `|| 0` on BOTH sides on purpose. A token issued before
+     * this claim existed has no `ver`, and an account created before the field
+     * existed has no `sessionVersion`; both read as 0 and therefore match, so
+     * shipping this signs nobody out. Only an actual bump invalidates
+     * anything. A distinct message from the other 401s so the panel can say
+     * "you were signed out" rather than "your password is wrong".
+     */
+    if ((decoded.ver || 0) !== (user.sessionVersion || 0)) {
+      return deny(res, 'This session was signed out. Please sign in again.');
+    }
 
     req.user = user;
     return next();

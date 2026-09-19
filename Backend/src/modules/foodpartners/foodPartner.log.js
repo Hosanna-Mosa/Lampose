@@ -190,7 +190,10 @@ const clip = (text, width) => (text.length <= width ? text : `${text.slice(0, Ma
    they are read instead, which is stricter: a password is not "a key that
    matched a pattern" there, it is a field this file knows about and refuses
    to print. */
-const SECRET_KEY = /pass(word)?|secret|token|otp|hash|salt|authorization|apikey|api_key|account(number)?|bankaccount|cvv|aadhaar/i;
+/* Kept in step with `shared/middleware/requestLogger.js` — the two run over
+   the same application payload and a field redacted by one and printed by
+   the other is not redacted at all. */
+const SECRET_KEY = /pass(word)?|secret|token|otp|hash|salt|authorization|apikey|api_key|account(number)?|bankaccount|cvv|ifsc|upi|aadhaar|pannumber|\bpan\b|gstin|signature/i;
 
 const redactValue = (value, depth = 0) => {
   if (typeof value === 'string') {

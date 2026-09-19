@@ -10,6 +10,7 @@ import {
   CLIENT_VERSION,
 } from './config';
 import { DEBUG_LOGS, IS_PRODUCTION_BUILD } from '@/constants/env';
+import { demoRespond } from '@/services/demo/demoMode';
 
 /**
  * The one place in this app that calls `fetch`.
@@ -249,6 +250,23 @@ export async function apiRequest<T = unknown>(
     retries = method === 'GET' ? API_GET_RETRIES : 0,
     headers: extraHeaders,
   } = options;
+
+  /*
+   * DEMO MODE — before the base-URL check, the headers, the timer and the
+   * fetch, because in demo mode none of those should happen at all.
+   *
+   * Off by default and off for every real session: `demoRespond` returns
+   * `{handled:false}` immediately unless somebody signed in with the demo
+   * credentials this launch, so the real path pays one boolean for it.
+   *
+   * Delete `services/demo/` when the backend is deployed and this block goes
+   * with it — see the header of that file.
+   */
+  const demo = demoRespond(method, path);
+  if (demo.handled) {
+    if (DEBUG_LOGS) console.log(`📡 ⧉ demo ${method} ${path}`);
+    return demo.payload as T;
+  }
 
   const requestId = newRequestId();
 

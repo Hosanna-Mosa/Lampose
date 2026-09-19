@@ -1,24 +1,26 @@
 const fs = require('fs');
 const path = require('path');
 
-// Firebase Android push notifications config file
-const googleServicesPath = path.join(__dirname, 'google-services.json');
 /*
- * On EAS the file is not there at all.
+ * There is NO Firebase project for Stay Partner, and that is deliberate.
  *
- * `google-services.json` is git-ignored — it should be — and EAS uploads the
- * project by the same rules, so a cloud build never receives it. Without this
- * the key is silently omitted and the APK builds, installs and runs with no
- * FCM: Android push dead, nothing in the log to say why.
+ * Without `google-services.json` the Google Services Gradle plugin is never
+ * applied and FCM is absent, so REMOTE push cannot work: the backend has no
+ * token to address this handset with. `services/push/push.ts` already treats
+ * that as an ordinary outcome — `getPushToken()` catches, logs
+ * `[push] could not get a token: ...` and returns null, and no caller breaks.
  *
- * So EAS supplies it as a FILE environment variable, which materialises on the
- * builder and hands back an absolute path. Create it once with:
+ * What still works, and is what the owner actually hears, is the LOCAL path:
+ * `ensureLocalAlerts()` creates the `stay-requests` channel and asks for the
+ * runtime permission, and `services/alertSound.ts` rings the doorbell itself
+ * through `expo-audio`, falling back to a local notification. None of that
+ * touches Firebase. So `expo-notifications` stays in the build — removing it
+ * to be rid of Firebase would take the owner's alert with it, and a stay
+ * request has a three-minute deadline.
  *
- *   eas env:create --name GOOGLE_SERVICES_JSON --type file \
- *     --value ./google-services.json --environment production
+ * If a Firebase project is ever created for this app, add the file back here
+ * and set `android.googleServicesFile`; nothing else needs to change.
  */
-const googleServicesFile = process.env.GOOGLE_SERVICES_JSON
-  || (fs.existsSync(googleServicesPath) ? './google-services.json' : undefined);
 
 const adaptiveIconPath = path.join(__dirname, 'assets/images/adaptive-icon.png');
 const adaptiveIcon = fs.existsSync(adaptiveIconPath) ? './assets/images/adaptive-icon.png' : undefined;
@@ -58,14 +60,18 @@ export default {
     },
     ios: {
       supportsTablet: false,
-      bundleIdentifier: 'com.lampose.staypartner',
+      bundleIdentifier: 'com.lampose.staypartner.com',
       infoPlist: {
         UIBackgroundModes: ['remote-notification'],
       },
     },
     android: {
-      package: 'com.lampose.staypartner',
-      ...(googleServicesFile ? { googleServicesFile } : {}),
+      package: 'com.lampose.staypartner.com',
+      /* Kept in step with android/app/build.gradle by hand: android/ is
+         tracked, so the Gradle file is what actually builds — but a future
+         `expo prebuild` regenerates it from HERE, and a stale 1 would come
+         back as a version Play has already taken. */
+      versionCode: 2,
       adaptiveIcon: {
         foregroundImage: adaptiveIcon || './assets/images/icon.png',
         backgroundColor: BRAND.background,

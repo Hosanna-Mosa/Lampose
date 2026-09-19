@@ -44,6 +44,7 @@
    constant time — the same utility the visit-request and customer flows use.
    ══════════════════════════════════════════════════════════════════════════ */
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 
 const { addressSchema, publicAddress } = require('../../shared/utils/address');
 
@@ -184,6 +185,21 @@ const partnerSchema = new mongoose.Schema(
     name: { type: String, default: '', trim: true },
     email: { type: String, default: '', lowercase: true, trim: true },
 
+    /*
+     * bcrypt, `select: false` — the same treatment `foodRestaurant.model.js`
+     * gives its hash, for the same reasons: absent from every ordinary read,
+     * asked for explicitly by the one route that checks it, and unable to
+     * leak through serialisation because `toPublic` below is a whitelist.
+     *
+     * OPTIONAL, and that is the point. Phone-and-OTP stays the way owners
+     * sign in; a password exists only on accounts that have been given one,
+     * and `verifyPassword` fails closed when there is none. Adding this field
+     * takes nothing away from the thousands of accounts that will never have
+     * it — an account without a hash simply cannot be signed into with a
+     * password, which is the safe default rather than a special case.
+     */
+    passwordHash: { type: String, default: '', select: false },
+
     /* What they trade as, where it differs from their own name. Shown to
        Lampose staff rather than to customers — a listing carries the property's
        name, not the owner's business. */
@@ -323,6 +339,22 @@ partnerSchema.methods.toPublic = function toPublic() {
     profileComplete: Boolean(this.profileCompletedAt),
     createdAt: this.createdAt,
   };
+};
+
+/** bcrypt, cost 10 — the cost every other password in this process uses. */
+partnerSchema.statics.hashPassword = (plain) => bcrypt.hash(String(plain), 10);
+
+/**
+ * Fails CLOSED, deliberately.
+ *
+ * Almost every partner has no `passwordHash` at all, and a route that forgot
+ * `.select('+passwordHash')` would hand this method a document where the field
+ * is simply missing. Both cases answer false rather than throwing or, far
+ * worse, comparing against undefined and letting anything through.
+ */
+partnerSchema.methods.verifyPassword = function verifyPassword(plain) {
+  if (!this.passwordHash || !plain) return Promise.resolve(false);
+  return bcrypt.compare(String(plain), this.passwordHash);
 };
 
 const Partner = mongoose.models.AppPartner || mongoose.model('AppPartner', partnerSchema);

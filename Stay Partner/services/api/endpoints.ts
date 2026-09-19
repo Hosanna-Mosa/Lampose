@@ -43,6 +43,9 @@ export const endpoints = {
   partnerAuthStart: `${V2}/partners/auth/start`,
   partnerAuthVerify: `${V2}/partners/auth/verify`,
   partnerAuthResend: `${V2}/partners/auth/resend`,
+  /* Email and password. Only accounts that have been GIVEN a password can use
+     it — the server fails closed on an account without one. */
+  partnerAuthLogin: `${V2}/partners/auth/login`,
 
   /** GET for the profile behind a session; PATCH is what profile-setup writes. */
   partnerMe: `${V2}/partners/me`,

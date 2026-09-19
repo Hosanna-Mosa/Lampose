@@ -686,6 +686,46 @@ const uploadRestaurantFile = async ({ file, kind }) => {
  * @param {object} form        the wizard's state, already shaped by `buildApplicationPayload`
  * @param {(stage: string) => void} [onStage]
  */
+/* ══════════════════════════════════════════════════════════════════════════
+   Aadhaar mobile verification
+   ══════════════════════════════════════════════════════════════════════════
+
+   The restaurant form asks for the owner's Aadhaar and the mobile it is
+   registered against, and will not let the agent past step 3 until a code
+   sent to that mobile has been typed back. The owner is standing there; this
+   is the one field on the form whose truth the agent cannot simply read off a
+   card.
+
+   REUSED, not rebuilt. `/v2/food-partners/auth/otp/start` and `/verify` are
+   the public, rate-limited pair the Food-Partner app's own signup uses, and
+   they already solve exactly this problem — prove a number before any account
+   exists. A second implementation would be a second set of expiry, lock-out
+   and resend rules to keep in step with the first.
+
+   `verify` answers with a short-lived signed proof. It travels to
+   `POST /applications` in the BODY, as `aadhaar.verificationToken`, because
+   the Authorization header on that call already carries the AGENT's staff
+   token — the application is signed by two identities at once and they cannot
+   share one header. The backend re-checks the proof against the Aadhaar
+   number on the application and stamps `aadhaar.verifiedAt` itself; nothing
+   this file sends can set that field.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** Send a one-time code to the Aadhaar-registered mobile. */
+export const startAadhaarOtp = (phone) =>
+  api.post('/v2/food-partners/auth/otp/start', { phone: String(phone || '').replace(/\D/g, '') })
+    .then(ok)
+    .catch(fail);
+
+/** Check the code. On success `data.verificationToken` is the proof. */
+export const verifyAadhaarOtp = ({ phone, otp }) =>
+  api.post('/v2/food-partners/auth/otp/verify', {
+    phone: String(phone || '').replace(/\D/g, ''),
+    otp: String(otp || '').trim(),
+  })
+    .then(ok)
+    .catch(fail);
+
 export const submitRestaurantApplication = async (form, onStage = () => { }) => {
   try {
     /* ── 1. The licences ─────────────────────────────────────────────────── */

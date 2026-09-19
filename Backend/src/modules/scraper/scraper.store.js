@@ -344,9 +344,27 @@ const dbStore = {
     if (changes.avatar !== undefined) updates.avatar = changes.avatar;
     if (changes.password) updates.password = bcrypt.hashSync(String(changes.password), 10);
 
+    /*
+     * A NEW PASSWORD RETIRES THE OLD SESSIONS.
+     *
+     * Changing a password is what somebody does when they believe their
+     * account is compromised, and until this existed it did not help: the old
+     * token kept working for the rest of its seven days, so the person who had
+     * it kept the account. Bumping the generation is what makes the change
+     * mean what the user thinks it means.
+     *
+     * Only on a password change. Renaming somebody, or correcting their email,
+     * must not sign them out of the machine they are working on.
+     */
+    const revoking = Boolean(changes.password);
+
     if (useMongo) {
       return withoutPassword(
-        await User.findOneAndUpdate({ userId }, updates, { returnDocument: 'after', runValidators: true }).lean(),
+        await User.findOneAndUpdate(
+          { userId },
+          revoking ? { $set: updates, $inc: { sessionVersion: 1 } } : { $set: updates },
+          { returnDocument: 'after', runValidators: true },
+        ).lean(),
       );
     }
 
@@ -354,8 +372,41 @@ const dbStore = {
     const user = localUsers.find((u) => u.userId === userId);
     if (!user) return null;
     Object.assign(user, updates);
+    if (revoking) user.sessionVersion = (user.sessionVersion || 0) + 1;
     saveLocalData();
     return withoutPassword(user);
+  },
+
+  /* ── Scrape jobs ── */
+
+  /**
+   * End every session this account has open, without touching anything else.
+   *
+   * The counterpart to the admin console's `/me/sign-out-everywhere`, which
+   * the leads panel had no equivalent of: the only way to kill a staff session
+   * used to be deleting the account, which also destroys who onboarded what.
+   *
+   * Returns the new generation, or null when there is no such account — the
+   * caller answers 404 rather than pretending it worked.
+   */
+  async revokeSessions(userId) {
+    if (!userId) return null;
+
+    if (useMongo) {
+      const updated = await User.findOneAndUpdate(
+        { userId },
+        { $inc: { sessionVersion: 1 } },
+        { returnDocument: 'after' },
+      ).lean();
+      return updated ? (updated.sessionVersion || 0) : null;
+    }
+
+    loadLocalData();
+    const user = localUsers.find((u) => u.userId === userId);
+    if (!user) return null;
+    user.sessionVersion = (user.sessionVersion || 0) + 1;
+    saveLocalData();
+    return user.sessionVersion;
   },
 
   /* ── Scrape jobs ── */

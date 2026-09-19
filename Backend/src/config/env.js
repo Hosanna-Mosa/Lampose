@@ -413,10 +413,23 @@ const config = {
        admins/adminToken.js. */
     adminSessionTtl: process.env.ADMIN_SESSION_TTL || '12h',
     adminSecretKey,
-    /* Guards the v2 routes that only ever run behind the leads panel's login
-       screen. Set to false only if a client that cannot send an Authorization
-       header needs them. */
-    requireAuth: bool(process.env.REQUIRE_AUTH, true),
+    /*
+     * Guards the v2 routes that only ever run behind the leads panel's login
+     * screen — and in production it is TRUE whatever the environment says.
+     *
+     * `protect` and `protectRole` in `shared/middleware/authMiddleware.js`
+     * become pass-throughs when this is false. That is a useful escape hatch
+     * on a laptop and a total bypass on a deployment: it would reopen
+     * `POST /api/v2/auth/register` to anonymous callers, and `/api/v2/users`
+     * with it, so a single environment variable could silently undo the guard
+     * that closed that hole.
+     *
+     * Forced rather than fatal, because nothing in this process exits over
+     * configuration — the rule the whole file follows. A deployment that asked
+     * for the hatch gets the safe behaviour and a loud line in the boot banner
+     * saying it was refused, rather than a server that will not start.
+     */
+    requireAuth: isProduction ? true : bool(process.env.REQUIRE_AUTH, true),
     /* admin@scriper.com / admin123 is fine on a laptop and a full compromise
        on a public deployment, so seeding is off in production. */
     seedDefaultUsers: bool(process.env.SEED_DEFAULT_USERS, !isProduction),
@@ -504,6 +517,16 @@ if (!adminSecretKey) {
   configErrors.push('ADMIN_SECRET_KEY is not set — registering an ADMIN through /api/v2/auth/register is refused for everyone.');
 } else if (isProduction && adminSecretKey === 'admin_secret_123') {
   configWarnings.push('ADMIN_SECRET_KEY is still the example value — anyone who has read the repo can register as ADMIN.');
+}
+
+/* Said out loud, because the override is silent otherwise: an operator who set
+   this expecting the guards off would find the hatch simply not working, with
+   nothing anywhere explaining why. */
+if (isProduction && bool(process.env.REQUIRE_AUTH, true) === false) {
+  configWarnings.push(
+    'REQUIRE_AUTH=false was IGNORED — the v2 auth guards stay on in production. '
+    + 'Turning them off would reopen anonymous staff-account creation.',
+  );
 }
 
 if (storageMode === 'mongo' && !mongoUri) {

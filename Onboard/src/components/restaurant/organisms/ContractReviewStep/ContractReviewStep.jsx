@@ -22,6 +22,55 @@ const gstSummary = (form) => {
   return 'No GSTIN given';
 };
 
+/*
+ * What was actually attached, rather than "PAN & FSSAI scans attached".
+ *
+ * Both scans are optional now, so the old sentence was a claim the form could
+ * not keep: an application with neither file said the same words as one with
+ * both, and the verification queue read it as two documents that had gone
+ * missing in transit.
+ */
+const scanSummary = (form) => {
+  const attached = [form.panFile && 'PAN', form.fssaiFile && 'FSSAI'].filter(Boolean);
+  if (attached.length === 2) return 'PAN & FSSAI scans attached';
+  if (attached.length === 1) return `${attached[0]} scan attached`;
+  return 'No scans attached';
+};
+
+/*
+ * The bank block, which may legitimately be empty.
+ *
+ * "bank details recorded" used to be printed unconditionally. With the block
+ * optional that is the one line on this screen an agent would rely on and be
+ * wrong about — they sign off believing an account was captured, and the
+ * restaurant discovers otherwise the week the first settlement does not
+ * arrive. Said in the same voice as the GSTIN beside it: three states.
+ */
+const bankSummary = (form) => {
+  const account = String(form.bankAccount || '').replace(/\D/g, '');
+  if (!account) return 'No bank details yet';
+  return `bank a/c ...${account.slice(-4)} recorded`;
+};
+
+/*
+ * The Aadhaar, and whether its mobile actually answered.
+ *
+ * Printed as its own clause because it is the only thing on step 3 that was
+ * PROVEN rather than copied off a document, and it is what the verification
+ * queue reads to know which kind of application it is holding.
+ */
+const aadhaarSummary = (form) => {
+  const digits = String(form.aadhaarNumber || '').replace(/\D/g, '');
+  if (!digits) return 'NO AADHAAR GIVEN';
+
+  const proven = form.aadhaarVerified
+    && form.aadhaarToken
+    && String(form.aadhaarVerifiedPhone || '').replace(/\D/g, '')
+      === String(form.aadhaarPhone || '').replace(/\D/g, '');
+
+  return `Aadhaar ...${digits.slice(-4)} · mobile ${proven ? 'verified' : 'NOT VERIFIED'}`;
+};
+
 export function ContractReviewStep({ form, set, errors = {}, touch = () => {} }) {
   const copy = COPY;
 
@@ -47,18 +96,15 @@ export function ContractReviewStep({ form, set, errors = {}, touch = () => {} })
     },
     {
       label: 'Documents',
-      /* Says what was actually uploaded rather than "all uploaded". Two scans
-         are collected; the GST and bank details are held as numbers, and a
-         summary that implied otherwise would tell the verification queue to
-         expect files that were never asked for. */
-      value: 'PAN & FSSAI scans attached',
-      /* Three states, not two: a GSTIN is optional now, so "no GSTIN" is an
-         ordinary answer and the summary has to be able to say it. Reading
-         "GSTIN recorded" against an empty field is how an agent signs off an
-         application believing they entered a number they never had. */
-      detail: `${gstSummary(form)} · bank details recorded · ${
-        form.refundPolicyAccepted ? 'refund policy accepted' : 'REFUND POLICY NOT ACCEPTED'
-      }`,
+      /* Every clause below says what is ACTUALLY there, including when the
+         answer is "nothing". Each of these fields is optional in its own way
+         now — a scan may follow later, a GSTIN may not exist, a bank account
+         may not be open yet — and a summary that reads the same whether or
+         not they arrived is the line an agent signs off against. Only the
+         Aadhaar is shouted, because it is the one here that cannot be fixed
+         later without finding the owner and their handset again. */
+      value: scanSummary(form),
+      detail: `${aadhaarSummary(form)} · ${gstSummary(form)} · ${bankSummary(form)}`,
     },
   ];
 

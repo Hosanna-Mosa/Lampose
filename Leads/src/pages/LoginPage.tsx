@@ -198,26 +198,42 @@ export const LoginPage: React.FC = () => {
             </PlainButton>
           </Form>
 
-          {/* Quick Demo Login Preset Buttons */}
+          {/* ── Demo logins: DEVELOPMENT ONLY ───────────────────────────
+
+              Two buttons that posted `admin@scriper.com / admin123` and
+              `john@scriper.com / employee123` — a one-click ADMIN sign-in,
+              shipped to the production login page with the credentials in the
+              bundle for anyone to read.
+
+              They are only inert because `SEED_DEFAULT_USERS` is off, so those
+              accounts do not exist. That is a configuration flag standing
+              between a stranger and an admin session, not a control: one run
+              with seeding on against a real cluster arms both buttons.
+
+              Gated on `import.meta.env.DEV`, which Vite resolves at BUILD time
+              and then dead-code-eliminates — so the credentials are not merely
+              hidden in production, they are absent from the bundle. */}
+          {import.meta.env.DEV && (
           <Box className="pt-4 border-t border-slate-200 space-y-2 text-center">
-            <Inline className="text-3xs font-bold tracking-wider text-slate-400 uppercase">Quick Demo Login Presets</Inline>
-            <Box className="grid grid-cols-2 gap-2">
-              <PlainButton
-                type="button"
-                onClick={() => handleDemoLogin('admin@scriper.com', 'admin123')}
-                className="p-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-600 border border-amber-200 text-2xs font-bold transition cursor-pointer"
-              >
-                👑 Demo Admin
-              </PlainButton>
-              <PlainButton
-                type="button"
-                onClick={() => handleDemoLogin('john@scriper.com', 'employee123')}
-                className="p-2.5 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-600 border border-cyan-200 text-2xs font-bold transition cursor-pointer"
-              >
-                👤 Demo Employee John
-              </PlainButton>
-            </Box>
+              <Inline className="text-3xs font-bold tracking-wider text-slate-400 uppercase">Quick Demo Login Presets</Inline>
+              <Box className="grid grid-cols-2 gap-2">
+                <PlainButton
+                  type="button"
+                  onClick={() => handleDemoLogin('admin@scriper.com', 'admin123')}
+                  className="p-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-600 border border-amber-200 text-2xs font-bold transition cursor-pointer"
+                >
+                  👑 Demo Admin
+                </PlainButton>
+                <PlainButton
+                  type="button"
+                  onClick={() => handleDemoLogin('john@scriper.com', 'employee123')}
+                  className="p-2.5 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-600 border border-cyan-200 text-2xs font-bold transition cursor-pointer"
+                >
+                  👤 Demo Employee John
+                </PlainButton>
+              </Box>
           </Box>
+          )}
         </Box>
       </Box>
     </Box>

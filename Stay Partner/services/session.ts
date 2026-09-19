@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSecret, setSecret, deleteSecret } from './secureStore';
 
 import type { BackendPartner } from './api/types';
 
@@ -35,7 +36,14 @@ export async function loadSession(): Promise<{
   partner: BackendPartner | null;
 }> {
   try {
-    const [[, token], [, raw]] = await AsyncStorage.multiGet([TOKEN_KEY, PARTNER_KEY]);
+    /* The token comes from the Keychain / Keystore; the cached profile is
+       not a credential and stays in AsyncStorage. `getSecret` promotes a
+       token written by an older build on its first read, so updating does
+       not sign anybody out — see `services/secureStore.ts`. */
+    const [token, raw] = await Promise.all([
+      getSecret(TOKEN_KEY),
+      AsyncStorage.getItem(PARTNER_KEY),
+    ]);
     let partner: BackendPartner | null = null;
     if (raw) {
       try {
@@ -56,9 +64,9 @@ export async function loadSession(): Promise<{
 }
 
 export async function saveSession(token: string, partner: BackendPartner): Promise<void> {
-  await AsyncStorage.multiSet([
-    [TOKEN_KEY, token],
-    [PARTNER_KEY, JSON.stringify(partner)],
+  await Promise.all([
+    setSecret(TOKEN_KEY, token),
+    AsyncStorage.setItem(PARTNER_KEY, JSON.stringify(partner)),
   ]);
 }
 
@@ -68,5 +76,10 @@ export async function savePartner(partner: BackendPartner): Promise<void> {
 }
 
 export async function clearSession(): Promise<void> {
-  await AsyncStorage.multiRemove([TOKEN_KEY, PARTNER_KEY]);
+  /* `deleteSecret` clears BOTH stores, so a token left behind by a
+     half-finished migration cannot outlive a sign-out. */
+  await Promise.all([
+    deleteSecret(TOKEN_KEY),
+    AsyncStorage.removeItem(PARTNER_KEY),
+  ]);
 }

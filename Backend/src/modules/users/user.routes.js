@@ -1,5 +1,7 @@
 const express = require('express');
-const { getUsers, createUser, updateUser, deleteUser } = require('./user.controller');
+const {
+  getUsers, createUser, updateUser, deleteUser, signOutEverywhere,
+} = require('./user.controller');
 const { protect, protectRole } = require('../../shared/middleware/authMiddleware');
 const { requireScriperStore, requireAuthConfig } = require('../../shared/middleware/requireDb');
 
@@ -18,5 +20,17 @@ router.post('/', protect, protectRole('ADMIN'), createUser);
    create and delete are: it can hand somebody else the keys. */
 router.put('/:userId', protect, protectRole('ADMIN'), updateUser);
 router.delete('/:userId', protect, protectRole('ADMIN'), deleteUser);
+
+/*
+ * Ending sessions. Two routes, two different guards, and the ORDER matters —
+ * `/me/...` is declared first so that Express matches it before `/:userId/...`
+ * would swallow the literal word "me" as an id.
+ *
+ * `me` needs no role: signing yourself out of a laptop you no longer have is
+ * not an administrative act. Signing SOMEBODY ELSE out is, so that one is
+ * ADMIN-only, exactly like the edit and delete above it.
+ */
+router.post('/me/sign-out-everywhere', protect, signOutEverywhere);
+router.post('/:userId/sign-out-everywhere', protect, protectRole('ADMIN'), signOutEverywhere);
 
 module.exports = router;

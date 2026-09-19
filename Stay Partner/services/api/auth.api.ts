@@ -84,6 +84,41 @@ export async function verifyAuth(
   return unwrap(envelope);
 }
 
+export type LoginWithPasswordInput = { email: string; password: string };
+
+/**
+ * Email and password, for accounts that have been given one.
+ *
+ * ## Not a replacement for the code above it
+ *
+ * Nearly every owner has no password at all, and the server fails closed for
+ * them — so this route cannot sign in the accounts that `startAuth` serves.
+ * It exists for the accounts somebody has deliberately provisioned: a store
+ * reviewer who cannot receive an Indian SMS, a demo handset, support
+ * reproducing a fault.
+ *
+ * ## It never registers
+ *
+ * `verifyAuth` may create an account, because proving a phone number proves
+ * the person holds it. Typing an email proves nothing, so this one only ever
+ * signs in — a wrong address and a wrong password give the same refusal, and
+ * neither creates anything.
+ *
+ * `token: null` for the same reason as the three calls above: a dead session
+ * still in memory must not travel with a fresh sign-in.
+ */
+export async function loginWithPassword(
+  input: LoginWithPasswordInput,
+  signal?: AbortSignal,
+): Promise<BackendPartnerSession> {
+  const envelope = await api.post<ApiEnvelope<BackendPartnerSession>>(
+    endpoints.partnerAuthLogin,
+    { email: input.email.trim().toLowerCase(), password: input.password },
+    { signal, token: null },
+  );
+  return unwrap(envelope);
+}
+
 /** Who this token belongs to. The session's own validity check on boot. */
 export async function fetchMe(signal?: AbortSignal): Promise<BackendPartner> {
   const envelope = await api.get<ApiEnvelope<BackendPartner>>(endpoints.partnerMe, { signal });

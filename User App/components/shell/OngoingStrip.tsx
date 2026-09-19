@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Icon, Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
+import { usePendingRequest } from '@/context/PendingRequestContext';
 
 /**
  * What is still in progress, docked above the tab bar.
@@ -80,6 +81,7 @@ export type OngoingStripProps = {
 
 export function OngoingStrip({ items, onPress }: OngoingStripProps) {
   const { colors, space, radius, elevation } = useTheme();
+  const { reservedBottom } = usePendingRequest();
 
   if (!items.length) return null;
 
@@ -154,7 +156,29 @@ export function OngoingStrip({ items, onPress }: OngoingStripProps) {
           backgroundColor: colors.bg,
           borderTopColor: colors.borderSubtle,
           paddingTop: space[3],
-          paddingBottom: space[3],
+          /*
+           * The tab bar's MEASURED height, plus the strip's own padding.
+           *
+           * This was a flat `space[3]`. The strip sits in normal flow, but the
+           * tab bar FLOATS over the content absolutely — so a fixed padding
+           * left the lower part of the card behind the bar, and on a booking
+           * that was the "Payment pending" line and the chevron: the two
+           * things the strip exists to show.
+           *
+           * `reservedBottom` is the same registry the undo snackbar reads, and
+           * `TabBar` writes its own laid-out height into it under 'tabbar' on
+           * every layout pass. Taking the number from there rather than
+           * hardcoding one means it cannot disagree with the bar, and it
+           * follows the bar across devices — 56pt of content plus
+           * `insets.bottom` plus `layout.bottomInsetExtra`, which is 90-100pt
+           * on a handset with gesture navigation and less on one without.
+           *
+           * The registry keeps the TALLEST claim, so during a transition where
+           * two things are pinned at once the strip clears both. Falling back
+           * to 0 before the bar has measured is correct: on that first frame
+           * there is no bar laid out to be behind.
+           */
+          paddingBottom: space[3] + reservedBottom,
         },
       ]}
     >

@@ -18,13 +18,16 @@ import { Platform } from 'react-native';
 
 import { registerDevice, unregisterDevice } from '@/services/api/devices.api';
 import { clearPushState, getPushToken } from '@/services/push/push';
+import {
+  isDemoCredentials, enterDemo, exitDemo, demoPartner, DEMO_TOKEN,
+} from '@/services/demo/demoMode';
 import { API_BASE_URL_CONFIGURED } from '@/services/api/config';
 import {
   fetchMe,
   resendAuthCode,
   startAuth,
   updateMe,
-  verifyAuth,
+  verifyAuth, loginWithPassword,
   type UpdateMeInput,
 } from '@/services/api/auth.api';
 import type { BackendOtpChallenge, BackendPartner } from '@/services/api/types';
@@ -71,6 +74,14 @@ export type AuthStatus = 'loading' | 'signedOut' | 'signedIn';
 /** Why a code could not be sent. Each one gets different copy on the screen. */
 export type SendFailure = 'network' | 'rateLimited' | 'badNumber' | 'unavailable' | null;
 
+/** What a password sign-in can answer. Deliberately flatter than
+ *  `VerifyResult`: there is no lockout clock and no attempts counter to show,
+ *  because the server answers a wrong address and a wrong password with the
+ *  same single sentence on purpose. */
+type PasswordResult =
+  | { ok: true; profileComplete: boolean }
+  | { ok: false; message: string };
+
 export type VerifyResult =
   | { ok: true; profileComplete: boolean }
   | { ok: false; reason: 'wrong'; attemptsLeft: number }
@@ -98,6 +109,8 @@ type AuthValue = {
   sendCode: (phone: string) => Promise<'sent' | 'pending' | 'failed'>;
   resendCode: () => Promise<'sent' | 'failed'>;
   verifyCode: (otp: string, profile?: UpdateMeInput) => Promise<VerifyResult>;
+  /** Email and password. Only for accounts that have been given one. */
+  signInWithPassword: (email: string, password: string) => Promise<PasswordResult>;
   changeNumber: () => void;
 
   saveProfile: (input: UpdateMeInput) => Promise<void>;
@@ -184,6 +197,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       pushToken.current = null;
     }
     await clearPushState();
+
+    /* Demo mode ends with the session it belonged to. Left on, the next
+       person to reach the login screen would still be served canned data by
+       `demoRespond` and never touch the network at all. */
+    exitDemo();
 
     setAuthToken(null);
     setPartner(null);
@@ -386,6 +404,71 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [pendingPhone]);
 
+  /**
+   * Email and password.
+   *
+   * Establishes the SAME session `verifyCode` does — same token, same partner,
+   * same `attachDevice()` — because everything behind the login screen reads
+   * one session shape and a second one would be the case nobody tested.
+   *
+   * It does not touch `pendingPhone` or the OTP challenge: this route never
+   * sent a code, so there is nothing to clear, and clearing them would wipe a
+   * code somebody is part-way through typing if they switched tabs to try a
+   * password instead.
+   */
+  const signInWithPassword = useCallback<AuthValue['signInWithPassword']>(
+    async (email, password) => {
+      setSubmitting(true);
+      try {
+        /*
+         * DEMO MODE — a stopgap, not a feature. See `services/demo/demoMode.ts`.
+         *
+         * The deployed API does not have `/auth/login` yet and answers 404, so
+         * this one hard-coded pair opens the app against invented data. It is
+         * checked BEFORE the network call only because the call cannot
+         * succeed; the moment the backend is deployed, delete `services/demo/`
+         * and the real route below takes over untouched.
+         *
+         * Nothing here is persisted: `saveSession` is deliberately NOT called,
+         * so demo mode dies with the process and a relaunch returns to this
+         * screen. `DEMO_TOKEN` is not a JWT and the server would refuse it, so
+         * no request can escape to production carrying it.
+         */
+        if (isDemoCredentials(email, password)) {
+          enterDemo();
+          setAuthToken(DEMO_TOKEN);
+          setPartner(demoPartner);
+          setStatus('signedIn');
+          return { ok: true, profileComplete: demoPartner.profileComplete };
+        }
+
+        const session = await loginWithPassword({ email, password });
+
+        setAuthToken(session.token);
+        setPartner(session.partner);
+        setStatus('signedIn');
+        await saveSession(session.token, session.partner);
+
+        /* Fired, not awaited — same reason as `verifyCode`: the OS permission
+           dialog must not sit on top of a sign-in transition. */
+        attachDevice().catch(() => {});
+
+        return { ok: true, profileComplete: session.partner.profileComplete };
+      } catch (error) {
+        if (!(error instanceof ApiError)) {
+          return { ok: false, message: 'Something went wrong. Please try again.' };
+        }
+        /* The server's own sentence. It says the same thing for a wrong
+           address and a wrong password by design, and rewording it here would
+           either lose that or invent a distinction the server refused to make. */
+        return { ok: false, message: error.displayMessage };
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [],
+  );
+
   const changeNumber = useCallback(() => {
     setPendingPhone(null);
     setChallenge(null);
@@ -423,6 +506,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     sendCode,
     resendCode,
     verifyCode,
+    signInWithPassword,
     changeNumber,
     saveProfile,
     signOut,

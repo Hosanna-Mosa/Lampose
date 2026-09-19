@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSecret, setSecret, deleteSecret } from '../services/secureStore';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -18,6 +19,9 @@ import { registerDevice, unregisterDevice } from '@/services/api/devices.api';
 import { clearPushState, getPushToken } from '@/services/push/push';
 import type { AppConfig, AuthStatus, AuthUser, SendFailure } from '@/types/auth';
 import type { BackendReferralOutcome } from '@/services/api/types';
+import {
+  isDemoCredentials, enterDemo, exitDemo, demoCustomer, DEMO_TOKEN,
+} from '@/services/demoMode';
 
 /**
  * Phone and a one-time code. There are no passwords in this product.
@@ -59,6 +63,16 @@ import type { BackendReferralOutcome } from '@/services/api/types';
  */
 
 const SESSION_KEY = '@lampose/session';
+
+/*
+ * The token is stored APART from the rest of the session.
+ *
+ * `SESSION_KEY` holds `{ token, user }`, and the profile half is only a
+ * first-frame convenience — `/me` overwrites it on every launch. The token is
+ * the half that is a credential, so it goes to the Keychain / Keystore under
+ * its own key and the blob keeps only the profile.
+ */
+const TOKEN_KEY = '@lampose/session.token';
 
 /**
  * Six, until the server says otherwise.
@@ -135,6 +149,8 @@ type AuthContextValue = {
   resendCode: () => Promise<SendResult>;
   /** The held profile lands in the same write that proves the number. */
   verifyCode: (code: string) => Promise<VerifyResult>;
+  /** Demo sign-in for Play Console review. See `services/demoMode.ts`. */
+  signInWithPassword: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>;
   changeNumber: () => void;
 
   completeProfile: (params: { name: string; email?: string }) => Promise<void>;
@@ -232,14 +248,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setToken(null);
       /* Cleared in the client FIRST. A request that fires between these two
          lines would otherwise carry a token the app has decided to forget. */
+      /* Demo mode ends with the session it belonged to. */
+      exitDemo();
+
       setAuthToken(null);
-      await AsyncStorage.removeItem(SESSION_KEY);
+      await Promise.all([
+        AsyncStorage.removeItem(SESSION_KEY),
+        deleteSecret(TOKEN_KEY),
+      ]);
       return;
     }
     setUser(session.user);
     setToken(session.token);
     setAuthToken(session.token);
-    await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    /* The token to the keystore, everything else to AsyncStorage with the
+       token stripped out — so what sits in the plaintext store from here on
+       cannot sign anybody in. */
+    const { token: sessionToken, ...withoutToken } = session;
+    await Promise.all([
+      setSecret(TOKEN_KEY, sessionToken),
+      AsyncStorage.setItem(SESSION_KEY, JSON.stringify(withoutToken)),
+    ]);
 
     /* Fired, not awaited. Asking for notification permission opens an OS
        dialog, and blocking the sign-in transition behind it would leave
@@ -257,8 +286,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       let stored: StoredSession | null = null;
       try {
-        const raw = await AsyncStorage.getItem(SESSION_KEY);
-        if (raw) stored = JSON.parse(raw) as StoredSession;
+        const [raw, secureToken] = await Promise.all([
+          AsyncStorage.getItem(SESSION_KEY),
+          getSecret(TOKEN_KEY),
+        ]);
+        if (raw) {
+          const parsed = JSON.parse(raw) as StoredSession;
+          /* `??` and not `||`: on an install written by an older build the
+             token is still INSIDE the blob and the keystore is empty, so the
+             inline copy is what keeps that person signed in. The next save
+             writes it to the keystore and drops it from the blob. */
+          stored = { ...parsed, token: secureToken ?? parsed.token };
+        }
       } catch {
         // A corrupt session is a guest session, not an error screen.
       }
@@ -417,6 +456,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     categoryRef.current = category;
   }, []);
 
+  /*
+   * DEMO ONLY — this never reaches the network.
+   *
+   * There is no password route for customers on the server and there is not
+   * meant to be one: a student signs in with a number and a code. The pair is
+   * checked here, against `services/demoMode.ts`, and a wrong one is refused
+   * with the same sentence either way so the form cannot be used to learn
+   * which addresses Lampose has.
+   *
+   * `persist` is deliberately NOT called: the demo session must not survive a
+   * relaunch, and `DEMO_TOKEN` written to storage would be sent on the next
+   * launch's `/me` and rejected, signing the reviewer out mid-review.
+   */
+  const signInWithPassword = useCallback(
+    async (email: string, password: string): Promise<{ ok: boolean; message?: string }> => {
+      if (!isDemoCredentials(email, password)) {
+        return { ok: false, message: 'That email address and password do not match.' };
+      }
+      enterDemo();
+      setAuthToken(DEMO_TOKEN);
+      setUser(toAuthUser(demoCustomer));
+      setStatus('signedIn');
+      return { ok: true };
+    },
+    [],
+  );
+
   const verifyCode = useCallback(
     async (code: string): Promise<VerifyResult> => {
       if (!pendingPhone) {
@@ -538,6 +604,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sendCode,
       resendCode,
       verifyCode,
+      signInWithPassword,
       changeNumber,
       completeProfile,
       syncCategory,
@@ -559,6 +626,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sendCode,
       resendCode,
       verifyCode,
+      signInWithPassword,
       changeNumber,
       completeProfile,
       syncCategory,

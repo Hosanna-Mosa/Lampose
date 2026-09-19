@@ -36,10 +36,15 @@ export default {
     },
     ios: {
       supportsTablet: false,
-      bundleIdentifier: 'com.lampose.partner',
+      bundleIdentifier: 'com.lampose.foodpartner.com',
     },
     android: {
-      package: 'com.lampose.partner',
+      package: 'com.lampose.foodpartner.com',
+      /* Kept in step with android/app/build.gradle by hand — android/ is
+         tracked, so the Gradle file is what builds, but `expo prebuild`
+         regenerates it from HERE and a stale value would be a version Play
+         has already taken. */
+      versionCode: 3,
       ...(googleServicesFile ? { googleServicesFile } : {}),
       adaptiveIcon: {
         foregroundImage: './assets/images/adaptive-icon.png',

@@ -100,7 +100,7 @@ const {
 const FoodRestaurant = require('./foodRestaurant.model');
 const FoodProduct = require('./foodProduct.model');
 const {
-  signFoodPartnerToken, signPhoneVerificationToken, PHONE_TOKEN_TTL,
+  signFoodPartnerToken, signPhoneVerificationToken, readPhoneProof, PHONE_TOKEN_TTL,
 } = require('./foodPartnerAuth.middleware');
 const {
   normalisePhone, isIndianMobile, buildOpeningHours,
@@ -627,6 +627,50 @@ const submitApplication = async (req, res, next) => {
         'PHONE_MISMATCH',
         'The verified number does not match the owner number on this application.',
       );
+    }
+
+    /*
+     * The Aadhaar-registered number, proven the same way and stamped HERE.
+     *
+     * `sanitiseApplication` deliberately leaves `aadhaar.verifiedAt` null, so
+     * this is the only line in the process that can set it, and it sets it
+     * from a signed proof rather than from anything the body claimed. The
+     * Onboard console sends that proof as `aadhaar.verificationToken`, in the
+     * body rather than the Authorization header, because the header already
+     * carries the agent's own staff token.
+     *
+     * The proof is compared against the number ON the application, for the
+     * same reason `ownerPhone` is above: the token answers "somebody proved a
+     * number", and only this comparison answers "they proved THIS one".
+     * Without it an agent could verify their own handset and file an
+     * application against a stranger's Aadhaar.
+     *
+     * A missing or stale proof is NOT a refusal. It leaves `verifiedAt` null,
+     * which is exactly what an application from the Food-Partner app — which
+     * has no Aadhaar step — looks like, and the verification queue reads that
+     * field to know which of the two it is holding.
+     */
+    if (fields.aadhaar && fields.aadhaar.phone) {
+      const provenAadhaarPhone = readPhoneProof(
+        (req.body && req.body.aadhaar && req.body.aadhaar.verificationToken) || '',
+      );
+
+      if (provenAadhaarPhone && phoneKey(provenAadhaarPhone) === phoneKey(fields.aadhaar.phone)) {
+        fields.aadhaar.verifiedAt = new Date();
+      } else if (provenAadhaarPhone) {
+        logRejected('the Aadhaar proof is for a different number', {
+          code: 'AADHAAR_PHONE_MISMATCH',
+          field: 'aadhaar.phone',
+          ownerPhone: maskPhone(fields.aadhaar.phone),
+          status: 403,
+        });
+        return fail(
+          res,
+          403,
+          'AADHAAR_PHONE_MISMATCH',
+          'The verified code was sent to a different number than the Aadhaar mobile on this application.',
+        );
+      }
     }
 
     /* Checked before the write so the answer can name which one, and caught

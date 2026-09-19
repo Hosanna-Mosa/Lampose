@@ -27,6 +27,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { Icon } from '@/components/common/atoms/Icon';
 import { OTPInput } from '@/components/common/molecules/OTPInput';
+import {
+  Screen, Text, Button, IconButton, PhoneField, PHONE_LENGTH, Input, TextButton,
+} from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
 import { isValidIndianMobile, phoneError, sendFailureCopy } from './authHelpers';
 
@@ -54,6 +57,8 @@ export function LoginScreen() {
     resendCode,
     verifyCode,
     changeNumber,
+  const {
+    sendCode, signInWithPassword, isSubmitting, sendFailure, failureMessage,
   } = useAuth();
 
   // Front Form State (Phone)
@@ -69,6 +74,24 @@ export function LoginScreen() {
       : digits.length < 10
       ? 'Please enter a 10-digit mobile number.'
       : phoneError(digits)
+  /*
+   * Which way in this screen is showing.
+   *
+   * Phone is the default and stays the default: it is how every owner who has
+   * not been handed a password signs in, and the server cannot sign the rest
+   * of them in this way at all. The password form is the second door, not the
+   * front one.
+   */
+  const [mode, setMode] = useState<'phone' | 'password'>('phone');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [pwError, setPwError] = useState<string | undefined>(undefined);
+
+  const complete = digits.length === PHONE_LENGTH;
+  // Only complain once they've left the field, and never about an empty one —
+  // erroring at digit three while someone is still typing is just noise.
+  const localError = touched && !complete && digits.length > 0
+    ? `Enter a valid ${PHONE_LENGTH}-digit mobile number.`
     : undefined;
 
   // Back Form State (OTP)
@@ -526,6 +549,143 @@ export function LoginScreen() {
         </Text>
       </View>
     </View>
+  const canSubmitPassword = email.trim().length > 0 && password.length > 0;
+
+  const signIn = async () => {
+    if (!canSubmitPassword || isSubmitting) return;
+    setPwError(undefined);
+
+    const result = await signInWithPassword(email, password);
+    if (!result.ok) {
+      setPwError(result.message);
+      return;
+    }
+
+    /* The same fork `verifyCode`'s caller takes. An account provisioned
+       without a name has never filled the profile in, and the dashboard reads
+       fields that setup writes — so it goes there first, exactly as a new
+       owner does after a code. */
+    router.replace(result.profileComplete ? '/' : '/profile-setup');
+  };
+
+  return (
+    <Screen
+      scroll={false} padX={24} contentStyle={styles.fill}
+      stickyHeader={
+        <>
+          <Box style={styles.backRow}>
+            {router.canGoBack() ? (
+              <IconButton name="chevron-left" label="Go back" onPress={() => router.back()} />
+            ) : null}
+          </Box>
+        </>
+      }
+    >
+
+      <Text variant="pageTitle" style={styles.title}>
+        Log in
+      </Text>
+      <Text variant="bodySm" color="textSecondary" style={styles.subtitle}>
+        {mode === 'phone'
+          ? 'Enter the mobile number linked to your host account.'
+          : 'Enter the email address and password for your host account.'}
+      </Text>
+
+      {mode === 'password' ? (
+        <>
+          <Input
+            label="Email"
+            value={email}
+            onChangeText={(next) => {
+              setEmail(next);
+              if (pwError) setPwError(undefined);
+            }}
+            placeholder="you@email.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            textContentType="emailAddress"
+            autoComplete="email"
+            returnKeyType="next"
+            disabled={isSubmitting}
+            containerStyle={styles.field}
+            autoFocus
+          />
+
+          <Input
+            label="Password"
+            value={password}
+            onChangeText={(next) => {
+              setPassword(next);
+              if (pwError) setPwError(undefined);
+            }}
+            placeholder="Your password"
+            secureTextEntry
+            autoCapitalize="none"
+            textContentType="password"
+            autoComplete="current-password"
+            returnKeyType="go"
+            onSubmitEditing={signIn}
+            disabled={isSubmitting}
+            /* The server's sentence, and it is the same one for a wrong
+               address as for a wrong password — on purpose, so this screen
+               cannot be used to find out which owners Lampose has. */
+            error={pwError}
+            containerStyle={styles.field}
+          />
+
+          <Button
+            label={isSubmitting ? 'Signing in…' : 'Log in'}
+            onPress={signIn}
+            loading={isSubmitting}
+            disabled={!canSubmitPassword}
+            style={styles.cta}
+          />
+
+          <TextButton
+            label="Use my mobile number instead"
+            onPress={() => { setMode('phone'); setPwError(undefined); }}
+            disabled={isSubmitting}
+          />
+        </>
+      ) : (
+        <>
+      <PhoneField
+        value={digits}
+        onChangeText={(next) => {
+          setDigits(next);
+          if (next.length === PHONE_LENGTH) setTouched(false);
+        }}
+        onBlur={() => setTouched(true)}
+        error={error}
+        disabled={isSubmitting}
+        autoFocus
+      />
+
+      {/* Right under the field, not pinned to the bottom of the screen — a
+          bottom-pinned button on a `scroll={false}` screen sits exactly
+          where the keyboard covers it the moment the field is focused,
+          since nothing here resizes for the keyboard. Sitting in the normal
+          flow means it's always above it, autofocus or not. */}
+      <Button
+        label={isSubmitting ? 'Sending code…' : 'Send code'}
+        onPress={send}
+        loading={isSubmitting}
+        disabled={!complete}
+        style={styles.cta}
+      />
+
+          <TextButton
+            label="Log in with email and password"
+            onPress={() => setMode('password')}
+            disabled={isSubmitting}
+          />
+        </>
+      )}
+
+      <Text variant="badge" color="textCaption" center style={styles.legal}>
+        By continuing you agree to the Partner Terms and Privacy Policy.
+      </Text>
+    </Screen>
   );
 }
 
@@ -758,4 +918,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginHorizontal: 8,
   },
+  title: { marginBottom: 8 },
+  subtitle: { lineHeight: 21, marginBottom: 28 },
+  field: { marginBottom: 16 },
+  cta: { marginTop: 12, marginBottom: 14 },
+  legal: { lineHeight: 17 },
 });

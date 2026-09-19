@@ -54,6 +54,7 @@ export default function AuthScreen() {
     failureMessage,
     pendingPhone,
     pendingPhoneMasked,
+    signInWithPassword,
   } = useAuth();
 
   const { next } = useLocalSearchParams<{ next?: string }>();
@@ -84,6 +85,16 @@ export default function AuthScreen() {
   // 0 = Front (Phone), 180 = Back (OTP)
   const flipValue = useSharedValue(0);
   const [isFlipped, setIsFlipped] = useState(false);
+
+  /* The Play Console review sign-in. A separate panel rather than a third face
+     of the flip card above: that animation interpolates between exactly two
+     sides, and threading a third through it would risk the real sign-in for
+     the sake of a temporary one. See `services/demoMode.ts`. */
+  const [showPassword, setShowPassword] = useState(false);
+  const [emailValue, setEmailValue] = useState('');
+  const [passwordValue, setPasswordValue] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordBusy, setPasswordBusy] = useState(false);
 
   // Sync flip state with pendingPhone if we load directly into OTP
   useEffect(() => {
@@ -231,6 +242,112 @@ export default function AuthScreen() {
       (attemptsLeft !== null
         ? `That code is wrong — ${attemptsLeft} ${attemptsLeft === 1 ? 'try' : 'tries'} left.`
         : undefined);
+
+  const submitPassword = async () => {
+    if (!emailValue.trim() || !passwordValue || passwordBusy) return;
+    setPasswordBusy(true);
+    setPasswordError(null);
+    try {
+      const result = await signInWithPassword(emailValue, passwordValue);
+      if (!result.ok) {
+        setPasswordError(result.message ?? 'That email address and password do not match.');
+        return;
+      }
+      /* The same destination a verified code reaches. `next` is honoured so a
+         reviewer who deep-linked somewhere lands back there. */
+      /* `as never` because typedRoutes cannot know a runtime `next`; the same
+         cast the rest of this app uses for a computed path. */
+      router.replace(((next as string) || '/') as never);
+    } finally {
+      setPasswordBusy(false);
+    }
+  };
+
+  if (showPassword) {
+    return (
+      <View style={styles.rootContainer}>
+        <StatusBar style="dark" />
+        <KeyboardAwareScrollViewCompat
+          contentContainerStyle={styles.pwScroll}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.pwTitle}>Log in</Text>
+          <Text style={styles.pwSubtitle}>
+            Enter the email address and password for your account.
+          </Text>
+
+          <TextInput
+            style={styles.pwInput}
+            value={emailValue}
+            onChangeText={(v) => { setEmailValue(v); setPasswordError(null); }}
+            placeholder="you@email.com"
+            placeholderTextColor="#9AA0A6"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            textContentType="emailAddress"
+            autoComplete="email"
+            returnKeyType="next"
+          />
+
+          <TextInput
+            style={styles.pwInput}
+            value={passwordValue}
+            onChangeText={(v) => { setPasswordValue(v); setPasswordError(null); }}
+            placeholder="Your password"
+            placeholderTextColor="#9AA0A6"
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+            textContentType="password"
+            autoComplete="current-password"
+            returnKeyType="go"
+            onSubmitEditing={submitPassword}
+          />
+
+          {passwordError ? (
+            <View style={{ marginTop: 12 }}>
+              <InlineAlert tone="error" title={passwordError} />
+            </View>
+          ) : null}
+
+          <Pressable
+            onPress={submitPassword}
+            disabled={!emailValue.trim() || !passwordValue || passwordBusy}
+            style={({ pressed }) => [
+              styles.primaryButtonPress,
+              { marginTop: 24 },
+              pressed && !passwordBusy ? { opacity: 0.92 } : null,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Log in"
+          >
+            <LinearGradient
+              colors={['#1E7B4C', '#0E6342', '#0A563A']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.primaryButton}
+            >
+              {passwordBusy ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.primaryButtonText}>Log in</Text>
+              )}
+            </LinearGradient>
+          </Pressable>
+
+          <View style={{ marginTop: 16 }}>
+            <Button
+              label="Use my mobile number instead"
+              variant="ghost"
+              fullWidth
+              onPress={() => { setShowPassword(false); setPasswordError(null); }}
+            />
+          </View>
+        </KeyboardAwareScrollViewCompat>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.rootContainer}>
@@ -441,6 +558,16 @@ export default function AuthScreen() {
                   </Pressable>
                 </Animated.View>
 
+                {/* The review sign-in. Students use the number above. */}
+                <View style={{ marginTop: 12 }}>
+                  <Button
+                    label="Log in with email and password"
+                    variant="ghost"
+                    fullWidth
+                    onPress={() => setShowPassword(true)}
+                  />
+                </View>
+
                 {/* Terms and Privacy Policy (Exact 2 lines) */}
                 <Text style={styles.termsText}>
                   By continuing, you agree to our{'\n'}
@@ -551,6 +678,22 @@ export default function AuthScreen() {
 }
 
 const styles = StyleSheet.create({
+  /* The review sign-in panel. Plain on purpose — it is temporary, and styling
+     it to match the animated card would make it harder to delete cleanly. */
+  pwScroll: { paddingHorizontal: 24, paddingTop: 96, paddingBottom: 48 },
+  pwTitle: { fontSize: 30, fontWeight: '700', color: '#12211A' },
+  pwSubtitle: { fontSize: 15, color: '#5B6B63', marginTop: 8, marginBottom: 28, lineHeight: 21 },
+  pwInput: {
+    borderWidth: 1,
+    borderColor: '#D7DEDA',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: '#12211A',
+    backgroundColor: '#FFFFFF',
+    marginBottom: 14,
+  },
   rootContainer: {
     flex: 1,
     backgroundColor: '#FFFFFF',
