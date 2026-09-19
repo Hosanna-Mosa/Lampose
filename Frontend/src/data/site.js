@@ -1,19 +1,26 @@
 /* Shared chrome content — navigation and footer, used by every route. */
 
 /*
- * Five links, down from ten.
+ * Six links, down from ten.
  *
  * Services and How It Works are sections of the home page now, so they are
  * not routes to navigate to — anybody who lands on Home scrolls past both,
- * which is the whole reason they were moved. Cities, Food and Download are
- * gone from the site.
+ * which is the whole reason they were moved. Cities and Download are gone
+ * from the site.
  *
  * A bar listing ten destinations is a bar nobody reads, and half of these
  * pointed at pages that repeated what the home page already said.
+ *
+ * Order Food is the exception that came back, as a destination rather than a
+ * description: it is a place a student goes to do something, which is what
+ * earns a slot in a bar this short. It sits beside Explore because those two
+ * are the only links here a diner or a tenant uses; the rest are for owners
+ * and restaurants.
  */
 export const NAV_LINKS = [
   { label: 'Home', to: '/' },
   { label: 'Explore', to: '/explore' },
+  { label: 'Order Food', to: '/food' },
   { label: 'Partners', to: '/partners' },
   { label: 'Food Partner', to: '/food-partner' },
   { label: 'Contact', to: '/contact' },
@@ -27,7 +34,7 @@ export const FOOTER_COLS = [
          all three point at it rather than at three pages that no longer
          exist. */
       { label: 'Stay Booking', to: '/#services' },
-      { label: 'Food Ordering', to: '/#services' },
+      { label: 'Food Ordering', to: '/food' },
       { label: 'Delivery', to: '/#services' },
       { label: 'Complaints', to: '/contact' },
       { label: 'Pricing', to: '/partners' },

@@ -1,0 +1,1 @@
+export { DockedCart } from './DockedCart';

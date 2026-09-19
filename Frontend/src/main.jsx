@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import './styles/lampose.css';
 import './styles/partner.css';
+import './styles/food.css';
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

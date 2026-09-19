@@ -5,6 +5,9 @@ import { useLocation, NavLink, Link } from 'react-router-dom';
 import { NAV_LINKS } from '../../../../data/site';
 import logoImg from '../../../../assets/logo.png';
 import { useAuth } from '../../../../auth/AuthProvider';
+import { useCart } from '../../../../food/CartProvider';
+import { rupees } from '../../../../data/food';
+import { Icon } from '../../atoms/Icon/Icon';
 import { Box, Image, Inline, List, ListItem, Navigation, PlainButton } from '../../atoms';
 
 /* ══ Navbar ═══════════════════════════════════════════════════════════════
@@ -36,6 +39,25 @@ export function Navbar({ alwaysSolid }) {
   // Any route change closes the sheet — otherwise it stays open over the
   // new page after a link inside it is followed.
   useEffect(() => { setMenu(false); }, [pathname]);
+
+  /*
+   * The bar's one action follows what is happening, in this order:
+   *
+   *  1. a cart with food in it, on the food routes — the only thing a diner
+   *     mid-order wants from the bar, and a cart reachable only from the
+   *     bottom of the page is a cart that gets lost on the way to the top;
+   *  2. an order already placed, on EVERY route, because food being cooked
+   *     does not stop mattering when somebody goes back to looking at rooms —
+   *     and once the cart empties there is otherwise nothing on screen that
+   *     says an order exists at all;
+   *  3. "Explore Stays", which is what the site is mostly for.
+   */
+  const { bill, orders } = useCart();
+  const onFood = pathname === '/food' || pathname.startsWith('/food/');
+  const showCart = onFood && bill.count > 0;
+
+  const liveOrder = orders.find(order => order.live) || null;
+  const showLive = !showCart && Boolean(liveOrder);
 
   const solid = alwaysSolid || scrolled;
 
@@ -110,7 +132,23 @@ export function Navbar({ alwaysSolid }) {
             </PlainButton>
           ) : null}
 
-          <Link to="/explore" className="btn-nav-solid" ref={cta}>Explore Stays</Link>
+          {showCart ? (
+            <Link to="/food/cart" className="btn-nav-solid nav-cart" ref={cta}>
+              <Icon name="cart" className="nav-cart__ico" />
+              {bill.count} item{bill.count === 1 ? '' : 's'} · {rupees(bill.toPay)}
+            </Link>
+          ) : showLive ? (
+            <Link
+              to={`/food/orders/${liveOrder.reference}`}
+              className="btn-nav-solid nav-cart nav-cart--live"
+              ref={cta}
+            >
+              <Inline className="nav-cart__dot" aria-hidden="true" />
+              {liveOrder.etaLabel ? `Order · ${liveOrder.etaLabel}` : liveOrder.statusLabel}
+            </Link>
+          ) : (
+            <Link to="/explore" className="btn-nav-solid" ref={cta}>Explore Stays</Link>
+          )}
           <PlainButton
             className="hamburger" onClick={() => setMenu(v => !v)}
             aria-label="Menu" aria-expanded={menu}

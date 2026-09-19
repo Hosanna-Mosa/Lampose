@@ -125,6 +125,16 @@ export const PATHS = {
       <path d="M19 19a10 10 0 0 0 0-14" pathLength="1" />
     </>
   ),
+  /* A trolley, for the food cart. `orders` next to it is a clipboard with a
+     tick — the right mark for a list of past orders, and the wrong one for
+     the thing you are filling up right now. */
+  cart: (
+    <>
+      <path d="M2.5 4H5l2.6 10.2a2 2 0 0 0 1.94 1.5h7.3a2 2 0 0 0 1.94-1.5L20.5 7.5H6.2" pathLength="1" />
+      <circle cx="9.6" cy="19.4" r="1.4" pathLength="1" />
+      <circle cx="17.2" cy="19.4" r="1.4" pathLength="1" />
+    </>
+  ),
   orders: (
     <>
       <rect x="4.5" y="3.5" width="15" height="17" rx="3" pathLength="1" />

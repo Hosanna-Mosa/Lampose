@@ -3,6 +3,7 @@ import {
 } from 'react-router-dom';
 import { Shell } from './components/common/templates/Shell/Shell';
 import { AuthProvider } from './auth/AuthProvider';
+import { CartProvider } from './food/CartProvider';
 
 /* Routes whose first section sits on a light ground need the solid navbar
    immediately — the transparent bar is only legible over the forest hero. */
@@ -28,7 +29,13 @@ export function App() {
           also wants the route, and keeping them in one order means there is
           only one answer to "which wraps which". */}
       <AuthProvider>
-        <Shell />
+        {/* The cart is read by the navbar as well as by the food pages, so it
+            wraps the whole shell rather than a route — a pill that can only
+            count what the current page knows about is a pill that empties
+            itself on navigation. */}
+        <CartProvider>
+          <Shell />
+        </CartProvider>
       </AuthProvider>
     </BrowserRouter>
   );
