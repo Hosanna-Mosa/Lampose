@@ -251,7 +251,10 @@ export const ScriperUsersPage: React.FC<ScriperUsersPageProps> = ({ search }) =>
             />
           </Field>
 
-          <Field label="Temporary password" hint="Leave blank to use the server default (employee123).">
+          <Field
+            label="Temporary password"
+            hint="Leave blank and the server generates a random one, shown once after creation."
+          >
             <Input
               type="password"
               value={form.password}

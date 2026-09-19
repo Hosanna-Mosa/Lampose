@@ -47,8 +47,26 @@ const config = require('../../config/env');
  * `accountNumber` and `confirmAccountNumber` alike, and the cost of also
  * redacting a harmless `accountType` is a log line that says [redacted] where
  * it could have said "savings".
+ *
+ * The third kind arrived with the restaurant onboarding form: GOVERNMENT
+ * IDENTIFIERS. `aadhaar` is the reason this paragraph exists — the number is
+ * `select: false` on the model so no read path can return it, and it was still
+ * being printed in full on the way IN, which undid that completely. It is the
+ * most restricted identifier this platform stores. The key match redacts the
+ * whole `aadhaar: { number, phone, verifiedAt }` block rather than its parts,
+ * which is what keeps a field added to it later covered by default.
+ *
+ * `pan` is written `pannumber|\bpan\b` rather than plain `pan`, because a
+ * bare substring also matches `comPANy` — and `fssaiCompanyName` is a field a
+ * verifier needs to READ in the log to check a licence. `gstin` embeds the PAN,
+ * so it goes too. `fssai` deliberately does NOT: a food licence number is
+ * printed on the wall of the restaurant and verified on a public portal.
+ *
+ * `signature` covers `razorpaySignature`, which is a payment credential. It
+ * also catches the contract's typed-name signature, which is harmless — that
+ * name is already in `ownerName` two lines up.
  */
-const SECRET_KEY = /pass(word)?|token|secret|authorization|admincode|adminsecretkey|apikey|api_key|otp|hash|salt|account|ifsc|upi/i;
+const SECRET_KEY = /pass(word)?|token|secret|authorization|admincode|adminsecretkey|apikey|api_key|otp|hash|salt|account|ifsc|upi|aadhaar|pannumber|\bpan\b|gstin|signature/i;
 
 /* A base64 data URI for a 15MB photo would otherwise fill the terminal with
    one request. Only its size is interesting. */

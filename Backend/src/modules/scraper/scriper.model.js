@@ -19,6 +19,26 @@ const userSchema = new mongoose.Schema(
     password: { type: String, required: true },
     role: { type: String, enum: ['ADMIN', 'EMPLOYEE'], default: 'EMPLOYEE' },
     avatar: { type: String, default: '' },
+
+    /*
+     * Which generation of this account's sessions is still valid.
+     *
+     * The same mechanism `admins` has had all along, arriving late here. A
+     * leads-panel token used to be irrevocable for the whole seven days of its
+     * life: firing somebody, or learning a token had leaked, left nothing to
+     * do but DELETE the account, because changing the password minted a new
+     * token without invalidating the old one.
+     *
+     * Bumping this invalidates every token issued before the bump, at the next
+     * request, with no list of tokens to keep anywhere.
+     *
+     * `default: 0` is what makes this safe to ship: `authMiddleware` compares
+     * `(decoded.ver || 0)` against `(user.sessionVersion || 0)`, so a token
+     * minted before this field existed carries no `ver`, reads as 0, and
+     * matches the 0 every existing account gets. Nobody is signed out by the
+     * deploy — see the comparison in `authMiddleware.js`.
+     */
+    sessionVersion: { type: Number, default: 0 },
   },
   { timestamps: true, collection: 'scriper_users' },
 );

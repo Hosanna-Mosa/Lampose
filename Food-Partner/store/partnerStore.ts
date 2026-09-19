@@ -16,9 +16,9 @@
    survives a restart, which is fine: the files upload separately, and only
    their names travel with the application today.
    ══════════════════════════════════════════════════════════════════════════ */
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { secureFields } from "../services/secureStore";
 
 import { DAYS } from "@/constants/partner";
 import { uid } from "@/lib/uid";
@@ -699,7 +699,11 @@ export const usePartnerStore = create<PartnerState>()(
     }),
     {
       name: "lampose-food-partner",
-      storage: createJSONStorage(() => AsyncStorage),
+      /* Both credentials go to the Keychain / Keystore: `session` carries
+         the restaurant's bearer token, and `verificationToken` is the phone
+         proof that can submit an application. The draft application itself
+         stays in AsyncStorage — it is long, and it is not a credential. */
+      storage: createJSONStorage(() => secureFields(["session", "verificationToken"])),
       partialize: (s) => ({
         data: s.data,
         status: s.status,

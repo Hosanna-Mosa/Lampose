@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSecret, setSecret, deleteSecret } from '../services/secureStore';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -62,6 +63,16 @@ import {
  */
 
 const SESSION_KEY = '@lampose/session';
+
+/*
+ * The token is stored APART from the rest of the session.
+ *
+ * `SESSION_KEY` holds `{ token, user }`, and the profile half is only a
+ * first-frame convenience — `/me` overwrites it on every launch. The token is
+ * the half that is a credential, so it goes to the Keychain / Keystore under
+ * its own key and the blob keeps only the profile.
+ */
+const TOKEN_KEY = '@lampose/session.token';
 
 /**
  * Six, until the server says otherwise.
@@ -241,13 +252,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       exitDemo();
 
       setAuthToken(null);
-      await AsyncStorage.removeItem(SESSION_KEY);
+      await Promise.all([
+        AsyncStorage.removeItem(SESSION_KEY),
+        deleteSecret(TOKEN_KEY),
+      ]);
       return;
     }
     setUser(session.user);
     setToken(session.token);
     setAuthToken(session.token);
-    await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    /* The token to the keystore, everything else to AsyncStorage with the
+       token stripped out — so what sits in the plaintext store from here on
+       cannot sign anybody in. */
+    const { token: sessionToken, ...withoutToken } = session;
+    await Promise.all([
+      setSecret(TOKEN_KEY, sessionToken),
+      AsyncStorage.setItem(SESSION_KEY, JSON.stringify(withoutToken)),
+    ]);
 
     /* Fired, not awaited. Asking for notification permission opens an OS
        dialog, and blocking the sign-in transition behind it would leave
@@ -265,8 +286,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       let stored: StoredSession | null = null;
       try {
-        const raw = await AsyncStorage.getItem(SESSION_KEY);
-        if (raw) stored = JSON.parse(raw) as StoredSession;
+        const [raw, secureToken] = await Promise.all([
+          AsyncStorage.getItem(SESSION_KEY),
+          getSecret(TOKEN_KEY),
+        ]);
+        if (raw) {
+          const parsed = JSON.parse(raw) as StoredSession;
+          /* `??` and not `||`: on an install written by an older build the
+             token is still INSIDE the blob and the keystore is empty, so the
+             inline copy is what keeps that person signed in. The next save
+             writes it to the keystore and drops it from the blob. */
+          stored = { ...parsed, token: secureToken ?? parsed.token };
+        }
       } catch {
         // A corrupt session is a guest session, not an error screen.
       }

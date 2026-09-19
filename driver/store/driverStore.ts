@@ -1,7 +1,7 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AppState, type AppStateStatus } from "react-native";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { secureFields } from "../services/secureStore";
 import { api, ApiError } from "@/utils/api";
 import type { ChatMessage } from "@/utils/chatMessages";
 import { getPushToken } from "@/services/offerAlerts";
@@ -1306,7 +1306,11 @@ export const useDriverStore = create<DriverState>()(
     }),
     {
       name: "driver-store",
-      storage: createJSONStorage(() => AsyncStorage),
+      /* The token goes to the Keychain / Keystore; the cached job, profile
+         and earnings stay in AsyncStorage, because that blob is far past
+         SecureStore's 2048-byte Android ceiling and none of it is secret.
+         `secureFields` does the split — see `services/secureStore.ts`. */
+      storage: createJSONStorage(() => secureFields(["token"])),
       // Bumped: the v1 shape stored a password session and an `Order` with
       // `stops`, neither of which exists any more. Persisted v1 state is
       // dropped rather than migrated — the token it held would not verify.
