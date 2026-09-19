@@ -1384,6 +1384,62 @@ const setAvailability = async (req, res, next) => {
   }
 };
 
+// @route   POST /api/v2/food-partners/auth/forgot-password/reset
+// @desc    Reset partner password using verified phone or OTP
+// @access  Public
+const resetPassword = async (req, res, next) => {
+  try {
+    if (mongoose.connection.readyState !== 1) return dbDown(res);
+    const body = req.body || {};
+    const phone = readMobile(body);
+    const newPassword = String(body.newPassword || body.password || '').trim();
+
+    if (!phone) {
+      return badInput(res, 'Please enter a valid 10-digit Indian mobile number.', 'BAD_PHONE');
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+      return badInput(res, 'Password must be at least 6 characters.', 'BAD_PASSWORD');
+    }
+
+    const key = phoneKey(phone);
+    const restaurant = await FoodRestaurant.findOne({ phoneKey: key });
+    if (!restaurant) {
+      return fail(res, 404, 'ACCOUNT_NOT_FOUND', 'No account found with this phone number.');
+    }
+
+    const verificationToken = body.verificationToken;
+    const otp = String(body.otp || body.code || '').trim();
+
+    if (verificationToken) {
+      const { verifyPhoneToken } = require('./foodPartnerAuth.middleware');
+      const decoded = verifyPhoneToken(verificationToken);
+      if (!decoded || phoneKey(decoded.phone) !== key) {
+        return fail(res, 400, 'INVALID_TOKEN', 'Verification token expired or invalid.');
+      }
+    } else if (otp) {
+      const entry = pendingCodes.get(phone);
+      if (!entry || !verifyOtp(otp, entry.salt, entry.hash) || entry.expiresAt <= Date.now()) {
+        return fail(res, 400, 'INVALID_OTP', 'Invalid or expired OTP code.');
+      }
+      pendingCodes.delete(phone);
+    } else {
+      return badInput(res, 'OTP or verification token is required.', 'OTP_REQUIRED');
+    }
+
+    restaurant.passwordHash = await FoodRestaurant.hashPassword(newPassword);
+    await restaurant.save();
+
+    return res.json({
+      success: true,
+      message: 'Password updated successfully. Please sign in with your new password.',
+    });
+  } catch (error) {
+    logError('reset password failed', error);
+    return next(error);
+  }
+};
+
 module.exports = {
   /* Onboarding, in the order the app calls them. */
   startPhoneOtp,
@@ -1392,6 +1448,7 @@ module.exports = {
 
   /* The session. */
   login,
+  resetPassword,
   getMe,
   updateMe,
   setAvailability,

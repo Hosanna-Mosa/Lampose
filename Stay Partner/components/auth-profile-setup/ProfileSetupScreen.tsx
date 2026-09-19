@@ -36,12 +36,14 @@ export function ProfileSetupScreen() {
      backgrounded the app and came back should not retype what they had. */
   const [name, setName] = useState(partner?.name ?? '');
   const [email, setEmail] = useState(partner?.email ?? '');
+  const [referralCode, setReferralCode] = useState('');
   const [emailTouched, setEmailTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string } | null>(null);
 
   const trimmedName = name.trim();
   const trimmedEmail = email.trim();
+  const trimmedReferralCode = referralCode.trim().toUpperCase();
 
   const emailError =
     emailTouched && trimmedEmail.length > 0 && !EMAIL.test(trimmedEmail)
@@ -57,7 +59,11 @@ export function ProfileSetupScreen() {
     setSaving(true);
     setToast(null);
     try {
-      await saveProfile({ name: trimmedName, email: trimmedEmail });
+      await saveProfile({
+        name: trimmedName,
+        email: trimmedEmail,
+        ...(trimmedReferralCode ? { referralCode: trimmedReferralCode } : null),
+      });
       router.replace('/');
     } catch (error) {
       setToast({
@@ -109,6 +115,17 @@ export function ProfileSetupScreen() {
         autoCapitalize="none"
         textContentType="emailAddress"
         autoComplete="email"
+        containerStyle={styles.field}
+      />
+
+      <Input
+        label="Referral code"
+        optional
+        value={referralCode}
+        onChangeText={setReferralCode}
+        placeholder="e.g. VIKRAM9600"
+        autoCapitalize="characters"
+        autoCorrect={false}
         containerStyle={styles.field}
       />
 

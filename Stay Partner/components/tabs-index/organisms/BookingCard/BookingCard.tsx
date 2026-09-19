@@ -1,46 +1,93 @@
-import { Box } from '@/components/common';
-import { Text, Card, Icon } from '@/components/common';
-import { useColors } from '@/hooks/useColors';
-import { styles } from '@/components/tabs-index/styles';
+import React from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Icon } from '@/components/common/atoms/Icon';
 
-export function BookingCard({
-  arrivals,
-  departures,
-  inHouse,
-  onPress,
-}: {
+type Props = {
   arrivals: number;
   departures: number;
   inHouse: number;
-  onPress: () => void;
-}) {
-  const c = useColors();
+  onPress?: () => void;
+};
+
+export function BookingCard({ arrivals, departures, inHouse, onPress }: Props) {
   return (
-    <Card variant="elevated" onPress={onPress} style={[styles.halfCard, { backgroundColor: c.accentTint }]}>
-      <Box style={[styles.halfIcon, { backgroundColor: c.accent }]}>
-        <Icon name="bed" size={16} color={c.white} />
-      </Box>
-      <Text variant="badge" color="accentMuted">
-        Bookings
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.cardContainer, pressed && { opacity: 0.9 }]}
+      accessibilityRole="button"
+      accessibilityLabel="Bookings"
+    >
+      <View style={styles.topRow}>
+        <View style={styles.iconDisc}>
+          <Icon name="bed" size={18} color="#059669" />
+        </View>
+
+        <View style={styles.chevronDisc}>
+          <Icon name="chevron-right" size={16} color="#059669" />
+        </View>
+      </View>
+
+      <Text style={styles.cardTitle}>Bookings</Text>
+      <Text style={styles.metricValue}>{inHouse}</Text>
+
+      <Text numberOfLines={1} style={styles.subtext}>
+        {arrivals} check-ins · {departures} check-outs today
       </Text>
-      <Text
-        variant="h3"
-        tabular
-        style={[styles.halfValue, { color: inHouse === 0 ? c.textTertiary : c.accentInkDeep }]}
-      >
-        {inHouse}
-      </Text>
-      <Text variant="caption" color="accentMuted" style={styles.halfCaption}>
-        in-house · {arrivals} in, {departures} out today
-      </Text>
-    </Card>
+    </Pressable>
   );
 }
 
-/**
- * Read-only since the Payouts tab was removed.
- *
- * `onPress` is optional rather than deleted: `Card` renders a plain View
- * without one, so the tile stops offering a press it can no longer honour, and
- * the prop is still here for whenever a destination exists again.
- */
+const styles = StyleSheet.create({
+  cardContainer: {
+    flex: 1,
+    backgroundColor: '#F0FDF4',
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#DCFCE7',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  iconDisc: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#D1FAE5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chevronDisc: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#D1FAE5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#065F46',
+    marginTop: 2,
+  },
+  metricValue: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#064E3B',
+    marginVertical: 2,
+  },
+  subtext: {
+    fontSize: 11.5,
+    color: '#64748B',
+    marginTop: 2,
+  },
+});

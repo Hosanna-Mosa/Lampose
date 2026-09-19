@@ -381,6 +381,17 @@ function requireFoodPartnerOrVerifiedPhone(req, res, next) {
   return requireFoodPartner(req, res, next);
 }
 
+function verifyPhoneToken(token) {
+  if (!config.auth.configured || !token) return null;
+  try {
+    const decoded = jwt.verify(token, config.auth.jwtSecret);
+    if (decoded.typ !== PHONE_TOKEN_TYPE) return null;
+    return { ...decoded, phone: decoded.sub };
+  } catch (error) {
+    return null;
+  }
+}
+
 module.exports = {
   TOKEN_TYPE,
   PHONE_TOKEN_TYPE,
@@ -390,6 +401,7 @@ module.exports = {
   requireFoodPartner,
 
   signPhoneVerificationToken,
+  verifyPhoneToken,
   requireVerifiedPhone,
 
   requireFoodPartnerOrVerifiedPhone,

@@ -30,7 +30,7 @@ function TabBar({ state, navigation }: BottomTabBarProps) {
     >
       {TABS.map((tab, index) => {
         const focused = state.index === index;
-        const ink = focused ? colors.brandInk : colors.textTertiary;
+        const ink = focused ? "#FF5200" : colors.textTertiary;
 
         return (
           <Pressable
@@ -48,10 +48,10 @@ function TabBar({ state, navigation }: BottomTabBarProps) {
             }}
             style={styles.item}
           >
-            <View style={[styles.glyph, focused && { backgroundColor: colors.brandTint }]}>
-              <Icon name={tab.icon} size={20} color={ink} />
+            <View style={styles.glyph}>
+              <Icon name={tab.icon} size={22} color={ink} />
             </View>
-            <Text variant="numMeta" style={{ color: ink }}>
+            <Text variant="numMeta" style={{ color: ink, fontWeight: focused ? "800" : "500" }}>
               {tab.label}
             </Text>
           </Pressable>

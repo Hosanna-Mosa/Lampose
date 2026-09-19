@@ -94,6 +94,7 @@ export type UpdateMeInput = {
   name?: string;
   email?: string;
   businessName?: string;
+  referralCode?: string;
   /**
    * The owner's own address. `null` clears it; a partial object edits what is
    * already there rather than replacing it, so changing a landmark cannot

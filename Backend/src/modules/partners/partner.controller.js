@@ -35,6 +35,8 @@ const {
 } = require('../../shared/utils/address');
 
 const Partner = require('./partner.model');
+const { PartnerReferral } = require('./partnerDomains.model');
+const { generateUniquePartnerCode, redeemOwnerReferralCode } = require('./partnerReferral.util');
 const { signPartnerToken } = require('./partnerAuth.middleware');
 const { sendOtpSms, smsConfigProblem } = require('../../infrastructure/sms/sms');
 const { toE164, isIndianMobile, maskPhone } = require('../../infrastructure/twilio/twilio');
@@ -381,7 +383,7 @@ const updateMe = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
 
-    const { name, email, businessName } = req.body || {};
+    const { name, email, businessName, referralCode } = req.body || {};
     const partner = req.partner;
 
     if (name !== undefined) {
@@ -393,6 +395,39 @@ const updateMe = async (req, res, next) => {
       }
       partner.name = cleaned.slice(0, 80);
       if (!partner.profileCompletedAt) partner.profileCompletedAt = new Date();
+
+      // Ensure partner's referral code in PartnerReferral is derived from their unique name
+      const key = partner.phoneDigits || (partner.phone ? partner.phone.replace(/\D/g, '').slice(-10) : '');
+      if (key) {
+        try {
+          const ref = await PartnerReferral.findOne({ partnerPhoneDigits: key });
+          if (!ref) {
+            const newCode = await generateUniquePartnerCode(partner.name, key);
+            await PartnerReferral.create({
+              partnerPhoneDigits: key,
+              code: newCode,
+              points: 0,
+              earningsRupees: 0,
+              invitedCount: 0,
+              history: [],
+            });
+          } else if (ref.code.startsWith('PAR-') || !ref.code) {
+            const newCode = await generateUniquePartnerCode(partner.name, key);
+            ref.code = newCode;
+            await ref.save();
+          }
+        } catch (refErr) {
+          console.warn('[partner.controller] failed updating referral code:', refErr.message);
+        }
+      }
+    }
+
+    if (typeof referralCode === 'string' && referralCode.trim() && !partner.referredByPartner) {
+      try {
+        await redeemOwnerReferralCode(referralCode, partner);
+      } catch (refErr) {
+        console.warn('[partner.controller] owner referral redemption failed:', refErr.message);
+      }
     }
 
     if (email !== undefined) {

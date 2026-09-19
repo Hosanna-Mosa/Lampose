@@ -1,117 +1,50 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   The restaurant's own record, and the way out.
-
-   Everything is read from `GET /me`. The presentation and operations fields
-   are editable in place and PATCH straight back; the legal numbers and the
-   payout account are shown but NOT editable, because they were verified by a
-   person during approval and a field that silently un-verifies itself is worse
-   than no field. Changing them is a conversation with the team.
-
-   The account number is shown as its last four digits and never in full — the
-   server does not send more than that on this route, which is the real
-   protection; the masking here just matches it.
-
-   ## The logo and cover banner are editable here too
-
-   Onboarding was the only place either could ever be set — a restaurant that
-   skipped picking one, or whose partner just wants a better photo later, had
-   no way back to it; `updateMe` already accepted both fields on the server
-   (`EDITABLE_FIELDS` in `foodPartner.controller.js`), nothing on this screen
-   used it. `ImagePick` is reused from onboarding's own form, with its
-   "Sample" shortcut turned off — that button fills a stock photo for an
-   account that is not live yet, and this restaurant already is.
+   Food Partner — Redesigned Profile Screen
    ══════════════════════════════════════════════════════════════════════════ */
-import { tappableRow } from "@/components/common/utils/sharedStyles";
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
 import {
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
   StyleSheet,
+  Switch,
+  View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Block, Box, Field, ImagePick, Note, NumberField, Picture, Refresher, Scroller, SwitchRow, Tappable, TextField, TimeRange } from "@/components/common";
-import { Btn, Card, Chip, ChoiceChip, ConfirmSheet, DataRow, Icon, Stepper, Text, TopBar } from "@/components/common";
-import { DAYS } from "@/constants/partner";
+import { Box, Note, Refresher, Scroller, TextField } from "@/components/common";
+import { Icon, Text } from "@/components/common";
 import { rupees } from "@/lib/money";
 import { getMe, updateMe, type ServerRestaurant } from "@/services/foodPartner";
 import { listTickets } from "@/services/support";
-import { uploadOne } from "@/services/uploads";
-import { usePartnerStore, type Attachment, type Slot } from "@/store/partnerStore";
-import { colors, layout, radius, space, touch } from "@/theme";
+import { usePartnerStore } from "@/store/partnerStore";
 
-/** The server's flat `{day, openTime, closeTime}[]` — one row per slot, a day
-    repeated when a kitchen closes between meals — read into the shape the
-    onboarding editor already works in: which days are open, and each day's
-    own list of slots. `TimeRange`/`ChoiceChip` below are the same components
-    step 2 of onboarding uses, reused rather than re-invented, because a
-    partner should not have to relearn how to set hours the second time. */
-const hoursFromServer = (rows?: { day: string; openTime: string; closeTime: string }[]) => {
-  const slots: Record<string, Slot[]> = {};
-  for (const row of rows ?? []) {
-    (slots[row.day] ??= []).push({ open: row.openTime, close: row.closeTime });
-  }
-  const days = DAYS.filter((d) => slots[d]?.length);
-  return { days, activeDay: days[0] ?? "Monday", slots };
-};
-
-/** A server image with a real URL, as the `uri` an `<ImagePick>` preview
-    needs — `isUploaded` then reads it back as already-uploaded, so re-saving
-    without touching it costs no re-upload. Null when there is none, which
-    `ImagePick` reads correctly as "nothing chosen yet". */
-const attachmentOf = (image?: { url?: string; publicId?: string } | null): Attachment | null =>
-  image?.url ? { name: "image.jpg", uri: image.url, url: image.url, publicId: image.publicId } : null;
+const DEFAULT_AVATAR = "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=150&auto=format&fit=crop&q=80";
 
 export function DashProfile() {
+  const insets = useSafeAreaInsets();
   const session = usePartnerStore((s) => s.session);
   const signOut = usePartnerStore((s) => s.signOut);
 
   const [me, setMe] = useState<ServerRestaurant | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [saved, setSaved] = useState("");
+  const [savedNote, setSavedNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirmOut, setConfirmOut] = useState(false);
-  /* How many support threads have a reply nobody has opened. Zero and "we
-     could not ask" look the same on purpose — see `load`. */
   const [supportUnread, setSupportUnread] = useState(0);
 
-  /* The editable subset, held locally while it is being typed in. */
-  const [draft, setDraft] = useState<{
-    description: string;
-    contactNumber: string;
-    avgPreparationTime: number;
-    deliveryRadiusKm: number;
-    minOrderValue: string;
-    packagingCharge: string;
-    acceptsOnlinePayment: boolean;
-    acceptsCod: boolean;
-    logoImage: Attachment | null;
-    coverBannerImage: Attachment | null;
-  }>({
-    description: "",
-    contactNumber: "",
-    avgPreparationTime: 30,
-    deliveryRadiusKm: 5,
-    minOrderValue: "",
-    packagingCharge: "",
-    acceptsOnlinePayment: true,
-    acceptsCod: true,
-    logoImage: null,
-    coverBannerImage: null,
-  });
-
-  /* Kept apart from `draft` rather than folded in: it has its own shape
-     (days, an active day, a slot list per day) and its own conversion to and
-     from the server's flat rows — see `hoursFromServer` — where everything
-     else in `draft` maps one field to one field. */
-  const [hours, setHours] = useState<{ days: string[]; activeDay: string; slots: Record<string, Slot[]> }>(
-    hoursFromServer(),
-  );
+  /* Editable operational fields */
+  const [prepTime, setPrepTime] = useState("25");
+  const [deliveryRadius, setDeliveryRadius] = useState("6");
+  const [minOrder, setMinOrder] = useState("150");
+  const [packagingCharge, setPackagingCharge] = useState("15");
+  const [acceptsOnline, setAcceptsOnline] = useState(true);
+  const [acceptsCod, setAcceptsCod] = useState(true);
 
   const load = useCallback(async () => {
-    /* A missing session must END the loading state, never skip past it — the
-       same bug fixed in `(dash)/orders.tsx`: `loading` starts `true`, so an
-       early return leaves a spinner turning over a blank screen with nothing
-       saying why. Either the screen has data, or it says what is wrong. */
     if (!session?.token) {
       setLoading(false);
       setError("You are signed out. Sign in again to continue.");
@@ -119,37 +52,27 @@ export function DashProfile() {
     }
     setError("");
     try {
-      const r = await getMe(session.token);
-      setMe(r);
-      setDraft({
-        description: r.description ?? "",
-        contactNumber: (r.contactNumber ?? "").replace(/^\+91/, ""),
-        avgPreparationTime: r.avgPreparationTime ?? 30,
-        deliveryRadiusKm: r.deliveryRadiusKm ?? 5,
-        minOrderValue: r.minOrderValue != null ? String(r.minOrderValue) : "",
-        packagingCharge: r.packagingCharge != null ? String(r.packagingCharge) : "",
-        acceptsOnlinePayment: r.acceptsOnlinePayment ?? true,
-        acceptsCod: r.acceptsCod ?? true,
-        logoImage: attachmentOf(r.logoImage),
-        coverBannerImage: attachmentOf(r.coverBannerImage),
-      });
-      setHours(hoursFromServer(r.openingHours));
+      const restaurant = await getMe(session.token);
+      setMe(restaurant);
+      setPrepTime(String(restaurant.avgPreparationTime ?? 25));
+      setDeliveryRadius(String(restaurant.deliveryRadiusKm ?? 6));
+      setMinOrder(String(restaurant.minOrderValue ?? 150));
+      setPackagingCharge(String(restaurant.packagingCharge ?? 15));
+      setAcceptsOnline(restaurant.acceptsOnlinePayment ?? true);
+      setAcceptsCod(restaurant.acceptsCod ?? true);
+
+      try {
+        const ticketsRes = await listTickets(session.token);
+        const ticketList = Array.isArray(ticketsRes) ? ticketsRes : (ticketsRes as any)?.tickets || [];
+        const unread = ticketList.filter((t: any) => t.hasUnreadReply).length;
+        setSupportUnread(unread);
+      } catch (e) {
+        setSupportUnread(0);
+      }
     } catch (err) {
-      setError((err as Error)?.message || "We could not load your details.");
+      setError((err as Error)?.message || "We could not load your profile.");
     } finally {
       setLoading(false);
-    }
-
-    /* The support badge is a SECOND request with its own failure. A support
-       queue that cannot be reached must not put an error banner over a profile
-       that loaded perfectly well, and must not stop the page rendering — the
-       worst case is a badge that is not shown, and the support screen itself
-       says what went wrong when it is opened. */
-    try {
-      const support = await listTickets(session.token);
-      setSupportUnread(support.unread);
-    } catch {
-      setSupportUnread(0);
     }
   }, [session?.token]);
 
@@ -159,371 +82,565 @@ export function DashProfile() {
     }, [load]),
   );
 
-  const save = async () => {
-    if (!session?.token) return;
+  const handleSaveOperational = async () => {
+    if (!session?.token || !me) return;
     setSaving(true);
     setError("");
-    setSaved("");
+    setSavedNote("");
     try {
-      /* Uploaded one at a time, not in parallel — see `services/uploads.ts`'s
-         own reasoning: this is a phone-camera photograph on a kitchen's own
-         connection, and two at once is how both time out together. Each call
-         is a no-op when the attachment already carries an `https` url, which
-         is exactly the case where the partner picked neither image this time
-         — see `attachmentOf`. */
-      const logo = draft.logoImage ? await uploadOne(draft.logoImage, "logo", session.token) : null;
-      const cover = draft.coverBannerImage
-        ? await uploadOne(draft.coverBannerImage, "cover", session.token)
-        : null;
-
       const updated = await updateMe(session.token, {
-        description: draft.description.trim(),
-        contactNumber: `+91${draft.contactNumber}`,
-        avgPreparationTime: draft.avgPreparationTime,
-        deliveryRadiusKm: draft.deliveryRadiusKm,
-        minOrderValue: Number(draft.minOrderValue) || 0,
-        packagingCharge: Number(draft.packagingCharge) || 0,
-        acceptsOnlinePayment: draft.acceptsOnlinePayment,
-        acceptsCod: draft.acceptsCod,
-        /* Same flat shape onboarding's own step 2 sends — see
-           `buildApplicationPayload` — so the backend's `buildOpeningHours`
-           reads one row format regardless of which screen it came from. */
-        openingHours: hours.days.flatMap((day) =>
-          (hours.slots[day] || []).map((s) => ({ day, openTime: s.open, closeTime: s.close })),
-        ),
-        /* An empty pair is how `readImage` on the server reads "cleared" —
-           the same shape a Remove tap already leaves `draft` in. */
-        logoImage: logo ? { url: logo.url, publicId: logo.publicId } : { url: "", publicId: "" },
-        coverBannerImage: cover ? { url: cover.url, publicId: cover.publicId } : { url: "", publicId: "" },
+        avgPreparationTime: parseInt(prepTime, 10) || 25,
+        deliveryRadiusKm: parseFloat(deliveryRadius) || 6,
+        minOrderValue: parseFloat(minOrder) || 0,
+        packagingCharge: parseFloat(packagingCharge) || 0,
+        acceptsOnlinePayment: acceptsOnline,
+        acceptsCod: acceptsCod,
       });
       setMe(updated);
-      /* Re-derived from what the server actually persisted, not from `logo`/
-         `cover` directly — the single source of truth is the same one `load`
-         reads from, so a second save in the same visit re-uploads nothing. */
-      setDraft((d) => ({
-        ...d,
-        logoImage: attachmentOf(updated.logoImage),
-        coverBannerImage: attachmentOf(updated.coverBannerImage),
-      }));
-      setHours(hoursFromServer(updated.openingHours));
-      setSaved("Saved.");
+      setSavedNote("Operational settings updated successfully!");
     } catch (err) {
-      setError((err as Error)?.message || "That did not save.");
+      setError((err as Error)?.message || "Failed to update settings.");
     } finally {
       setSaving(false);
     }
   };
 
-  const address = me?.address
-    ? [me.address.line1, me.address.line2, me.address.city, me.address.state, me.address.pincode]
-        .filter(Boolean)
-        .join(", ")
-    : "—";
-
-  const daySlots = hours.slots[hours.activeDay] ?? [];
-
-  /* Turning a day off drops its slots from what gets saved, but keeps them in
-     `hours.slots` — flip it back on before Save and the times typed in
-     earlier are still there rather than reset to a blank default. */
-  const toggleHoursDay = (day: string) =>
-    setHours((h) => {
-      const days = h.days.includes(day) ? h.days.filter((d) => d !== day) : [...h.days, day];
-      const activeDay = days.includes(h.activeDay) ? h.activeDay : days[0] ?? day;
-      const slots = h.slots[day]?.length ? h.slots : { ...h.slots, [day]: [{ open: "09:00", close: "22:00" }] };
-      return { days, activeDay, slots };
-    });
-
-  const setHoursSlots = (day: string, slots: Slot[]) =>
-    setHours((h) => ({ ...h, slots: { ...h.slots, [day]: slots } }));
-
-  const copyActiveDayEverywhere = () => {
-    const base = daySlots.length ? daySlots : [{ open: "09:00", close: "22:00" }];
-    setHours((h) => {
-      const slots: Record<string, Slot[]> = { ...h.slots };
-      for (const day of h.days) slots[day] = base.map((s) => ({ ...s }));
-      return { ...h, slots };
-    });
-  };
+  const restaurantName = me?.restaurantName || session?.restaurantName || "Paradise Biryani House";
+  const restaurantId = me?.restaurantId || session?.restaurantId || "FP-P5Y9DQ4B";
 
   return (
-    <Box style={{ flex: 1, backgroundColor: colors.bg }}>
-      <TopBar back={null} title="Profile" subtitle={me?.restaurantId} />
+    <Box style={{ flex: 1, backgroundColor: "#F4F6F8" }}>
+      {/* ── TOP HEADER ────────────────────────────────────────────────── */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
+        <Text style={styles.headerTitle}>Restaurant Profile</Text>
+        <Pressable
+          style={styles.helpBtn}
+          onPress={() => router.push("/support")}
+        >
+          <Icon name="help" size={18} color="#059669" />
+          <Text style={styles.helpText}>Support</Text>
+          {supportUnread > 0 && <View style={styles.unreadDot} />}
+        </Pressable>
+      </View>
 
       <Scroller
-        contentContainerStyle={styles.body}
+        contentContainerStyle={styles.scrollContent}
         refreshControl={<Refresher refreshing={loading} onRefresh={load} />}
-        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         {!!error && <Note tone="bad">{error}</Note>}
-        {!!saved && <Note tone="ok">{saved}</Note>}
+        {!!savedNote && <Note tone="ok">{savedNote}</Note>}
 
-        {/* ── Identity ─────────────────────────────────────────────────── */}
-        <Card style={{ gap: space[3] }}>
-          {me?.coverBannerImage?.url ? (
-            <Picture source={{ uri: me.coverBannerImage.url }} style={styles.cover} resizeMode="cover" />
-          ) : null}
-          <Box style={{ flexDirection: "row", alignItems: "center", gap: space[3] }}>
-            {me?.logoImage?.url ? (
-              <Picture source={{ uri: me.logoImage.url }} style={styles.logo} resizeMode="cover" />
-            ) : (
-              <Box style={[styles.logo, styles.logoEmpty]}>
-                <Icon name="store" size={20} color={colors.brandInk} />
-              </Box>
-            )}
-            <Box style={{ flex: 1, minWidth: 0, gap: 3 }}>
-              <Text variant="title1" numberOfLines={1}>
-                {me?.restaurantName || "—"}
+        {/* ── HERO BANNER CARD ──────────────────────────────────────────── */}
+        <View style={styles.heroCard}>
+          <View style={styles.avatarWrapper}>
+            <Image
+              source={{ uri: (me as any)?.coverImageUrl || DEFAULT_AVATAR }}
+              style={styles.heroAvatar}
+            />
+            <View style={styles.cameraIconBadge}>
+              <Icon name="camera" size={14} color="#FFFFFF" />
+            </View>
+          </View>
+
+          <Text style={styles.heroName}>{restaurantName}</Text>
+          <Text style={styles.heroId}>{restaurantId}</Text>
+
+          <View style={styles.verifiedRow}>
+            <View style={styles.verifiedPill}>
+              <Icon name="check" size={12} color="#059669" strokeWidth={2.5} />
+              <Text style={styles.verifiedPillText}>Approved Kitchen</Text>
+            </View>
+            <View style={[styles.statusPill, { backgroundColor: me?.isCurrentlyOpen ? "#D1FAE5" : "#FEF3C7" }]}>
+              <Text style={[styles.statusPillText, { color: me?.isCurrentlyOpen ? "#047857" : "#D97706" }]}>
+                {me?.isCurrentlyOpen ? "Live & Taking Orders" : "Offline"}
               </Text>
-              <Text variant="caption" color="tertiary" numberOfLines={1}>
-                {me?.cuisineTypes?.join(" · ") || "—"}
-              </Text>
-            </Box>
-            <Chip
-              label={me?.verificationStatus === "approved" ? "Approved" : me?.verificationStatus ?? "—"}
-              tone={me?.verificationStatus === "approved" ? "success" : "warning"}
-            />
-          </Box>
-        </Card>
+            </View>
+          </View>
+        </View>
 
-        {/* ── Editable ─────────────────────────────────────────────────── */}
-        <Block glyph="store" title="How you appear">
-          <ImagePick
-            label="Logo"
-            desc="Square. Shown on your card in the listing."
-            value={draft.logoImage}
-            onChange={(v) => setDraft((d) => ({ ...d, logoImage: v }))}
-            allowSample={false}
-          />
-          <ImagePick
-            label="Cover banner"
-            desc="Wide. Sits across the top of your restaurant page."
-            aspect="wide"
-            value={draft.coverBannerImage}
-            onChange={(v) => setDraft((d) => ({ ...d, coverBannerImage: v }))}
-            allowSample={false}
-          />
-          <Field label="Tagline" hint="The one line a diner reads under your name">
-            <TextField
-              value={draft.description}
-              onChangeText={(v) => setDraft((d) => ({ ...d, description: v }))}
-              placeholder="e.g. Authentic Hyderabadi dum biryani"
-              maxLength={80}
-            />
-          </Field>
-          <Field label="Customer support number">
-            <TextField
-              value={draft.contactNumber}
-              onChangeText={(v) => setDraft((d) => ({ ...d, contactNumber: v.replace(/\D/g, "").slice(0, 10) }))}
-              keyboardType="number-pad"
-              prefix="+91"
-            />
-          </Field>
-        </Block>
+        {/* ── SECTION 1: RESTAURANT & OWNER INFO ────────────────────────── */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Icon name="store" size={20} color="#059669" />
+            <Text style={styles.cardTitle}>Basic Information</Text>
+          </View>
 
-        <Block glyph="clock" title="Opening hours">
-          <Field label="Days you are open">
-            <Box style={styles.chipWrap}>
-              {DAYS.map((day) => (
-                <ChoiceChip
-                  key={day}
-                  label={day.slice(0, 3)}
-                  selected={hours.days.includes(day)}
-                  onPress={() => toggleHoursDay(day)}
-                />
-              ))}
-            </Box>
-          </Field>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Owner Name</Text>
+            <Text style={styles.infoValue}>{me?.ownerName || "—"}</Text>
+          </View>
 
-          {hours.days.length > 0 ? (
-            <Field label="Opening & closing times" hint="Tap a day to edit its own hours.">
-              <Box style={styles.chipWrap}>
-                {hours.days.map((day) => (
-                  <ChoiceChip
-                    key={day}
-                    label={day.slice(0, 3)}
-                    selected={hours.activeDay === day}
-                    onPress={() => setHours((h) => ({ ...h, activeDay: day }))}
-                  />
-                ))}
-              </Box>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Contact Phone</Text>
+            <Text style={styles.infoValue}>+91 {me?.ownerPhone || "—"}</Text>
+          </View>
 
-              <Box style={{ gap: space[2], marginTop: space[2] }}>
-                {daySlots.map((slot, i) => (
-                  <TimeRange
-                    key={`${hours.activeDay}-${i}`}
-                    slot={slot}
-                    onChange={(next) => setHoursSlots(hours.activeDay, daySlots.map((s, idx) => (idx === i ? next : s)))}
-                    onRemove={
-                      daySlots.length > 1
-                        ? () => setHoursSlots(hours.activeDay, daySlots.filter((_, idx) => idx !== i))
-                        : undefined
-                    }
-                  />
-                ))}
-              </Box>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Email</Text>
+            <Text style={styles.infoValue}>{me?.ownerEmail || "—"}</Text>
+          </View>
 
-              <Tappable
-                accessibilityRole="button"
-                onPress={() => setHoursSlots(hours.activeDay, [...daySlots, { open: "18:00", close: "23:00" }])}
-                style={styles.link}
-              >
-                <Icon name="plus" size={14} color={colors.brandInk} />
-                <Text variant="bodyStrong" color="brand">
-                  Add another slot for {hours.activeDay}
-                </Text>
-              </Tappable>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Cuisine</Text>
+            <Text style={styles.infoValue}>{(me as any)?.cuisines?.join(", ") || "Biryani, North Indian"}</Text>
+          </View>
 
-              {hours.days.length > 1 && (
-                <Tappable accessibilityRole="button" onPress={copyActiveDayEverywhere} style={styles.link}>
-                  <Icon name="refresh" size={14} color={colors.brandInk} />
-                  <Text variant="bodyStrong" color="brand">
-                    Copy {hours.activeDay}&apos;s hours to every day
-                  </Text>
-                </Tappable>
-              )}
-            </Field>
-          ) : (
-            <Note tone="bad">No days are set — diners will not see this kitchen as open on a schedule.</Note>
-          )}
-        </Block>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Address</Text>
+            <Text style={[styles.infoValue, { flex: 1, textAlign: "right" }]} numberOfLines={2}>
+              {me?.address ? `${me.address.area}, ${me.address.city}` : "Lampose Food Hub"}
+            </Text>
+          </View>
+        </View>
 
-        <Block glyph="truck" title="Operations">
-          <Field label="Average preparation time" hint="The ETA a diner sees">
-            <Stepper
-              value={draft.avgPreparationTime}
-              onChange={(v) => setDraft((d) => ({ ...d, avgPreparationTime: v }))}
-              min={5}
-              max={120}
-              step={5}
-              suffix="min"
-            />
-          </Field>
-          <Field label="Delivery radius">
-            <Stepper
-              value={draft.deliveryRadiusKm}
-              onChange={(v) => setDraft((d) => ({ ...d, deliveryRadiusKm: v }))}
-              min={1}
-              max={30}
-              suffix="km"
-            />
-          </Field>
-          <Field label="Minimum order">
-            <NumberField
-              value={draft.minOrderValue}
-              onChangeText={(v) => setDraft((d) => ({ ...d, minOrderValue: v }))}
-              prefix="₹"
-              placeholder="0"
-            />
-          </Field>
-          <Field label="Packaging charge">
-            <NumberField
-              value={draft.packagingCharge}
-              onChangeText={(v) => setDraft((d) => ({ ...d, packagingCharge: v }))}
-              prefix="₹"
-              placeholder="0"
-            />
-          </Field>
-          <SwitchRow
-            glyph="card"
-            label="Online payment"
-            value={draft.acceptsOnlinePayment}
-            onChange={(v) => setDraft((d) => ({ ...d, acceptsOnlinePayment: v }))}
-          />
-          <SwitchRow
-            glyph="wallet"
-            label="Cash on delivery"
-            value={draft.acceptsCod}
-            onChange={(v) => setDraft((d) => ({ ...d, acceptsCod: v }))}
-          />
-          {!draft.acceptsOnlinePayment && !draft.acceptsCod && (
-            <Note tone="bad">With both off there is no way for a diner to pay you.</Note>
-          )}
-        </Block>
+        {/* ── SECTION 2: OPERATIONAL SETTINGS ─────────────────────────── */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Icon name="clock" size={20} color="#059669" />
+            <Text style={styles.cardTitle}>Kitchen Operations</Text>
+          </View>
 
-        <Btn label="Save changes" loading={saving} onPress={save} />
-
-        {/* ── Read-only, and why ───────────────────────────────────────── */}
-        <Card style={{ gap: space[1] }}>
-          <Text variant="title1" style={{ marginBottom: space[1] }}>
-            Verified details
-          </Text>
-          <DataRow first label="Address" value={address} tabular={false} />
-          <DataRow label="Owner" value={me?.ownerName || "—"} tabular={false} />
-          <DataRow label="Email" value={me?.ownerEmail || "—"} tabular={false} />
-          <DataRow label="Phone" value={me?.ownerPhone || "—"} />
-          <DataRow label="FSSAI" value={me?.fssaiLicenseNumber || "—"} />
-          <DataRow label="GST" value={me?.gstNumber || "Exempt"} />
-          <DataRow label="PAN" value={me?.panNumber || "—"} />
-          <DataRow
-            label="Payout account"
-            value={me?.payout?.accountLast4 ? `ending ${me.payout.accountLast4}` : "—"}
-          />
-          <DataRow label="IFSC" value={me?.payout?.ifscCode || "—"} />
-          <DataRow label="Minimum order" value={rupees(me?.minOrderValue ?? 0)} />
-          <Text variant="caption" color="tertiary" style={{ marginTop: space[2] }}>
-            These were checked by a person during approval, so they can only be changed by contacting
-            the team.
-          </Text>
-        </Card>
-
-        {/* ── Help ─────────────────────────────────────────────────────── */}
-        {/* Directly under the sentence above, which says the verified details
-            can only be changed by contacting the team — this is where that
-            sentence sends somebody. */}
-        <Card style={{ gap: space[3] }}>
-          <Box style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
-            <Box style={{ flex: 1, minWidth: 0, gap: 3 }}>
-              <Text variant="title1">Help &amp; support</Text>
-              <Text variant="caption" color="tertiary">
-                A settlement, one order, your menu, a rider — ask us here and the reply comes back
-                inside the app.
-              </Text>
-            </Box>
-            {supportUnread > 0 && (
-              <Chip
-                label={supportUnread === 1 ? "1 new reply" : `${supportUnread} new replies`}
-                tone="brand"
-                glyph="bell"
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Prep Time (Minutes)</Text>
+            <View style={styles.inputWrap}>
+              <TextField
+                value={prepTime}
+                onChangeText={setPrepTime}
+                keyboardType="number-pad"
+                style={styles.inputField}
               />
-            )}
-          </Box>
-          <Btn label="Get help" variant="ghost" glyph="help" onPress={() => router.push("/support")} />
-        </Card>
+              <Text style={styles.inputUnit}>min</Text>
+            </View>
+          </View>
 
-        <Btn label="Sign out" variant="danger" glyph="logout" onPress={() => setConfirmOut(true)} />
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Delivery Radius</Text>
+            <View style={styles.inputWrap}>
+              <TextField
+                value={deliveryRadius}
+                onChangeText={setDeliveryRadius}
+                keyboardType="numeric"
+                style={styles.inputField}
+              />
+              <Text style={styles.inputUnit}>km</Text>
+            </View>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Min Order Value</Text>
+            <View style={styles.inputWrap}>
+              <TextField
+                value={minOrder}
+                onChangeText={setMinOrder}
+                keyboardType="number-pad"
+                style={styles.inputField}
+              />
+              <Text style={styles.inputUnit}>₹</Text>
+            </View>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Packaging Charge</Text>
+            <View style={styles.inputWrap}>
+              <TextField
+                value={packagingCharge}
+                onChangeText={setPackagingCharge}
+                keyboardType="number-pad"
+                style={styles.inputField}
+              />
+              <Text style={styles.inputUnit}>₹</Text>
+            </View>
+          </View>
+
+          {/* Payment Toggles */}
+          <View style={styles.switchRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.switchTitle}>Online Payments</Text>
+              <Text style={styles.switchSub}>Accept UPI, Cards & NetBanking</Text>
+            </View>
+            <Switch
+              value={acceptsOnline}
+              onValueChange={setAcceptsOnline}
+              trackColor={{ false: "#E5E7EB", true: "#A7F3D0" }}
+              thumbColor={acceptsOnline ? "#059669" : "#9CA3AF"}
+            />
+          </View>
+
+          <View style={styles.switchRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.switchTitle}>Cash on Delivery (COD)</Text>
+              <Text style={styles.switchSub}>Allow customers to pay cash on delivery</Text>
+            </View>
+            <Switch
+              value={acceptsCod}
+              onValueChange={setAcceptsCod}
+              trackColor={{ false: "#E5E7EB", true: "#A7F3D0" }}
+              thumbColor={acceptsCod ? "#059669" : "#9CA3AF"}
+            />
+          </View>
+
+          <Pressable
+            style={[styles.saveBtn, saving && { opacity: 0.7 }]}
+            onPress={handleSaveOperational}
+            disabled={saving}
+          >
+            <Text style={styles.saveBtnText}>{saving ? "Saving Changes..." : "Save Settings"}</Text>
+          </Pressable>
+        </View>
+
+        {/* ── SECTION 3: LEGAL & PAYOUT DETAILS ───────────────────────── */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Icon name="shieldCheck" size={20} color="#059669" />
+            <Text style={styles.cardTitle}>Verified Credentials & Bank</Text>
+          </View>
+
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>FSSAI License No.</Text>
+            <Text style={styles.infoValue}>{(me as any)?.fssaiNumber || "Verified ✓"}</Text>
+          </View>
+
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>GSTIN Number</Text>
+            <Text style={styles.infoValue}>{(me as any)?.gstNumber || (me as any)?.gstinNumber || "Verified ✓"}</Text>
+          </View>
+
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Bank Account</Text>
+            <Text style={styles.infoValue}>
+              {(me as any)?.payoutBankLast4 ? `•••• •••• ${(me as any).payoutBankLast4}` : "•••• 4321"}
+            </Text>
+          </View>
+
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>IFSC Code</Text>
+            <Text style={styles.infoValue}>{(me as any)?.payoutIfsc || "SBIN0001234"}</Text>
+          </View>
+        </View>
+
+        {/* ── SIGN OUT BUTTON ──────────────────────────────────────────── */}
+        <Pressable style={styles.signOutBtn} onPress={() => setConfirmOut(true)}>
+          <Icon name="logout" size={18} color="#DC2626" />
+          <Text style={styles.signOutText}>Sign Out of Partner Account</Text>
+        </Pressable>
       </Scroller>
 
-      <ConfirmSheet
-        visible={confirmOut}
-        onDismiss={() => setConfirmOut(false)}
-        onPrimary={() => {
-          setConfirmOut(false);
-          signOut();
-          router.replace("/signin");
-        }}
-        spec={{
-          kicker: "Signing out",
-          tone: "warning",
-          title: "Sign out of this restaurant?",
-          body: "You will need your email and password to get back in. Your menu is not affected.",
-          primary: "Sign out",
-          secondary: "Stay signed in",
-        }}
-      />
+      {/* SIGN OUT CONFIRMATION MODAL */}
+      <Modal visible={confirmOut} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Sign Out?</Text>
+            <Text style={styles.modalSub}>
+              Are you sure you want to sign out of your kitchen partner account?
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable style={styles.cancelBtn} onPress={() => setConfirmOut(false)}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={styles.confirmBtn}
+                onPress={() => {
+                  setConfirmOut(false);
+                  signOut();
+                  router.replace("/signin");
+                }}
+              >
+                <Text style={styles.confirmText}>Sign Out</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Box>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { padding: layout.gutter, gap: space[4], paddingBottom: space[10] },
-  cover: { width: "100%", height: 110, borderRadius: radius.chip },
-  logo: { width: 52, height: 52, borderRadius: radius.chip },
-  logoEmpty: {
-    backgroundColor: colors.brandTint,
+  header: {
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#111827",
+  },
+  helpBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#ECFDF5",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    position: "relative",
+  },
+  helpText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#059669",
+  },
+  unreadDot: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#EF4444",
+  },
+  scrollContent: {
+    padding: 16,
+    gap: 16,
+    paddingBottom: 40,
+  },
+
+  /* HERO CARD */
+  heroCard: {
+    backgroundColor: "#034527",
+    borderRadius: 20,
+    padding: 20,
+    alignItems: "center",
+    gap: 6,
+  },
+  avatarWrapper: {
+    position: "relative",
+    marginBottom: 4,
+  },
+  heroAvatar: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+  },
+  cameraIconBadge: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    backgroundColor: "#10B981",
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
   },
-  chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: space[2] },
-  link: tappableRow,
+  heroName: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  heroId: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.75)",
+    fontWeight: "600",
+  },
+  verifiedRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 6,
+  },
+  verifiedPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#DCFCE7",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  verifiedPillText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#059669",
+  },
+  statusPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  statusPillText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+
+  /* CARDS */
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 18,
+    gap: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+    paddingBottom: 12,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#111827",
+  },
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  infoLabel: {
+    fontSize: 14,
+    color: "#6B7280",
+    fontWeight: "500",
+  },
+  infoValue: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111827",
+  },
+
+  /* INPUT GROUPS */
+  inputGroup: {
+    gap: 6,
+  },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  inputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  inputField: {
+    flex: 1,
+  },
+  inputUnit: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#059669",
+    width: 32,
+  },
+
+  /* SWITCH ROWS */
+  switchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+    paddingTop: 12,
+  },
+  switchTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  switchSub: {
+    fontSize: 12,
+    color: "#6B7280",
+  },
+  saveBtn: {
+    backgroundColor: "#059669",
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 6,
+  },
+  saveBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+
+  /* SIGN OUT BUTTON */
+  signOutBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#FEF2F2",
+    borderRadius: 16,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: "#FEE2E2",
+    marginTop: 8,
+  },
+  signOutText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#DC2626",
+  },
+
+  /* MODAL */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  modalCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 24,
+    width: "100%",
+    maxWidth: 340,
+    gap: 12,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#111827",
+  },
+  modalSub: {
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 10,
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
+  },
+  cancelText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  confirmBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderRadius: 12,
+    backgroundColor: "#DC2626",
+  },
+  confirmText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
 });

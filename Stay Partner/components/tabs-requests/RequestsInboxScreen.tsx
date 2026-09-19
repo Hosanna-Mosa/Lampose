@@ -162,19 +162,7 @@ export function RequestsInboxScreen() {
       onRefresh={refetch}
       stickyHeader={(
         <>
-          {/* No back affordance, which is what the design always assumed: this
-              is a tab root now, and there is nothing behind it to go back to.
-              It used to carry the inline chevron every pushed screen has,
-              because it was reached from the dashboard. */}
-          <Box style={styles.headerRow}>
-            <IconButton
-              name="plus"
-              label="Add customer"
-              onPress={() => router.push('/requests/add-customer')}
-            />
-          </Box>
-
-          <Text variant="screenTitle">Requests</Text>
+          <Text variant="screenTitle" style={{ marginTop: 12 }}>Requests</Text>
         </>
       )}
     >

@@ -30,6 +30,8 @@ export {
 
 export { StickyCtaBar, type StickyCtaBarProps } from './StickyCtaBar';
 
+export { SystemNavigationBar } from './SystemNavigationBar';
+
 export {
   StateTemplate,
   SuccessState,

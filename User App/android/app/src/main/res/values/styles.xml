@@ -1,6 +1,32 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
   <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
-    <item name="android:enforceNavigationBarContrast" tools:targetApi="29">true</item>
+    <!--
+      The system's own contrast scrim behind the navigation bar, turned off.
+
+      It exists to keep the buttons legible over a transparent bar, which is
+      the exact job `components/shell/SystemNavigationBar.tsx` now does — and
+      the two do not compose. The scrim is drawn by the window decor, so it
+      lands ON TOP of the strip that component paints, as a translucent wash
+      keyed to the OS night setting rather than the app's theme. Over the
+      light theme's white that is invisible; over the dark theme's #101113 it
+      is a grey haze on an otherwise black bar.
+
+      Android 15 and up ignore this attribute anyway (it is deprecated for
+      anything targeting SDK 35+, and this app targets 36), so leaving it on
+      would mean a bar that looks right on new phones and washed out on
+      Android 10-14. Off is the version that is consistent everywhere.
+    -->
+    <item name="android:enforceNavigationBarContrast" tools:targetApi="29">false</item>
+    <!--
+      Dark navigation glyphs from the very first frame.
+
+      `SystemNavigationBar` sets this properly once React is up, keyed to the
+      resolved theme, and that is the value that lasts. This is only the
+      default for the frames before JS has run — where the splash screen is
+      already white (`splashscreen_background`), so light glyphs would be
+      white-on-white until the app boots.
+    -->
+    <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
     <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
     <item name="colorPrimary">@color/colorPrimary</item>
     <item name="android:statusBarColor">#FFFFFF</item>
@@ -10,5 +36,9 @@
     <item name="windowSplashScreenAnimatedIcon">@drawable/splashscreen_logo</item>
     <item name="postSplashScreenTheme">@style/AppTheme</item>
     <item name="android:windowSplashScreenBehavior">icon_preferred</item>
+    <!-- Repeated rather than inherited: this theme's parent is
+         `Theme.SplashScreen`, not `AppTheme`, so it does not pick the
+         attribute above up. Same reason — the splash ground is white. -->
+    <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
   </style>
 </resources>

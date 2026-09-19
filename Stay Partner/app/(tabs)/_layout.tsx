@@ -51,7 +51,7 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: c.accent,
+        tabBarActiveTintColor: '#FF5200',
         tabBarInactiveTintColor: c.textTertiary,
         tabBarStyle: {
           height: layout.tabBarHeight + insets.bottom,

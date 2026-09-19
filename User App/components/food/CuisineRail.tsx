@@ -534,12 +534,15 @@ function RailChip({
         <Text
           variant={active ? 'bodyStrong' : 'body'}
           numberOfLines={1}
-          style={{ color: active ? colors.textPrimary : colors.textSecondary }}
+          style={{
+            color: active ? '#FF5200' : colors.textSecondary,
+            fontWeight: active ? '800' : '500',
+          }}
         >
           {label}
         </Text>
         <Animated.View
-          style={[styles.underline, underlineStyle, { backgroundColor: colors.brand, borderRadius: radius.pill }]}
+          style={[styles.underline, underlineStyle, { backgroundColor: '#FF5200', borderRadius: 2 }]}
         />
       </Animated.View>
     </Pressable>

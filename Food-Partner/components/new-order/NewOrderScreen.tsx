@@ -1,82 +1,23 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   A new order, slid up in front of whatever the kitchen was doing.
-
-   Registered with `animation: "slide_from_bottom"` rather than a library
-   sheet, so it reads as a sheet, keeps the back gesture, and needs no new
-   dependency. `orderPump` pushes it the moment an order lands, from the root
-   layout, so it arrives whichever tab is open.
-
-   ## Accept lives here now, because the rider search waits on it
-
-   This used to be a pure intimation — "Okay" and nothing else, on the
-   reasoning that the Orders tab already carried the whole accept/reject
-   exchange and asking twice was two places one order could be answered.
-   That stopped being the right trade once dispatch changed: a rider is no
-   longer searched for at all until the kitchen accepts AND quotes a prep
-   time (see `foodDispatch.service.js`'s own header) — so the two-step
-   "see the ticket here, then separately go accept it on Orders" cost every
-   order the time between those two taps, which is now time a rider is not
-   even being looked for. Accepting from the ticket that just rang removes
-   that gap entirely.
-
-   Rejecting still does NOT live here. A refusal ends the order and starts a
-   refund — the Orders tab is still the one place for that, deliberately
-   slower to reach than a single tap, for the same reason it always was.
-
-   Accepting also NAVIGATES, on purpose — see `accept`. The next thing a
-   kitchen actually does with an accepted order is start cooking it, and that
-   button lives on the Orders tab, not here; landing there instead of just
-   closing the sheet is one tap fewer between "I'll take it" and the stove.
-
-   ## `partnerPayout`, not `grandTotal`, is the number that matters
-
-   The diner's total includes delivery and packaging, which are not the
-   kitchen's. Both are shown, with the payout given the emphasis, because
-   what a kitchen is being told about is what it nets.
-
-   ## Cash is called out
-
-   On a COD order the rider collects, and the kitchen is owed by Lampose
-   rather than by the person at the door. Saying so on the ticket stops a
-   counter asking a rider for money they are not carrying.
-
-   ## Closing without accepting still counts as seen, not answered
-
-   The "Close" in the top bar and the back gesture both reach the same
-   cleanup as before, which tells `orderPump` this order was shown — not
-   recorded anywhere the server can see, only enough that the sheet does not
-   slide back up over the same ticket the moment another one arrives. An
-   order dismissed that way sits exactly where it was, unaccepted, reachable
-   from Orders. Accepting is the one path that is NOT just "seen" — it is a
-   real write, same as the Orders tab's own Accept button.
+   New Order Screen — Ultra-clean, focused, zero fluff text.
+   Only essential order details, clear typography, and instant action.
    ══════════════════════════════════════════════════════════════════════════ */
 import { prepChoices } from "@/components/common/utils/prepChoices";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Pressable,
   StyleSheet,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Box, Btn, Card, Chip, ChoiceChip, Scroller, Text, TopBar } from "@/components/common";
-import { Note } from "@/components/common";
+import { Box, Icon, Note, Scroller, Text, TopBar } from "@/components/common";
 import { usePartnerStore } from "@/store/partnerStore";
 import { getMe, listMyOrders, setOrderStatus, type ServerOrder } from "@/services/foodPartner";
 import { acknowledgeOrder, isAcknowledged, lastArrival, onQueueChanged, setSheetOpen } from "@/services/orderPump";
-import { colors, layout, radius, space } from "@/theme";
 
 const rupees = (n: number) => `₹${Math.round(Number(n) || 0).toLocaleString("en-IN")}`;
-
-/*
- * The times a counter actually says.
- *
- * A list rather than free text, because the person answering has their hands
- * full — see the same reasoning on `(dash)/orders.tsx`, which this mirrors
- * exactly so a kitchen answering from either screen is offered the same
- * choices in the same order.
- */
-
-/** The kitchen's own standing preparation time, offered alongside the presets. */
 
 export function NewOrderScreen() {
   const insets = useSafeAreaInsets();
@@ -87,16 +28,11 @@ export function NewOrderScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  /* Accepting, and the quote that travels with it — see `(dash)/orders.tsx`
-     for why a time always goes with an accept rather than only sometimes. */
   const [accepting, setAccepting] = useState(false);
   const [acceptError, setAcceptError] = useState("");
   const [standingPrep, setStandingPrep] = useState<number | null>(null);
   const [prepMinutes, setPrepMinutes] = useState<number | null>(null);
 
-  /* The restaurant's own standing figure, read once — the same default
-     `(dash)/orders.tsx` pre-selects, so a kitchen that does not want to think
-     about it gets its usual answer whichever screen it accepts from. */
   useEffect(() => {
     if (!session?.token) return;
     let dropped = false;
@@ -104,24 +40,12 @@ export function NewOrderScreen() {
       .then((me) => {
         if (!dropped) setStandingPrep(Number(me?.avgPreparationTime) || null);
       })
-      .catch(() => {
-        /* No default pre-selected is a tap, not a failure worth showing. */
-      });
+      .catch(() => {});
     return () => {
       dropped = true;
     };
   }, [session?.token]);
 
-  /**
-   * The oldest UNSEEN order, not the newest and not the oldest overall.
-   *
-   * A kitchen with three tickets should work through them in the order they
-   * were placed, so the newest is wrong; one already closed with "Okay" is
-   * wrong too, or the sheet would hand back the very ticket the kitchen just
-   * told it they had seen. `lastArrival()` is preferred only when it is both
-   * still in the queue and not yet acknowledged, so the sheet opens on the
-   * ticket that actually rang.
-   */
   const load = useCallback(async () => {
     if (!session?.token) {
       setLoading(false);
@@ -148,27 +72,14 @@ export function NewOrderScreen() {
     void load();
   }, [load]);
 
-  /* The pump only pushes this sheet when none is showing, and this is what
-     tells it. Cleared on unmount, so it is released whichever way the sheet
-     left — "Okay", the back gesture or the close control. */
   useEffect(() => {
     setSheetOpen(true);
     return () => setSheetOpen(false);
   }, []);
 
-  /* What closing the sheet marks as seen, whichever way it happens. A ref
-     rather than the `order` state itself, because the cleanup below runs
-     after this component has already rendered its last frame and can only
-     read a ref, not a state variable from that final render. Kept in step
-     with `order` on every change, including the in-place refresh below, so
-     what gets marked seen is whatever was actually on screen when the sheet
-     closed — not necessarily the ticket it first opened on. */
   const shownRef = useRef<string | null>(null);
   useEffect(() => {
     shownRef.current = order?.orderNumber ?? null;
-    /* A new ticket on screen starts its own quote and its own error state —
-       a selection or a failure left over from the last one has nothing to
-       do with this one. */
     setPrepMinutes(null);
     setAcceptError("");
   }, [order]);
@@ -176,22 +87,10 @@ export function NewOrderScreen() {
     return () => acknowledgeOrder(shownRef.current);
   }, []);
 
-  /* Another order landing while this is open refreshes it in place rather
-     than stacking a second sheet — the pump pushes only when none is
-     showing. The order this sheet opened on is not marked seen by that; only
-     actually closing the sheet does. */
   useEffect(() => onQueueChanged(() => void load()), [load]);
 
   const close = () => router.back();
 
-  /*
-   * Accepting sends whatever time is selected, defaulting to the standing
-   * figure exactly like `(dash)/orders.tsx` — the diner's tracking screen and
-   * the rider search both need a number, and the only case that travels
-   * without one is a restaurant whose own standing figure could not be read
-   * either, because the alternative is this screen inventing a promise on
-   * the kitchen's behalf.
-   */
   const accept = async () => {
     if (!order || !session?.token) return;
     const minutes = prepMinutes ?? standingPrep ?? 0;
@@ -204,22 +103,18 @@ export function NewOrderScreen() {
         "accepted",
         minutes > 0 ? { promisedMinutes: minutes } : undefined,
       );
-      /* Not `close()` — accepting is the one path off this sheet that is not
-         "seen and dismissed", it is a real step in the order's life, and the
-         next one is standing at the stove. `replace` rather than `push` so
-         the sheet does not linger under Orders on the back stack — Back from
-         there should return to wherever the kitchen was before the order
-         rang, not into a notification for an order already accepted. */
       router.replace("/(dash)/orders");
     } catch (err) {
-      /* The server's own words, against the button that was pressed — it
-         knows things this screen does not, such as the diner having
-         cancelled while the ticket was on screen. */
       setAcceptError((err as Error)?.message || "That did not save.");
     } finally {
       setAccepting(false);
     }
   };
+
+  const choices = prepChoices(standingPrep);
+  const selectedMinutes = prepMinutes ?? standingPrep ?? choices[0] ?? 25;
+  const isCod = order?.paymentMode === "cod";
+  const isPaid = order?.paymentStatus === "paid";
 
   return (
     <Box style={styles.root}>
@@ -227,136 +122,376 @@ export function NewOrderScreen() {
         back="Close"
         onBack={close}
         title="New order"
-        subtitle={waiting > 1 ? `${waiting} waiting` : undefined}
       />
 
       <Scroller
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space[6] }]}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 175 }]}
         showsVerticalScrollIndicator={false}
       >
         {loading ? (
-          <Text variant="body" color="tertiary">
-            Loading the order…
-          </Text>
+          <View style={styles.centerBox}>
+            <Text style={styles.subtleText}>Loading order…</Text>
+          </View>
         ) : !order ? (
-          <Note tone="info" glyph="check">
-            {waiting > 0
-              ? "Nothing new to show you here. Open Orders to act on what is waiting."
-              : "Nothing is waiting. Either it was taken on another handset, or the diner cancelled."}
-          </Note>
+          <View style={styles.centerBox}>
+            <Note tone="info" glyph="check">
+              {waiting > 0
+                ? "Open Orders tab to view waiting items."
+                : "No active ticket waiting."}
+            </Note>
+          </View>
         ) : (
           <>
             {!!error && <Note tone="bad">{error}</Note>}
 
-            <Card style={{ gap: space[2] }}>
-              <Box style={styles.headRow}>
-                <Text variant="title1">{order.orderNumber}</Text>
-                <Chip
-                  tone={order.paymentStatus === "paid" ? "success" : "warning"}
-                  label={order.paymentStatus === "paid" ? "Paid online" : "Cash on delivery"}
-                />
-              </Box>
-              {/* The kitchen's number, given the emphasis. `grandTotal` is the
-                  diner's and includes delivery and packaging, which are not
-                  this restaurant's to keep. */}
-              <Text variant="display2">{rupees(order.partnerPayout)}</Text>
-              <Text variant="numMeta" color="tertiary">
+            {/* ── 1. ORDER & PAYOUT CARD ─────────────────────────────────────── */}
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.orderNumber}>#{order.orderNumber}</Text>
+                <View
+                  style={[
+                    styles.badge,
+                    isPaid ? styles.badgePaid : styles.badgeCod,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.badgeText,
+                      isPaid ? styles.badgeTextPaid : styles.badgeTextCod,
+                    ]}
+                  >
+                    {isPaid ? "PAID ONLINE" : "CASH ON DELIVERY"}
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={styles.payoutValue}>{rupees(order.partnerPayout)}</Text>
+              <Text style={styles.payoutSub}>
                 You keep this · diner pays {rupees(order.grandTotal)}
               </Text>
-            </Card>
+            </View>
 
-            <Card style={{ gap: space[2] }}>
-              <Text variant="numMeta" color="tertiary">
+            {/* ── 2. ITEMS CARD ──────────────────────────────────────────────── */}
+            <View style={styles.card}>
+              <Text style={styles.sectionHeader}>
                 {order.lines.length} ITEM{order.lines.length === 1 ? "" : "S"}
               </Text>
-              {order.lines.map((line, i) => (
-                <Box key={`${line.productName}-${i}`} style={styles.line}>
-                  <Text variant="body" style={{ flex: 1 }}>
-                    {line.quantity}× {line.productName}
-                    {line.variantName ? ` · ${line.variantName}` : ""}
-                  </Text>
-                  <Text variant="numMeta" color="tertiary">
-                    {rupees(line.lineTotal)}
-                  </Text>
-                </Box>
-              ))}
-              {/* A note is the one line on a ticket somebody has to read rather
-                  than skim, so it sits apart from the dish it belongs to. */}
+
+              <View style={styles.itemsList}>
+                {order.lines.map((line, i) => {
+                  const isVeg = line.isVeg === "veg" || line.isVeg === undefined;
+                  return (
+                    <View key={`${line.productName}-${i}`} style={styles.itemRow}>
+                      <View style={styles.itemLeft}>
+                        {/* Veg / Non-Veg Indicator */}
+                        <View style={[styles.dietDotBorder, isVeg ? styles.vegBorder : styles.nonVegBorder]}>
+                          <View style={[styles.dietDot, isVeg ? styles.vegDot : styles.nonVegDot]} />
+                        </View>
+                        <Text style={styles.itemTitle}>
+                          {line.quantity}× {line.productName}
+                          {line.variantName ? ` · ${line.variantName}` : ""}
+                        </Text>
+                      </View>
+                      <Text style={styles.itemPrice}>{rupees(line.lineTotal)}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+
+              {/* Special Instructions Note */}
               {order.lines
                 .filter((line) => !!line.note)
                 .map((line, i) => (
-                  <Note key={`note-${i}`} tone="warn" glyph="alert">
-                    {line.productName}: {line.note}
-                  </Note>
+                  <View key={`note-${i}`} style={styles.noteBox}>
+                    <Text style={styles.noteText}>
+                      <Text style={{ fontWeight: "700" }}>Note: </Text>
+                      {line.note}
+                    </Text>
+                  </View>
                 ))}
-            </Card>
+            </View>
 
-            {order.paymentMode === "cod" && (
-              <Note tone="info">
-                The rider collects {rupees(order.grandTotal)} at the door. Do not ask them for
-                money at the counter.
-              </Note>
+            {/* COD Simple Notice (if COD) */}
+            {isCod && (
+              <View style={styles.codNotice}>
+                <Icon name="info" size={16} color="#4B5563" />
+                <Text style={styles.codNoticeText}>
+                  Rider collects {rupees(order.grandTotal)} at door. Do not ask for money at counter.
+                </Text>
+              </View>
             )}
-
-            <Note tone="info">
-              Cannot take this one? Reject it from the Orders tab.
-            </Note>
           </>
         )}
       </Scroller>
 
-      {/* Pinned, not at the end of a scroll. Answering this is something
-          somebody does standing up with their hands full, and a control they
-          have to find is one they take late. */}
+      {/* ── 3. FIXED BOTTOM PREPARATION & ACCEPT BAR ──────────────────────────── */}
       {!!order && (
-        <Box style={[styles.actions, { paddingBottom: insets.bottom + space[3] }]}>
-          {/* Asked before the order is taken, not after: the answer travels
-              with the acceptance, and the diner's tracking screen — and the
-              rider search itself — have nothing to count or aim at until it
-              does. Pre-answered with the kitchen's own standing figure, so a
-              counter that does not want to think about it still accepts in
-              one tap. */}
-          <Text variant="caption" color="tertiary">
-            Ready in
-          </Text>
-          <Box style={styles.choices}>
-            {prepChoices(standingPrep).map((minutes) => (
-              <ChoiceChip
-                key={minutes}
-                label={`${minutes} min`}
-                selected={(prepMinutes ?? standingPrep) === minutes}
-                onPress={() => setPrepMinutes(minutes)}
-              />
-            ))}
-          </Box>
+        <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+          <Text style={styles.prepLabel}>Ready in</Text>
+
+          <View style={styles.choicesRow}>
+            {choices.map((minutes) => {
+              const selected = selectedMinutes === minutes;
+              return (
+                <Pressable
+                  key={minutes}
+                  style={[styles.prepPill, selected && styles.prepPillSelected]}
+                  onPress={() => setPrepMinutes(minutes)}
+                >
+                  {selected && <Icon name="check" size={14} color="#059669" strokeWidth={2.5} />}
+                  <Text style={[styles.prepPillText, selected && styles.prepPillTextSelected]}>
+                    {minutes} min
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
 
           {!!acceptError && <Note tone="bad">{acceptError}</Note>}
 
-          <Btn
-            label={accepting ? "Accepting…" : "Accept the order"}
-            loading={accepting}
+          <Pressable
+            style={[styles.acceptButton, accepting && styles.acceptButtonDisabled]}
+            disabled={accepting}
             onPress={accept}
-          />
-        </Box>
+          >
+            <Text style={styles.acceptButtonText}>
+              {accepting ? "Accepting…" : "Accept the order"}
+            </Text>
+          </Pressable>
+        </View>
       )}
     </Box>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: layout.gutter, gap: space[3] },
-  headRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space[2] },
-  line: { flexDirection: "row", alignItems: "center", gap: space[2] },
-  actions: {
-    paddingHorizontal: layout.gutter,
-    paddingTop: space[3],
-    gap: space[2],
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.card,
-    borderTopRightRadius: radius.card,
+  root: {
+    flex: 1,
+    backgroundColor: "#F4F6F8",
   },
-  choices: { flexDirection: "row", flexWrap: "wrap", gap: space[2] },
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    gap: 12,
+  },
+  centerBox: {
+    paddingVertical: 36,
+    alignItems: "center",
+  },
+  subtleText: {
+    fontSize: 14,
+    color: "#6B7280",
+  },
+
+  /* ── CLEAN CARDS ─────────────────────────────────────────────────────────── */
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 16,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  orderNumber: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: "800",
+    color: "#111827",
+  },
+  badge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  badgeCod: {
+    backgroundColor: "#FEF3C7",
+  },
+  badgePaid: {
+    backgroundColor: "#D1FAE5",
+  },
+  badgeText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
+  badgeTextCod: {
+    color: "#B45309",
+  },
+  badgeTextPaid: {
+    color: "#047857",
+  },
+
+  payoutValue: {
+    fontSize: 34,
+    lineHeight: 42,
+    fontWeight: "800",
+    color: "#111827",
+    letterSpacing: -0.5,
+    marginVertical: 4,
+  },
+  payoutSub: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: "#6B7280",
+    fontWeight: "500",
+  },
+
+  /* ── ITEMS ──────────────────────────────────────────────────────────────── */
+  sectionHeader: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#6B7280",
+    letterSpacing: 0.5,
+  },
+  itemsList: {
+    gap: 10,
+  },
+  itemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  itemLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flex: 1,
+  },
+  dietDotBorder: {
+    width: 15,
+    height: 15,
+    borderWidth: 1.5,
+    borderRadius: 3,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  vegBorder: {
+    borderColor: "#16A34A",
+  },
+  nonVegBorder: {
+    borderColor: "#DC2626",
+  },
+  dietDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  vegDot: {
+    backgroundColor: "#16A34A",
+  },
+  nonVegDot: {
+    backgroundColor: "#DC2626",
+  },
+  itemTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#1F2937",
+    flex: 1,
+  },
+  itemPrice: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#4B5563",
+  },
+
+  noteBox: {
+    backgroundColor: "#FFFBEB",
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 4,
+  },
+  noteText: {
+    fontSize: 13,
+    color: "#B45309",
+  },
+
+  codNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 12,
+    padding: 12,
+  },
+  codNoticeText: {
+    fontSize: 13,
+    color: "#374151",
+    flex: 1,
+  },
+
+  /* ── BOTTOM BAR ─────────────────────────────────────────────────────────── */
+  bottomBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    gap: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  prepLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  choicesRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  prepPill: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#FFFFFF",
+  },
+  prepPillSelected: {
+    backgroundColor: "#ECFDF5",
+    borderColor: "#059669",
+  },
+  prepPillText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  prepPillTextSelected: {
+    fontWeight: "700",
+    color: "#047857",
+  },
+
+  acceptButton: {
+    height: 50,
+    backgroundColor: "#059669",
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  acceptButtonDisabled: {
+    opacity: 0.6,
+  },
+  acceptButtonText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
 });
