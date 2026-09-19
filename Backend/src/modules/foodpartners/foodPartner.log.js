@@ -815,6 +815,48 @@ const logLogin = safely((info = {}) => {
 });
 
 /**
+ * A change to where this restaurant's money goes.
+ *
+ * ## Why this logger exists at all
+ *
+ * An owner can add a bank account and make it active from their own session
+ * — see the section header in `restaurantAdmin.controller.js`. That was a
+ * deliberate decision and it removed a protection: anybody holding the
+ * session can repoint the settlements. This line is what stands in its
+ * place. It is not a gate; it is the answer to "when did that change, and to
+ * what", asked a fortnight later by somebody reconciling a bank statement.
+ *
+ * So it prints on EVERY add, switch and removal, including the ones that
+ * look routine. A log that only recorded suspicious changes would require
+ * knowing in advance which those were.
+ *
+ * ## Four digits, never the number
+ *
+ * `accountLast4` and the IFSC are enough to identify an account to somebody
+ * who already holds it and useless to somebody who does not. The full number
+ * is `select: false` on the model and is not passed here — see the note on
+ * `payout.bankAccountNumber` in `foodRestaurant.model.js`, which records that
+ * a backend console is frequently screen-shared.
+ */
+const logPayoutChange = safely((info = {}) => {
+  const action = String(info.action || 'changed').toUpperCase();
+
+  say(
+    '🏦',
+    `PAYOUT ${action}`,
+    info.restaurantId ? `· ${info.restaurantId}` : '',
+    info.restaurantName ? `"${flatten(info.restaurantName)}"` : '',
+    info.accountLast4 ? `· ending ${info.accountLast4}` : '',
+    info.ifscCode ? `· ${flatten(info.ifscCode)}` : '',
+    /* Named on a switch, because "changed to X" without "from Y" is half of
+       what anybody tracing a misdirected settlement needs. */
+    info.previousLast4 ? `· was ending ${info.previousLast4}` : '',
+    info.isActive === undefined ? '' : `· ${info.isActive ? 'ACTIVE — settlements go here' : 'saved, not active'}`,
+    info.note ? `· ${flatten(info.note)}` : '',
+  );
+});
+
+/**
  * A create, update or delete on a menu item.
  *
  * `changes` is run through the redactor rather than printed raw: it is a
@@ -972,6 +1014,10 @@ module.exports = {
   logLogin,
   logMenuChange,
   logAvailability,
+
+  /* Where the money goes. Its own line because the change it records is not
+     reversible by the person who notices it was wrong. */
+  logPayoutChange,
 
   /* Public reads and assets. */
   logDiscovery,

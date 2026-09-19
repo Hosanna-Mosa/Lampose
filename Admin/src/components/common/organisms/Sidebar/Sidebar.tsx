@@ -7,7 +7,7 @@ import { useAuth } from '../../../../context/AuthContext';
 import { Avatar } from '../../atoms/Avatar';
 import { IconButton } from '../../atoms/IconButton';
 import { cx } from '../../utils';
-import { visibleGroupsFor } from './Sidebar.nav';
+import { RESTAURANT_NAV_GROUPS, visibleGroupsFor } from './Sidebar.nav';
 import { Aside } from '../../atoms/Aside';
 import { Box } from '../../atoms/Box';
 import { Inline } from '../../atoms/Inline';
@@ -37,7 +37,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setMobileOpen,
   counts = {},
 }) => {
-  const { user, logout } = useAuth();
+  const { kind, user, identity, logout } = useAuth();
+
+  /* Which console's navigation this is. An owner's session gets the
+     restaurant list outright rather than a role-filtered slice of the staff
+     one — the two are different consoles sharing a shell, and the rule is
+     written down in `Sidebar.nav.ts`. */
+  const groups = kind === 'restaurant' ? RESTAURANT_NAV_GROUPS : visibleGroupsFor(user?.role);
+  const subtitle = kind === 'restaurant' ? 'Restaurant' : 'Admin Console';
 
   const handleNavClick = (id: string) => {
     setActiveTab(id);
@@ -70,7 +77,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {!collapsed && (
             <Box className="min-w-0 flex-1">
               <Text className="text-body font-semibold text-ink leading-tight truncate">Lampose</Text>
-              <Text className="text-micro uppercase text-ink-3 leading-tight">Admin Console</Text>
+                <Text className="text-micro uppercase text-ink-3 leading-tight">{subtitle}</Text>
             </Box>
           )}
           {!collapsed && (
@@ -85,7 +92,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Navigation */}
         <Nav className="flex-1 overflow-y-auto py-3 px-2.5 space-y-5">
-          {visibleGroupsFor(user?.role).map((group) => (
+          {groups.map((group) => (
             <Box key={group.heading}>
               {!collapsed && (
                 <Text className="text-micro uppercase text-ink-3 px-2.5 mb-1.5">{group.heading}</Text>
@@ -163,17 +170,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <Box className={cx('border-t border-line shrink-0', collapsed ? 'p-2' : 'p-2.5')}>
           {collapsed ? (
             <Box className="flex flex-col items-center gap-1.5">
-              <Avatar name={user?.name} src={user?.avatar} size={28} />
+              <Avatar name={identity?.name} src={identity?.avatar} size={28} />
               <IconButton icon={LogOut} label="Sign out" onClick={logout} tone="danger" />
             </Box>
           ) : (
             <Box className="flex items-center gap-2.5 p-1.5 rounded-control">
-              <Avatar name={user?.name} src={user?.avatar} size={30} />
+              <Avatar name={identity?.name} src={identity?.avatar} size={30} />
               <Box className="min-w-0 flex-1">
                 <Text className="text-sm font-medium text-ink truncate leading-tight">
-                  {user?.name || 'Administrator'}
+                  {identity?.name || 'Administrator'}
                 </Text>
-                <Text className="text-label text-ink-3 truncate leading-tight">{user?.role}</Text>
+                <Text className="text-label text-ink-3 truncate leading-tight">{identity?.role}</Text>
               </Box>
               <IconButton icon={LogOut} label="Sign out" onClick={logout} tone="danger" />
             </Box>

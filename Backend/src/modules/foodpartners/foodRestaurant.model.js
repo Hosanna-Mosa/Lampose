@@ -285,6 +285,54 @@ const openingHourSchema = new mongoose.Schema(
  * independently of the licence it belongs to, and cannot record that a partner
  * re-uploaded a clearer scan of the same licence in March.
  */
+/*
+ * A bank account a restaurant can be paid into.
+ *
+ * ## Why this is a LIST when `payout` below is a single object
+ *
+ * `payout` is where the money actually goes, and it stays exactly what it
+ * was: one object, read by the staff approval queue
+ * (`foodAdmin.controller.js` selects `+payout.bankAccountNumber`) and by the
+ * application completeness tally in `foodPartner.util.js`. Nothing that reads
+ * it had to change.
+ *
+ * This array is the owner's ADDRESS BOOK. Exactly one entry carries
+ * `isActive`, and activating an entry copies it into `payout`. So there is
+ * still one answer to "where does this restaurant's money go", and it is
+ * still in the field every existing reader already looks at — the list is a
+ * convenience on top, not a second source of truth. A reader that consulted
+ * the array and picked the active one itself would be that second source, and
+ * the first time the two disagreed the money would go somewhere nobody chose.
+ *
+ * ## The number is never stored twice over
+ *
+ * `bankAccountNumber` is `select: false` here exactly as it is on `payout`,
+ * and `toJSON` deletes it from every entry for the one path that selects it
+ * on purpose. `accountLast4` is written when the account is added, so every
+ * screen has something to show without asking for the number back.
+ */
+const payoutAccountSchema = new mongoose.Schema(
+  {
+    accountId: { type: String, required: true },
+    /* What the owner calls it — "HDFC current", "the old one". Optional; the
+       bank name is not asked for because the IFSC already names the branch
+       and a second field for the same fact is a second field to get wrong. */
+    label: { type: String, default: '', trim: true },
+    accountHolderName: { type: String, default: '', trim: true },
+    bankAccountNumber: { type: String, default: '', trim: true, select: false },
+    accountLast4: { type: String, default: '', trim: true },
+    ifscCode: { type: String, default: '', trim: true, uppercase: true },
+    accountType: { type: String, enum: ['savings', 'current'], default: 'current' },
+    upiId: { type: String, default: '', trim: true },
+    /* Exactly one entry is true. The controller enforces it on every write
+       rather than an index doing it, because "exactly one" across an array is
+       not something Mongo can assert. */
+    isActive: { type: Boolean, default: false },
+    addedAt: { type: Date, default: Date.now },
+  },
+  { _id: false },
+);
+
 const verificationDocumentSchema = new mongoose.Schema(
   {
     kind: { type: String, enum: DOCUMENT_KINDS, required: true },
@@ -523,6 +571,13 @@ const foodRestaurantSchema = new mongoose.Schema(
       accountType: { type: String, enum: ['savings', 'current'], default: 'current' },
       upiId: { type: String, default: '', trim: true },
     },
+
+    /* The owner's saved accounts. `payout` above remains the active one — see
+       `payoutAccountSchema`. Empty on every restaurant onboarded before this
+       existed; `restaurantAdmin.controller.js` backfills the first entry from
+       `payout` the first time an owner opens the screen, so nothing is lost
+       and no migration had to run. */
+    payoutAccounts: { type: [payoutAccountSchema], default: [] },
 
     /* ── E. Verification & system ───────────────────────────────────────── */
 
@@ -809,6 +864,12 @@ foodRestaurantSchema.set('toJSON', {
     delete ret.__v;
     delete ret.passwordHash;
     if (ret.payout) delete ret.payout.bankAccountNumber;
+    /* The same deletion for every saved account. The array arrives without
+       them (`select: false`), so this is the belt to that braces — and it is
+       the line that matters on the one path that selects them on purpose. */
+    if (Array.isArray(ret.payoutAccounts)) {
+      ret.payoutAccounts.forEach((entry) => { if (entry) delete entry.bankAccountNumber; });
+    }
     return ret;
   },
 });
@@ -819,7 +880,23 @@ const FoodRestaurant = mongoose.models.FoodRestaurant
 module.exports = FoodRestaurant;
 
 module.exports.phoneKey = phoneKey;
+/**
+ * An id for a saved payout account — `FPA-XXXXXXXX`.
+ *
+ * Unique within one restaurant's array rather than globally, which is all it
+ * has to be: it is only ever looked up as `payoutAccounts.accountId` under a
+ * restaurant already chosen by the session's token. The same alphabet as
+ * `makeRestaurantId` so the two read as one family.
+ */
+const makePayoutAccountId = () => {
+  const bytes = crypto.randomBytes(8);
+  let body = '';
+  for (let i = 0; i < 8; i += 1) body += ALPHABET[bytes[i] % ALPHABET.length];
+  return `FPA-${body}`;
+};
+
 module.exports.makeRestaurantId = makeRestaurantId;
+module.exports.makePayoutAccountId = makePayoutAccountId;
 module.exports.isOpenNow = isOpenNow;
 module.exports.CUISINE_TYPES = CUISINE_TYPES;
 module.exports.DELIVERY_FEE_TYPES = DELIVERY_FEE_TYPES;

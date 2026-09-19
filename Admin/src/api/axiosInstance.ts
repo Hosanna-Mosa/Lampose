@@ -22,9 +22,37 @@ export const axiosInstance: AxiosInstance = axios.create({
   },
 });
 
-// Utility to fetch token
+/*
+ * The token for whichever console is signed in.
+ *
+ * Two different people sign in through this app now, against two different
+ * identity systems on the backend:
+ *
+ *   'admin'       Lampose staff — an `admins` account, `typ: 'admin'`,
+ *                 issued by /api/v1/admin/login. Reaches every /admin/* route.
+ *   'restaurant'  a restaurant OWNER — a `food_restaurants` account,
+ *                 `typ: 'restaurant_admin'`, issued by
+ *                 /api/v1/restaurant-admin/login. Reaches /restaurant-admin/*
+ *                 and nothing else.
+ *
+ * `lampose_session_kind` says which one is live, and only ever one is: signing
+ * in as either clears the other (see AuthContext). Reading the kind rather
+ * than preferring whichever key happens to hold a value is what stops a stale
+ * token left behind by a previous session from being sent on behalf of the
+ * current one — a staff token going out with an owner's request would be
+ * refused, and the refusal would arrive as a 401 that signs the owner out of a
+ * console they had just signed in to.
+ *
+ * The key defaults to the staff console when it is absent, so a tab opened
+ * before this existed keeps working with the session it already has.
+ */
+export const SESSION_KIND_KEY = 'lampose_session_kind';
+export const ADMIN_TOKEN_KEY = 'admin_access_token';
+export const RESTAURANT_TOKEN_KEY = 'restaurant_access_token';
+
 const getAuthToken = (): string | null => {
-  return localStorage.getItem('admin_access_token');
+  const kind = localStorage.getItem(SESSION_KIND_KEY);
+  return localStorage.getItem(kind === 'restaurant' ? RESTAURANT_TOKEN_KEY : ADMIN_TOKEN_KEY);
 };
 
 /**
