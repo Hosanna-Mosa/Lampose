@@ -123,12 +123,24 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ usersLis
       const res = await userApi.createUser({
         name: name.trim(),
         email: email.trim(),
-        password: password.trim() || 'employee123',
+        /* Blank is sent as blank. The server then GENERATES a random
+           temporary password and returns it once, which is the whole point —
+           this line used to substitute a password that is published in the
+           repository, so every account made without typing one shared it. */
+        password: password.trim() || undefined,
         role
       });
 
       if (res.success) {
-        setSuccessMsg(`User "${name}" created successfully with role ${role}!`);
+        /* The generated password is shown ONCE, here, because there is no
+           route that can read it back afterwards. If the admin chose one, the
+           server does not echo it and there is nothing extra to show. */
+        const temporary = (res.data as { temporaryPassword?: string })?.temporaryPassword;
+        setSuccessMsg(
+          temporary
+            ? `User "${name}" created with role ${role}. Temporary password: ${temporary} — copy it now, it cannot be shown again.`
+            : `User "${name}" created successfully with role ${role}!`,
+        );
         setName('');
         setEmail('');
         setPassword('');
@@ -272,7 +284,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ usersLis
             </Label>
             <Input
               type="password"
-              placeholder="Default: employee123"
+              placeholder="Leave blank to generate one"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full p-3 rounded-xl bg-white border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-cyan-500 transition font-mono"

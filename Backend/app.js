@@ -34,6 +34,7 @@
 const express = require('express');
 
 const config = require('./src/config/env');
+const helmet = require('helmet');
 const requestLogger = require('./src/shared/middleware/requestLogger');
 const { registerRoutes, routeMap } = require('./routes');
 const { notFoundHandler, errorHandler } = require('./src/shared/middleware/errorHandler');
@@ -58,6 +59,62 @@ const createApp = ({ corsMiddleware } = {}) => {
   app.disable('x-powered-by');
 
   app.use(requestLogger);
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════
+   * Response headers, chosen ONE AT A TIME rather than taken as a default.
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * After the logger and before CORS: these are plain response headers and do
+   * not touch the preflight, but a request that is about to be refused should
+   * still be logged first — the same reason `requestLogger` leads.
+   *
+   * Three of helmet's defaults are OFF, and each would break something real:
+   *
+   *   contentSecurityPolicy   defaults to `default-src 'self'`, and this API
+   *                           serves the two Razorpay checkout pages
+   *                           (`renderCheckout` in foodPayment and
+   *                           visitPayment). They load checkout.razorpay.com
+   *                           and run inline script. A default CSP blocks both
+   *                           and every online payment stops — silently, in a
+   *                           WebView with no console anybody is watching.
+   *
+   *   crossOriginEmbedderPolicy  requires every third-party resource to opt in
+   *                           with CORP headers. Razorpay's do not. Same
+   *                           outcome as above.
+   *
+   *   crossOriginResourcePolicy  defaults to `same-origin`. CORS governs the
+   *                           fetches the four web consoles make, but this
+   *                           header has its own say over cross-origin loads
+   *                           and there is nothing to gain here by guessing
+   *                           which wins — CORS is already the control, and it
+   *                           is an allowlist.
+   *
+   * What stays on is the part that costs nothing: `X-Content-Type-Options:
+   * nosniff`, `X-Frame-Options: SAMEORIGIN` (helmet's default, and the right
+   * one here — DENY would forbid the checkout page framing anything of ours),
+   * `Referrer-Policy: no-referrer`, and no `X-Powered-By`.
+   */
+  app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: false,
+
+    /*
+     * HSTS, in production only.
+     *
+     * The header tells a browser never to speak plain HTTP to this host again,
+     * which is exactly right for api.lampose.com and exactly wrong for a
+     * laptop: a developer who once loaded http://localhost:5001 would have
+     * that pinned for the max-age, and every http:// project on localhost
+     * afterwards would be force-upgraded to a port serving no TLS. `preload`
+     * is deliberately not set — that is a submission to a browser-vendor list
+     * and is close to irreversible.
+     */
+    hsts: config.isProduction
+      ? { maxAge: 15552000, includeSubDomains: true, preload: false }
+      : false,
+  }));
 
   if (corsMiddleware) {
     app.use(corsMiddleware);
