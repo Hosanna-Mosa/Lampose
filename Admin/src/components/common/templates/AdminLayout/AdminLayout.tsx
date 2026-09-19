@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityPanel } from '../../organisms/ActivityPanel';
 import { Header } from '../../organisms/Header';
-import { NAV_ITEMS, Sidebar } from '../../organisms/Sidebar';
+import { ALL_NAV_ITEMS, Sidebar } from '../../organisms/Sidebar';
 import { insightsService } from '../../../../api/services/insightsService';
 import { useFetch } from '../../../../lib/useFetch';
 import { formatDateTime } from '../../../../lib/format';
-import type { HealthEntity } from '../../../../api/types';
+import { useAuth } from '../../../../context/AuthContext';
+import type { ApiResponse, ActivityEntity, HealthEntity } from '../../../../api/types';
 import { Box } from '../../atoms/Box';
 import { Footer } from '../../atoms/Footer';
 import { Inline } from '../../atoms/Inline';
@@ -37,7 +38,17 @@ const SEARCH_PLACEHOLDERS: Record<string, string> = {
   'scraper-leads': 'Filter by business, city, category, phone or email',
   products: 'Filter by name or description',
   'food-orders': "Find an order by number, diner's phone or Razorpay id",
+  'food-payouts': 'Find by restaurant, payout id, account or reference',
+  /* The restaurant console's own two searchable lists. */
+  'restaurant-orders': "Find an order by number, diner's name or phone",
+  'restaurant-menu': 'Filter dishes by name, section or tag',
 };
+
+/* Analytics and Earnings are deliberately absent from the list above: both
+   are aggregates over a period rather than record lists, and a filter box
+   that narrowed the table but not the totals beside it would put two
+   disagreeing readings of the same period on one screen. Earnings has its
+   own date range, which is the filter that page actually needs. */
 
 export const AdminLayout: React.FC<AdminLayoutProps> = ({
   children,
@@ -47,6 +58,22 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   setSearch,
   navCounts,
 }) => {
+  /*
+   * Which console this is.
+   *
+   * The activity feed below reads `/admin/activity`, which answers to a STAFF
+   * token and to nothing else. Asking for it on a restaurant owner's session
+   * returns 401, `axiosInstance` turns every 401 into an `api:unauthorized`
+   * event, and `AuthContext` signs the session out on that event — so an
+   * unguarded fetch here would throw an owner straight back to the login
+   * screen a second after they reached the console, with no visible cause.
+   *
+   * `/health` is public and is asked for either way: the footer's "is the
+   * backend up" line is as useful to a kitchen as it is to an administrator.
+   */
+  const { kind } = useAuth();
+  const isStaff = kind !== 'restaurant';
+
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('admin_nav_collapsed') === '1');
   const [mobileOpen, setMobileOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
@@ -70,9 +97,21 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
     return () => clearInterval(id);
   }, [checkHealth]);
 
-  const activity = useFetch(() => insightsService.getActivity(20), []);
+  /* Called unconditionally — a hook cannot be skipped — but resolved without
+     a request on an owner's session. An empty list renders no bell count and
+     the panel is not mounted at all below. */
+  const noActivity = async (): Promise<ApiResponse<ActivityEntity[]>> => ({
+    success: true,
+    status: 200,
+    data: [],
+  });
+  const activity = useFetch(() => (isStaff ? insightsService.getActivity(20) : noActivity()), [
+    isStaff,
+  ]);
 
-  const currentNav = NAV_ITEMS.find((item) => item.id === activeTab);
+  /* Looked up across BOTH consoles' nav rows, so the breadcrumb names a
+     restaurant page as readily as a staff one. */
+  const currentNav = ALL_NAV_ITEMS.find((item) => item.id === activeTab);
 
   return (
     <Box className="min-h-screen bg-canvas">
@@ -109,7 +148,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
         <Main className="flex-1 w-full max-w-[1400px] mx-auto px-4 sm:px-6 py-6">
           <Nav aria-label="Breadcrumb" className="mb-5 flex items-center gap-1.5 text-label text-ink-3">
-            <Inline>Admin</Inline>
+            <Inline>{isStaff ? 'Admin' : 'Restaurant'}</Inline>
             <Inline aria-hidden>/</Inline>
             <Inline className="text-ink-2">{currentNav?.label ?? 'Overview'}</Inline>
           </Nav>
@@ -118,7 +157,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
         <Footer className="border-t border-line px-4 sm:px-6 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-2">
           <Text className="text-label text-ink-3">
-            © {new Date().getFullYear()} Lampose · Admin Console
+            © {new Date().getFullYear()} Lampose · {isStaff ? 'Admin Console' : 'Restaurant Console'}
           </Text>
           <Text className="text-label text-ink-3 tabular">
             {health?.database?.connected
@@ -128,14 +167,19 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
         </Footer>
       </Box>
 
-      <ActivityPanel
-        open={activityOpen}
-        onClose={() => setActivityOpen(false)}
-        items={activity.data ?? []}
-        loading={activity.loading}
-        error={activity.error}
-        onReload={activity.reload}
-      />
+      {/* The platform activity feed is a staff view of every record in the
+          console. It is not narrowed for an owner — it is simply not theirs,
+          and the endpoint behind it refuses their token. */}
+      {isStaff && (
+        <ActivityPanel
+          open={activityOpen}
+          onClose={() => setActivityOpen(false)}
+          items={activity.data ?? []}
+          loading={activity.loading}
+          error={activity.error}
+          onReload={activity.reload}
+        />
+      )}
     </Box>
   );
 };

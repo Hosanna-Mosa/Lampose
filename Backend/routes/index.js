@@ -70,6 +70,13 @@ const v1ProductAdminRoutes = require('../src/modules/properties/product.routes')
 const v1MessagingRoutes = require('../src/modules/messaging/messaging.routes');
 const v1FoodAdminRoutes = require('../src/modules/foodpartners/foodAdmin.routes');
 const v1FoodOrderAdminRoutes = require('../src/modules/foodpartners/foodOrderAdmin.routes');
+/* The restaurant OWNER's own door into the console. A THIRD admin router in
+   the food module, and the only one whose caller is not Lampose staff — see
+   its header. */
+const v1RestaurantAdminRoutes = require('../src/modules/foodpartners/restaurantAdmin.routes');
+/* The staff side of a restaurant's payout request — the queue a person
+   settles by hand. A FOURTH router in the food module; see its header. */
+const v1FoodPayoutAdminRoutes = require('../src/modules/foodpartners/foodPayoutAdmin.routes');
 const v1DriverAdminRoutes = require('../src/modules/drivers/driverAdmin.routes');
 const v1ZoneAdminRoutes = require('../src/modules/zones/zoneAdmin.routes');
 const v1SupportAdminRoutes = require('../src/modules/support/supportAdmin.routes');
@@ -132,6 +139,16 @@ const V1_GROUPS = [
      an order `refunded`, warned "refund this in the dashboard" and there was
      no dashboard — the money stopped at a status word. */
   ['/admin/food-orders', v1FoodOrderAdminRoutes, 'food orders: the queue that needs a human, one order reconciled, and the refund'],
+  /* The same food business seen from the other side of the counter: a
+     restaurant OWNER signing in to work their own orders and their own menu
+     from a browser. A THIRD router rather than routes on either of the two
+     above, because the caller is a different identity entirely — a document
+     in `food_restaurants` holding a `restaurant_admin` token, not an
+     administrator in `admins` — and every handler is scoped to the one shop
+     in that token. Neither of the staff routers above can be reached with it
+     and it cannot reach them. */
+  ['/admin/food-payouts', v1FoodPayoutAdminRoutes, 'restaurant payout requests: the queue, and marking one paid'],
+  ['/restaurant-admin', v1RestaurantAdminRoutes, 'the restaurant owner’s console: their own orders, their own menu'],
   /* The rider queue, and the other half of the rule that makes "approved" mean
      something: NO route on /api/v2/drivers can set a rider's status, so this is
      the only way one ever gets on the road. Same identity, same roles and the

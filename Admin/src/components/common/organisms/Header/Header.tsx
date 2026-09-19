@@ -98,7 +98,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSettings,
 }) => {
   const { theme, toggleTheme } = useTheme();
-  const { user, logout } = useAuth();
+  const { identity, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -191,8 +191,8 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() => setMenuOpen((v) => !v)}
             className="flex items-center gap-2 h-8 pl-1 pr-2 rounded-control hover:bg-surface-inset transition-colors"
           >
-            <Avatar name={user?.name} src={user?.avatar} size={26} />
-            <Inline className="hidden md:block text-sm text-ink max-w-28 truncate">{user?.name}</Inline>
+            <Avatar name={identity?.name} src={identity?.avatar} size={26} />
+            <Inline className="hidden md:block text-sm text-ink max-w-28 truncate">{identity?.name}</Inline>
             <ChevronDown className="size-3.5 text-ink-3 hidden sm:block" strokeWidth={2} />
           </PlainButton>
 
@@ -201,9 +201,9 @@ export const Header: React.FC<HeaderProps> = ({
               <Box className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} aria-hidden />
               <Box className="absolute right-0 mt-1.5 w-60 z-50 bg-surface border border-line rounded-panel shadow-[var(--shadow-lg)] anim-fade-up overflow-hidden">
                 <Box className="px-3.5 py-3 border-b border-line">
-                  <Text className="text-body font-medium text-ink truncate">{user?.name}</Text>
-                  <Text className="text-label text-ink-3 truncate mt-0.5">{user?.email}</Text>
-                  <Text className="text-label text-brand-ink mt-1.5">{user?.role}</Text>
+                  <Text className="text-body font-medium text-ink truncate">{identity?.name}</Text>
+                  <Text className="text-label text-ink-3 truncate mt-0.5">{identity?.email}</Text>
+                  <Text className="text-label text-brand-ink mt-1.5">{identity?.role}</Text>
                 </Box>
                 <Box className="p-1">
                   <PlainButton

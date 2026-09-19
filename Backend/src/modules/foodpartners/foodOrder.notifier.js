@@ -16,6 +16,19 @@
    channel id lives here beside the sound, and the partner app creates a
    channel with exactly this id. If you rename one, rename the other.
 
+   ## Three channels, because each one fails differently
+
+     socket    reaches a tablet that is AWAKE on the counter. Needs nothing
+               but the session the app holds — and needs the app to be open.
+     push      reaches a handset that is asleep. Needs a registered device
+               token, which the first restaurant in production did not have.
+     WhatsApp  reaches the phone in the owner's pocket whether or not they
+               have our app open, installed, or signed in.
+
+   The third is the one that works when the other two have quietly stopped.
+   It carries a link straight to the order in the restaurant console, so the
+   owner goes from the buzz to the Accept button without navigating.
+
    ## Failure is logged, never thrown
 
    A push that cannot be delivered must not fail the order. The diner has paid
@@ -23,11 +36,18 @@
    order the moment it opens the app, and the Orders tab polls. So every path
    here resolves, and a problem is printed through the module's own logger
    rather than raised.
+
+   The WhatsApp is sent the same way and for a sharper reason: it talks to a
+   third party over the network, which is the slowest and least reliable step
+   in placing an order. It is NOT awaited by the caller's critical path — see
+   below — so a Twilio outage cannot hold up a diner's checkout.
    ══════════════════════════════════════════════════════════════════════════ */
 const { sendPush, pushReady, pushConfigProblem } = require('../../infrastructure/push/push');
 const FoodRestaurant = require('./foodRestaurant.model');
 const { BADGE } = require('./foodPartner.log');
 const realtime = require('../../infrastructure/realtime/realtime');
+const config = require('../../config/env');
+const { sendFoodOrderAlert } = require('../../infrastructure/twilio/twilio');
 
 /**
  * The Android channel the partner app must create with the same id.
@@ -59,6 +79,84 @@ const summarise = (lines = []) => {
 };
 
 /**
+ * A link that opens THIS order in the restaurant console.
+ *
+ * `#restaurant-orders/LO123456` — the console's hash router reads the
+ * segment after the tab as the order to open, and drops straight into its
+ * detail with the Accept button on screen. See `RestaurantConsole` in
+ * `Admin/src/App.tsx`.
+ *
+ * Returns null when `RESTAURANT_CONSOLE_URL` is unset, and the message then
+ * goes without a link rather than with a broken one — a kitchen that taps a
+ * localhost address once does not tap the next one. The order number is
+ * encoded even though it is always `LO` plus digits today: a link builder
+ * that trusts its input is one id-format change away from a broken URL.
+ */
+const orderLink = (orderNumber) => {
+  const base = config.restaurantConsoleUrl;
+  if (!base) return null;
+  /*
+   * `?order=` and not `#restaurant-orders/`.
+   *
+   * The WhatsApp button's URL is built the same way — a fixed prefix in the
+   * approved template plus this order number as the suffix — and a fragment
+   * is the part of a URL that link handlers mangle. WhatsApp and the in-app
+   * browsers that open from it are not where you want to discover whether
+   * `#` survives. The console reads both spellings; this is the one that
+   * travels.
+   */
+  return `${base}/?order=${encodeURIComponent(orderNumber)}`;
+};
+
+/**
+ * WhatsApp the owner. Resolves either way — see the header.
+ *
+ * Separated from the push so one failing does not skip the other: they had
+ * been in one `try` and a Twilio timeout would have taken the push with it.
+ */
+async function whatsappTheOwner(order, restaurant) {
+  const phone = restaurant && restaurant.ownerPhone;
+  if (!phone) {
+    return { sent: false, reason: 'no owner phone on the restaurant' };
+  }
+
+  try {
+    const res = await sendFoodOrderAlert({
+      restaurantPhone: phone,
+      restaurantName: restaurant.restaurantName,
+      orderNumber: order.orderNumber,
+      amount: rupees(order.grandTotal),
+      summary: summarise(order.lines),
+      /* Both spellings of the same destination. The button template needs
+         only the suffix — its prefix is baked in and Meta-approved — while
+         the text template and the plain-text fallback need the whole URL.
+         The sender picks; see its header. */
+      link: orderLink(order.orderNumber),
+      linkSuffix: order.orderNumber,
+    });
+
+    if (res && res.success) {
+      console.log(
+        `${BADGE} [Order Alert] ${order.orderNumber} → WhatsApp ${maskTail(phone)} ` +
+        `(${res.messageSid || 'sent'})`,
+      );
+      return { sent: true, reason: null };
+    }
+    const reason = (res && res.error) || 'the message was not accepted';
+    console.warn(`${BADGE} [Order Alert] ${order.orderNumber} WhatsApp failed: ${reason}`);
+    return { sent: false, reason };
+  } catch (error) {
+    /* Swallowed, like every other path here. A kitchen that missed a
+       WhatsApp still has the socket, the push and the queue. */
+    console.warn(`${BADGE} [Order Alert] ${order.orderNumber} WhatsApp threw: ${error.message}`);
+    return { sent: false, reason: error.message };
+  }
+}
+
+/** "…3210" — enough to tell two numbers apart in a log, not enough to dial. */
+const maskTail = (phone) => `…${String(phone || '').slice(-4)}`;
+
+/**
  * Ring every handset signed in to this restaurant.
  *
  * Resolves either way — see the header. Returns a small report so the caller
@@ -66,7 +164,7 @@ const summarise = (lines = []) => {
  * between "the kitchen ignored it" and "the kitchen was never told".
  */
 async function notifyRestaurantOfOrder(order) {
-  const result = { attempted: 0, sent: 0, failed: 0, reason: null, live: false };
+  const result = { attempted: 0, sent: 0, failed: 0, reason: null, live: false, whatsapp: false };
 
   /*
    * The socket first, and it is not a duplicate of the push.
@@ -112,10 +210,28 @@ async function notifyRestaurantOfOrder(order) {
       return result;
     }
 
-    /* `devices` is `select: false` on the model, so it has to be asked for. */
+    /* `devices` is `select: false` on the model, so it has to be asked for.
+       `ownerPhone` rides along for the WhatsApp below — one read, not two. */
     const restaurant = await FoodRestaurant.findOne({ restaurantId: order.restaurantId })
-      .select('+devices restaurantName')
+      .select('+devices restaurantName ownerPhone')
       .lean();
+
+    /*
+     * WhatsApp, started HERE and not awaited.
+     *
+     * Started before the push so the two overlap rather than queue, and left
+     * un-awaited because this whole function IS awaited by the checkout path
+     * — `foodCustomerOrder.controller.js` waits for it before answering the
+     * diner. A Twilio call that takes four seconds would be four seconds a
+     * diner stares at a spinner after their money has already left.
+     *
+     * `result.whatsapp` is therefore "we tried", not "it arrived". The log
+     * line inside `whatsappTheOwner` is where the outcome is recorded.
+     */
+    if (restaurant) {
+      result.whatsapp = true;
+      whatsappTheOwner(order, restaurant).catch(() => {});
+    }
 
     const tokens = (restaurant?.devices || []).map((d) => d.token).filter(Boolean);
     result.attempted = tokens.length;
@@ -161,4 +277,6 @@ async function notifyRestaurantOfOrder(order) {
   return result;
 }
 
-module.exports = { notifyRestaurantOfOrder, ORDER_CHANNEL, ORDER_SOUND, summarise };
+module.exports = {
+  notifyRestaurantOfOrder, ORDER_CHANNEL, ORDER_SOUND, summarise, orderLink,
+};

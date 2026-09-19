@@ -3,6 +3,8 @@ import {
   BadgeIndianRupee,
   BarChart3,
   Bike,
+  BookOpenText,
+  Coins,
   Briefcase,
   Building2,
   CalendarCheck,
@@ -20,6 +22,7 @@ import {
   Server,
   Settings,
   ShieldCheck,
+  Store,
   UserCog,
   Users,
   UtensilsCrossed,
@@ -118,6 +121,12 @@ export const NAV_GROUPS: NavGroup[] = [
          purpose. Refunding is narrower still — Super Admin and Admin only —
          and the page hides that control itself. */
       { id: 'food-orders', label: 'Food Orders', icon: ReceiptIndianRupee },
+      /* Money a restaurant has ASKED for and not yet been sent. Badged,
+         because unlike the two queues below it there is a shop waiting on
+         an answer and the amount grows while nobody looks. Reading it is
+         open to any administrator on the backend; only a Super Admin may
+         record one as paid, and the page hides those controls itself. */
+      { id: 'food-payouts', label: 'Restaurant Payouts', icon: Coins },
       { id: 'food-restaurants', label: 'Restaurant Approvals', icon: UtensilsCrossed },
       /* Riders are the other half of a food order, and the same three roles
          work both queues — the person approving restaurants in the morning is
@@ -187,3 +196,57 @@ export const visibleGroupsFor = (role?: AdminRole): NavGroup[] =>
     if (role === 'Support' && !SUPPORT_GROUPS.has(group.heading)) return false;
     return true;
   });
+
+/* ══════════════════════════════════════════════════════════════════════════
+   The OTHER console's navigation.
+
+   A restaurant owner signs in to the same app through the same shell and sees
+   this instead. It is a separate list rather than more groups tagged with a
+   role, because it is not a narrower view of the staff console — it is a
+   different console that happens to share a sidebar. Every row here reads
+   `/api/v1/restaurant-admin/*`, scoped by the server to the one shop in the
+   owner's token; not one of them can reach a `/admin/*` route, and none of the
+   groups above can be reached with an owner's session.
+
+   Keeping the two apart also keeps the safe default: a group added to
+   `NAV_GROUPS` tomorrow appears for staff and nowhere near an owner, without
+   anybody having to remember to exclude it.
+   ══════════════════════════════════════════════════════════════════════════ */
+export const RESTAURANT_NAV_GROUPS: NavGroup[] = [
+  {
+    heading: 'My restaurant',
+    items: [
+      { id: 'restaurant-dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      /* First after the dashboard and the row that carries the badge: an
+         order waiting to be accepted is food not being cooked, and it is the
+         only number on this nav worth interrupting somebody for. */
+      { id: 'restaurant-orders', label: 'Orders', icon: ReceiptIndianRupee },
+      { id: 'restaurant-menu', label: 'Menu', icon: BookOpenText },
+    ],
+  },
+  {
+    /* The money half, in its own group because it is read at a different
+       time of day than the queue — at the end of a week rather than in the
+       middle of a dinner service. */
+    heading: 'Business',
+    items: [
+      { id: 'restaurant-analytics', label: 'Analytics', icon: BarChart3 },
+      /* 'Earnings', NEVER 'Payouts'. There is no food settlement ledger in
+         this system — nothing records that a restaurant was actually paid —
+         so a row headed Payouts would promise a page that cannot be written
+         honestly. The page says the same thing at the top of itself. */
+      { id: 'restaurant-earnings', label: 'Earnings', icon: Coins },
+    ],
+  },
+  {
+    heading: 'Platform',
+    items: [
+      { id: 'restaurant-profile', label: 'Shop & Settings', icon: Store },
+    ],
+  },
+];
+
+export const RESTAURANT_NAV_ITEMS: NavItem[] = RESTAURANT_NAV_GROUPS.flatMap((g) => g.items);
+
+/** Every nav row either console can show — what a breadcrumb looks a label up in. */
+export const ALL_NAV_ITEMS: NavItem[] = [...NAV_ITEMS, ...RESTAURANT_NAV_ITEMS];

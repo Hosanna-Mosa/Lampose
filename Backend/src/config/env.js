@@ -370,6 +370,23 @@ const config = {
 
   storage: { mode: storageMode },
 
+  /*
+   * Where the restaurant owner's console is served from.
+   *
+   * Used to build the link in the "you have a new order" WhatsApp — see
+   * `foodOrder.notifier.js`. It is a CONFIGURED value rather than something
+   * derived from the request that happened to place the order, because the
+   * order is placed by a diner on lampose.com or in the User App, and the
+   * link has to point at a completely different front end.
+   *
+   * Empty by default and never guessed. A message that arrives with a
+   * localhost link, or a link to the diner's own site, is worse than one
+   * with no link at all: the kitchen taps it, nothing sensible opens, and
+   * they stop tapping. `orderLink` below returns null when this is unset and
+   * the notifier sends the message without a link.
+   */
+  restaurantConsoleUrl: String(process.env.RESTAURANT_CONSOLE_URL || '').trim().replace(/\/+$/, ''),
+
   /* Inbound webhooks that must prove who sent them — see
      shared/middleware/twilioSignature.js. */
   webhooks: {

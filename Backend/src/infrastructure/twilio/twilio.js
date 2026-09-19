@@ -870,6 +870,95 @@ async function sendSlotReminder({ customerPhone, customerName, propertyName }) {
   });
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   "You have a new order" — the kitchen's WhatsApp
+
+   The fourth way a restaurant is told about an order, and the only one that
+   reaches somebody who is not looking at anything of ours. The socket needs
+   a tablet awake on the counter; the push needs a registered handset, which
+   the first restaurant in production did not have; the queue needs somebody
+   to open it. WhatsApp reaches the phone in the owner's pocket.
+
+   ## Two templates, and which one is used
+
+     TWILIO_FOOD_ORDER_BUTTON_SID   a `twilio/call-to-action` with a real
+                                    "Open order" button. Preferred.
+     TWILIO_FOOD_ORDER_CONTENT_SID  a `twilio/text` carrying the URL in the
+                                    body. The original.
+
+   The button one wins when it is set. Both exist because a WhatsApp URL
+   button must be a FIXED prefix plus a variable suffix, which bakes the
+   console's host into a Meta-approved template — so switching to it is a
+   new template and a new review, and the text one has to keep working
+   through the hours that takes. Two variables, one code path choosing
+   between them, and no window where the message is broken.
+
+   The two take DIFFERENT fifth variables and that is the whole reason this
+   is a branch rather than a swapped SID: the button gets the order number
+   alone, because its prefix is already in the template; the text one gets
+   the entire URL. Handing either the other's value produces a message that
+   sends cleanly and is useless — a bare order number where a link should
+   be, or a template that refuses the URL as too long for a suffix.
+
+   ## A body link is only tappable with a real host
+
+   WhatsApp auto-links what looks like a domain. `http://localhost:5173` has
+   no TLD, so it renders as dead text — which is exactly what the first
+   production message did. The button sidesteps that entirely, and
+   `config.restaurantConsoleUrl` should be a real https host regardless.
+
+   ## It degrades, deliberately
+
+   Neither SID set → plain text, which reaches anybody inside an open
+   24-hour session and is how this is tested before Meta has approved
+   anything. No console URL → the sentence drops the link rather than
+   sending a broken one.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Tell a restaurant an order has arrived.
+ *
+ * Four variables are the same for both templates:
+ *   1 restaurant name   2 order number   3 amount   4 what was ordered
+ *
+ * The fifth differs, and must:
+ *   button template  5 = the order number, appended to the button's own
+ *                        fixed URL prefix
+ *   text template    5 = the whole URL, or a sentence when there is none
+ */
+async function sendFoodOrderAlert({
+  restaurantPhone, restaurantName, orderNumber, amount, summary, link, linkSuffix,
+}) {
+  const buttonSid = process.env.TWILIO_FOOD_ORDER_BUTTON_SID;
+  const textSid = process.env.TWILIO_FOOD_ORDER_CONTENT_SID;
+
+  /* A template variable may never be empty — Twilio rejects the send with
+     63028 rather than rendering a gap — so the text template's fifth slot
+     carries a sentence when there is no link to put in it. */
+  const where = link || 'Open the Lampose partner app to accept it.';
+
+  const common = {
+    1: oneLine(restaurantName || 'your restaurant', 60),
+    2: oneLine(orderNumber, 20),
+    3: oneLine(amount, 20),
+    4: oneLine(summary, 90),
+  };
+
+  return sendContentOrText({
+    to: restaurantPhone,
+    contentSid: buttonSid || textSid,
+    variables: buttonSid
+      ? { ...common, 5: oneLine(linkSuffix || orderNumber, 60) }
+      : { ...common, 5: oneLine(where, 300) },
+    fallbackBody:
+      `🍽️ New order at ${restaurantName || 'your restaurant'}\n\n`
+      + `Order ${orderNumber} · ${amount}\n`
+      + `${summary}\n\n`
+      + `${link ? `Accept it here: ${link}` : where}\n\n`
+      + 'Please accept or refuse it so the diner knows where they stand.',
+  });
+}
+
 module.exports = {
   sendOwnerText,
   sendVerificationMessage,
@@ -891,4 +980,5 @@ module.exports = {
   sendVisitScheduled,
   sendOwnerVisitNotice,
   sendSlotReminder,
+  sendFoodOrderAlert,
 };

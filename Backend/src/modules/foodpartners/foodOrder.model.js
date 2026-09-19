@@ -364,6 +364,27 @@ const foodOrderSchema = new mongoose.Schema(
        rather than derived, because the commission rate can be renegotiated and
        a historical order must keep the rate it settled at. */
     partnerPayout: { type: Number, default: 0, min: 0 },
+
+    /*
+     * The payout request that has claimed this order's `partnerPayout`.
+     *
+     * `null` means the money is still available for the kitchen to request.
+     * A `FPO-` id means some request already counts it, and it must not be
+     * counted again — which is the whole job of this field.
+     *
+     * It is a CLAIM STAMP, not a record of payment. It is set the moment a
+     * request is created, long before anybody transfers anything, and it is
+     * set inside an update scoped on `payoutId: null` so that two requests
+     * arriving together cannot both take the same order: the second update
+     * matches nothing, and the total is recomputed from the orders that
+     * actually came back rather than from the ones that were read a moment
+     * earlier. `foodPayout.service.js` is where that happens, and
+     * `partners/payout.service.js` is where the pattern comes from.
+     *
+     * A refused request clears it again, or the money would vanish from the
+     * kitchen's balance with nothing to show for it.
+     */
+    payoutId: { type: String, default: null, index: true },
     commissionRate: { type: Number, default: 15, min: 0, max: 100 },
 
     paymentMode: { type: String, enum: PAYMENT_MODES, default: 'cod' },
