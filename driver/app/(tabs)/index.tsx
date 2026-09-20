@@ -77,6 +77,8 @@ export default function HomeScreen() {
   const locationStale = useDriverStore((s) => s.locationStale);
   const jobEndedNote = useDriverStore((s) => s.jobEndedNote);
   const clearJobEndedNote = useDriverStore((s) => s.clearJobEndedNote);
+  const dutyForcedNote = useDriverStore((s) => s.dutyForcedNote);
+  const clearDutyForcedNote = useDriverStore((s) => s.clearDutyForcedNote);
   const refreshProfile = useDriverStore((s) => s.refreshProfile);
 
   const [mapType, setMapType] = useState<"standard" | "satellite">("standard");
@@ -178,6 +180,12 @@ export default function HomeScreen() {
     say(jobEndedNote);
     clearJobEndedNote();
   }, [jobEndedNote, say, clearJobEndedNote]);
+
+  useEffect(() => {
+    if (!dutyForcedNote) return;
+    say(dutyForcedNote);
+    clearDutyForcedNote();
+  }, [dutyForcedNote, say, clearDutyForcedNote]);
 
   const blocked = !!profile && !profile.canGoOnline;
   const blockedReason = profile?.blockedReason ?? "";

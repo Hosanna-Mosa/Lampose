@@ -40,6 +40,9 @@
    so one kitchen cannot subscribe to another's queue by sending an id.
    ══════════════════════════════════════════════════════════════════════════ */
 import { io, type Socket } from "socket.io-client";
+
+import { logWarn } from "@/lib/log";
+
 import { API_URL } from "./api";
 
 export type OrderPlaced = {
@@ -133,7 +136,7 @@ export function connectOrderSocket(token: string | null): Socket | null {
        else in the console. */
     if (warnedOffline) return;
     warnedOffline = true;
-    console.warn(
+    logWarn(
       `[socket] can't reach ${API_URL} (${err?.message ?? err}) — `
       + "the order queue falls back to its poll.",
     );

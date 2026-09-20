@@ -240,4 +240,21 @@ export const driverAdminService = {
       ? { ...res, data: normalizeRow(res.data.data), warning: str(res.data.warning) }
       : { ...res, data: null };
   },
+
+  /**
+   * Put a rider on or off the road directly — independent of the account
+   * decision above. The backend refuses to take somebody online unless the
+   * account is approved and onboarding is complete, and refuses to take
+   * somebody offline with no reason: the rider is shown it.
+   */
+  async setDuty(
+    driverId: string,
+    online: boolean,
+    reason?: string,
+  ): Promise<ApiResponse<DriverRow | null> & { warning?: string }> {
+    const res = await api.patch<any>(`${BASE}/${driverId}/duty`, { online, reason });
+    return res.success && res.data?.data
+      ? { ...res, data: normalizeRow(res.data.data), warning: str(res.data.warning) }
+      : { ...res, data: null };
+  },
 };

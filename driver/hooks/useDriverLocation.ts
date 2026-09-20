@@ -2,6 +2,8 @@ import * as Location from "expo-location";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 
+import { logWarn } from "@/services/log";
+
 export type Coords = { lat: number; lng: number };
 
 /** Haversine distance, metres. Duplicated from `MapPanel.tsx`'s own
@@ -166,7 +168,7 @@ export function useDriverLocation() {
       setFetching(false);
       return coords;
     } catch (err) {
-      console.warn("[location] refreshLocation failed:", (err as Error).message);
+      logWarn("[location] refreshLocation failed:", (err as Error).message);
       setFetching(false);
       return null;
     }
@@ -225,7 +227,7 @@ export function useDriverLocation() {
             return;
           }
         } catch (err) {
-          console.warn("[location] position watch failed:", (err as Error).message);
+          logWarn("[location] position watch failed:", (err as Error).message);
         }
 
         if (headingSub || cancelled) return;

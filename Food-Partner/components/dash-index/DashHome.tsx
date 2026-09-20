@@ -16,6 +16,7 @@ import { Box, Note, Refresher, Scroller, Tappable } from "@/components/common";
 import { Icon, Text } from "@/components/common";
 import { OPEN_STATES, OPEN_STATE_LABELS } from "@/constants/partner";
 import { rupees } from "@/lib/money";
+import { ApiError } from "@/services/api";
 import {
   getMe,
   listMyProducts,
@@ -42,7 +43,7 @@ export function DashHome() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
-  const [unreadNotifications, setUnreadNotifications] = useState(2);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
 
   const load = useCallback(async () => {
@@ -69,12 +70,33 @@ export function DashHome() {
       try {
         const ticketsRes = await listTickets(session.token);
         const ticketList = Array.isArray(ticketsRes) ? ticketsRes : (ticketsRes as any)?.tickets || [];
-        const unread = ticketList.filter((t: any) => t.hasUnreadReply).length;
-        setUnreadNotifications(unread > 0 ? unread : 2);
+        const unread = ticketList.filter((t: any) => t.unread).length;
+        setUnreadNotifications(unread);
       } catch (e) {
-        setUnreadNotifications(2);
+        setUnreadNotifications(0);
       }
     } catch (err) {
+      /* A status that went stale WHILE this screen was open — the persisted
+         copy `app/index.tsx` routed on at launch said "pending" or
+         "approved", and an administrator has since rejected the account.
+         `requireFoodPartner` answers every `/me`-family call with this code
+         (`foodPartnerAuth.middleware.js`) rather than a generic 403, so it can
+         be told apart here and sent to `/status` — the screen built to
+         explain it — instead of sitting on an empty dashboard behind a red
+         banner nobody asked for. `syncFromServer` records the rejection
+         locally first, so `/status` reads the real reason on its first
+         render rather than a blank one while it re-fetches. */
+      if (err instanceof ApiError && (err.payload as { code?: string })?.code === "ACCOUNT_REJECTED") {
+        const data = (err.payload as { data?: { verificationStatus?: string; verificationNote?: string } })?.data;
+        syncFromServer({
+          restaurantId: session.restaurantId,
+          restaurantName: session.restaurantName,
+          verificationStatus: data?.verificationStatus ?? "rejected",
+          verificationNote: data?.verificationNote ?? "",
+        });
+        router.replace("/status");
+        return;
+      }
       setError((err as Error)?.message || "We could not reach the server.");
     } finally {
       setLoading(false);
@@ -223,7 +245,7 @@ export function DashHome() {
               <View style={[styles.metricIconCircle, { backgroundColor: "#DCFCE7" }]}>
                 <Icon name="utensils" size={18} color="#16A34A" />
               </View>
-              <Text style={styles.metricValue}>{products.length || 7}</Text>
+              <Text style={styles.metricValue}>{products.length}</Text>
               <View style={{ marginLeft: "auto" }}>
                 <Icon name="chevronRight" size={16} color="#9CA3AF" />
               </View>

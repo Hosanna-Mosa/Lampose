@@ -50,6 +50,11 @@ const {
   listMyProducts, createProduct, updateProduct, deleteProduct, setProductAvailability,
 } = require('./foodMenu.controller');
 const { listMyOrders, getMyOrder, setOrderStatus } = require('./foodOrder.controller');
+/* The balance and the "Request payout" press — the SAME handlers
+   `restaurantAdmin.routes.js` mounts for the web console, reached through a
+   different door. See the long comment above `listPayouts` in that
+   controller for why there are two routes to one implementation. */
+const { listPayouts, requestPayout } = require('./restaurantAdmin.controller');
 const {
   placeOrder, listMyOrders: listCustomerOrders, getMyOrder: getCustomerOrder, cancelMyOrder,
 } = require('./foodCustomerOrder.controller');
@@ -215,6 +220,22 @@ router.delete('/me/devices', session, unregisterFoodPartnerDevice);
 router.get('/me/orders', session, listMyOrders);
 router.get('/me/orders/:orderNumber', session, getMyOrder);
 router.patch('/me/orders/:orderNumber/status', session, setOrderStatus);
+
+/* ── Payouts: the balance, the history, and the request button ──────────────
+   `/me/payouts` is the balance and the history; `/me/payouts/request` is the
+   button. Only the request is rate-limited, matching the ceiling the web
+   console puts on the same press (`restaurantAdmin.routes.js`): a read costs
+   a couple of indexed aggregations, a request writes a row a person then has
+   to act on. */
+const payoutRequestLimit = rateLimit({
+  name: 'fp-payout-request',
+  windowMs: 60 * 60 * 1000,
+  max: 6,
+  keyOf: (req) => (req.foodPartner && req.foodPartner.restaurantId) || req.ip,
+});
+
+router.get('/me/payouts', session, listPayouts);
+router.post('/me/payouts/request', session, payoutRequestLimit, requestPayout);
 
 /* ── Orders: the diner's side ─────────────────────────────────────────────
    A DIFFERENT identity system — `app_customers`, not the restaurant's own

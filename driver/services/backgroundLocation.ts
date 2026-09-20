@@ -45,6 +45,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 
+import { logWarn } from "@/services/log";
+import { getSecret } from "@/services/secureStore";
 import { api, API_URL } from "@/utils/api";
 
 /** Registered with the OS under this name. Changing it orphans a task that a
@@ -58,14 +60,34 @@ type PersistedShape = {
   state?: { token?: string | null; currentJob?: unknown };
 };
 
-/** The rider's session, read the way a headless context has to read it. */
+/**
+ * The rider's session, read the way a headless context has to read it.
+ *
+ * `store/driverStore.ts` persists through `secureFields(["token"])`, which
+ * lifts `token` out of the AsyncStorage blob into the Keychain/Keystore and
+ * leaves the rest (`currentJob`, etc.) behind under `${STORE_KEY}.token` — see
+ * `services/secureStore.ts`. Reading `parsed.state.token` straight off the
+ * AsyncStorage blob is therefore stale the moment a real device has
+ * persisted once: it is only ever populated in that blob before the first
+ * `setItem` migrates it out. The secure store is checked first, exactly as
+ * `secureFields.getItem` does, with the AsyncStorage copy kept only as the
+ * pre-migration fallback for an install that has never written since. */
 async function readSession(): Promise<{ token: string | null; hasJob: boolean }> {
   try {
     const raw = await AsyncStorage.getItem(STORE_KEY);
     if (!raw) return { token: null, hasJob: false };
     const parsed = JSON.parse(raw) as PersistedShape;
+
+    let secureToken: string | null = null;
+    try {
+      const stored = await getSecret(`${STORE_KEY}.token`);
+      secureToken = stored !== null ? (JSON.parse(stored) as string | null) : null;
+    } catch {
+      /* Keystore unreadable — fall back to whatever the blob still has. */
+    }
+
     return {
-      token: parsed?.state?.token ?? null,
+      token: secureToken ?? parsed?.state?.token ?? null,
       hasJob: Boolean(parsed?.state?.currentJob),
     };
   } catch {
@@ -80,7 +102,7 @@ TaskManager.defineTask(DELIVERY_LOCATION_TASK, async ({ data, error }) => {
     /* The OS reporting its own failure — permission revoked mid-shift, or
        location switched off at the system level. Nothing here can fix it, and
        throwing would just be logged and dropped. */
-    console.warn("[bg-location] task error:", error.message);
+    logWarn("[bg-location] task error:", error.message);
     return;
   }
 
@@ -210,7 +232,7 @@ export async function startDeliveryTracking(): Promise<boolean> {
 
     return true;
   } catch (err) {
-    console.warn("[bg-location] could not start:", (err as Error).message);
+    logWarn("[bg-location] could not start:", (err as Error).message);
     return false;
   }
 }

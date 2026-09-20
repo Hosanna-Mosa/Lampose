@@ -72,7 +72,10 @@ axiosInstance.interceptors.request.use(
     }
 
     if (import.meta.env.DEV) {
-      console.log(`[API Request] [${config.method?.toUpperCase()}] ${config.url}`, config.params || config.data || '');
+      // Method + URL only — never the body. A login POST's body is
+      // { email, password }, and printing it would put a credential in the
+      // console on every request made from this machine.
+      console.log(`[API Request] [${config.method?.toUpperCase()}] ${config.url}`);
     }
 
     return config;
@@ -90,7 +93,10 @@ axiosInstance.interceptors.request.use(
 axiosInstance.interceptors.response.use(
   (response: AxiosResponse) => {
     if (import.meta.env.DEV) {
-      console.log(`[API Response] [${response.status}] ${response.config.url}`, response.data);
+      // Status + URL only — a login/register response body carries the
+      // session token (and a restaurant-profile response carries owner PII),
+      // so the payload itself is never logged.
+      console.log(`[API Response] [${response.status}] ${response.config.url}`);
     }
     return response;
   },

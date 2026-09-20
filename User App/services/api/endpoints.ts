@@ -129,6 +129,9 @@ export const endpoints = {
   customerAuthStart: `${V2}/customers/auth/start`,
   customerAuthVerify: `${V2}/customers/auth/verify`,
   customerAuthResend: `${V2}/customers/auth/resend`,
+  /** Server-side sign-out — bumps `sessionVersion` so the token this device
+   *  is carrying actually stops working, not just gets forgotten locally. */
+  customerAuthLogout: `${V2}/customers/auth/logout`,
   /** GET for the profile behind a session; PATCH to change name or email. */
   customerMe: `${V2}/customers/me`,
 

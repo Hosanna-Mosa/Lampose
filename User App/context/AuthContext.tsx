@@ -6,6 +6,7 @@ import {
   ApiError,
   disconnectSupportSocket,
   fetchMe,
+  logoutCustomer,
   resendAuthCode,
   setAuthToken,
   setSessionExpiredHandler,
@@ -573,14 +574,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     /*
-     * Local only, and there is no endpoint to call.
+     * Revoked server-side, not just forgotten locally.
      *
-     * The token is a stateless JWT — nothing server-side is tracking it, so
-     * there is nothing to revoke and a round trip would be theatre. It stops
-     * working when it expires. Worth knowing if a "sign out of all devices"
-     * feature is ever asked for: that needs a token version on the customer
-     * document, and this is where it would be bumped.
+     * The account carries `sessionVersion`; `logoutCustomer` bumps it, and the
+     * token this device is holding — along with every other token issued to
+     * this account — is refused on its next request (`SESSION_REVOKED`). Must
+     * run BEFORE `persist(null)` clears the token out of the client, the same
+     * ordering `persist` already uses for `unregisterDevice` just below, and
+     * for the same reason: after `setAuthToken(null)` this would be an
+     * unauthenticated call the server has nothing to attribute it to.
+     *
+     * Failure is swallowed. A phone with no signal, or a token that already
+     * expired, must still be able to sign out locally — the point of this
+     * call is defense in depth for a leaked token, not a precondition for
+     * leaving.
      */
+    await logoutCustomer().catch(() => {});
     await persist(null);
     setPendingPhone(null);
     setPendingPhoneMasked(null);

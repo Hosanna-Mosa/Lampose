@@ -511,3 +511,81 @@ export const setOrderStatus = async (
   });
   return res.data;
 };
+
+/* ── Payouts ──────────────────────────────────────────────────────────────
+   Reads `GET /me/payouts` and `POST /me/payouts/request` — the same two
+   handlers the web restaurant console calls, mounted a second time in
+   `Backend/src/modules/foodpartners/foodPartner.routes.js`. See the long
+   comment above `listPayouts` in `restaurantAdmin.controller.js` for why one
+   implementation answers both doors. */
+
+export type FoodPayoutBalance = {
+  /** What could be requested right now. */
+  available: number;
+  availableOrders: number;
+  /** Already asked for and not yet settled. */
+  pending: number;
+  pendingRequests: number;
+  /** Cash the restaurant collected itself at the counter — never Lampose's to pay out. */
+  collectedByYou: number;
+  collectedByYouOrders: number;
+  /** Real trade, not yet earned: accepted, cooking, or on a rider's bike. */
+  inProgress: number;
+  inProgressOrders: number;
+};
+
+export type FoodPayoutStatus = "pending" | "paid" | "rejected";
+
+export type FoodPayoutRow = {
+  payoutId: string;
+  restaurantId: string;
+  restaurantName: string;
+  amount: number;
+  status: FoodPayoutStatus;
+  orderCount: number;
+  orderNumbers: string[];
+  /** Snapshotted when the request was made — never a live account reference. */
+  account: {
+    accountLast4?: string;
+    ifscCode?: string;
+    accountHolderName?: string;
+    upiId?: string;
+  };
+  requestedAt: string;
+  paidAt: string | null;
+  reference: string;
+  paidByAdminName: string;
+  rejectionReason: string;
+  rejectedAt: string | null;
+};
+
+export type PayoutOverview = {
+  balance: FoodPayoutBalance;
+  /** The floor a request must clear, read from the server rather than
+   *  hardcoded here — the button and the backend must never disagree about
+   *  when a request is allowed. */
+  minimum: number;
+  history: FoodPayoutRow[];
+};
+
+export const getMyPayouts = async (token: string): Promise<PayoutOverview> => {
+  const res = await api<Envelope<PayoutOverview>>(`${BASE}/me/payouts`, { token });
+  return res.data;
+};
+
+/**
+ * The "Request payout" press.
+ *
+ * Moves no money — it reserves what is owed and puts a row in front of a
+ * Lampose staff member. Refused (as a real `ApiError`, not a false success)
+ * when there is no bank account on file, a request is already open, there is
+ * nothing to pay out yet, or the balance is below the server's minimum — the
+ * screen shows whichever of those the backend actually said.
+ */
+export const requestMyPayout = async (token: string): Promise<FoodPayoutRow> => {
+  const res = await api<Envelope<FoodPayoutRow>>(`${BASE}/me/payouts/request`, {
+    method: "POST",
+    token,
+  });
+  return res.data;
+};

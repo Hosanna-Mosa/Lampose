@@ -101,9 +101,20 @@ export default function RootLayout() {
     form, where every PATCH is refused 403 and nothing on screen explains any
     of it. The refusal itself does not depend on a previous read, so it is
     asked as well.
+
+    The un-onboarded state names itself above but, until now, nothing actually
+    routed to it: `readyToWork` checked only `signedIn && !suspended`, so a
+    brand-new rider — real sign-up, `hasCompletedOnboarding` still false —
+    landed straight in the tabs and could never reach the one screen whose
+    final step is the only place in the app that sets that flag. `profile` is
+    read here rather than re-fetched, because it is persisted (`partialize`
+    below) and already current the instant `verifyCode`/`signInWithPassword`
+    resolve — no flash of the wrong screen while a fresh `GET /me` is in
+    flight.
   */
   const suspended = signedIn && (profile?.status === "suspended" || !!suspensionNotice);
-  const readyToWork = signedIn && !suspended;
+  const needsOnboarding = signedIn && !suspended && !profile?.hasCompletedOnboarding;
+  const readyToWork = signedIn && !suspended && !!profile?.hasCompletedOnboarding;
 
   const [fontsLoaded, fontError] = useFonts(fonts);
   // A font that fails to download must not strand the rider on a splash
@@ -184,6 +195,12 @@ export default function RootLayout() {
               account through. */}
           <Stack.Protected guard={suspended}>
             <Stack.Screen name="suspended" options={{ animation: "fade" }} />
+          </Stack.Protected>
+
+          {/* Second, so a signed-in rider who has not finished onboarding
+              lands here instead of the tabs — see the long comment above. */}
+          <Stack.Protected guard={needsOnboarding}>
+            <Stack.Screen name="onboarding" options={{ animation: "fade" }} />
           </Stack.Protected>
 
           <Stack.Protected guard={readyToWork}>

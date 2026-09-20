@@ -222,11 +222,15 @@ export default function AuthScreen() {
     } catch {}
 
     try {
-      await verifyCode(code, name.trim() || undefined);
+      const profile = await verifyCode(code, name.trim() || undefined);
       try {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch {}
-      router.replace("/(tabs)");
+      /* The SERVER decides where a rider lands, exactly as after a password
+         sign-in below — a real sign-up with fields still missing must land on
+         `/onboarding`, not the tabs, or `hasCompletedOnboarding` never gets
+         the chance to become true. */
+      router.replace(profile.hasCompletedOnboarding ? "/(tabs)" : "/onboarding");
     } catch (err) {
       try {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
