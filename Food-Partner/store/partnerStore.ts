@@ -21,6 +21,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { secureFields } from "../services/secureStore";
 
 import { DAYS } from "@/constants/partner";
+import { logWarn } from "@/lib/log";
 import { uid } from "@/lib/uid";
 import { disconnectOrderSocket } from "@/services/orderSocket";
 import { releaseOrderSound } from "@/services/alertSound";
@@ -722,7 +723,7 @@ export const usePartnerStore = create<PartnerState>()(
       /* Hydrated on success AND on failure. A corrupt cache must never strand
          a partner on the splash screen with no way forward. */
       onRehydrateStorage: () => (state, error) => {
-        if (error) console.warn("[partnerStore] rehydrate failed, starting fresh", error);
+        if (error) logWarn("[partnerStore] rehydrate failed, starting fresh", error);
         usePartnerStore.setState({ hydrated: true });
         /* `data.otpVerified` is a flag the form gates on; `phoneProof` is the
            token that actually backs it. If the cached proof is gone or has

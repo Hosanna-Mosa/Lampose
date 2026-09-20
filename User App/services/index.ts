@@ -24,6 +24,7 @@ export {
 
 export {
   fetchMe,
+  logoutCustomer,
   resendAuthCode,
   startAuth,
   updateMe,

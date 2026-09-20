@@ -241,7 +241,55 @@ async function notifyDriverOfDocumentDecision(driver, kind, { status, reason = '
   );
 }
 
+/**
+ * "You have been put back online" / "You have been taken offline" — an
+ * operator reaching into the duty switch from the console, not the rider's
+ * own `POST /me/duty`.
+ *
+ * The live event carries `isOnline` so a Home screen already open updates the
+ * switch itself rather than a rider discovering it only when the next offer
+ * never arrives. The push reaches the phone in a pocket, same as an account
+ * decision — a rider taken offline mid-errand has no open screen for the
+ * socket to reach.
+ */
+async function notifyDriverOfDutyChange(driver, { online, reason = '' } = {}) {
+  const said = String(reason || '').trim();
+
+  const copy = online
+    ? {
+      title: 'You are back online',
+      body: 'Our team has put you back online. You can start taking deliveries now.',
+    }
+    : {
+      title: 'You have been taken offline',
+      body: said
+        ? `${said} — open Support in the app if you want to discuss it.`
+        : 'Our team has taken you offline. Open Support in the app if you want to discuss it.',
+    };
+
+  return announce(
+    driver.driverId,
+    'duty_forced',
+    {
+      isOnline: online,
+      isAvailable: driver.isAvailable,
+      onlineSince: driver.onlineSince,
+      reason: said,
+      at: new Date().toISOString(),
+    },
+    {
+      ...copy,
+      data: { kind: 'driver_duty', online, driverId: driver.driverId },
+      sound: 'default',
+      channelId: JOB_CHANNEL,
+      priority: 'high',
+    },
+    `duty-${online ? 'online' : 'offline'}`,
+  );
+}
+
 module.exports = {
   notifyDriverOfDecision,
   notifyDriverOfDocumentDecision,
+  notifyDriverOfDutyChange,
 };

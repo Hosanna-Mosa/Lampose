@@ -172,8 +172,14 @@ export function setSessionExpiredHandler(handler: (() => void) | null): void {
   onSessionExpired = handler;
 }
 
-/** The codes the customer auth middleware answers 401 with. */
-const SESSION_DEAD = new Set(['TOKEN_EXPIRED', 'BAD_TOKEN', 'ACCOUNT_GONE', 'WRONG_TOKEN_TYPE']);
+/** The codes the customer auth middleware answers 401 with.
+ *  `SESSION_REVOKED` is `customerAuth.middleware.js`'s answer when a token's
+ *  `ver` claim no longer matches the account's `sessionVersion` — the code
+ *  `logoutCustomer`'s "sign out everywhere" produces, and the one a future
+ *  admin-side revocation would too. Without it here, a revoked session 401s
+ *  forever without ever tripping `onSessionExpired`, and the app is stuck
+ *  signed-in-but-broken instead of dropping to the sign-in screen. */
+const SESSION_DEAD = new Set(['TOKEN_EXPIRED', 'BAD_TOKEN', 'ACCOUNT_GONE', 'WRONG_TOKEN_TYPE', 'SESSION_REVOKED']);
 
 /* ------------------------------------------------------------------ *
  * Request ids

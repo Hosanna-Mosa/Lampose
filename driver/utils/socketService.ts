@@ -1,4 +1,7 @@
 import { io, Socket } from "socket.io-client";
+
+import { logWarn } from "@/services/log";
+
 import { API_URL } from "./api";
 
 type Listener = (...args: any[]) => void;
@@ -23,7 +26,7 @@ class SocketService {
 
   connect(driverId?: string | null, token?: string | null): Socket | null {
     if (!API_URL) {
-      console.warn("[socket] EXPO_PUBLIC_API_URL is not set — realtime disabled.");
+      logWarn("[socket] EXPO_PUBLIC_API_URL is not set — realtime disabled.");
       return null;
     }
     if (driverId) this.driverId = driverId;
@@ -53,7 +56,7 @@ class SocketService {
     this.socket.on("connect_error", (err) => {
       if (this.warnedOffline) return;
       this.warnedOffline = true;
-      console.warn(
+      logWarn(
         `[socket] can't reach ${API_URL} (${err?.message ?? err}) — retrying quietly in the background.`,
       );
     });
@@ -86,7 +89,7 @@ class SocketService {
 
   emit(event: string, payload?: unknown) {
     if (!this.socket?.connected) {
-      console.warn(`[socket] dropped "${event}" — not connected.`);
+      logWarn(`[socket] dropped "${event}" — not connected.`);
       return;
     }
     this.socket.emit(event, payload);

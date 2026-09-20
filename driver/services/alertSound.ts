@@ -38,6 +38,8 @@ import * as Haptics from "expo-haptics";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
+import { logWarn } from "@/services/log";
+
 import { OFFER_CHANNEL } from "./offerAlerts";
 
 /*
@@ -73,7 +75,7 @@ function loadAudio(): LoadedAudio | null {
     /* Not in this build. Say so once — a silent alert is worth one line in the
        log, because "why is there no sound" is otherwise unanswerable. */
     audioMissing = true;
-    console.warn(
+    logWarn(
       "[alert] expo-audio is not in this build — alerts will be silent. "
       + "Rebuild with `npx expo run:android` (a JS reload is not enough for a native module).",
     );

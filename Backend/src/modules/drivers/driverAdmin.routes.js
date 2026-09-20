@@ -30,7 +30,7 @@ const express = require('express');
 const verifyAdminToken = require('../analytics/verifyAdminToken.middleware');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const {
-  listDrivers, getDriver, decideDriver, decideDocument,
+  listDrivers, getDriver, decideDriver, decideDocument, setDriverDuty,
 } = require('./driverAdmin.controller');
 
 const router = express.Router();
@@ -40,6 +40,12 @@ const router = express.Router();
 const { can } = require('../iam/iam.middleware');
 
 const requireDriverApprover = can('riders.decide');
+/* Duty is orthogonal to approval — see `driverAdmin.controller.js` — and gets
+   its own, separate capability rather than piggybacking on `riders.decide`:
+   the same three roles hold both today, but they are two different verbs and
+   a future role split (an operator who can toggle duty but not decide an
+   account) should be one line here, not a rename of what this route checks. */
+const requireDutyController = can('riders.duty');
 
 router.use(verifyAdminToken);
 router.use(requireLamposeDb);
@@ -58,5 +64,10 @@ router.get('/:driverId', getDriver);
    the same operator doing the same job, one at two levels of consequence. */
 router.patch('/:driverId/documents/:kind', requireDriverApprover, decideDocument);
 router.patch('/:driverId/decision', requireDriverApprover, decideDriver);
+
+/* Put a rider on or off the road directly, independent of the account
+   decision above — see the long comment on `setDriverDuty` for why this is
+   its own route rather than a side effect of one. */
+router.patch('/:driverId/duty', requireDutyController, setDriverDuty);
 
 module.exports = router;

@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Box, Btn, Card, Chip, ConfirmSheet, DataRow, Icon, Notice, Scroller, Tappable, Text, TopBar } from "@/components/common";
 import { BENEFITS, COPY } from "@/constants/partner";
 import { deliverySentence } from "@/lib/money";
+import { ApiError } from "@/services/api";
 import { getMe } from "@/services/foodPartner";
 import { usePartnerStore, type ApplicationStatus } from "@/store/partnerStore";
 import { colors, layout, radius, space, tone as resolveTone, touch, type ToneName } from "@/theme";
@@ -84,7 +85,28 @@ export function Status() {
         verificationNote: me.verificationNote,
       });
     } catch (err) {
-      setCheckError((err as Error)?.message || "We could not reach the server.");
+      /* `getMe` — every `/me`-family call — 403s a rejected restaurant with
+         this exact code (`foodPartnerAuth.middleware.js`) rather than ever
+         answering with a body carrying `verificationStatus: 'rejected'`. So a
+         partner who is already rejected and presses "Check for an update"
+         would otherwise see this fail every single time with what reads as a
+         network problem, never as the confirmation it actually is: still
+         rejected, same reason. Recorded as a real status update, not an
+         error, so the headline and reason stay in sync with what the server
+         just said rather than only with whatever was cached at sign-in. */
+      if (err instanceof ApiError && (err.payload as { code?: string })?.code === "ACCOUNT_REJECTED") {
+        const data = (err.payload as { data?: { verificationStatus?: string; verificationNote?: string } })?.data;
+        if (restaurantId) {
+          syncFromServer({
+            restaurantId,
+            restaurantName: session.restaurantName,
+            verificationStatus: data?.verificationStatus ?? "rejected",
+            verificationNote: data?.verificationNote ?? "",
+          });
+        }
+      } else {
+        setCheckError((err as Error)?.message || "We could not reach the server.");
+      }
     } finally {
       setChecking(false);
     }

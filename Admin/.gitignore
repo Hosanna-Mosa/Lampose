@@ -31,11 +31,17 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
-.env*.local
+# ── Environment and secrets ──────────────────────────────────────────────
+# Commit .env.example instead, so the required keys are documented without
+# their values. .env.production is currently tracked deliberately (it holds
+# only VITE_API_BASE_URL, no secret) — this does not untrack it, it only
+# stops a FUTURE .env* file (one that might carry a real key) from being
+# added by accident.
+.env
+.env.*
+.env.production
+!.env.example
 
 # typescript
 *.tsbuildinfo
 .vercel
-
-.env

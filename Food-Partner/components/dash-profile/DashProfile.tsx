@@ -64,7 +64,7 @@ export function DashProfile() {
       try {
         const ticketsRes = await listTickets(session.token);
         const ticketList = Array.isArray(ticketsRes) ? ticketsRes : (ticketsRes as any)?.tickets || [];
-        const unread = ticketList.filter((t: any) => t.hasUnreadReply).length;
+        const unread = ticketList.filter((t: any) => t.unread).length;
         setSupportUnread(unread);
       } catch (e) {
         setSupportUnread(0);
@@ -135,7 +135,7 @@ export function DashProfile() {
         <View style={styles.heroCard}>
           <View style={styles.avatarWrapper}>
             <Image
-              source={{ uri: (me as any)?.coverImageUrl || DEFAULT_AVATAR }}
+              source={{ uri: me?.coverBannerImage?.url || DEFAULT_AVATAR }}
               style={styles.heroAvatar}
             />
             <View style={styles.cameraIconBadge}>
@@ -183,13 +183,15 @@ export function DashProfile() {
 
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Cuisine</Text>
-            <Text style={styles.infoValue}>{(me as any)?.cuisines?.join(", ") || "Biryani, North Indian"}</Text>
+            <Text style={styles.infoValue}>{me?.cuisineTypes?.join(", ") || "Biryani, North Indian"}</Text>
           </View>
 
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Address</Text>
             <Text style={[styles.infoValue, { flex: 1, textAlign: "right" }]} numberOfLines={2}>
-              {me?.address ? `${me.address.area}, ${me.address.city}` : "Lampose Food Hub"}
+              {me?.address
+                ? [me.address.line1, me.address.city].filter(Boolean).join(", ") || "Lampose Food Hub"
+                : "Lampose Food Hub"}
             </Text>
           </View>
         </View>
@@ -298,7 +300,7 @@ export function DashProfile() {
 
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>FSSAI License No.</Text>
-            <Text style={styles.infoValue}>{(me as any)?.fssaiNumber || "Verified ✓"}</Text>
+            <Text style={styles.infoValue}>{me?.fssaiLicenseNumber || "Verified ✓"}</Text>
           </View>
 
           <View style={styles.infoRow}>
@@ -309,14 +311,20 @@ export function DashProfile() {
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Bank Account</Text>
             <Text style={styles.infoValue}>
-              {(me as any)?.payoutBankLast4 ? `•••• •••• ${(me as any).payoutBankLast4}` : "•••• 4321"}
+              {me?.payout?.accountLast4 ? `•••• •••• ${me.payout.accountLast4}` : "•••• 4321"}
             </Text>
           </View>
 
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>IFSC Code</Text>
-            <Text style={styles.infoValue}>{(me as any)?.payoutIfsc || "SBIN0001234"}</Text>
+            <Text style={styles.infoValue}>{me?.payout?.ifscCode || "SBIN0001234"}</Text>
           </View>
+
+          <Pressable style={styles.payoutsLink} onPress={() => router.push("/payouts")}>
+            <Icon name="wallet" size={16} color="#059669" />
+            <Text style={styles.payoutsLinkText}>What you're owed, and payout history</Text>
+            <Icon name="chevronRight" size={16} color="#059669" />
+          </Pressable>
         </View>
 
         {/* ── SIGN OUT BUTTON ──────────────────────────────────────────── */}
@@ -568,6 +576,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: "#FFFFFF",
+  },
+
+  payoutsLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 6,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+  },
+  payoutsLinkText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#059669",
   },
 
   /* SIGN OUT BUTTON */

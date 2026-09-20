@@ -4,7 +4,11 @@ const mongoose = require('mongoose');
 
 async function inspectDatabaseCollections() {
   console.log('🔍 Connecting to MongoDB Atlas...');
-  const mongoUri = process.env.MONGO_URI || 'mongodb+srv://sunandvemavarapu_db_user:G8cKnrZjYIymqsXi@cluster0.bs3nhlp.mongodb.net/lamp_onboarding?retryWrites=true&w=majority';
+  const mongoUri = process.env.MONGO_URI;
+  if (!mongoUri) {
+    console.error('❌ MONGO_URI is not set. Add it to Backend/.env (see .env.example).');
+    process.exit(1);
+  }
 
   try {
     await mongoose.connect(mongoUri);

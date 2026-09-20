@@ -511,6 +511,101 @@ const decideDriver = async (req, res, next) => {
   }
 };
 
+// @route   PATCH /api/v1/admin/drivers/:driverId/duty
+// @desc    Put a rider on or off the road directly, independent of an account decision
+// @access  Admin console (`riders.duty` — see the router)
+/**
+ * The duty switch, from the other side.
+ *
+ * `POST /me/duty` is the rider's own choice; this is an operator reaching in
+ * from the console — pulling somebody off the road for a safety call mid-shift
+ * without the heavier step of suspending the account, or putting a rider back
+ * online after a phone call resolves whatever took them offline in the first
+ * place.
+ *
+ * Going OFFLINE never needs the rider's own guardrails: `POST /me/duty`
+ * refuses to drop a rider mid-delivery because the way out is meant to be
+ * `/orders/:number/release`, but an operator's reason for reaching in here is
+ * exactly the case where waiting for the rider to do that themselves is the
+ * problem. The order is left alone either way — see `decideDriver` above for
+ * the same reasoning applied to a suspension.
+ *
+ * Going ONLINE keeps the rider's own two guardrails (`approved`,
+ * `hasCompletedOnboarding`) rather than waiving them: an operator forcing an
+ * unapproved or half-onboarded rider into the dispatch pool is a bigger
+ * decision than a duty toggle, and it already has its own route — approve the
+ * account first.
+ *
+ * A reason is required only for taking somebody offline — the direction that
+ * costs the rider work — mirroring `decideDriver`'s own rule.
+ */
+const setDriverDuty = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+
+    const online = (req.body || {}).online === true || (req.body || {}).online === 'true';
+    const reason = String((req.body || {}).reason || '').trim().slice(0, 300);
+    if (!online && !reason) {
+      return fail(
+        res, 400, 'REASON_REQUIRED',
+        'Say why this rider is being taken offline. They are shown this.',
+      );
+    }
+
+    const driver = await Driver.findOne({ driverId: String(req.params.driverId || '').trim() });
+    if (!driver) return fail(res, 404, 'NOT_FOUND', 'We could not find that rider.');
+
+    if (online) {
+      if (driver.status !== 'approved') {
+        return fail(
+          res, 409, 'NOT_APPROVED',
+          'This rider is not approved. Approve the account before putting them online.',
+        );
+      }
+      if (!driver.hasCompletedOnboarding) {
+        return fail(
+          res, 409, 'ONBOARDING_INCOMPLETE',
+          'This rider has not finished setting up their profile and vehicle.',
+        );
+      }
+    }
+
+    const before = driver.isOnline;
+    driver.isOnline = online;
+    driver.onlineSince = online ? (driver.onlineSince || new Date()) : null;
+    /* Mirrors `setDuty`'s own rule: only ever claimed TRUE here, and only with
+       nothing already in hand — the dispatcher owns the false the rest of the
+       time. Taken offline always clears it, carrying an order or not. */
+    if (online && !driver.currentOrderNumber) driver.isAvailable = true;
+    if (!online) driver.isAvailable = false;
+
+    await driver.save();
+
+    const actor = req.admin?.name || req.admin?.email || 'admin';
+    console.log(
+      `${BADGE} ${driver.driverId} duty ${before ? 'ONLINE' : 'offline'} → ${online ? 'ONLINE' : 'offline'}`
+      + ` · forced by ${actor}`
+      + `${reason ? ` · ${reason}` : ''}`
+      + `${driver.currentOrderNumber ? ` · STILL CARRYING ${driver.currentOrderNumber}` : ''}`,
+    );
+
+    /* Not awaited — see `decideDriver` above for why: the change is already
+       committed, and a handset that cannot be reached must not turn a saved
+       decision into an error the operator is invited to retry. */
+    accountNotifier.notifyDriverOfDutyChange(driver, { online, reason }).catch(() => {});
+
+    const warning = !online && driver.currentOrderNumber
+      ? `This rider is still carrying ${driver.currentOrderNumber}. Taking them offline does not `
+        + 'remove the order — call them, or have them release it in the app, if it needs reassigning.'
+      : '';
+
+    return res.json({ success: true, data: queueRow(driver.toObject()), warning });
+  } catch (error) {
+    console.error(`${BADGE} forcing duty failed:`, error.message);
+    return next(error);
+  }
+};
+
 module.exports = {
-  listDrivers, getDriver, decideDriver, decideDocument,
+  listDrivers, getDriver, decideDriver, decideDocument, setDriverDuty,
 };

@@ -150,3 +150,32 @@ export async function updateMe({ signal, ...patch }: UpdateMeInput): Promise<Bac
   );
   return unwrap(envelope);
 }
+
+/* ------------------------------------------------------------------ *
+ * Signing out
+ * ------------------------------------------------------------------ */
+
+/**
+ * Ends the session server-side, not just on this device.
+ *
+ * `everywhere: true` always — the account has no per-device session, only an
+ * account-wide `sessionVersion`, so there is no way to revoke just the token
+ * this handset holds without also revoking every other one. That is the
+ * correct trade for a "Log out" button: a student who logs out expects the
+ * word to mean it, and a token copied off this phone (or left in memory after
+ * the app is closed) should not keep answering to Lampose once they have.
+ *
+ * Called with whatever token is still set — this must run BEFORE the caller
+ * clears it, or the request has nothing to authenticate with. Failure is
+ * swallowed by the caller (`AuthContext.signOut`), never by here: a phone with
+ * no signal must still be able to sign out locally, and the token will fall
+ * out of use on its own once it expires.
+ */
+export async function logoutCustomer(signal?: AbortSignal): Promise<void> {
+  const envelope = await api.post<ApiEnvelope<{ everywhere: boolean }>>(
+    endpoints.customerAuthLogout,
+    { everywhere: true },
+    { signal },
+  );
+  unwrap(envelope);
+}

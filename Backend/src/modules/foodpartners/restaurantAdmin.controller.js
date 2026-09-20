@@ -961,13 +961,18 @@ const loadWithNumbers = (restaurantId) => FoodRestaurant
 
 /**
  * @route   GET /api/v1/restaurant-admin/payout-accounts
- * @access  Restaurant Admin session
+ * @access  Restaurant Admin session. Reads `req.foodPartner` rather than
+ *          `req.restaurantAdmin` (both point at the same document under this
+ *          guard) purely for consistency with every other handler in this
+ *          file — not yet mounted anywhere else. See `listPayouts`/
+ *          `requestPayout` below, which ARE also mounted on the mobile app's
+ *          router.
  */
 const listPayoutAccounts = async (req, res, next) => {
   try {
     if (!isUp()) return dbDown(res);
 
-    const restaurant = await loadWithNumbers(req.restaurantAdmin.restaurantId);
+    const restaurant = await loadWithNumbers(req.foodPartner.restaurantId);
     if (!restaurant) return fail(res, 404, 'NOT_FOUND', 'This account no longer exists.');
 
     if (backfillFromPayout(restaurant)) await restaurant.save();
@@ -994,7 +999,7 @@ const listPayoutAccounts = async (req, res, next) => {
 /**
  * @route   POST /api/v1/restaurant-admin/payout-accounts
  * @desc    Save a bank account. The first one saved becomes the active one.
- * @access  Restaurant Admin session
+ * @access  Restaurant Admin session. See the note on `listPayoutAccounts`.
  */
 const addPayoutAccount = async (req, res, next) => {
   try {
@@ -1005,7 +1010,7 @@ const addPayoutAccount = async (req, res, next) => {
       return fail(res, 400, 'BAD_INPUT', problems.join(' '), { fields: ['payoutAccount'] });
     }
 
-    const restaurant = await loadWithNumbers(req.restaurantAdmin.restaurantId);
+    const restaurant = await loadWithNumbers(req.foodPartner.restaurantId);
     if (!restaurant) return fail(res, 404, 'NOT_FOUND', 'This account no longer exists.');
 
     /* Saved immediately rather than relying on the save at the end of this
@@ -1074,13 +1079,13 @@ const addPayoutAccount = async (req, res, next) => {
 /**
  * @route   PATCH /api/v1/restaurant-admin/payout-accounts/:accountId/activate
  * @desc    Send future settlements to this account instead.
- * @access  Restaurant Admin session
+ * @access  Restaurant Admin session. See the note on `listPayoutAccounts`.
  */
 const activatePayoutAccount = async (req, res, next) => {
   try {
     if (!isUp()) return dbDown(res);
 
-    const restaurant = await loadWithNumbers(req.restaurantAdmin.restaurantId);
+    const restaurant = await loadWithNumbers(req.foodPartner.restaurantId);
     if (!restaurant) return fail(res, 404, 'NOT_FOUND', 'This account no longer exists.');
 
     if (backfillFromPayout(restaurant)) await restaurant.save();
@@ -1119,13 +1124,13 @@ const activatePayoutAccount = async (req, res, next) => {
 
 /**
  * @route   DELETE /api/v1/restaurant-admin/payout-accounts/:accountId
- * @access  Restaurant Admin session
+ * @access  Restaurant Admin session. See the note on `listPayoutAccounts`.
  */
 const removePayoutAccount = async (req, res, next) => {
   try {
     if (!isUp()) return dbDown(res);
 
-    const restaurant = await loadWithNumbers(req.restaurantAdmin.restaurantId);
+    const restaurant = await loadWithNumbers(req.foodPartner.restaurantId);
     if (!restaurant) return fail(res, 404, 'NOT_FOUND', 'This account no longer exists.');
 
     if (backfillFromPayout(restaurant)) await restaurant.save();
@@ -1200,20 +1205,35 @@ const removePayoutAccount = async (req, res, next) => {
    These two routes are the owner's half: see the balance, and press the
    button. Nothing here moves money or touches a gateway — a request is a row
    put in front of a person.
+
+   Mounted twice — once here for the web console, once in
+   `foodPartner.routes.js` under `/me/payouts` for the mobile app, behind
+   `requireFoodPartner` — the same handler both times, because the balance a
+   kitchen sees on its phone and the balance it sees in a browser must be one
+   number computed once. The bank account is not: these two routes rely on
+   `payoutAccounts` already holding one (backfilled from the restaurant's own
+   `payout` object the first time any payout route runs — see
+   `backfillFromPayout`), so a restaurant that only ever used the mobile app's
+   onboarding bank-details step still has an active account to request into
+   without ever visiting the accounts screen. Adding, switching or removing a
+   SAVED account is still console-only for now — see `listPayoutAccounts`.
    ══════════════════════════════════════════════════════════════════════════ */
 
 const PAYOUT_HISTORY_LIMIT = 50;
 
 /**
- * @route   GET /api/v1/restaurant-admin/payouts
+ * @route   GET /api/v1/restaurant-admin/payouts (also GET /api/v2/food-partners/me/payouts)
  * @desc    What can be requested, what is already asked for, and the history.
- * @access  Restaurant Admin session
+ * @access  Restaurant Admin session, or the Food-Partner mobile app's own
+ *          session — reads `req.foodPartner`, which both guards set to the
+ *          same document, so the balance and history one console reads are
+ *          the same numbers the other reads. See `foodPartner.routes.js`.
  */
 const listPayouts = async (req, res, next) => {
   try {
     if (!isUp()) return dbDown(res);
 
-    const { restaurantId } = req.restaurantAdmin;
+    const { restaurantId } = req.foodPartner;
 
     const [balance, rows] = await Promise.all([
       payouts.availableFor(restaurantId),
@@ -1240,9 +1260,10 @@ const listPayouts = async (req, res, next) => {
 };
 
 /**
- * @route   POST /api/v1/restaurant-admin/payouts/request
+ * @route   POST /api/v1/restaurant-admin/payouts/request (also POST /api/v2/food-partners/me/payouts/request)
  * @desc    Ask Lampose for the balance. Optionally names which saved account.
- * @access  Restaurant Admin session
+ * @access  Restaurant Admin session, or the Food-Partner mobile app's own
+ *          session. See `foodPartner.routes.js`.
  */
 const requestPayout = async (req, res, next) => {
   try {
@@ -1251,7 +1272,7 @@ const requestPayout = async (req, res, next) => {
     /* The account numbers are needed because the snapshot written onto the
        payout row is taken from the saved account, and `requireRestaurantAdmin`
        loaded the document without them. */
-    const restaurant = await loadWithNumbers(req.restaurantAdmin.restaurantId);
+    const restaurant = await loadWithNumbers(req.foodPartner.restaurantId);
     if (!restaurant) return fail(res, 404, 'NOT_FOUND', 'This account no longer exists.');
 
     /*

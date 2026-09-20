@@ -6,6 +6,7 @@ import { api, ApiError } from "@/utils/api";
 import type { ChatMessage } from "@/utils/chatMessages";
 import { getPushToken } from "@/services/offerAlerts";
 import { playOfferAlert } from "@/services/alertSound";
+import { logWarn } from "@/services/log";
 import { socketService } from "@/utils/socketService";
 import {
   isDemoCredentials, enterDemo, exitDemo, demoDriver, DEMO_TOKEN,
@@ -496,6 +497,8 @@ type DriverState = {
    * is a message rather than a state.
    */
   jobEndedNote: string;
+  /** The console reached into the duty switch — see `dutyForcedNote` below. */
+  dutyForcedNote: string;
   history: Job[];
   loadingHistory: boolean;
   busy: boolean;
@@ -569,6 +572,7 @@ type DriverState = {
 
   fetchActiveJob: () => Promise<void>;
   clearJobEndedNote: () => void;
+  clearDutyForcedNote: () => void;
   advanceJob: (status: "picked_up" | "delivered", code: string) => Promise<void>;
   releaseJob: (reason?: string) => Promise<void>;
 
@@ -604,6 +608,7 @@ export const useDriverStore = create<DriverState>()(
       offer: null,
       currentJob: null,
       jobEndedNote: "",
+      dutyForcedNote: "",
       history: [],
       loadingHistory: false,
       busy: false,
@@ -1160,6 +1165,10 @@ export const useDriverStore = create<DriverState>()(
         if (get().jobEndedNote) set({ jobEndedNote: "" });
       },
 
+      clearDutyForcedNote: () => {
+        if (get().dutyForcedNote) set({ dutyForcedNote: "" });
+      },
+
       /**
        * A hand-over.
        *
@@ -1281,7 +1290,7 @@ export const useDriverStore = create<DriverState>()(
           const res = await api<{ data?: Job[] }>(`${BASE}/me/orders`, { token });
           set({ history: Array.isArray(res?.data) ? res.data : [] });
         } catch (err) {
-          console.warn("[history] fetch failed:", (err as Error).message);
+          logWarn("[history] fetch failed:", (err as Error).message);
         } finally {
           set({ loadingHistory: false });
         }
@@ -1329,7 +1338,7 @@ export const useDriverStore = create<DriverState>()(
         earningsLoaded: s.earningsLoaded,
       }),
       onRehydrateStorage: () => (state, error) => {
-        if (error) console.warn("[store] rehydrate failed:", error);
+        if (error) logWarn("[store] rehydrate failed:", error);
         // Flip the gate regardless — a failed read just means a cold start.
         useDriverStore.setState({ hydrated: true });
         if (state?.token) socketService.connect(state.profile?.driverId ?? null, state.token);
@@ -1408,10 +1417,33 @@ export function startOfferPump(): () => void {
     }
   };
 
+  /* An operator reaching into the duty switch from the console — see
+     `notifyDriverOfDutyChange` on the backend. Applied straight from the
+     payload rather than re-read from `/me`: this event only ever arrives
+     AFTER the write it describes has already been committed there, so it is
+     exactly as current as a fresh read would be, one request cheaper. */
+  const onDutyForced = (payload: {
+    isOnline?: boolean;
+    isAvailable?: boolean;
+    onlineSince?: string | null;
+    reason?: string;
+  }) => {
+    if (typeof payload?.isOnline !== "boolean") return;
+    store.setState({
+      isOnline: payload.isOnline,
+      dutyForcedNote: payload.isOnline
+        ? "You are back online."
+        : payload.reason
+          ? `You have been taken offline — ${payload.reason}`
+          : "You have been taken offline by our team.",
+    });
+  };
+
   socketService.on("delivery_offer", onOffer);
   socketService.on("delivery_offer_closed", onOfferClosed);
   socketService.on("delivery_cancelled", onCancelled);
   socketService.on("dispatch_update", onDispatchUpdate);
+  socketService.on("duty_forced", onDutyForced);
 
   const timer = setInterval(() => {
     store.getState().pollOffer().catch(() => {});
@@ -1446,6 +1478,7 @@ export function startOfferPump(): () => void {
     socketService.off("delivery_offer_closed", onOfferClosed);
     socketService.off("delivery_cancelled", onCancelled);
     socketService.off("dispatch_update", onDispatchUpdate);
+    socketService.off("duty_forced", onDutyForced);
   };
 }
 

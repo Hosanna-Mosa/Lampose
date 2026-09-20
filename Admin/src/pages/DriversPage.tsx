@@ -37,6 +37,8 @@ import {
   ExternalLink,
   Eye,
   MapPin,
+  Power,
+  PowerOff,
   RefreshCw,
   ShieldCheck,
   Truck,
@@ -142,6 +144,7 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
   const [openId, setOpenId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [docNotes, setDocNotes] = useState<Record<string, string>>({});
+  const [dutyReason, setDutyReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
 
@@ -171,6 +174,7 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
     setOpenId(null);
     setNote('');
     setDocNotes({});
+    setDutyReason('');
   };
 
   /* ── The document verdict ────────────────────────────────────────────── */
@@ -232,6 +236,36 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
         ? { tone: 'crit', message: res.warning }
         : { tone: 'good', message: `Rider ${STATUS_LABEL[verdict].toLowerCase()}.` }
     );
+    detail.reload();
+    queue.reload();
+  };
+
+  /* ── Duty, direct — independent of the account decision above ───────── */
+  const setDuty = async (online: boolean) => {
+    if (!openId) return;
+    const reason = dutyReason.trim();
+    if (!online && !reason) {
+      setToast({
+        tone: 'crit',
+        message: 'Say why this rider is being taken offline — they are shown this.',
+      });
+      return;
+    }
+
+    setBusy(true);
+    const res = await driverAdminService.setDuty(openId, online, reason || undefined);
+    setBusy(false);
+
+    if (!res.success) {
+      setToast({ tone: 'crit', message: res.message || 'That did not save.' });
+      return;
+    }
+    setToast(
+      res.warning
+        ? { tone: 'crit', message: res.warning }
+        : { tone: 'good', message: online ? 'Rider put online.' : 'Rider taken offline.' }
+    );
+    setDutyReason('');
     detail.reload();
     queue.reload();
   };
@@ -505,6 +539,44 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
                 label="Available to dispatch"
                 value={open.isAvailable ? 'Yes' : `No — carrying ${dash(open.currentOrderNumber)}`}
               />
+
+              {/* Direct duty control — independent of the account decision
+                  below. Putting a rider online still needs an approved,
+                  fully onboarded account; the backend enforces that and this
+                  button simply reflects the refusal in the toast. */}
+              {canDecide && (
+                <Box className="mt-3 pt-3 border-t border-line space-y-2">
+                  {!open.isOnline && (
+                    <Field
+                      label="Reason"
+                      hint="Required to take a rider offline. The rider reads this in their app."
+                    >
+                      <Textarea
+                        rows={2}
+                        value={dutyReason}
+                        onChange={(e) => setDutyReason(e.target.value)}
+                        placeholder="e.g. Reports of unsafe riding — pulled off the road pending a call."
+                      />
+                    </Field>
+                  )}
+                  <Box className="flex items-center gap-2">
+                    {open.isOnline ? (
+                      <Button
+                        variant="danger"
+                        icon={PowerOff}
+                        onClick={() => setDuty(false)}
+                        disabled={busy}
+                      >
+                        Take offline
+                      </Button>
+                    ) : (
+                      <Button icon={Power} onClick={() => setDuty(true)} disabled={busy}>
+                        Put online
+                      </Button>
+                    )}
+                  </Box>
+                </Box>
+              )}
               <DataRow
                 label="Position"
                 value={

@@ -607,15 +607,18 @@ export function App() {
         delete payload.categoryDetails.localSharingImages;
       }
 
-      /* Development only. This prints the WHOLE submission — the owner's name
-         and mobile number, the agent's email, and every photograph as base64
-         — into a browser console on a field agent's laptop, where it stays in
-         the session and goes wherever that machine goes. Invaluable while
-         building the form, and not something to leave running in the field. */
+      /* This used to print the WHOLE submission — the owner's name and mobile
+         number, the agent's email, and every photograph URL — into a browser
+         console on a field agent's laptop, where it stays in the session and
+         goes wherever that machine goes. Even gated to DEV builds that is a
+         PII leak sitting in devtools, so only a shape summary is logged,
+         never the owner's or the agent's actual data. */
       if (import.meta.env.DEV) {
-        console.log('🚀 [Onboarding Started] Sending payload to backend:', payload);
-        console.log(`   👨‍💼 Employee Email: "${assignedEmail}"`);
-        console.log(`   📸 Images Array (${resolvedImages.length}):`, resolvedImages);
+        console.log('🚀 [Onboarding Started] Submitting property', {
+          fieldCount: Object.keys(payload).length,
+          imageCount: resolvedImages.length,
+          documentCount: (uploadedDocs || []).length,
+        });
       }
 
       /* From this line on, a failure is AMBIGUOUS: the request is in flight
@@ -623,10 +626,10 @@ export function App() {
       saveAttempted = true;
       const response = await onboardProperty(payload);
 
-      if (import.meta.env.DEV) console.log('📥 [Onboarding Response]:', response);
+      if (import.meta.env.DEV) console.log('📥 [Onboarding Response]:', { success: response?.success, kind: response?.kind });
 
       if (response && response.success) {
-        if (import.meta.env.DEV) console.log('✅ [Onboarding Success] Saved property:', response.data);
+        if (import.meta.env.DEV) console.log('✅ [Onboarding Success] Property saved.');
         // Redirect directly to Listings page and reload
         setActiveTab('listings');
         const activeEmpEmail = user?.email || getSavedEmployeeEmail() || '';

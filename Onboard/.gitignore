@@ -31,11 +31,15 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
-.env*.local
+# ── Environment and secrets ──────────────────────────────────────────────
+# Commit .env.example instead, so the required keys are documented without
+# their values. This also covers .env.production, so a real key never lands
+# in a committed, un-ignored file here.
+.env
+.env.*
+.env.production
+!.env.example
 
 # typescript
 *.tsbuildinfo
 .vercel
-
-.env
