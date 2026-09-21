@@ -35,6 +35,10 @@ require('../src/config/env');
 const { connectDB, closeConnections, isLamposeUp } = require('../src/infrastructure/database/db');
 const createApp = require('../app');
 
+/* Refuse to run against production. See src/infrastructure/database/guard.js */
+require('../src/infrastructure/database/guard').assertDevTargetOrExit();
+
+
 const results = [];
 const check = (name, ok, extra = '') => results.push([!!ok, name, extra]);
 

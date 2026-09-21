@@ -268,15 +268,6 @@ export const endpoints = {
     `${V2}/food-partners/orders/${encodeURIComponent(orderNumber)}/payment/verify`,
 
   /**
-   * Service zones — where Lampose operates, drawn by the admin console.
-   *
-   * Both are deliberately UNAUTHENTICATED on the server. A student deciding
-   * whether Lampose delivers to their block is asking before they have an
-   * account, and refusing to answer until they make one is how that student
-   * leaves. There is nothing to protect: a boundary is something the product
-   * advertises.
-   */
-  /**
    * The diner's address book.
    *
    * A LIST — an address is a property of the ORDER, chosen each time. Setting
@@ -289,11 +280,6 @@ export const endpoints = {
     `${V2}/customers/me/addresses/${encodeURIComponent(addressId)}`,
   addressDefault: (addressId: string) =>
     `${V2}/customers/me/addresses/${encodeURIComponent(addressId)}/default`,
-
-  zones: `${V2}/zones`,
-  /** `lat`/`lng` in, "is this served and what does it cost" out. */
-  zoneCheck: (lat: number, lng: number, service = 'food') =>
-    `${V2}/zones/check?lat=${lat}&lng=${lng}&service=${encodeURIComponent(service)}`,
 } as const;
 
 export default endpoints;

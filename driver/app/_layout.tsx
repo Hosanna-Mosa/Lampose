@@ -201,7 +201,6 @@ export default function RootLayout() {
             <Stack.Screen name="complete" options={{ animation: "fade" }} />
             <Stack.Screen name="order-detail" />
             <Stack.Screen name="documents" />
-            <Stack.Screen name="zones" />
             <Stack.Screen name="vehicle" />
             <Stack.Screen name="profile-details" />
             <Stack.Screen name="bank-details" />

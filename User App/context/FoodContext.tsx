@@ -25,7 +25,6 @@ import type {
 import { clockLabel, minuteOfDay } from '@/types/food';
 import { useAuth } from '@/context/AuthContext';
 import { useFoodFavourites } from '@/services/hooks/useFoodFavourites';
-import { checkZone } from '@/services/api/zones.api';
 import { addressLine, addressTitle, fetchAddresses, type SavedAddress } from '@/services/api/addresses.api';
 
 /**
@@ -492,100 +491,13 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   }, [signedIn]);
 
   /*
-    ── Serviceability, decided by the SERVER ────────────────────────────────
-
-    An address carries a `serviceable` flag of its own, and that flag is
-    optimistic until something contradicts it. The admin console draws the real
-    answer — service zones, in `service_zones` — and `GET /v2/zones/check` is
-    the one place that knows it, because the rule includes active hours and
-    allowed services as well as the geometry.
-
-    The verdict is kept per ADDRESS rather than for the selected one. It used
-    to be a single answer about whatever the cart was pointing at, which meant
-    the picker — the one screen whose whole job is choosing BETWEEN addresses —
-    drew every row from the raw book, where `serviceable` is hardcoded true.
-    The "we do not deliver here yet" line under those rows could never appear,
-    and a diner could pick the one address we cannot reach and find out after
-    paying for it.
-
-    Three states, and the middle one is the one to be careful with:
-    serviceable, NOT serviceable, and NOT YET ANSWERED. An address with no pin,
-    one whose check has not come back, and one whose check failed on a bad
-    network all keep their optimistic `true` — "we have no coordinate for this
-    place" is not evidence of a boundary, and turning a missing field into a
-    refusal is how a lost sale is manufactured. Only a definite `false` from
-    the server blocks anything.
-
-    ── And a `false` is not necessarily about geography ─────────────────────
-
-    `serviceable: false` answers exactly one question — "is this point inside a
-    zone that is live for food RIGHT NOW" — and it comes back false for two
-    quite different reasons. `findZoneFor` filters every candidate through
-    `isWithinActiveHours`, so a pin squarely inside a zone whose hours run
-    10:00–22:00 is unserviceable at 23:00 and serviceable again at breakfast.
-    The route sends `serviceable`, a pricing multiplier and `zone: null`, and
-    that null is the same null an out-of-area pin gets, so nothing in the
-    response tells the two apart. The backend says as much in `listLiveZones`,
-    where it refuses to apply the hours filter because a closed zone is "a
-    'closed right now' fact, not a 'not our area' one".
-
-    The note below therefore states the fact we actually have — we are not
-    delivering there at this moment — and names both possible reasons rather
-    than asserting the boundary one. It used to read "This address is outside
-    the area Lampose currently delivers to", which is a claim about the map
-    that is simply false for every address that is only closed for the night.
-  */
-  const [zoneVerdicts, setZoneVerdicts] = useState<Record<string, boolean>>({});
-  /* Which points have already been asked about, so a book of six addresses
-     costs six requests once rather than six on every render. A check that
-     FAILED is dropped from the set again, so re-opening the picker asks. */
-  const zonesAsked = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    let cancelled = false;
-    for (const entry of saved) {
-      const { lat, lng } = entry;
-      if (lat === undefined || lng === undefined) continue;
-      const key = `${lat},${lng}`;
-      if (zonesAsked.current.has(key)) continue;
-      zonesAsked.current.add(key);
-      checkZone(lat, lng, 'food')
-        .then((res) => {
-          if (cancelled) return;
-          setZoneVerdicts((current) => ({ ...current, [key]: res.serviceable }));
-        })
-        .catch(() => {
-          /* A check that could not be made is not a refusal. */
-          zonesAsked.current.delete(key);
-        });
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [saved]);
-
-  /*
-    The book, with the server's verdict stamped onto the row the diner is
-    actually looking at.
+    The book, exactly as the server keeps it.
 
     The fixtures are gone from this path entirely: an invented address is worse
     than none, because none can be asked for and an invention cannot be
     corrected.
   */
-  const choices: readonly FoodAddress[] = useMemo(
-    () =>
-      saved.map((entry) => {
-        const key = entry.lat !== undefined && entry.lng !== undefined ? `${entry.lat},${entry.lng}` : null;
-        if (!key || zoneVerdicts[key] !== false) return entry;
-        return {
-          ...entry,
-          serviceable: false,
-          unserviceableNote:
-            'We are not delivering to this address right now — it is either outside our area or inside one that is closed at this hour.',
-        };
-      }),
-    [saved, zoneVerdicts],
-  );
+  const choices: readonly FoodAddress[] = saved;
 
   /*
     The one picked out of the book, or NULL when nothing has been chosen —
@@ -986,10 +898,6 @@ function toFoodAddress(row: SavedAddress): FoodAddress {
     title: addressTitle(row),
     detail: addressLine(row),
     instructions: row.instructions || undefined,
-    /* Optimistic until `zones/check` says otherwise. An address the diner
-       saved is one we assume we serve; the zone check corrects it, and needs
-       a pin to do so. */
-    serviceable: true,
     ...(row.location ? { lng: row.location[0], lat: row.location[1] } : null),
   };
 }
@@ -1145,22 +1053,6 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       */
       if (!isPickup && !address) {
         throw new Error('Choose a delivery address before placing the order.');
-      }
-
-      /*
-        And an address we do not reach is not an address either.
-
-        `serviceable` is false ONLY when `zones/check` came back and said so.
-        An address with no pin, one still being checked, and one whose check
-        failed are all still `true` and still orderable — a missing coordinate
-        is not a boundary. Same backstop reasoning as the line above: the
-        picker and the payment button both refuse this, and both are screens a
-        deep link or a restored navigation state can walk past.
-      */
-      if (!isPickup && address?.serviceable === false) {
-        throw new Error(
-          address.unserviceableNote || 'We are not delivering to that address right now.',
-        );
       }
 
       /* WHAT was ordered, never how much it costs. Every figure comes back

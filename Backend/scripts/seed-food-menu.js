@@ -46,6 +46,10 @@ const { connectDB, closeConnections, isLamposeUp } = require('../src/infrastruct
 const FoodRestaurant = require('../src/modules/foodpartners/foodRestaurant.model');
 const FoodProduct = require('../src/modules/foodpartners/foodProduct.model');
 
+/* Refuse to run against production. See src/infrastructure/database/guard.js */
+require('../src/infrastructure/database/guard').assertDevTargetOrExit();
+
+
 const { makeProductId } = FoodProduct;
 
 const argv = process.argv.slice(2);

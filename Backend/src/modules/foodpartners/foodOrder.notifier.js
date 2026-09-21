@@ -48,6 +48,7 @@ const { BADGE } = require('./foodPartner.log');
 const realtime = require('../../infrastructure/realtime/realtime');
 const config = require('../../config/env');
 const { sendFoodOrderAlert } = require('../../infrastructure/twilio/twilio');
+const { linkSuffix } = require('./orderLink.service');
 
 /**
  * The Android channel the partner app must create with the same id.
@@ -81,10 +82,13 @@ const summarise = (lines = []) => {
 /**
  * A link that opens THIS order in the restaurant console.
  *
- * `#restaurant-orders/LO123456` — the console's hash router reads the
- * segment after the tab as the order to open, and drops straight into its
- * detail with the Accept button on screen. See `RestaurantConsole` in
- * `Admin/src/App.tsx`.
+ * `?order=LO123456&token=…` — the token is what lets the page open with NO
+ * sign-in, for this order only (see `orderLink.service.js`). Without it the link
+ * would have to open the console, which asks for the password, and an owner
+ * tapping a link from WhatsApp is often in an in-app browser that remembers
+ * nothing between taps — so every order asked for it again. When no token can
+ * be made (no signing secret configured) the link is the plain one and the
+ * console asks them to sign in, as it always did.
  *
  * Returns null when `RESTAURANT_CONSOLE_URL` is unset, and the message then
  * goes without a link rather than with a broken one — a kitchen that taps a
@@ -92,7 +96,7 @@ const summarise = (lines = []) => {
  * encoded even though it is always `LO` plus digits today: a link builder
  * that trusts its input is one id-format change away from a broken URL.
  */
-const orderLink = (orderNumber) => {
+const orderLink = (orderNumber, restaurantId) => {
   const base = config.restaurantConsoleUrl;
   if (!base) return null;
   /*
@@ -105,7 +109,7 @@ const orderLink = (orderNumber) => {
    * `#` survives. The console reads both spellings; this is the one that
    * travels.
    */
-  return `${base}/?order=${encodeURIComponent(orderNumber)}`;
+  return `${base}/?order=${linkSuffix(restaurantId, orderNumber)}`;
 };
 
 /**
@@ -131,8 +135,10 @@ async function whatsappTheOwner(order, restaurant) {
          only the suffix — its prefix is baked in and Meta-approved — while
          the text template and the plain-text fallback need the whole URL.
          The sender picks; see its header. */
-      link: orderLink(order.orderNumber),
-      linkSuffix: order.orderNumber,
+      link: orderLink(order.orderNumber, order.restaurantId),
+      /* `LO123456&token=…` — what the button template appends to its fixed
+         address, so the button carries the same proof as the link does. */
+      linkSuffix: linkSuffix(order.restaurantId, order.orderNumber),
     });
 
     if (res && res.success) {

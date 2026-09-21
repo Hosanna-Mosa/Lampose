@@ -74,11 +74,14 @@ const v1FoodOrderAdminRoutes = require('../src/modules/foodpartners/foodOrderAdm
    the food module, and the only one whose caller is not Lampose staff — see
    its header. */
 const v1RestaurantAdminRoutes = require('../src/modules/foodpartners/restaurantAdmin.routes');
+/* The page behind the link in the restaurant's "new order" WhatsApp: one order,
+   authenticated by the code in the link, no sign-in. Not a console session —
+   see its header. */
+const v1OrderLinkRoutes = require('../src/modules/foodpartners/orderLink.routes');
 /* The staff side of a restaurant's payout request — the queue a person
    settles by hand. A FOURTH router in the food module; see its header. */
 const v1FoodPayoutAdminRoutes = require('../src/modules/foodpartners/foodPayoutAdmin.routes');
 const v1DriverAdminRoutes = require('../src/modules/drivers/driverAdmin.routes');
-const v1ZoneAdminRoutes = require('../src/modules/zones/zoneAdmin.routes');
 const v1SupportAdminRoutes = require('../src/modules/support/supportAdmin.routes');
 
 const v2ListingRoutes = require('../src/modules/listings/listing.routes');
@@ -100,8 +103,13 @@ const {
 } = v2SupportRoutes;
 const v2PartnerRoutes = require('../src/modules/partners/partner.routes');
 const v2FoodPartnerRoutes = require('../src/modules/foodpartners/foodPartner.routes');
+/* The same food business seen by the WEBSITE rather than by the apps. A
+   separate module, not more routes under /food-partners — see its header for
+   why the two shapes are kept apart, and what it deliberately does not
+   duplicate. Read-only: the website places its orders through the router
+   above, which is the one that starts a dispatch. */
+const v2FoodWebRoutes = require('../src/modules/foodweb/foodWeb.routes');
 const v2DriverRoutes = require('../src/modules/drivers/driver.routes');
-const v2ZoneRoutes = require('../src/modules/zones/zone.routes');
 
 /* [mount path, router, one-line description]. The description is what the
    banner and GET /api print, so it is worth keeping accurate. */
@@ -149,18 +157,12 @@ const V1_GROUPS = [
      and it cannot reach them. */
   ['/admin/food-payouts', v1FoodPayoutAdminRoutes, 'restaurant payout requests: the queue, and marking one paid'],
   ['/restaurant-admin', v1RestaurantAdminRoutes, 'the restaurant owner’s console: their own orders, their own menu'],
+  ['/order-link', v1OrderLinkRoutes, 'the link in the restaurant’s new-order WhatsApp: view and move ONE order, no sign-in'],
   /* The rider queue, and the other half of the rule that makes "approved" mean
      something: NO route on /api/v2/drivers can set a rider's status, so this is
      the only way one ever gets on the road. Same identity, same roles and the
      same reasoning as the restaurant queue above. */
   ['/admin/drivers', v1DriverAdminRoutes, 'rider applications: the approval queue, suspensions, and the roster'],
-  /* Where Lampose operates, drawn on a map. v1 for the same reason as the two
-     queues above — the reader is an administrator in `admins`. Writing is
-     Super Admin / Admin only, because a zone decides where the product is sold
-     and what every order in it is multiplied by; reading is open to anybody
-     signed in, because "why was this address refused" is an everyday question.
-     The apps read the same shapes through /api/v2/zones, which cannot write. */
-  ['/admin/zones', v1ZoneAdminRoutes, 'service zones: draw, edit and retire the trading area'],
   /* The support queue, spanning all three apps. Every ticket a diner, rider
      or restaurant files arrives here; the three app-facing routers under v2
      can only ever read their own author's threads. */
@@ -217,6 +219,17 @@ const V2_GROUPS = [
      its to handle. */
   ['/food-partners/support', v2RestaurantSupportRoutes, 'Food-Partner app: support tickets'],
   ['/food-partners', v2FoodPartnerRoutes, 'Food-Partner app: restaurant onboarding, menu, orders, public discovery'],
+  /* The website's food pages — lampose.com, replacing the hand-written
+     fixture at `Frontend/src/data/food.js`. Its own prefix rather than more
+     paths under /food-partners, because its replies are shaped for the web
+     components and the apps have no use for those fields.
+
+     Read-only by design: an order is still PLACED through /food-partners
+     above, so there is one implementation of the thing that takes money and
+     summons a rider. Deliberately given NO unversioned alias, for the same
+     reason /food-partners has none — an alias exists to keep an old caller
+     working, and this surface has no old callers. */
+  ['/food-web', v2FoodWebRoutes, 'lampose.com food pages: the feed, a kitchen and its menu, checkout lists, orders and tracking'],
   /* Riders, in `app_drivers`. A SIXTH identity system — see
      driverAuth.middleware.js, which refuses any token not carrying
      `typ: 'driver'`. This is the other half of the food-delivery loop: the
@@ -231,11 +244,6 @@ const V2_GROUPS = [
      Before the general /drivers mount, for the ordering reason given above. */
   ['/drivers/support', v2DriverSupportRoutes, 'Driver app: support tickets'],
   ['/drivers', v2DriverRoutes, 'Driver app: rider accounts, duty, live position, delivery offers'],
-  /* The zones, as every client reads them. Deliberately UNAUTHENTICATED: the
-     User App asks "do you deliver to my block" on the address screen before
-     anybody has signed in, and refusing to answer until they do is how that
-     student leaves. Read-only by construction — the console owns writing. */
-  ['/zones', v2ZoneRoutes, 'service zones: is this point served, and the live map of where we operate'],
 ];
 
 /* Which version answers each unversioned path, and whether it also answers

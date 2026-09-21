@@ -7,9 +7,9 @@
    — three routers, each of which can only ever see its own author's threads.
    The console never touches those.
 
-   Versioned in the path for the reason `zoneService` gives: the unversioned
-   aliases in `routes/index.js` exist to keep callers written before versioning
-   working, not to hand new ones a second spelling to drift onto.
+   Versioned in the path deliberately: the unversioned aliases in
+   `routes/index.js` exist to keep callers written before versioning working,
+   not to hand new ones a second spelling to drift onto.
 
    ## Everything is normalised on the way in
 

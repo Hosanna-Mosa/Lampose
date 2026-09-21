@@ -36,6 +36,10 @@ const mongoose = require('mongoose');
 
 const config = require('../src/config/env');
 
+/* A report is harmless anywhere; the write is not. */
+if (process.argv.includes('--apply')) require('../src/infrastructure/database/guard').assertDevTargetOrExit();
+
+
 const arg = (name, fallback = null) => {
   const index = process.argv.indexOf(`--${name}`);
   return index !== -1 && process.argv[index + 1] ? process.argv[index + 1] : fallback;

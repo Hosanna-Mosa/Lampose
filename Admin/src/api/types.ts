@@ -863,66 +863,6 @@ export interface DriverQueueCounts {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Service zones — `service_zones`, read through `/v1/admin/zones`.
-
-   A zone is a shape and a price: where Lampose operates, and what a delivery
-   inside that area is multiplied by. Two geometries answer the same question —
-   a CIRCLE (a centre and a radius) and a POLYGON (a closed ring of vertices).
-
-   Every coordinate here is `[longitude, latitude]`, GeoJSON's order and
-   MongoDB's, kept unswapped from the database to the map. Google Maps wants
-   `{lat, lng}`, so the page converts at the point of use and nowhere else.
-   ══════════════════════════════════════════════════════════════════════════ */
-
-export type ZoneType = 'circle' | 'polygon';
-
-/** Empty `allowedServices` means every service — see the backend model. */
-export type ZoneService = 'food' | 'stay';
-
-export interface ZoneRow {
-  zoneId: string;
-  name: string;
-  description: string;
-  type: ZoneType;
-  /** `[longitude, latitude]`. Set for circles, null for polygons. */
-  center: [number, number] | null;
-  /** Metres. Set for circles. */
-  radius: number | null;
-  /** GeoJSON rings of `[longitude, latitude]`. Set for polygons. */
-  boundary: [number, number][][] | null;
-  pricingMultiplier: number;
-  isActive: boolean;
-  allowedServices: ZoneService[];
-  /** "HH:MM", both empty when the zone has no time restriction. */
-  activeHours: { start: string; end: string };
-  createdAt: string | null;
-  updatedAt: string | null;
-}
-
-export interface ZoneCounts {
-  total: number;
-  active: number;
-  circle: number;
-  polygon: number;
-}
-
-/** What the console sends to create or redraw one. */
-export interface ZoneInput {
-  name?: string;
-  description?: string;
-  type?: ZoneType;
-  /** `[longitude, latitude]`. */
-  center?: { coordinates: [number, number] };
-  radius?: number;
-  /** A bare ring is accepted — the server wraps and closes it. */
-  boundary?: [number, number][] | [number, number][][];
-  pricingMultiplier?: number;
-  isActive?: boolean;
-  allowedServices?: ZoneService[];
-  activeHours?: { start: string; end: string };
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
    Food orders — `food_orders`, read through `/v1/admin/food-orders`.
 
    The restaurant and rider queues above answer "may this person trade with
@@ -1211,6 +1151,20 @@ export interface FoodOrderDetail {
   pickupCode: string;
   statusHistory: FoodOrderStatusEvent[];
   flags: FoodOrderFlags;
+  /**
+   * Where the order was placed. A 'web' order is delivered by whoever the
+   * restaurant arranged, and only the diner or an admin says it arrived; an
+   * 'app' order has a real driver who completes it in the driver app.
+   */
+  channel: 'web' | 'app';
+  /** Who the restaurant said would deliver a website order: '' until chosen. */
+  deliveryMethod: '' | 'self' | 'driver';
+  /**
+   * May an admin mark this order delivered right now? The SERVER decides — a
+   * website delivery order that is ready or already taken by the delivery boy —
+   * and the button is drawn from this alone. The role gate is separate.
+   */
+  canMarkDelivered: boolean;
 }
 
 /**

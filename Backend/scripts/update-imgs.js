@@ -1,6 +1,10 @@
 const mongoose = require('mongoose');
 const config = require('../src/config/env');
 
+/* Refuse to run against production. See src/infrastructure/database/guard.js */
+require('../src/infrastructure/database/guard').assertDevTargetOrExit();
+
+
 async function run() {
   await mongoose.connect(config.db.uri, { dbName: config.db.dbName });
   const col = mongoose.connection.db.collection('properties');

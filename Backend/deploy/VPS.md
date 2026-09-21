@@ -188,6 +188,31 @@ and the symptom is the old backend URL still showing in the network tab.
 Do one frontend at a time and leave the old backends running for a few days.
 Rolling back is just putting the old URL back and rebuilding.
 
+## 11. Backups
+
+There were none until this section existed, and the cluster's tier decides
+whether that was survivable: **M0, M2 and M5 have no continuous backup and no
+point-in-time restore.** Check the tier before relying on anything below.
+
+```bash
+mongodump --uri="$MONGO_URI" --gzip \
+  --archive="/var/backups/lampose/$(date +%F-%H%M).gz"
+```
+
+Put it on a timer, keep it off the machine that made it, and **restore one**.
+Restore into a scratch database and compare per-collection counts against
+`npm run inspect:db`; a dump nobody has restored is not a backup.
+
+Two things in the codebase delete on their own, which is why this matters
+more than it looks: `clone-db.js --fresh` calls `dropDatabase()`, and three
+TTL indexes expire documents on a timer (payment events at 90 days, guest
+verifications at `expiresAt`, pending-OTP visit requests after an hour).
+
+**The database this box writes must not be the one developers hold a
+credential for.** See [Development versus production](../README.md#development-versus-production):
+production uses `lampose_api_prod`, developers use `lampose_dev`, and the
+live database's name belongs in `PROTECTED_DATABASES` on every machine.
+
 ## Updating later
 
 ```bash

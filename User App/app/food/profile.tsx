@@ -90,10 +90,6 @@ export default function FoodProfileScreen() {
             label="Delivery addresses"
             value={addressesLoading ? '…' : String(addressCount)}
             onPress={() => router.push('/addresses')}
-          />
-          <ProfileRow
-            label="Where we deliver"
-            onPress={() => router.push('/food/delivery-area')}
             last
           />
         </ProfileGroup>

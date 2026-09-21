@@ -96,6 +96,7 @@ import { Section } from '../components/common/molecules/Section';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bike,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   MapPin,
@@ -218,6 +219,23 @@ const VEG_LABEL: Record<string, string> = {
 const REFUNDING_ROLES = new Set(['Super Admin', 'Admin']);
 
 /**
+ * The roles the backend lets mark a website order delivered — `food.complete` in
+ * `iam.roles.js`. The same two as a refund, and mirrored for the same reason: so
+ * a button that would 403 is never drawn. The restaurant cannot do this at all
+ * (it is not staff), and neither can 'Food Admin' — deciding who cooks and who
+ * rides is not the authority to close an order.
+ */
+const COMPLETING_ROLES = new Set(['Super Admin', 'Admin']);
+
+/** Who brings a website order, in the words of the person reading this page. */
+const deliveredByLabel = (order: FoodOrderDetail): string => {
+  if (order.deliveryMethod === 'self') return "The restaurant's own delivery person";
+  if (order.deliveryMethod === 'driver') return 'A Lampose driver, asked for on WhatsApp';
+  if (order.channel === 'web') return 'Not chosen yet';
+  return 'Nobody is carrying this';
+};
+
+/**
  * Refusals after which the button must not come back.
  *
  * The money has already gone, it was never owed, or a click is still in the
@@ -268,6 +286,7 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
 }) => {
   const { user } = useAuth();
   const canRefund = REFUNDING_ROLES.has(user?.role ?? '');
+  const canComplete = COMPLETING_ROLES.has(user?.role ?? '');
 
   /* The landing view is the work, not the archive. */
   const [needs, setNeeds] = useState<FoodOrderNeeds | ''>('human');
@@ -290,6 +309,9 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
   const [settleOpen, setSettleOpen] = useState(false);
   const [reference, setReference] = useState('');
   const [settleNote, setSettleNote] = useState('');
+  /* "Mark delivered": one press asks, a second press does it. */
+  const [deliverStep, setDeliverStep] = useState<'idle' | 'asking' | 'sending'>('idle');
+  const [deliverNote, setDeliverNote] = useState('');
   const [toast, setToast] = useState<ToastState | null>(null);
 
   /*
@@ -408,6 +430,8 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
     setSettleOpen(false);
     setReference('');
     setSettleNote('');
+    setDeliverStep('idle');
+    setDeliverNote('');
   };
 
   const openOrder = (orderNumber: string) => {
@@ -432,6 +456,44 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
   const refreshAll = () => {
     queue.reload();
     reloadCounts();
+  };
+
+  /* ── Saying a website order arrived ──────────────────────────────── */
+
+  /* The order being written, so a second press while the first is in the air
+     never reaches the network — for ANY order, whichever the drawer shows. */
+  const deliveringRef = useRef<string | null>(null);
+
+  const sendDelivered = async () => {
+    if (!open || deliveringRef.current) return;
+    const orderNumber = open.orderNumber;
+    deliveringRef.current = orderNumber;
+    setDeliverStep('sending');
+
+    const res = await foodOrderService.markDelivered(orderNumber, deliverNote.trim() || undefined);
+    deliveringRef.current = null;
+
+    /* The drawer may have moved on while this was in the air. */
+    const showing = openNumberRef.current === orderNumber;
+
+    if (res.success && res.data) {
+      if (showing) {
+        setPatched(res.data);
+        setDeliverStep('idle');
+        setDeliverNote('');
+      }
+      setToast({ tone: 'good', message: `${orderNumber} is marked delivered.` });
+      refreshAll();
+      return;
+    }
+
+    /* Refused — most often because the diner pressed their own button a moment
+       ago (ALREADY_DELIVERED) — or never answered. Either way the order may
+       not be as this panel last saw it, so look again rather than guess. */
+    setToast({ tone: 'crit', message: res.message || 'That could not be saved. Reload the order and look.' });
+    if (showing) setDeliverStep('idle');
+    detail.reload();
+    refreshAll();
   };
 
   /* ── Sending the money back ──────────────────────────────────────── */
@@ -985,11 +1047,19 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
               <Badge tone={PAYMENT_META[open.payment.status].tone}>
                 {PAYMENT_META[open.payment.status].label} · {PAYMENT_MODE_LABEL[open.payment.mode]}
               </Badge>
-              {open.fulfilment === 'delivery' && (
+              {open.fulfilment === 'delivery' && !open.deliveryMethod && (
                 <Badge tone={DISPATCH_META[open.dispatch.state].tone}>
                   {DISPATCH_META[open.dispatch.state].label}
                 </Badge>
               )}
+              {/* A website order the restaurant arranged has no search for a
+                  rider, so "no rider needed yet" would only confuse. */}
+              {open.fulfilment === 'delivery' && !!open.deliveryMethod && (
+                <Badge tone="neutral" icon={Bike}>
+                  {open.deliveryMethod === 'self' ? 'Restaurant delivers' : 'Lampose driver asked'}
+                </Badge>
+              )}
+              {open.channel === 'web' && <Badge tone="neutral">Website order</Badge>}
               {open.fulfilment === 'pickup' && <Badge tone="neutral">Collected by the diner</Badge>}
               {open.flags.refundOwed && (
                 <Badge tone="crit" icon={Undo2}>
@@ -1008,6 +1078,72 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                 <Text className="text-micro uppercase text-crit mb-1">Why the kitchen refused it</Text>
                 <Text className="text-body text-ink-2">{open.rejectionReason}</Text>
               </Box>
+            )}
+
+            {/* A website order ends when the diner says it reached them — or when
+                an admin does, for the diner who never pressed it. Everybody else
+                sees who is delivering and nothing to press. */}
+            {open.canMarkDelivered && (
+              <Section title="Has it been delivered?">
+                <Text className="text-body text-ink-2">
+                  {open.status === 'picked_up'
+                    ? 'The restaurant says the delivery boy has taken this order. The diner has been asked to confirm it arrived.'
+                    : 'The restaurant has not yet said the delivery boy took this order.'}
+                </Text>
+                {!canComplete ? (
+                  <Text className="text-label text-ink-3 mt-2">
+                    Only a Super Admin or an Admin can mark a website order delivered.
+                  </Text>
+                ) : deliverStep === 'idle' ? (
+                  <Box className="mt-3">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon={CheckCircle2}
+                      onClick={() => setDeliverStep('asking')}
+                    >
+                      Mark delivered
+                    </Button>
+                  </Box>
+                ) : (
+                  <Box className="mt-3 space-y-3">
+                    <Field
+                      label="Note (optional)"
+                      hint="Kept in the order's history, beside your name. For example: the diner confirmed by phone."
+                    >
+                      <Input
+                        value={deliverNote}
+                        maxLength={150}
+                        disabled={deliverStep === 'sending'}
+                        onChange={(e) => setDeliverNote(e.target.value)}
+                      />
+                    </Field>
+                    <Box className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        icon={CheckCircle2}
+                        loading={deliverStep === 'sending'}
+                        disabled={deliverStep === 'sending'}
+                        onClick={() => void sendDelivered()}
+                      >
+                        Yes, it was delivered
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={deliverStep === 'sending'}
+                        onClick={() => setDeliverStep('idle')}
+                      >
+                        Not yet
+                      </Button>
+                    </Box>
+                    <Text className="text-label text-ink-3">
+                      This closes the order for the diner and the restaurant
+                      {open.payment.mode === 'cod' ? ', and marks the cash as collected' : ''}.
+                    </Text>
+                  </Box>
+                )}
+              </Section>
             )}
 
             {/* Who to ring comes first. Somebody opening this page is usually
@@ -1056,7 +1192,10 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                   }
                 />
               ) : (
-                <DataRow label="Rider" value="Nobody is carrying this" />
+                <DataRow
+                  label={open.channel === 'web' || open.deliveryMethod ? 'Delivered by' : 'Rider'}
+                  value={deliveredByLabel(open)}
+                />
               )}
               {open.fulfilment === 'delivery' && (
                 <DataRow

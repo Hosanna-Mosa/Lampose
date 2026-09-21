@@ -36,6 +36,10 @@ const config = require('../src/config/env');
 const Property = require('../src/modules/properties/property.model');
 const { cityOf, localityOf } = require('../src/modules/listings/listing.formatter');
 
+/* Refuse to run against production. See src/infrastructure/database/guard.js */
+require('../src/infrastructure/database/guard').assertDevTargetOrExit();
+
+
 /* The tag. Every seeded row carries it, `--clean` deletes exactly what
    matches it, and nothing else in the collection uses the field this way. */
 const SEED_TAG = 'seed@lampose.local';

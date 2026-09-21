@@ -29,6 +29,10 @@ const mongoose = require('mongoose');
 const config = require('../src/config/env');
 const { reconcile } = require('../src/modules/inventory/inventory.service');
 
+/* A report is harmless anywhere; the write is not. */
+if (process.argv.includes('--fix')) require('../src/infrastructure/database/guard').assertDevTargetOrExit();
+
+
 const fix = process.argv.includes('--fix');
 
 const main = async () => {

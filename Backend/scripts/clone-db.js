@@ -29,13 +29,18 @@ require('dotenv').config();
 const { MongoClient } = require('mongodb');
 
 const config = require('../src/config/env');
+const guard = require('../src/infrastructure/database/guard');
 
 const arg = (name, fallback = null) => {
   const index = process.argv.indexOf(`--${name}`);
   return index !== -1 && process.argv[index + 1] ? process.argv[index + 1] : fallback;
 };
 
-const SOURCE_DB = arg('from', config.db.dbName || 'lamp_onboarding');
+/* NOT config.db.dbName. Once DB_NAME points a developer at the dev
+   database, defaulting the SOURCE to it makes every clone a no-op that
+   line 53 then refuses as "onto itself" — which reads as the split having
+   broken something. The source of a clone is the live database. */
+const SOURCE_DB = arg('from', 'lamp_onboarding');
 const TARGET_DB = arg('to', 'lamp_booking_dev');
 const TARGET_URI = arg('target-uri', config.db.uri);
 const FRESH = process.argv.includes('--fresh');
@@ -54,6 +59,11 @@ const main = async () => {
     console.error(`Refusing to clone ${SOURCE_DB} onto itself.`);
     process.exit(1);
   }
+
+  /* The target is written to — including dropDatabase() under --fresh — so
+     it is the half the guard judges. The source is read-only by
+     construction, which is what makes cloning FROM production correct. */
+  guard.announce(guard.assertDevTargetOrExit({ uri: TARGET_URI, dbName: TARGET_DB }), 'cloning into');
 
   const source = await MongoClient.connect(config.db.uri);
   const target = sameCluster ? source : await MongoClient.connect(TARGET_URI);

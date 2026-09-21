@@ -3,7 +3,7 @@
 
    v1 rather than v2 because the reader is an administrator in the `admins`
    collection, which is the v1 identity system. `verifyAdminToken` is the same
-   middleware the rider queue, the restaurant queue and the zone editor use;
+   middleware the rider queue and the restaurant queue use;
    nothing here accepts a customer, driver or restaurant token, and nothing on
    the three app-facing support routers can reach these handlers.
 

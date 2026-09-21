@@ -5,7 +5,9 @@ import {
 import { DietMark } from '../../atoms/DietMark';
 import { PhotoTile } from '../../atoms/PhotoTile';
 import { SPICE_LABEL } from '../../../../food/cart';
-import { kitchenById, readyLabel, rupees } from '../../../../data/food';
+import { readyLabel, rupees } from '../../../../data/food';
+import { useFoodCatalogue } from '../../../../food/FoodCatalogue';
+import { useAuth } from '../../../../auth/AuthProvider';
 
 /* ══════════════════════════════════════════════════════════════════════════
    The dish sheet — what is being added, and everything the kitchen needs to
@@ -25,7 +27,31 @@ import { kitchenById, readyLabel, rupees } from '../../../../data/food';
    information about tonight rather than a permanent fact about the menu.
    ══════════════════════════════════════════════════════════════════════════ */
 
+/**
+ * The one line under a kitchen's name — built ONLY from what the server sent.
+ *
+ * Every part is optional because every part can be absent, and the fixture
+ * this replaced never had to say so:
+ *
+ *   rating     0 means "nobody has rated it", not "rated zero". Printing
+ *              "0 ★" tells a diner the kitchen is bad, which is a claim.
+ *   walk       null unless the visitor shared a location. "null min walk" is
+ *              what an unguarded template prints.
+ *   hours      `closesAt` is empty for a kitchen that never filled its
+ *              timetable in, so it says "open now" rather than "open till ".
+ */
+function kitchenMeta(kitchen) {
+  const parts = [];
+  if (kitchen.rating > 0) parts.push(`${kitchen.rating} ★`);
+  if (kitchen.walkMinutes != null) parts.push(`${kitchen.walkMinutes} min walk`);
+  if (kitchen.openNow) parts.push(kitchen.closesAt ? `open till ${kitchen.closesAt}` : 'open now');
+  else parts.push('closed right now');
+  return parts.join(' · ');
+}
+
 export function DishSheet({ dish, onClose, onAdd }) {
+  const { kitchenById } = useFoodCatalogue();
+  const { isSignedIn } = useAuth();
   const kitchen = kitchenById(dish.kitchenId);
 
   const [qty, setQty] = useState(1);
@@ -62,35 +88,39 @@ export function DishSheet({ dish, onClose, onAdd }) {
       >
         {/* ── the dish, and the facts that do not change ── */}
         <Box className="fd-sheet__left">
-          <PhotoTile tone={dish.tone} className="fd-sheet__photo" label="Dish photo" />
+          <PhotoTile tone={dish.tone} src={dish.imageUrl} alt={dish.name} width={900} className="fd-sheet__photo" label="Dish photo" />
 
           <Box className="fd-sheet__aside">
-            <Text className="fd-lbl">From this kitchen</Text>
-            <Box className="fd-sheet__kitchen">
-              <PhotoTile tone={kitchen.tone} className="fd-sheet__kitchenThumb" />
-              <Box>
-                <Inline className="fd-sheet__kitchenName">{kitchen.name}</Inline>
-                <Inline className="fd-sheet__kitchenMeta">
-                  {kitchen.rating} ★ · {kitchen.walkMinutes} min walk
-                  {kitchen.openNow ? ` · open till ${kitchen.closesAt}` : ` · opens at ${kitchen.opensAt}`}
-                </Inline>
-              </Box>
-            </Box>
+            {/* `kitchen` is null while the feed is still loading, or when this
+                dish's kitchen is not in it. The block is skipped rather than
+                drawn empty — a heading over nothing reads as a bug. */}
+            {kitchen && (
+              <>
+                <Text className="fd-lbl">From this kitchen</Text>
+                <Box className="fd-sheet__kitchen">
+                  <PhotoTile tone={kitchen.tone} src={kitchen.logoUrl || kitchen.coverUrl} alt={kitchen.name} width={160} className="fd-sheet__kitchenThumb" />
+                  <Box>
+                    <Inline className="fd-sheet__kitchenName">{kitchen.name}</Inline>
+                    <Inline className="fd-sheet__kitchenMeta">{kitchenMeta(kitchen)}</Inline>
+                  </Box>
+                </Box>
+              </>
+            )}
 
-            {(dish.serves || dish.allergens?.length) && (
+            {/* Same trap: `allergens?.length` is 0 for a dish with none, and
+                `'' || 0` is 0 - which React draws. Compared, not trusted. */}
+            {(dish.serves || dish.allergens?.length > 0) && (
               <>
                 <Text className="fd-lbl">Good to know</Text>
                 <Box className="fd-sheet__facts">
                   {(dish.serves || '').split(' · ').filter(Boolean).map(fact => (
                     <Inline className="fd-pill" key={fact}>{fact}</Inline>
                   ))}
-                  <Inline className="fd-pill">Cooked to order</Inline>
                 </Box>
                 {dish.allergens?.length > 0 && (
                   <Box className="fd-callout fd-callout--warn">
                     <Text>
                       Contains <Inline className="fd-strong">{dish.allergens.join(', ').toLowerCase()}</Inline>.
-                      Your saved allergen list flags this dish.
                     </Text>
                   </Box>
                 )}
@@ -110,7 +140,9 @@ export function DishSheet({ dish, onClose, onAdd }) {
               <Heading level={2} id="dish-title" className="fd-sheet__name">{dish.name}</Heading>
               <Box className="fd-dish__price">
                 <Inline className="fd-sheet__rupees">{rupees(dish.price)}</Inline>
-                {dish.rating && (
+                {/* `> 0`: a bare `0` is a number and React prints it, which put a
+                    stray "0" beside the price of every unrated dish. */}
+                {dish.rating > 0 && (
                   <Inline className="fd-dish__rating">
                     {dish.rating} ★ <Inline className="fd-dish__ratingCount">{dish.ratingCount} ratings</Inline>
                   </Inline>
@@ -198,7 +230,7 @@ export function DishSheet({ dish, onClose, onAdd }) {
             </Box>
 
             <Box className="fd-sheet__ready">
-              <Inline>Ready about {readyLabel(kitchen.prepMinutes)}</Inline>
+              <Inline>{kitchen && kitchen.prepMinutes ? `Ready about ${readyLabel(kitchen.prepMinutes)}` : ''}</Inline>
               <Inline>
                 {rupees(dish.price)}
                 {chosen.map(a => ` + ${rupees(a.price)} ${a.label.toLowerCase()}`).join('')}
@@ -210,7 +242,10 @@ export function DishSheet({ dish, onClose, onAdd }) {
               className="fd-btn fd-btn--dark fd-btn--lg"
               onClick={() => onAdd({ qty, addOns: chosen, spice, note })}
             >
-              Add item · {rupees(unit * qty)}
+              {/* Said on the button, before it is pressed: a guest who taps "Add
+                  item" and is then met by a sign-in panel has been surprised;
+                  one who reads "Sign in to add" has been told. */}
+              {isSignedIn ? 'Add item' : 'Sign in to add'} · {rupees(unit * qty)}
             </PlainButton>
           </Box>
         </Box>

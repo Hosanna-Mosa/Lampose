@@ -78,17 +78,6 @@ export default function ChooseAddressScreen() {
 
   const empty = addressChoices.length === 0;
 
-  /*
-    Chosen, and outside every service zone we run.
-
-    `serviceable` is false only once `zones/check` has answered and said so —
-    a row with no pin, or one whose check is still in the air, keeps the
-    optimistic `true` it was saved with. That distinction is the whole care
-    here: "we have not heard back yet" must not read as "we do not deliver",
-    or a slow network becomes a refusal. Only a definite no stops Continue,
-    and the row itself already says why.
-  */
-  const unserviceable = address?.serviceable === false;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -162,20 +151,6 @@ export default function ChooseAddressScreen() {
                       “{entry.instructions}”
                     </Text>
                   )}
-                  {/* The server's answer, not a guess, and saying it here beats
-                      saying it after payment.
-
-                      The wording stops short of naming a cause on purpose:
-                      `/zones/check` answers `serviceable: false` both for a pin
-                      outside every boundary AND for one inside a zone that is
-                      closed at this hour, and it does not say which. Claiming
-                      "we do not deliver here" to somebody standing inside the
-                      zone at 11pm is a lie the app has no way to check. */}
-                  {entry.serviceable === false && (
-                    <Text variant="caption" style={{ color: colors.danger.ink }}>
-                      {entry.unserviceableNote || 'We are not delivering there right now.'}
-                    </Text>
-                  )}
                 </View>
               </Pressable>
             );
@@ -232,14 +207,12 @@ export default function ChooseAddressScreen() {
             <Button
               label={`Choose payment · ${formatRupees(toPay)}`}
               fullWidth
-              disabled={!address || unserviceable || busy}
+              disabled={!address || busy}
               onPress={() => router.push(foodHref.payment)}
             />
-            {!address || unserviceable ? (
+            {!address ? (
               <Text variant="caption" color="tertiary" style={{ marginTop: space[2], textAlign: 'center' }}>
-                {!address
-                  ? 'Pick an address above to continue.'
-                  : 'Pick an address we deliver to, or add a new one.'}
+                Pick an address above to continue.
               </Text>
             ) : null}
           </>

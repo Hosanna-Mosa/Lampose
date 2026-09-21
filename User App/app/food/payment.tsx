@@ -68,16 +68,6 @@ export default function PaymentScreen() {
   /* A DELIVERY needs somewhere to go. A pickup does not — the diner collects
      it — so the gate is scoped to the mode rather than applied blanket. */
   const needsAddress = fulfilment !== 'pickup' && !address;
-  /*
-    And somewhere we actually reach.
-
-    `serviceable` is false only when `zones/check` came back and SAID so. An
-    address with no pin, or one whose check has not answered yet, is still true
-    and still payable — an unanswered check is not a refusal, and blocking on
-    one would turn a slow network into a lost order. Only a definite no stops
-    the button, and then it says which address it means.
-  */
-  const unserviceable = fulfilment !== 'pickup' && address?.serviceable === false;
   const [state, setState] = useState<'idle' | 'paying' | 'failed'>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -326,10 +316,10 @@ export default function PaymentScreen() {
           checkout is about to open.
         */}
         {/*
-          THE GATE. A delivery with no address — or with one the service zones
-          say we do not reach — cannot be placed, and this is the last screen
-          that can say so: after this the order is written and a rider is sent
-          for it. Reachable only via the address picker in the normal flow, so
+          THE GATE. A delivery with no address cannot be placed, and this is the
+          last screen that can say so: after this the order is written and a
+          rider is sent for it. Reachable only via the address picker in the
+          normal flow, so
           this is a backstop rather than the primary ask: a deep link, a
           restored navigation state, or an address deleted in another tab all
           land here with nothing chosen.
@@ -347,24 +337,20 @@ export default function PaymentScreen() {
           loading={state === 'paying'}
           loadingLabel={method === 'cash' ? 'Sending to the kitchen' : 'Opening your payment'}
           fullWidth
-          disabled={needsAddress || unserviceable}
-          onPress={attemptPay}
+          disabled={needsAddress}
+          onPress={pay}
         />
 
-        {/* Both dead states lead back to the same screen, because both are
-            fixed by choosing a different address. The wording is what differs:
-            one is a question nobody has answered, the other is an answer we
-            cannot deliver to. */}
-        {needsAddress || unserviceable ? (
+        {/* The dead state leads back to the address picker, because that is
+            what fixes it. */}
+        {needsAddress ? (
           <Pressable
             accessibilityRole="button"
             onPress={() => router.push(foodHref.address)}
             style={{ paddingVertical: space[1] }}
           >
             <Text variant="caption" style={{ color: colors.brand, textAlign: 'center' }}>
-              {needsAddress
-                ? 'Choose a delivery address first'
-                : `${address?.unserviceableNote || 'We are not delivering there right now.'} Choose another address.`}
+              Choose a delivery address first
             </Text>
           </Pressable>
         ) : null}

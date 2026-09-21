@@ -195,7 +195,6 @@ const ROUTES: Array<[RegExp, unknown]> = [
   [/\/notifications/, []],
   [/\/support\/categories$/, []],
   [/\/support/, []],
-  [/\/zones\/check/, { serviceable: true, demo: true }],
   [/\/health/, { status: 'ok', demo: true }],
 ];
 
