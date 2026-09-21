@@ -18,7 +18,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 
-import { Icon, Skeleton, Text, type IconName } from '@/components/ui';
+import { Icon, Skeleton, Text } from '@/components/ui';
 import { usePressAnimation } from '@/hooks/usePressAnimation';
 import { useTheme } from '@/context/ThemeContext';
 import { formatRupees } from '@/utils/money';
@@ -283,11 +283,16 @@ function CardBody({
 }) {
   const { colors, mode } = useTheme();
 
-  const displayRating = (listing as { rating?: number }).rating
-    ? ((listing as { rating?: number }).rating as number).toFixed(2)
-    : '4.92';
-
-  const reviewCount = (listing as { reviewCount?: number }).reviewCount || 124;
+  /*
+   * Real reviews only — server-aggregated in `getListings`, from actual
+   * guest reviews (`partner_reviews`). This used to be a hardcoded "4.92"
+   * and "124 reviews" on every card regardless of whether anyone had ever
+   * reviewed the place; almost nothing in the catalogue has a review yet,
+   * so the honest state for most cards today is no badge at all, not an
+   * invented number — same rule the listing detail page's reviews section
+   * already follows.
+   */
+  const hasRating = typeof listing.averageRating === 'number' && (listing.reviewCount ?? 0) > 0;
 
   const rentValue = formatRupees(listing.rent || 6500);
   const unitSuffix = listing.perBed ? '/bed/month' : listing.perNight ? '/night' : '/bed/month';
@@ -311,29 +316,27 @@ function CardBody({
     return null;
   }, [listing.availability, listing.sharingOptions]);
 
-  // Build amenity chips matching photo (Wi-Fi, Furnished, Meals, 24/7 Security, Laundry)
-  const amenityPills: { icon: IconName; label: string }[] = [
-    { icon: 'wifi', label: 'Wi-Fi' },
-    { icon: 'furnished', label: 'Furnished' },
-    { icon: 'mess', label: 'Meals' },
-    { icon: 'security', label: '24/7 Security' },
-    { icon: 'laundry', label: 'Laundry' },
-  ];
-
   return (
-    <View style={styles.bodyContainer}>
-      {/* Row 1: Uppercase Title & Rating */}
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.bodyContainer, { opacity: pressed ? 0.94 : 1 }]}
+      accessibilityRole="button"
+      accessibilityLabel={`View details for ${listing.name}`}
+    >
+      {/* Row 1: Uppercase Title & Rating (only when the place has a real one) */}
       <View style={styles.titleRatingRow}>
         <Text variant="title3" numberOfLines={1} style={styles.propertyTitle}>
           {listing.name.toUpperCase()}
         </Text>
 
-        <View style={styles.ratingStarsRow}>
-          <Icon name="star" size={14} color="#F59E0B" fill="#F59E0B" />
-          <Text style={[styles.ratingNumber, { color: colors.textPrimary }]}>
-            {displayRating}
-          </Text>
-        </View>
+        {hasRating ? (
+          <View style={styles.ratingStarsRow}>
+            <Icon name="star" size={14} color="#F59E0B" fill="#F59E0B" />
+            <Text style={[styles.ratingNumber, { color: colors.textPrimary }]}>
+              {(listing.averageRating as number).toFixed(1)}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       {/* Row 2: Locality · City  ·  Reviews (same line) */}
@@ -344,35 +347,14 @@ function CardBody({
             {listing.locality} · Hyderabad
           </Text>
         </View>
-        <Text style={styles.reviewCountText}>({reviewCount} reviews)</Text>
+        {hasRating ? (
+          <Text style={styles.reviewCountText}>
+            ({listing.reviewCount} {listing.reviewCount === 1 ? 'review' : 'reviews'})
+          </Text>
+        ) : null}
       </View>
 
-      {/* Row 3: Amenity Pills */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.amenitiesRail}
-      >
-        {amenityPills.map((a, i) => (
-          <View
-            key={i}
-            style={[
-              styles.amenityChip,
-              {
-                backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.06)' : '#F1F5F9',
-                borderColor: mode === 'dark' ? colors.borderSubtle : '#E2E8F0',
-              },
-            ]}
-          >
-            <Icon name={a.icon} size={14} color={mode === 'dark' ? '#94A3B8' : '#334155'} />
-            <Text style={[styles.amenityChipText, { color: mode === 'dark' ? '#E2E8F0' : '#334155' }]}>
-              {a.label}
-            </Text>
-          </View>
-        ))}
-      </ScrollView>
-
-      {/* Row 4: Price & Limited Beds Urgency Badge (Only shown if genuinely scarce) */}
+      {/* Row 3: Price & Limited Beds Urgency Badge (Only shown if genuinely scarce) */}
       <View style={styles.priceUrgencyRow}>
         <View style={styles.priceGroup}>
           <Text style={[styles.priceNumber, { color: mode === 'dark' ? '#34D399' : '#0B473A' }]}>
@@ -390,44 +372,7 @@ function CardBody({
           </View>
         ) : null}
       </View>
-
-      {/* Row 5: Bottom Sage Banner & View Details CTA */}
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.bottomBanner,
-          {
-            backgroundColor: mode === 'dark' ? 'rgba(15,76,58,0.2)' : '#E8F5E9',
-            borderColor: mode === 'dark' ? 'rgba(52,211,153,0.3)' : '#DCFCE7',
-            opacity: pressed ? 0.9 : 1,
-          },
-        ]}
-        accessibilityRole="button"
-        accessibilityLabel={`View details for ${listing.name}`}
-      >
-        <View style={styles.bottomBannerLeft}>
-          <Icon name="sprout" size={16} color="#16A34A" />
-          <View>
-            <Text style={[styles.bannerHeadline, { color: mode === 'dark' ? '#6EE7B7' : '#0B473A' }]}>
-              Comfortable Stays
-            </Text>
-            <Text style={[styles.bannerSubhead, { color: mode === 'dark' ? '#A7F3D0' : '#15803D' }]}>
-              Happier Days
-            </Text>
-          </View>
-        </View>
-
-        <View
-          style={[
-            styles.viewDetailsButton,
-            { backgroundColor: mode === 'dark' ? '#0F4C3A' : '#0B473A' },
-          ]}
-        >
-          <Text style={styles.viewDetailsText}>View Details</Text>
-          <Icon name="arrowRight" size={12} color="#FFFFFF" />
-        </View>
-      </Pressable>
-    </View>
+    </Pressable>
   );
 }
 
@@ -464,10 +409,13 @@ export function ListingCard({
           backgroundColor: colors.surface,
           borderColor: mode === 'dark' ? colors.borderSubtle : '#E2E8F0',
           shadowColor: '#000000',
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: mode === 'dark' ? 0.35 : 0.08,
-          shadowRadius: 10,
-          elevation: 3,
+          /* Lighter than before — the card's own border already does most of
+             the work of separating it from the page; the shadow only needs
+             to lift it slightly, not float it. */
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: mode === 'dark' ? 0.18 : 0.05,
+          shadowRadius: 5,
+          elevation: 1,
         },
       ]}
       onLayout={
@@ -691,25 +639,6 @@ const styles = StyleSheet.create({
     color: '#64748B',
     fontWeight: '500',
   },
-  amenitiesRail: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 2,
-  },
-  amenityChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4.5,
-    borderRadius: 10,
-    borderWidth: 1,
-    gap: 4,
-  },
-  amenityChipText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
   priceUrgencyRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -744,41 +673,5 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#DC2626',
-  },
-  bottomBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginTop: 4,
-  },
-  bottomBannerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  bannerHeadline: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  bannerSubhead: {
-    fontSize: 10,
-    fontWeight: '500',
-  },
-  viewDetailsButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 16,
-    gap: 4,
-  },
-  viewDetailsText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '700',
   },
 });

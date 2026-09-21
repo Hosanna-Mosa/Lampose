@@ -173,7 +173,7 @@ export function setSessionExpiredHandler(handler: (() => void) | null): void {
 }
 
 /** The codes the customer auth middleware answers 401 with. */
-const SESSION_DEAD = new Set(['TOKEN_EXPIRED', 'BAD_TOKEN', 'ACCOUNT_GONE', 'WRONG_TOKEN_TYPE']);
+const SESSION_DEAD = new Set(['TOKEN_EXPIRED', 'BAD_TOKEN', 'ACCOUNT_GONE', 'WRONG_TOKEN_TYPE', 'SESSION_REVOKED']);
 
 /* ------------------------------------------------------------------ *
  * Request ids
@@ -412,6 +412,8 @@ export type ApiEnvelope<T> = {
   data: T;
   /** Present on the listings feed. */
   count?: number;
+  /** Present on the listings feed, only when it was a radius search. */
+  radiusKm?: number;
   message?: string;
   code?: string;
 };

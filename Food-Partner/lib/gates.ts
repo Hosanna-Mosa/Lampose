@@ -76,7 +76,7 @@ export const missingFor = (step: number, d: OnboardingData, copy: PartnerCopy): 
     if (d.account.length < 9) need.push("the bank account number");
     else if (d.account !== d.accountConfirm) need.push("both account numbers to match");
     if (d.ifsc.length !== 11) need.push("an 11-character IFSC");
-    else if (!d.ifscVerified) need.push("the IFSC verified");
+    else if (!d.ifscVerified) need.push("the IFSC code confirmed");
     if (!d.chequeFile) need.push("a cancelled cheque");
   }
 

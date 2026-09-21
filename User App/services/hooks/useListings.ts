@@ -51,6 +51,8 @@ export type UseListingsOptions = {
   locality?: string | null;
   maxPrice?: number | null;
   search?: string | null;
+  /** A radius around a fix instead of a named area — see `ListingQuery.near`. */
+  near?: { lat: number; lng: number; radiusKm: number } | null;
   enabled?: boolean;
 };
 
@@ -68,12 +70,13 @@ export function useListings(options: UseListingsOptions = {}) {
     locality = null,
     maxPrice = null,
     search = null,
+    near = null,
     enabled = true,
   } = options;
 
   const query = useQuery({
-    queryKey: queryKeys.listingList({ category, city, locality, maxPrice, search }),
-    queryFn: ({ signal }) => fetchListings({ category, city, locality, maxPrice, search, signal }),
+    queryKey: queryKeys.listingList({ category, city, locality, maxPrice, search, near }),
+    queryFn: ({ signal }) => fetchListings({ category, city, locality, maxPrice, search, near, signal }),
     staleTime: STALE_MS,
     retry,
     enabled,
@@ -85,6 +88,8 @@ export function useListings(options: UseListingsOptions = {}) {
        crashing on `.filter` during the first frame. */
     listings: query.data?.listings ?? [],
     count: query.data?.count ?? 0,
+    /* Only meaningful on a radius search — see `ListingsResult.radiusKm`. */
+    radiusKm: query.data?.radiusKm,
     error: query.error as ApiError | null,
   };
 }

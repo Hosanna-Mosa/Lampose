@@ -31,6 +31,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ensureOrderChannel, getPushToken } from "@/services/orderAlerts";
 import { primeOrderSound } from "@/services/alertSound";
+import { setAccountRejectedHandler } from "@/services/api";
 import { registerDevice } from "@/services/foodPartner";
 import { isSheetOpen, onNewOrder, onSessionExpired, startOrderPump } from "@/services/orderPump";
 import { usePartnerStore } from "@/store/partnerStore";
@@ -65,6 +66,7 @@ export default function RootLayout() {
   const hydrated = usePartnerStore((s) => s.hydrated);
   const sessionToken = usePartnerStore((s) => s.session?.token ?? null);
   const signOut = usePartnerStore((s) => s.signOut);
+  const setStatus = usePartnerStore((s) => s.setStatus);
   const [fontsLoaded, fontError] = useFonts(fonts);
 
   /* A font that fails to resolve must not strand a partner on a splash
@@ -86,6 +88,31 @@ export default function RootLayout() {
   useEffect(() => {
     if (hydrated && typeReady) SplashScreen.hideAsync().catch(() => {});
   }, [hydrated, typeReady]);
+
+  /*
+    A rejected restaurant, said out loud.
+
+    `requireFoodPartner` refuses EVERY route behind a session with 403
+    ACCOUNT_REJECTED the moment `verificationStatus` flips — not just `/me` —
+    so any screen under `(dash)` can hit this the moment an administrator
+    rejects an application the app still thinks is pending or approved.
+    Reported once, centrally, by `services/api.ts`, exactly the way the User
+    App's `client.ts` reports a dead session: no screen has to recognise the
+    code for itself, and none of them did before this, which is why a
+    rejected partner used to land on an otherwise-empty dashboard with a
+    generic error banner instead of `/status`, the screen built to explain it.
+
+    Registered unconditionally, not gated on `hydrated`/`sessionToken`: the
+    very first `/me` call after a cold start with a stale "approved" cache is
+    exactly the call this exists to catch.
+  */
+  useEffect(() => {
+    setAccountRejectedHandler((verificationNote) => {
+      setStatus("rejected", verificationNote);
+      router.replace("/status");
+    });
+    return () => setAccountRejectedHandler(null);
+  }, [setStatus]);
 
   /*
     The order pump: the socket listener plus the poll fallback.
@@ -201,6 +228,7 @@ export default function RootLayout() {
           {/* Named by its FOLDER, unlike `product` below: `app/support/` has its
               own _layout, so the three screens under it are one route here. */}
           <Stack.Screen name="support" />
+          <Stack.Screen name="payouts" />
           {/* Named by its FILE, not its folder: `app/product/` has no _layout, so
               expo-router flattens it and the child route is `product/[id]`.
               Declaring "product" warns that no such route exists. */}

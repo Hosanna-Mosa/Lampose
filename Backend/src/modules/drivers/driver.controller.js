@@ -840,6 +840,7 @@ const getEarnings = async (req, res, next) => {
         month: monthTotal.length ? monthTotal[0].total : 0,
         todayTrips: trips(startOfDay),
         weekTrips: trips(startOfWeek),
+        monthTrips: trips(startOfMonth),
         onlineMinutes: req.driver.onlineSince
           ? Math.round((Date.now() - new Date(req.driver.onlineSince).getTime()) / 60000)
           : 0,

@@ -137,6 +137,11 @@ export type EarningsSummary = {
   month: number;
   todayTrips: number;
   weekTrips: number;
+  monthTrips: number;
+  /** Minutes since the CURRENT duty session started — 0 if offline. A live
+      snapshot, not a period total: it does not add up past sessions, so it
+      is not "online minutes today/this week/this month" even though the
+      server sends one number for all three. See `earnings.tsx`. */
   onlineMinutes: number;
   /** Last 7 days, oldest first — drives the earnings bar chart. */
   weekly: { day: string; amount: number }[];
@@ -279,8 +284,8 @@ export type ProfilePatch = {
  * Zeroes, and nothing else. A `dailyTarget: 1500` used to sit in here — a
  * figure no endpoint returns and no operator set, which the earnings screens
  * would have drawn progress against as if somebody had agreed it with the
- * rider. `GET /me/earnings` returns seven fields and this mirrors exactly
- * those seven; `earningsLoaded` is what tells the difference between these
+ * rider. `GET /me/earnings` returns eight fields and this mirrors exactly
+ * those eight; `earningsLoaded` is what tells the difference between these
  * zeroes and a real quiet week.
  */
 const EMPTY_EARNINGS: EarningsSummary = {
@@ -289,6 +294,7 @@ const EMPTY_EARNINGS: EarningsSummary = {
   month: 0,
   todayTrips: 0,
   weekTrips: 0,
+  monthTrips: 0,
   onlineMinutes: 0,
   weekly: [],
 };
@@ -498,6 +504,15 @@ type DriverState = {
   jobEndedNote: string;
   history: Job[];
   loadingHistory: boolean;
+  /** True once `GET /me/orders` has actually answered, for the same reason
+      `earningsLoaded` exists — a spinner and a genuinely empty list must not
+      look identical. */
+  historyLoaded: boolean;
+  historyError: string;
+  /** The server's real count, so "Load more" can say when it has run out
+      rather than offering a tap that comes back empty. */
+  historyTotal: number;
+  loadingMoreHistory: boolean;
   busy: boolean;
 
   // Earnings
@@ -573,7 +588,10 @@ type DriverState = {
   releaseJob: (reason?: string) => Promise<void>;
 
   fetchEarnings: () => Promise<void>;
-  fetchHistory: () => Promise<void>;
+  /** `more: true` pages back through what is already loaded; the default
+      replaces it — a pull-to-refresh must not just append the same 50 rows
+      onto themselves. */
+  fetchHistory: (options?: { more?: boolean }) => Promise<void>;
 
   addChatMessage: (message: ChatMessage) => void;
   clearChat: () => void;
@@ -606,6 +624,10 @@ export const useDriverStore = create<DriverState>()(
       jobEndedNote: "",
       history: [],
       loadingHistory: false,
+      historyLoaded: false,
+      historyError: "",
+      historyTotal: 0,
+      loadingMoreHistory: false,
       busy: false,
 
       earnings: EMPTY_EARNINGS,
@@ -1272,18 +1294,40 @@ export const useDriverStore = create<DriverState>()(
         }
       },
 
-      fetchHistory: async () => {
-        const { token } = get();
+      fetchHistory: async (options) => {
+        const { token, history } = get();
         if (!token) return;
 
-        set({ loadingHistory: true });
+        const more = options?.more === true;
+        if (more) set({ loadingMoreHistory: true });
+        else set({ loadingHistory: true, historyError: "" });
+
         try {
-          const res = await api<{ data?: Job[] }>(`${BASE}/me/orders`, { token });
-          set({ history: Array.isArray(res?.data) ? res.data : [] });
+          const skip = more ? history.length : 0;
+          const res = await api<{ data?: Job[]; total?: number }>(
+            `${BASE}/me/orders?skip=${skip}`,
+            { token },
+          );
+          const page = Array.isArray(res?.data) ? res.data : [];
+          set({
+            history: more ? [...history, ...page] : page,
+            historyTotal: typeof res?.total === "number" ? res.total : page.length,
+            historyLoaded: true,
+            historyError: "",
+          });
         } catch (err) {
-          console.warn("[history] fetch failed:", (err as Error).message);
+          const message = (err as Error).message || "We could not load your orders.";
+          console.warn("[history] fetch failed:", message);
+          if (!more) {
+            /* Only a failed FIRST load blanks the screen with this — a failed
+               "load more" leaves the rows already on screen alone and is
+               rethrown instead, for the caller to show as a passing toast. */
+            set({ historyError: message, historyLoaded: true });
+          } else {
+            throw err;
+          }
         } finally {
-          set({ loadingHistory: false });
+          set({ loadingHistory: false, loadingMoreHistory: false });
         }
       },
 

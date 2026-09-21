@@ -1,4 +1,3 @@
-import { useRouter } from 'expo-router';
 import React from 'react';
 import { Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
 import Animated, {
@@ -39,8 +38,7 @@ export function FavouriteHeart({
   style,
 }: FavouriteHeartProps) {
   const { colors, space, radius } = useTheme();
-  const router = useRouter();
-  const { status } = useAuth();
+  const { status, requireSignIn } = useAuth();
   const { isFavouriteDish, isFavouriteKitchen, toggleFavouriteDish, toggleFavouriteKitchen } = useFood();
 
   const scale = useSharedValue(1);
@@ -53,19 +51,17 @@ export function FavouriteHeart({
   }));
 
   const press = () => {
-    if (!signedIn) {
-      router.push('/(entry)/auth');
-      return;
-    }
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {}
-    scale.value = withSequence(
-      withSpring(1.38, { damping: 8, stiffness: 350 }),
-      withSpring(1.0, { damping: 12, stiffness: 220 })
-    );
-    if (kind === 'dish') toggleFavouriteDish(id);
-    else toggleFavouriteKitchen(id);
+    requireSignIn(() => {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      } catch {}
+      scale.value = withSequence(
+        withSpring(1.38, { damping: 8, stiffness: 350 }),
+        withSpring(1.0, { damping: 12, stiffness: 220 })
+      );
+      if (kind === 'dish') toggleFavouriteDish(id);
+      else toggleFavouriteKitchen(id);
+    });
   };
 
   return (

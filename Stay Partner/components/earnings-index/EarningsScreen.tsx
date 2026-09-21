@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Box } from '@/components/common';
 import { useRouter } from 'expo-router';
-import { Screen, Text, TextButton, IconButton, Button, Badge, EmptyState } from '@/components/common';
+import { Screen, Text, TextButton, IconButton, Button, Badge, EmptyState, ErrorState } from '@/components/common';
 import { useEarnings, usePayouts, useRequestPayout } from '@/services/hooks/useEarnings';
 import { ApiError } from '@/services/api/client';
 import { useAlert } from '@/components/common';
@@ -50,10 +50,12 @@ export function EarningsScreen() {
   const router = useRouter();
 
   const {
-    earnings, isLoading: loadingEarnings, isRefetching: refetchingEarnings, refetch: refetchEarnings,
+    earnings, isLoading: loadingEarnings, isError: earningsFailed,
+    isRefetching: refetchingEarnings, refetch: refetchEarnings,
   } = useEarnings();
   const {
-    payouts, isLoading: loadingPayouts, isRefetching: refetchingPayouts, refetch: refetchPayouts,
+    payouts, isLoading: loadingPayouts, isError: payoutsFailed,
+    isRefetching: refetchingPayouts, refetch: refetchPayouts,
   } = usePayouts();
   const { requestPayout, isRequesting, error } = useRequestPayout();
 
@@ -121,6 +123,13 @@ export function EarningsScreen() {
         <StatTile label="This week" value={earnings?.weekEarnings ?? '₹0'} loading={loadingEarnings} />
       </Box>
 
+      {earningsFailed && !earnings ? (
+        <ErrorState
+          title="We could not load your earnings"
+          body="Pull to try again."
+          onRetry={refetchEarnings}
+        />
+      ) : (
       <Box style={[styles.card, { borderColor: c.borderCard, backgroundColor: c.surface }]}>
         <Text variant="label" color="textSecondary">
           Available to request
@@ -175,12 +184,19 @@ export function EarningsScreen() {
           </Text>
         ) : null}
       </Box>
+      )}
 
       <Text variant="h3" style={styles.historyTitle}>
         Payout history
       </Text>
 
-      {loadingPayouts ? null : payouts.length > 0 ? (
+      {loadingPayouts ? null : payoutsFailed && !payouts.length ? (
+        <ErrorState
+          title="We could not load your payout history"
+          body="Pull to try again."
+          onRetry={refetchPayouts}
+        />
+      ) : payouts.length > 0 ? (
         payouts.map((p: any) => (
           <Box key={p.id} style={[styles.payoutRow, { borderColor: c.borderCard, backgroundColor: c.surface }]}>
             <Box style={styles.flex}>

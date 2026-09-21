@@ -82,13 +82,22 @@ export function FoodCatalogueProvider({ children }: { children: React.ReactNode 
 
   const feedKitchens = useMemo<readonly Kitchen[]>(() => feed.data ?? [], [feed.data]);
 
-  /* One query per kitchen, each keyed exactly as `useKitchen` keys it, so a
-     kitchen page opened later is served from this same cache entry. */
+  /*
+   * One query per kitchen, each keyed exactly as `useKitchen` keys it, so a
+   * kitchen page opened later is served from this same cache entry.
+   *
+   * Polled on the same interval as the feed, for the reason `useFood.ts`
+   * gives: `kitchenOpen` below prefers THIS response over the feed's own row
+   * once it has arrived (see the merge just under this), so a kitchen that
+   * switched itself closed would otherwise keep reading as open from this
+   * query's first, unrefreshed answer for as long as the app stays open.
+   */
   const menuQueries = useQueries({
     queries: feedKitchens.slice(0, MENU_FANOUT_CAP).map((kitchen) => ({
       queryKey: queryKeys.foodKitchen(kitchen.id),
       queryFn: () => fetchKitchen(kitchen.id),
       staleTime: 60_000,
+      refetchInterval: 60_000,
     })),
   });
 

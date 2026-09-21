@@ -1,7 +1,7 @@
 import { router } from "expo-router";
-import React, { useEffect, useMemo } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { Chip, Icon, Seg, Text, TopBar } from "@/components/ui";
+import React, { useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Btn, Chip, Icon, Notice, Seg, Text, TopBar } from "@/components/ui";
 import { ORDERS_TABS } from "@/constants/lampose";
 import { restaurantLabel, useDriverStore, type OrderStatus } from "@/store/driverStore";
 import { useFlowStore } from "@/store/flowStore";
@@ -59,11 +59,27 @@ export default function OrdersScreen() {
   const history = useDriverStore((s) => s.history);
   const currentJob = useDriverStore((s) => s.currentJob);
   const loading = useDriverStore((s) => s.loadingHistory);
+  const loaded = useDriverStore((s) => s.historyLoaded);
+  const loadError = useDriverStore((s) => s.historyError);
+  const historyTotal = useDriverStore((s) => s.historyTotal);
+  const loadingMore = useDriverStore((s) => s.loadingMoreHistory);
   const fetchHistory = useDriverStore((s) => s.fetchHistory);
+
+  /* A failed "load more" is its own, dismissable line under the button — the
+     rows already on screen stay exactly as they were, so one bad request
+     does not blank a list a rider was already reading. */
+  const [loadMoreError, setLoadMoreError] = useState("");
 
   useEffect(() => {
     fetchHistory().catch(() => {});
   }, [fetchHistory]);
+
+  const loadMore = () => {
+    setLoadMoreError("");
+    fetchHistory({ more: true }).catch((err) => {
+      setLoadMoreError((err as Error)?.message || "That did not load. Try again.");
+    });
+  };
 
   /* The job in hand is not in `history` yet — it is not finished — so it is
      prepended for the Active tab. Without this the one order a rider most
@@ -101,6 +117,21 @@ export default function OrdersScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* The first load, before anything has answered either way — a blank
+            screen here reads identically to "you have never delivered
+            anything", which is the wrong message for a rider mid-fetch. */}
+        {loading && !loaded ? (
+          <View style={styles.empty}>
+            <ActivityIndicator color={colors.brand} />
+          </View>
+        ) : loadError && history.length === 0 ? (
+          <Notice
+            tone="danger"
+            title="We could not load your orders"
+            body={loadError}
+          />
+        ) : (
+        <>
         <View style={{ gap: space[2] }}>
           {rows.map((job) => (
             <Pressable
@@ -151,6 +182,25 @@ export default function OrdersScreen() {
               You have no {ordersTab.toLowerCase()} orders. Go online to pick up your next delivery.
             </Text>
           </View>
+        )}
+
+        {/* The backend caps one page at 50 — see `driverOrder.controller.js`.
+            Shown only once there is genuinely more to fetch, so a rider with
+            twelve deliveries never sees a button that would come back empty. */}
+        {history.length > 0 && history.length < historyTotal && (
+          <View style={{ marginTop: space[3], gap: space[2] }}>
+            <Btn
+              label="Load more"
+              variant="quiet"
+              loading={loadingMore}
+              onPress={loadMore}
+            />
+            {!!loadMoreError && (
+              <Notice tone="danger" title="Could not load more" body={loadMoreError} />
+            )}
+          </View>
+        )}
+        </>
         )}
       </ScrollView>
     </View>

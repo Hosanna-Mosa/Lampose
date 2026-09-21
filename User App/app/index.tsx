@@ -11,16 +11,23 @@ import { useAuth } from '@/context/AuthContext';
  * It decides nothing on its own — it plays the 940 ms beat while the session
  * and first-run flags hydrate, then hands over:
  *
- *   not signed in    → auth
- *   no category yet   → the category choice, which is REQUIRED and filters
- *   no locality yet   → the one-time location screen
- *   otherwise         → home
+ *   still hydrating           → wait
+ *   no category yet           → the category choice, which is REQUIRED and
+ *                               filters everything after it
+ *   no locality yet           → the one-time location screen
+ *   otherwise                 → home
  *
- * Auth moved to the front on 15 Aug 2026, and this reverses the earlier model.
- * Browsing used to require no account at all — a guest and a signed-in user
- * landed in the same place, and login was a gate in front of requesting a bed.
- * An account is now required for everything, so it is the first thing asked
- * after the splash and nothing renders behind it.
+ * Auth moved to the front on 15 Aug 2026 ("an account is required for
+ * everything"), and that has been reversed again: browsing needs no account,
+ * same as the model before that date. `status === 'guest'` and
+ * `status === 'signedIn'` are treated identically here — both proceed past
+ * this gate. Only a real intent — booking a bed, ordering food, saving
+ * something, filing a support ticket — asks for an account, at the screen
+ * where that intent is expressed, via `requireSignIn` in `AuthContext`. A
+ * status of anything else (`'hydrating'`, or the mid-code-entry
+ * `'awaitingCode'`, which only exists while the auth screen itself is on
+ * screen) sends a fresh launch to `/(entry)/auth`, which now offers a
+ * "Skip" past itself for exactly this reason.
  *
  * ## Category comes before locality, and that order is load-bearing
  *
@@ -75,9 +82,10 @@ export default function Index() {
     );
   }
 
-  // Nothing renders behind this. The three intent-gates that used to push auth
-  // from home, results and the listing detail are gone with it.
-  if (status !== 'signedIn') return <Redirect href="/(entry)/auth" />;
+  // Guest or signed in, both browse — see the header. Anything else
+  // ('hydrating' cannot reach here past `ready` above; 'awaitingCode' means
+  // the auth screen itself is mid-flow) goes to sign-in, which offers "Skip".
+  if (status !== 'guest' && status !== 'signedIn') return <Redirect href="/(entry)/auth" />;
   // Required, not asked-once: home cannot render a feed without it, so a null
   // category always comes back here rather than falling through to an empty
   // screen. It is also the input the location screen below is filtered by —

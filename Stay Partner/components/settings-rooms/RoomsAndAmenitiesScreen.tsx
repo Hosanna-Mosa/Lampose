@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Box } from '@/components/common';
+import { useRouter } from 'expo-router';
 import {
   Screen,
   TopHeader,
@@ -38,15 +39,18 @@ import { styles } from '@/components/settings-rooms/styles';
  * and it is never rounded or defaulted: a share type with zero beds free reads
  * as full, because that is what it is.
  *
- * ## Read-only, like property details
+ * ## Not read-only
  *
- * Prices and bed counts are set during onboarding, and the one thing an owner
- * CAN change — whether they are accepting bookings at all — already has its own
- * screen and its own switch on the dashboard. Duplicating that control here
- * would be a second place for the same state to drift.
+ * Onboarding writes the sharing types, their prices and their bed counts —
+ * `inventory.service.js` says so in as many words — but an owner changes them
+ * afterwards from Property details (`PropertyCategoryFields.tsx`), the same
+ * screen that already edits amenities. This screen used to tell owners to
+ * "message us" for both, which was simply false and told a real, already-built
+ * feature did not exist.
  */
 
 export function RoomsAndAmenitiesScreen() {
+  const router = useRouter();
   const [rooms, setRooms] = useState<ShareType[] | null>(null);
   const [properties, setProperties] = useState<BackendListing[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -118,7 +122,9 @@ export function RoomsAndAmenitiesScreen() {
             <EmptyState
               icon="bed"
               title="No room types set up"
-              body="Sharing types, their prices and their bed counts are set up with Lampose during onboarding. Message us and we will add them."
+              body="Add sharing types, their prices and their bed counts from Property details."
+              actionLabel="Open property details"
+              onAction={() => router.push('/settings/property')}
             />
           ) : (
             rooms.map((room) => (
@@ -145,8 +151,8 @@ export function RoomsAndAmenitiesScreen() {
           )}
 
           <Text variant="caption" color="textTertiary" style={styles.note}>
-            Prices, bed counts and amenities are set by Lampose during onboarding. To change
-            them, message us. Whether you are accepting bookings is on the dashboard.
+            Onboarding sets these first — edit prices, bed counts and amenities any time from
+            Property details. Whether you are accepting bookings is on the dashboard.
           </Text>
         </Box>
       )}

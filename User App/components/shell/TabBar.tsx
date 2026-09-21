@@ -234,7 +234,14 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId }: TabBarP
       style={[
         styles.floatingWrapper,
         {
-          paddingBottom: Math.max(insets.bottom, 12) + 4,
+          /* The floor is what carries a device where `insets.bottom` under-
+             reports the system nav (a stale measurement on first layout, or
+             an Android bar the OS drew without telling `SafeAreaContext` in
+             time) — on those, the bar was sitting close enough to the edge to
+             read as under the system's buttons/gesture pill. Raised from 12
+             to clear that case without moving anything on a device reporting
+             a real, larger inset, where this floor never applies at all. */
+          paddingBottom: Math.max(insets.bottom, 20) + 4,
         },
         slide,
       ]}

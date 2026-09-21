@@ -34,7 +34,10 @@ export default function EarningsScreen() {
     });
 
     const total = period === "Today" ? earnings.today : period === "Week" ? earnings.week : earnings.month;
-    const trips = period === "Today" ? earnings.todayTrips : earnings.weekTrips;
+    const trips =
+      period === "Today" ? earnings.todayTrips
+      : period === "Week" ? earnings.weekTrips
+      : earnings.monthTrips;
 
     return {
       label:
@@ -46,12 +49,17 @@ export default function EarningsScreen() {
       total: rupees(total),
       delta: `${trips} ${trips === 1 ? "delivery" : "deliveries"}`,
       orders: String(trips),
+      /* Minutes since the current duty session started, not a Today/Week/Month
+         total — see the note on `EarningsSummary.onlineMinutes`. Labelled
+         "Current session" everywhere it appears, on every tab, rather than
+         "Online time"/"Online hours", which read as a period aggregate the
+         server has never actually sent. */
       hours: formatOnline(earnings.onlineMinutes),
       bars,
       rows: [
         { l: "Delivery earnings", v: rupees(total) },
         { l: "Deliveries completed", v: String(trips) },
-        { l: "Online time", v: formatOnline(earnings.onlineMinutes) },
+        { l: "Current online session", v: formatOnline(earnings.onlineMinutes) },
       ],
     };
   }, [earnings, period]);
@@ -150,7 +158,7 @@ export default function EarningsScreen() {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <RNText style={styles.statLabel}>Online hours</RNText>
+            <RNText style={styles.statLabel}>Current session</RNText>
             <RNText style={styles.statVal}>{data.hours}</RNText>
           </View>
         </View>

@@ -51,6 +51,14 @@ export type ListingQuery = {
   maxPrice?: number | null;
   /** Name, place, owner or amenity. The server decides which. */
   search?: string | null;
+  /**
+   * A radius search instead of a named area — "Use my current location" on
+   * the entry screen, with a chosen radius, rather than a locality string.
+   * All three travel together: sending one without the other two is a
+   * caller error the server refuses (`MISSING_COORDINATE`), so this type
+   * requires them as a group rather than three independent optionals.
+   */
+  near?: { lat: number; lng: number; radiusKm: number } | null;
   signal?: AbortSignal;
 };
 
@@ -58,6 +66,8 @@ export type ListingsResult = {
   listings: Listing[];
   /** What the server said it sent, before any device-side filtering. */
   count: number;
+  /** Echoed back only on a radius search — the radius the server actually applied. */
+  radiusKm?: number;
 };
 
 /**
@@ -71,7 +81,7 @@ const STAY_CATEGORY_PARAM = Object.values(BACKEND_CATEGORIES).flat().join(',');
 
 export async function fetchListings(query: ListingQuery = {}): Promise<ListingsResult> {
   const {
-    category, city, locality, maxPrice, search, signal,
+    category, city, locality, maxPrice, search, near, signal,
   } = query;
 
   /*
@@ -108,6 +118,9 @@ export async function fetchListings(query: ListingQuery = {}): Promise<ListingsR
       locality: locality ?? undefined,
       maxPrice: maxPrice ?? undefined,
       search: search?.trim() || undefined,
+      lat: near?.lat ?? undefined,
+      lng: near?.lng ?? undefined,
+      radiusKm: near?.radiusKm ?? undefined,
     },
     signal,
   });
@@ -117,6 +130,7 @@ export async function fetchListings(query: ListingQuery = {}): Promise<ListingsR
   return {
     listings: toListings(Array.isArray(data) ? data : []),
     count: envelope.count ?? (Array.isArray(data) ? data.length : 0),
+    radiusKm: envelope.radiusKm,
   };
 }
 

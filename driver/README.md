@@ -108,15 +108,6 @@ runs on a laptop:
 4. The account starts `pending`. Finish the four onboarding steps — the
    document photos go to Cloudinary, so `CLOUDINARY_*` has to be set in
    `Backend/.env` or that step answers a named 503.
-
-   Each step carries a **Fill with dummy data** button in development, which
-   fills that step and advances. It will not invent the three fields an account
-   is identified by — the mobile number, the email address and the date of
-   birth — and refuses, pointing at the field, if one is still blank. The
-   document step attaches placeholder scan URLs rather than uploading, so the
-   flow is walkable without Cloudinary configured; use the camera path when the
-   upload itself is what is being tested. `constants/dummyPartner.ts` holds the
-   values and the `EXPO_PUBLIC_ALLOW_DUMMY_DATA` switch for preview builds.
 5. **Put yourself somewhere the dispatcher can see you.** An emulator reports
    the Googleplex until told otherwise — 13,476km from Rajahmundry — and the
    dispatcher only searches 2/5/10km around the KITCHEN'S pin, so every order

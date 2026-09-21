@@ -13,6 +13,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { formatRupees } from '@/utils/money';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 import { useActionBarInset } from '@/hooks/useActionBarInset';
+import { useAuth } from '@/context/AuthContext';
 
 type Method = { id: string; label: string; detail: string; disabled?: boolean };
 
@@ -48,6 +49,7 @@ export default function PaymentScreen() {
      that reports none, so the action clears the navigation bar. */
   const actionInset = useActionBarInset();
   const router = useRouter();
+  const { requireSignIn } = useAuth();
   const {
     kitchenId,
     count,
@@ -169,6 +171,16 @@ export default function PaymentScreen() {
       setState('failed');
     }
   };
+
+  /*
+   * A guest reaches this screen for free — the pickup path never asked for an
+   * account, unlike delivery's own address screen, which already gates on
+   * sign-in. Placing the order is where it actually matters: `placeOrder`
+   * hits an authenticated endpoint, and the cart itself (`FoodContext`)
+   * outlives the trip through sign-in, so the same tap resumes here once
+   * they are signed in rather than losing the order they built.
+   */
+  const attemptPay = () => requireSignIn(() => { void pay(); });
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>

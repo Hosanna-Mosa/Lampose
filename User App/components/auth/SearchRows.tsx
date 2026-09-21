@@ -109,16 +109,18 @@ export function LocalityRow({
  * control called "use my current location" that has never asked for a location
  * is worse than no control, because it is confidently wrong.
  *
- * The screen above it now runs `findMyLocality`, which takes one foreground
- * fix and matches it against the areas the catalogue actually holds. This
- * component draws the three states that produces — idle, working, answered —
- * and nothing else. `subtitle` is whatever the screen has to say about the
- * match, because only the screen knows whether it found the block, only the
- * city, or nothing at all.
+ * A tap on this row no longer takes a fix by itself — the screen above it
+ * (`app/(entry)/locality.tsx`) opens `NearbyRadiusDialog` first, and only
+ * once a radius is chosen does it run `locateMe` and build a `nearbyLocality`
+ * around that fix. This component still only draws the three states the
+ * whole exchange produces — idle, working, answered — and nothing else.
+ * `subtitle` is whatever the screen has to say, because only the screen
+ * knows whether a radius search is in progress, failed, or has not been
+ * asked for yet.
  *
- * The result is still a SUGGESTION that has to be tapped. A geocoder that
- * names the road a bus is on rather than the neighbourhood is a normal
- * outcome, and it costs a tap rather than a wasted search.
+ * The result is still a SUGGESTION that has to be tapped through the dialog.
+ * A geocoder that names the road a bus is on rather than the neighbourhood is
+ * a normal outcome, and it costs a tap rather than a wasted search.
  */
 export function CurrentLocationRow({
   subtitle,

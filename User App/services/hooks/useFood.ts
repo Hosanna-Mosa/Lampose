@@ -17,10 +17,19 @@ import { queryKeys } from './keys';
  *
  * ## Staleness is short, for the same reason listings' is
  *
- * A minute. A kitchen switches a dish off mid-service from the partner app,
- * and a student holding a stale menu adds it to a cart that will be refused
- * at the counter. The feed re-fetches on focus and a kitchen page re-fetches
- * when it is opened.
+ * A minute. A kitchen switches a dish off — or switches itself CLOSED —
+ * mid-service from the partner app, and a student holding a stale menu adds
+ * it to a cart that will be refused at the counter, or keeps browsing a
+ * kitchen that stopped taking orders five minutes ago.
+ *
+ * `refetchInterval` rather than "re-fetches on focus", because
+ * `FoodCatalogueProvider` mounts once at the app's root and never remounts
+ * for the life of the session — a customer who never backgrounds the app
+ * (the common case: they are actively browsing) would otherwise hold the
+ * feed's first answer indefinitely. The interval matches `STALE_MS` so a
+ * closed kitchen clears within the same window the staleness promise
+ * already describes, and it costs one request per kitchen the feed loaded,
+ * not per screen visited.
  */
 
 const STALE_MS = 60_000;
@@ -46,6 +55,7 @@ export function useKitchens({ enabled = true, ...query }: UseKitchensOptions = {
     queryKey: queryKeys.foodKitchenList(query),
     queryFn: () => fetchKitchens(query),
     staleTime: STALE_MS,
+    refetchInterval: STALE_MS,
     enabled,
     retry,
   });
