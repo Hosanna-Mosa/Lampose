@@ -213,6 +213,11 @@ const dispatchUpdate = (order, extra = {}) => ({
   orderNumber: order.orderNumber,
   status: order.status,
   dispatchState: order.dispatch ? order.dispatch.state : 'idle',
+  /* How the restaurant arranged delivery ('' / 'self' / 'driver'), and whether
+     the diner may be told a driver is assigned — see `driverAssigned` in the
+     order model. Both are additions; nothing that read this before changes. */
+  deliveryMethod: (order.delivery && order.delivery.method) || '',
+  driverAssigned: FoodOrder.driverAssigned(order),
   paymentStatus: order.paymentStatus,
   rider: order.delivery && order.delivery.driverId
     ? {
@@ -245,6 +250,12 @@ const eligibleForDispatch = (order) => {
   if (order.paymentMode === 'online' && order.paymentStatus !== 'paid') return 'it has not been paid for';
   if (['rejected', 'cancelled', 'delivered'].includes(order.status)) return `it is ${order.status}`;
   if (order.delivery && order.delivery.driverId) return 'it already has a rider';
+  /* The restaurant said who brings it — its own person, or the delivery desk's
+     driver. A rider from the app on top of that is a second person sent for one
+     bag. Every caller of `startDispatch` (accept, the "food is ready" retry, a
+     released rider, the restart backstop) passes through here, so this is the
+     one place it has to be said. See `foodDelivery.service.js`. */
+  if (order.delivery && order.delivery.method) return 'the restaurant is arranging the delivery';
   return null;
 };
 
@@ -474,7 +485,12 @@ async function startDispatch(orderNumber, { reason = 'accepted' } = {}) {
 
     order.dispatch.attempts += 1;
     order.dispatch.radiusMeters = radiusMeters;
-    order.dispatch.startedAt = new Date();
+    /* When the search FIRST began, and left alone by every later sweep. It used
+       to be overwritten each time, so an order that found nobody at Accept and
+       was retried at Ready told the diner it had started looking at Ready —
+       minutes after it actually had. `attempts` is what says it has been
+       tried again. */
+    if (!order.dispatch.startedAt) order.dispatch.startedAt = new Date();
     order.dispatch.failureReason = '';
     order.delivery.earnings = riderEarningsFor(order);
 

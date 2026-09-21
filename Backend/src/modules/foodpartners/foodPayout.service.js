@@ -25,6 +25,13 @@
                           the kitchen a second time for money already in its
                           till — and in fact leaves the kitchen owing us the
                           commission, which this system does not yet collect.
+     not (cash AND the restaurant delivered it itself)
+                          the same money, reached by a different door: when
+                          the restaurant chose "we will deliver it ourselves"
+                          (`delivery.method === 'self'`) its own person took
+                          the cash at the diner's door and it is already in
+                          the kitchen's till. Identical to the counter case,
+                          and excluded for identical reasons.
 
    That last exclusion is the one somebody will be tempted to delete because
    it makes the number smaller. It makes the number correct.
@@ -73,7 +80,10 @@ const payableFilter = (restaurantId) => ({
   /* NOT (cash AND collected at the counter). `$nor` rather than a negated
      `$or`, because the two clauses have to fail TOGETHER — a cash delivery
      and an online pickup are both payable. */
-  $nor: [{ paymentMode: 'cod', fulfilment: 'pickup' }],
+  $nor: [
+    { paymentMode: 'cod', fulfilment: 'pickup' },
+    { paymentMode: 'cod', 'delivery.method': 'self' },
+  ],
 });
 
 /** Rupees, rounded to paise. Floating point sums of money drift otherwise. */
@@ -110,7 +120,9 @@ const availableFor = async (restaurantId) => {
           status: 'delivered',
           payoutId: null,
           paymentMode: 'cod',
-          fulfilment: 'pickup',
+          /* Cash the kitchen took itself: at its counter, or at the diner's
+             door when it delivered the order with its own person. */
+          $or: [{ fulfilment: 'pickup' }, { 'delivery.method': 'self' }],
         },
       },
       { $group: { _id: null, amount: { $sum: '$partnerPayout' }, orders: { $sum: 1 } } },

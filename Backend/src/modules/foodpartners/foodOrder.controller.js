@@ -31,6 +31,28 @@
    riders on the road are different people. So `ready` retries the dispatcher
    for an order sitting at `unassigned`, and only for that one — an order that
    already has a rider is left alone.
+
+   ## Accepting a WEBSITE order can also say who delivers
+
+   `deliveryBy: 'self' | 'driver'` on an accept is the restaurant choosing how
+   the order reaches the diner — see `foodDelivery.service.js`. With it, the
+   automatic rider search is NOT started (the restaurant, or the delivery desk
+   it asked, is bringing it), and the same call can be made later on its own
+   (`setDeliveryMethod`) to choose after the fact or to resend a WhatsApp that
+   did not go out.
+
+   ONLY for an order placed on the website (`channel: 'web'`). An order placed
+   in the app is accepted exactly as it always was — the dispatcher searches for
+   a real driver and the driver's own app takes it from there — and a
+   `deliveryBy` that arrives with one is ignored rather than refused, so an
+   older console that sends it for every order does not break the app's flow.
+   Likewise an accept from the partner app, which sends no choice: the search
+   starts, on whatever the order's channel.
+
+   An order the restaurant arranged has no rider account to say the delivery boy
+   has taken it, so the restaurant does (`picked_up`) — `partnerMovesFor` in the
+   model is the rule. It goes no further: "delivered" is the DINER's to say, on
+   the website, or the Lampose admin's for one the diner never closed.
    ══════════════════════════════════════════════════════════════════════════ */
 const mongoose = require('mongoose');
 
@@ -38,9 +60,10 @@ const FoodOrder = require('./foodOrder.model');
 const FoodRestaurant = require('./foodRestaurant.model');
 const { markForRefund } = require('./foodPayment.controller');
 const { logError } = require('./foodPartner.log');
+const foodDelivery = require('./foodDelivery.service');
 
 const {
-  ALLOWED_PARTNER_TRANSITIONS, ORDER_STATUSES, partnerView, restaurantSnapshot,
+  ORDER_STATUSES, DELIVERY_METHODS, partnerView, partnerMovesFor, restaurantSnapshot, isWebDelivery,
 } = FoodOrder;
 
 /**
@@ -154,10 +177,19 @@ const setOrderStatus = async (req, res, next) => {
       return fail(res, 400, 'BAD_INPUT', `"status" must be one of: ${ORDER_STATUSES.join(', ')}.`);
     }
 
+    /* Who delivers, chosen as the order is accepted. Refused when it is not one
+       of the two answers rather than quietly ignored: a typo there would mean
+       an accept that starts the automatic rider search the restaurant meant to
+       skip. Empty is fine — that is the older apps' accept. */
+    const deliveryBy = String((req.body || {}).deliveryBy || '').trim();
+    if (deliveryBy && !DELIVERY_METHODS.includes(deliveryBy)) {
+      return fail(res, 400, 'BAD_INPUT', `"deliveryBy" must be one of: ${DELIVERY_METHODS.join(', ')}.`);
+    }
+
     const order = await FoodOrder.findOne({ restaurantId, orderNumber });
     if (!order) return notFound(res);
 
-    const allowed = ALLOWED_PARTNER_TRANSITIONS[order.status] || [];
+    const allowed = partnerMovesFor(order);
     if (!allowed.includes(next_)) {
       /* Naming both the current state and what IS possible from it, because
          "forbidden" alone leaves the app with nothing to show a cook who has
@@ -167,6 +199,12 @@ const setOrderStatus = async (req, res, next) => {
         : `An order that is "${order.status}" cannot be changed from the restaurant.`;
       return fail(res, 409, 'INVALID_TRANSITION', message);
     }
+
+    /* "The delivery boy has taken it", on an order the restaurant arranged. The
+       time is written with the move so the diner's page can say when. Only such
+       an order reaches here with `picked_up` — `partnerMovesFor` offers it to
+       nobody else. */
+    if (next_ === 'picked_up') foodDelivery.markPickedUp(order);
 
     order.status = next_;
     if (next_ === 'rejected') {
@@ -226,6 +264,8 @@ const setOrderStatus = async (req, res, next) => {
     const notifier = require('../drivers/dispatch.notifier');
 
     if (next_ === 'rejected') {
+      /* A driver already asked for on WhatsApp is told not to come. */
+      if (order.delivery && order.delivery.method === 'driver') foodDelivery.withdrawRequest(order);
       await dispatch.cancelDispatch(order.orderNumber, 'The restaurant could not take this order');
       if (strandedDriverId) {
         // eslint-disable-next-line global-require
@@ -275,7 +315,21 @@ const setOrderStatus = async (req, res, next) => {
      * Accept is waiting for the button to come back, not for a rider to be
      * found.
      */
-    if (next_ === 'accepted') {
+    /*
+     * ...unless the restaurant has said who is bringing it.
+     *
+     * `deliveryBy` on an accept means the restaurant's own person, or a driver
+     * the delivery desk sends — either way NO rider is searched for in the app.
+     * That call is awaited, unlike the search: the caller is a person at a
+     * screen who must be told whether the WhatsApp went out, and for "self" it
+     * is a single write. It never throws — a message that did not go is a
+     * report, not an error, and the accept above has already been committed.
+     * A pickup order has no delivery to arrange, so the choice is ignored there.
+     */
+    let arranged = null;
+    if (next_ === 'accepted' && isWebDelivery(order) && deliveryBy) {
+      arranged = await foodDelivery.arrangeDelivery(orderNumber, deliveryBy, restaurantId);
+    } else if (next_ === 'accepted') {
       dispatch.startDispatch(order.orderNumber, { reason: 'accepted' })
         .catch((err) => logError('dispatching a newly accepted order', err));
     }
@@ -307,13 +361,78 @@ const setOrderStatus = async (req, res, next) => {
         .catch((err) => logError('re-dispatching a ready order', err));
     }
 
-    realtime.toOrderParties(order, 'dispatch_update', dispatch.dispatchUpdate(order));
+    /* The order AS IT NOW STANDS: when a delivery was arranged that is the
+       freshly written copy, carrying the method and the WhatsApp's outcome.
+       The copy loaded at the top of this handler is older than that, and
+       announcing it would put a stale "no driver yet" on the diner's screen
+       right after the correct one. */
+    const shown = arranged && arranged.ok ? arranged.order : order;
 
-    return res.json({ success: true, data: partnerView(order) });
+    realtime.toOrderParties(shown, 'dispatch_update', dispatch.dispatchUpdate(shown));
+
+    /* "Your order is on its way" / "Delivered" — the same two nudges the rider's
+       own hand-overs send. Best effort: the move is committed. */
+    if (next_ === 'picked_up' || next_ === 'delivered') {
+      notifier.notifyCustomerOfHandover(shown, next_).catch(() => {});
+    }
+
+    return res.json({
+      success: true,
+      data: partnerView(shown),
+      /* What came of the delivery choice, beside the order, so a screen can say
+         "accepted — and the driver request could not be sent" in one breath.
+         `ok` is whether the choice was recorded; `sent` is whether the desk was
+         actually messaged (null for "self", where nobody is). */
+      delivery: arranged
+        ? {
+          method: deliveryBy,
+          ok: arranged.ok,
+          sent: arranged.ok ? arranged.sent : false,
+          message: arranged.ok
+            ? (arranged.sent === false ? (shown.delivery.request && shown.delivery.request.error) || 'The WhatsApp could not be sent.' : '')
+            : arranged.message,
+        }
+        : null,
+    });
   } catch (error) {
     logError('me/orders/:orderNumber/status', error);
     return next(error);
   }
 };
 
-module.exports = { listMyOrders, getMyOrder, setOrderStatus };
+// @route   PATCH /api/v2/food-partners/me/orders/:orderNumber/delivery
+//          (and /api/v1/restaurant-admin/orders/:orderNumber/delivery)
+// @desc    Choose — or change, or resend — who delivers an accepted order
+// @access  Food-partner / restaurant-admin session (owner of the order only)
+const setDeliveryMethod = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+
+    const method = String((req.body || {}).deliveryBy || '').trim();
+    const result = await foodDelivery.arrangeDelivery(
+      req.params.orderNumber, method, req.foodPartner.restaurantId,
+    );
+    if (!result.ok) return fail(res, result.status, result.code, result.message);
+
+    const request = (result.order.delivery && result.order.delivery.request) || {};
+    return res.json({
+      success: true,
+      /* The same envelope an accept answers with, so the console handles both
+         with one code path. `sent` is null for "self": nothing was sent. */
+      data: partnerView(result.order),
+      delivery: {
+        method,
+        ok: true,
+        sent: result.sent,
+        message: result.sent === false ? (request.error || 'The WhatsApp could not be sent.') : '',
+      },
+    });
+  } catch (error) {
+    logError('me/orders/:orderNumber/delivery', error);
+    return next(error);
+  }
+};
+
+module.exports = {
+  listMyOrders, getMyOrder, setOrderStatus, setDeliveryMethod,
+};

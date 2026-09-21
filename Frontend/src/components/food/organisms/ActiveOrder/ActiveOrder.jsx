@@ -44,7 +44,9 @@ export function ActiveOrder({ exclude = null }) {
         </Inline>
         <Inline className="fd-active__meta">
           {order.reference} · {when}
-          {order.rider ? ` · ${order.rider.name.split(' ')[0]} is ${order.distanceLabel} away` : ''}
+          {/* Only with a distance: a rider can be assigned while their position is
+              unknown or stale, and "is undefined away" is what that would print. */}
+          {order.rider && order.distanceLabel ? ` · ${order.rider.name.split(' ')[0]} is ${order.distanceLabel} away` : ''}
         </Inline>
       </Box>
 

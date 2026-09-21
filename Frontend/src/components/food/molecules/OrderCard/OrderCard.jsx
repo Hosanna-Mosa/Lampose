@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { Article, Box, Heading, Inline, PlainButton, Text } from '../../../common/atoms';
 import { Icon } from '../../../common/atoms/Icon/Icon';
 import { PhotoTile } from '../../atoms/PhotoTile';
-import { kitchenById, rupees } from '../../../../data/food';
+import { rupees } from '../../../../data/food';
+import { useFoodCatalogue } from '../../../../food/FoodCatalogue';
 
 /* ══ Order card ═══════════════════════════════════════════════════════════
    One past order in the history.
@@ -23,6 +24,10 @@ const CHIP = {
 };
 
 export function OrderCard({ order, onReorder }) {
+  /* From the catalogue, not a fixture. Null while the feed is loading or when
+     the kitchen has since left — the card already copes with a missing one,
+     because `order.kitchenName` is stored on the order itself. */
+  const { kitchenById } = useFoodCatalogue();
   const kitchen = kitchenById(order.kitchenId);
   const summary = order.lines.map(l => `${l.name} ×${l.qty}`).join(', ');
 
@@ -37,7 +42,7 @@ export function OrderCard({ order, onReorder }) {
 
   return (
     <Article className="fd-order reveal">
-      <PhotoTile tone={kitchen?.tone || 'stone'} className="fd-order__thumb" />
+      <PhotoTile tone={kitchen?.tone || 'stone'} src={kitchen?.logoUrl || kitchen?.coverUrl} alt={order.kitchenName} width={160} className="fd-order__thumb" />
 
       <Box className="fd-order__text">
         <Box className="fd-order__head">

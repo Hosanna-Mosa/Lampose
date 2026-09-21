@@ -83,10 +83,11 @@ const razorpay = require('../../infrastructure/razorpay/razorpay');
 const FoodOrder = require('./foodOrder.model');
 const FoodRestaurant = require('./foodRestaurant.model');
 const { BADGE, logError } = require('./foodPartner.log');
+const foodDelivery = require('./foodDelivery.service');
 
 const {
   ORDER_STATUSES, PAYMENT_STATUSES, PAYMENT_MODES, DISPATCH_STATES,
-  refundRecordOf, refundNotRecordedFilter,
+  refundRecordOf, refundNotRecordedFilter, isWebDelivery,
 } = FoodOrder;
 
 const PAGE_SIZE = 40;
@@ -700,6 +701,12 @@ const detailOf = (order, { restaurant = null, now = Date.now() } = {}) => {
     placedAt: order.placedAt || null,
     status: order.status,
     fulfilment: order.fulfilment || 'delivery',
+    /* Where it was placed, and how the restaurant said it travels — what decides
+       whether "Mark delivered" is on offer. The server decides that too, and the
+       console does not second-guess it. */
+    channel: order.channel || 'app',
+    deliveryMethod: (order.delivery && order.delivery.method) || '',
+    canMarkDelivered: canBeMarkedDelivered(order) === null,
     promisedMinutes: order.promisedMinutes || 0,
     rejectionReason: order.rejectionReason || '',
     ageMinutes: Math.max(
@@ -842,6 +849,76 @@ const detailOf = (order, { restaurant = null, now = Date.now() } = {}) => {
 const loadOrder = async (req) => FoodOrder.findOne({
   orderNumber: String(req.params.orderNumber || '').trim().toUpperCase(),
 });
+
+/* ── POST /:orderNumber/delivered ─────────────────────────────────────────*/
+
+/**
+ * Why this order cannot be marked delivered from here — or null when it can.
+ *
+ * WEBSITE orders only, and only once the food has left the restaurant's hands
+ * (`ready` or `picked_up`). An app order has a real rider whose own app closes
+ * it with the diner's code, and an admin button that closed it underneath them
+ * would strand their earnings and their "busy" flag. This exists for the order
+ * the diner never confirmed: the food arrived, nobody pressed the button, and the
+ * restaurant is waiting to be paid.
+ */
+const canBeMarkedDelivered = (order) => {
+  if (order.status === 'delivered') return 'This order is already delivered.';
+  if (!isWebDelivery(order)) {
+    return order.fulfilment === 'pickup'
+      ? 'A counter-pickup order is collected by the customer, not delivered.'
+      : 'This order was placed in the app. Its rider closes it with the customer\'s code.';
+  }
+  if (!['ready', 'picked_up'].includes(order.status)) {
+    return 'It can be marked delivered once the food is ready and has gone out for delivery.';
+  }
+  return null;
+};
+
+// @route   POST /api/v1/admin/food-orders/:orderNumber/delivered
+// @desc    The Lampose admin says a website order has been delivered
+// @access  Admin console (`food.complete`: Super Admin, Admin)
+//
+// The other way a website order reaches Delivered — the diner presses the button
+// on the tracking page, or this. Recorded against the admin's name, so the history
+// says who closed it and it can never be mistaken for the diner's word.
+const markDelivered = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+
+    const order = await loadOrder(req);
+    if (!order) return fail(res, 404, 'NOT_FOUND', 'No order with that number.');
+
+    const refusal = canBeMarkedDelivered(order);
+    if (refusal) {
+      return fail(res, 409, order.status === 'delivered' ? 'ALREADY_DELIVERED' : 'NOT_MARKABLE', refusal);
+    }
+
+    const who = adminName(req);
+    const reason = String((req.body || {}).note || '').trim().slice(0, 150);
+    foodDelivery.markDelivered(order, {
+      by: 'admin',
+      note: `Marked delivered by ${who}${reason ? `: ${reason}` : ''}`,
+    });
+    await order.save();
+
+    // eslint-disable-next-line global-require
+    const dispatch = require('../drivers/foodDispatch.service');
+    // eslint-disable-next-line global-require
+    const realtime = require('../../infrastructure/realtime/realtime');
+    realtime.toOrderParties(order, 'dispatch_update', dispatch.dispatchUpdate(order));
+
+    console.log(`${BADGE} [Order Delivered] ${order.orderNumber} marked by ${who}`);
+
+    const restaurant = await FoodRestaurant.findOne({ restaurantId: order.restaurantId })
+      .select('restaurantId restaurantName contactNumber ownerName ownerPhone')
+      .lean();
+    return res.json({ success: true, data: detailOf(order.toObject(), { restaurant }) });
+  } catch (error) {
+    logError('admin/food-orders/:orderNumber/delivered', error);
+    return next(error);
+  }
+};
 
 // @route   GET /api/v1/admin/food-orders/:orderNumber
 // @desc    One order in full: the money, the dispatch, the history, the gateway
@@ -1313,6 +1390,7 @@ module.exports = {
   listOrders,
   getCounts,
   getOrder,
+  markDelivered,
   issueRefund,
   recordSettledRefund,
   /* Exported so anything that later needs to ask the badge's own question asks

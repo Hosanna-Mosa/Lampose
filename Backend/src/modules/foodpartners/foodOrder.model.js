@@ -97,6 +97,87 @@ const ALLOWED_RIDER_TRANSITIONS = {
   cancelled: [],
 };
 
+/**
+ * Where an order was placed. See `channel` below.
+ *
+ *   web   the website (lampose.com). The restaurant says who delivers — its own
+ *         person, or a Lampose driver asked for on WhatsApp — and the diner
+ *         confirms the hand-over with a button.
+ *   app   the mobile app. Unchanged: once the restaurant accepts, the system
+ *         searches for a real driver in the driver app, and the driver confirms
+ *         the hand-over with the diner's code.
+ */
+const CHANNELS = ['web', 'app'];
+
+/**
+ * How a restaurant can say an order travels. See `delivery.method` below.
+ * (The empty string — "not decided" — is the schema's default, not a choice.)
+ */
+const DELIVERY_METHODS = ['self', 'driver'];
+
+/**
+ * Is this a delivery order that came from the website — so the restaurant is
+ * the one who arranges how it travels?
+ *
+ * A pickup order has nobody to arrange. An order that already has a delivery
+ * method counts as a website order whatever its `channel` says: the method can
+ * only have been set through the website's flow, and orders written before
+ * `channel` existed must not lose it.
+ */
+const isWebDelivery = (order) => Boolean(
+  order
+  && order.fulfilment !== 'pickup'
+  && (order.channel === 'web' || (order.delivery && DELIVERY_METHODS.includes(order.delivery.method))),
+);
+
+/** Did the restaurant itself decide who brings this — its own person, or the desk's driver? */
+const restaurantArrangedDelivery = (order) => Boolean(
+  order
+  && order.fulfilment !== 'pickup'
+  && order.delivery
+  && DELIVERY_METHODS.includes(order.delivery.method),
+);
+
+/**
+ * May the diner be told "a driver has been assigned"?
+ *
+ *   self     yes, the moment the restaurant says so — nobody else has to agree.
+ *   driver   only once the WhatsApp to the desk has actually gone out. Telling
+ *            a diner a driver is coming on the strength of a message that
+ *            bounced is the one thing this must never do; until it has gone the
+ *            diner sees "arranging a driver" and the restaurant sees why.
+ */
+const driverAssigned = (order) => {
+  if (!restaurantArrangedDelivery(order)) return false;
+  const { method, request } = order.delivery;
+  return method === 'self' || Boolean(request && request.ok === true);
+};
+
+/**
+ * The moves a RESTAURANT may make on this order right now.
+ *
+ * `ALLOWED_PARTNER_TRANSITIONS` is the rule for every order, and it stops at
+ * `ready` because the rest belongs to a rider. An order the restaurant is
+ * delivering — or has handed to the desk's driver, who is not in this system —
+ * has no rider account to say the delivery boy has taken it, so the restaurant
+ * does: `picked_up`, and the diner is told.
+ *
+ * And NOTHING after that. "Delivered" is not the restaurant's to say on these
+ * orders: it is the DINER who received the food, so it is the diner's button on
+ * the website (or the Lampose admin's, for one the diner never closed). A
+ * restaurant that could mark its own order delivered would be reporting a
+ * hand-over it cannot see, and it is paid when that word is written. See
+ * `confirmMyDelivery` in `foodCustomerOrder.controller.js` and `markDelivered`
+ * in `foodOrderAdmin.controller.js`.
+ */
+const partnerMovesFor = (order) => {
+  const base = ALLOWED_PARTNER_TRANSITIONS[order && order.status] || [];
+  if (!restaurantArrangedDelivery(order)) return base;
+  if (order.status === 'ready') return ['picked_up'];
+  if (order.status === 'picked_up') return [];
+  return base;
+};
+
 const PAYMENT_MODES = ['online', 'cod'];
 const PAYMENT_STATUSES = ['pending', 'paid', 'refunded', 'failed'];
 
@@ -312,6 +393,17 @@ const foodOrderSchema = new mongoose.Schema(
     fulfilment: { type: String, enum: ['delivery', 'pickup'], default: 'delivery' },
 
     /*
+     * Where the order was placed — the website or the app. See `CHANNELS`.
+     *
+     * It decides who arranges the delivery: on a `web` order the restaurant
+     * chooses (its own person, or a Lampose driver); on an `app` order the
+     * dispatcher finds a real driver, exactly as it always has. Defaults to
+     * `app`, so an order written before this field existed, or by a client that
+     * does not send it, keeps the flow it was placed under.
+     */
+    channel: { type: String, enum: CHANNELS, default: 'app', index: true },
+
+    /*
      * The two ends of the ride, snapshotted onto the order.
      *
      * `pickupLocation` is copied from the restaurant rather than joined at
@@ -508,6 +600,45 @@ const foodOrderSchema = new mongoose.Schema(
          because it is the one number that says whether the matcher is
          actually choosing near riders. */
       acceptedFromMeters: { type: Number, default: 0, min: 0 },
+
+      /*
+       * ── Who is bringing it, as the RESTAURANT decided ─────────────────────
+       *
+       * Chosen in the console when the order is accepted (or afterwards, from
+       * the same screen). See `foodDelivery.service.js`.
+       *
+       *   ''        nobody has decided. The automatic app-rider search
+       *             (`dispatch`) is in charge — how every order worked before
+       *             this choice existed, and still how one accepted from a
+       *             partner app that does not send it.
+       *   'self'    the restaurant's own delivery person.
+       *   'driver'  a Lampose driver, asked for on WhatsApp through the
+       *             delivery desk. No rider is searched for in the app: the
+       *             desk sends somebody, and two riders for one bag is worse
+       *             than none.
+       *
+       * The diner is told "driver assigned" for BOTH — see `driverAssigned`.
+       * There is no `driverId` behind either: the restaurant's own person and
+       * the desk's driver are not accounts in this system, and inventing one
+       * to hang the fact on would put a person into the rider fleet who is not
+       * in it.
+       */
+      method: { type: String, enum: ['', 'self', 'driver'], default: '' },
+      methodChosenAt: { type: Date, default: null },
+      /*
+       * The WhatsApp to the desk, and what came of it. Only meaningful when
+       * `method` is 'driver'; kept whole so the console can say "sent" or
+       * "could not be sent, and why", and so a retry knows how many there have
+       * been. `ok` is the verdict the diner's screen turns on.
+       */
+      request: {
+        to: { type: String, default: '' },
+        sentAt: { type: Date, default: null },
+        ok: { type: Boolean, default: false },
+        messageSid: { type: String, default: '' },
+        error: { type: String, default: '' },
+        attempts: { type: Number, default: 0, min: 0 },
+      },
     },
 
     /*
@@ -859,6 +990,34 @@ const riderView = (order, { revealed = false, distanceMeters = null, restaurant 
 };
 
 /**
+ * The "rider" an order shows when the RESTAURANT arranged who brings it.
+ *
+ * There is no driver account behind it, so this says who is bringing the food
+ * rather than naming a person: "Lampose delivery partner" for the desk's
+ * driver, "<Kitchen> delivery" for the restaurant's own. Same keys as the real
+ * rider object so every screen that draws one draws this without a branch;
+ * `kind` is what a screen can switch on when it wants different words.
+ * No phone — neither party is one the diner should be dialling from a card.
+ */
+const chosenRider = (doc) => {
+  const delivery = doc.delivery || {};
+  const own = delivery.method === 'self';
+  const kitchen = (doc.restaurant && doc.restaurant.name) || 'The restaurant';
+  return {
+    kind: own ? 'restaurant' : 'partner',
+    name: own ? `${kitchen} delivery` : 'Lampose delivery partner',
+    phone: '',
+    vehicle: {},
+    assignedAt: delivery.methodChosenAt || null,
+    pickedUpAt: delivery.pickedUpAt || null,
+    deliveredAt: delivery.deliveredAt || null,
+    location: null,
+    heading: null,
+    at: null,
+  };
+};
+
+/**
  * The order as the DINER is allowed to see it.
  *
  * Everything the tracking screen needs, and two things removed:
@@ -890,8 +1049,17 @@ const customerView = (order, live = null) => {
   delete doc.pickupCode;
   delete doc.__v;
 
-  const dispatchState = (doc.dispatch && doc.dispatch.state) || 'idle';
-  const delivery = doc.delivery || {};
+  /* The desk's number and the message's outcome are the restaurant's and ours:
+     a diner is told a driver is assigned, not who at which phone was asked. */
+  const delivery = { ...(doc.delivery || {}) };
+  delete delivery.request;
+
+  /* An order whose restaurant arranged the driver reads as `assigned` here even
+     though no rider account is behind it: that is the word the apps draw the
+     "driver assigned" state from, and there is no other honest place for them
+     to learn it. Derived rather than stored — see `driverAssigned`. */
+  const arranged = !delivery.driverId && driverAssigned(doc);
+  const dispatchState = arranged ? 'assigned' : ((doc.dispatch && doc.dispatch.state) || 'idle');
 
   /*
    * The gateway block, rebuilt rather than passed through.
@@ -911,6 +1079,11 @@ const customerView = (order, live = null) => {
 
   return {
     ...doc,
+    /* No delivery code on an order the restaurant arranged. The code exists so a
+       rider can prove they reached the door; here nobody is asked for it — the
+       diner confirms the delivery themselves — and a code on screen that nothing
+       checks is a number somebody will read out to no purpose. */
+    deliveryOtp: restaurantArrangedDelivery(doc) ? '' : doc.deliveryOtp,
     razorpay: {
       orderId: rp.orderId || '',
       paymentId: rp.paymentId || '',
@@ -922,6 +1095,7 @@ const customerView = (order, live = null) => {
       refundedAt: rp.refundedAt || null,
       refundStatus: rp.refundStatus || '',
     },
+    delivery,
     dispatch: {
       state: dispatchState,
       /* Kept because it is the difference between "we are asking riders" and
@@ -952,7 +1126,7 @@ const customerView = (order, live = null) => {
         heading: live && Number.isFinite(live.heading) ? live.heading : null,
         at: live && live.at ? live.at : null,
       }
-      : null,
+      : arranged ? chosenRider(doc) : null,
   };
 };
 
@@ -992,6 +1166,7 @@ const partnerView = (order) => {
   delete doc.razorpay;
 
   const delivery = doc.delivery || {};
+  const request = delivery.request || {};
 
   return {
     ...doc,
@@ -1009,6 +1184,28 @@ const partnerView = (order) => {
         pickedUpAt: delivery.pickedUpAt || null,
       }
       : null,
+    /*
+     * How this order travels, as the restaurant chose it — and, for the desk's
+     * driver, whether the WhatsApp actually went out. The console draws the
+     * "sent" / "could not be sent — try again" state from `request`; `moves` is
+     * the server's own list of what this restaurant may do next, so a screen
+     * never has to work out that an order it is delivering itself can be marked
+     * picked up when one handed to a rider cannot.
+     */
+    deliveryChoice: {
+      method: delivery.method || '',
+      chosenAt: delivery.methodChosenAt || null,
+      request: delivery.method === 'driver'
+        ? {
+          to: request.to || '',
+          ok: request.ok === true,
+          sentAt: request.sentAt || null,
+          error: request.error || '',
+          attempts: request.attempts || 0,
+        }
+        : null,
+    },
+    moves: partnerMovesFor(doc),
   };
 };
 
@@ -1019,6 +1216,13 @@ module.exports = FoodOrder;
 module.exports.ORDER_STATUSES = ORDER_STATUSES;
 module.exports.ALLOWED_PARTNER_TRANSITIONS = ALLOWED_PARTNER_TRANSITIONS;
 module.exports.ALLOWED_RIDER_TRANSITIONS = ALLOWED_RIDER_TRANSITIONS;
+module.exports.CHANNELS = CHANNELS;
+module.exports.isWebDelivery = isWebDelivery;
+module.exports.DELIVERY_METHODS = DELIVERY_METHODS;
+module.exports.restaurantArrangedDelivery = restaurantArrangedDelivery;
+module.exports.driverAssigned = driverAssigned;
+module.exports.chosenRider = chosenRider;
+module.exports.partnerMovesFor = partnerMovesFor;
 module.exports.PAYMENT_MODES = PAYMENT_MODES;
 module.exports.PAYMENT_STATUSES = PAYMENT_STATUSES;
 module.exports.REFUND_CHANNELS = REFUND_CHANNELS;

@@ -126,6 +126,14 @@ export interface RestaurantOrder {
   orderNumber: string;
   status: FoodOrderStatus;
   placedAt: string;
+  /**
+   * Where the order was placed. 'web' orders have the restaurant choose who
+   * delivers; 'app' orders get a real driver found automatically. Absent on an
+   * order older than the field, which is an app order.
+   */
+  channel?: 'web' | 'app';
+  /** The kitchen as it was when the order was placed — what the link page heads itself with. */
+  restaurant?: { name?: string; address?: string; phone?: string };
   lines: FoodOrderLine[];
   itemsTotal: number;
   packagingCharge: number;
@@ -155,7 +163,53 @@ export interface RestaurantOrder {
     assignedAt: string | null;
     pickedUpAt: string | null;
   } | null;
+  /**
+   * How the restaurant said this order travels. `method` is '' until somebody
+   * chooses; then 'self' (its own person) or 'driver' (a Lampose driver, asked
+   * for on WhatsApp). `request` is the WhatsApp to the delivery desk and only
+   * exists for 'driver' — `ok: false` is a message that did NOT go out, with
+   * the reason, and it is what the "send it again" button is drawn from.
+   */
+  deliveryChoice?: {
+    method: DeliveryBy | '';
+    chosenAt: string | null;
+    request: {
+      to: string;
+      ok: boolean;
+      sentAt: string | null;
+      error: string;
+      attempts: number;
+    } | null;
+  };
+  /**
+   * What this restaurant may do to the order next, worked out by the server.
+   * Preferred over `PARTNER_TRANSITIONS`, which is only the general table: an
+   * order the restaurant is delivering itself can be marked picked up and
+   * delivered, one handed to an app rider cannot, and only the server knows
+   * which this is.
+   */
+  moves?: FoodOrderStatus[];
 }
+
+/** Who brings an order — see `RestaurantOrder.deliveryChoice`. */
+export type DeliveryBy = 'self' | 'driver';
+
+/**
+ * What came of the delivery choice made with an accept, or on its own.
+ * `sent` is null for 'self' (nobody is messaged), otherwise whether the
+ * delivery desk's WhatsApp actually went out; `message` is why not.
+ */
+export interface DeliveryReport {
+  method: DeliveryBy;
+  ok: boolean;
+  sent: boolean | null;
+  message: string;
+}
+
+/** A move on an order, and the delivery report that may ride with it. */
+export type OrderMoveResponse = ApiResponse<RestaurantOrder | null> & {
+  delivery: DeliveryReport | null;
+};
 
 /** The per-status tally the list returns beside its rows, for the tab badges. */
 export type OrderStatusCounts = Partial<Record<FoodOrderStatus, number>>;
@@ -599,13 +653,41 @@ export const restaurantAdminService = {
   async setOrderStatus(
     orderNumber: string,
     status: FoodOrderStatus,
-    extra: { reason?: string; promisedMinutes?: number } = {}
-  ): Promise<ApiResponse<RestaurantOrder | null>> {
-    const res = await api.patch<{ data: RestaurantOrder }>(
+    extra: {
+      reason?: string;
+      promisedMinutes?: number;
+      /**
+       * With an accept on a WEBSITE order: who delivers. Without it — and always for
+       * an app order — the automatic rider search runs.
+       */
+      deliveryBy?: DeliveryBy;
+    } = {}
+  ): Promise<OrderMoveResponse> {
+    const res = await api.patch<{ data: RestaurantOrder; delivery?: DeliveryReport | null }>(
       `${BASE}/orders/${orderNumber}/status`,
       { status, ...extra }
     );
-    return res.success ? { ...res, data: res.data?.data ?? null } : { ...res, data: null };
+    return res.success
+      ? { ...res, data: res.data?.data ?? null, delivery: res.data?.delivery ?? null }
+      : { ...res, data: null, delivery: null };
+  },
+
+  /**
+   * Choose — or change, or resend — who delivers an order that is accepted.
+   *
+   * 'driver' sends the delivery desk a WhatsApp and waits to hear whether it
+   * went out (a few seconds), so the answer says so: `delivery.sent === false`
+   * with `delivery.message` is a request that did not reach anyone, and the
+   * diner is NOT told a driver is assigned until it has.
+   */
+  async setDelivery(orderNumber: string, deliveryBy: DeliveryBy): Promise<OrderMoveResponse> {
+    const res = await api.patch<{ data: RestaurantOrder; delivery?: DeliveryReport | null }>(
+      `${BASE}/orders/${orderNumber}/delivery`,
+      { deliveryBy }
+    );
+    return res.success
+      ? { ...res, data: res.data?.data ?? null, delivery: res.data?.delivery ?? null }
+      : { ...res, data: null, delivery: null };
   },
 
   /* ── Menu ───────────────────────────────────────────────────────────── */

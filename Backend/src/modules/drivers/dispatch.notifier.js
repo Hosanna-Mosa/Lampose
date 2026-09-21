@@ -171,6 +171,32 @@ async function notifyCustomerOfRider(order, driver) {
 }
 
 /**
+ * "A driver has been assigned" — to the diner, when the RESTAURANT arranged
+ * the delivery (its own person, or the delivery desk's driver).
+ *
+ * Says who is bringing it in words rather than a name: there is no rider
+ * account here to take one from. No PIN: on these orders the diner confirms the
+ * delivery with a button, so nobody is asked for a code.
+ */
+async function notifyCustomerOfDriverAssigned(order) {
+  const tokens = await customerTokens(order.customerId);
+  const own = order.delivery && order.delivery.method === 'self';
+  return ring(tokens, {
+    title: 'A driver has been assigned 🛵',
+    body: `${own ? 'The restaurant\'s own delivery person' : 'A Lampose delivery partner'} will bring your order.`,
+    data: {
+      kind: 'food_order',
+      orderNumber: order.orderNumber,
+      status: order.status,
+      dispatchState: 'assigned',
+    },
+    sound: 'default',
+    channelId: ORDER_CHANNEL,
+    priority: 'high',
+  }, 'driver-assigned');
+}
+
+/**
  * "We are still looking" — to the diner, when a whole sweep found nobody.
  *
  * Worded as a delay rather than a failure, because it IS one: the order stands,
@@ -235,14 +261,21 @@ async function notifyCustomerOfRejection(order) {
   }, 'rejected');
 }
 
-/** "Your food is on its way" / "It has arrived" — the two hand-overs. */
+/**
+ * "Your food is on its way" / "It has arrived" — the two hand-overs.
+ *
+ * An order the restaurant arranged has no rider name and no PIN to give: the
+ * delivery boy has taken it, and the diner will say it has arrived themselves.
+ */
 async function notifyCustomerOfHandover(order, moment) {
   const tokens = await customerTokens(order.customerId);
+  const arranged = Boolean(order.delivery && ['self', 'driver'].includes(order.delivery.method));
   const copy = moment === 'picked_up'
     ? {
       title: 'Your order is on its way 🛵',
-      body: `${order.delivery?.driverName || 'Your rider'} has collected it. `
-        + `Have PIN ${order.deliveryOtp} ready.`,
+      body: arranged
+        ? 'The delivery boy has picked up your order. Tap "Delivered" when it reaches you.'
+        : `${order.delivery?.driverName || 'Your rider'} has collected it. Have PIN ${order.deliveryOtp} ready.`,
     }
     : {
       title: 'Delivered 🍽️',
@@ -265,6 +298,7 @@ module.exports = {
   notifyDriverOfOffer,
   notifyDriverOfferClosed,
   notifyCustomerOfRider,
+  notifyCustomerOfDriverAssigned,
   notifyCustomerNoRider,
   notifyCustomerOfRejection,
   notifyCustomerOfHandover,

@@ -1,10 +1,18 @@
 /* ══════════════════════════════════════════════════════════════════════════
    Sign in — two doors, one screen.
 
-     Super Admin       Lampose staff, an `admins` account. Email and password.
+     Lampose Admin     Lampose staff, an `admins` account. Email and password.
+                       EVERY staff role signs in here — Super Admin, Admin,
+                       Editor, Viewer, Food Admin, Support — and the role on
+                       the account decides what the console shows afterwards.
+                       Super Admin is the main administrator: every
+                       capability, every nav group, and the only role that may
+                       release money or manage accounts.
      Restaurant Admin  a restaurant OWNER, a `food_restaurants` account. The
                        same email-or-phone and password they use in the
-                       Food-Partner app.
+                       Food-Partner app. One shop — its own orders and its own
+                       menu, and nothing belonging to Lampose or to any other
+                       restaurant.
 
    The two go to different endpoints and come back with different tokens —
    see AuthContext. The picker is here rather than at two URLs because a
@@ -59,9 +67,25 @@ const DOORS: Record<
   }
 > = {
   admin: {
-    label: 'Super Admin',
+    /* 'Lampose Admin', not 'Super Admin'. Two reasons, and the second is the
+       one that matters.
+
+       It was inaccurate: this door accepts EVERY staff role — Admin, Editor,
+       Viewer, Food Admin and Support all sign in here, and the role on the
+       account is what narrows the console afterwards. Naming the door after
+       the top role told five of the six they were at the wrong one.
+
+       And it was misleading about what Super Admin IS. Sitting beside
+       'Restaurant Admin' as an equal half of a two-button picker, it read as
+       one of two FOOD roles rather than as the main Lampose console — as
+       though the platform's total administrator were a food-section job.
+       Super Admin is the main admin: it holds every capability in
+       iam.roles.js, sees every nav group, and is the only role that may
+       release money or manage administrator accounts. The restaurant door
+       beside it is the narrow one — a single shop, its own orders and menu. */
+    label: 'Lampose Admin',
     icon: ShieldCheck,
-    blurb: 'Use your Lampose administrator credentials.',
+    blurb: 'The main Lampose console. Use your staff credentials.',
     fieldLabel: 'Email address',
     placeholder: 'name@lampose.in',
     inputType: 'email',
@@ -78,9 +102,23 @@ const DOORS: Record<
 
 const ORDER: SessionKind[] = ['admin', 'restaurant'];
 
+/**
+ * Which door the page opens on.
+ *
+ * The staff door, unless the address says otherwise. A `?order=LO…` link is the
+ * one in the "you have a new order" WhatsApp, and it is only ever sent to a
+ * restaurant owner — so opening it on the STAFF door would put the owner in
+ * front of an email box that does not take their phone number, on the one
+ * screen between them and the order they were told to accept. The address is
+ * read once; the toggle still works, so a staff member who opens the same link
+ * is one tap from their own door.
+ */
+const firstDoor = (): SessionKind =>
+  new URLSearchParams(window.location.search).get('order') ? 'restaurant' : 'admin';
+
 export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
   const { login, loginAsRestaurant } = useAuth();
-  const [role, setRole] = useState<SessionKind>('admin');
+  const [role, setRole] = useState<SessionKind>(firstDoor);
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);

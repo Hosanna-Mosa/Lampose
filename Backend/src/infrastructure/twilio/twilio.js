@@ -924,7 +924,10 @@ async function sendSlotReminder({ customerPhone, customerName, propertyName }) {
  * The fifth differs, and must:
  *   button template  5 = the order number, appended to the button's own
  *                        fixed URL prefix
- *   text template    5 = the whole URL, or a sentence when there is none
+ *   text template    5 = "Accept it here: <URL>", or a sentence when there
+ *                        is no link — the same shape the template was
+ *                        approved with, so the line says what the link is
+ *                        for instead of being a bare address
  */
 async function sendFoodOrderAlert({
   restaurantPhone, restaurantName, orderNumber, amount, summary, link, linkSuffix,
@@ -935,7 +938,7 @@ async function sendFoodOrderAlert({
   /* A template variable may never be empty — Twilio rejects the send with
      63028 rather than rendering a gap — so the text template's fifth slot
      carries a sentence when there is no link to put in it. */
-  const where = link || 'Open the Lampose partner app to accept it.';
+  const where = link ? `Accept it here: ${link}` : 'Open the Lampose partner app to accept it.';
 
   const common = {
     1: oneLine(restaurantName || 'your restaurant', 60),
@@ -954,12 +957,177 @@ async function sendFoodOrderAlert({
       `🍽️ New order at ${restaurantName || 'your restaurant'}\n\n`
       + `Order ${orderNumber} · ${amount}\n`
       + `${summary}\n\n`
-      + `${link ? `Accept it here: ${link}` : where}\n\n`
+      + `${where}\n\n`
       + 'Please accept or refuse it so the diner knows where they stand.',
   });
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   "A delivery request has arrived" — the delivery desk's WhatsApp
+
+   Sent when a restaurant accepts an order and chooses a Lampose driver rather
+   than delivering it themselves. See `foodDelivery.service.js`, which decides
+   WHEN this goes out and what it means for the diner's screen.
+
+   ## "Accepted by Twilio" is not "delivered", and this waits to find out
+
+   `messages.create` answers as soon as Twilio has QUEUED the message. A
+   WhatsApp message that Meta then refuses — the commonest reason being a plain
+   message to a number that has not written to us in the last 24 hours — fails
+   a second or two LATER, and `create` has already said yes. Reporting that as
+   sent would tell a restaurant a driver is coming, and tell the diner the same
+   thing, on the strength of a message nobody will ever read.
+
+   So after the send this looks at the message a few times, a second apart, and
+   turns a `failed` / `undelivered` verdict into a failure with the reason.
+   Bounded on purpose: the restaurant is watching a button, so it gives up
+   after about four seconds and reports what it knows (queued), rather than
+   holding the request open for a delivery receipt that can take a minute.
+
+   ## Templates
+
+   `TWILIO_DELIVERY_REQUEST_CONTENT_SID`, when set, sends the approved template
+   (six variables — see `.env.example`); unset it sends plain text, which only
+   arrives inside an open 24-hour session. A cancellation is always plain text:
+   it is only ever sent to a desk that was messaged a moment ago.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const SETTLE_POLLS = 3;
+/* A variable, not a constant, for one reason: `_useClientForTests` shortens it
+   so the polling can be exercised without a test standing still for four seconds. */
+let settleGapMs = 1200;
+const STILL_IN_FLIGHT = new Set(['queued', 'accepted', 'sending', 'scheduled']);
+const REFUSED = new Set(['failed', 'undelivered']);
+
+/** Twilio's own words for the two errors a person can actually fix. */
+const explainWhatsAppError = (code, fallback) => {
+  if (Number(code) === 63016) {
+    return 'WhatsApp only carries a plain message to a number that has messaged Lampose in the last 24 hours. '
+      + 'Ask the delivery desk to send "hi" to the Lampose WhatsApp number, or set an approved template '
+      + '(TWILIO_DELIVERY_REQUEST_CONTENT_SID).';
+  }
+  if (Number(code) === 63007 || Number(code) === 63015) {
+    return 'The delivery desk number is not reachable on WhatsApp from the Lampose sender.';
+  }
+  return fallback || 'WhatsApp refused the message.';
+};
+
+const wait = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+/**
+ * Look at a message a few times until it stops being "in flight".
+ *
+ * Resolves to the message resource, or null when it is still queued at the end
+ * of the budget. Never throws: a lookup that fails says nothing about the
+ * message, and the send already succeeded.
+ */
+async function settle(sid) {
+  for (let i = 0; i < SETTLE_POLLS; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await wait(settleGapMs);
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const message = await client.messages(sid).fetch();
+      if (!STILL_IN_FLIGHT.has(message.status)) return message;
+    } catch (error) {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Ask the delivery desk to send a driver — or tell it not to.
+ *
+ * @param {object} p
+ * @param {string} p.to            the desk's number, any format `toE164` reads
+ * @param {string} p.orderNumber
+ * @param {string} p.restaurantName
+ * @param {string} p.pickup        where to collect it: address and phone
+ * @param {string} p.drop          where it goes, with a map link when there is a pin
+ * @param {string} p.customer      name and phone, so the driver can ring at the door
+ * @param {string} p.collect       "₹265 cash on delivery" or "Already paid — nothing to collect"
+ * @param {string} [p.ready]       a whole sentence — "Food is ready in about 12 min." — or empty
+ * @param {'request'|'cancel'} [p.kind]
+ * @returns {Promise<{success: boolean, messageSid?: string, status?: string, error?: string}>}
+ */
+async function sendDeliveryRequest({
+  to, orderNumber, restaurantName, pickup, drop, customer, collect, ready, kind = 'request',
+}) {
+  if (!client) return { success: false, error: 'WhatsApp is not configured on this server.' };
+
+  const target = formatWhatsAppNumber(to);
+  if (!target) return { success: false, error: 'The delivery desk number is not a valid phone number.' };
+
+  const contentSid = kind === 'request' ? process.env.TWILIO_DELIVERY_REQUEST_CONTENT_SID : '';
+
+  const body = kind === 'cancel'
+    ? `❌ Delivery request cancelled — ${orderNumber}\n\n`
+      + `${restaurantName} will deliver this order themselves, so no driver is needed. Sorry for the trouble.`
+    : `🛵 New delivery request — ${orderNumber}\n\n`
+      + `Pickup: ${restaurantName}\n${pickup}\n\n`
+      + `Drop: ${drop}\n`
+      + `Customer: ${customer}\n\n`
+      + `${collect}\n`
+      + `${ready ? `${ready}\n` : ''}\n`
+      + 'Please collect the order from the restaurant and hand it over to the customer named above.';
+
+  /* A template variable may never be empty — Twilio rejects the whole send
+     (63028) rather than rendering a gap — so nothing goes in as ''. The keys are
+     the template's own; `tests/twilioDeliveryRequest.test.js` fails if they and
+     `deliveryRequestTemplate.js` ever stop agreeing. */
+  const slot = (value, max) => oneLine(value, max) || '-';
+
+  try {
+    const message = await client.messages.create(contentSid
+      ? {
+        from: whatsappFrom,
+        to: target,
+        contentSid,
+        contentVariables: JSON.stringify({
+          1: slot(orderNumber, 20),
+          2: slot(restaurantName, 60),
+          3: slot(pickup, 200),
+          4: slot(drop, 300),
+          5: slot(customer, 80),
+          6: slot(collect, 60),
+        }),
+      }
+      : { from: whatsappFrom, to: target, body });
+
+    const settled = await settle(message.sid);
+    if (settled && REFUSED.has(settled.status)) {
+      const error = explainWhatsAppError(settled.errorCode, settled.errorMessage);
+      console.error(`❌ Delivery request ${orderNumber} refused by WhatsApp (${settled.errorCode || settled.status}): ${error}`);
+      return { success: false, messageSid: message.sid, status: settled.status, error };
+    }
+
+    return { success: true, messageSid: message.sid, status: settled ? settled.status : message.status };
+  } catch (error) {
+    const reason = explainWhatsAppError(error.code, error.message);
+    console.error(`❌ Delivery request ${orderNumber} could not be sent: ${error.message}`);
+    return { success: false, error: reason };
+  }
+}
+
+/**
+ * Test seam: swap in a fake Twilio client, and make the settle polling fast.
+ *
+ * Nothing outside a test calls this. It exists because `client` is built from
+ * the environment when this file loads, and `sendDeliveryRequest` decides
+ * something a diner is told ("a driver has been assigned") — which is worth
+ * exercising against a client that answers exactly as Twilio does, including
+ * the message that is accepted and then refused a second later.
+ *
+ * Pass `null` to put the client back to "not configured".
+ */
+function _useClientForTests(fake, { gapMs = 1 } = {}) {
+  client = fake || undefined;
+  settleGapMs = gapMs;
+}
+
 module.exports = {
+  _useClientForTests,
   sendOwnerText,
   sendVerificationMessage,
   sendConfirmationMessage,
@@ -981,4 +1149,5 @@ module.exports = {
   sendOwnerVisitNotice,
   sendSlotReminder,
   sendFoodOrderAlert,
+  sendDeliveryRequest,
 };

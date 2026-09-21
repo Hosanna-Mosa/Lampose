@@ -11,8 +11,6 @@
    naming a levy nobody collects.
    ══════════════════════════════════════════════════════════════════════════ */
 
-import { COUPONS } from '../data/food';
-
 /**
  * Does a kitchen's minimum order STOP an order, or only say so?
  *
@@ -22,12 +20,18 @@ import { COUPONS } from '../data/food';
  * this surface, where the minimums come from a fixture rather than from a
  * restaurant that agreed to them, that dead end is ours, not theirs.
  *
- * So the minimum is TOLD, not enforced. The cart prints how far under it is,
- * beside the button, and the button still works. Turning the rule back on is
- * this one word — both the cart and the checkout read it, so they cannot
- * disagree about whether an order can be placed.
+ * So the minimum was TOLD, not enforced: the cart printed how far under it was,
+ * and the button still worked.
+ *
+ * ENFORCED now, and for the reason that made it optional going away. The
+ * minimums are each kitchen's OWN (`minOrderValue`), and the order endpoint
+ * refuses an order under one with a 409 `BELOW_MINIMUM`. A button that stays
+ * live under the minimum is no longer a kindness - it is a guaranteed refusal
+ * on a screen that promised to place the order. Both the cart and the checkout
+ * read this one word, so they cannot disagree about whether an order can be
+ * placed; and the message under the button says how far short it is.
  */
-export const ENFORCE_MINIMUM = false;
+export const ENFORCE_MINIMUM = true;
 
 /* A line's price is the dish plus whatever was ticked on the sheet, resolved
    once when it is added. Re-deriving it later means re-reading add-ons that
@@ -53,14 +57,25 @@ export function couponBlockedReason(coupon, { itemTotal, kitchenId, fulfilment }
   return null;
 }
 
-export const couponByCode = code =>
-  COUPONS.find(c => c.code.toLowerCase() === String(code || '').trim().toLowerCase()) || null;
+/*
+ * Both helpers below take the coupon list as an ARGUMENT.
+ *
+ * They used to close over a fixture array, which made the list impossible to
+ * change without editing this file. The list now comes from the server and is
+ * held by `CartProvider`, so it is passed in — and it is passed in ALREADY
+ * FILTERED to the coupons the server will honour (`enforced: true`). This
+ * file does no filtering of its own: whether a coupon is real is the server's
+ * answer, and re-deciding it here would be a second opinion that could
+ * disagree with the bill the order actually gets.
+ */
+export const couponByCode = (code, coupons = []) =>
+  coupons.find(c => c.code && c.code.toLowerCase() === String(code || '').trim().toLowerCase()) || null;
 
 /* Coupons this cart could reach, each carrying why it cannot run yet. A
    coupon is listed with its reason rather than hidden, because "spend ₹119
    more" is an offer and a hidden coupon is nothing. */
-export function offersFor({ itemTotal, kitchenId, fulfilment }) {
-  return COUPONS
+export function offersFor({ itemTotal, kitchenId, fulfilment }, coupons = []) {
+  return coupons
     .filter(c => !c.kitchenId || c.kitchenId === kitchenId)
     .map(c => ({ ...c, blockedReason: couponBlockedReason(c, { itemTotal, kitchenId, fulfilment }) }));
 }
@@ -74,7 +89,15 @@ export function totals({ lines = [], kitchen = null, coupon = null, fulfilment =
   const delivering = fulfilment === 'delivery';
 
   const packagingCharge = lines.length ? Number(kitchen?.packagingCharge || 0) : 0;
-  const deliveryFee = lines.length && delivering ? Number(kitchen?.deliveryFee || 0) : 0;
+
+  /* The flat fee, unless the kitchen delivers free above a threshold and this
+     cart has reached it - the same test, on the same figure (the ITEM total),
+     that the order endpoint runs. The total shown here has to be the total the
+     server will charge; a difference of a delivery fee is the sort of thing a
+     diner notices on the receipt and not before. */
+  const freeAbove = Number(kitchen?.freeDeliveryAbove || 0);
+  const feeWaived = freeAbove > 0 && itemTotal >= freeAbove;
+  const deliveryFee = lines.length && delivering && !feeWaived ? Number(kitchen?.deliveryFee || 0) : 0;
 
   const blocked = coupon
     ? couponBlockedReason(coupon, { itemTotal, kitchenId: kitchen?.id, fulfilment })

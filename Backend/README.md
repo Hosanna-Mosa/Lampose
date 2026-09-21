@@ -17,7 +17,7 @@ module here instead.
 cp .env.example .env   # fill it in — see Configuration below
 npm install
 npm run browsers       # Playwright's Chromium, only needed for the lead scraper
-npm run dev            # node --watch server.js
+npm run dev            # scripts/dev.js: restarts when a file is edited (not when it is merely read)
 npm run verify         # exercises every call all three frontends make
 ```
 

@@ -58,7 +58,9 @@ const {
 /* The shared handlers. Each one is the SAME function the Food-Partner app
    calls, reached through a different door. */
 const { getMe, updateMe, setAvailability } = require('./foodPartner.controller');
-const { listMyOrders, getMyOrder, setOrderStatus } = require('./foodOrder.controller');
+const {
+  listMyOrders, getMyOrder, setOrderStatus, setDeliveryMethod,
+} = require('./foodOrder.controller');
 const {
   listMyProducts, createProduct, updateProduct, deleteProduct, setProductAvailability,
 } = require('./foodMenu.controller');
@@ -152,6 +154,11 @@ router.patch('/me/availability', session, setAvailability);
 router.get('/orders', session, listMyOrders);
 router.get('/orders/:orderNumber', session, getMyOrder);
 router.patch('/orders/:orderNumber/status', session, setOrderStatus);
+/* Who delivers it: its own person, or a Lampose driver asked for on WhatsApp.
+   Chosen with the accept, and available here for choosing afterwards or
+   resending a message that did not go out. Console-only — see
+   `foodDelivery.service.js`. */
+router.patch('/orders/:orderNumber/delivery', session, setDeliveryMethod);
 
 /* The menu, in full: add, edit, retire, and flip an item in or out of stock.
    `/menu/:productId/availability` is declared before nothing it could shadow

@@ -47,7 +47,7 @@ const express = require('express');
 const verifyAdminToken = require('../analytics/verifyAdminToken.middleware');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const {
-  listOrders, getCounts, getOrder, issueRefund, recordSettledRefund,
+  listOrders, getCounts, getOrder, markDelivered, issueRefund, recordSettledRefund,
 } = require('./foodOrderAdmin.controller');
 const { tagFoodPartnerRequest } = require('./foodPartner.log');
 
@@ -60,6 +60,11 @@ const { rolesWith } = require('../iam/iam.roles');
 
 const REFUNDING_ROLES = new Set(rolesWith('food.refund'));
 const requireRefunder = can('food.refund');
+
+/* Closing a website order the diner never confirmed is `food.complete` — Super
+   Admin, Admin. It is what makes a restaurant payable, so it is not everybody's. */
+const COMPLETING_ROLES = new Set(rolesWith('food.complete'));
+const requireCompleter = can('food.complete');
 
 router.use(tagFoodPartnerRequest);
 router.use(verifyAdminToken);
@@ -74,9 +79,13 @@ router.get('/counts', getCounts);
 router.get('/', listOrders);
 router.get('/:orderNumber', getOrder);
 
+/* Only a completer may say a website order was delivered. */
+router.post('/:orderNumber/delivered', requireCompleter, markDelivered);
+
 /* Only a refunder may send it, or declare it sent. */
 router.post('/:orderNumber/refund', requireRefunder, issueRefund);
 router.post('/:orderNumber/refund/settled', requireRefunder, recordSettledRefund);
 
 module.exports = router;
 module.exports.REFUNDING_ROLES = REFUNDING_ROLES;
+module.exports.COMPLETING_ROLES = COMPLETING_ROLES;
