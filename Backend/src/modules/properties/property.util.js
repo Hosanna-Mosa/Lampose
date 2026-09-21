@@ -10,7 +10,7 @@
                Stored as pasted, because what opens for the student who taps
                it is the point of it.
      location  a pin, taken by the browser's own geolocation. GeoJSON, so the
-               same `$geoIntersects` and `$near` queries the zones and the
+               same `$geoIntersects` and `$near` queries the delivery and the
                dispatcher already run work against it later.
 
    THEY ARE INDEPENDENT, and both optional. A short link carries no readable

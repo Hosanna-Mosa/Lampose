@@ -214,7 +214,6 @@ the other is the conversion to get right, and getting it wrong does not throw.
 /api/v1/permissions         employee edit/delete permission requests
 /api/v1/admin/food-restaurants  the restaurant approval queue and its decisions
 /api/v1/admin/drivers       the rider queue: per-DOCUMENT verdicts, approvals, suspensions
-/api/v1/admin/zones         service zones: draw, edit and retire the trading area
 /api/v1/admin/support       the support queue: every thread from all three apps
 
 /api/v2/health              process + database status         (shared router)
@@ -646,9 +645,15 @@ boot and in the response:
 
 ## Scripts
 
-| Command | What it does |
-| --- | --- |
-| `npm run verify` | 78 checks. Boots the app and replays every call the three frontends make, checking each response carries the fields the calling component reads. Add `--scrape` for a live Google Maps scrape. Cleans up after itself, in MongoDB *and* Cloudinary. |
+**Which database a script touches** is the first thing to know about it, so it
+is the first column. `guarded` means the script calls
+`src/infrastructure/database/guard.js` and will refuse outright unless the
+resolved database looks like a development one — see
+[Development versus production](#development-versus-production).
+
+| Target | Command | What it does |
+| --- | --- | --- |
+| guarded | `npm run verify` | 78 checks. Boots the app and replays every call the three frontends make, checking each response carries the fields the calling component reads. Add `--scrape` for a live Google Maps scrape. Cleans up after itself, in MongoDB *and* Cloudinary — but it **creates ten real property listings** while it runs, which is why it refuses to run against the live database. `SMOKE_URL=` still reaches a deployment over HTTP. |
 | `npm run smoke` | Faster "is it healthy" check, including the CORS preflight from each production origin. `SMOKE_URL=https://api.lampose.com npm run smoke` to test a deployment. |
 | `npm run inspect:db` | Collection names, counts and document shapes. Never prints the connection string. |
 | `npm run inspect:properties` | Category/stayType/amenity tallies and image coverage across `properties`. |
@@ -658,12 +663,75 @@ boot and in the response:
 | `npm run verify:food-order` | The order loop: a diner orders, the kitchen accepts, cooks and marks ready, the diner tracks it. |
 | `npm run verify:food-dispatch` | The delivery loop: two riders, a real dispatch cascade, both hand-over codes, and the races. Needs an approved restaurant **with a map pin** — `npm run seed:food-menu` first. |
 | `npm run verify:addresses` | Addresses for all three identities that have one: the diner's book (one default always, including after the default is deleted; a partial edit that does not clear the other fields), and the rider's and owner's single address. Asserts the pin stays `[lng, lat]`, that a pin can be cleared with `null`, and that adding a rider address does NOT change whether an approved rider can go online. |
-| `npm run verify:zones` | Service zones end to end: a polygon and a circle drawn from the console, the open ring closed server-side, points in and out of each, the role gate, switching a zone off without losing its shape, redrawing a polygon as a circle (and the old boundary being removed), active hours, per-service restriction, and the unauthenticated client routes. Needs nothing seeded. |
 | `npm run verify:driver-onboarding` | Rider sign-up through approval: the form the server re-derives rather than trusts, one document at a time, the console's per-document and per-account verdicts, and the duty switch that only opens at the end. Needs nothing seeded, and texts nobody — the code is seeded the way `issueOtp` seeds it, because `sendOtpSms` reaches the live gateway in development too. |
 
 `verify` deliberately skips a complete `POST /api/v1/properties` (it would
 send a real WhatsApp message to a real number — the route is exercised through
 its validation paths instead) and live scrapes unless `--scrape` is passed.
+
+## Development versus production
+
+**The invariant: a developer's credential cannot write the live database.**
+The guard below is a seatbelt. The Atlas user is the wall, and it is the half
+that actually holds — it survives a hardcoded URI, a typo, a pasted
+`mongosh` command and a script nobody reviewed.
+
+| Atlas user | Roles | Lives in |
+| --- | --- | --- |
+| `lampose_api_prod` | `readWrite` on the live database | `/srv/lampose-api/.env`, `chmod 600` |
+| `lampose_dev` | `readWrite` on `lamp_booking_dev`, at most `read` on live | every developer's `Backend/.env` |
+
+Developers set **both** `DB_NAME` and the URI's path to the development
+database. `DB_NAME` wins at connect time (`db.js`); the path covers anything
+that reads the URI directly.
+
+### The guard
+
+`src/infrastructure/database/guard.js` resolves the database a connection
+would actually reach — in mongoose's own precedence, `dbName` → `DB_NAME` →
+the URI path — and classifies it. Every script that writes calls it before
+its first write, and **`tests/guard.test.js` fails if a new one does not.**
+That test, not this paragraph, is what keeps the property true.
+
+Three things worth knowing about how it judges:
+
+- **It fails closed on "unknown".** A denylist answers "is this one of the
+  databases we thought of?", and the database that eats a client's listings
+  is the one nobody thought of. A scratch database just needs a name ending
+  `_dev`, `_test`, `_local`, `_scratch`, `_staging` or `_sandbox`.
+- **Loopback is always development**, whatever the database is called, so
+  `mongodb-memory-server` and a local restore both work without ceremony.
+- **`NODE_ENV` can only add suspicion, never remove it.** A laptop set to
+  `development` while pointed at the live cluster is the exact bug this
+  exists for.
+
+The deliberate override names the database rather than passing a flag:
+
+```
+LAMPOSE_ALLOW_WRITES_TO=lampose_prod npm run migrate:categories -- --apply
+```
+
+A boolean `--force` copied out of a chat log unlocks whatever database
+happens to be configured; a name only unlocks the one somebody typed out.
+
+The **server never refuses** — `db.js` prints a loud banner beside the
+connect line and carries on, because a server that exits over a
+misconfiguration turns it into "nothing is listening", which a browser cannot
+tell apart from a network fault. Refusal belongs in scripts, which have
+nobody waiting on them.
+
+### Moving the real data to a clean database
+
+```
+npm run review:snapshot                              read-only; writes review-snapshot.json
+# review the rows, record verdicts, save them to review-decisions.json
+npm run migrate:clean-db -- --to lampose_prod        report only
+npm run migrate:clean-db -- --to lampose_prod --confirm-database lampose_prod
+```
+
+The verdicts are a **deny-list**: anything unmentioned is copied. The live
+database grows while the review happens, so an allow-list would silently drop
+every listing onboarded in between. `unsure` counts as keep, and is reported.
 
 ## Configuration
 

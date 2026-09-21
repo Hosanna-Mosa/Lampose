@@ -20,6 +20,7 @@
    ══════════════════════════════════════════════════════════════════════════ */
 const mongoose = require('mongoose');
 const config = require('../../config/env');
+const guard = require('./guard');
 
 const DB_STATE = ['disconnected', 'connected', 'connecting', 'disconnecting'];
 
@@ -74,12 +75,34 @@ const bindConnectionListeners = () => {
 
 const attempt = async ({ initial = false } = {}) => {
   retryTimer = null;
-  const uri = config.db.uri || 'mongodb://127.0.0.1:27017/lamp_onboarding';
+  /* Named lampose_local, not lamp_onboarding: a laptop with no MONGO_URI
+     should not open a database sharing production's name, because every
+     later warning and every guard decision keys off that name. */
+  const uri = config.db.uri || 'mongodb://127.0.0.1:27017/lampose_local';
 
   try {
     mongoose.set('strictQuery', false);
     const conn = await mongoose.connect(uri, { ...config.db.options, dbName: config.db.dbName });
     console.log(`✅ [MongoDB Connected]: ${conn.connection.host} — database "${conn.connection.name}"`);
+
+    /* Warn, never refuse. A server that exits because it is pointed at the
+       wrong database turns a misconfiguration into "nothing is listening",
+       which a browser cannot tell apart from a network fault — the same
+       reasoning as the failover above. Scripts refuse; the server says so
+       loudly and keeps answering. */
+    const target = guard.resolveTarget({ uri, dbName: config.db.dbName });
+    if (!config.isProduction && guard.classify(target) === 'production') {
+      console.warn('');
+      console.warn('  ┌──────────────────────────────────────────────────────────────┐');
+      console.warn('  │  ⚠ THIS IS THE PRODUCTION DATABASE, AND NODE_ENV IS NOT      │');
+      console.warn(`  │     PRODUCTION. Writes here reach real listings and real     │`);
+      console.warn('  │     customers, and the background workers below will send    │');
+      console.warn('  │     real SMS, WhatsApp and push messages.                    │');
+      console.warn('  │                                                              │');
+      console.warn('  │     Point somewhere else:  DB_NAME=lamp_booking_dev          │');
+      console.warn('  └──────────────────────────────────────────────────────────────┘');
+      console.warn('');
+    }
 
     /* A retry that lands after the initial failure has to clear the failover,
        otherwise every subsequent write goes to a process-local array that

@@ -34,8 +34,9 @@ const mongoose = require('mongoose');
 
 const config = require('../src/config/env');
 
-/* Never these, whatever is passed. Extend the list, never shorten it. */
-const PROTECTED = ['lamp_onboarding', 'lampose', 'production', 'prod'];
+/* The list this script used to carry privately now lives in the shared
+   guard, so every other script inherits it too. */
+const guard = require('../src/infrastructure/database/guard');
 
 const arg = (name, fallback = null) => {
   const index = process.argv.indexOf(`--${name}`);
@@ -53,11 +54,7 @@ const main = async () => {
     process.exit(1);
   }
 
-  if (PROTECTED.includes(TARGET_DB.toLowerCase())) {
-    console.error(`\n  Refusing to seed "${TARGET_DB}" — it is on the protected list.`);
-    console.error('  Clone it first:  npm run clone:db\n');
-    process.exit(1);
-  }
+  guard.announce(guard.assertDevTargetOrExit({ dbName: TARGET_DB }), 'seeding');
 
   await mongoose.connect(config.db.uri, { ...config.db.options, dbName: TARGET_DB });
   console.log(`\n  Seeding ${TARGET_DB}\n`);

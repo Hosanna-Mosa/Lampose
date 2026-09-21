@@ -4,6 +4,10 @@ dotenv.config();
 const { connectDB } = require('./src/infrastructure/database/db');
 const Admin = require('./src/modules/admins/admin.model');
 
+/* Refuse to run against production. See src/infrastructure/database/guard.js */
+require('./src/infrastructure/database/guard').assertDevTargetOrExit();
+
+
 const seedSuperAdmin = async () => {
   try {
     await connectDB();

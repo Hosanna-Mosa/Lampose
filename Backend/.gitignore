@@ -53,3 +53,8 @@ config/*.json
 # These are a full JSON copy of one person's name, phone, email and addresses —
 # exactly the data the script was run to remove. Never commit them.
 .deleted/
+
+# Review snapshot for the data-cleanup migration — holds customer names.
+review-snapshot.json
+review-decisions.json
+.deleted/

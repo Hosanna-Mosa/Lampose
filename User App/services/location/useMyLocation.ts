@@ -22,7 +22,7 @@
    than the building. So the two are reported separately: `location` is what
    was measured and `fields` is what could be named. A caller fills what it got
    and keeps the pin regardless, because the pin is the part a rider's map and
-   `zones/check` actually use.
+   a rider's map actually uses.
 
    ## Foreground, once, on a tap
 

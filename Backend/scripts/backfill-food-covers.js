@@ -46,6 +46,10 @@ require('../src/config/env');
 const { connectDB, closeConnections, isLamposeUp } = require('../src/infrastructure/database/db');
 const FoodRestaurant = require('../src/modules/foodpartners/foodRestaurant.model');
 
+/* Refuse to run against production. See src/infrastructure/database/guard.js */
+require('../src/infrastructure/database/guard').assertDevTargetOrExit();
+
+
 const argv = process.argv.slice(2);
 const flag = (name) => argv.includes(`--${name}`);
 const DRY = flag('dry');

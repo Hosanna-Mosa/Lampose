@@ -30,8 +30,7 @@
 
    Centred on the same point the existing "Testing-1" restaurant and the
    test customer "venky"'s own saved address already sit at — 17.4923 N,
-   78.4534 E, Quthbullapur, Hyderabad — which is also the exact centre of
-   the one `service_zones` row in this database (20 km radius). Scattered
+   78.4534 E, Quthbullapur, Hyderabad. Scattered
    within about 1.5 km of it so the User App's "near you" ordering has
    something to actually order.
 
@@ -53,6 +52,10 @@ require('../src/config/env');
 const { connectDB, closeConnections, isLamposeUp } = require('../src/infrastructure/database/db');
 const FoodRestaurant = require('../src/modules/foodpartners/foodRestaurant.model');
 const FoodProduct = require('../src/modules/foodpartners/foodProduct.model');
+
+/* Refuse to run against production. See src/infrastructure/database/guard.js */
+require('../src/infrastructure/database/guard').assertDevTargetOrExit();
+
 
 const { makeProductId } = FoodProduct;
 const { makeRestaurantId, hashPassword } = FoodRestaurant;

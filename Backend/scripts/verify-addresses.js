@@ -28,6 +28,10 @@ require('../src/config/env');
 const { connectDB, closeConnections, isLamposeUp } = require('../src/infrastructure/database/db');
 const createApp = require('../app');
 
+/* Refuse to run against production. See src/infrastructure/database/guard.js */
+require('../src/infrastructure/database/guard').assertDevTargetOrExit();
+
+
 const results = [];
 const check = (name, ok, extra = '') => results.push([!!ok, name, extra]);
 
@@ -238,13 +242,6 @@ const check = (name, ok, extra = '') => results.push([!!ok, name, extra]);
     check('and for an owner',
       ownerPinned.json?.data?.address?.location?.[0] === 81.77,
       JSON.stringify(ownerPinned.json?.data?.address?.location));
-
-    /* A pinned address is the whole reason the zone check can finally answer:
-       before this, no address in the product carried coordinates at all. */
-    const served = await call('GET', '/api/v2/zones/check?lat=16.9891&lng=81.7836&service=food');
-    check('a pinned address can be asked about by the zone check',
-      served.status === 200 && typeof served.json?.serviceable === 'boolean',
-      `serviceable: ${served.json?.serviceable}`);
 
     /* ── One validator, three callers ────────────────────────────────── */
     const sameRefusal = [

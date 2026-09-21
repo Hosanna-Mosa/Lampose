@@ -9,6 +9,10 @@ const VisitRequest = require('../src/modules/visits/visitRequest.model');
 const FoodOrder = require('../src/modules/foodpartners/foodOrder.model');
 const Customer = require('../src/modules/customers/customer.model');
 
+/* Refuse to run against production. See src/infrastructure/database/guard.js */
+require('../src/infrastructure/database/guard').assertDevTargetOrExit();
+
+
 const PHONE_DIGITS = '9704726252';
 
 (async () => {

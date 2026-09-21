@@ -9,6 +9,10 @@ const Partner = require('../src/modules/partners/partner.model');
 const { PartnerShareType } = require('../src/modules/partners/partnerDomains.model');
 const { syncShareTypes } = require('../src/modules/inventory/inventory.service');
 
+/* Refuse to run against production. See src/infrastructure/database/guard.js */
+require('../src/infrastructure/database/guard').assertDevTargetOrExit();
+
+
 const SEED_TAG = 'sunand-seed@lampose.local';
 const OWNER_NAME = 'Sunand';
 const OWNER_MOBILE = '+919704726252';
