@@ -32,6 +32,7 @@ import { RefundsPage } from './pages/RefundsPage';
 import { SupportPage } from './pages/SupportPage';
 import { RestaurantDashboard } from './pages/restaurant/RestaurantDashboard';
 import { RestaurantOrdersPage } from './pages/restaurant/RestaurantOrdersPage';
+import { OrderLinkPage } from './pages/restaurant/OrderLinkPage';
 import { RestaurantMenuPage } from './pages/restaurant/RestaurantMenuPage';
 import { RestaurantShopPage } from './pages/restaurant/RestaurantShopPage';
 import { RestaurantAnalyticsPage } from './pages/restaurant/RestaurantAnalyticsPage';
@@ -607,7 +608,42 @@ const Root: React.FC = () => {
   return kind === 'restaurant' ? <RestaurantConsole /> : <AppContent />;
 };
 
+/**
+ * The link in the restaurant's "you have a new order" WhatsApp: `?order=LO…&token=…`.
+ *
+ * Both parts, or it is not one. A link with only `?order=` is the older,
+ * sign-in kind (and what the link falls back to when the server has no signing
+ * secret), and goes through the ordinary route below.
+ */
+const readOrderLink = (): { orderNumber: string; token: string } | null => {
+  const params = new URLSearchParams(window.location.search);
+  const orderNumber = (params.get('order') || '').trim();
+  const token = (params.get('token') || '').trim();
+  return orderNumber && token ? { orderNumber, token } : null;
+};
+
 export default function App() {
+  const link = readOrderLink();
+
+  /*
+   * A link with its proof skips the sign-in gate altogether — and the
+   * `AuthProvider` with it, which is the point rather than an economy.
+   *
+   * The owner tapping it is often in a phone's in-app browser that keeps nothing
+   * between taps, so a route that starts from "are you signed in" asks for the
+   * password on every order. This page needs no session (the token proves the
+   * one order it is for), and leaving the provider out means it cannot read a
+   * stored one, write one, or — through a stray 401 — sign somebody out of the
+   * console they are using in another tab.
+   */
+  if (link) {
+    return (
+      <ThemeProvider>
+        <OrderLinkPage orderNumber={link.orderNumber} token={link.token} />
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider>
       <AuthProvider>

@@ -51,11 +51,12 @@ const FoodOrder = require('./foodOrder.model');
 const FoodProduct = require('./foodProduct.model');
 const FoodRestaurant = require('./foodRestaurant.model');
 const { notifyRestaurantOfOrder } = require('./foodOrder.notifier');
+const foodDelivery = require('./foodDelivery.service');
 const { markForRefund } = require('./foodPayment.controller');
 const { BADGE, logError, startTimer } = require('./foodPartner.log');
 
 const {
-  makeOrderNumber, makeHandoverCode, customerView, restaurantSnapshot, PAYMENT_MODES,
+  makeOrderNumber, makeHandoverCode, customerView, restaurantSnapshot, restaurantArrangedDelivery, PAYMENT_MODES,
 } = FoodOrder;
 const { isOpenNow } = FoodRestaurant;
 
@@ -243,6 +244,12 @@ const placeOrder = async (req, res, next) => {
       customerPhone: String(req.customer?.phone || '').trim(),
       deliveryAddress: isPickup ? '' : String(body.deliveryAddress || '').trim().slice(0, 300),
       fulfilment: isPickup ? 'pickup' : 'delivery',
+      /* Where it was placed. Only the website says `web`; anything else — the app
+         sending nothing, or a value nobody recognises — is `app`, the flow that
+         finds a real driver. Not a credential and not a permission: it only picks
+         WHICH delivery flow the order follows, so a client claiming `web` gets
+         the website's flow and nothing else. */
+      channel: body.channel === 'web' ? 'web' : 'app',
       pickupLocation,
       dropLocation,
       /* The kitchen in words, snapshotted beside its pin for the same reason
@@ -523,4 +530,81 @@ const cancelMyOrder = async (req, res, next) => {
   }
 };
 
-module.exports = { placeOrder, listMyOrders, getMyOrder, cancelMyOrder };
+// @route   PATCH /api/v2/food-partners/orders/:orderNumber/delivered
+// @desc    A diner says the order has reached them — "Delivered"
+// @access  Customer session (owner only)
+//
+// The last step of a WEBSITE order. The restaurant says the delivery boy has
+// taken it (`picked_up`); the diner — the one person who can actually see
+// whether the food arrived — presses this. Nobody else is asked for a code: the
+// hand-over is confirmed by the person receiving it.
+//
+// Refused for an order the app's own rider is carrying: there the RIDER
+// completes it, with the diner's code, and a button here would let a diner
+// close a delivery a real rider is still making.
+const confirmMyDelivery = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+
+    const order = await FoodOrder.findOne({
+      customerId: req.customer.customerId,
+      orderNumber: String(req.params.orderNumber || '').trim().toUpperCase(),
+    });
+
+    if (!order) return fail(res, 404, 'NOT_FOUND', 'We could not find that order.');
+
+    if (!restaurantArrangedDelivery(order)) {
+      return fail(
+        res, 409, 'NOT_CONFIRMABLE',
+        'A Lampose rider delivers this order and confirms the hand-over with you at the door.',
+      );
+    }
+
+    /* Pressed twice — a double tap, or a second tab — is the same answer, not an
+       error: it IS delivered. */
+    if (order.status === 'delivered') {
+      return res.json({ success: true, data: customerView(order) });
+    }
+
+    /* Only once it has left. Before that the food is still being made or is
+       waiting at the pass, and "delivered" would be a claim about something that
+       has not happened yet. */
+    if (order.status !== 'picked_up') {
+      return fail(
+        res, 409, 'NOT_ON_THE_WAY',
+        ['rejected', 'cancelled'].includes(order.status)
+          ? `This order was ${order.status === 'rejected' ? 'refused by the kitchen' : 'cancelled'}.`
+          : 'This order has not been picked up by the delivery boy yet.',
+      );
+    }
+
+    /* The same closing the Lampose admin's button does — see `markDelivered`:
+       the status and who said so, cash marked collected, and the moment the
+       restaurant is owed its money. */
+    foodDelivery.markDelivered(order, { by: 'customer', note: 'Confirmed by the customer' });
+    await order.save();
+
+    // eslint-disable-next-line global-require
+    const dispatch = require('../drivers/foodDispatch.service');
+    // eslint-disable-next-line global-require
+    const realtime = require('../../infrastructure/realtime/realtime');
+    realtime.toOrderParties(order, 'dispatch_update', dispatch.dispatchUpdate(order));
+
+    console.log(`${BADGE} [Order Delivered] ${order.orderNumber} confirmed by the customer`);
+
+    return res.json({ success: true, data: customerView(order) });
+  } catch (error) {
+    logError('confirming a delivery', error);
+    return next(error);
+  }
+};
+
+module.exports = {
+  placeOrder, listMyOrders, getMyOrder, cancelMyOrder, confirmMyDelivery,
+};
+
+/* Exported for the website's tracking page (`foodweb/orders.controller.js`),
+   which needs the same answer the app gets and must not grow a second copy of
+   the rules inside it - no position once an order is finished, none for a
+   stale fix. */
+module.exports.riderPosition = riderPosition;

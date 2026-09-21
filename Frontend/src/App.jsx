@@ -4,6 +4,7 @@ import {
 import { Shell } from './components/common/templates/Shell/Shell';
 import { AuthProvider } from './auth/AuthProvider';
 import { CartProvider } from './food/CartProvider';
+import { FoodCatalogueProvider } from './food/FoodCatalogue';
 
 /* Routes whose first section sits on a light ground need the solid navbar
    immediately — the transparent bar is only legible over the forest hero. */
@@ -29,13 +30,19 @@ export function App() {
           also wants the route, and keeping them in one order means there is
           only one answer to "which wraps which". */}
       <AuthProvider>
-        {/* The cart is read by the navbar as well as by the food pages, so it
-            wraps the whole shell rather than a route — a pill that can only
-            count what the current page knows about is a pill that empties
-            itself on navigation. */}
-        <CartProvider>
-          <Shell />
-        </CartProvider>
+        {/* The catalogue — the kitchens, the cuisines and the area, from
+            /api/v2/food-web. ABOVE the cart, because the cart re-prices its
+            lines against the menu and therefore reads this; a provider cannot
+            use one mounted below it. */}
+        <FoodCatalogueProvider>
+          {/* The cart is read by the navbar as well as by the food pages, so it
+              wraps the whole shell rather than a route — a pill that can only
+              count what the current page knows about is a pill that empties
+              itself on navigation. */}
+          <CartProvider>
+            <Shell />
+          </CartProvider>
+        </FoodCatalogueProvider>
       </AuthProvider>
     </BrowserRouter>
   );

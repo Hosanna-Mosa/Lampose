@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Aside, Box, Heading, Inline, PlainButton, Region, Text,
@@ -7,8 +7,11 @@ import { Icon } from '../components/common/atoms/Icon/Icon';
 import { PhotoTile } from '../components/food/atoms/PhotoTile';
 import { OrderCard } from '../components/food/molecules/OrderCard';
 import { useCart } from '../food/CartProvider';
+import { useFoodCatalogue } from '../food/FoodCatalogue';
+import { useAuth } from '../auth/AuthProvider';
+import { fetchSpend, fetchUsuals } from '../api/foodApi';
 import { useReveals } from '../hooks/useSite';
-import { SPEND, USUALS, dishById, kitchenById, rupees } from '../data/food';
+import { rupees } from '../data/food';
 
 /* ══ My orders ════════════════════════════════════════════════════════════
    Everything this diner has ordered, live one first.
@@ -36,10 +39,30 @@ const TABS = [
 ];
 
 export function FoodOrders() {
-  const { orders, reorder } = useCart();
+  const { orders, reorder, ordersLoading } = useCart();
+  const { isSignedIn, openSignIn } = useAuth();
+  const { kitchenById } = useFoodCatalogue();
   const navigate = useNavigate();
   const [tab, setTab] = useState('active');
   const [dropped, setDropped] = useState(null);
+
+  /* The two side panels, computed by the server from this diner's own orders.
+     Both are empty when signed out: there is nobody to compute them for, and
+     the fixture's "ordered 9 times" / "Spent ₹1,247" were somebody else's. */
+  const [usuals, setUsuals] = useState([]);
+  const [spend, setSpend] = useState(null);
+  useEffect(() => {
+    if (!isSignedIn) { setUsuals([]); setSpend(null); return undefined; }
+    let live = true;
+    /* `Array.isArray`, not trust: `usuals.length` is read while rendering, so a
+       reply of the wrong shape would not fail here - it would blank the whole
+       page one render later. A side panel must never be able to do that. */
+    fetchUsuals({ limit: 3 })
+      .then(rows => { if (live) setUsuals(Array.isArray(rows) ? rows : []); })
+      .catch(() => { if (live) setUsuals([]); });
+    fetchSpend().then(res => { if (live) setSpend(res); }).catch(() => { if (live) setSpend(null); });
+    return () => { live = false; };
+  }, [isSignedIn]);
 
   useReveals([tab, orders.length]);
 
@@ -60,8 +83,11 @@ export function FoodOrders() {
     return seen;
   }, [shown]);
 
-  const again = order => {
-    const result = reorder(order);
+  const again = async order => {
+    /* Awaited: a reorder may have to fetch the kitchen's menu first, so it
+       answers later than it used to. */
+    const result = await reorder(order);
+    if (result.authRequired) { openSignIn(); return; }
     if (!result.ok) { setDropped(order.reference); return; }
     setDropped(null);
     navigate('/food/cart');
@@ -89,6 +115,22 @@ export function FoodOrders() {
             ))}
           </Box>
         </Box>
+
+        {/* Signed out there is no history to draw, and an empty list under "My
+            food orders" reads as "you have never ordered". Say what is actually
+            true, and how to fix it. */}
+        {!isSignedIn && (
+          <Box className="fd-callout">
+            <Icon name="info" className="fd-ico" />
+            <Text>
+              Sign in to see your orders.{' '}
+              <PlainButton type="button" className="fd-link" onClick={openSignIn}>Sign in</PlainButton>
+            </Text>
+          </Box>
+        )}
+        {isSignedIn && ordersLoading && orders.length === 0 && (
+          <Text className="fd-note">Loading your orders…</Text>
+        )}
 
         <Box className="fd-two">
           <Box className="fd-two__main">
@@ -160,23 +202,31 @@ export function FoodOrders() {
 
           {/* ── shortcuts ───────────────────────────────────────────────── */}
           <Aside className="fd-two__side" aria-label="Shortcuts">
-            <Box className="fd-panel">
-              <Heading level={2} className="fd-panel__title">Order it again</Heading>
-              {USUALS.map(usual => {
-                const dish = dishById(usual.dishId);
-                const kitchen = kitchenById(dish.kitchenId);
-                return (
-                  <Link to={`/food/dish/${dish.id}`} className="fd-usual" key={dish.id}>
-                    <PhotoTile tone={dish.tone} className="fd-usual__thumb" />
-                    <Box className="fd-usual__text">
-                      <Inline className="fd-usual__name">{dish.name}</Inline>
-                      <Inline className="fd-usual__meta">{kitchen.name} · ordered {usual.times} times</Inline>
-                    </Box>
-                    <Inline className="fd-usual__add">ADD</Inline>
-                  </Link>
-                );
-              })}
-            </Box>
+            {/* Only when there is a real usual to show. The server prices each one
+                as it is TODAY and drops any dish that has left the menu. */}
+            {usuals.length > 0 && (
+              <Box className="fd-panel">
+                <Heading level={2} className="fd-panel__title">Order it again</Heading>
+                {usuals.map(usual => {
+                  const { dish } = usual;
+                  const kitchen = kitchenById(dish.kitchenId);
+                  return (
+                    <Link to={`/food/dish/${dish.id}`} className="fd-usual" key={dish.id}>
+                      <PhotoTile tone={dish.tone} src={dish.imageUrl} alt={dish.name} width={160} className="fd-usual__thumb" />
+                      <Box className="fd-usual__text">
+                        <Inline className="fd-usual__name">{dish.name}</Inline>
+                        <Inline className="fd-usual__meta">
+                          {[kitchen?.name, `ordered ${usual.times} time${usual.times === 1 ? '' : 's'}`]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </Inline>
+                      </Box>
+                      <Inline className="fd-usual__add">ADD</Inline>
+                    </Link>
+                  );
+                })}
+              </Box>
+            )}
 
             <Box className="fd-panel">
               <Heading level={2} className="fd-panel__title">Need help with an order?</Heading>
@@ -186,13 +236,17 @@ export function FoodOrders() {
               <Link to="/contact" className="fd-btn fd-btn--outline fd-btn--full">Contact support</Link>
             </Box>
 
-            <Box className="fd-panel">
-              <Heading level={2} className="fd-panel__title">Spent {SPEND.monthLabel}</Heading>
-              <Text className="fd-spend">{rupees(SPEND.total)}</Text>
-              <Text className="fd-note">
-                Across {SPEND.orders} orders · {rupees(SPEND.average)} average
-              </Text>
-            </Box>
+            {spend && (
+              <Box className="fd-panel">
+                <Heading level={2} className="fd-panel__title">Spent {spend.monthLabel}</Heading>
+                <Text className="fd-spend">{rupees(spend.total)}</Text>
+                <Text className="fd-note">
+                  {spend.orders
+                    ? `Across ${spend.orders} order${spend.orders === 1 ? '' : 's'} · ${rupees(spend.average)} average`
+                    : 'No completed orders yet this month'}
+                </Text>
+              </Box>
+            )}
           </Aside>
         </Box>
       </Box>

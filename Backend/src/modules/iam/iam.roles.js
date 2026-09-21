@@ -66,6 +66,7 @@ const CAPABILITIES = Object.freeze({
   'commission.set': { roles: ADMINS, label: 'set a settlement’s commission' },
   'money.release': { roles: SUPER, label: 'release, pay out or refund money' },
   'food.refund': { roles: ADMINS, label: 'refund a food order' },
+  'food.complete': { roles: ADMINS, label: 'mark a website food order delivered' },
 
   /* ── Queues ──────────────────────────────────────────────────────────── */
   'food.decide': { roles: ['Super Admin', 'Admin', 'Food Admin'], label: 'approve or refuse a restaurant' },

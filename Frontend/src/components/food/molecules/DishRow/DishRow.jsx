@@ -17,7 +17,7 @@ import { rupees } from '../../../../data/food';
 export function DishRow({ dish, qty = 0, onOpen, onLess, onMore, closed = false }) {
   const {
     name, price, description, diet, serves, rating, ratingCount,
-    bestseller, soldOut, soldOutNote, ordersInBlock, addOns, tone,
+    bestseller, soldOut, soldOutNote, addOns, tone, imageUrl,
   } = dish;
 
   return (
@@ -32,7 +32,9 @@ export function DishRow({ dish, qty = 0, onOpen, onLess, onMore, closed = false 
 
         <Box className="fd-dish__price">
           <Inline className="fd-dish__rupees">{rupees(price)}</Inline>
-          {rating && (
+          {/* `rating > 0`, not `rating`: a bare 0 is a number, and React renders
+              numbers - so every unrated dish had a stray "0" beside its price. */}
+          {rating > 0 && (
             <Inline className="fd-dish__rating">
               {rating} ★ <Inline className="fd-dish__ratingCount">({ratingCount})</Inline>
             </Inline>
@@ -41,23 +43,21 @@ export function DishRow({ dish, qty = 0, onOpen, onLess, onMore, closed = false 
 
         {description && <Text className="fd-dish__desc">{description}</Text>}
 
-        {(serves || ordersInBlock || soldOutNote) && (
+        {/* "N orders from your block this week" is gone. There is no per-block
+            order counter, so any number here was a claim nothing supported. */}
+        {(serves || soldOutNote) && (
           <Text className="fd-dish__serves">
-            {[
-              serves,
-              ordersInBlock ? `${ordersInBlock} orders from your block this week` : null,
-              soldOut ? soldOutNote : null,
-            ].filter(Boolean).join(' · ')}
+            {[serves, soldOut ? soldOutNote : null].filter(Boolean).join(' · ')}
           </Text>
         )}
       </Box>
 
       <Box className="fd-dish__side">
         {soldOut ? (
-          <PhotoTile tone={tone} className="fd-dish__photo" />
+          <PhotoTile tone={tone} src={imageUrl} alt={name} width={320} className="fd-dish__photo" />
         ) : (
           <PlainButton type="button" className="fd-dish__photoBtn" onClick={onOpen} aria-label={`${name} — see details`}>
-            <PhotoTile tone={tone} className="fd-dish__photo" />
+            <PhotoTile tone={tone} src={imageUrl} alt={name} width={320} className="fd-dish__photo" />
           </PlainButton>
         )}
 

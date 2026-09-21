@@ -32,48 +32,48 @@
    data in one call — the rows and the tab counts come back together from one
    request, so a tab can never disagree with the list it labels.
 
-   ## Accepting quotes a time, and that time does real work
+   ## Accepting quotes a time, and says who delivers
 
-   `promisedMinutes` is not a label for the diner. The server turns it
-   straight into the radius riders are called from, so every rider who could
-   reach the shop before the food is ready is offered the job at once. A
-   number typed here is the difference between a rider waiting at the pass
-   and food going cold.
+   `promisedMinutes` is not a label for the diner: it is what the diner is
+   told, and what the delivery desk is told when it is asked for a driver.
+
+   The same dialog asks WHO brings the order, for a delivery order — the
+   restaurant's own person, or a Lampose driver:
+
+     self     nobody is contacted. The diner is told a driver is assigned.
+     driver   the delivery desk is sent a WhatsApp — pickup, drop, cash to
+              collect. The diner is told a driver is assigned once that
+              message has actually gone out; if it did not, this screen says
+              so, with a "Send again" button, and the diner is not told.
+
+   Either way NO rider is searched for in the app — the restaurant or the desk
+   is bringing it. A pickup order has nobody to arrange and is not asked.
+
+   The choice can also be made (or changed, or the message resent) afterwards,
+   from the row: an order accepted before this existed is not stuck.
+
+   ## Finishing an order the restaurant arranged
+
+   There is no rider account to press "picked up" and "delivered" on these, so
+   the restaurant does. The server sends the moves it allows in `moves` and this
+   page draws exactly those. "Delivered" asks for the diner's own 4-digit code —
+   the one the driver collects at the door and the restaurant is never sent —
+   which is what stops "delivered" being something that can simply be said.
    ══════════════════════════════════════════════════════════════════════════ */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Ban,
-  Bike,
-  CheckCircle2,
-  ChefHat,
-  Clock,
-  CookingPot,
-  Inbox,
-  PackageCheck,
-  Phone,
-  RefreshCw,
-  Timer,
-  Truck,
-  Utensils,
-} from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Ban, CheckCircle2, CookingPot, Inbox, PackageCheck, RefreshCw, Truck, Utensils } from 'lucide-react';
 import { Badge } from '../../components/common/atoms/Badge';
-import type { BadgeTone } from '../../components/common/atoms/Badge';
 import { Box } from '../../components/common/atoms/Box';
 import { Button } from '../../components/common/atoms/Button';
 import { Card } from '../../components/common/atoms/Card';
 import { Inline } from '../../components/common/atoms/Inline';
-import { Input } from '../../components/common/atoms/Input';
-import { List } from '../../components/common/atoms/List';
-import { ListItem } from '../../components/common/atoms/ListItem';
 import { PlainButton } from '../../components/common/atoms/PlainButton';
 import { Strong } from '../../components/common/atoms/Strong';
 import { Table, Td, Th, Tr } from '../../components/common/atoms/Table';
 import { PlainTd, PlainTr, TableBody, TableHead } from '../../components/common/atoms/PlainTable';
 import { Text } from '../../components/common/atoms/Text';
-import { Textarea } from '../../components/common/atoms/Textarea';
 import { EmptyState } from '../../components/common/molecules/EmptyState';
 import { ErrorState } from '../../components/common/molecules/ErrorState';
-import { Field } from '../../components/common/molecules/Field';
 import { PageHeader } from '../../components/common/molecules/PageHeader';
 import { TableSkeleton } from '../../components/common/molecules/TableSkeleton';
 import { Modal } from '../../components/common/organisms/Modal';
@@ -87,7 +87,20 @@ import type {
   RestaurantOrder,
 } from '../../api/services/restaurantAdminService';
 import { useFetch } from '../../lib/useFetch';
-import { formatDateTime, relativeTime, rupees } from '../../lib/format';
+import { relativeTime, rupees } from '../../lib/format';
+/* The words, the delivery picker, the order detail and the dialogs are shared with the page behind the
+   link in the "new order" WhatsApp — see orderShared.tsx for why there is one of each. */
+import {
+  DELIVERY_OPEN,
+  choosesDelivery,
+  itemCount,
+  MOVE_LOOK,
+  PAYMENT_LOOK,
+  STATUS_LOOK,
+  summarise,
+} from './orderLooks';
+import { DeliveryLine, OrderDetail } from './orderShared';
+import { useOrderActions } from './useOrderActions';
 
 interface RestaurantOrdersPageProps {
   search: string;
@@ -127,56 +140,6 @@ const TABS: Tab[] = [
   { id: 'all', label: 'Everything', states: [], icon: Utensils },
 ];
 
-const STATUS_LOOK: Record<FoodOrderStatus, { label: string; tone: BadgeTone; icon: React.ElementType }> = {
-  placed: { label: 'New', tone: 'warn', icon: Inbox },
-  accepted: { label: 'Accepted', tone: 'brand', icon: CheckCircle2 },
-  preparing: { label: 'Cooking', tone: 'brand', icon: ChefHat },
-  ready: { label: 'Ready', tone: 'good', icon: PackageCheck },
-  picked_up: { label: 'On the way', tone: 'good', icon: Bike },
-  delivered: { label: 'Delivered', tone: 'good', icon: CheckCircle2 },
-  rejected: { label: 'Refused', tone: 'crit', icon: Ban },
-  cancelled: { label: 'Cancelled', tone: 'neutral', icon: Ban },
-};
-
-/** What each move is called on a button, and how loud that button should be. */
-const MOVE_LOOK: Record<
-  FoodOrderStatus,
-  { label: string; variant: 'primary' | 'secondary' | 'danger'; icon: React.ElementType }
-> = {
-  accepted: { label: 'Accept', variant: 'primary', icon: CheckCircle2 },
-  rejected: { label: 'Refuse', variant: 'danger', icon: Ban },
-  preparing: { label: 'Start cooking', variant: 'primary', icon: ChefHat },
-  ready: { label: 'Food is ready', variant: 'primary', icon: PackageCheck },
-  placed: { label: 'Reopen', variant: 'secondary', icon: Inbox },
-  picked_up: { label: 'Picked up', variant: 'secondary', icon: Bike },
-  delivered: { label: 'Delivered', variant: 'secondary', icon: CheckCircle2 },
-  cancelled: { label: 'Cancel', variant: 'secondary', icon: Ban },
-};
-
-const PAYMENT_LOOK: Record<string, { label: string; tone: BadgeTone }> = {
-  paid: { label: 'Paid online', tone: 'good' },
-  pending: { label: 'Cash on delivery', tone: 'neutral' },
-  refunded: { label: 'Refunded', tone: 'warn' },
-  failed: { label: 'Payment failed', tone: 'crit' },
-};
-
-/** One line of the order, as a kitchen reads it: "2 × Veg Biryani (Full)". */
-const lineLabel = (line: RestaurantOrder['lines'][number]): string => {
-  const variant = line.variantName ? ` (${line.variantName})` : '';
-  return `${line.quantity} × ${line.productName}${variant}`;
-};
-
-const summarise = (order: RestaurantOrder): string => {
-  const lines = order.lines || [];
-  if (!lines.length) return '—';
-  const first = lineLabel(lines[0]);
-  return lines.length > 1 ? `${first} + ${lines.length - 1} more` : first;
-};
-
-/** Total dishes, not total lines — "4 items" means four things in the bag. */
-const itemCount = (order: RestaurantOrder): number =>
-  (order.lines || []).reduce((n, line) => n + (line.quantity || 0), 0);
-
 const tabCount = (tab: Tab, counts: OrderStatusCounts): number =>
   tab.states.length
     ? tab.states.reduce((n, state) => n + (counts[state] || 0), 0)
@@ -190,15 +153,8 @@ export const RestaurantOrdersPage: React.FC<RestaurantOrdersPageProps> = ({
 }) => {
   const [tabId, setTabId] = useState<string>('new');
   const [toast, setToast] = useState<ToastState | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
   const [detail, setDetail] = useState<RestaurantOrder | null>(null);
 
-  /* The two moves that ask a question before they happen. Held as the order
-     plus the move, so the modal knows what it is confirming. */
-  const [accepting, setAccepting] = useState<RestaurantOrder | null>(null);
-  const [minutes, setMinutes] = useState('20');
-  const [refusing, setRefusing] = useState<RestaurantOrder | null>(null);
-  const [reason, setReason] = useState('');
 
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
@@ -213,6 +169,21 @@ export const RestaurantOrdersPage: React.FC<RestaurantOrdersPageProps> = ({
   const { reload } = queue;
   const loadingRef = useRef(false);
   loadingRef.current = queue.loading || queue.refreshing;
+
+  /* The moves on an order and the dialogs they ask their questions in — shared with the page behind the
+     WhatsApp link (orderShared.tsx). What is specific to THIS screen is how a move reaches the server
+     (the console's session) and what happens once it has: the queue and the nav badge are re-read. */
+  const { busy, anyOpen, onMove, openAccept, openChoose, resend, dialogs } = useOrderActions({
+    setStatus: (order, status, extra) =>
+      restaurantAdminService.setOrderStatus(order.orderNumber, status, extra),
+    setDelivery: (order, by) => restaurantAdminService.setDelivery(order.orderNumber, by),
+    onChanged: () => {
+      reload();
+      reloadCounts?.();
+    },
+    onStale: reload,
+    notify: setToast,
+  });
 
   useEffect(() => {
     if (!queue.loading && !queue.refreshing) setUpdatedAt(new Date());
@@ -230,6 +201,13 @@ export const RestaurantOrdersPage: React.FC<RestaurantOrdersPageProps> = ({
    * A miss is reported rather than ignored — a link to an order that is not
    * this restaurant's answers 404, and silently doing nothing would read as
    * a dead link.
+   *
+   * An order still WAITING opens the Accept dialog, not the detail. The link
+   * is the one in the "you have a new order" WhatsApp, and what its reader has
+   * been told to do is accept it: the detail is read-only, so landing on it
+   * left an owner one close-button and a search for the row away from the only
+   * thing they came for. Anything already past that — accepted from the
+   * tablet while the message sat unread — opens the detail as before.
    */
   useEffect(() => {
     if (!focusOrder) return;
@@ -237,8 +215,13 @@ export const RestaurantOrdersPage: React.FC<RestaurantOrdersPageProps> = ({
     (async () => {
       const res = await restaurantAdminService.order(focusOrder);
       if (cancelled) return;
-      if (res.success && res.data) setDetail(res.data);
-      else setToast({ tone: 'crit', message: res.message || `Could not find order ${focusOrder}.` });
+      if (res.success && res.data) {
+        if (res.data.status === 'placed') {
+          openAccept(res.data);
+        } else {
+          setDetail(res.data);
+        }
+      } else setToast({ tone: 'crit', message: res.message || `Could not find order ${focusOrder}.` });
       onFocusHandled?.();
     })();
     return () => { cancelled = true; };
@@ -249,7 +232,7 @@ export const RestaurantOrdersPage: React.FC<RestaurantOrdersPageProps> = ({
      network cannot stack requests on top of each other, and paused while a
      modal is open — a list reordering under a confirmation dialog is how
      somebody refuses the wrong order. */
-  const paused = Boolean(accepting || refusing || detail);
+  const paused = anyOpen || Boolean(detail);
   useEffect(() => {
     if (paused) return undefined;
     const id = setInterval(() => {
@@ -284,95 +267,16 @@ export const RestaurantOrdersPage: React.FC<RestaurantOrdersPageProps> = ({
     );
   }, [queue.data, search]);
 
-  /**
-   * Move one order, and say what happened.
-   *
-   * Every refusal is shown with the server's own sentence rather than a
-   * generic one: INVALID_TRANSITION names the state the order is actually in,
-   * which is the only useful thing to tell somebody whose button did nothing.
-   * The queue reloads either way — on success because the row has moved tabs,
-   * on INVALID_TRANSITION because what is on screen is out of date.
-   */
-  const move = useCallback(
-    async (
-      order: RestaurantOrder,
-      status: FoodOrderStatus,
-      extra: { reason?: string; promisedMinutes?: number } = {}
-    ) => {
-      setBusy(order.orderNumber);
-      const res = await restaurantAdminService.setOrderStatus(order.orderNumber, status, extra);
-      setBusy(null);
-
-      if (res.success) {
-        setToast({
-          tone: 'good',
-          message: `${order.orderNumber} — ${STATUS_LOOK[status].label.toLowerCase()}.`,
-        });
-        reload();
-        reloadCounts?.();
-        return true;
-      }
-
-      setToast({ tone: 'crit', message: res.message || 'That change could not be saved.' });
-      /* The order moved under us, or somebody else moved it. Either way what
-         is on screen is wrong and arguing with it helps nobody. */
-      if (res.code === 'INVALID_TRANSITION') reload();
-      return false;
-    },
-    [reload, reloadCounts]
-  );
-
-  const confirmAccept = async () => {
-    if (!accepting) return;
-    const parsed = Number(minutes);
-    const ok = await move(accepting, 'accepted', {
-      /* Only sent when it is a real number. The server clamps it to four
-         hours and ignores anything that is not positive, so an empty box
-         means "no quote" rather than "zero minutes". */
-      ...(Number.isFinite(parsed) && parsed > 0 ? { promisedMinutes: parsed } : {}),
-    });
-    if (ok) {
-      setAccepting(null);
-      setMinutes('20');
-    }
-  };
-
-  const confirmRefuse = async () => {
-    if (!refusing) return;
-    const ok = await move(refusing, 'rejected', { reason: reason.trim() });
-    if (ok) {
-      setRefusing(null);
-      setReason('');
-    }
-  };
-
-  /** The buttons one row offers, from the server's own transition table. */
+  /** The buttons one row offers — the server's own list, or its general table. */
   const movesFor = (order: RestaurantOrder): FoodOrderStatus[] =>
-    PARTNER_TRANSITIONS[order.status] ?? [];
-
-  const onMove = (order: RestaurantOrder, status: FoodOrderStatus) => {
-    /* Two of the four moves ask something first: accepting quotes a cooking
-       time that sizes the rider search, and refusing wants a reason the diner
-       will be told. The other two are unambiguous and happen on the click. */
-    if (status === 'accepted') {
-      setMinutes(String(order.promisedMinutes || 20));
-      setAccepting(order);
-      return;
-    }
-    if (status === 'rejected') {
-      setReason('');
-      setRefusing(order);
-      return;
-    }
-    move(order, status);
-  };
+    order.moves ?? PARTNER_TRANSITIONS[order.status] ?? [];
 
   return (
     <Box className="space-y-5">
       <PageHeader
         eyebrow="My restaurant"
         title="Orders"
-        description="Take an order, tell the kitchen it is cooking, and say when it is ready. The rider is called automatically."
+        description="Take an order and choose who delivers it — your own person or a Lampose driver — then say when it is cooking and when it is ready."
         actions={
           <Box className="flex items-center gap-2.5">
             <Text className="text-label text-ink-3 hidden sm:block">
@@ -501,6 +405,17 @@ export const RestaurantOrdersPage: React.FC<RestaurantOrdersPageProps> = ({
                       <Badge tone={look.tone} icon={look.icon}>
                         {look.label}
                       </Badge>
+                      {/* Who brings it, once the order is accepted and until
+                          it has left — with the button to choose, change, or
+                          resend a request that did not go out. */}
+                      {choosesDelivery(order) && DELIVERY_OPEN.includes(order.status) && (
+                        <DeliveryLine
+                          order={order}
+                          busy={working}
+                          onChoose={() => openChoose(order)}
+                          onResend={() => resend(order)}
+                        />
+                      )}
                     </Td>
                     <Td className="text-right">
                       {moves.length === 0 ? (
@@ -535,92 +450,7 @@ export const RestaurantOrdersPage: React.FC<RestaurantOrdersPageProps> = ({
         </Table>
       </Card>
 
-      {/* ── Accept ─────────────────────────────────────────────────────── */}
-      <Modal
-        open={Boolean(accepting)}
-        onClose={() => setAccepting(null)}
-        title={`Accept ${accepting?.orderNumber ?? ''}`}
-        description="How long until the food is ready? A rider is called straight away, sized to this answer."
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setAccepting(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              icon={CheckCircle2}
-              loading={busy === accepting?.orderNumber}
-              onClick={confirmAccept}
-            >
-              Accept order
-            </Button>
-          </>
-        }
-      >
-        <Box className="space-y-4">
-          <Field
-            label="Minutes until ready"
-            hint="Every rider who can reach you by then is offered the job at once. Leave it blank if you cannot say."
-          >
-            <Input
-              type="number"
-              min={1}
-              max={240}
-              value={minutes}
-              onChange={(e) => setMinutes(e.target.value)}
-              placeholder="20"
-            />
-          </Field>
-          {accepting && (
-            <Box className="rounded-panel border border-line bg-surface-subtle p-3">
-              <Text className="text-label uppercase text-ink-3 mb-1.5">The order</Text>
-              <List className="space-y-1 list-none m-0 p-0">
-                {(accepting.lines || []).map((line, i) => (
-                  <ListItem key={`${line.productId}-${i}`} className="text-sm text-ink-2">
-                    {lineLabel(line)}
-                    {line.note ? <Inline className="text-ink-3"> — {line.note}</Inline> : null}
-                  </ListItem>
-                ))}
-              </List>
-            </Box>
-          )}
-        </Box>
-      </Modal>
-
-      {/* ── Refuse ─────────────────────────────────────────────────────── */}
-      <Modal
-        open={Boolean(refusing)}
-        onClose={() => setRefusing(null)}
-        title={`Refuse ${refusing?.orderNumber ?? ''}`}
-        description="The diner is told, any rider already assigned is released, and money already paid is flagged for a refund."
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setRefusing(null)}>
-              Keep the order
-            </Button>
-            <Button
-              variant="danger"
-              icon={Ban}
-              loading={busy === refusing?.orderNumber}
-              onClick={confirmRefuse}
-            >
-              Refuse it
-            </Button>
-          </>
-        }
-      >
-        <Field
-          label="Why?"
-          hint="The diner sees this. “Out of paneer” is more use than “unavailable”."
-        >
-          <Textarea
-            rows={3}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="We have run out of one of these items."
-          />
-        </Field>
-      </Modal>
+      {dialogs}
 
       {/* ── One order in full ──────────────────────────────────────────── */}
       <Modal
@@ -638,138 +468,6 @@ export const RestaurantOrdersPage: React.FC<RestaurantOrdersPageProps> = ({
       </Modal>
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
-    </Box>
-  );
-};
-
-/* ══════════════════════════════════════════════════════════════════════════
-   One order, in full
-   ══════════════════════════════════════════════════════════════════════════ */
-
-const Line: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-  <Box className="flex items-baseline justify-between gap-4 py-1.5">
-    <Text className="text-label text-ink-3 shrink-0">{label}</Text>
-    <Text className="text-sm text-ink-2 text-right break-words">{children}</Text>
-  </Box>
-);
-
-const OrderDetail: React.FC<{ order: RestaurantOrder }> = ({ order }) => {
-  const look = STATUS_LOOK[order.status] ?? STATUS_LOOK.placed;
-
-  return (
-    <Box className="space-y-5">
-      <Box className="flex flex-wrap items-center gap-2">
-        <Badge tone={look.tone} icon={look.icon}>
-          {look.label}
-        </Badge>
-        <Badge tone="neutral" icon={Clock}>
-          {formatDateTime(order.placedAt)}
-        </Badge>
-        {/* The number the cook reads out at the pass. The diner's own PIN is
-            never sent to a restaurant — see `partnerView` on the server. */}
-        {order.pickupCode && (
-          <Badge tone="brand" icon={Bike}>
-            Pickup code {order.pickupCode}
-          </Badge>
-        )}
-        {order.promisedMinutes ? (
-          <Badge tone="neutral" icon={Timer}>
-            Quoted {order.promisedMinutes} min
-          </Badge>
-        ) : null}
-      </Box>
-
-      <Box>
-        <Text className="text-label uppercase text-ink-3 mb-2">Items</Text>
-        <Box className="rounded-panel border border-line divide-y divide-line">
-          {(order.lines || []).map((line, i) => (
-            <Box key={`${line.productId}-${i}`} className="flex items-start justify-between gap-4 p-3">
-              <Box className="min-w-0">
-                <Text className="text-sm text-ink">{lineLabel(line)}</Text>
-                {line.addOns?.length ? (
-                  <Text className="text-label text-ink-3 mt-0.5">
-                    + {line.addOns.map((a) => a.name).join(', ')}
-                  </Text>
-                ) : null}
-                {line.note ? (
-                  <Text className="text-label text-warn mt-0.5">Note: {line.note}</Text>
-                ) : null}
-              </Box>
-              <Text className="text-sm text-ink tabular shrink-0">{rupees(line.lineTotal)}</Text>
-            </Box>
-          ))}
-        </Box>
-      </Box>
-
-      <Box className="grid sm:grid-cols-2 gap-5">
-        <Box>
-          <Text className="text-label uppercase text-ink-3 mb-1">Money</Text>
-          <Box className="divide-y divide-line">
-            <Line label="Items">{rupees(order.itemsTotal)}</Line>
-            {order.packagingCharge > 0 && <Line label="Packaging">{rupees(order.packagingCharge)}</Line>}
-            {order.deliveryFee > 0 && <Line label="Delivery">{rupees(order.deliveryFee)}</Line>}
-            {order.discount > 0 && <Line label="Discount">−{rupees(order.discount)}</Line>}
-            <Line label="Diner paid">
-              <Strong className="text-ink">{rupees(order.grandTotal)}</Strong>
-            </Line>
-            {/* The figure this whole screen exists to show an owner. */}
-            <Line label={`You receive (after ${order.commissionRate}% commission)`}>
-              <Strong className="text-ink">{rupees(order.partnerPayout)}</Strong>
-            </Line>
-          </Box>
-        </Box>
-
-        <Box>
-          <Text className="text-label uppercase text-ink-3 mb-1">Delivery</Text>
-          <Box className="divide-y divide-line">
-            {order.customerName && <Line label="Diner">{order.customerName}</Line>}
-            {order.customerPhone && (
-              <Line label="Phone">
-                <Inline className="inline-flex items-center gap-1 tabular">
-                  <Phone className="size-3" /> {order.customerPhone}
-                </Inline>
-              </Line>
-            )}
-            {order.deliveryAddress && <Line label="Address">{order.deliveryAddress}</Line>}
-            <Line label="Rider">
-              {/* A pickup order never gets one, and "not assigned yet" on a
-                  diner who is walking in would be a wait that never ends. */}
-              {order.fulfilment === 'pickup' ? (
-                <Inline className="text-ink-3">Collected by the diner</Inline>
-              ) : order.rider ? (
-                `${order.rider.name}${order.rider.phone ? ` · ${order.rider.phone}` : ''}`
-              ) : (
-                <Inline className="text-ink-3">
-                  {order.dispatch?.state === 'searching'
-                    ? 'Looking for a rider…'
-                    : 'Not assigned yet'}
-                </Inline>
-              )}
-            </Line>
-            {order.rejectionReason && <Line label="Refused because">{order.rejectionReason}</Line>}
-          </Box>
-        </Box>
-      </Box>
-
-      {order.statusHistory?.length ? (
-        <Box>
-          <Text className="text-label uppercase text-ink-3 mb-2">History</Text>
-          <List className="space-y-1 list-none m-0 p-0">
-            {order.statusHistory.map((entry, i) => (
-              <ListItem
-                key={`${entry.status}-${i}`}
-                className="flex items-center justify-between gap-3 text-label"
-              >
-                <Inline className="text-ink-2">
-                  {STATUS_LOOK[entry.status as FoodOrderStatus]?.label ?? entry.status}
-                  <Inline className="text-ink-3"> · by {entry.by}</Inline>
-                </Inline>
-                <Inline className="text-ink-3 tabular">{formatDateTime(entry.at)}</Inline>
-              </ListItem>
-            ))}
-          </List>
-        </Box>
-      ) : null}
     </Box>
   );
 };

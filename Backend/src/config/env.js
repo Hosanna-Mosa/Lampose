@@ -387,6 +387,23 @@ const config = {
    */
   restaurantConsoleUrl: String(process.env.RESTAURANT_CONSOLE_URL || '').trim().replace(/\/+$/, ''),
 
+  /*
+   * The delivery desk — who is asked, on WhatsApp, to send a driver.
+   *
+   * When a restaurant accepts an order and picks "a Lampose driver" instead of
+   * delivering it themselves, this is the number that gets the request. See
+   * `foodDelivery.service.js`.
+   *
+   * A CONFIGURED value with a working default rather than a literal buried in
+   * the sending code: the desk's phone changes (a new hire, a second number)
+   * and that must be a one-line environment change, not a code change and a
+   * deploy. The default is the desk's current number, so the flow works the
+   * moment the code does.
+   */
+  deliveryDesk: {
+    whatsapp: String(process.env.DELIVERY_PARTNER_WHATSAPP || '+916302321942').trim(),
+  },
+
   /* Inbound webhooks that must prove who sent them — see
      shared/middleware/twilioSignature.js. */
   webhooks: {

@@ -979,6 +979,15 @@
   color: var(--ink);
 }
 .fd-panel__body { margin: 0; font-size: 0.85rem; line-height: 1.6; color: var(--ink-mid); }
+/* The buttons under a panel's note - the "Delivered" confirmation. Side by side, and
+   wrapping on a narrow phone rather than squeezing. */
+.fd-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.9rem;
+}
+.fd-panel__title + .fd-note { margin-top: 0.35rem; }
 .fd-sticky { position: sticky; top: 6.5rem; }
 
 .fd-jump {

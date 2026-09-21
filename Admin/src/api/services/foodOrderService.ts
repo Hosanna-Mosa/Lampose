@@ -377,6 +377,11 @@ const normalizeDetail = (raw: unknown): FoodOrderDetail => {
       : null,
 
     pickupCode: str(order.pickupCode),
+    channel: order.channel === 'web' ? 'web' : 'app',
+    deliveryMethod: order.deliveryMethod === 'self' || order.deliveryMethod === 'driver'
+      ? order.deliveryMethod
+      : '',
+    canMarkDelivered: order.canMarkDelivered === true,
     statusHistory: arr(order.statusHistory).map(normalizeEvent),
     flags: normalizeFlags(order.flags),
   };
@@ -570,6 +575,29 @@ export const foodOrderService = {
   /** One order in full. The number is trimmed and upper-cased server-side. */
   async get(orderNumber: string): Promise<ApiResponse<FoodOrderDetail | null>> {
     const res = await api.get<unknown>(`${BASE}/${encodeURIComponent(orderNumber)}`);
+    const data = obj(obj(res.data).data);
+    if (!res.success || !str(data.orderNumber)) return { ...res, data: null };
+    return { ...res, data: normalizeDetail(data) };
+  },
+
+  /**
+   * Say a website order has reached the diner.
+   *
+   * For when the diner has not pressed their own "Delivered" button — the
+   * order is taken by the delivery boy, the diner was told, and nobody
+   * confirmed. It ends the order (and marks a cash order paid), so it is the
+   * Super Admin's and Admin's to press; the server refuses anyone else and
+   * refuses an order it should not touch, with the sentence to show. Returns
+   * the whole updated order, or null with the reason on the envelope.
+   */
+  async markDelivered(
+    orderNumber: string,
+    note?: string,
+  ): Promise<ApiResponse<FoodOrderDetail | null>> {
+    const res = await api.post<unknown>(
+      `${BASE}/${encodeURIComponent(orderNumber)}/delivered`,
+      note ? { note } : {},
+    );
     const data = obj(obj(res.data).data);
     if (!res.success || !str(data.orderNumber)) return { ...res, data: null };
     return { ...res, data: normalizeDetail(data) };

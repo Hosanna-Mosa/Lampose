@@ -51,7 +51,7 @@ const {
 } = require('./foodMenu.controller');
 const { listMyOrders, getMyOrder, setOrderStatus } = require('./foodOrder.controller');
 const {
-  placeOrder, listMyOrders: listCustomerOrders, getMyOrder: getCustomerOrder, cancelMyOrder,
+  placeOrder, listMyOrders: listCustomerOrders, getMyOrder: getCustomerOrder, cancelMyOrder, confirmMyDelivery,
 } = require('./foodCustomerOrder.controller');
 const {
   startPayment, verifyPayment, renderCheckout, checkoutCallback,
@@ -228,6 +228,8 @@ router.post('/orders', customer, placeOrder);
 router.get('/orders', customer, listCustomerOrders);
 router.get('/orders/:orderNumber', customer, getCustomerOrder);
 router.patch('/orders/:orderNumber/cancel', customer, cancelMyOrder);
+/* "Delivered" — the diner says a website order has reached them. See the handler. */
+router.patch('/orders/:orderNumber/delivered', customer, confirmMyDelivery);
 
 /* ── Paying for one ───────────────────────────────────────────────────────
    Both behind the diner's own session and scoped to their own order, because

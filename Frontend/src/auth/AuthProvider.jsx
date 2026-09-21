@@ -19,7 +19,10 @@ import { clearSession, getSession, onSessionChange, saveSession } from './sessio
 
     · **Browsing never requires signing in.** The default is `guest`, and a
       token the server rejects lands the visitor in the site as a guest rather
-      than on an error. Nothing on lampose.com is behind this.
+      than on an error. Nothing on lampose.com is behind this - with ONE
+      deliberate exception: putting food in a cart, and paying for it, needs an
+      account (see `food/CartProvider.jsx`). Reading a kitchen or a menu still
+      does not.
     · **The resend cooldown resets on a resend, never on a wrong code.** A
       cooldown that punishes typing mistakes is the fastest way to lose
       somebody. The seconds come from the server's reply rather than being

@@ -1211,6 +1211,20 @@ export interface FoodOrderDetail {
   pickupCode: string;
   statusHistory: FoodOrderStatusEvent[];
   flags: FoodOrderFlags;
+  /**
+   * Where the order was placed. A 'web' order is delivered by whoever the
+   * restaurant arranged, and only the diner or an admin says it arrived; an
+   * 'app' order has a real driver who completes it in the driver app.
+   */
+  channel: 'web' | 'app';
+  /** Who the restaurant said would deliver a website order: '' until chosen. */
+  deliveryMethod: '' | 'self' | 'driver';
+  /**
+   * May an admin mark this order delivered right now? The SERVER decides — a
+   * website delivery order that is ready or already taken by the delivery boy —
+   * and the button is drawn from this alone. The role gate is separate.
+   */
+  canMarkDelivered: boolean;
 }
 
 /**

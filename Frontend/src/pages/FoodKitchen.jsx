@@ -12,7 +12,11 @@ import { DockedCart } from '../components/food/organisms/DockedCart';
 import { useAddDish } from '../food/useAddDish';
 import { useCart } from '../food/CartProvider';
 import { useReveals } from '../hooks/useSite';
-import { COUPONS, dietAllowed, dishById, dishesOf, kitchenById, rupees } from '../data/food';
+/* Formatters and the diet predicate stay local — they are copy and a rule,
+   not data. The kitchen, its menu and the offers come from the server. */
+import { dietAllowed, rupees } from '../data/food';
+import { useFoodCatalogue } from '../food/FoodCatalogue';
+import { fetchCoupons } from '../api/foodApi';
 
 /* ══ Kitchen ══════════════════════════════════════════════════════════════
    One restaurant: the facts, then the menu, with the cart alongside.
@@ -41,9 +45,45 @@ export function FoodKitchen() {
   const { openDish, dialogs } = useAddDish();
   const { lines, bill, coupon, setQty, kitchenId: cartKitchenId } = useCart();
 
+  const {
+    kitchenById, dishById, dishesOf, menuLoaded, loadMenu, loading: catalogueLoading,
+  } = useFoodCatalogue();
+
   /* A dish link decides the kitchen; a kitchen link is the kitchen. */
   const linkedDish = dishId ? dishById(dishId) : null;
   const kitchen = kitchenById(linkedDish ? linkedDish.kitchenId : id);
+
+  /*
+   * The menu, fetched once for this kitchen and then cached by the provider.
+   *
+   * Keyed on the ROUTE id rather than on `kitchen?.id`: the kitchen row
+   * itself arrives with the feed, and waiting for it before asking for the
+   * menu would serialise two requests that can run together.
+   */
+  useEffect(() => { loadMenu(id); }, [id, loadMenu]);
+
+  /* A dish link names a dish whose menu may not be loaded yet — `dishById`
+     searches the menus held, so the kitchen behind it has to be fetched
+     before that lookup can succeed. */
+  useEffect(() => {
+    if (linkedDish?.kitchenId) loadMenu(linkedDish.kitchenId);
+  }, [linkedDish, loadMenu]);
+
+  /* The offers, per kitchen. Their own fetch rather than part of the
+     catalogue: they depend on who is signed in, and the feed does not
+     need them at all. */
+  const [offers, setOffers] = useState([]);
+  useEffect(() => {
+    let live = true;
+    fetchCoupons({ kitchenId: id })
+      /* Only coupons the server will honour: an offer strip advertising a
+         discount the order then ignores is a promise the payment screen
+         breaks. Today that is none, so the strip stays out of the page. */
+      .then(rows => { if (live) setOffers(rows.filter(c => c.enforced).slice(0, 2)); })
+      /* A missing offer strip is not worth a broken menu page. */
+      .catch(() => { if (live) setOffers([]); });
+    return () => { live = false; };
+  }, [id]);
 
   /* Which section the reader is in. It was pinned to the first one, so the
      rail said "Recommended" all the way down a seven-section menu. */
@@ -71,7 +111,11 @@ export function FoodKitchen() {
       if (!needle) return true;
       return `${dish.name} ${dish.description || ''}`.toLowerCase().includes(needle);
     });
-  }, [kitchen, vegOnly, withEgg, hideSoldOut, q]);
+    /* `dishesOf` is a real dependency, not noise: the provider hands back a
+       new function identity once this kitchen's menu lands, and without it
+       here the memo would keep the empty list it computed on first render and
+       the menu would never appear. */
+  }, [kitchen, dishesOf, vegOnly, withEgg, hideSoldOut, q]);
 
   /* Sections in the order the kitchen wants them read, with "Recommended"
      built from the dishes that carry the flag rather than being a section of
@@ -109,6 +153,27 @@ export function FoodKitchen() {
     return () => io.disconnect();
   }, [sectionCount, kitchen?.id]);
 
+  /*
+   * Still fetching is NOT the same as gone.
+   *
+   * `kitchen` is null on the first render of every visit, because the
+   * catalogue is in flight. Showing "that kitchen is not on Lampose" then —
+   * which is what an unguarded `!kitchen` did once the data stopped being a
+   * fixture — tells somebody following a perfectly good link that the
+   * restaurant has left, for the half second before it appears.
+   */
+  if (!kitchen && catalogueLoading) {
+    return (
+      <Region id="food">
+        <Box className="sec-inner">
+          <Box className="fd-empty">
+            <Heading level={1} className="fd-empty__title">Opening the kitchen…</Heading>
+          </Box>
+        </Box>
+      </Region>
+    );
+  }
+
   if (!kitchen) {
     return (
       <Region id="food">
@@ -129,7 +194,8 @@ export function FoodKitchen() {
   const qtyOf = dish => heldLines.filter(l => l.dishId === dish.id).reduce((n, l) => n + l.qty, 0);
   const firstLine = dish => heldLines.find(l => l.dishId === dish.id);
 
-  const offers = COUPONS.filter(c => !c.kitchenId || c.kitchenId === kitchen.id).slice(0, 2);
+  /* `offers` is fetched above — the server already filtered them to this
+     kitchen and to whoever is signed in. */
 
   return (
     <Region id="food">
@@ -138,16 +204,18 @@ export function FoodKitchen() {
         <ActiveOrder />
 
         <Box className="fd-crumbs" aria-label="Breadcrumb">
+          {/* There was a middle crumb here that said "Gachibowli" for every
+              kitchen on the site. The kitchens are not all in Gachibowli, and
+              a crumb that names a place the data never mentioned is a guess
+              wearing a link's clothes. */}
           <Link to="/food">Order Food</Link>
-          <Inline aria-hidden="true">/</Inline>
-          <Link to="/food">Gachibowli</Link>
           <Inline aria-hidden="true">/</Inline>
           <Inline className="fd-crumbs__here">{kitchen.name}</Inline>
         </Box>
 
         {/* ── the kitchen ───────────────────────────────────────────────── */}
         <Box className="fd-head reveal">
-          <PhotoTile tone={kitchen.tone} className="fd-head__photo" label="Counter photo" />
+          <PhotoTile tone={kitchen.tone} src={kitchen.coverUrl || kitchen.logoUrl} alt={kitchen.name} width={900} className="fd-head__photo" label="Counter photo" />
 
           <Box className="fd-head__body">
             <Box className="fd-head__top">
@@ -156,27 +224,42 @@ export function FoodKitchen() {
                   <DietMark diet={kitchen.pureVeg ? 'veg' : 'nonveg'} size={17} />
                   <Heading level={1} className="fd-head__name">{kitchen.name}</Heading>
                   <Inline className={`fd-chip ${kitchen.openNow ? 'fd-chip--good' : 'fd-chip--neutral'}`}>
-                    {kitchen.openNow ? `Open till ${kitchen.closesAt}` : `Opens at ${kitchen.opensAt}`}
+                    {kitchen.openNow
+                      ? (kitchen.closesAt ? `Open till ${kitchen.closesAt}` : 'Open now')
+                      : (kitchen.opensAt ? `Opens at ${kitchen.opensAt}` : 'Closed right now')}
                   </Inline>
                 </Box>
                 <Text className="fd-head__cuisine">{kitchen.cuisine} · {kitchen.tagline}</Text>
-                <Text className="fd-head__where">{kitchen.landmark}, Gachibowli · {kitchen.walkMinutes} min walk from Block C</Text>
+                {/* Only what the server knows: the kitchen's own landmark, and a
+                    walk time when the visitor shared a location. It used to
+                    print "..., Gachibowli · 12 min walk from Block C" for every
+                    kitchen - a fixed address for an imaginary diner. */}
+                <Text className="fd-head__where">
+                  {[kitchen.landmark, kitchen.walkMinutes != null ? `${kitchen.walkMinutes} min walk` : '']
+                    .filter(Boolean)
+                    .join(' · ')}
+                </Text>
               </Box>
 
               <Box className="fd-head__score">
-                <Inline className="fd-rating fd-rating--lg">{kitchen.rating} ★</Inline>
-                <Inline className="fd-head__scoreCount">{kitchen.ratingCount.toLocaleString('en-IN')} ratings</Inline>
+                {/* "New" until somebody rates it - "0 ★" reads as a review. */}
+                <Inline className="fd-rating fd-rating--lg">
+                  {kitchen.ratingCount > 0 ? `${kitchen.rating} ★` : 'New'}
+                </Inline>
+                {kitchen.ratingCount > 0 && (
+                  <Inline className="fd-head__scoreCount">{kitchen.ratingCount.toLocaleString('en-IN')} ratings</Inline>
+                )}
               </Box>
             </Box>
 
             <Box className="fd-facts">
               <Box className="fd-facts__cell">
                 <Inline className="fd-lbl">Delivery</Inline>
-                <Inline className="fd-facts__val">{kitchen.deliveryWindow}</Inline>
+                <Inline className="fd-facts__val">{kitchen.deliveryWindow || '-'}</Inline>
               </Box>
               <Box className="fd-facts__cell">
                 <Inline className="fd-lbl">Counter ready</Inline>
-                <Inline className="fd-facts__val">{kitchen.prepMinutes} min</Inline>
+                <Inline className="fd-facts__val">{kitchen.prepMinutes ? `${kitchen.prepMinutes} min` : '-'}</Inline>
               </Box>
               <Box className="fd-facts__cell">
                 <Inline className="fd-lbl">Delivery fee</Inline>
@@ -261,7 +344,26 @@ export function FoodKitchen() {
               </Box>
             </Box>
 
-            {sections.length === 0 && (
+            {/* Three different reasons for an empty list, and only one of them is
+                "your search matched nothing": the menu may still be arriving, the
+                kitchen may have no dishes at all, or a filter may hide them. */}
+            {sections.length === 0 && !menuLoaded(kitchen.id) && (
+              <Box className="fd-empty">
+                <Heading level={3} className="fd-empty__title">Loading the menu…</Heading>
+              </Box>
+            )}
+
+            {sections.length === 0 && menuLoaded(kitchen.id) && dishesOf(kitchen.id).length === 0 && (
+              <Box className="fd-empty">
+                <Heading level={3} className="fd-empty__title">This kitchen has not added its menu yet</Heading>
+                <Text className="fd-empty__body">
+                  It is a Lampose partner and its menu is on the way. Have a look at another kitchen in the meantime.
+                </Text>
+                <Link to="/food" className="fd-btn fd-btn--dark">See other kitchens</Link>
+              </Box>
+            )}
+
+            {sections.length === 0 && menuLoaded(kitchen.id) && dishesOf(kitchen.id).length > 0 && (
               <Box className="fd-empty">
                 <Heading level={3} className="fd-empty__title">Nothing on this menu matches</Heading>
                 <Text className="fd-empty__body">

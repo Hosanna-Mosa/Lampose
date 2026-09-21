@@ -12,7 +12,9 @@ import { useAddDish } from '../food/useAddDish';
 import { useCart } from '../food/CartProvider';
 import { ENFORCE_MINIMUM, offersFor } from '../food/cart';
 import { useReveals } from '../hooks/useSite';
-import { dishesOf, rupees } from '../data/food';
+import { rupees } from '../data/food';
+import { useFoodCatalogue } from '../food/FoodCatalogue';
+import { useAuth } from '../auth/AuthProvider';
 
 /* ══ Cart ═════════════════════════════════════════════════════════════════
    What was chosen, what it costs, and the one way onward.
@@ -33,10 +35,12 @@ import { dishesOf, rupees } from '../data/food';
 
 export function FoodCart() {
   const {
-    lines, kitchen, bill, coupon, fulfilment, address,
+    lines, kitchen, bill, coupon, coupons, fulfilment, address,
     setQty, remove, applyCoupon, removeCoupon, setFulfilment,
   } = useCart();
   const { openDish, dialogs } = useAddDish();
+  const { dishesOf, kitchens } = useFoodCatalogue();
+  const { status, openSignIn } = useAuth();
 
   const [code, setCode] = useState('');
   const [problem, setProblem] = useState(null);
@@ -58,9 +62,23 @@ export function FoodCart() {
           <Box className="fd-empty fd-empty--page">
             <Inline className="fd-empty__mark"><Icon name="orders" className="fd-ico" /></Inline>
             <Heading level={1} className="fd-empty__title">Nothing in the cart yet</Heading>
+            {/* Counted from the real feed. This used to be a fixed sentence —
+                "Kitchens near Block C ... four of them serve a full meal under
+                ₹120" — which was a claim about a fixture, not about anywhere a
+                diner actually is. */}
             <Text className="fd-empty__body">
-              Kitchens near Block C are open now, and four of them serve a full meal under ₹120.
+              {kitchens.filter(k => k.openNow).length
+                ? `${kitchens.filter(k => k.openNow).length} kitchens are taking orders right now.`
+                : 'Pick a kitchen and add something to get started.'}
             </Text>
+            {/* A guest's cart is always empty - it cannot be filled without an
+                account - so the empty state is where they need to be told. */}
+            {status === 'guest' && (
+              <Text className="fd-note">
+                Sign in to add dishes to your cart.{' '}
+                <PlainButton type="button" className="fd-link" onClick={openSignIn}>Sign in</PlainButton>
+              </Text>
+            )}
             <Link to="/food" className="fd-btn fd-btn--dark">Browse kitchens</Link>
           </Box>
         </Box>
@@ -68,7 +86,10 @@ export function FoodCart() {
     );
   }
 
-  const offers = offersFor({ itemTotal: bill.itemTotal, kitchenId: kitchen.id, fulfilment })
+  /* Only coupons the server will honour reach here — see `CartProvider`. Today
+     that is none, so the offers block below stays out of the page rather than
+     advertising a discount the payment screen would then refuse. */
+  const offers = offersFor({ itemTotal: bill.itemTotal, kitchenId: kitchen.id, fulfilment }, coupons)
     .filter(offer => offer.code !== coupon?.code);
 
   /* Three cheap things from the same counter. A suggestion from another
@@ -100,7 +121,7 @@ export function FoodCart() {
             {/* ── the lines ─────────────────────────────────────────────── */}
             <Box className="fd-panel fd-panel--lift fd-panel--flush reveal">
               <Box className="fd-cart__head">
-                <PhotoTile tone={kitchen.tone} className="fd-cart__thumb" />
+                <PhotoTile tone={kitchen.tone} src={kitchen.logoUrl || kitchen.coverUrl} alt={kitchen.name} width={160} className="fd-cart__thumb" />
                 <Box className="fd-cart__headText">
                   <Inline className="fd-cart__name">{kitchen.name}</Inline>
                   <Inline className="fd-cart__meta">
@@ -159,7 +180,14 @@ export function FoodCart() {
               </Box>
             </Box>
 
-            {/* ── offers ────────────────────────────────────────────────── */}
+            {/* ── offers ──────────────────────────────────────────────────
+                Only when there is something to offer or something held. The
+                server reports which coupons it will actually honour, and today
+                that is none — so a panel titled "Offers" with a code box that
+                rejects every code would be a dead end dressed as a feature.
+                It reappears by itself the day an order starts subtracting
+                coupons. */}
+            {(coupons.length > 0 || coupon) && (
             <Box className="fd-panel reveal">
               <Box className="fd-panel__head">
                 <Heading level={2} className="fd-panel__title">Offers</Heading>
@@ -226,6 +254,7 @@ export function FoodCart() {
               </Form>
               {problem && <Text className="fd-note fd-note--warn" role="alert">{problem}</Text>}
             </Box>
+            )}
 
             {/* ── goes well with ────────────────────────────────────────── */}
             {alsoFrom.length > 0 && (
@@ -234,7 +263,7 @@ export function FoodCart() {
                 <Box className="fd-addons">
                   {alsoFrom.map(dish => (
                     <Box className="fd-addon" key={dish.id}>
-                      <PhotoTile tone={dish.tone} className="fd-addon__thumb" />
+                      <PhotoTile tone={dish.tone} src={dish.imageUrl} alt={dish.name} width={160} className="fd-addon__thumb" />
                       <Box className="fd-addon__text">
                         <Inline className="fd-addon__name">{dish.name}</Inline>
                         <Inline className="fd-addon__price">{rupees(dish.price)}</Inline>
@@ -291,7 +320,10 @@ export function FoodCart() {
                 bill={bill}
                 fulfilment={fulfilment}
                 couponCode={coupon?.code}
-                distanceLabel={fulfilment === 'delivery' ? '1.4 km' : null}
+                /* No distance. The bill used to say "Delivery fee . 1.4 km" for
+                   every order - a figure nothing measured. The server does not
+                   compute kitchen-to-door distance, so there is none to show. */
+                distanceLabel={null}
               />
 
               {/* A cart under the kitchen's minimum is told so and left alone:
