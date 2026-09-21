@@ -36,27 +36,19 @@ import { RestaurantListCard } from './RestaurantListCard';
  *     supporting line on a card. Here it is the ordering, because ten minutes
  *     of walking is the whole decision.
  *
- * ## Where it stops, and what is NOT wired yet
+ * ## Where it stops
  *
  * This is the browsing half only. Tapping a kitchen opens its ordinary menu
- * page, and from there the cart and checkout run exactly as they do from Home
- * — which means the order goes out as a DELIVERY, not as something eaten at
- * the counter.
+ * page, where `FulfilmentToggle` now sits in the identity block — see
+ * `app/food/kitchen/[id].tsx` — so a diner picks pickup there before adding
+ * anything. This screen finds an open, nearby kitchen; it does not itself
+ * decide how the order leaves the counter.
  *
- * That is not a choice this screen made. `FoodContext` holds a `fulfilment`
- * mode and a `setFulfilment` to change it, the cart already branches on
- * `fulfilment === 'pickup'` for its bill line, its footnote and where the
- * primary button goes, and `FulfilmentToggle` exists and is exported — but
- * NOTHING IN THE APP CALLS `setFulfilment`, and nothing renders that toggle.
- * The mode is stuck on its initial `'delivery'` for every order the app has
- * ever placed. Wiring that control back in is the next piece of work and it
- * is client-side only; until it lands, "eat in" is a way of finding a kitchen
- * here, not a way of ordering from one.
- *
- * Beyond that, and needing the server: a true dine-in order has no mode to be
- * stored under. `foodOrder.model.js` is `enum: ['delivery', 'pickup']`, and a
- * third value reaches `foodDispatch.service.js`, the partner app and the admin
- * console before it means anything to a kitchen.
+ * A true dine-in order — eaten AT the counter, not carried out as pickup —
+ * still needs the server: it has no mode to be stored under.
+ * `foodOrder.model.js` is `enum: ['delivery', 'pickup']`, and a third value
+ * reaches `foodDispatch.service.js`, the partner app and the admin console
+ * before it means anything to a kitchen.
  *
  * What this screen deliberately does NOT claim, at any stage, is a table.
  * There is no reservation, no seat count and no "book" button, because a

@@ -110,6 +110,20 @@ export function ProductForm({
             selected={[draft.category]}
             onToggle={(v) => set("category", v)}
           />
+          {/* The chips above are the restaurant's own existing categories —
+              once there is a first dish, that list replaces the starter
+              suggestions entirely, and neither ever let a partner introduce a
+              name that is not already on it. A new section (e.g. "Beverages",
+              the first time this menu sells one) had no way to be created
+              from this screen. Blank whenever the chip selection matches a
+              real option, so typing here and tapping a chip do not fight —
+              whichever happened last is what `draft.category` holds. */}
+          <TextField
+            value={categories.includes(draft.category) ? "" : draft.category}
+            onChangeText={(v) => set("category", v)}
+            placeholder="Or type a new category"
+            style={{ marginTop: space[2] }}
+          />
         </Field>
 
         <Field label="Description" optional>

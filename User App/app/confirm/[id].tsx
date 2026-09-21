@@ -106,7 +106,7 @@ export default function OwnerConfirmation() {
   const { listing, isPending: listingLoading, notFound, refetch: refetchListing } = useListing(id);
   const { request: pending, start: startPill, settle: settlePill, clear: clearPill } =
     usePendingRequest();
-  const { completeProfile } = useAuth();
+  const { status, completeProfile } = useAuth();
   const queryClient = useQueryClient();
 
 
@@ -253,6 +253,12 @@ export default function OwnerConfirmation() {
      */
     if (stay.isHydrating || stay.phase !== 'idle' || stay.request) return;
     if (!sendPayload || sent.current) return;
+    /* Defence in depth: `listing/[id].tsx`'s "Request this bed" is the only
+       real way here, and it already sends a guest to sign in first via
+       `requireSignIn`. A guest reaching this screen some other way (a stale
+       deep link) has no account for the server to attach the request to —
+       auto-sending would just 401 in front of them with no explanation. */
+    if (status !== 'signedIn') return;
 
     sent.current = true;
     stay.send(sendPayload).finally(() => {
@@ -266,7 +272,7 @@ export default function OwnerConfirmation() {
     /* Narrow deps on purpose: `stay` is a fresh object every render, so
        depending on it would re-run this effect constantly. Only the things
        the guard actually reads matter. */
-  }, [sendPayload, stay.isHydrating, stay.phase, stay.request, stay.send]);
+  }, [sendPayload, stay.isHydrating, stay.phase, stay.request, stay.send, status]);
 
   /* The profile form's "Save and send request" — same payload, a fresh
      attempt. `sent.current` is left alone: it already guards against the

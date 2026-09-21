@@ -421,6 +421,27 @@ export type Listing = {
   /** "near station" — appended to the locality, never replacing it. */
   localityNote?: string;
   /**
+   * Kilometres from the fix a "near me" search sent, to one decimal place.
+   * `undefined` on an ordinary feed. `null` on a "near me" feed when this
+   * particular listing has no recorded pin — most of the catalogue, today —
+   * which a card renders as "distance not available" rather than hiding the
+   * badge outright, so a real result never looks like it silently vanished.
+   */
+  distanceKm?: number | null;
+  /**
+   * From real guest reviews, server-aggregated. `undefined`/`null` when
+   * nobody has reviewed this listing yet — which is most of the catalogue
+   * today — and a card must render that as no badge at all, never as an
+   * invented number. See `app/listing/[id].tsx`'s own reviews section,
+   * which has always shown the true figure; the feed card used to show a
+   * hardcoded "4.92" regardless of this value. Optional, like `distanceKm`
+   * above: the static fixtures under `data/listings.ts` carry neither, and
+   * are rendered exactly as "no rating yet" rather than needing to be
+   * changed for a type they never claimed to satisfy this closely.
+   */
+  averageRating?: number | null;
+  reviewCount?: number;
+  /**
    * What the owner wrote about the place, in their own words.
    *
    * The panel has had this field since the leads backend was merged in and

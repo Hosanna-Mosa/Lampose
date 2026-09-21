@@ -55,6 +55,8 @@ export default function AuthScreen() {
     pendingPhone,
     pendingPhoneMasked,
     signInWithPassword,
+    resumePendingIntent,
+    continueAsGuest,
   } = useAuth();
 
   const { next } = useLocalSearchParams<{ next?: string }>();
@@ -79,6 +81,7 @@ export default function AuthScreen() {
   const [otpState, setOtpState] = useState<OtpState>('idle');
   const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null);
   const [lockedLabel, setLockedLabel] = useState<string | null>(null);
+  const [expiredMessage, setExpiredMessage] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
   // 3D Flip State
@@ -198,8 +201,14 @@ export default function AuthScreen() {
       } catch {}
       setOtpState('idle');
 
-      if (next) router.replace(next as never);
-      else router.replace('/');
+      /* A held action (from `requireSignIn`) wins over the ordinary
+         destination — it already returned to the screen it was called from
+         and re-ran whatever was waiting. Only when nothing was held does the
+         `next` param, or Home, decide where this goes. */
+      if (!resumePendingIntent()) {
+        if (next) router.replace(next as never);
+        else router.replace('/');
+      }
     } else {
       try {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -207,6 +216,7 @@ export default function AuthScreen() {
       setOtpState('error');
       if (result.reason === 'wrong') setAttemptsLeft(result.attemptsLeft);
       else if (result.reason === 'locked') setLockedLabel(result.unlocksAtLabel);
+      else if (result.reason === 'expired') setExpiredMessage(result.message);
       else setProblem(result.message);
     }
   };
@@ -219,6 +229,7 @@ export default function AuthScreen() {
     setOtpState('idle');
     setAttemptsLeft(null);
     setLockedLabel(null);
+    setExpiredMessage(null);
     setProblem(null);
     await resendCode();
   };
@@ -238,10 +249,12 @@ export default function AuthScreen() {
 
   const codeError = lockedLabel
     ? 'That code is spent. Ask for a new one below.'
-    : problem ??
-      (attemptsLeft !== null
-        ? `That code is wrong — ${attemptsLeft} ${attemptsLeft === 1 ? 'try' : 'tries'} left.`
-        : undefined);
+    : expiredMessage
+      ? 'That code expired. Ask for a new one below.'
+      : problem ??
+        (attemptsLeft !== null
+          ? `That code is wrong — ${attemptsLeft} ${attemptsLeft === 1 ? 'try' : 'tries'} left.`
+          : undefined);
 
   const submitPassword = async () => {
     if (!emailValue.trim() || !passwordValue || passwordBusy) return;
@@ -253,11 +266,15 @@ export default function AuthScreen() {
         setPasswordError(result.message ?? 'That email address and password do not match.');
         return;
       }
-      /* The same destination a verified code reaches. `next` is honoured so a
-         reviewer who deep-linked somewhere lands back there. */
-      /* `as never` because typedRoutes cannot know a runtime `next`; the same
-         cast the rest of this app uses for a computed path. */
-      router.replace(((next as string) || '/') as never);
+      /* Same rule as a verified code: a held action wins over the ordinary
+         destination. */
+      if (!resumePendingIntent()) {
+        /* The same destination a verified code reaches. `next` is honoured so
+           a reviewer who deep-linked somewhere lands back there. */
+        /* `as never` because typedRoutes cannot know a runtime `next`; the
+           same cast the rest of this app uses for a computed path. */
+        router.replace(((next as string) || '/') as never);
+      }
     } finally {
       setPasswordBusy(false);
     }
@@ -352,6 +369,27 @@ export default function AuthScreen() {
   return (
     <View style={styles.rootContainer}>
       <StatusBar style="dark" />
+
+      {/*
+        Browsing needs no account — only booking a bed, ordering food, saving
+        something or filing a support ticket does, and each of those already
+        asks for one at the moment it is tapped (`requireSignIn`). This is the
+        way out of an otherwise account-first entry screen for everyone who
+        just wants to look first.
+      */}
+      <Pressable
+        onPress={() => {
+          continueAsGuest();
+          router.replace('/');
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Skip sign-in and browse"
+        hitSlop={12}
+        style={[styles.skipButton, { top: insets.top + 12 }]}
+      >
+        <Icon name="close" size={16} color="#3D4247" />
+        <Text style={styles.skipButtonText}>Skip</Text>
+      </Pressable>
 
       {/* Decorative background SVG shapes matching the reference */}
       <View style={styles.backgroundBlobs} pointerEvents="none">
@@ -597,7 +635,7 @@ export default function AuthScreen() {
                   value={code}
                   onChange={(nextCode) => {
                     setCode(nextCode);
-                    if (otpState === 'error' && !lockedLabel) {
+                    if (otpState === 'error' && !lockedLabel && !expiredMessage) {
                       setOtpState('idle');
                       setProblem(null);
                     }
@@ -614,6 +652,16 @@ export default function AuthScreen() {
                       tone="warning"
                       title="Code locked"
                       body="Too many wrong tries. Ask for a new one below."
+                    />
+                  </View>
+                ) : null}
+
+                {expiredMessage ? (
+                  <View style={{ marginTop: 16, width: '100%' }}>
+                    <InlineAlert
+                      tone="warning"
+                      title="Code expired"
+                      body={expiredMessage}
                     />
                   </View>
                 ) : null}
@@ -678,6 +726,20 @@ export default function AuthScreen() {
 }
 
 const styles = StyleSheet.create({
+  skipButton: {
+    position: 'absolute',
+    right: 16,
+    zIndex: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+  },
+  skipButtonText: { fontSize: 13, fontWeight: '600', color: '#3D4247' },
+
   /* The review sign-in panel. Plain on purpose — it is temporary, and styling
      it to match the animated card would make it harder to delete cleanly. */
   pwScroll: { paddingHorizontal: 24, paddingTop: 96, paddingBottom: 48 },

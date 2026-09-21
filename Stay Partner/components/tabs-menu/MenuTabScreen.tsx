@@ -1,7 +1,7 @@
 import { Fragment, useState, type ReactNode } from 'react';
 import { Box, Tappable } from '@/components/common';
 import { useRouter, type Href } from 'expo-router';
-import { Screen, Text, Card, Divider, Icon, Switch } from '@/components/common';
+import { Screen, Text, Card, Divider, Icon } from '@/components/common';
 import { layout } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
@@ -33,17 +33,6 @@ const ACCOUNT_ROWS: NavRow[] = [
   { label: 'Refer & earn', href: '/referrals' },
 ];
 
-type NotifKey = 'bookingRequests' | 'messages' | 'payouts' | 'marketingTips';
-
-const NOTIF_ROWS: { key: NotifKey; label: string }[] = [
-  { key: 'bookingRequests', label: 'Booking requests' },
-  { key: 'messages', label: 'Messages' },
-  { key: 'payouts', label: 'Payouts' },
-  { key: 'marketingTips', label: 'Marketing tips' },
-];
-
-
-
 import { useAuth } from '@/context/AuthContext';
 import { fetchSummary } from '@/services/api/portfolio.api';
 import { useEffect } from 'react';
@@ -68,13 +57,6 @@ export function MenuTabScreen() {
       })
       .catch((err) => logWarn('Failed to load summary in profile:', err));
   }, []);
-
-  const [notifs, setNotifs] = useState<Record<NotifKey, boolean>>({
-    bookingRequests: true,
-    messages: true,
-    payouts: true,
-    marketingTips: false,
-  });
 
   /* Real screens now, not the "never designed" stub. All three read the
      backend — see the notes at the top of each. */
@@ -139,22 +121,6 @@ export function MenuTabScreen() {
               <Text variant="bodySm" style={styles.rowLabel}>{r.label}</Text>
               <Icon name="chevron-right" size={16} color={c.textTertiary} />
             </Tappable>
-          </Fragment>
-        ))}
-      </SettingsSection>
-
-      <SettingsSection title="Notifications">
-        {NOTIF_ROWS.map((r, i) => (
-          <Fragment key={r.key}>
-            {i > 0 ? <Divider /> : null}
-            <Box style={styles.row}>
-              <Text variant="bodySm" style={styles.rowLabel}>{r.label}</Text>
-              <Switch
-                value={notifs[r.key]}
-                onChange={(next) => setNotifs((s) => ({ ...s, [r.key]: next }))}
-                accessibilityLabel={r.label}
-              />
-            </Box>
           </Fragment>
         ))}
       </SettingsSection>

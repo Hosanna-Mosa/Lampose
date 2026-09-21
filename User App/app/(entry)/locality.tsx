@@ -7,13 +7,12 @@ import * as Haptics from 'expo-haptics';
 
 import { Button, Divider, Icon, SearchField, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
-import { CurrentLocationRow, LocalityRow } from '@/components/auth';
+import { CurrentLocationRow, LocalityRow, NearbyRadiusDialog } from '@/components/auth';
 import { useAppState } from '@/context/AppStateContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useListingMeta } from '@/services';
-import { findMyLocality } from '@/services/location/resolveLocality';
-import { LocationRefused } from '@/services/location/useMyLocation';
-import { ALL_LOCALITIES, matchesQuery, type Locality } from '@/types/auth';
+import { locateMe, LocationRefused } from '@/services/location/useMyLocation';
+import { ALL_LOCALITIES, matchesQuery, nearbyLocality, type Locality } from '@/types/auth';
 
 /**
  * Where are you looking?
@@ -41,17 +40,22 @@ import { ALL_LOCALITIES, matchesQuery, type Locality } from '@/types/auth';
  * actually uses — "triple it", "kphb" — need a person to record them and a
  * field to record them in; see `places.adapter.ts`.
  *
- * ## The location row takes a real fix
+ * ## The location row asks "how far", then takes a real fix
  *
  * It used to be `meta.guess` — the area with the most listings — captioned
- * "most likely" and never touching the device. It runs `findMyLocality` now:
- * one foreground fix, reverse-geocoded by the platform, matched against the
- * areas the catalogue actually holds. What it can and cannot promise, and why
- * it is a name match rather than a distance, is in `resolveLocality.ts`.
+ * "most likely" and never touching the device, then `findMyLocality`: one
+ * foreground fix, reverse-geocoded by the platform, matched by NAME against
+ * the areas the catalogue holds (still in `resolveLocality.ts`, now unused
+ * here). A name match was the only option while nothing but free-text
+ * `place` existed to search against, and it had a real failure mode: a
+ * student two streets outside a named area's drawn boundary was told
+ * nothing covered them.
  *
- * The result is still SUGGESTED rather than applied. A geocoder that names
- * the road a bus is on is a normal outcome, and a wrong read caught here costs
- * a tap instead of a wasted search.
+ * `NearbyRadiusDialog` asks for a radius first, then `searchNearby` takes
+ * one fix and builds a `nearbyLocality` — a radius around a point, not a
+ * name — which the feed filters and sorts by real distance server-side (see
+ * `getListings`). Permission is asked only after the radius is chosen, so
+ * the fix is never taken before it is clear what for.
  *
  * ## "All locations" is an answer, not a skip
  *
@@ -156,8 +160,25 @@ export default function LocalityPickerScreen() {
   /** What the row says under its label. Null means "not asked yet". */
   const [fixNote, setFixNote] = useState<string | null>(null);
   const [fixFailed, setFixFailed] = useState(false);
+  const [radiusDialogOpen, setRadiusDialogOpen] = useState(false);
 
-  const locateAndSuggest = useCallback(async () => {
+  /**
+   * A radius around a real fix, rather than a name match.
+   *
+   * This used to run `findMyLocality`, which turned the fix into words and
+   * matched them against the areas the catalogue names — the only option
+   * when nothing but `place` (free text) existed to search against. Now that
+   * the feed itself can filter by distance (see `getListings` on the
+   * backend), asking "which area am I in" is a worse answer than asking
+   * "what is actually near me" — a student two streets outside a named
+   * area's boundary was told nothing covers them, when three PGs were 400m
+   * away in the next area over.
+   *
+   * The radius is chosen first, by `NearbyRadiusDialog`, and only then is a
+   * fix taken — asking permission before it is clear what for reads as the
+   * app grabbing location for no stated reason.
+   */
+  const searchNearby = useCallback(async (radiusKm: number) => {
     if (locating) return;
 
     try {
@@ -166,30 +187,18 @@ export default function LocalityPickerScreen() {
 
     setLocating(true);
     setFixFailed(false);
-    setFixNote('Detecting your location…');
+    setFixNote(`Finding places within ${radiusKm} km…`);
     try {
-      const match = await findMyLocality(localities);
-
-      if (match.kind === 'area' || match.kind === 'original') {
-        try {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } catch {}
-        // Instantly select the resolved authentic locality on a single tap!
-        await choose(match.locality);
-        return;
-      } else if (match.kind === 'city') {
-        try {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } catch {}
-        await choose(match.locality);
-        return;
-      } else {
-        setFixFailed(true);
-        setFixNote(
-          `We found you${match.placeLabel ? ` near ${match.placeLabel}` : ''}, `
-          + 'but we could not determine your area. Try All locations, or search below.',
-        );
-      }
+      const fix = await locateMe();
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch {}
+      await choose(nearbyLocality({
+        lat: fix.location.lat,
+        lng: fix.location.lng,
+        radiusKm,
+        label: fix.fields.area || fix.fields.city || undefined,
+      }));
     } catch (caught) {
       setFixFailed(true);
       setFixNote(
@@ -200,7 +209,7 @@ export default function LocalityPickerScreen() {
     } finally {
       setLocating(false);
     }
-  }, [localities, locating, choose]);
+  }, [locating, choose]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
@@ -275,9 +284,18 @@ export default function LocalityPickerScreen() {
               tone={fixFailed ? 'problem' : 'normal'}
               subtitle={
                 fixNote
-                ?? 'Use GPS to automatically detect your area and show nearby stays'
+                ?? 'Choose a radius and see places within it, wherever you are'
               }
-              onPress={locateAndSuggest}
+              onPress={() => setRadiusDialogOpen(true)}
+            />
+
+            <NearbyRadiusDialog
+              visible={radiusDialogOpen}
+              onClose={() => setRadiusDialogOpen(false)}
+              onSelect={(radiusKm) => {
+                setRadiusDialogOpen(false);
+                void searchNearby(radiusKm);
+              }}
             />
 
             {/*

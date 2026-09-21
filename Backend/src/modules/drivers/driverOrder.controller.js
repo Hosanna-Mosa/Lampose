@@ -404,21 +404,34 @@ const releaseOrder = async (req, res, next) => {
 
 /* ── GET /me/orders ───────────────────────────────────────────────────────*/
 
-/** What this rider has carried, newest first. */
+/**
+ * What this rider has carried, newest first.
+ *
+ * `skip` pages back through it — 0 by default, so an old caller that never
+ * sends it keeps getting exactly the first 50 it always did. `total` travels
+ * alongside so the app can say "that's all of it" rather than a rider paging
+ * forever into an empty reply, or never learning there was more than 50 to
+ * begin with.
+ */
 const listMyOrders = async (req, res, next) => {
   try {
     if (!isUp()) return dbDown(res);
 
     const limit = Math.min(Number(req.query.limit) || 50, 50);
-    const orders = await FoodOrder.find({ 'delivery.driverId': req.driver.driverId })
-      .sort({ placedAt: -1 })
-      .limit(limit);
+    const skip = Math.max(Number(req.query.skip) || 0, 0);
+    const filter = { 'delivery.driverId': req.driver.driverId };
+
+    const [orders, total] = await Promise.all([
+      FoodOrder.find(filter).sort({ placedAt: -1 }).skip(skip).limit(limit),
+      FoodOrder.countDocuments(filter),
+    ]);
 
     const kitchens = await kitchensFor(orders);
 
     return res.json({
       success: true,
       count: orders.length,
+      total,
       data: orders.map((order) => riderView(order, {
         revealed: true,
         restaurant: kitchenFromPage(kitchens, order),

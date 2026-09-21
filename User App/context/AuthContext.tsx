@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { router } from 'expo-router';
 import { getSecret, setSecret, deleteSecret } from '../services/secureStore';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -6,6 +7,7 @@ import {
   ApiError,
   disconnectSupportSocket,
   fetchMe,
+  logoutAuth,
   resendAuthCode,
   setAuthToken,
   setSessionExpiredHandler,
@@ -96,6 +98,7 @@ export type VerifyResult =
   | { ok: true; referralMessage?: string }
   | { ok: false; reason: 'wrong'; attemptsLeft: number }
   | { ok: false; reason: 'locked'; unlocksAtLabel: string }
+  | { ok: false; reason: 'expired'; message: string }
   | { ok: false; reason: 'failed'; message: string };
 
 /**
@@ -157,6 +160,30 @@ type AuthContextValue = {
   /** Mirrors the device's category onto the account, for a reinstall. */
   syncCategory: (category: string) => void;
   signOut: () => Promise<void>;
+
+  /**
+   * Browsing needs no account; the moment somebody actually acts does.
+   *
+   * A screen calls this INSTEAD of running the action directly — `action` runs
+   * at once for a signed-in student, exactly as it always did. For a guest, it
+   * is held rather than run, and the phone flips to sign-in. `resumePendingIntent`
+   * is what plays it back: the button that was tapped, the request that was
+   * being sent, the ticket that was being filed, whichever it was — the same
+   * screen the guest was already on, not a fresh trip to Home. That screen
+   * never unmounted; auth is `push`ed on top of it, not `replace`d, precisely
+   * so its state (a chosen sharing type, a filled-in cart) is still there when
+   * `router.back()` returns to it.
+   */
+  requireSignIn: (action: () => void) => void;
+  /**
+   * Called once, right after a sign-in succeeds. `true` means it played back
+   * a held action and the screen should skip its own post-login navigation;
+   * `false` means there was nothing held, and an ordinary sign-in (or the
+   * `next` param) decides where to go.
+   */
+  resumePendingIntent: () => boolean;
+  /** The "Skip" control on the sign-in screen. Browsing needs no account. */
+  continueAsGuest: () => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -244,6 +271,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
        */
       disconnectSupportSocket();
 
+      /*
+       * Revoked server-side, before the token is cleared locally — for the
+       * same reason the device comes off the account first: an unauthenticated
+       * call to a session-gated route does nothing. Best-effort: a phone with
+       * no connection must still be able to leave, so a failure here does not
+       * block the local sign-out below.
+       */
+      await logoutAuth().catch(() => {});
+
       setUser(null);
       setToken(null);
       /* Cleared in the client FIRST. A request that fires between these two
@@ -258,6 +294,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ]);
       return;
     }
+    /*
+     * A real session forcibly ends demo mode, even if something left it on.
+     *
+     * `enterDemo()` sets a module-level flag that nothing but `signOut`
+     * otherwise clears — and it does not ask whether a real session already
+     * exists before replacing it. Without this, a signed-in student who ever
+     * opened the demo password screen (or a device that had one open before)
+     * would have every future request answered by fake data from
+     * `services/demoMode.ts` for the rest of that real session.
+     */
+    exitDemo();
     setUser(session.user);
     setToken(session.token);
     setAuthToken(session.token);
@@ -535,9 +582,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return { ok: false, reason: 'wrong', attemptsLeft: left };
         }
 
-        /* Expired, blocked, a bad email on the sign-up path, a disconnected
-           database. All of them have a sentence the server wrote, and all of
-           them need the student to do something other than retype a digit. */
+        if (error.code === 'OTP_EXPIRED') {
+          /* Its own reason, not the generic bucket below — wrong and locked
+             each get a distinct box on screen, and "the code simply ran out
+             the clock" deserves the same rather than reading as an unnamed
+             failure. */
+          return { ok: false, reason: 'expired', message: error.displayMessage };
+        }
+
+        /* A bad email on the sign-up path, a disconnected database — anything
+           left has a sentence the server wrote and needs the student to do
+           something other than retype a digit. */
         return { ok: false, reason: 'failed', message: error.displayMessage };
       } finally {
         setIsSubmitting(false);
@@ -572,20 +627,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
-    /*
-     * Local only, and there is no endpoint to call.
-     *
-     * The token is a stateless JWT — nothing server-side is tracking it, so
-     * there is nothing to revoke and a round trip would be theatre. It stops
-     * working when it expires. Worth knowing if a "sign out of all devices"
-     * feature is ever asked for: that needs a token version on the customer
-     * document, and this is where it would be bumped.
-     */
+    /* Revoked server-side too now — see the `logoutAuth` call inside `persist`. */
     await persist(null);
     setPendingPhone(null);
     setPendingPhoneMasked(null);
     setStatus('guest');
   }, [persist]);
+
+  /*
+   * A ref, not state — nothing ever renders off this value, and only two
+   * places touch it (the screen that holds an action, and the sign-in screen
+   * that plays it back), both reachable through this same provider. State
+   * would re-render the whole tree for a value nobody displays.
+   */
+  const pendingIntentRef = useRef<(() => void) | null>(null);
+
+  const requireSignIn = useCallback(
+    (action: () => void) => {
+      if (status === 'signedIn') {
+        action();
+        return;
+      }
+      pendingIntentRef.current = action;
+      router.push('/(entry)/auth');
+    },
+    [status],
+  );
+
+  const resumePendingIntent = useCallback((): boolean => {
+    const action = pendingIntentRef.current;
+    if (!action) return false;
+    pendingIntentRef.current = null;
+    /* Back to the screen `requireSignIn` was called from — it never unmounted,
+       so whatever it was holding (a chosen sharing type, a filled cart) is
+       still there for `action` to read. Falls back to nothing if somehow
+       there is no screen behind this one; `action` still runs. */
+    if (router.canGoBack()) router.back();
+    action();
+    return true;
+  }, []);
+
+  const continueAsGuest = useCallback(() => {
+    setStatus('guest');
+  }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -609,6 +693,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       completeProfile,
       syncCategory,
       signOut,
+      requireSignIn,
+      resumePendingIntent,
+      continueAsGuest,
     }),
     [
       status,
@@ -628,6 +715,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       verifyCode,
       signInWithPassword,
       changeNumber,
+      requireSignIn,
+      resumePendingIntent,
+      continueAsGuest,
       completeProfile,
       syncCategory,
       signOut,

@@ -9,3 +9,4 @@ export { SplashSequence, SLOW_CHECK_AT, type SplashSequenceProps } from './Splas
 export { BlockingScreen, type BlockingScreenProps } from './BlockingScreen';
 export { LocalityRow, CurrentLocationRow } from './SearchRows';
 export { AuthFlipCard, type AuthFlipCardProps } from './AuthFlipCard';
+export { NearbyRadiusDialog, type NearbyRadiusDialogProps } from './NearbyRadiusDialog';

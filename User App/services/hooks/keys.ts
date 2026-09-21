@@ -56,6 +56,7 @@ export const queryKeys = {
     locality?: string | null;
     maxPrice?: number | null;
     search?: string | null;
+    near?: { lat: number; lng: number; radiusKm: number } | null;
   }) =>
     [
       'listings',
@@ -65,6 +66,15 @@ export const queryKeys = {
       filters.locality ?? null,
       filters.maxPrice ?? null,
       filters.search?.trim() || null,
+      /* Rounded: a GPS fix drifts by metres between two reads of "here", and
+         a fresh cache key for every jitter would refetch on the same tap. */
+      filters.near
+        ? [
+          Math.round(filters.near.lat * 1000) / 1000,
+          Math.round(filters.near.lng * 1000) / 1000,
+          filters.near.radiusKm,
+        ]
+        : null,
     ] as const,
 
   listing: (id: string) => ['listings', 'detail', id] as const,

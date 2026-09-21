@@ -56,7 +56,16 @@ const CATEGORY_LABEL: Record<(typeof CATEGORIES)[number], string> = {
   HOTEL: 'Hotels',
   COLIVE: 'House / Co-live',
 };
-const STAY_TYPES = ['Short Stay', 'Long Stay'] as const;
+/* Matches the backend's third value verbatim — `stayIntent.util.js` gates
+   short-stay bookability on this exact string containing "both". Collapsing
+   it to 'Long Stay' on load used to silently downgrade a dual-rate listing
+   the moment its owner opened this screen to fix anything unrelated. */
+const STAY_TYPES = ['Short Stay', 'Long Stay', 'Both Short & Long Stay'] as const;
+const STAY_TYPE_LABELS: Record<(typeof STAY_TYPES)[number], string> = {
+  'Short Stay': 'Short',
+  'Long Stay': 'Long',
+  'Both Short & Long Stay': 'Both',
+};
 const SHORT_STAY_DURATIONS = [
   '1 Day', '2 Days', '3 Days', '4 Days', '5 Days', '6 Days', '7 Days', '1-7 Days',
 ] as const;
@@ -96,7 +105,9 @@ function toFormState(property: BackendListing): FormState {
     category: (CATEGORIES as readonly string[]).includes(property.category ?? '')
       ? (property.category as (typeof CATEGORIES)[number])
       : 'PG_HOSTEL',
-    stayType: property.stayType === 'Short Stay' ? 'Short Stay' : 'Long Stay',
+    stayType: (STAY_TYPES as readonly string[]).includes(property.stayType ?? '')
+      ? (property.stayType as (typeof STAY_TYPES)[number])
+      : 'Long Stay',
     shortStayDuration: property.shortStayDuration ?? '1-7 Days',
     longStayDuration: property.longStayDuration ?? '1 Month+',
     dailyPrice: property.dailyPrice ? String(property.dailyPrice) : '',
@@ -274,10 +285,15 @@ export function PropertyEditScreen() {
           <Section title="Stay type & pricing">
             <Box style={styles.field}>
               <FieldLabel>Stay type</FieldLabel>
-              <Segmented options={STAY_TYPES} value={form.stayType} onChange={(stayType) => setForm((f) => f && { ...f, stayType })} />
+              <Segmented
+                options={STAY_TYPES}
+                labels={STAY_TYPE_LABELS}
+                value={form.stayType}
+                onChange={(stayType) => setForm((f) => f && { ...f, stayType })}
+              />
             </Box>
 
-            {form.stayType === 'Short Stay' ? (
+            {form.stayType !== 'Long Stay' && (
               <>
                 <Select
                   label="Duration option"
@@ -295,7 +311,9 @@ export function PropertyEditScreen() {
                   containerStyle={styles.field}
                 />
               </>
-            ) : (
+            )}
+
+            {form.stayType !== 'Short Stay' && (
               <>
                 <Select
                   label="Minimum duration"

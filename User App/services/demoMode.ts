@@ -31,7 +31,7 @@
    is every listing, booking and order behind it.
    ══════════════════════════════════════════════════════════════════════════ */
 
-import type { BackendCustomer } from '@/services/api/types';
+import type { BackendCustomer, BackendListingMeta } from '@/services/api/types';
 
 const DEMO_EMAIL = 'sunandvemavarapu@gmail.com';
 const DEMO_PASSWORD = 'sunand@1234';
@@ -123,6 +123,48 @@ const demoListings = [
 ];
 
 /*
+ * The entry screens' facets, built from the two listings above rather than
+ * invented separately — a reviewer who reaches "Where are you looking?" from
+ * the PG/Hostel tab has to see the same two areas the feed itself will show,
+ * or the demo contradicts itself one screen later.
+ *
+ * This used to have no entry at all, and `/listings/meta` fell through to the
+ * generic `/\/listings\/[^/]+$/` pattern below — matched because "meta" looks
+ * exactly like a listing id to a regex that cannot tell the difference — and
+ * came back shaped like ONE LISTING instead of `BackendListingMeta`. Reading
+ * `.localities` off that wrong shape is `undefined`, which is why a reviewer
+ * signed in with these exact credentials saw "No areas listed yet" on a build
+ * whose real backend has areas in it: the request never reached the backend
+ * at all, demo mode answered it, and it answered with the wrong fixture.
+ */
+const demoListingMeta: BackendListingMeta = {
+  total: demoListings.length,
+  cities: [
+    { name: 'Visakhapatnam', count: 2, medianRent: 5750, categories: { PG_HOSTEL: 2 } },
+  ],
+  localities: [
+    {
+      id: 'dmo_locality_mvp_colony',
+      name: 'MVP Colony',
+      city: 'Visakhapatnam',
+      listingCount: 1,
+      medianRent: 6500,
+      categories: { PG_HOSTEL: 1 },
+    },
+    {
+      id: 'dmo_locality_gajuwaka',
+      name: 'Gajuwaka',
+      city: 'Visakhapatnam',
+      listingCount: 1,
+      medianRent: 5000,
+      categories: { PG_HOSTEL: 1 },
+    },
+  ],
+  categories: [{ name: 'PG_HOSTEL', slug: 'pg-hostel', count: 2 }],
+  monthlyRent: { min: 5000, max: 6500, median: 5750 },
+};
+
+/*
  * Bookings, orders and requests are EMPTY on purpose.
  *
  * Each of those is a live thing with a state machine behind it — a stay
@@ -135,6 +177,11 @@ const demoListings = [
 const ROUTES: Array<[RegExp, unknown]> = [
   [/\/customers\/me$/, demoCustomer],
   [/\/customers\/addresses/, []],
+  /* Ahead of the two patterns below on purpose — `.find()` takes the first
+     match, and `/\/listings\/[^/]+$/` (meant for "one listing by id") would
+     otherwise claim "/listings/meta" first, since "meta" satisfies `[^/]+`
+     exactly as well as a real id would. */
+  [/\/listings\/meta$/, demoListingMeta],
   [/\/listings\/[^/]+$/, demoListings[0]],
   [/\/listings/, demoListings],
   [/\/properties\/[^/]+$/, demoListings[0]],

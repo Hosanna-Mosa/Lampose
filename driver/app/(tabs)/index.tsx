@@ -640,6 +640,23 @@ export default function HomeScreen() {
               style={{ marginTop: space[2] }}
             />
           )}
+
+          {/* Every OTHER reason `blocked` is true — a still-incomplete
+              application, not a rejected document, which already has its own
+              button above. `blockedReason` names what is missing but never a
+              screen, so this sends a rider to the one place that resumes
+              exactly where they left off — see `app/onboarding.tsx`'s own
+              step-by-step save. Without this, a rider who backgrounded the
+              app mid-application had a sentence and nowhere to act on it. */}
+          {blocked && !online && !hasRejectedDocument && (
+            <Btn
+              label="Finish your profile"
+              variant="quiet"
+              glyph="arrowRight"
+              onPress={() => router.push("/onboarding")}
+              style={{ marginTop: space[2] }}
+            />
+          )}
         </Animated.View>
 
         {/* ── Promotional / Incentive Banner ──────────────────────────── */}

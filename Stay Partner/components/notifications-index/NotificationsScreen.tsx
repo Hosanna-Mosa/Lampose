@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Box, Tappable } from '@/components/common';
 import { useRouter } from 'expo-router';
-import { Screen, Text, TextButton, IconButton, Icon, EmptyState, type IconName } from '@/components/common';
+import { Screen, Text, TextButton, IconButton, Icon, EmptyState, ErrorState, type IconName } from '@/components/common';
 import {
   groupedNotifications,
   relativeTime,
@@ -21,6 +21,12 @@ export function NotificationsScreen() {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  /* Set on a failed fetch, cleared on the next successful one — kept apart
+     from an empty `notifications` array so "the request failed" and "you
+     genuinely have nothing" render as two different things instead of both
+     landing on the same "No notifications" empty state. */
+  const [loadError, setLoadError] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const loadNotifications = async () => {
     try {
@@ -36,8 +42,12 @@ export function NotificationsScreen() {
       }));
       setNotifications(mapped);
       setUnreadCount(res.unreadCount || mapped.filter((item) => !item.read).length);
+      setLoadError(false);
     } catch (err) {
       logWarn('Failed to load notifications:', err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -104,7 +114,13 @@ export function NotificationsScreen() {
         {unreadCount > 0 ? <TextButton label="Mark all read" onPress={handleMarkAllRead} /> : null}
       </Box>
 
-      {groups.length > 0 ? (
+      {loading ? null : loadError && notifications.length === 0 ? (
+        <ErrorState
+          title="We could not load your notifications"
+          body="Pull to try again."
+          onRetry={loadNotifications}
+        />
+      ) : groups.length > 0 ? (
         groups.map((group) => (
           <Box key={group.label} style={styles.group}>
             <Text variant="overline" color="textTertiary" style={styles.groupLabel}>

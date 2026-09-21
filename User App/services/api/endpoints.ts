@@ -129,6 +129,8 @@ export const endpoints = {
   customerAuthStart: `${V2}/customers/auth/start`,
   customerAuthVerify: `${V2}/customers/auth/verify`,
   customerAuthResend: `${V2}/customers/auth/resend`,
+  /** Forgets this handset's push token; `everywhere: true` revokes every session. */
+  customerAuthLogout: `${V2}/customers/auth/logout`,
   /** GET for the profile behind a session; PATCH to change name or email. */
   customerMe: `${V2}/customers/me`,
 
@@ -202,6 +204,9 @@ export const endpoints = {
   supportTicketRead: (reference: string) =>
     `${V2}/support/tickets/${encodeURIComponent(reference)}/read`,
   supportReports: `${V2}/support/reports`,
+  /** The audience-scoped id list — see `data/support.ts` for why the labels
+      that go with them still live on the device. */
+  supportCategories: `${V2}/support/categories`,
 
   /* ---------------------------------------------------------------- *
    * Food

@@ -33,11 +33,12 @@ export default function FoodProfileScreen() {
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { user, status, signOut } = useAuth();
   const { preferences, favouriteDishList, favouriteKitchenList, favouritesLoading, refreshFavourites } = useFood();
   /* The same query the stay Profile's address row reads, so the two rows
-     cannot disagree about how many addresses are in the book. */
-  const { count: addressCount, isPending: addressesLoading } = useAddresses();
+     cannot disagree about how many addresses are in the book. Gated the same
+     way — a guest browsing Food has no account to fetch addresses for. */
+  const { count: addressCount, isPending: addressesLoading } = useAddresses(status === 'signedIn');
 
   const favouriteCount = favouriteDishList.length + favouriteKitchenList.length;
   const dietLabel =

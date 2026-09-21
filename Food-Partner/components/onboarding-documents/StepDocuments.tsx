@@ -169,14 +169,21 @@ export function StepDocuments() {
               />
             </Box>
             <Btn
-              label="Verify"
+              label="Confirm"
               variant="accent"
               disabled={data.ifsc.length !== 11}
+              /* No lookup happens here — there is no bank-directory
+                 integration in this app. This is a re-read checkpoint before
+                 moving on, never a claim that the code was checked against a
+                 real branch. The note below used to say "branch details
+                 fetched", which described something that never happened. */
               onPress={() => set("ifscVerified", true)}
               style={{ width: 100 }}
             />
           </Box>
-          {data.ifscVerified && <Note tone="ok">IFSC verified — branch details fetched.</Note>}
+          {data.ifscVerified && (
+            <Note tone="ok">Code confirmed. If it's wrong, your bank will catch it before your first payout.</Note>
+          )}
         </Field>
 
         <Field label="UPI ID" optional hint="An alternative payout route. It does not replace the account above.">

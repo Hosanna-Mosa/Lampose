@@ -26,6 +26,13 @@ export type Locality = {
    * A student from Warangal knows "near IIIT", not "Gachibowli".
    */
   aliases?: readonly string[];
+  /**
+   * Present only on the "near me" sentinel below — a radius around a fix,
+   * standing in for a named area. `id`/`name`/`city` still carry a label a
+   * screen can render without knowing this field exists; this is what the
+   * feed reads instead of `name`/`city` when it is set.
+   */
+  near?: { lat: number; lng: number; radiusKm: number };
 };
 
 /**
@@ -56,6 +63,46 @@ export const ALL_LOCALITIES: Locality = {
 /** Whether this is the sentinel above rather than a real area. */
 export function isAllLocalities(locality: Locality | null | undefined): boolean {
   return locality?.id === ALL_LOCALITIES.id;
+}
+
+/**
+ * A radius around a fix, built the moment "Use my current location" and a
+ * distance are both answered — see `NearbyRadiusDialog`.
+ *
+ * Shaped as a `Locality` rather than a parallel piece of app state so it
+ * flows through exactly the machinery a real area already does:
+ * `setLocality` persists it, a relaunch restores it, and `app/home.tsx`
+ * only has to branch on `.near` being present rather than carry a second
+ * kind of "where" alongside the first.
+ *
+ * `listingCount` and `medianRent` are unknown until the feed itself answers,
+ * same reasoning as `ALL_LOCALITIES`.
+ */
+export function nearbyLocality(params: {
+  lat: number;
+  lng: number;
+  radiusKm: number;
+  /** What the geocoder could name at the fix, for the label only. */
+  label?: string;
+}): Locality {
+  return {
+    id: `near-${params.radiusKm}km-${params.lat.toFixed(3)}-${params.lng.toFixed(3)}`,
+    /* Reads naturally inside "No hotels in {name} yet" and "places listed in
+       {name}" — the sentences every other `Locality.name` already drops
+       into — which is why this is "your N km radius" rather than "Within N
+       km of you": the latter reads fine as a screen title and badly as a
+       sentence's object. */
+    name: params.label ? `your radius near ${params.label}` : `your ${params.radiusKm} km radius`,
+    city: '',
+    listingCount: 0,
+    medianRent: null,
+    near: { lat: params.lat, lng: params.lng, radiusKm: params.radiusKm },
+  };
+}
+
+/** Whether this is a radius search rather than a named area. */
+export function isNearbySearch(locality: Locality | null | undefined): boolean {
+  return Boolean(locality?.near);
 }
 
 /**

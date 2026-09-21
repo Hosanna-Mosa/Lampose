@@ -403,6 +403,70 @@ export const setAvailability = async (token: string, openState: "auto" | "open" 
   return unwrapRestaurant(res.data);
 };
 
+/* ── Payouts: what this kitchen is owed ─────────────────────────────────── */
+
+export type PayoutBalance = {
+  available: number;
+  availableOrders: number;
+  pending: number;
+  pendingRequests: number;
+  collectedByYou: number;
+  collectedByYouOrders: number;
+  inProgress: number;
+  inProgressOrders: number;
+};
+
+export type PayoutRequestRow = {
+  payoutId: string;
+  amount: number;
+  status: "pending" | "paid" | "rejected";
+  orderCount: number;
+  requestedAt: string;
+  paidAt?: string | null;
+  reference?: string;
+  rejectionReason?: string;
+  rejectedAt?: string | null;
+};
+
+const ZERO_BALANCE: PayoutBalance = {
+  available: 0, availableOrders: 0, pending: 0, pendingRequests: 0,
+  collectedByYou: 0, collectedByYouOrders: 0, inProgress: 0, inProgressOrders: 0,
+};
+
+/**
+ * What can be requested right now, plus the history of past requests.
+ *
+ * `GET /me/payouts` — reads defensively rather than trusting the shape,
+ * because the app's offline demo mode answers every unmatched GET with
+ * `data: []`, and this must degrade to an honest "nothing yet" rather than
+ * throwing in front of a Play Store reviewer.
+ */
+export const listMyPayouts = async (
+  token: string,
+): Promise<{ balance: PayoutBalance; minimum: number; history: PayoutRequestRow[] }> => {
+  const res = await api<Envelope<{
+    balance?: PayoutBalance;
+    minimum?: number;
+    history?: PayoutRequestRow[];
+  }>>(`${BASE}/me/payouts`, { token });
+
+  const data = (res.data || {}) as { balance?: PayoutBalance; minimum?: number; history?: PayoutRequestRow[] };
+  return {
+    balance: data.balance ?? ZERO_BALANCE,
+    minimum: data.minimum ?? 100,
+    history: Array.isArray(data.history) ? data.history : [],
+  };
+};
+
+/** The owner's "Request payout" press — paid into the account set at onboarding. */
+export const requestPayout = async (token: string): Promise<PayoutRequestRow | null> => {
+  const res = await api<Envelope<PayoutRequestRow | null>>(`${BASE}/me/payouts/request`, {
+    method: "POST",
+    token,
+  });
+  return res.data ?? null;
+};
+
 /* ── The menu ────────────────────────────────────────────────────────────── */
 
 export const listMyProducts = async (token: string): Promise<ServerProduct[]> => {
