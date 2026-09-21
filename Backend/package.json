@@ -10,9 +10,11 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "seed:admins": "node seedAdmins.js",
-    "inspect:collections": "node inspectCollections.js",
+    "inspect:collections": "node scripts/inspect-db.js",
     "inspect:db": "node scripts/inspect-db.js",
     "inspect:properties": "node scripts/inspect-properties.js",
+    "review:snapshot": "node scripts/export-review-snapshot.js",
+    "migrate:clean-db": "node scripts/migrate-to-clean-db.js",
     "reconcile:inventory": "node scripts/reconcile-inventory.js",
     "clone:db": "node scripts/clone-db.js",
     "seed:booking": "node scripts/seed-booking-dev.js",
@@ -36,12 +38,13 @@
     "verify:food-order": "node scripts/verify-food-order-loop.js",
     "verify:food-dispatch": "node scripts/verify-food-dispatch.js",
     "verify:driver-onboarding": "node scripts/verify-driver-onboarding.js",
-    "verify:zones": "node scripts/verify-zones.js",
     "verify:hotel-payout": "node scripts/verify-hotel-payout.js",
     "verify:addresses": "node scripts/verify-addresses.js",
     "verify:support": "node scripts/verify-support.js",
     "verify:access": "node scripts/verify-access.js",
-    "verify:food-favourites": "node scripts/verify-food-favourites.js"
+    "verify:food-favourites": "node scripts/verify-food-favourites.js",
+    "check:schema": "node scripts/check-schema-coverage.js",
+    "export:analytics": "node scripts/export-analytics.js"
   },
   "keywords": [
     "express",

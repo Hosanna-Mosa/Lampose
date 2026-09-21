@@ -28,7 +28,7 @@
    could not. An address typed by somebody who declined location permission is
    an ordinary address, and refusing to save it would be refusing the order.
    What a missing pin costs is named rather than hidden: the dispatcher falls
-   back to searching around the restaurant, and `zones/check` cannot answer for
+   back to searching around the restaurant, and a rider's map cannot plot
    it. Both of those are already how the code behaves.
 
    `[longitude, latitude]` — GeoJSON's order and MongoDB's, kept unswapped

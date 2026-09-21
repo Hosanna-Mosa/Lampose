@@ -21,6 +21,10 @@ const config = require('../src/config/env');
 const { connectDB, isDbUp } = require('../src/infrastructure/database/db');
 const { User, ScrapeJob, ScrapedLead } = require('../src/modules/scraper/scriper.model');
 
+/* Refuse to run against production. See src/infrastructure/database/guard.js */
+require('../src/infrastructure/database/guard').assertDevTargetOrExit();
+
+
 const argOf = (name, fallback) => {
   const index = process.argv.indexOf(name);
   return index !== -1 && process.argv[index + 1] ? process.argv[index + 1] : fallback;

@@ -322,9 +322,6 @@ export type FoodAddress = {
   instructions?: string;
   /** From the stay booking. It cannot be removed, only corrected upstream. */
   fromBooking?: boolean;
-  serviceable: boolean;
-  /** Why it is not serviceable, said plainly. */
-  unserviceableNote?: string;
   deliveryFee?: number;
   /**
    * Where this actually is, so a rider can be searched for around it.

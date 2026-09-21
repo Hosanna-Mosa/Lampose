@@ -11,7 +11,6 @@ import {
   LayoutDashboard,
   LifeBuoy,
   ListChecks,
-  Map,
   MessageCircle,
   Package,
   Radar,
@@ -80,9 +79,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'onboarding-team', label: 'Onboarding Team', icon: Briefcase },
       { id: 'permissions', label: 'Permissions', icon: KeyRound },
       { id: 'users', label: 'Administrators', icon: Users },
-      /* Not under Food: a zone governs stays as well, and its `allowedServices`
-         is what narrows one to a single service when somebody wants that. */
-      { id: 'zones', label: 'Service Zones', icon: Map },
     ],
   },
   {

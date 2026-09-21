@@ -55,6 +55,10 @@ const mongoose = require('mongoose');
 
 const config = require('../src/config/env');
 
+/* A report is harmless anywhere; the write is not. */
+if (process.argv.includes('--delete')) require('../src/infrastructure/database/guard').assertDevTargetOrExit();
+
+
 /* ------------------------------------------------------------------ *
  * Arguments
  * ------------------------------------------------------------------ */

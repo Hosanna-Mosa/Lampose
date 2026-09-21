@@ -1,0 +1,608 @@
+{
+  "generatedAt": "2026-09-21T08:44:10.255Z",
+  "database": "lampose_prod",
+  "headline": [
+    {
+      "key": "listings",
+      "label": "Listings",
+      "value": 30
+    },
+    {
+      "key": "owners",
+      "label": "Property owners",
+      "value": 17
+    },
+    {
+      "key": "customers",
+      "label": "Customers",
+      "value": 19
+    },
+    {
+      "key": "riders",
+      "label": "Delivery riders",
+      "value": 22
+    },
+    {
+      "key": "restaurants",
+      "label": "Restaurants",
+      "value": 2
+    },
+    {
+      "key": "leads",
+      "label": "Sales leads",
+      "value": 491
+    }
+  ],
+  "listings": {
+    "total": 30,
+    "byCategory": [
+      [
+        "COLIVE",
+        14
+      ],
+      [
+        "PG_HOSTEL",
+        12
+      ],
+      [
+        "BACHELOR",
+        3
+      ],
+      [
+        "COMMERCIAL",
+        1
+      ]
+    ],
+    "byLocality": [
+      [
+        "Kphb",
+        5
+      ],
+      [
+        "Kondapur",
+        4
+      ],
+      [
+        "Begumpet",
+        2
+      ],
+      [
+        "Gachibowli",
+        2
+      ],
+      [
+        "Madhapur",
+        2
+      ],
+      [
+        "Ameerpet",
+        1
+      ],
+      [
+        "BK Guda",
+        1
+      ],
+      [
+        "Borabanda",
+        1
+      ],
+      [
+        "Chinthal Ganesh",
+        1
+      ],
+      [
+        "Girijan Bhavan",
+        1
+      ],
+      [
+        "Hyderanagar",
+        1
+      ],
+      [
+        "KBHP",
+        1
+      ],
+      [
+        "KPHB 6th",
+        1
+      ],
+      [
+        "KPHB Colony",
+        1
+      ],
+      [
+        "KPHB RoadNo:1",
+        1
+      ],
+      [
+        "Kukatpalli",
+        1
+      ],
+      [
+        "Pragathi nagar",
+        1
+      ],
+      [
+        "Quthbullapur",
+        1
+      ],
+      [
+        "Somajiguda",
+        1
+      ],
+      [
+        "SR Nagar",
+        1
+      ]
+    ],
+    "byAgent": [
+      [
+        "vk6688971@gmail.com",
+        15
+      ],
+      [
+        "mahidhanush20@gmail.com",
+        7
+      ],
+      [
+        "balavenkatarajusingampalli@gmail.com",
+        3
+      ],
+      [
+        "chmounika05@gmail.com",
+        2
+      ],
+      [
+        "sasapusathish2003@gmail.com",
+        2
+      ],
+      [
+        "kotasravanthi28@gmail.com",
+        1
+      ]
+    ],
+    "byStayType": [
+      [
+        "Long Stay",
+        30
+      ]
+    ],
+    "perDay": [
+      [
+        "2026-08-17",
+        4
+      ],
+      [
+        "2026-08-18",
+        1
+      ],
+      [
+        "2026-08-19",
+        2
+      ],
+      [
+        "2026-08-20",
+        1
+      ],
+      [
+        "2026-08-22",
+        1
+      ],
+      [
+        "2026-09-08",
+        1
+      ],
+      [
+        "2026-09-09",
+        1
+      ],
+      [
+        "2026-09-10",
+        1
+      ],
+      [
+        "2026-09-15",
+        4
+      ],
+      [
+        "2026-09-16",
+        5
+      ],
+      [
+        "2026-09-18",
+        6
+      ],
+      [
+        "2026-09-21",
+        3
+      ]
+    ],
+    "rentBands": [
+      [
+        "under ₹5k",
+        1
+      ],
+      [
+        "₹5k–7.5k",
+        9
+      ],
+      [
+        "₹7.5k–10k",
+        2
+      ],
+      [
+        "₹10k–15k",
+        3
+      ],
+      [
+        "₹15k–25k",
+        6
+      ],
+      [
+        "₹25k+",
+        9
+      ]
+    ],
+    "rent": {
+      "count": 30,
+      "min": 4300,
+      "max": 60000,
+      "median": 14500,
+      "mean": 18527
+    },
+    "deposit": {
+      "count": 30,
+      "min": 0,
+      "max": 180000,
+      "median": 15000,
+      "mean": 30017
+    },
+    "images": {
+      "count": 30,
+      "min": 2,
+      "max": 11,
+      "median": 7,
+      "mean": 6
+    }
+  },
+  "funnel": {
+    "total": 82,
+    "byStatus": [
+      [
+        "sent",
+        7
+      ],
+      [
+        "owner_approved",
+        4
+      ],
+      [
+        "verified",
+        67
+      ],
+      [
+        "rejected",
+        4
+      ]
+    ],
+    "perDay": [
+      [
+        "2026-08-15",
+        10
+      ],
+      [
+        "2026-08-17",
+        6
+      ],
+      [
+        "2026-08-18",
+        1
+      ],
+      [
+        "2026-08-19",
+        3
+      ],
+      [
+        "2026-08-20",
+        3
+      ],
+      [
+        "2026-08-21",
+        5
+      ],
+      [
+        "2026-08-22",
+        3
+      ],
+      [
+        "2026-09-07",
+        9
+      ],
+      [
+        "2026-09-08",
+        3
+      ],
+      [
+        "2026-09-09",
+        13
+      ],
+      [
+        "2026-09-15",
+        4
+      ],
+      [
+        "2026-09-16",
+        7
+      ],
+      [
+        "2026-09-18",
+        11
+      ],
+      [
+        "2026-09-21",
+        4
+      ]
+    ]
+  },
+  "visits": {
+    "total": 31,
+    "byStatus": [
+      [
+        "declined",
+        14
+      ],
+      [
+        "confirmed",
+        11
+      ],
+      [
+        "expired",
+        5
+      ],
+      [
+        "pending_owner",
+        1
+      ]
+    ],
+    "byPayment": [
+      [
+        "pending",
+        19
+      ],
+      [
+        "not_required",
+        10
+      ],
+      [
+        "paid",
+        2
+      ]
+    ],
+    "byChannel": [
+      [
+        "web",
+        19
+      ],
+      [
+        "app",
+        12
+      ]
+    ],
+    "perDay": [
+      [
+        "2026-08-19",
+        1
+      ],
+      [
+        "2026-08-22",
+        3
+      ],
+      [
+        "2026-08-23",
+        2
+      ],
+      [
+        "2026-08-24",
+        4
+      ],
+      [
+        "2026-08-25",
+        4
+      ],
+      [
+        "2026-09-07",
+        2
+      ],
+      [
+        "2026-09-08",
+        1
+      ],
+      [
+        "2026-09-10",
+        1
+      ],
+      [
+        "2026-09-12",
+        5
+      ],
+      [
+        "2026-09-14",
+        6
+      ],
+      [
+        "2026-09-17",
+        1
+      ],
+      [
+        "2026-09-20",
+        1
+      ]
+    ]
+  },
+  "inventory": {
+    "shareTypesTotal": 230,
+    "shareTypesLive": 20,
+    "beds": 26,
+    "bedsAvailable": 23,
+    "bedOutliers": [
+      {
+        "shareType": "5 Sharing",
+        "beds": 10000,
+        "property": "Venkateshwar"
+      }
+    ],
+    "byShareName": [
+      [
+        "3 BHK",
+        7
+      ],
+      [
+        "1 BHK",
+        6
+      ],
+      [
+        "2 BHK",
+        5
+      ],
+      [
+        "1 RK",
+        1
+      ],
+      [
+        "5 Sharing",
+        1
+      ]
+    ],
+    "bookings": 1
+  },
+  "leads": {
+    "total": 491,
+    "byStatus": [
+      [
+        "NEW",
+        457
+      ],
+      [
+        "CONTACTED",
+        20
+      ],
+      [
+        "CLOSED_LOST",
+        9
+      ],
+      [
+        "INTERESTED",
+        3
+      ],
+      [
+        "CALLBACK",
+        2
+      ]
+    ],
+    "byCity": [
+      [
+        "hyderabad",
+        416
+      ],
+      [
+        "sr nagar",
+        42
+      ],
+      [
+        "Madhapur",
+        31
+      ],
+      [
+        "HYDERABAD-kondapur",
+        2
+      ]
+    ],
+    "byCategory": [
+      [
+        "pg's",
+        99
+      ],
+      [
+        "pgs",
+        57
+      ],
+      [
+        "hostels",
+        53
+      ],
+      [
+        "Pg's and hostels",
+        51
+      ],
+      [
+        "pg ladies hostel",
+        31
+      ],
+      [
+        "Pg's  and hostels",
+        26
+      ],
+      [
+        "womens pg",
+        24
+      ],
+      [
+        "pg hostels",
+        19
+      ],
+      [
+        "pg",
+        14
+      ],
+      [
+        "dentist",
+        10
+      ],
+      [
+        "hopitals",
+        10
+      ],
+      [
+        "Pg Hostels",
+        10
+      ]
+    ],
+    "withWebsite": 58
+  },
+  "health": [
+    {
+      "label": "Listings with a map pin",
+      "good": 3,
+      "total": 30,
+      "note": "Needed by service-zone checks and every map view."
+    },
+    {
+      "label": "Listings with a photograph",
+      "good": 30,
+      "total": 30
+    },
+    {
+      "label": "Listings with a description",
+      "good": 0,
+      "total": 30,
+      "note": "The field exists on every listing and is empty on every one."
+    },
+    {
+      "label": "Listings with bed inventory",
+      "good": 18,
+      "total": 30,
+      "note": "Without share types a listing cannot take a booking."
+    },
+    {
+      "label": "Listings with an owner contact",
+      "good": 30,
+      "total": 30
+    },
+    {
+      "label": "Restaurants with a menu",
+      "good": 0,
+      "total": 2,
+      "note": "Both onboarded restaurants are still to add dishes."
+    }
+  ]
+}

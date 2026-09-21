@@ -61,6 +61,10 @@ require('../src/config/env');
 const clientPath = require.resolve('../src/infrastructure/razorpay/razorpay');
 const realClient = require(clientPath);
 
+/* Refuse to run against production. See src/infrastructure/database/guard.js */
+require('../src/infrastructure/database/guard').assertDevTargetOrExit();
+
+
 /** Every RazorpayX call the run made, in order. The evidence for the asserts. */
 const calls = [];
 const behaviour = { payoutStatus: 'queued', payoutThrows: null };

@@ -49,6 +49,10 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 
 const config = require('../src/config/env');
+
+/* A report is harmless anywhere; the write is not. */
+if (process.argv.includes('--apply')) require('../src/infrastructure/database/guard').assertDevTargetOrExit();
+
 const {
   CATEGORIES, CATEGORY_LABEL, normaliseCategory,
 } = require('../src/shared/constants/categories');

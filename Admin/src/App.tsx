@@ -24,7 +24,6 @@ import { ProductsPage } from './pages/ProductsPage';
 import { FoodRestaurantsPage } from './pages/FoodRestaurantsPage';
 import { FoodOrdersPage } from './pages/FoodOrdersPage';
 import { DriversPage } from './pages/DriversPage';
-import { ZonesPage } from './pages/ZonesPage';
 import { MonitorPage } from './pages/MonitorPage';
 import { PartnerPayoutsPage } from './pages/PartnerPayoutsPage';
 import { RefundsPage } from './pages/RefundsPage';
@@ -57,7 +56,6 @@ const VALID_TABS = [
   'food-restaurants',
   'food-orders',
   'drivers',
-  'zones',
   'support',
   'monitor',
   'partner-payouts',
@@ -312,12 +310,6 @@ const AppContent: React.FC = () => {
       case 'drivers':
         return tabAllowedFor('drivers', user?.role) ? (
           <DriversPage search={search} />
-        ) : (
-          <Dashboard setActiveTab={setActiveTab as (t: string) => void} />
-        );
-      case 'zones':
-        return tabAllowedFor('zones', user?.role) ? (
-          <ZonesPage search={search} />
         ) : (
           <Dashboard setActiveTab={setActiveTab as (t: string) => void} />
         );

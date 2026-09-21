@@ -44,6 +44,10 @@ const { connectDB, closeConnections } = require('../src/infrastructure/database/
 const Partner = require('../src/modules/partners/partner.model');
 const { toE164, isIndianMobile } = require('../src/infrastructure/twilio/twilio');
 
+/* Refuse to run against production. See src/infrastructure/database/guard.js */
+require('../src/infrastructure/database/guard').assertDevTargetOrExit();
+
+
 const argv = process.argv.slice(2);
 const flag = (name) => {
   const i = argv.indexOf(`--${name}`);

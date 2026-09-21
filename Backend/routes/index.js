@@ -71,7 +71,6 @@ const v1MessagingRoutes = require('../src/modules/messaging/messaging.routes');
 const v1FoodAdminRoutes = require('../src/modules/foodpartners/foodAdmin.routes');
 const v1FoodOrderAdminRoutes = require('../src/modules/foodpartners/foodOrderAdmin.routes');
 const v1DriverAdminRoutes = require('../src/modules/drivers/driverAdmin.routes');
-const v1ZoneAdminRoutes = require('../src/modules/zones/zoneAdmin.routes');
 const v1SupportAdminRoutes = require('../src/modules/support/supportAdmin.routes');
 
 const v2ListingRoutes = require('../src/modules/listings/listing.routes');
@@ -94,7 +93,6 @@ const {
 const v2PartnerRoutes = require('../src/modules/partners/partner.routes');
 const v2FoodPartnerRoutes = require('../src/modules/foodpartners/foodPartner.routes');
 const v2DriverRoutes = require('../src/modules/drivers/driver.routes');
-const v2ZoneRoutes = require('../src/modules/zones/zone.routes');
 
 /* [mount path, router, one-line description]. The description is what the
    banner and GET /api print, so it is worth keeping accurate. */
@@ -137,13 +135,6 @@ const V1_GROUPS = [
      the only way one ever gets on the road. Same identity, same roles and the
      same reasoning as the restaurant queue above. */
   ['/admin/drivers', v1DriverAdminRoutes, 'rider applications: the approval queue, suspensions, and the roster'],
-  /* Where Lampose operates, drawn on a map. v1 for the same reason as the two
-     queues above — the reader is an administrator in `admins`. Writing is
-     Super Admin / Admin only, because a zone decides where the product is sold
-     and what every order in it is multiplied by; reading is open to anybody
-     signed in, because "why was this address refused" is an everyday question.
-     The apps read the same shapes through /api/v2/zones, which cannot write. */
-  ['/admin/zones', v1ZoneAdminRoutes, 'service zones: draw, edit and retire the trading area'],
   /* The support queue, spanning all three apps. Every ticket a diner, rider
      or restaurant files arrives here; the three app-facing routers under v2
      can only ever read their own author's threads. */
@@ -214,11 +205,6 @@ const V2_GROUPS = [
      Before the general /drivers mount, for the ordering reason given above. */
   ['/drivers/support', v2DriverSupportRoutes, 'Driver app: support tickets'],
   ['/drivers', v2DriverRoutes, 'Driver app: rider accounts, duty, live position, delivery offers'],
-  /* The zones, as every client reads them. Deliberately UNAUTHENTICATED: the
-     User App asks "do you deliver to my block" on the address screen before
-     anybody has signed in, and refusing to answer until they do is how that
-     student leaves. Read-only by construction — the console owns writing. */
-  ['/zones', v2ZoneRoutes, 'service zones: is this point served, and the live map of where we operate'],
 ];
 
 /* Which version answers each unversioned path, and whether it also answers

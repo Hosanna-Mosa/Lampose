@@ -33,6 +33,10 @@ const { initStore } = dbStore;
    production, so the preflight checks below test the real policy. */
 const { app } = require('../server');
 
+/* Refuse to run against production. See src/infrastructure/database/guard.js */
+require('../src/infrastructure/database/guard').assertDevTargetOrExit();
+
+
 const RUN_SCRAPE = process.argv.includes('--scrape');
 
 const rows = [];

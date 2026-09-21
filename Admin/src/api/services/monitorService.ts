@@ -2,8 +2,8 @@
    Monitor — bookings and money across the four categories.
 
    Reads `/v1/admin/monitor`, the v1 admin surface behind the same admin token
-   every other service here uses. Versioned in the path for the reason
-   `zoneService` gives: the unversioned aliases exist to keep older callers
+   every other service here uses. Versioned in the path deliberately: the
+   unversioned aliases in `routes/index.js` exist to keep older callers
    working, not to hand new ones a second spelling to drift onto.
 
    ## Nothing here computes money

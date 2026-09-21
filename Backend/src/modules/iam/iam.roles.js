@@ -5,7 +5,7 @@
 
    Before this file, every admin router carried its own `new Set([...roles])`
    — `DECIDING_ROLES` in the food and rider queues, `ANSWERING_ROLES` in
-   support, `DRAWING_ROLES` in zones, a local `requireRoles(...)` in the
+   support, a local `requireRoles(...)` in the
    monitor and refunds — and the console mirrored each of them by hand in
    `Sidebar.tsx` and once more in each page. Six copies of "who may do what"
    is six ways for the answer to drift, and a role added in one place and
@@ -71,7 +71,6 @@ const CAPABILITIES = Object.freeze({
   'food.decide': { roles: ['Super Admin', 'Admin', 'Food Admin'], label: 'approve or refuse a restaurant' },
   'riders.decide': { roles: ['Super Admin', 'Admin', 'Food Admin'], label: 'approve, refuse or suspend a rider' },
   'support.answer': { roles: ['Super Admin', 'Admin', 'Support'], label: 'answer support tickets' },
-  'zones.write': { roles: ADMINS, label: 'draw or retire a service zone' },
   'messaging.send': { roles: ADMINS, label: 'send WhatsApp messages from the console' },
 
   /* ── Raw collections ─────────────────────────────────────────────────── */
