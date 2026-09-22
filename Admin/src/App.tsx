@@ -15,6 +15,7 @@ import { MessagesPage } from './pages/MessagesPage';
 import { SystemPage } from './pages/SystemPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { LoginPage } from './pages/LoginPage';
+import { SetPasswordPage } from './pages/restaurant/SetPasswordPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { VisitRequestsPage } from './pages/VisitRequestsPage';
 import { ScriperUsersPage } from './pages/ScriperUsersPage';
@@ -614,7 +615,36 @@ const readOrderLink = (): { orderNumber: string; token: string } | null => {
   return orderNumber && token ? { orderNumber, token } : null;
 };
 
+/*
+ * The link in the "your restaurant is approved" WhatsApp:
+ * `/account-setup/<token>`.
+ *
+ * Read from the PATH, which is what the message carries — and from `?setup=`
+ * as well, because a static host that does not rewrite unknown paths to
+ * index.html would answer the path form with its own 404 before this code ever
+ * runs. The query form is the same link in a shape every host serves.
+ *
+ * `/set-password/` is matched too, and only because it is free to: it is what
+ * this path was called until Meta refused three templates with the word
+ * "password" in them (see `restaurantApprovedTemplate.js` on the server). No
+ * link in that shape was ever sent — there was no approved template to send
+ * one with — so this arm exists for the reader rather than for a visitor.
+ *
+ * The token is 32 random bytes as hex, so anything shorter than 32 characters
+ * is not one and is left to the ordinary route rather than opening a page that
+ * can only refuse it.
+ */
+const readSetupLink = (): string | null => {
+  const fromPath = window.location.pathname
+    .match(/\/(?:account-setup|set-password)\/([A-Za-z0-9._-]{32,})\/?$/);
+  if (fromPath) return fromPath[1];
+
+  const fromQuery = (new URLSearchParams(window.location.search).get('setup') || '').trim();
+  return fromQuery.length >= 32 ? fromQuery : null;
+};
+
 export default function App() {
+  const setupToken = readSetupLink();
   const link = readOrderLink();
 
   /*
@@ -632,6 +662,17 @@ export default function App() {
     return (
       <ThemeProvider>
         <OrderLinkPage orderNumber={link.orderNumber} token={link.token} />
+      </ThemeProvider>
+    );
+  }
+
+  /* An owner arriving to choose their first password, for the same reason and
+     on the same terms: the token is the proof, there is no session to read,
+     and the provider is left out so a wrong link cannot sign anybody out. */
+  if (setupToken) {
+    return (
+      <ThemeProvider>
+        <SetPasswordPage token={setupToken} />
       </ThemeProvider>
     );
   }

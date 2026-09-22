@@ -27,6 +27,7 @@ import {
   CalendarClock,
   Clock,
   FileCheck2,
+  KeyRound,
   Lock,
   MapPin,
   Phone,
@@ -67,8 +68,6 @@ interface SettingsForm {
   description: string;
   contactNumber: string;
   avgPreparationTime: string;
-  minOrderValue: string;
-  packagingCharge: string;
   acceptsCod: boolean;
   acceptsOnlinePayment: boolean;
 }
@@ -77,8 +76,6 @@ const formFrom = (shop: RestaurantRecord): SettingsForm => ({
   description: shop.description ?? '',
   contactNumber: shop.contactNumber ?? '',
   avgPreparationTime: shop.avgPreparationTime != null ? String(shop.avgPreparationTime) : '',
-  minOrderValue: shop.minOrderValue != null ? String(shop.minOrderValue) : '',
-  packagingCharge: shop.packagingCharge != null ? String(shop.packagingCharge) : '',
   acceptsCod: shop.acceptsCod !== false,
   acceptsOnlinePayment: shop.acceptsOnlinePayment !== false,
 });
@@ -120,6 +117,116 @@ const Record_: React.FC<{ icon: React.ElementType; label: string; value: React.R
   </Box>
 );
 
+/*
+ * Changing the password — the card the approval message points at.
+ *
+ * An owner does not choose their first password: it is generated when Lampose
+ * approves the application and sent to their mobile over WhatsApp, and that
+ * message says to change it here. Until this card existed the sentence was a
+ * promise the console could not keep, and the credential to a shop's orders
+ * and payout accounts stayed in a chat thread on a phone that gets handed
+ * around a kitchen.
+ *
+ * The CURRENT password is asked for as well as a session, and that is the
+ * point of the card rather than an inconvenience in it: this console is left
+ * signed in on a counter tablet, and without it anybody walking past could
+ * lock an owner out of their own shop with two keystrokes.
+ *
+ * Its own component, with its own state, so a half-typed password cannot be
+ * left sitting in the page's form state next to the tagline — and so the whole
+ * Shop screen does not re-render on every keystroke of it.
+ */
+const PasswordCard: React.FC<{ onDone: (toast: ToastState) => void }> = ({ onDone }) => {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async () => {
+    /* Checked here only where the answer does not depend on anything stored:
+       the server owns the rest, and its sentences are the ones shown. */
+    if (!current || !next) {
+      setError('Enter your current password and the new one.');
+      return;
+    }
+    if (next !== confirm) {
+      setError('The two new passwords do not match.');
+      return;
+    }
+
+    setError('');
+    setBusy(true);
+    const res = await restaurantAdminService.changePassword(current, next);
+    setBusy(false);
+
+    if (!res.success) {
+      setError(res.message || 'That could not be changed.');
+      return;
+    }
+
+    setCurrent('');
+    setNext('');
+    setConfirm('');
+    onDone({ tone: 'good', message: res.message || 'Your password has been changed.' });
+  };
+
+  return (
+    <Card className="p-4 space-y-4">
+      <Box className="flex items-center gap-2">
+        <Heading level={2} className="text-body font-medium text-ink">
+          Password
+        </Heading>
+        <KeyRound className="size-3.5 text-ink-3" strokeWidth={1.75} />
+      </Box>
+      <Text className="text-label text-ink-3">
+        The password Lampose sent you when your restaurant was approved is a temporary one. Change
+        it to something only you know.
+      </Text>
+
+      <Field label="Current password">
+        <Input
+          type="password"
+          autoComplete="current-password"
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+        />
+      </Field>
+
+      <Box className="grid sm:grid-cols-2 gap-4">
+        <Field label="New password" hint="At least 6 characters.">
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+          />
+        </Field>
+        <Field label="New password again">
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+          />
+        </Field>
+      </Box>
+
+      {error ? (
+        <Text className="text-label text-crit" role="alert">
+          {error}
+        </Text>
+      ) : null}
+
+      <Box className="flex justify-end">
+        <Button onClick={submit} disabled={busy}>
+          {busy ? 'Changing…' : 'Change password'}
+        </Button>
+      </Box>
+    </Card>
+  );
+};
+
 export const RestaurantShopPage: React.FC = () => {
   const { updateRestaurant } = useAuth();
   const me = useFetch(() => restaurantAdminService.profile(), []);
@@ -153,8 +260,6 @@ export const RestaurantShopPage: React.FC = () => {
       description: form.description.trim(),
       contactNumber: form.contactNumber.trim(),
       avgPreparationTime: num(form.avgPreparationTime),
-      minOrderValue: num(form.minOrderValue),
-      packagingCharge: num(form.packagingCharge),
       acceptsCod: form.acceptsCod,
       acceptsOnlinePayment: form.acceptsOnlinePayment,
     };
@@ -288,6 +393,14 @@ export const RestaurantShopPage: React.FC = () => {
                 />
               </Field>
 
+              {/*
+                Two boxes used to sit beside this one: a minimum order and a
+                packaging charge. Neither is charged any more — there is no
+                minimum order, and GST plus a flat platform fee replaced the
+                packaging charge — and the server no longer accepts either on
+                this update. A box that saves a figure nothing reads is worse
+                than no box.
+              */}
               <Box className="grid sm:grid-cols-3 gap-4">
                 <Field label="Usual prep time (min)">
                   <Input
@@ -295,22 +408,6 @@ export const RestaurantShopPage: React.FC = () => {
                     min={0}
                     value={form?.avgPreparationTime ?? ''}
                     onChange={(e) => set('avgPreparationTime', e.target.value)}
-                  />
-                </Field>
-                <Field label="Minimum order (₹)">
-                  <Input
-                    type="number"
-                    min={0}
-                    value={form?.minOrderValue ?? ''}
-                    onChange={(e) => set('minOrderValue', e.target.value)}
-                  />
-                </Field>
-                <Field label="Packaging (₹)">
-                  <Input
-                    type="number"
-                    min={0}
-                    value={form?.packagingCharge ?? ''}
-                    onChange={(e) => set('packagingCharge', e.target.value)}
                   />
                 </Field>
               </Box>
@@ -375,6 +472,8 @@ export const RestaurantShopPage: React.FC = () => {
                     the button underneath does. */}
               </Box>
             </Card>
+
+            <PasswordCard onDone={setToast} />
           </Box>
 
           {/* ── Where the money goes ───────────────────────────────────── */}

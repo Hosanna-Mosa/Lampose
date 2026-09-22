@@ -31,7 +31,7 @@ export function Contact() {
     ].join('\n');
 
     window.location.href =
-      `mailto:hello@lampose.com?subject=${encodeURIComponent(`Lampose enquiry — ${form.name}`)}`
+      `mailto:contact@lampose.com?subject=${encodeURIComponent(`Lampose enquiry — ${form.name}`)}`
       + `&body=${encodeURIComponent(body)}`;
 
     setNote({ err: false, text: 'Opening your mail app…' });

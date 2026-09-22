@@ -265,10 +265,6 @@ export function FoodKitchen() {
                 <Inline className="fd-lbl">Delivery fee</Inline>
                 <Inline className="fd-facts__val">{kitchen.deliveryFee ? rupees(kitchen.deliveryFee) : 'Free'}</Inline>
               </Box>
-              <Box className="fd-facts__cell">
-                <Inline className="fd-lbl">Minimum order</Inline>
-                <Inline className="fd-facts__val">{rupees(kitchen.minOrder)}</Inline>
-              </Box>
             </Box>
 
             {offers.length > 0 && (
@@ -440,13 +436,9 @@ export function FoodKitchen() {
                       <Inline className="fd-bill__val">− {rupees(bill.discount)}</Inline>
                     </Box>
                   )}
-                  {bill.shortOfMinimum > 0 && (
-                    <Text className="fd-note fd-note--warn">
-                      {rupees(bill.shortOfMinimum)} under this kitchen’s {rupees(kitchen.minOrder)} minimum.
-                    </Text>
-                  )}
                   <Text className="fd-note">
-                    Packing and delivery are added at checkout. Lampose charges no tax on food orders.
+                    GST and a ₹{bill.platformFee || 2} platform fee are added at checkout, and delivery
+                    if it is coming to you. There is no minimum order.
                   </Text>
                   <Link to="/food/cart" className="fd-btn fd-btn--dark fd-btn--full">
                     Go to cart · {rupees(bill.itemTotal - bill.discount)}

@@ -51,11 +51,11 @@ const clean = (params = {}) => Object.fromEntries(
 /* ── Public ─────────────────────────────────────────────────────────────── */
 
 /**
- * The feed's chrome: cuisine chips, the diet labels, and the area.
+ * The feed's chrome: cuisine chips, the diet labels, and the delivery verdict.
  *
  * `lat`/`lng` are optional. Without them the reply carries `located: false`
- * and no area, and the page asks for a location rather than naming a suburb
- * the visitor may be nowhere near.
+ * and `kitchensReaching: 0`, and the page asks for a location rather than
+ * promising a delivery it has not measured.
  */
 export const fetchCatalogue = ({ lat, lng } = {}) => apiClient
   .get(`${BASE}/catalogue`, clean({ lat, lng }))
@@ -147,9 +147,16 @@ export const fetchOrders = ({ limit } = {}) => apiClient
   .get(`${BASE}/orders`, clean({ limit }))
   .then((res) => res.data);
 
-/** One order with both tracks — what the tracking page draws. */
-export const fetchOrder = (reference) => apiClient
-  .get(`${BASE}/orders/${encodeURIComponent(reference)}`)
+/**
+ * One order with both tracks — what the tracking page draws.
+ *
+ * `token` is the read-only code from the "your order is placed" WhatsApp. With
+ * it the page opens on a phone that has never signed in here, which is most of
+ * them: a link tapped in WhatsApp lands in an in-app browser holding nothing.
+ * Without it the route is the diner's own session, exactly as before.
+ */
+export const fetchOrder = (reference, { token } = {}) => apiClient
+  .get(`${BASE}/orders/${encodeURIComponent(reference)}`, clean({ token }))
   .then((res) => res.data.order);
 
 /** What this diner reaches for, most-ordered first, priced as it is today. */
@@ -190,7 +197,8 @@ const ORDERS = '/v2/food-partners/orders';
  * @param {string} order.restaurantId
  * @param {{productId: string, quantity: number, addOns?: {name: string}[], note?: string}[]} order.lines
  * @param {'cod'} order.paymentMode   only cash for now - see the checkout page
- * @param {'delivery'|'pickup'} order.fulfilment
+ * @param {'delivery'} order.fulfilment  delivery only — the server refuses a
+ *        pickup order, which is no longer offered anywhere
  * @param {string} [order.deliveryAddress]
  * @param {number} [order.dropLat]    named, never a pair: see the address row
  * @param {number} [order.dropLng]

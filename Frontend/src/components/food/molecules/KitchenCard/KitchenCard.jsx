@@ -18,7 +18,7 @@ import { rupees } from '../../../../data/food';
 export function KitchenCard({ kitchen, index = 0 }) {
   const {
     id, name, cuisine, costForOne, landmark, walkMinutes, rating, ratingCount,
-    deliveryFee, minOrder, deliveryWindow, pureVeg, openNow, opensAt, offer, tone,
+    deliveryFee, deliveryWindow, pureVeg, openNow, opensAt, offer, tone,
     coverUrl, logoUrl, sections,
   } = kitchen;
 
@@ -77,7 +77,6 @@ export function KitchenCard({ kitchen, index = 0 }) {
 
         <Box className="fd-card__facts">
           {[
-            minOrder > 0 ? `Min ${rupees(minOrder)}` : '',
             deliveryFee ? `Delivery ${rupees(deliveryFee)}` : 'Free delivery',
             ratingCount > 0 ? `${ratingCount.toLocaleString('en-IN')} ratings` : '',
           ].filter(Boolean).flatMap((fact, i) => [

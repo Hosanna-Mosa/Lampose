@@ -299,6 +299,24 @@ const walkMinutesFrom = (distanceMeters) => {
   return Math.max(1, Math.round(metres / 75));
 };
 
+/*
+ * How long the ride takes, as a flat figure.
+ *
+ * Travel time is not stored and nothing measures it. Eighteen minutes is the
+ * figure the fixture used for a nearby kitchen, applied uniformly rather than
+ * per-restaurant because a per-restaurant guess would look like a measurement.
+ *
+ * Exported because the TRACKING page needs the same number: it adds this to
+ * the kitchen's own "ready by" to answer "arriving by", and a second copy of
+ * 18 is how the feed comes to promise 30 minutes while the tracking page says
+ * 45 for the same order.
+ */
+const RIDE_MINUTES = 18;
+
+/* The platform's own charges, from the file that defines them. Required here
+   rather than restated so a rate change is one edit. */
+const { GST_RATE, PLATFORM_FEE } = require('../foodpartners/foodCharges.util');
+
 /** "25–30 min", built from prep + travel. Both halves are the kitchen's own. */
 const deliveryWindowLabel = (prepMinutes, deliveryMinutes) => {
   const total = rupees(prepMinutes) + rupees(deliveryMinutes);
@@ -340,10 +358,7 @@ const deliveryWindowLabel = (prepMinutes, deliveryMinutes) => {
  */
 const kitchenCard = (doc, extras = {}) => {
   const prepMinutes = rupees(doc.avgPreparationTime);
-  /* Travel time is not stored. 18 minutes is the figure the fixture used for
-     a nearby kitchen and it is applied uniformly rather than per-restaurant,
-     because a per-restaurant guess would look like a measurement. */
-  const deliveryMinutes = prepMinutes ? 18 : 0;
+  const deliveryMinutes = prepMinutes ? RIDE_MINUTES : 0;
 
   return {
     id: doc.restaurantId,
@@ -369,8 +384,30 @@ const kitchenCard = (doc, extras = {}) => {
     freeDeliveryAbove: doc.deliveryFee && doc.deliveryFee.type === 'free_above'
       ? rupees(doc.deliveryFee.freeAboveValue)
       : 0,
-    packagingCharge: rupees(doc.packagingCharge),
-    minOrder: rupees(doc.minOrderValue),
+    /*
+     * Both are ZERO now, and both stay in the shape.
+     *
+     * A kitchen has no minimum order any more and its packaging charge is no
+     * longer billed — `foodCharges.util.js` says why. They are reported as 0
+     * rather than dropped because the website's cart reads both by name and a
+     * missing key would read as `undefined` in an arithmetic line; zero is the
+     * honest figure and it falls out of every sum on its own.
+     */
+    packagingCharge: 0,
+    minOrder: 0,
+
+    /*
+     * What the platform adds on top, carried on the kitchen card.
+     *
+     * Neither figure is the kitchen's — they are the same for every
+     * restaurant, and `foodCharges.util.js` is where they are decided. They
+     * ride on this shape because the CART is what needs them, and the kitchen
+     * card is the object a cart already holds: the alternative is each client
+     * hardcoding 5 and 2, which is how a cart comes to preview ₹240 for an
+     * order the server charges ₹254 for.
+     */
+    gstRate: GST_RATE,
+    platformFee: PLATFORM_FEE,
     prepMinutes,
     deliveryMinutes,
     deliveryWindow: deliveryWindowLabel(prepMinutes, deliveryMinutes),
@@ -467,6 +504,7 @@ const dishCard = (doc) => {
 
 module.exports = {
   LISTED,
+  RIDE_MINUTES,
   rupees,
   firstOf,
   toneFor,

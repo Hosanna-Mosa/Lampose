@@ -304,7 +304,18 @@ describe('what cannot be closed from here', () => {
   });
 
   it('a counter-pickup order - the customer collects it, nobody delivers it', async () => {
-    const ctx = await world({ fulfilment: 'pickup', deliveryAddress: undefined });
+    /*
+     * Placed as a delivery and MADE a pickup in the database, because the
+     * endpoint refuses a pickup now — collection has been withdrawn. This is
+     * the exact state of the orders the refusal still has to handle: the ones
+     * placed for collection before that and still open. A member of staff will
+     * reach for "mark delivered" on one, and it must not be there.
+     */
+    const ctx = await world();
+    await FoodOrder.updateOne(
+      { orderNumber: ctx.orderNumber },
+      { $set: { fulfilment: 'pickup', deliveryAddress: '' } },
+    );
     await move(ctx, 'accepted');
     await move(ctx, 'preparing');
     await move(ctx, 'ready');

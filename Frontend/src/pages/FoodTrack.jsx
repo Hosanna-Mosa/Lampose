@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   Aside, Box, Heading, Inline, PlainButton, Region, Text,
 } from '../components/common/atoms';
@@ -42,8 +42,20 @@ import { rupees } from '../data/food';
 
 export function FoodTrack() {
   const { reference } = useParams();
+  const [params] = useSearchParams();
   const { kitchenById } = useFoodCatalogue();
   const { isSignedIn, openSignIn } = useAuth();
+
+  /*
+   * The code from the "your order is placed" WhatsApp.
+   *
+   * It opens THIS order and nothing else, read only, for a day. The page is
+   * otherwise behind a sign-in, and that is the wall this is for: the link is
+   * tapped inside WhatsApp, which opens a browser holding no session, so a
+   * diner who has just paid was being asked for a password to watch their food
+   * move. Signing in still works and shows everything; this shows one order.
+   */
+  const token = params.get('token') || '';
 
   /*
    * Every order opened here is a real one, read from the server.
@@ -68,14 +80,16 @@ export function FoodTrack() {
   const [deliveredError, setDeliveredError] = useState('');
 
   useEffect(() => {
-    if (!isSignedIn) { setRemote(null); setRemoteState('missing'); return undefined; }
+    /* A code is its own permission — the server checks it. Without one this
+       needs the session it always needed. */
+    if (!isSignedIn && !token) { setRemote(null); setRemoteState('missing'); return undefined; }
 
     let live = true;
     let timer = null;
 
     const load = async () => {
       try {
-        const next = await fetchOrder(reference);
+        const next = await fetchOrder(reference, { token });
         if (!live) return;
         setRemote(next);
         setRemoteState('ok');
@@ -102,13 +116,13 @@ export function FoodTrack() {
     setRemoteState('loading');
     load();
     return () => { live = false; if (timer) clearTimeout(timer); };
-  }, [reference, isSignedIn]);
+  }, [reference, isSignedIn, token]);
 
   const order = remote;
   useReveals([reference, order?.status]);
 
   if (!order) {
-    const loading = remoteState === 'loading' && isSignedIn;
+    const loading = remoteState === 'loading' && (isSignedIn || Boolean(token));
     return (
       <Region id="food">
         <Box className="sec-inner">
@@ -131,7 +145,8 @@ export function FoodTrack() {
               <>
                 <Heading level={1} className="fd-empty__title">No order with that reference</Heading>
                 <Text className="fd-empty__body">
-                  {reference} is not one of your orders. The reference is printed on every receipt.
+                  {reference} is not one of your orders. Every order carries its reference at
+                  the top of its own page.
                 </Text>
                 <Link to="/food/orders" className="fd-btn fd-btn--dark">See my orders</Link>
               </>
@@ -236,12 +251,27 @@ export function FoodTrack() {
             <Text className="fd-hero__sub">{subline}</Text>
           </Box>
 
+          {/*
+            The kitchen's own estimate, which until now only a pickup order was
+            shown. `promisedMinutes` is typed by the restaurant when it accepts
+            — the one time in this flow a person makes a promise — and a
+            delivery diner was reading "Arriving by —" while it sat on the
+            order. A delivery adds the ride to it, from the same flat figure
+            the feed quotes, so the two screens cannot disagree.
+
+            Still a dash before the kitchen accepts: nobody has estimated
+            anything yet, and a time invented here is worse than no time.
+          */}
           <Box className="fd-hero__eta">
             <Text className="fd-hero__etaLbl">
               {order.fulfilment === 'pickup' ? 'Ready by' : 'Arriving by'}
             </Text>
             <Text className="fd-hero__etaVal">{order.etaLabel || '—'}</Text>
-            <Text className="fd-hero__etaRef">Order {order.reference} · placed {order.placedLabel}</Text>
+            <Text className="fd-hero__etaRef">
+              {order.fulfilment !== 'pickup' && order.readyByLabel
+                ? `Kitchen says ready by ${order.readyByLabel} · order ${order.reference}`
+                : `Order ${order.reference} · placed ${order.placedLabel}`}
+            </Text>
           </Box>
         </Box>
 
@@ -253,7 +283,7 @@ export function FoodTrack() {
                 while it is on the way. The restaurant says the delivery boy has
                 taken it; the person who can see whether the food arrived says so
                 here, and that is what completes the order. */}
-            {order.delivery?.by && order.status === 'onTheWay' && (
+            {order.delivery?.by && order.status === 'onTheWay' && isSignedIn && (
               <Box className="fd-panel fd-panel--lift reveal">
                 <Heading level={2} className="fd-panel__title">Has your order reached you?</Heading>
                 <Text className="fd-note">
@@ -301,12 +331,22 @@ export function FoodTrack() {
                     </Inline>
                   </Box>
 
-                  {order.deliveryOtp && (
+                  {order.deliveryOtp ? (
                     <Box className="fd-code">
                       <Inline className="fd-lbl">Say at the door</Inline>
                       <Inline className="fd-code__digits">{order.deliveryOtp}</Inline>
                     </Box>
-                  )}
+                  ) : order.viaLink ? (
+                    /* Opened from the WhatsApp rather than signed in. The code
+                       is withheld on purpose — a message can be forwarded, and
+                       whoever reads these digits first can take the food from
+                       the rider — so it is one sign-in away. Saying that is
+                       better than a gap that looks like a fault. */
+                    <PlainButton type="button" className="fd-code fd-code--locked" onClick={openSignIn}>
+                      <Inline className="fd-lbl">Say at the door</Inline>
+                      <Inline className="fd-code__digits">Sign in</Inline>
+                    </PlainButton>
+                  ) : null}
 
                   {/* There is deliberately NO call button here. It used to be a
                       `tel:` link to a hard-coded number that belonged to nobody
@@ -339,9 +379,21 @@ export function FoodTrack() {
                       <Inline className="fd-facts__val">{order.pickedUpLabel}</Inline>
                     </Box>
                   )}
+                  {order.readyByLabel && (
+                    <Box className="fd-facts__cell">
+                      <Inline className="fd-lbl">
+                        {order.promisedMinutes
+                          ? `Kitchen quoted ${order.promisedMinutes} min`
+                          : 'Food ready by'}
+                      </Inline>
+                      <Inline className="fd-facts__val">{order.readyByLabel}</Inline>
+                    </Box>
+                  )}
                   {order.etaLabel && (
                     <Box className="fd-facts__cell">
-                      <Inline className="fd-lbl">Arriving by</Inline>
+                      <Inline className="fd-lbl">
+                        {order.fulfilment === 'pickup' ? 'Ready by' : 'Arriving by'}
+                      </Inline>
                       <Inline className="fd-facts__val fd-facts__val--good">{order.etaLabel}</Inline>
                     </Box>
                   )}
@@ -365,12 +417,22 @@ export function FoodTrack() {
                   {/* The code belongs to the ORDER, not to the rider: it exists
                       from the moment the order does, and a diner who reads it
                       now is a diner who is not hunting for it at the door. */}
-                  {order.deliveryOtp && (
+                  {order.deliveryOtp ? (
                     <Box className="fd-code">
                       <Inline className="fd-lbl">Say at the door</Inline>
                       <Inline className="fd-code__digits">{order.deliveryOtp}</Inline>
                     </Box>
-                  )}
+                  ) : order.viaLink ? (
+                    /* Opened from the WhatsApp rather than signed in. The code
+                       is withheld on purpose — a message can be forwarded, and
+                       whoever reads these digits first can take the food from
+                       the rider — so it is one sign-in away. Saying that is
+                       better than a gap that looks like a fault. */
+                    <PlainButton type="button" className="fd-code fd-code--locked" onClick={openSignIn}>
+                      <Inline className="fd-lbl">Say at the door</Inline>
+                      <Inline className="fd-code__digits">Sign in</Inline>
+                    </PlainButton>
+                  ) : null}
                 </Box>
                 <Text className="fd-note">
                   This runs beside the cooking, not after it — nobody is waiting on the other. If nobody nearby
@@ -443,8 +505,19 @@ export function FoodTrack() {
               <Box className="fd-rule" />
 
               <Box className="fd-bill__row"><Inline>Item total</Inline><Inline className="fd-bill__val">{rupees(order.itemTotal)}</Inline></Box>
+              {/* Only on an order that was charged one, before GST and the
+                  platform fee replaced it. */}
               {order.packagingCharge > 0 && (
                 <Box className="fd-bill__row"><Inline>Packing</Inline><Inline className="fd-bill__val">{rupees(order.packagingCharge)}</Inline></Box>
+              )}
+              {order.gst > 0 && (
+                <Box className="fd-bill__row">
+                  <Inline>GST{order.gstRate ? ` (${order.gstRate}%)` : ''}</Inline>
+                  <Inline className="fd-bill__val">{rupees(order.gst)}</Inline>
+                </Box>
+              )}
+              {order.platformFee > 0 && (
+                <Box className="fd-bill__row"><Inline>Platform fee</Inline><Inline className="fd-bill__val">{rupees(order.platformFee)}</Inline></Box>
               )}
               {order.fulfilment === 'delivery' && (
                 <Box className="fd-bill__row">
@@ -475,7 +548,11 @@ export function FoodTrack() {
                 {order.paymentLabel}
               </Inline>
 
-              <Link to="#top" className="fd-link">Download receipt</Link>
+              {/* "Download receipt" stood here and downloaded nothing — it was
+                  a link to `#top`, so it scrolled the page and produced no
+                  file. This block IS the receipt: every line the order was
+                  charged, what was paid and how. A control that promises a
+                  document nobody generates is worse than no control. */}
             </Box>
 
             <Box className="fd-panel">

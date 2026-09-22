@@ -167,8 +167,8 @@ export const RestaurantEarningsPage: React.FC = () => {
   const downloadCsv = () => {
     if (!data?.ledger.length) return;
     const head = [
-      'Order', 'Date', 'Items', 'Delivery fee', 'Packaging', 'Diner paid',
-      'Commission', 'You earned', 'Rate %', 'Paid by', 'Fulfilment',
+      'Order', 'Date', 'Items', 'Delivery fee', 'Packaging', 'GST', 'Platform fee',
+      'Diner paid', 'Commission', 'You earned', 'Rate %', 'Paid by', 'Fulfilment',
     ];
     const lines = data.ledger.map((row) => [
       row.orderNumber,
@@ -176,6 +176,10 @@ export const RestaurantEarningsPage: React.FC = () => {
       row.itemsTotal,
       row.deliveryFee,
       row.packagingCharge,
+      /* Listed so a row adds up to what the diner paid. Neither reaches the
+         payout, which is worked out from the item total alone. */
+      row.gst ?? 0,
+      row.platformFee ?? 0,
       row.grandTotal,
       row.commission,
       row.partnerPayout,
@@ -346,7 +350,7 @@ export const RestaurantEarningsPage: React.FC = () => {
           value={rupees(totals?.gross ?? 0)}
           icon={CreditCard}
           loading={earnings.loading}
-          footnote="including delivery and packaging"
+          footnote="including GST, the platform fee and delivery — none of it yours"
         />
       </Box>
 

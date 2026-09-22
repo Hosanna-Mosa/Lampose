@@ -33,6 +33,7 @@
  */
 
 import { splitAddress } from './mapLink';
+import { stayOffersFor } from './stayOffers';
 
 /* ------------------------------------------------------------------ *
  * Limits
@@ -271,7 +272,15 @@ export function validateOnboarding(formData = {}) {
    * demand a daily price for a godown.
    */
   const isCommercial = category === 'COMMERCIAL';
-  const isShortStay = formData.stayType === 'Short Stay' && !isBachelor && !isCommercial;
+
+  /*
+   * What this property offers, which since the stay picker became multi-select
+   * can be BOTH. Read from the same function the form draws its controls from,
+   * so a field that is on screen is a field this check knows about — the two
+   * used to compute it separately, each with its own copy of the hotel and
+   * commercial exceptions.
+   */
+  const offers = stayOffersFor(formData);
 
   /* A PG's monthly rent is not typed anywhere: it is derived from the cheapest
      selected sharing option. So the message for a missing one belongs on the
@@ -290,24 +299,34 @@ export function validateOnboarding(formData = {}) {
      because there is no occupancy ladder to derive a cheapest option from.
      Leaving it off the derive path is what makes that field required. */
   const isHotel = category === 'HOTEL';
-  const pgDerivesRent = ((category === 'PG_HOSTEL' || isBachelor) && !isShortStay)
-    || (isHotel && !isShortStay);
-  const hotelDerivesDaily = isHotel && isShortStay;
+  /* Derived from the cheapest option rather than typed — and keyed on what the
+     property OFFERS, not on what it does not: a PG that takes both lengths
+     still derives its monthly rent from its sharing options while being asked
+     for a nightly rate as well. */
+  const pgDerivesRent = (category === 'PG_HOSTEL' || isBachelor || isHotel) && offers.long;
+  const hotelDerivesDaily = isHotel && offers.short;
 
-  if (isShortStay && hotelDerivesDaily) {
-    /* Derived from the bed rates above. The per-bed messages are where a
-       missing number is reported, so nothing is added here — but a hotel with
-       no priced bed at all still needs saying. */
+  /*
+   * Each length it offers is checked, and they are no longer an either/or.
+   * A property that says it takes guests for a few nights AND for months has
+   * two prices to give, and a chain of `else if`s would have asked for one of
+   * them and quietly accepted a listing that could not sell the other.
+   */
+  if (offers.short) {
     const daily = amount(formData.dailyPrice);
-    if (isNaN(daily) || daily <= 0) {
-      errs.dailyPrice = 'Price at least one bed type above — that is what sets the nightly rate';
-    }
-  } else if (isShortStay) {
-    const daily = amount(formData.dailyPrice);
-    if (isNaN(daily)) errs.dailyPrice = 'Price per day is required for a short stay';
+    if (hotelDerivesDaily) {
+      /* Derived from the bed rates above. The per-bed messages are where a
+         missing number is reported, so nothing is added here — but a hotel with
+         no priced bed at all still needs saying. */
+      if (isNaN(daily) || daily <= 0) {
+        errs.dailyPrice = 'Price at least one bed type above — that is what sets the nightly rate';
+      }
+    } else if (isNaN(daily)) errs.dailyPrice = 'Price per day is required for a short stay';
     else if (daily <= 0) errs.dailyPrice = 'Price per day must be more than 0';
     else if (daily > MAX_DAILY_PRICE) errs.dailyPrice = `That is over ${rupees(MAX_DAILY_PRICE)} a day — check for an extra zero`;
-  } else if (!pgDerivesRent) {
+  }
+
+  if (offers.long && !pgDerivesRent) {
     const monthly = amount(formData.monthlyPrice);
     if (isNaN(monthly)) errs.monthlyPrice = 'Monthly rent is required';
     else if (monthly <= 0) errs.monthlyPrice = 'Monthly rent must be more than 0';
@@ -377,7 +396,7 @@ export function validateOnboarding(formData = {}) {
 
   /* — what makes this category a category — */
 
-  Object.assign(errs, validateCategory(category, details, { isShortStay, documents: formData.documents }));
+  Object.assign(errs, validateCategory(category, details, { offers, documents: formData.documents }));
 
   return errs;
 }
@@ -389,7 +408,7 @@ export function validateOnboarding(formData = {}) {
  * is, and reading four sets of rules interleaved in one function is how a rule
  * ends up applied to the wrong category.
  */
-function validateCategory(category, details, { isShortStay, documents }) {
+function validateCategory(category, details, { offers, documents }) {
   const errs = {};
 
   if (category === 'PG_HOSTEL') {
@@ -397,10 +416,18 @@ function validateCategory(category, details, { isShortStay, documents }) {
 
     if (sharingTypes.length === 0) {
       errs['categoryDetails.sharingTypes'] = 'Pick at least one sharing option — this is how rooms are priced and searched';
-    } else if (!isShortStay) {
-      /* Each selected option needs its own rent, because the public site shows
-         a per-occupancy price and the cheapest one becomes the listing's
-         headline rent. One blank leaves a room advertised at no price. */
+    } else if (offers.long) {
+      /*
+       * Each selected option needs its own rent, because the public site shows
+       * a per-occupancy price and the cheapest one becomes the listing's
+       * headline rent. One blank leaves a room advertised at no price.
+       *
+       * Keyed on offering a LONG stay rather than on not offering a short one.
+       * A PG that takes both — which it can, since the stay picker became
+       * multi-select — still sells rooms by the month, and the old test let it
+       * through with every sharing rent blank the moment "Short Stay" was
+       * ticked beside it.
+       */
       sharingTypes.forEach((type) => {
         const price = amount((details.sharingPrices || {})[type]);
         if (isNaN(price) || price <= 0) {

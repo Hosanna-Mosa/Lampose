@@ -61,6 +61,21 @@ const normalizeRow = (raw: any): FoodRestaurantRow => ({
   verifiedAt: raw.verifiedAt || null,
 });
 
+/**
+ * What became of the message an approval sends.
+ *
+ * `setupUrl` is present ONLY when the message did not go — see
+ * `issueCredentials` on the server. It is the link itself, handed to the
+ * approver so somebody can pass it to the owner by whatever channel reaches
+ * them. On the happy path it is absent, and it disappears by itself the day
+ * the WhatsApp template is approved.
+ */
+export interface SendOutcome {
+  sent: boolean;
+  error: string | null;
+  setupUrl?: string;
+}
+
 export const foodAdminService = {
   /** The queue. `status: 'all'` or omitted returns every application. */
   async getRestaurants(params?: {
@@ -101,11 +116,32 @@ export const foodAdminService = {
     restaurantId: string,
     decision: FoodVerificationStatus,
     note?: string
-  ): Promise<ApiResponse<{ verificationStatus: FoodVerificationStatus } | null>> {
+  ): Promise<ApiResponse<{ verificationStatus: FoodVerificationStatus; credentials?: SendOutcome } | null>> {
     const res = await api.patch<any>(`${BASE}/${restaurantId}/decision`, {
       decision,
       note,
     });
+    return res.success ? { ...res, data: res.data?.data ?? null } : { ...res, data: null };
+  },
+
+  /**
+   * Send an approved owner a NEW password, because the first one did not
+   * arrive.
+   *
+   * The ordinary failure of the approval message: a handset that was off, a
+   * number typed wrong on the application, a WhatsApp template still in
+   * review. The restaurant is approved and the owner cannot get in, and the
+   * only other remedy is a developer with database access.
+   *
+   * It mints a new password rather than resending the old one — the old one
+   * exists only as a bcrypt hash, by design — so pressing it invalidates a
+   * password the owner may in fact have received. That is why it is a button
+   * somebody presses rather than anything automatic.
+   */
+  async resendCredentials(
+    restaurantId: string
+  ): Promise<ApiResponse<{ credentials?: SendOutcome } | null>> {
+    const res = await api.post<any>(`${BASE}/${restaurantId}/credentials`);
     return res.success ? { ...res, data: res.data?.data ?? null } : { ...res, data: null };
   },
 

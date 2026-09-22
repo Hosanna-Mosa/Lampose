@@ -1126,6 +1126,117 @@ function _useClientForTests(fake, { gapMs = 1 } = {}) {
   settleGapMs = gapMs;
 }
 
+/**
+ * A restaurant has been approved — the listing is live, and here is where.
+ *
+ * Sent once, to the owner's own mobile, by `decideRestaurant` the moment an
+ * administrator approves an application. It carries NO credential and uses no
+ * sign-in vocabulary: eight submissions were refused before one was approved,
+ * and three of those for the phrase "your sign-in details have been sent". It
+ * DOES point at the text message — that sentence was approved in two minutes
+ * once it said "what you need to get started" instead. The password itself
+ * goes over the DLT SMS route (`sendPartnerPasswordSms`).
+ * `restaurantApprovedTemplate.js` has the record and the reasoning, and its
+ * BODY is the contract these four variables fill.
+ *
+ * The plain-text fallback exists for a local run inside an open session. It is
+ * NOT good enough for production: a cold send to an owner who has never
+ * messaged the Lampose sender is refused without an approved template, which
+ * is why the caller reports what happened rather than assuming it arrived.
+ */
+async function sendRestaurantApproved({
+  ownerPhone, ownerName, restaurantName, address, consoleUrl,
+}) {
+  const where = oneLine(address, 200);
+
+  /* A template variable may never be empty — Twilio rejects the whole send
+     (63028) rather than rendering a gap — so a restaurant with no address on
+     file is reported as a send that did not happen, with the field that was
+     missing, rather than as one that silently did. Every application that
+     came through onboarding has one; this is the case that says so out loud.
+
+     Nothing else is guarded: a missing name reads "Congratulations there!",
+     which is clumsy but true, and is not worth withholding the message for. */
+  if (!where) {
+    return { success: false, error: 'The approval message needs the restaurant address.' };
+  }
+
+  const name = oneLine(ownerName, 60) || 'there';
+  const shop = oneLine(restaurantName, 80) || 'your restaurant';
+  const url = oneLine(consoleUrl, 200) || 'https://admin.lampose.com';
+
+  /* The order is the TEMPLATE's, not the argument list's.
+     `restaurantApprovedTemplate.js` is the contract. */
+  return sendContentOrText({
+    to: ownerPhone,
+    contentSid: process.env.TWILIO_RESTAURANT_APPROVED_CONTENT_SID,
+    variables: {
+      1: name,
+      2: shop,
+      3: where,
+      4: url,
+    },
+    fallbackBody:
+      `Congratulations ${name}! Our team has checked "${shop}" and it is now `
+      + 'listed on Lampose.\n\n'
+      + `Restaurant: ${shop}\n`
+      + `Address: ${where}\n\n`
+      + 'Please check your text messages for what you need to get started. '
+      + `Manage your menu and timings at ${url} whenever you need to — diners `
+      + 'can now find you, and we will message you here each time an order comes in.',
+  });
+}
+
+/**
+ * A diner's order is real — here is where to watch it.
+ *
+ * Sent once, to the number on the order, at the same two moments the kitchen
+ * is alerted: a cash order the moment it is written, an online one the moment
+ * its payment is verified. Never before — a message about an order the kitchen
+ * cannot see is a message about nothing.
+ *
+ * The link is a VARIABLE rather than words in the body, for the same reason the
+ * console's is: the site can move, and a template cannot without a review. It
+ * carries the order's own read-only code (`foodweb/trackLink.service.js`) so
+ * the page opens without a sign-in, which is the whole point of sending it —
+ * a link that asks a paying diner for a password is one nobody taps twice.
+ *
+ * Reports rather than throws. An order is placed whether or not a message
+ * about it was accepted.
+ */
+async function sendOrderPlaced({
+  customerPhone, customerName, orderNumber, restaurantName, trackUrl,
+}) {
+  const number = oneLine(orderNumber, 20);
+  const link = oneLine(trackUrl, 300);
+
+  /* No empty variable ever reaches Twilio (63028 refuses the whole message),
+     and these two are the message: without them it says an order was placed
+     and gives no way to find it. */
+  if (!number || !link) {
+    return { success: false, error: 'An order notice needs the reference and the tracking link.' };
+  }
+
+  const name = oneLine(customerName, 60) || 'there';
+  const shop = oneLine(restaurantName, 80) || 'the kitchen';
+
+  return sendContentOrText({
+    to: customerPhone,
+    contentSid: process.env.TWILIO_FOOD_ORDER_PLACED_CONTENT_SID,
+    variables: {
+      1: name,
+      2: number,
+      3: shop,
+      4: link,
+    },
+    fallbackBody:
+      `Thanks ${name}! Your order ${number} from "${shop}" is placed, and the `
+      + 'kitchen has it now.\n\n'
+      + `Follow it live at ${link} — you will see when it is accepted, when it `
+      + 'is ready, and where your rider has reached.',
+  });
+}
+
 module.exports = {
   _useClientForTests,
   sendOwnerText,
@@ -1150,4 +1261,6 @@ module.exports = {
   sendSlotReminder,
   sendFoodOrderAlert,
   sendDeliveryRequest,
+  sendRestaurantApproved,
+  sendOrderPlaced,
 };

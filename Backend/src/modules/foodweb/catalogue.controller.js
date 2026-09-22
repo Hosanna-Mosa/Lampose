@@ -17,17 +17,25 @@
    active, and disappears when the last one closes. There is nothing to keep
    in step.
 
-   ## Why the area is always null
+   ## Why the area is not a constant either, and why it is no longer a NAME
 
-   `AREA` in the fixture is one hard-coded locality — Gachibowli. It was the
-   copy for "near you", answered by looking up the service zone containing
-   the diner's point. Service zones are gone — there is no row anywhere that
-   names a delivery area — so there is no honest locality to report. `area`
-   stays `null` and `serviceable` stays `false` unconditionally; `located`
-   only says whether the caller sent a point, not whether anything is known
-   about it.
+   `AREA` in the fixture is one hard-coded locality — Gachibowli. It is the
+   copy for "near you", and near-you is a question about the person asking.
+
+   It used to be answered by the service zone containing the visitor's point.
+   Zones are gone, and nothing else in the database knows what a visitor's
+   own suburb is called, so this endpoint no longer names one: naming the
+   nearest KITCHEN's locality would print "we deliver to Gachibowli" at
+   somebody who is not in Gachibowli, and a delivery promise is the last
+   thing to invent.
+
+   What it answers instead is the question the name was standing in for —
+   HOW MANY listed kitchens actually reach this point, by each kitchen's own
+   `deliveryRadiusKm` (see `deliveryReach.util.js`). Without a point there is
+   nothing to measure, so the reply says `located: false` and counts nothing.
    ══════════════════════════════════════════════════════════════════════════ */
 const FoodRestaurant = require('../foodpartners/foodRestaurant.model');
+const { countKitchensReaching } = require('./deliveryReach.util');
 const { LISTED } = require('./foodWeb.shape');
 
 /*
@@ -51,7 +59,7 @@ const DIET_LABEL = { veg: 'Veg', egg: 'Contains egg', nonveg: 'Non-veg' };
  * @access  public
  *
  * Query:
- *   lat, lng   the diner's point, for the area. Both or neither.
+ *   lat, lng   the diner's point, for the delivery verdict. Both or neither.
  */
 const getCatalogue = async (req, res, next) => {
   try {
@@ -66,17 +74,35 @@ const getCatalogue = async (req, res, next) => {
     const lng = Number(req.query.lng);
     const located = Number.isFinite(lat) && Number.isFinite(lng);
 
+    /*
+     * The same rule the checkout applies per address, from the same file, so
+     * the feed and the checkout cannot disagree about where Lampose
+     * delivers. A kitchen that reaches this point here is one that will not
+     * refuse the address there.
+     */
+    const kitchensReaching = located ? await countKitchensReaching(lat, lng) : 0;
+
     return res.json({
       success: true,
       data: {
         cuisines,
         dietLabels: DIET_LABEL,
-        /* No service zones left to answer either of these from — see the
-           header. `located` is honest about the request; `area` and
-           `serviceable` cannot be, so they stay null/false always. */
+        /* Always null, and kept so a caller that still reads it gets the
+           field rather than `undefined`. There is no row anywhere that names
+           a delivery area now that zones are gone — see the header, which is
+           why the answer below is a COUNT instead of a place name. */
         area: null,
         located,
-        serviceable: false,
+        /* How many kitchens reach the visitor. Sent as the number rather than
+           only as the verdict below, because "4 kitchens deliver to you" is
+           worth printing and a boolean cannot carry it. */
+        kitchensReaching,
+        /* Said out loud so the page can draw "we are not here yet" rather
+           than an empty feed that looks like a loading failure. Only ever
+           true when the caller sent a point — an unlocated visitor gets
+           `false` and the page asks for their location instead of promising
+           delivery it cannot check. */
+        serviceable: kitchensReaching > 0,
       },
     });
   } catch (error) {

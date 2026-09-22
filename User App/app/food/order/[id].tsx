@@ -409,13 +409,16 @@ export default function OrderScreen() {
          address of its own, so the line is left unqualified rather than
          labelled with somewhere the food never went. */
       : { id: 'delivery', label: 'Delivery', amount: order.deliveryFee },
-    /* The kitchen's own packing charge, under its own name. It used to be
-       printed as "Taxes and charges", which was two lies in three words: no
-       tax is levied on a Lampose order, and the money is the kitchen's rather
-       than a government's. It is also the difference between these lines and
-       `order.paid` — the server's `grandTotal` is items + packaging +
-       delivery — so leaving it out made the receipt fail to add up. */
+    /* The kitchen's own packing charge, under its own name — on the orders
+       that were charged one. It is no longer billed: GST and a flat platform
+       fee replaced it, and both are listed below. Every one of these lines is
+       a term in the server's `grandTotal`, which is what makes the receipt add
+       up to what was paid. */
     ...(order.packagingCharge ? [{ id: 'packaging', label: 'Packaging by the kitchen', amount: order.packagingCharge }] : []),
+    /* GST and the platform fee, as STORED on the order rather than recomputed:
+       a rate that changes must not rewrite what an old receipt says. */
+    ...(order.gst ? [{ id: 'gst', label: `GST${order.gstRate ? ` (${order.gstRate}%)` : ''}`, amount: order.gst }] : []),
+    ...(order.platformFee ? [{ id: 'platform', label: 'Platform fee', amount: order.platformFee }] : []),
     ...(order.discount ? [{ id: 'discount', label: order.couponCode ?? 'Discount', amount: order.discount, discount: true }] : []),
   ];
 

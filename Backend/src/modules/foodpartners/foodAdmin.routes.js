@@ -26,7 +26,7 @@ const express = require('express');
 const verifyAdminToken = require('../analytics/verifyAdminToken.middleware');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const {
-  listRestaurants, getRestaurant, decideRestaurant, setActive,
+  listRestaurants, getRestaurant, decideRestaurant, setActive, resendCredentials,
 } = require('./foodAdmin.controller');
 const { tagFoodPartnerRequest } = require('./foodPartner.log');
 
@@ -49,5 +49,10 @@ router.get('/:restaurantId', getRestaurant);
 /* Only an approver may move one. */
 router.patch('/:restaurantId/decision', requireFoodApprover, decideRestaurant);
 router.patch('/:restaurantId/active', requireFoodApprover, setActive);
+
+/* Re-issuing an owner's password is the same decision as approving them — it
+   hands somebody the keys to a restaurant's orders and menu — so it sits
+   behind the same capability rather than a wider one. */
+router.post('/:restaurantId/credentials', requireFoodApprover, resendCredentials);
 
 module.exports = router;

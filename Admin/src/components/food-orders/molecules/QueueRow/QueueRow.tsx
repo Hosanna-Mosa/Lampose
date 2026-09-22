@@ -2,6 +2,7 @@ import React from 'react';
 import {
   CheckCircle2,
   ChevronRight,
+  ShoppingBag,
   Timer,
   Truck,
   Undo2,
@@ -43,6 +44,19 @@ export const QueueRow: React.FC<{ row: FoodOrderRow; onOpen: () => void }> = ({ 
         {row.refund.state === 'settled' && (
           <Badge tone="good" icon={CheckCircle2}>
             Refunded
+          </Badge>
+        )}
+        {/* Said on the row, not left to be discovered inside the drawer: no
+            rider is coming for this one, so every flag beside it — "no rider",
+            the dispatch state in the filters — means nothing here, and an
+            operator chasing a driver for an order somebody is walking in to
+            collect is the confusion this badge exists to prevent.
+
+            Collection has since been withdrawn, so this now marks the handful
+            of orders placed before that. It stays for exactly that reason. */}
+        {row.fulfilment === 'pickup' && (
+          <Badge tone="brand" icon={ShoppingBag}>
+            Pickup
           </Badge>
         )}
       </Box>

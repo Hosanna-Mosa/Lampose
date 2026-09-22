@@ -17,7 +17,9 @@
 
    ## Two money figures, not one
 
-   `gross` is what diners paid; `earnings` is what reaches the kitchen once
+   `gross` is what diners paid — the whole bill, GST and the platform and
+   delivery fees included, none of which is the kitchen's; `earnings` is what
+   reaches the kitchen once
    commission comes off. Showing only the first would overstate the day by the
    commission, and an owner reconciling against their bank would find the
    number nowhere. `earnings` is the larger type because it is the one they
@@ -278,11 +280,13 @@ export const RestaurantDashboard: React.FC<RestaurantDashboardProps> = ({ setAct
             value={rupees(data?.today.earnings ?? 0)}
             icon={Wallet}
             loading={summary.loading}
-            footnote={
-              data
-                ? `after ${data.today.commissionRate}% commission · ${rupees(data.today.gross)} taken`
-                : undefined
-            }
+            /* "₹X taken" used to sit beside the commission rate, which read as
+               though the rate had come off that figure. It has not: `gross` is
+               the diners' whole bill — GST, the platform fee and delivery
+               included — and commission is charged on the food alone. The
+               rate stands on its own rather than beside a number it was not
+               applied to. */
+            footnote={data ? `after ${data.today.commissionRate}% commission on the food` : undefined}
           />
           <StatCard
             label="Orders delivered"

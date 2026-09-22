@@ -50,7 +50,7 @@ const { requireLamposeDb, requireAuthConfig } = require('../../shared/middleware
 const { tagFoodPartnerRequest } = require('./foodPartner.log');
 const { requireRestaurantAdmin } = require('./restaurantAdmin.middleware');
 const {
-  login, summary, analytics, earnings,
+  login, checkPasswordSetup, completePasswordSetup, changePassword, summary, analytics, earnings,
   listPayoutAccounts, addPayoutAccount, activatePayoutAccount, removePayoutAccount,
   listPayouts, requestPayout,
 } = require('./restaurantAdmin.controller');
@@ -96,6 +96,24 @@ router.use(tagFoodPartnerRequest);
 /* ── Public ──────────────────────────────────────────────────────────────── */
 
 router.post('/login', loginByIp, loginByIdentifier, requireLamposeDb, requireAuthConfig, login);
+
+/*
+ * The one-time link an approved owner sets their first password with.
+ *
+ * PUBLIC, and it has to be: the person holding this link has never signed in —
+ * that is the entire point of sending it — so there is no session to require.
+ * The token is the credential, it is 32 random bytes, it dies on first use and
+ * it expires in 48 hours. `passwordSetup.util.js` has the reasoning.
+ *
+ * Limited by address rather than by token, because the attack it slows is
+ * somebody trying many tokens rather than one token many times. Generous
+ * enough that an owner reloading the page a few times is never refused: the
+ * GET is what the page calls before it draws itself.
+ */
+const setupByIp = rateLimit({ name: 'restaurant-setup-ip', windowMs: 15 * 60 * 1000, max: 40 });
+
+router.get('/set-password/:token', setupByIp, requireLamposeDb, checkPasswordSetup);
+router.post('/set-password', setupByIp, requireLamposeDb, requireAuthConfig, completePasswordSetup);
 
 /* ── Everything below needs a Restaurant Admin session ───────────────────── */
 
@@ -148,6 +166,27 @@ router.delete('/payout-accounts/:accountId', session, removePayoutAccount);
 router.get('/me', session, getMe);
 router.patch('/me', session, updateMe);
 router.patch('/me/availability', session, setAvailability);
+
+/* The password.
+
+   Its own route rather than a field on `PATCH /me`, and not only because that
+   whitelist refuses `password` as a re-verification field: this one asks for
+   the CURRENT password as well, which no other write here does, and folding it
+   into the general update would mean every profile edit carried the shape of a
+   credential change.
+
+   Limited per SESSION rather than per address, because the attempt this slows
+   is a stranger at a signed-in counter tablet guessing the owner's current
+   password. Five in a quarter of an hour is generous for somebody who knows it
+   and useless to somebody who does not. */
+const passwordChangeLimit = rateLimit({
+  name: 'restaurant-admin-password',
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  keyOf: (req) => (req.restaurantAdmin && req.restaurantAdmin.restaurantId) || req.ip,
+});
+
+router.post('/me/password', session, passwordChangeLimit, changePassword);
 
 /* The orders. `setOrderStatus` is the one that carries the consequences —
    see the file header and the controller's. */

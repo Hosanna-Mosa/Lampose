@@ -16,7 +16,11 @@ export {
   FavouritesUnavailableNote,
   type FavouriteHeartProps,
 } from './FavouriteHeart';
-export { FulfilmentToggle, RoomTargetRow, type FulfilmentToggleProps } from './Fulfilment';
+/* `Fulfilment.tsx` exported a Deliver / Pick up toggle and the room-target row
+   that went with it. Pickup is no longer offered — the order endpoint refuses
+   one — and nothing in this app ever rendered either: see the note in
+   `FoodDineIn.tsx`. The file is deleted rather than left as a control nobody
+   may use. */
 export { DockedCartBar, type DockedCartBarProps } from './DockedCartBar';
 export { BillBreakdown, ReceiptLine, type BillLine, type BillBreakdownProps } from './BillBreakdown';
 export { ActiveOrderCard, FoodStatusChip, FoodTimeline, timelineIndex } from './FoodStatus';

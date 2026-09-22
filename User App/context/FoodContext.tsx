@@ -2,7 +2,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
-import { deliveryFeeFor, packagingChargeOf, splitOptions } from '@/services/adapters/food.adapter';
+import {
+  deliveryFeeFor, gstRateOf, packagingChargeOf, platformFeeOf, splitOptions,
+} from '@/services/adapters/food.adapter';
 import {
   cancelFoodOrder,
   fetchFoodOrder,
@@ -136,15 +138,22 @@ export type FoodContextValue = {
    * come from that same response — so null is the empty cart's answer.
    */
   packagingCharge: number | null;
+  /** GST on the food, and the rate it is charged at. */
+  gst: number;
+  gstRate: number;
+  /** The flat platform fee. Charged on pickup as well. */
+  platformFee: number;
   deliveryFee: number;
   /**
-   * Items + packaging + delivery, which is the whole of it.
+   * Items + GST + the platform fee + delivery, which is the whole of it.
    *
-   * The same three terms `foodCustomerOrder.controller.js` adds up, in the
-   * same order, from the same rows. There is no tax line and no discount: this
-   * app used to add 5% of the item total under "Taxes and charges" and take a
-   * coupon off the bottom, and the server charged neither — so the green Pay
-   * button quoted a number that was never going to appear on the order.
+   * The same terms `foodCustomerOrder.controller.js` adds up, in the same
+   * order, from the same rows — which is the only thing that matters about
+   * this figure. There WAS a tax line here once that the server did not
+   * charge, so the Pay button quoted a number that never appeared on an order;
+   * the tax is real now, it comes from the kitchen shape rather than from a
+   * percentage typed into this file, and the packing charge it replaced is
+   * zero on everything placed since.
    */
   toPay: number;
   fulfilment: Fulfilment;
@@ -170,7 +179,6 @@ export type FoodContextValue = {
   clear: () => void;
   /** Total quantity of a dish in the cart, whatever options were chosen. */
   qtyOf: (dishId: string) => number;
-  setFulfilment: (mode: Fulfilment) => void;
   setAddressId: (id: string) => void;
 
   /** The add that is waiting on "clear your cart?" — null when nothing is. */
@@ -353,7 +361,11 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   const [foodTab, setFoodTab] = useState<FoodTab>('home');
   const [kitchenId, setKitchenId] = useState<string | null>(null);
   const [rawLines, setRawLines] = useState<CartLine[]>([]);
-  const [fulfilment, setFulfilmentState] = useState<Fulfilment>('delivery');
+  /* Always 'delivery'. Collection is no longer offered anywhere and the order
+     endpoint refuses one; nothing in this app ever set it to anything else
+     (see `FoodDineIn.tsx`). A constant rather than state, so it cannot become
+     something the server will refuse. */
+  const fulfilment: Fulfilment = 'delivery';
   /*
     `slot` is gone.
     
@@ -531,14 +543,28 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   const deliveryFee = fulfilment === 'pickup' || !kitchen ? 0 : deliveryFeeFor(kitchen, itemTotal);
 
   /*
-    Packaging is charged on EVERY order, pickup included — the controller adds
-    it before it looks at the fulfilment mode. Null while the kitchen's own row
-    has not arrived, because a zero printed there would be a promise the server
-    is about to break; see `packagingChargeOf`.
+    The kitchen's packing charge is NO LONGER CHARGED — the server reports 0 for
+    every kitchen, and GST plus a flat platform fee took its place. It is still
+    read here, and still null while the kitchen's own row has not arrived,
+    because an order placed before the change carries a real figure and its
+    receipt has to keep adding up; see `packagingChargeOf`.
   */
   const packagingCharge = kitchen ? packagingChargeOf(kitchen) ?? null : null;
 
-  const toPay = itemTotal + (packagingCharge ?? 0) + deliveryFee;
+  /*
+    GST on the food, and the flat platform fee. Both come from the kitchen
+    shape rather than from two numbers typed here: `foodCharges.util.js` on the
+    server decides them, and a preview that adds up differently from the charge
+    is the difference a diner notices on the receipt and not before.
+
+    Charged on pickup as well — the platform's part is taking the order and
+    handling the money, which does not depend on who carries the food.
+  */
+  const gstRate = kitchen ? gstRateOf(kitchen) : 0;
+  const gst = kitchen && itemTotal > 0 ? Math.round(((itemTotal * gstRate) / 100) * 100) / 100 : 0;
+  const platformFee = kitchen && itemTotal > 0 ? platformFeeOf(kitchen) : 0;
+
+  const toPay = itemTotal + (packagingCharge ?? 0) + gst + platformFee + deliveryFee;
 
   /* — cart actions — */
 
@@ -605,10 +631,6 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     (dishId: string) => rawLines.filter((line) => line.dishId === dishId).reduce((sum, line) => sum + line.qty, 0),
     [rawLines],
   );
-
-  const setFulfilment = useCallback((mode: Fulfilment) => {
-    setFulfilmentState(mode);
-  }, []);
 
   /* — cart becomes an order — */
 
@@ -956,13 +978,16 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
 
       This used to write `row.packagingCharge` into `taxes`, and the receipt
       screen printed that slot as "Taxes and charges" — so a diner was shown
-      the kitchen's packing charge as a tax, a levy nobody has charged them and
-      nobody remits. The three figures the server actually adds up are the item
-      total, the packaging and the delivery, and they are carried across here
-      one for one; `paid` is `grandTotal`, so the receipt's arithmetic is the
-      server's own rather than a sum done twice.
+      the kitchen's packing charge as a tax, a levy nobody had charged them and
+      nobody remitted. There IS a tax now, it is called GST, it has a rate
+      beside it and the server stores what each order was billed. Every figure
+      below is carried across one for one and `paid` is `grandTotal`, so the
+      receipt's arithmetic is the server's own rather than a sum done twice.
     */
     packagingCharge: row.packagingCharge,
+    gst: row.gst,
+    gstRate: row.gstRate,
+    platformFee: row.platformFee,
     discount: row.discount ?? 0,
     paid: row.grandTotal,
     placedLabel: placedLabelFor(placed, now),
@@ -1421,6 +1446,9 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       count,
       itemTotal,
       packagingCharge,
+      gst,
+      gstRate,
+      platformFee,
       deliveryFee,
       toPay,
       fulfilment,
@@ -1432,7 +1460,6 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       setQty,
       clear,
       qtyOf,
-      setFulfilment,
       setAddressId,
       pendingAdd,
       confirmSwitch,
@@ -1467,6 +1494,9 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       count,
       itemTotal,
       packagingCharge,
+      gst,
+      gstRate,
+      platformFee,
       deliveryFee,
       toPay,
       fulfilment,
@@ -1477,7 +1507,6 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       setQty,
       clear,
       qtyOf,
-      setFulfilment,
       pendingAdd,
       confirmSwitch,
       cancelSwitch,
