@@ -212,6 +212,32 @@ const ORDERS = '/v2/food-partners/orders';
 export const placeFoodOrder = (order) => apiClient.post(ORDERS, order);
 
 /**
+ * Open the gateway for an order that is waiting to be paid.
+ *
+ * Mints (or re-uses) the Razorpay order for the amount THIS server computed —
+ * the price is never sent from here — and answers with the publishable key and
+ * the ids the checkout window needs. Re-callable: a diner who backs out of the
+ * UPI screen and taps again lands on the same Razorpay order rather than a
+ * second one.
+ */
+export const startFoodPayment = (reference) => apiClient
+  .post(`${ORDERS}/${encodeURIComponent(reference)}/payment`)
+  .then((res) => res.data);
+
+/**
+ * Hand back what Razorpay returned, and let the server decide.
+ *
+ * `paymentStatus: 'paid'` has exactly one cause in this product — a verified
+ * signature — so this is not "tell the server it worked": it is handing over
+ * three strings the server checks against its own secret. Until it answers,
+ * nothing has been paid, the kitchen has not been told, and no rider is looked
+ * for.
+ */
+export const verifyFoodPayment = (reference, proof) => apiClient
+  .post(`${ORDERS}/${encodeURIComponent(reference)}/payment/verify`, proof)
+  .then((res) => res.data);
+
+/**
  * "Delivered" — the diner says a website order has reached them.
  *
  * The last step of an order the restaurant arranged: the restaurant says the
@@ -237,5 +263,7 @@ export default {
   fetchUsuals,
   fetchSpend,
   placeFoodOrder,
+  startFoodPayment,
+  verifyFoodPayment,
   confirmDelivered,
 };

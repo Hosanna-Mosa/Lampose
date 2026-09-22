@@ -561,7 +561,10 @@ export function CartProvider({ children }) {
           addOns: (l.addOns || []).map(a => ({ name: a.label })),
           note: [l.spice && l.spice !== 'none' ? SPICE_LABEL[l.spice] : null, l.note].filter(Boolean).join(' · '),
         })),
-        paymentMode: 'cod',
+        /* What the diner chose. 'online' writes the order unpaid and hands
+           back `nextStep: 'payment'` — the kitchen is not told and no rider is
+           looked for until a Razorpay signature verifies (`payOnline.js`). */
+        paymentMode: payment === 'cod' ? 'cod' : 'online',
         fulfilment,
         /* Says this order came from the WEBSITE. It is what makes the restaurant
            choose who delivers it (its own person, or a Lampose driver) and the
@@ -591,7 +594,7 @@ export function CartProvider({ children }) {
     } finally {
       placing.current = false;
     }
-  }, [isSignedIn, kitchenId, lines, fulfilment, address, user, loadHistory]);
+  }, [isSignedIn, kitchenId, lines, fulfilment, address, payment, user, loadHistory]);
 
   /* The diner's orders, from the server - and nothing else. There is no second
      list of "orders placed in this tab": an order either exists on the server

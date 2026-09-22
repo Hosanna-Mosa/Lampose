@@ -11,6 +11,7 @@ import { ActiveOrder } from '../components/food/organisms/ActiveOrder';
 import { useFoodCatalogue } from '../food/FoodCatalogue';
 import { useAuth } from '../auth/AuthProvider';
 import { confirmDelivered, fetchOrder } from '../api/foodApi';
+import { payForOrder } from '../food/payOnline';
 import { useReveals } from '../hooks/useSite';
 import { rupees } from '../data/food';
 
@@ -79,6 +80,12 @@ export function FoodTrack() {
   const [deliveredStep, setDeliveredStep] = useState('idle');
   const [deliveredError, setDeliveredError] = useState('');
 
+  /* Paying for an order that was placed online and not paid for — they closed
+     Razorpay, or the window never opened. The order is REAL and the kitchen has
+     not been told, so this is the one thing on this page worth doing. */
+  const [payStage, setPayStage] = useState('');
+  const [payError, setPayError] = useState('');
+
   useEffect(() => {
     /* A code is its own permission — the server checks it. Without one this
        needs the session it always needed. */
@@ -117,6 +124,25 @@ export function FoodTrack() {
     load();
     return () => { live = false; if (timer) clearTimeout(timer); };
   }, [reference, isSignedIn, token]);
+
+  const payNow = async () => {
+    setPayError('');
+    try {
+      const outcome = await payForOrder(reference, setPayStage);
+      setPayStage('');
+      if (outcome.paid) {
+        /* Read back rather than assumed: the kitchen's own track moves on the
+           same read, and it is the server that decides an order is paid. */
+        setRemote(await fetchOrder(reference, { token }));
+        return;
+      }
+      if (outcome.dismissed) return;
+      setPayError('We are still checking that payment. Give it a moment and refresh.');
+    } catch (error) {
+      setPayStage('');
+      setPayError(error?.message || 'The payment window would not open. Please try again.');
+    }
+  };
 
   const order = remote;
   useReveals([reference, order?.status]);
@@ -277,6 +303,39 @@ export function FoodTrack() {
 
         <Box className="fd-two">
           <Box className="fd-two__main">
+
+            {/* ── an online order nobody has paid for ────────────────────────
+                `paymentStatus: 'paid'` has one cause — a verified signature —
+                so until then this order is invisible to the kitchen and no
+                rider is looked for. It is not an error state and not a lost
+                order: the row exists, and this is the button that finishes it.
+
+                Signed in only. The link from the "order placed" message opens
+                this page for anyone holding it, and paying needs the diner's
+                own session anyway. */}
+            {order.paymentMode === 'online' && order.paymentStatus !== 'paid'
+              && order.live && isSignedIn && (
+              <Box className="fd-panel fd-panel--lift reveal">
+                <Heading level={2} className="fd-panel__title">This order is not paid for yet</Heading>
+                <Text className="fd-note">
+                  {order.kitchenName} has not been sent it. Pay now and the kitchen gets it straight away — nothing
+                  was charged when the window closed.
+                </Text>
+                <Box className="fd-actions">
+                  <PlainButton
+                    type="button"
+                    className="fd-btn fd-btn--dark"
+                    disabled={Boolean(payStage)}
+                    onClick={payNow}
+                  >
+                    {payStage === 'verifying' ? 'Checking the payment…'
+                      : payStage === 'opening' ? 'Opening Razorpay…'
+                        : `Pay ${rupees(order.grandTotal)}`}
+                  </PlainButton>
+                </Box>
+                {payError && <Text className="fd-note fd-note--warn" role="alert">{payError}</Text>}
+              </Box>
+            )}
 
             {/* ── "Delivered" - the diner's word, once the delivery boy has it ──
                 Only on an order the RESTAURANT arranged (`delivery.by`), and only
