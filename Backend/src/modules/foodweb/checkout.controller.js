@@ -28,14 +28,15 @@
    ## Why an address with no coordinates is not serviceable
 
    `location` is optional on the address schema — the app saves one without a
-   pin when the device would not give it. A zone lookup needs a point, so an
-   address with no pin cannot be checked and is reported unserviceable with a
-   note saying exactly that. Reporting it serviceable would put the decision
-   on a rider standing in the wrong lane at 9pm.
+   pin when the device would not give it. Service zones are gone, so there is
+   no geography left to check an address against; the only thing left to
+   judge is whether a rider has anywhere to be sent. An address with no pin
+   is reported unserviceable with a note saying exactly that. Reporting it
+   serviceable would put the decision on a rider standing in the wrong lane
+   at 9pm.
    ══════════════════════════════════════════════════════════════════════════ */
 const FoodRestaurant = require('../foodpartners/foodRestaurant.model');
 const Customer = require('../customers/customer.model');
-const { findZoneFor } = require('../zones/zone.service');
 const { LISTED, firstOf } = require('./foodWeb.shape');
 
 /**
@@ -118,33 +119,21 @@ const listAddresses = async (req, res, next) => {
       });
     }
 
-    /*
-     * Judged one at a time rather than in one query, because `findZoneFor`
-     * answers for a single point and a diner has three addresses, not three
-     * hundred. Sequential rather than parallel for the same reason — three
-     * indexed lookups are not worth the concurrency.
-     */
-    const addresses = [];
-    for (const address of saved) {
+    /* No zone left to check a point against — the only real question is
+       whether there is a pin at all for a rider to be sent to. */
+    const addresses = saved.map((address) => {
       const pin = address.location && address.location.coordinates;
 
       if (!Array.isArray(pin) || pin.length !== 2) {
-        addresses.push(addressRow(address, {
+        return addressRow(address, {
           serviceable: false,
           note: 'This address has no map pin yet, so a rider cannot be sent to it. '
             + 'Open it and drop a pin, or choose another address.',
-        }));
-        continue;
+        });
       }
 
-      /* eslint-disable-next-line no-await-in-loop -- see the note above */
-      const zone = await findZoneFor(pin[1], pin[0], 'food');
-      addresses.push(addressRow(address, {
-        serviceable: Boolean(zone),
-        note: zone ? '' : `Outside ${kitchen.restaurantName}'s delivery area. `
-          + 'Pickup is still available, or order from a kitchen closer to you.',
-      }));
-    }
+      return addressRow(address, { serviceable: true, note: '' });
+    });
 
     return res.json({
       success: true,
