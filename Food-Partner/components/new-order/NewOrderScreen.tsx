@@ -166,8 +166,12 @@ export function NewOrderScreen() {
               </View>
 
               <Text style={styles.payoutValue}>{rupees(order.partnerPayout)}</Text>
+              {/* What this kitchen sold, and what it keeps of it. It used to
+                  read "diner pays ₹200" — a figure carrying GST, the platform
+                  fee and the delivery fee, none of it the restaurant's, and
+                  one the server no longer sends a partner session. */}
               <Text style={styles.payoutSub}>
-                You keep this · diner pays {rupees(order.grandTotal)}
+                You keep this · {rupees(order.itemsTotal)} of food
               </Text>
             </View>
 
@@ -215,8 +219,12 @@ export function NewOrderScreen() {
             {isCod && (
               <View style={styles.codNotice}>
                 <Icon name="info" size={16} color="#4B5563" />
+                {/* No figure: what the diner hands over at the door includes
+                    GST, the platform fee and delivery, and a kitchen that is
+                    told not to take the money does not need to know it. The
+                    instruction is the whole point of the line. */}
                 <Text style={styles.codNoticeText}>
-                  Rider collects {rupees(order.grandTotal)} at door. Do not ask for money at counter.
+                  The rider collects payment at the door. Do not ask for money at the counter.
                 </Text>
               </View>
             )}

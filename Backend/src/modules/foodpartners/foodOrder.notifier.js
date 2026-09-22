@@ -47,7 +47,8 @@ const FoodRestaurant = require('./foodRestaurant.model');
 const { BADGE } = require('./foodPartner.log');
 const realtime = require('../../infrastructure/realtime/realtime');
 const config = require('../../config/env');
-const { sendFoodOrderAlert } = require('../../infrastructure/twilio/twilio');
+const { sendFoodOrderAlert, sendOrderPlaced, maskPhone } = require('../../infrastructure/twilio/twilio');
+const { trackUrl } = require('../foodweb/trackLink.service');
 const { linkSuffix } = require('./orderLink.service');
 
 /**
@@ -129,7 +130,11 @@ async function whatsappTheOwner(order, restaurant) {
       restaurantPhone: phone,
       restaurantName: restaurant.restaurantName,
       orderNumber: order.orderNumber,
-      amount: rupees(order.grandTotal),
+      /* The FOOD, not the bill. `grandTotal` carries GST, the platform fee
+         and the delivery fee, none of which the restaurant sells, collects or
+         keeps — and this message is the first thing they see about the
+         order. See `partnerView`, which no longer sends them the rest. */
+      amount: rupees(order.itemsTotal),
       summary: summarise(order.lines),
       /* Both spellings of the same destination. The button template needs
          only the suffix — its prefix is baked in and Meta-approved — while
@@ -198,7 +203,13 @@ async function notifyRestaurantOfOrder(order) {
        deployments that never sent one. */
     result.live = realtime.toRestaurant(order.restaurantId, 'order_placed', {
       orderNumber: order.orderNumber,
-      grandTotal: order.grandTotal,
+      /* The FOOD, like every other figure a kitchen is sent. `grandTotal`
+         carries GST, the platform fee and the delivery fee; see
+         `partnerView`, which stopped sending a partner session any of them.
+         The field keeps its name on the wire so an app mid-update does not
+         read `undefined` — what changed is which number is in it. */
+      grandTotal: order.itemsTotal,
+      itemsTotal: order.itemsTotal,
       itemCount: (order.lines || []).length,
       summary: summarise(order.lines),
       placedAt: order.placedAt || new Date().toISOString(),
@@ -283,6 +294,56 @@ async function notifyRestaurantOfOrder(order) {
   return result;
 }
 
+/**
+ * Tell the DINER their order is real, and give them the page that follows it.
+ *
+ * Called beside `notifyRestaurantOfOrder`, at the same two moments and for the
+ * same reason: an order exists for the kitchen and for the person who placed it
+ * at exactly the same instant, and an unpaid online order is invisible to both.
+ *
+ * WhatsApp only, and deliberately so. The app already has push and a live
+ * socket; this is for the website, where an order placed in a browser has had
+ * no way of reaching the person once they close the tab. The link carries the
+ * order's read-only code so it opens without a sign-in.
+ *
+ * Resolves whatever happens. A diner with no number on the order gets no
+ * message and that is not an error — it is a cash order taken over a counter.
+ */
+async function notifyCustomerOfOrder(order) {
+  const result = { sent: false, reason: null };
+
+  const phone = String((order && order.customerPhone) || '').trim();
+  if (!phone) {
+    result.reason = 'no phone number on the order';
+    return result;
+  }
+
+  try {
+    const notice = await sendOrderPlaced({
+      customerPhone: phone,
+      customerName: order.customerName,
+      orderNumber: order.orderNumber,
+      restaurantName: (order.restaurant && order.restaurant.name) || '',
+      trackUrl: trackUrl(order.orderNumber),
+    });
+
+    result.sent = Boolean(notice.success);
+    result.reason = notice.success ? null : notice.error;
+
+    console.log(
+      `${BADGE} [Order Notice] ${order.orderNumber} → ${maskPhone(phone)}: `
+      + `${result.sent ? 'sent' : `NOT SENT (${result.reason})`}`,
+    );
+  } catch (error) {
+    /* Swallowed like every other path in this file: the order is written and
+       the tracking page works whether or not this message was accepted. */
+    result.reason = error.message;
+    console.error(`${BADGE} [Order Notice] ${order.orderNumber} failed: ${error.message}`);
+  }
+
+  return result;
+}
+
 module.exports = {
-  notifyRestaurantOfOrder, ORDER_CHANNEL, ORDER_SOUND, summarise, orderLink,
+  notifyRestaurantOfOrder, notifyCustomerOfOrder, ORDER_CHANNEL, ORDER_SOUND, summarise, orderLink,
 };

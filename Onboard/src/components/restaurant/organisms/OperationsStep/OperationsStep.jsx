@@ -1,36 +1,39 @@
 import React from 'react';
 import {
-  Clock, Info, Plus, Trash2,
+  Clock, ImagePlus, Plus, Trash2,
 } from 'lucide-react';
 import {
   Box, Inline, Input, PlainButton, Text,
 } from '../../../common/atoms';
-import { Field, FieldError, Note, SectionHead } from '../../molecules/Field/Field';
+import { Field, FieldError, SectionHead } from '../../molecules/Field/Field';
+import { FileDrop } from '../../molecules/FileDrop/FileDrop';
+import { MenuSection } from '../MenuSection/MenuSection';
 import { COPY, DAYS } from '../../utils/restaurantOptions';
 import { hoursKey } from '../../utils/validateRestaurant';
 
 /*
- * Step 2 — when the kitchen is open. That is all.
+ * Step 2 — when the kitchen is open, and what it cooks.
  *
- * ## There is no menu builder here, and that is the design
+ * ## The menu is here, and it is OPTIONAL
  *
- * This step used to carry one: categories, dishes, prices, a photograph each,
- * and a spreadsheet importer for the places that already had their menu typed
- * somewhere. All of it is gone, because none of it fits who fills this form
- * in. A Lampose employee stands at a counter with the owner for twenty
- * minutes; sixty dishes with a photograph each is not twenty minutes' work,
- * and a form that asks for it is a form abandoned halfway with the licences
- * already photographed.
+ * This step once carried a full menu builder — categories, photographs, a
+ * spreadsheet importer — and it was taken out because none of it fits an agent
+ * standing at a counter for twenty minutes. What is here now is the short
+ * version of that lesson: six fields per dish, a section that starts empty,
+ * and nothing on it that can stop Continue. `MenuSection` has the reasoning
+ * and the rules; the backend's half is that an application with no products is
+ * a valid application (`foodPartner.util.js`), so skipping it costs nothing
+ * and filling in half a dozen dishes means a restaurant approved on Tuesday
+ * can be ordered from on Tuesday.
  *
- * So the menu belongs to the RESTAURANT, entered from the Food-Partner app
- * once an admin approves the account. The backend's matching half is the rule
- * that used to demand at least one item, removed in `foodPartner.util.js`
- * with the reasoning beside it — without that, an application carrying no
- * products would be refused at submit.
+ * ## The profile picture, above the menu
  *
- * The note at the bottom of this step says so out loud, because an agent who
- * expects to enter a menu and never meets one will otherwise assume the form
- * lost it.
+ * Optional, and it is the first thing a diner sees: the feed draws a card per
+ * kitchen and the card is mostly this image. Collected HERE rather than on
+ * step 1 with the name because it belongs with the other thing an agent points
+ * a camera at — and because step 1 is already the longest screen in the form.
+ * It becomes `logoImage` on the restaurant, uploaded at submit like the
+ * licences are.
  *
  * ## The timings editor edits ONE day at a time
  *
@@ -107,7 +110,7 @@ export function OperationsStep({ form, set, errors = {}, touch = () => {} }) {
       <Box className="rst-step-head">
         <Text className="rst-step-title">Operational Details</Text>
         <Text className="rst-step-sub">
-          Set the days and hours this kitchen takes orders.
+          Set the days and hours this kitchen takes orders. The menu below is optional.
         </Text>
       </Box>
 
@@ -215,15 +218,30 @@ export function OperationsStep({ form, set, errors = {}, touch = () => {} }) {
         </Box>
       </Box>
 
-      {/* Said out loud, because its absence is the surprising part. An agent
-          who came expecting to type a menu and never met one would reasonably
-          assume the form had lost it. */}
-      <Box className="rst-section">
-        <Note tone="info" icon={<Info size={15} />}>
-          No menu is entered here. Once Lampose approves this restaurant, the
-          owner adds their own dishes and prices from the Food-Partner app.
-        </Note>
+      {/* Above the dishes, because it is the restaurant's own picture rather
+          than any one dish's — and because an agent who has the owner's
+          attention for a photograph should take the shop front first. */}
+      <Box className="rst-section" id="rst-logo" tabIndex={-1}>
+        <SectionHead
+          icon={<ImagePlus size={16} color="#45855a" />}
+          title="Restaurant Profile Image (Optional)"
+        />
+
+        <Box className="rst-card">
+          <Field label="Profile Image" optional hint={copy.logoHelp} error={errors.logoFile}>
+            <FileDrop
+              id="rst-logo-file"
+              file={form.logoFile}
+              onChange={(picked) => set({ logoFile: picked })}
+              desc="JPG or PNG, up to 10MB"
+              accept="image/*"
+              preview
+            />
+          </Field>
+        </Box>
       </Box>
+
+      <MenuSection form={form} set={set} errors={errors} touch={touch} />
     </Box>
   );
 }

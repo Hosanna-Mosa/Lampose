@@ -42,7 +42,11 @@ const FoodOrder = require('../foodpartners/foodOrder.model');
 
 const { isWebDelivery } = FoodOrder;
 const { riderPosition } = require('../foodpartners/foodCustomerOrder.controller');
-const { rupees, dietOf } = require('./foodWeb.shape');
+const { rupees, dietOf, RIDE_MINUTES } = require('./foodWeb.shape');
+/* The same great-circle metres the delivery-area rule measures with — one
+   definition, so "1.4 km to go" and "outside the delivery area" can never be
+   computed two different ways. */
+const { haversineMeters } = require('./deliveryReach.util');
 
 const { driverAssigned, chosenRider } = FoodOrder;
 
@@ -140,14 +144,6 @@ const monthLabel = (date) => (date
   : '');
 
 /* ── Distance and age, for the live rider ───────────────────────────────── */
-
-/** Metres between two points, great-circle. Enough for "1.4 km to go". */
-const haversineMeters = (lat1, lng1, lat2, lng2) => {
-  const rad = (deg) => (deg * Math.PI) / 180;
-  const a = Math.sin(rad(lat2 - lat1) / 2) ** 2
-    + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(rad(lng2 - lng1) / 2) ** 2;
-  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-};
 
 /** "350 m" under a kilometre, "1.4 km" above - rounded the way a person says it. */
 const distanceLabel = (meters) => (meters < 1000
@@ -307,7 +303,7 @@ const showsCode = (doc) => {
   return true;
 };
 
-const riderTrackOf = (doc) => {
+const riderTrackOf = (doc, { viaLink = false } = {}) => {
   if (doc.fulfilment === 'pickup') return [];
 
   const dispatch = doc.dispatch || {};
@@ -387,9 +383,12 @@ const riderTrackOf = (doc) => {
        Only while the order is still going somewhere. A refused or cancelled
        order is never handed over, and a rail that ends in a pending "Handed
        over" step reads as though a rider might still turn up. */
+    /* The code appears TWICE on this card — the chip and this note — and a
+       link view must be missing both. One redaction that covers one of them is
+       how a redacted field ships beside an unredacted copy of itself. */
     const note = arranged
       ? (doc.status === 'picked_up' ? 'Confirm below when it arrives' : '')
-      : (showsCode(doc) ? `Needs code ${doc.deliveryOtp}` : '');
+      : (!viaLink && showsCode(doc) ? `Needs code ${doc.deliveryOtp}` : '');
     steps.push({ label: last, note });
   }
 
@@ -402,12 +401,41 @@ const dropPoint = (doc) => {
   return Array.isArray(pair) && pair.length === 2 ? pair : null;
 };
 
-/** When a pickup order will be ready: acceptance time + the kitchen's own quote. */
-const readyByOf = (doc) => {
-  if (doc.fulfilment !== 'pickup' || !doc.promisedMinutes) return '';
+/*
+ * When the food will be READY: the moment the kitchen accepted, plus the
+ * number of minutes it quoted on that same tap.
+ *
+ * `promisedMinutes` is the one estimate in this system a person actually made
+ * — the restaurant types it when accepting — and until now the tracking page
+ * showed it to nobody but pickup orders. A diner waiting on a delivery was
+ * shown "Arriving by —" while the kitchen's own answer sat on the order.
+ *
+ * Empty until the order is accepted, and empty if the kitchen quoted nothing,
+ * because both of those are "we do not know yet" and a made-up time is worse
+ * than a dash.
+ */
+const readyAtOf = (doc) => {
+  if (!doc.promisedMinutes) return null;
   const accepted = (doc.statusHistory || []).find((row) => row.status === 'accepted');
-  if (!accepted || !accepted.at) return '';
-  return timeLabel(new Date(new Date(accepted.at).getTime() + doc.promisedMinutes * 60000));
+  if (!accepted || !accepted.at) return null;
+  return new Date(new Date(accepted.at).getTime() + doc.promisedMinutes * 60000);
+};
+
+/**
+ * What the page prints against "Ready by" / "Arriving by".
+ *
+ * Pickup ends at the counter, so its estimate IS the ready time. A delivery
+ * still has the ride, and the ride is not measured anywhere: `RIDE_MINUTES` is
+ * the same flat figure the feed adds to a kitchen's preparation time, applied
+ * uniformly for the reason given there — a per-restaurant guess would read as
+ * a measurement. Keeping both from one constant is what stops the feed
+ * promising 30 minutes and the tracking page 45.
+ */
+const etaOf = (doc) => {
+  const ready = readyAtOf(doc);
+  if (!ready) return '';
+  if (doc.fulfilment === 'pickup') return timeLabel(ready);
+  return timeLabel(new Date(ready.getTime() + RIDE_MINUTES * 60000));
 };
 
 /** Why an order was cancelled, in the words recorded when it was. */
@@ -428,7 +456,25 @@ const cancelNoteOf = (doc) => {
  *                         them: thirty orders each carrying a status history
  *                         is a large reply for a page that shows a card.
  */
-const orderCard = (doc, full = false, position = null) => {
+/*
+ * `viaLink` — the page was opened by the code in a WhatsApp, not by a session.
+ *
+ * A message can be forwarded, and a link that was sent to one person is a link
+ * anybody may be holding. So the two things on this card that could hurt the
+ * diner if a stranger read them are left out of that view:
+ *
+ *   addressTitle  where they live. Not drawn on the tracking page today, but
+ *                 it is in the JSON, and "not currently rendered" is not a
+ *                 privacy boundary.
+ *   deliveryOtp   the four digits they say at the door. Somebody who can read
+ *                 them can take the food from the rider by saying them first.
+ *
+ * Everything else stays: what was ordered, what it cost, where the kitchen is,
+ * how far away the rider is. That is the message's whole purpose, and none of
+ * it identifies the diner or opens a door. The full card is one sign-in away,
+ * and the page says so.
+ */
+const orderCard = (doc, full = false, position = null, { viaLink = false } = {}) => {
   const live = !CLOSED.has(doc.status);
   const delivery = doc.delivery || {};
 
@@ -442,7 +488,9 @@ const orderCard = (doc, full = false, position = null) => {
     fulfilment: doc.fulfilment || 'delivery',
     placedLabel: placedLabel(doc.placedAt),
     monthLabel: monthLabel(doc.placedAt),
-    addressTitle: doc.deliveryAddress || '',
+    addressTitle: viaLink ? '' : (doc.deliveryAddress || ''),
+    /* Told plainly, so the page can explain the gap rather than look broken. */
+    viaLink,
 
     lines: (doc.lines || []).map((line) => ({
       name: line.productName,
@@ -462,7 +510,13 @@ const orderCard = (doc, full = false, position = null) => {
     })),
 
     itemTotal: rupees(doc.itemsTotal),
+    /* Still reported, and 0 on everything placed since it was dropped — an
+       order that WAS charged one has to keep showing why its total is what it
+       is. See `foodCharges.util.js`. */
     packagingCharge: rupees(doc.packagingCharge),
+    gst: rupees(doc.gst),
+    gstRate: rupees(doc.gstRate),
+    platformFee: rupees(doc.platformFee),
     deliveryFee: rupees(doc.deliveryFee),
     discount: rupees(doc.discount),
     couponCode: '',
@@ -486,12 +540,21 @@ const orderCard = (doc, full = false, position = null) => {
     ...card,
     /* Nothing to read out on an order the restaurant arranged — the diner confirms
        the delivery with a button. A rider's order still carries its code. */
-    deliveryOtp: showsCode(doc) ? (doc.deliveryOtp || '') : '',
+    deliveryOtp: viaLink || !showsCode(doc) ? '' : (doc.deliveryOtp || ''),
     pickedUpLabel: timeLabel(delivery.pickedUpAt),
     /* Ready-by, for a PICKUP order only: when the kitchen accepted, plus the
        minutes it quoted. There is no honest arrival time for a delivery - the
        ride is not modelled - so that stays empty and the page prints a dash. */
-    etaLabel: readyByOf(doc),
+    etaLabel: etaOf(doc),
+    /* The kitchen's own answer, on its own, for both fulfilments: "ready by
+       7:45". A delivery diner is shown this beside the arrival estimate,
+       because one of the two was typed by the person cooking and the other
+       was added by us. */
+    readyByLabel: (() => {
+      const ready = readyAtOf(doc);
+      return ready ? timeLabel(ready) : '';
+    })(),
+    promisedMinutes: Number(doc.promisedMinutes) || 0,
     rejectionReason: doc.rejectionReason || '',
     cancelNote: cancelNoteOf(doc),
     /* Live, from the rider's own phone, through the same helper the app uses:
@@ -529,7 +592,7 @@ const orderCard = (doc, full = false, position = null) => {
        own rider search is carrying the order. */
     delivery: { by: delivery.method || '', assigned: driverAssigned(doc) },
     kitchenTrack: kitchenTrackOf(doc),
-    riderTrack: riderTrackOf(doc),
+    riderTrack: riderTrackOf(doc, { viaLink }),
   };
 };
 
@@ -542,7 +605,8 @@ const orderCard = (doc, full = false, position = null) => {
 const CARD_FIELDS = [
   'orderNumber', 'restaurantId', 'restaurant', 'status', 'statusHistory',
   'fulfilment', 'placedAt', 'deliveryAddress',
-  'lines', 'itemsTotal', 'packagingCharge', 'deliveryFee', 'discount', 'grandTotal',
+  'lines', 'itemsTotal', 'packagingCharge', 'gst', 'gstRate', 'platformFee',
+  'deliveryFee', 'discount', 'grandTotal',
   'paymentMode', 'paymentStatus',
   'dispatch', 'delivery', 'deliveryOtp', 'channel',
   'rejectionReason', 'promisedMinutes', 'dropLocation',
@@ -588,7 +652,9 @@ const listOrders = async (req, res, next) => {
  * One order, with both tracks — the tracking page.
  *
  * @route   GET /api/v2/food-web/orders/:reference
- * @access  customer session required; only this diner's own orders
+ * @access  the diner's own session, or that order's read-only link code
+ *          (`trackLink.service.js`) — which gets a card with the delivery
+ *          address and the door code left out.
  */
 const getOrder = async (req, res, next) => {
   try {
@@ -614,7 +680,11 @@ const getOrder = async (req, res, next) => {
        the app would not. A failure to read it must not fail the order. */
     const position = await riderPosition(doc).catch(() => null);
 
-    return res.json({ success: true, data: { order: orderCard(doc, true, position) } });
+    /* `req.orderTrackLink` is set by `customerOrTrackLink` and by nothing else:
+       a session never has it. See the note on `orderCard`. */
+    const viaLink = Boolean(req.orderTrackLink);
+
+    return res.json({ success: true, data: { order: orderCard(doc, true, position, { viaLink }) } });
   } catch (error) {
     return next(error);
   }

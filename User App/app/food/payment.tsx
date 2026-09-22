@@ -54,8 +54,10 @@ export default function PaymentScreen() {
     itemTotal,
     deliveryFee,
     packagingCharge,
+    gst,
+    gstRate,
+    platformFee,
     toPay,
-    fulfilment,
     address,
     placeOrder,
     startPayment,
@@ -63,9 +65,10 @@ export default function PaymentScreen() {
 
   const [method, setMethod] = useState<string>('online');
 
-  /* A DELIVERY needs somewhere to go. A pickup does not — the diner collects
-     it — so the gate is scoped to the mode rather than applied blanket. */
-  const needsAddress = fulfilment !== 'pickup' && !address;
+  /* Every order needs somewhere to go. This used to be scoped to the mode,
+     because a collection order has no address to want — collection is no
+     longer offered. */
+  const needsAddress = !address;
   const [state, setState] = useState<'idle' | 'paying' | 'failed'>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -95,25 +98,26 @@ export default function PaymentScreen() {
   const others: readonly Method[] = [
     {
       id: 'cash',
-      label: fulfilment === 'pickup' ? 'Cash at the counter' : 'Cash on delivery',
-      detail: fulfilment === 'pickup' ? 'Keep exact change ready' : 'Pay the rider at your door',
+      label: 'Cash on delivery',
+      detail: 'Pay the rider at your door',
     },
   ];
 
   /*
     The same terms the cart printed, from the same source, because this
     is the screen where the number stops being a preview: the button under it
-    moves money. Items, the kitchen's packing charge and delivery are what
+    moves money. Items, GST, the platform fee and delivery are what
     `foodCustomerOrder.controller.js` adds into `grandTotal`, and there is
-    nothing else in it — no tax, and no coupon, which is why the invented 5%
-    row and the discount line that used to sit here are gone.
+    nothing else in it — no coupon, which is why the discount line that used to
+    sit here is gone. The tax IS real now and comes from the kitchen shape; the
+    invented 5% row that once stood here did not.
   */
   const bill: BillLine[] = [
     { id: 'items', label: `Item total · ${count} ${count === 1 ? 'item' : 'items'}`, amount: itemTotal },
     ...(packagingCharge ? [{ id: 'packaging', label: 'Packaging by the kitchen', amount: packagingCharge }] : []),
-    fulfilment === 'pickup'
-      ? { id: 'pickup', label: 'Pickup at the counter', amount: 0, amountLabel: 'Free' }
-      : { id: 'delivery', label: address ? `Delivery to ${address.title}` : 'Delivery', amount: deliveryFee },
+    ...(gst ? [{ id: 'gst', label: `GST${gstRate ? ` (${gstRate}%)` : ''}`, amount: gst }] : []),
+    ...(platformFee ? [{ id: 'platform', label: 'Platform fee', amount: platformFee }] : []),
+    { id: 'delivery', label: address ? `Delivery to ${address.title}` : 'Delivery', amount: deliveryFee },
   ];
 
   /*
@@ -175,7 +179,7 @@ export default function PaymentScreen() {
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader
         title="Payment"
-        subtitle={`${kitchen.name} · ${fulfilment === 'pickup' ? 'pickup' : 'delivery'}`}
+        subtitle={`${kitchen.name} · delivery`}
         onBack={() => router.back()}
       />
 
@@ -292,7 +296,7 @@ export default function PaymentScreen() {
       >
         <View style={styles.footerLine}>
           <Text variant="caption" color="tertiary" style={{ flex: 1 }} numberOfLines={1}>
-            {count} {count === 1 ? 'item' : 'items'} · {fulfilment === 'pickup' ? 'pickup' : 'delivery'}
+            {count} {count === 1 ? 'item' : 'items'} · delivery
           </Text>
           <Text variant="priceLg">{formatRupees(toPay)}</Text>
         </View>
@@ -319,7 +323,7 @@ export default function PaymentScreen() {
         <Button
           label={
             method === 'cash'
-              ? `Place the order · pay ${formatRupees(toPay)} on ${fulfilment === 'pickup' ? 'pickup' : 'delivery'}`
+              ? `Place the order · pay ${formatRupees(toPay)} on delivery`
               : `Pay ${formatRupees(toPay)}`
           }
           loading={state === 'paying'}

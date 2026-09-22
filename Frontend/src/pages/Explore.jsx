@@ -91,7 +91,22 @@ export function Explore() {
         : 500,
       cities: uniq(listingsData.map(l => l.city)).sort((a, b) => a.localeCompare(b)),
       categories: uniq(listingsData.map(l => l.category)).sort(byCategoryOrder),
-      stays: uniq(listingsData.map(l => l.stayType)),
+      /*
+       * The two lengths a visitor asks for, NOT the raw strings on the rows.
+       *
+       * A property may now offer both, and it is stored as the single value
+       * "Both Short & Long Stay". Listing the raw values put that on screen as
+       * a third chip nobody asked for, beside two that then EXCLUDED it — the
+       * filter matched the whole string, so the one property that suits a
+       * short stay and a long one was the only property hidden from both.
+       *
+       * Derived from what is actually present so a page of monthly-only
+       * listings still shows no useless control: a "Both" row counts towards
+       * each of the two.
+       */
+      stays: ['Short', 'Long'].filter(
+        (word) => listingsData.some((l) => String(l.stayType || '').includes(word)),
+      ),
       amenities: [...tally.entries()]
         .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
         .slice(0, 10)
@@ -120,7 +135,8 @@ export function Explore() {
   const matches = (item, f) => {
     if (f.category !== 'all' && item.category !== f.category) return false;
     if (f.city !== 'all' && item.city !== f.city) return false;
-    if (f.stay !== 'all' && item.stayType !== f.stay) return false;
+    /* `includes`, not equality: "Both Short & Long Stay" answers to both. */
+    if (f.stay !== 'all' && !String(item.stayType || '').includes(f.stay)) return false;
     if (rentOf(item) > (f.maxPrice === null ? facets.priceMax : f.maxPrice)) return false;
     if (f.amenities.length
       && !f.amenities.every(a => (item.amenities || []).includes(a))) return false;
@@ -287,7 +303,7 @@ export function Explore() {
                       onClick={() => set('stay', stay)}
                       disabled={countWith({ stay }) === 0}
                     >
-                      {stay.replace(' Stay', '')}
+                      {stay}
                     </PlainButton>
                   ))}
                 </Box>

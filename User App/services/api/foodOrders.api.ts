@@ -129,7 +129,13 @@ export type ServerFoodOrder = {
   restaurant?: { name?: string; address?: string; phone?: string } | null;
   lines: ServerOrderLine[];
   itemsTotal: number;
+  /** Zero since it was dropped; a real figure on the orders charged one. */
   packagingCharge: number;
+  /** GST on the food, and the rate it was charged at. Zero on older orders. */
+  gst?: number;
+  gstRate?: number;
+  /** The flat platform fee. Charged on pickup too. */
+  platformFee?: number;
   deliveryFee: number;
   discount: number;
   grandTotal: number;

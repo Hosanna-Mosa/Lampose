@@ -651,7 +651,23 @@ const sanitiseApplication = (body) => {
     errors.push(`"${str(ownerPhoneRaw)}" could not be read as a phone number.`);
   }
 
-  restaurant.ownerEmail = str(pick(r, 'ownerEmail', 'owner.email', 'email')).toLowerCase();
+  /*
+   * OPTIONAL, and ABSENT rather than empty when it was not given.
+   *
+   * `ownerEmail` carries a unique index. An empty string is a value like any
+   * other to that index, so writing '' would let the first restaurant without
+   * an email through and refuse every one after it with a duplicate-key error
+   * naming a field nobody filled in. The key is therefore left off the object
+   * entirely, which a sparse unique index skips.
+   *
+   * Why it may be missing at all: the Onboard console signs up owners who do
+   * not use email, and an address typed in to get past a required box —
+   * `na@na.com`, or the agent's own — is a login identity belonging to
+   * somebody else and a settlement notice sent into the dark. The MOBILE
+   * number is the identity this module actually uses.
+   */
+  const ownerEmail = str(pick(r, 'ownerEmail', 'owner.email', 'email')).toLowerCase();
+  if (ownerEmail) restaurant.ownerEmail = ownerEmail;
 
   const logo = toImage(pick(r, 'logoImage', 'logo'));
   if (logo) restaurant.logoImage = logo;
@@ -958,7 +974,13 @@ const validateApplication = (sanitised = {}) => {
     problems.push("an Indian mobile number for the owner — it has to receive the one-time code");
   }
 
-  if (!String(restaurant.ownerEmail || '').includes('@')) problems.push('an email address');
+  /* Checked for SHAPE only when one was given — see the sanitiser above for
+     why an application may carry none. A malformed one is still refused: it is
+     a typo somebody can fix now rather than a login that never works. */
+  const ownerEmail = String(restaurant.ownerEmail || '').trim();
+  if (ownerEmail && !ownerEmail.includes('@')) {
+    problems.push('an email address that looks like one, or none at all');
+  }
 
   /* A password is optional, and only checked when one was actually sent.
      The Food-Partner app asks the owner for one; the Onboard console, which a

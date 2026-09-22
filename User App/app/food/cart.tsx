@@ -44,8 +44,10 @@ export default function CartScreen() {
     itemTotal,
     deliveryFee,
     packagingCharge,
+    gst,
+    gstRate,
+    platformFee,
     toPay,
-    fulfilment,
     address,
     count,
   } = useFood();
@@ -70,12 +72,9 @@ export default function CartScreen() {
     );
   }
 
-  /* The minimum is the KITCHEN'S, and the checkout applies it to pickup as
-     well: `foodCustomerOrder.controller.js` compares the item total against
-     `minOrderValue` before it has even looked at the fulfilment mode. This
-     used to be tested for delivery only, under a notice that told the diner
-     pickup had no minimum — and the server refused those orders anyway. */
-  const belowMinimum = kitchen.minOrder > 0 && itemTotal < kitchen.minOrder;
+  /* There is no minimum order any more: the server reports 0 for every kitchen
+     and `foodCustomerOrder.controller.js` no longer refuses anything for being
+     under one. The notice that used to stand here went with it. */
 
   /*
     The bill, and nothing but the bill.
@@ -94,10 +93,14 @@ export default function CartScreen() {
   */
   const bill: BillLine[] = [
     { id: 'items', label: `Item total · ${count} ${count === 1 ? 'item' : 'items'}`, amount: itemTotal },
+    /* Zero on every kitchen now — GST and the platform fee replaced it — and
+       still listed because an order placed before that carries a real one. */
     ...(packagingCharge ? [{ id: 'packaging', label: 'Packaging by the kitchen', amount: packagingCharge }] : []),
-    fulfilment === 'pickup'
-      ? { id: 'pickup', label: 'Pickup at the counter', amount: 0, amountLabel: 'Free' }
-      : { id: 'delivery', label: address ? `Delivery to ${address.title}` : 'Delivery', amount: deliveryFee },
+    ...(gst ? [{ id: 'gst', label: `GST${gstRate ? ` (${gstRate}%)` : ''}`, amount: gst }] : []),
+    ...(platformFee ? [{ id: 'platform', label: 'Platform fee', amount: platformFee }] : []),
+    /* Every order is delivered — collection is no longer offered, so there is
+       no counter line to print instead of this one. */
+    { id: 'delivery', label: address ? `Delivery to ${address.title}` : 'Delivery', amount: deliveryFee },
   ];
 
   return (
@@ -194,14 +197,6 @@ export default function CartScreen() {
           />
         ) : null}
 
-        {belowMinimum ? (
-          <FoodNotice
-            tone="info"
-            title={`${formatRupees(kitchen.minOrder - itemTotal)} more to place this order`}
-            body={`${kitchen.name} takes orders from ${formatRupees(kitchen.minOrder)}, collected or delivered. Anything under that is refused at the counter.`}
-          />
-        ) : null}
-
         {/*
           The coupons screen, still reachable and no longer promising anything.
 
@@ -253,11 +248,9 @@ export default function CartScreen() {
                told us yet. Said out loud rather than papered over with a zero. */
             packagingCharge === null
               ? 'This kitchen has not sent its packing charge yet, so the total is not final. The order is priced by the kitchen when you place it.'
-              : fulfilment === 'pickup'
-                ? 'Pickup, so nothing is charged for delivery. The counter holds your order for 20 minutes once it is ready.'
-                : address
-                  ? `Delivered to ${address.title}. The rider is assigned once the kitchen plates it.`
-                  : 'Choose where this is going next. The rider is assigned once the kitchen plates it.'
+              : address
+                ? `Delivered to ${address.title}. The rider is assigned once the kitchen plates it.`
+                : 'Choose where this is going next. The rider is assigned once the kitchen plates it.'
           }
         />
 
@@ -304,30 +297,21 @@ export default function CartScreen() {
         ]}
       >
         {/*
-          The next thing this order actually needs, which depends on how it is
-          being collected.
+          The next thing this order actually needs: an address.
 
-          A DELIVERY needs an address — the slot picker that used to sit here
-          set a time the server has no field for, where the address is the one
-          thing an order cannot go out without.
-
-          A PICKUP does not. The backend sends no rider for one and forces
-          `deliveryAddress` to empty, so demanding an address would be asking a
-          question with no consequence — and worse, the address screen's only
-          forward action for an empty book is "Add an address", which would
-          DEADLOCK somebody who has never saved one and only ever meant to
-          collect the food themselves.
+          The slot picker that used to sit here set a time the server has no
+          field for; the address is the one thing an order cannot go out
+          without. This used to branch — a collection order went straight to
+          payment, because demanding an address for food somebody was walking
+          in to fetch was a question with no consequence, and the address
+          screen's only forward action for an empty book is "Add an address",
+          which would have deadlocked them. Collection is no longer offered, so
+          there is one path and it needs an address.
         */}
         <Button
-          label={
-            fulfilment === 'pickup'
-              ? `Choose payment · ${formatRupees(toPay)}`
-              : `Choose address · ${formatRupees(toPay)}`
-          }
+          label={`Choose address · ${formatRupees(toPay)}`}
           fullWidth
-          onPress={() =>
-            router.push(fulfilment === 'pickup' ? foodHref.payment : foodHref.address)
-          }
+          onPress={() => router.push(foodHref.address)}
         />
       </View>
     </View>

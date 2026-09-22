@@ -9,7 +9,7 @@
 
 export const STEPS = [
   { num: 1, label: 'Restaurant Information', sub: 'Name, owner, location' },
-  { num: 2, label: 'Operational Details', sub: 'Opening hours' },
+  { num: 2, label: 'Operational Details', sub: 'Opening hours, menu' },
   { num: 3, label: 'Documents & Legal', sub: 'PAN, FSSAI, bank, refunds' },
   { num: 4, label: 'Contract & Review', sub: 'Terms and signature' },
 ];
@@ -21,6 +21,71 @@ export const CUISINE_OPTIONS = [
 ];
 
 export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+/*
+ * The menu, as this form collects it.
+ *
+ * SIX fields per dish out of the thirty `foodProduct.model.js` carries, and
+ * the cut is deliberate: the three the backend REFUSES an item without — a
+ * name, a category and a price — plus the three an owner answers without
+ * looking anything up. Variants, add-ons, allergens, calories, preparation
+ * time, tags and the photographs are all real fields on that model and all of
+ * them belong to the Food-Partner app, where the owner has their own menu card
+ * in front of them and as long as it takes. An agent standing at a counter for
+ * twenty minutes is not typing a photograph for sixty dishes.
+ *
+ * Which is also why the whole section is OPTIONAL: an application with no menu
+ * is a valid application (see `validateApplication` in the backend), and a
+ * restaurant with no menu is invisible to diners until it has one anyway.
+ */
+
+/** Suggestions, not a closed list — the input stays free text. */
+export const MENU_CATEGORY_OPTIONS = [
+  'Starters', 'Soups', 'Main Course', 'Biryani', 'Rice', 'Breads',
+  'Curries', 'Rolls & Wraps', 'Snacks', 'Combos & Thalis',
+  'Desserts', 'Beverages',
+];
+
+/** `foodProduct.model.js`'s own enum, in the order a card is usually read. */
+export const IS_VEG_OPTIONS = [
+  { id: 'veg', label: 'Veg' },
+  { id: 'egg', label: 'Egg' },
+  { id: 'non-veg', label: 'Non-veg' },
+];
+
+/* A client-side id, so a row keeps its identity while the list is edited.
+   Keyed by array index instead, deleting the second of five dishes would
+   re-key the three below it and hand them the wrong values mid-edit. */
+let menuSeq = 0;
+
+/** One empty dish. `isVeg` starts at the schema's own default. */
+export const createMenuItem = () => {
+  menuSeq += 1;
+  return {
+    uid: `dish-${menuSeq}`,
+    name: '',
+    category: '',
+    price: '',
+    discountedPrice: '',
+    isVeg: 'veg',
+    description: '',
+    /* The picture, held as the File itself until submit — it is uploaded to
+       Cloudinary there and becomes `productImage` on the row. */
+    photoFile: null,
+  };
+};
+
+/**
+ * Has anybody put anything into this row? An untouched row is not a dish.
+ *
+ * A PHOTOGRAPH counts. Somebody who attached a picture and nothing else has
+ * started a dish, and the rules then ask for the name and the price that
+ * picture belongs to — which is better than silently dropping the row, and the
+ * photograph with it, at submit.
+ */
+export const isMenuItemStarted = (item = {}) => Boolean(item.photoFile) || [
+  item.name, item.category, item.price, item.discountedPrice, item.description,
+].some((value) => String(value ?? '').trim() !== '');
 
 /*
  * The states, as a CLOSED list, and the district as free text beside it.
@@ -106,6 +171,8 @@ export const COPY = {
   categoryLabel: 'Cuisine / Food Category',
   categoryHelp: 'Select all that apply to this restaurant',
   operatingHelp: 'Add multiple time slots if the restaurant has break times.',
+  logoHelp: 'Optional. The shop front, the sign, or the owner’s own logo — it is the picture a diner sees first. JPG or PNG, up to 10MB.',
+  menuHelp: 'Optional. Add a few dishes now if the owner has their card to hand — the rest are added from the Food-Partner app after approval.',
   gstExemptLabel: 'This restaurant is exempt / Composition scheme',
   safetyTitle: 'Food Safety License',
   safetyUploadDescription: 'Upload a clear scan or photo of the FSSAI license',
@@ -146,11 +213,18 @@ export const INITIAL_RESTAURANT_STATE = {
   city: '',
   landmark: '',
 
-  /* Step 2 — operations. Hours only: the menu is added by the restaurant
-     from the Food-Partner app once an admin approves the account. */
+  /* Step 2 — operations. The hours, and a menu the agent may skip: an empty
+     list is submitted as no products at all, and the owner types their own
+     from the Food-Partner app once the account is approved. */
   selectedDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
   activeTimingDay: 'Monday',
   dayTimeSlots: createDefaultDayTimeSlots(),
+
+  /* Step 2 — the shop's own picture, and the dishes. Both optional, both held
+     as Files until submit uploads them: `logoFile` becomes `logoImage` on the
+     restaurant and a dish's `photoFile` becomes its `productImage`. */
+  logoFile: null,
+  menuItems: [],
 
   /* Step 3 — tax and identity.
      Two scans are collected, the PAN card and the FSSAI certificate. The GST

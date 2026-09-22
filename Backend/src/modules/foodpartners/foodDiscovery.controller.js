@@ -90,6 +90,7 @@ const {
   logDiscovery, logRejected, logDependencyMissing, startTimer,
 } = require('./foodPartner.log');
 const { escapeRegex } = require('../../shared/utils/text');
+const { GST_RATE, PLATFORM_FEE } = require('./foodCharges.util');
 
 const { isOpenNow, PARTNER_TYPES } = FoodRestaurant;
 
@@ -447,7 +448,14 @@ const listRow = (doc, distanceKm) => ({
   ratingCount: number(doc.ratingCount),
   avgPreparationTime: number(doc.avgPreparationTime),
   deliveryFee: deliveryFeeOf(doc.deliveryFee),
-  minOrderValue: number(doc.minOrderValue),
+  /* Zero, always. A kitchen has no minimum order any more — see
+     `foodCharges.util.js`. Reported rather than dropped because the app reads
+     it by name and would render `undefined` in a comparison. */
+  minOrderValue: 0,
+  /* The platform's own charges, the same for every restaurant. They ride here
+     because the CART is what needs them and this is the object it holds. */
+  gstRate: GST_RATE,
+  platformFee: PLATFORM_FEE,
   /* Derived from `openState` and the hours below. Both travel: this one
      answers "right now", the hours answer "which meal windows". */
   isCurrentlyOpen: isOpenNow(doc),
@@ -558,8 +566,12 @@ const restaurantDetail = (doc) => ({
 
   avgPreparationTime: number(doc.avgPreparationTime),
   deliveryRadiusKm: number(doc.deliveryRadiusKm),
-  minOrderValue: number(doc.minOrderValue),
-  packagingCharge: number(doc.packagingCharge),
+  /* Both zero: no minimum order, and the packaging charge was replaced by GST
+     and a flat platform fee. See `foodCharges.util.js`. */
+  minOrderValue: 0,
+  packagingCharge: 0,
+  gstRate: GST_RATE,
+  platformFee: PLATFORM_FEE,
   deliveryFee: deliveryFeeOf(doc.deliveryFee),
   acceptsOnlinePayment: doc.acceptsOnlinePayment !== false,
   acceptsCod: doc.acceptsCod !== false,
@@ -586,7 +598,14 @@ const restaurantSummary = (doc) => ({
   ratingCount: number(doc.ratingCount),
   avgPreparationTime: number(doc.avgPreparationTime),
   deliveryFee: deliveryFeeOf(doc.deliveryFee),
-  minOrderValue: number(doc.minOrderValue),
+  /* Zero, always. A kitchen has no minimum order any more — see
+     `foodCharges.util.js`. Reported rather than dropped because the app reads
+     it by name and would render `undefined` in a comparison. */
+  minOrderValue: 0,
+  /* The platform's own charges, the same for every restaurant. They ride here
+     because the CART is what needs them and this is the object it holds. */
+  gstRate: GST_RATE,
+  platformFee: PLATFORM_FEE,
   isCurrentlyOpen: isOpenNow(doc),
   address: placeOf(doc.address),
 });

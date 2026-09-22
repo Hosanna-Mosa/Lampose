@@ -21,6 +21,7 @@ import {
   uploadSharingImages,
 } from './services/api.js';
 import { getCurrentUser, logout, getSavedEmployeeEmail } from './services/auth.js';
+import { stayOffersFor } from './services/stayOffers';
 import { validateOnboarding, firstErrorKey, anchorFor } from './services/validation.js';
 import { readPin, splitAddress } from './services/mapLink.js';
 import { PlusCircle, AlertCircle, Building2, Loader2, CloudUpload, Database, ShieldAlert, WifiOff } from 'lucide-react';
@@ -458,7 +459,10 @@ export function App() {
            Writing it to `monthlyPrice` would put ₹450 where the site expects a
            month's rent and advertise a hotel as the cheapest home in the
            city. */
-        const nightly = prev.category === 'HOTEL' && prev.stayType === 'Short Stay';
+        /* Read through the shared rule rather than compared here: a hotel is
+           nightly by definition, and `stayOffersFor` is where that lives now
+           that a property can offer both lengths. */
+        const nightly = prev.category === 'HOTEL' && stayOffersFor(prev).short;
         const priceField = nightly ? 'dailyPrice' : 'monthlyPrice';
 
         if (prices.length > 0) {

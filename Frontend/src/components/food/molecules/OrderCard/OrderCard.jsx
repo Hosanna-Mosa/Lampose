@@ -76,8 +76,14 @@ export function OrderCard({ order, onReorder }) {
         {order.refund && <Inline className="fd-chip fd-chip--good">REFUNDED</Inline>}
 
         <Box className="fd-order__actions">
+          {/* "Receipt" was the label, and it is the one word this button never
+              meant: it opens the order — its status, its lines, what was paid —
+              and there is no receipt to hand anybody. Named for where it
+              goes. */}
           {order.status !== 'cancelled' && (
-            <Link to={`/food/orders/${order.reference}`} className="fd-btn fd-btn--ghost fd-btn--sm">Receipt</Link>
+            <Link to={`/food/orders/${order.reference}`} className="fd-btn fd-btn--ghost fd-btn--sm">
+              View order
+            </Link>
           )}
           <PlainButton type="button" className="fd-btn fd-btn--dark fd-btn--sm" onClick={onReorder}>
             {order.status === 'cancelled' ? 'Order again' : 'Reorder'}

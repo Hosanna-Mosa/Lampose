@@ -1048,7 +1048,13 @@ export interface FoodOrderLine {
  */
 export interface FoodOrderMoney {
   itemsTotal: number;
+  /** Zero since it was dropped; a real figure on the orders charged one. */
   packagingCharge: number;
+  /** GST on the food, and the rate it was charged at. Zero on older orders. */
+  gst: number;
+  gstRate: number;
+  /** The flat platform fee. Charged on pickup too. */
+  platformFee: number;
   deliveryFee: number;
   discount: number;
   grandTotal: number;
@@ -1180,6 +1186,8 @@ export interface FoodOrderQuery {
   paymentStatus?: FoodOrderPaymentStatus | FoodOrderPaymentStatus[] | 'all' | '';
   paymentMode?: FoodOrderPaymentMode | 'all' | '';
   dispatchState?: FoodDispatchState | 'all' | '';
+  /** Delivery, pickup, or unset for both. */
+  fulfilment?: FoodOrderFulfilment | 'all' | '';
   restaurantId?: string;
   /** 'YYYY-MM-DD' or a full ISO stamp. A bare `to` date covers its whole day. */
   from?: string;

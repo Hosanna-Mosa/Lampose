@@ -242,10 +242,19 @@ export type ServerOrder = {
     isVeg?: string;
     note?: string;
   }[];
+  /** The FOOD — a kitchen's own total, and what its commission comes off. */
   itemsTotal: number;
-  packagingCharge: number;
-  deliveryFee: number;
-  grandTotal: number;
+  /*
+   * What the diner paid on top and the bill they add up to. The server stopped
+   * sending a partner session any of them — see `partnerView` — because GST,
+   * the platform fee and the delivery fee are not the restaurant's to sell,
+   * collect or keep, and printing `grandTotal` on a kitchen's screen showed
+   * ₹200 for ₹160 of food. Optional so an order cached before the change
+   * still types.
+   */
+  packagingCharge?: number;
+  deliveryFee?: number;
+  grandTotal?: number;
   partnerPayout: number;
   paymentMode: "online" | "cod";
   paymentStatus: string;

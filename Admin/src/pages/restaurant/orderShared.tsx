@@ -206,13 +206,17 @@ export const OrderDetail: React.FC<{ order: RestaurantOrder }> = ({ order }) => 
         <Box>
           <Text className="text-label uppercase text-ink-3 mb-1">Money</Text>
           <Box className="divide-y divide-line">
-            <Line label="Items">{rupees(order.itemsTotal)}</Line>
-            {order.packagingCharge > 0 && <Line label="Packaging">{rupees(order.packagingCharge)}</Line>}
-            {order.deliveryFee > 0 && <Line label="Delivery">{rupees(order.deliveryFee)}</Line>}
-            {order.discount > 0 && <Line label="Discount">−{rupees(order.discount)}</Line>}
-            <Line label="Diner paid">
-              <Strong className="text-ink">{rupees(order.grandTotal)}</Strong>
-            </Line>
+            {/*
+              Two lines, and they are the only two that are the kitchen's.
+
+              GST, the platform fee, the delivery fee and what the diner
+              finally paid used to be listed here as well. None of them is the
+              restaurant's to sell, collect or keep, and the server stopped
+              sending them to a partner session at all — see `partnerView`.
+              What an owner needs from a single order is what they cooked and
+              what they are paid for it; the diner's bill belongs to the diner.
+            */}
+            <Line label="Food total">{rupees(order.itemsTotal)}</Line>
             {/* The figure this whole screen exists to show an owner. */}
             <Line label={`You receive (after ${order.commissionRate}% commission)`}>
               <Strong className="text-ink">{rupees(order.partnerPayout)}</Strong>

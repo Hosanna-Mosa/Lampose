@@ -121,13 +121,24 @@ export function CartProvider({ children }) {
 
   const { user, isSignedIn, status } = useAuth();
   const {
-    kitchens, loading: catalogueLoading, kitchenById, loadMenu,
+    kitchens, loading: catalogueLoading, kitchenById, loadMenu, setPoint,
   } = useFoodCatalogue();
 
   const [kitchenId, setKitchenId] = useState(saved ? saved.kitchenId : null);
   const [lines, setLines] = useState(() => (saved ? saved.lines : []));
   const [couponCode, setCouponCode] = useState(saved ? saved.couponCode : null);
-  const [fulfilment, setFulfilment] = useState(saved?.fulfilment || 'delivery');
+  /*
+   * Always 'delivery'. Pickup is no longer offered — the order endpoint
+   * refuses one — so there is nothing to choose and nothing to store.
+   *
+   * The VALUE stays because it is what the bill, the checkout and the order
+   * request are all written against, and because a cart restored from a tab
+   * opened before this change may still carry `fulfilment: 'pickup'` in
+   * session storage. Reading it from the constant rather than from the store
+   * is what stops that tab quietly placing a collection order. There is no
+   * setter any more.
+   */
+  const fulfilment = 'delivery';
   /* Null until the diner's own addresses arrive and one is chosen. There is no
      default to fall back on any more: the fixture's "Block C · Room 214" was
      somebody's address, and a real diner has their own or none. */
@@ -208,18 +219,33 @@ export function CartProvider({ children }) {
    * Refetched when the kitchen changes because the verdict is per kitchen —
    * the same door can be inside one kitchen's delivery area and outside
    * another's, and the checkout has to say so before anybody pays.
+   *
+   * A CALLBACK rather than a bare effect, because the address page writes to
+   * this list — adding, editing, removing, changing the default — and the
+   * screen it returns to has to show what was written. Numbered like the
+   * history read below: a refresh and a kitchen change can be in flight
+   * together, and the older answer must not land last.
    */
-  useEffect(() => {
-    if (!isSignedIn) { setAddresses([]); return undefined; }
-    let live = true;
-    fetchAddresses({ kitchenId })
-      .then(res => { if (live) setAddresses(res.addresses || []); })
+  const addressRequest = useRef(0);
+  const refreshAddresses = useCallback(async () => {
+    const mine = addressRequest.current + 1;
+    addressRequest.current = mine;
+    if (!isSignedIn) { setAddresses([]); return []; }
+    try {
+      const res = await fetchAddresses({ kitchenId });
+      const rows = res.addresses || [];
+      if (mine === addressRequest.current) setAddresses(rows);
+      return rows;
+    } catch {
       /* A failed address fetch leaves the list empty, and the checkout says
          "add an address" — which is recoverable. Throwing here would take
          the whole cart down over one list. */
-      .catch(() => { if (live) setAddresses([]); });
-    return () => { live = false; };
+      if (mine === addressRequest.current) setAddresses([]);
+      return [];
+    }
   }, [isSignedIn, kitchenId]);
+
+  useEffect(() => { refreshAddresses(); }, [refreshAddresses]);
 
   /* Choose an address once they arrive: the one already chosen if it still
      exists, else the diner's default, else the first serviceable one, else the
@@ -233,6 +259,36 @@ export function CartProvider({ children }) {
       || addresses[0];
     setAddressId(pick.id);
   }, [addresses, addressId]);
+
+  /*
+   * The chosen address IS where the visitor is, as far as the feed is
+   * concerned.
+   *
+   * `point` is what the catalogue sends to the server, and it decides three
+   * things a fixture used to assert: which kitchens can reach this door, how
+   * far each one is, and whether "Nearest first" is a real sort. Nothing set
+   * it before, so the feed said "Add your address to see whether we deliver to
+   * you" to a diner whose address was named in the bar directly above it.
+   *
+   * Only an address with a PIN moves it. A hostel address typed without one is
+   * a real address (see `shared/utils/address.js`) and simply cannot answer a
+   * distance question — the feed keeps saying it does not know rather than
+   * measuring from a guess.
+   */
+  useEffect(() => {
+    if (!address || !Number.isFinite(address.lat) || !Number.isFinite(address.lng)) {
+      /* Signed out, the last point goes with the session: a delivery verdict
+         is about somebody, and there is nobody. */
+      if (status === 'guest') setPoint(null);
+      return;
+    }
+    /* Compared before it is set, because `point` is a dependency of the
+       catalogue's fetch — an identical object would refetch the whole feed on
+       every render of every page. */
+    setPoint(prev => (prev && prev.lat === address.lat && prev.lng === address.lng
+      ? prev
+      : { lat: address.lat, lng: address.lng }));
+  }, [address, status, setPoint]);
 
   /*
    * The coupons the server will honour — and NONE of the others.
@@ -546,11 +602,12 @@ export function CartProvider({ children }) {
     kitchenId, kitchen, lines, bill, coupon, fulfilment, address, addressId, payment,
     orders, addresses, coupons,
     ordersLoading: historyLoading, refreshOrders: loadHistory,
+    refreshAddresses,
     add, setQty, remove, clear, applyCoupon, removeCoupon, reorder,
-    setFulfilment, setAddressId, setPayment, placeOrder,
+    setAddressId, setPayment, placeOrder,
   }), [
     kitchenId, kitchen, lines, bill, coupon, fulfilment, address, addressId, payment,
-    orders, addresses, coupons, historyLoading, loadHistory,
+    orders, addresses, coupons, historyLoading, loadHistory, refreshAddresses,
     add, setQty, remove, clear, applyCoupon, removeCoupon, reorder, placeOrder,
   ]);
 

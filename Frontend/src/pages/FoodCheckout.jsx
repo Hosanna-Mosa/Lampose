@@ -8,7 +8,6 @@ import { BillLines } from '../components/food/molecules/BillLines';
 import { PhotoTile } from '../components/food/atoms/PhotoTile';
 import { ActiveOrder } from '../components/food/organisms/ActiveOrder';
 import { useCart } from '../food/CartProvider';
-import { ENFORCE_MINIMUM } from '../food/cart';
 import { useReveals } from '../hooks/useSite';
 import { rupees } from '../data/food';
 import { fetchPaymentMethods } from '../api/foodApi';
@@ -20,8 +19,8 @@ import { useAuth } from '../auth/AuthProvider';
    ## An address that cannot be delivered to says so, here
 
    Not after payment. The unserviceable address stays in the list, disabled,
-   with the reason in a sentence and a way out — pickup, or a kitchen that
-   does reach it. A hidden address reads as a deleted address.
+   with the reason in a sentence and a way out — another address, or a kitchen
+   that does reach this one. A hidden address reads as a deleted address.
 
    ## This places a REAL order
 
@@ -29,7 +28,7 @@ import { useAuth } from '../auth/AuthProvider';
    prices the order, writes it, and tells the kitchen - it is in the restaurant
    admin's queue by the time this page navigates to its tracking screen.
 
-   ## Cash and pickup only, and the page says so
+   ## Cash only, and the page says so
 
    Paying online is not offered on the website yet: the payment page can only
    return a customer to the app's `lampose://` links, so a card payment started
@@ -152,12 +151,11 @@ export function FoodCheckout() {
      as in the cart: this page has its own URL, and a rule enforced only by
      the button on the previous screen is not enforced at all. */
   const unreachable = fulfilment === 'delivery' && !chosen?.serviceable;
-  const underMinimum = bill.shortOfMinimum > 0;
   /* An address we cannot reach is a hard stop — there is nowhere to send the
-     rider. The kitchen's minimum only stops the order when the site is set to
-     enforce it; see ENFORCE_MINIMUM in food/cart.js. */
+     rider. A kitchen minimum was the other one and is gone: there is no
+     minimum order any more, here or on the server. */
   const cashOnly = methodsLoaded && payable && usable.length === 0;
-  const blocked = placing || unreachable || !payable || !usable.length || (ENFORCE_MINIMUM && underMinimum);
+  const blocked = placing || unreachable || !payable || !usable.length;
 
   /**
    * What the diner is told when the order did not go through.
@@ -209,7 +207,7 @@ export function FoodCheckout() {
         <Box className="fd-pageHead">
           <Heading level={1} className="fd-h1">Checkout</Heading>
           <Text className="fd-pageHead__note">
-            <Icon name="verified" className="fd-ico" /> Pay in cash when it arrives, or at the counter for pickup.
+            <Icon name="verified" className="fd-ico" /> Pay in cash when it arrives.
           </Text>
         </Box>
 
@@ -217,14 +215,20 @@ export function FoodCheckout() {
           <Box className="fd-two__main">
 
             {/* ── address ───────────────────────────────────────────────── */}
-            {fulfilment === 'delivery' ? (
+            {/* Every order is delivered — collection is no longer offered, and
+                the "Collecting it yourself" panel that stood beside this one
+                went with it. */}
+            {fulfilment === 'delivery' && (
               <Box className="fd-panel fd-panel--lift reveal">
                 <Box className="fd-panel__head">
                   <Heading level={2} className="fd-panel__title">Where should the rider come?</Heading>
-                  <PlainButton type="button" className="fd-btn fd-btn--ghost fd-btn--sm">
+                  {/* The book is edited on its own page — this panel chooses
+                      between what is in it. The button here used to do
+                      nothing at all. */}
+                  <Link to="/food/address?next=/food/checkout" className="fd-btn fd-btn--ghost fd-btn--sm">
                     <Icon name="pin" className="fd-ico" />
-                    Use my location
-                  </PlainButton>
+                    Manage addresses
+                  </Link>
                 </Box>
 
                 {/* Two states a fixture never had: nobody signed in, and a diner
@@ -244,8 +248,9 @@ export function FoodCheckout() {
                   <Box className="fd-callout">
                     <Icon name="info" className="fd-ico" />
                     <Text>
-                      You have no saved addresses yet. Add one in the Lampose app, or choose pickup to collect it
-                      yourself.
+                      You have no saved addresses yet.{' '}
+                      <Link to="/food/address?next=/food/checkout&new=1" className="fd-link">Add one</Link>
+                      {' '}An order needs somewhere to go.
                     </Text>
                   </Box>
                 )}
@@ -278,15 +283,19 @@ export function FoodCheckout() {
                         )}
                       </Box>
                       {addr.serviceable
-                        ? <Inline className="fd-link">Edit</Inline>
+                        ? (
+                          <Link to={`/food/address?next=/food/checkout&edit=${addr.id}`} className="fd-link">
+                            Edit
+                          </Link>
+                        )
                         : <Link to="/food" className="fd-link">See kitchens</Link>}
                     </Label>
                   ))}
                 </FieldSet>
 
-                <PlainButton type="button" className="fd-btn fd-btn--dashed fd-btn--full">
+                <Link to="/food/address?next=/food/checkout&new=1" className="fd-btn fd-btn--dashed fd-btn--full">
                   + Add a new address
-                </PlainButton>
+                </Link>
 
                 <Box className="fd-fieldRow">
                   <Box className="fd-field">
@@ -308,23 +317,6 @@ export function FoodCheckout() {
                   </Box>
                 </Box>
               </Box>
-            ) : (
-              <Box className="fd-panel fd-panel--lift reveal">
-                <Heading level={2} className="fd-panel__title">Collecting it yourself</Heading>
-                <Box className="fd-addr">
-                  <Icon name="store" className="fd-ico" />
-                  <Box className="fd-addr__text">
-                    <Inline className="fd-addr__title">{kitchen.name}</Inline>
-                    <Inline className="fd-addr__detail">
-                      {kitchen.landmark} · ready in about {kitchen.prepMinutes} minutes
-                    </Inline>
-                  </Box>
-                  <Link to="/food/cart" className="fd-link">Switch to delivery</Link>
-                </Box>
-                <Text className="fd-note">
-                  Pay at the counter when you collect it. No delivery fee is charged on a pickup.
-                </Text>
-              </Box>
             )}
 
             {/* ── payment ───────────────────────────────────────────────── */}
@@ -336,7 +328,6 @@ export function FoodCheckout() {
                 {methods.map(method => {
                   /* Online methods are shown and cannot be chosen - see the header. */
                   const offApp = Boolean(method.online);
-                  const pickup = fulfilment === 'pickup';
                   return (
                     <Label
                       key={method.id}
@@ -352,14 +343,12 @@ export function FoodCheckout() {
                       <Inline className="fd-choice__badge"><Icon name={method.icon} className="fd-ico" /></Inline>
                       <Box className="fd-choice__text">
                         <Inline className="fd-choice__title">
-                          {method.id === 'cod' && pickup ? 'Pay at the counter' : method.label}
+                          {method.label}
                         </Inline>
                         <Inline className="fd-choice__detail">
                           {offApp
                             ? 'Not on the website yet - pay online in the Lampose app.'
-                            : pickup
-                              ? 'Pay when you collect it.'
-                              : method.note}
+                            : method.note}
                         </Inline>
                       </Box>
                       {!offApp && method.tag && <Inline className="fd-choice__tag">{method.tag}</Inline>}
@@ -399,7 +388,7 @@ export function FoodCheckout() {
                   <Inline className="fd-cart__name">{kitchen.name}</Inline>
                   <Inline className="fd-cart__meta">
                     {bill.count} item{bill.count === 1 ? '' : 's'} ·{' '}
-                    {fulfilment === 'delivery' ? (chosen ? `delivery to ${chosen.title}` : 'delivery') : 'pickup'}
+                    {chosen ? `delivery to ${chosen.title}` : 'delivery'}
                   </Inline>
                 </Box>
                 <Link to="/food/cart" className="fd-link">Edit</Link>
@@ -420,7 +409,7 @@ export function FoodCheckout() {
                 bill={bill}
                 fulfilment={fulfilment}
                 couponCode={coupon?.code}
-                payLabel={fulfilment === 'pickup' ? 'Pay at the counter' : 'Pay on delivery'}
+                payLabel="Pay on delivery"
               />
 
               <PlainButton
@@ -431,7 +420,7 @@ export function FoodCheckout() {
               >
                 {placing
                   ? 'Placing your order…'
-                  : `Place order · ${rupees(bill.toPay)} ${fulfilment === 'pickup' ? 'at the counter' : 'on delivery'}`}
+                  : `Place order · ${rupees(bill.toPay)} on delivery`}
               </PlainButton>
 
               {/* Why the last attempt did not go through - the server's own sentence
@@ -446,16 +435,10 @@ export function FoodCheckout() {
                 </Box>
               )}
 
-              {underMinimum && (
-                <Text className="fd-note fd-note--warn" role="status">
-                  The minimum order at {kitchen.name} is {rupees(kitchen.minOrder)}. Add {rupees(bill.shortOfMinimum)}
-                  {' '}more{ENFORCE_MINIMUM ? ' to place it.' : '.'}
-                </Text>
-              )}
 
               {unreachable && (
                 <Text className="fd-note fd-note--warn" role="alert">
-                  Pick a serviceable address, or switch to pickup, before placing this order.
+                  Pick an address we can deliver to before placing this order.
                 </Text>
               )}
 

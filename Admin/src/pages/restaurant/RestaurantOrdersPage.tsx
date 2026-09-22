@@ -332,7 +332,7 @@ export const RestaurantOrdersPage: React.FC<RestaurantOrdersPageProps> = ({
             <Tr>
               <Th>Order</Th>
               <Th>Items</Th>
-              <Th className="text-right">Total</Th>
+              <Th className="text-right">Food</Th>
               <Th>Payment</Th>
               <Th>State</Th>
               <Th className="text-right">Action</Th>
@@ -390,10 +390,13 @@ export const RestaurantOrdersPage: React.FC<RestaurantOrdersPageProps> = ({
                       </Text>
                     </Td>
                     <Td className="text-right">
-                      <Strong className="text-ink tabular">{rupees(order.grandTotal)}</Strong>
-                      {/* What reaches the kitchen, under what the diner paid.
-                          The two are different numbers and an owner cares
-                          about the second one. */}
+                      {/* The FOOD, and what reaches the kitchen for it.
+                          This used to print `grandTotal`, which carries GST,
+                          the platform fee and the delivery fee — so a ₹160
+                          order read ₹200 here, and none of the difference was
+                          the restaurant's to sell, collect or keep. The server
+                          no longer sends it: see `partnerView`. */}
+                      <Strong className="text-ink tabular">{rupees(order.itemsTotal)}</Strong>
                       <Text className="text-label text-ink-3 tabular mt-0.5">
                         you get {rupees(order.partnerPayout)}
                       </Text>

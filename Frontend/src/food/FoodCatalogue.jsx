@@ -16,7 +16,8 @@
 
      kitchens    once, on mount. Seventeen rows; a page that needs one
                  kitchen should not pay for a round trip to name it.
-     catalogue   with the kitchens — the cuisine chips and the area.
+     catalogue   with the kitchens — the cuisine chips and the delivery
+                 verdict for wherever the visitor is.
      menus       LAZILY, per kitchen, and cached. A menu is only needed when
                  somebody opens a kitchen, and loading all seventeen up front
                  would be seventeen requests for a page that shows cards.
@@ -46,14 +47,14 @@ import {
 const FoodCatalogueContext = createContext(null);
 
 /* The shape the feed's chrome falls back to before the first reply lands, and
-   after one that failed. Empty rather than invented: an area nobody confirmed
-   is the one thing this file must not make up, because "we deliver to X" is a
-   promise. */
+   after one that failed. Empty rather than invented: a delivery verdict
+   nobody confirmed is the one thing this file must not make up, because "we
+   deliver to you" is a promise. */
 const NO_CATALOGUE = {
   cuisines: [],
   dietLabels: { veg: 'Veg', egg: 'Contains egg', nonveg: 'Non-veg' },
-  area: null,
   located: false,
+  kitchensReaching: 0,
   serviceable: false,
 };
 

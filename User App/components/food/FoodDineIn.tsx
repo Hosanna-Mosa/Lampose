@@ -43,20 +43,17 @@ import { RestaurantListCard } from './RestaurantListCard';
  * — which means the order goes out as a DELIVERY, not as something eaten at
  * the counter.
  *
- * That is not a choice this screen made. `FoodContext` holds a `fulfilment`
- * mode and a `setFulfilment` to change it, the cart already branches on
- * `fulfilment === 'pickup'` for its bill line, its footnote and where the
- * primary button goes, and `FulfilmentToggle` exists and is exported — but
- * NOTHING IN THE APP CALLS `setFulfilment`, and nothing renders that toggle.
- * The mode is stuck on its initial `'delivery'` for every order the app has
- * ever placed. Wiring that control back in is the next piece of work and it
- * is client-side only; until it lands, "eat in" is a way of finding a kitchen
- * here, not a way of ordering from one.
+ * That is not a choice this screen made, and it is now the only choice there
+ * is. The app never did offer collection: `FulfilmentToggle` existed and was
+ * exported, nothing rendered it, nothing called `setFulfilment`, and every
+ * order this app has ever placed went out as a delivery. Pickup has since been
+ * withdrawn from the product entirely — the order endpoint refuses one — so
+ * the toggle is deleted and the mode is a constant.
  *
- * Beyond that, and needing the server: a true dine-in order has no mode to be
- * stored under. `foodOrder.model.js` is `enum: ['delivery', 'pickup']`, and a
- * third value reaches `foodDispatch.service.js`, the partner app and the admin
- * console before it means anything to a kitchen.
+ * A true dine-in order would need the server before it meant anything:
+ * `foodOrder.model.js` is `enum: ['delivery', 'pickup']`, a third value
+ * reaches `foodDispatch.service.js`, the partner app and the admin console
+ * before a kitchen sees it, and 'pickup' itself is now closed to new orders.
  *
  * What this screen deliberately does NOT claim, at any stage, is a table.
  * There is no reservation, no seat count and no "book" button, because a

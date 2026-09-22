@@ -137,6 +137,7 @@ import { rupees, rupeesFromPaise } from '../lib/format';
 import type {
   FoodDispatchOfferOutcome,
   FoodDispatchState,
+  FoodOrderFulfilment,
   FoodOrderCounts,
   FoodOrderDetail,
   FoodOrderNeeds,
@@ -294,6 +295,9 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
   const [paymentStatus, setPaymentStatus] = useState<FoodOrderPaymentStatus | 'all'>('all');
   const [paymentMode, setPaymentMode] = useState<FoodOrderPaymentMode | 'all'>('all');
   const [dispatchState, setDispatchState] = useState<FoodDispatchState | 'all'>('all');
+  /* Delivery, pickup, or both. Its own filter because every other one on this
+     screen describes the RIDE, and a pickup order has no ride to describe. */
+  const [fulfilment, setFulfilment] = useState<FoodOrderFulfilment | 'all'>('all');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
@@ -328,6 +332,7 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
   const query: FoodOrderQuery = useMemo(
     () => ({
       needs,
+      fulfilment,
       status: statusParam(status),
       paymentStatus,
       paymentMode,
@@ -337,7 +342,7 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
       q,
       page,
     }),
-    [needs, status, paymentStatus, paymentMode, dispatchState, from, to, q, page]
+    [needs, fulfilment, status, paymentStatus, paymentMode, dispatchState, from, to, q, page]
   );
 
   const queue = useFetch(() => foodOrderService.list(query), [query]);
@@ -356,7 +361,7 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
      state change, and does not cost the queue a second request. */
   useEffect(() => {
     setPage((current) => (current === 1 ? current : 1));
-  }, [needs, status, paymentStatus, paymentMode, dispatchState, from, to, q]);
+  }, [needs, fulfilment, status, paymentStatus, paymentMode, dispatchState, from, to, q]);
 
   const rows = queue.data?.rows ?? [];
   /* Named for what it is on this screen; owned by App, which draws the same
@@ -732,6 +737,7 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
     || paymentStatus !== 'all'
     || paymentMode !== 'all'
     || dispatchState !== 'all'
+    || fulfilment !== 'all'
     || !!from
     || !!to;
 
@@ -741,6 +747,7 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
     setPaymentStatus('all');
     setPaymentMode('all');
     setDispatchState('all');
+    setFulfilment('all');
     setFrom('');
     setTo('');
   };
@@ -871,6 +878,30 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
               <Option value="all">Either</Option>
               <Option value="online">Online</Option>
               <Option value="cod">Cash</Option>
+            </Select>
+          </Field>
+
+          {/*
+            Collection has been withdrawn — the order endpoint refuses one — so
+            this finds the handful placed before that and nothing else. They are
+            the hardest orders on this screen to reason about precisely because
+            no rider is coming for them: a pickup order can never be flagged as
+            one that lost its ride, and it reaches the "needs a person" queue
+            only by going stale. Choosing it drops that filter for the same
+            reason.
+          */}
+          <Field label="Fulfilment" className="w-44">
+            <Select
+              value={fulfilment}
+              onChange={(e) => {
+                const next = e.target.value as FoodOrderFulfilment | 'all';
+                setFulfilment(next);
+                if (next !== 'all') setNeeds('');
+              }}
+            >
+              <Option value="all">Either</Option>
+              <Option value="delivery">Delivery</Option>
+              <Option value="pickup">Pickup (withdrawn)</Option>
             </Select>
           </Field>
 
@@ -1216,7 +1247,16 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                 <Box>
                   <Text className="text-label text-ink-3 mb-1">What the diner paid</Text>
                   <MoneyRow label="Items" value={open.money.itemsTotal} />
-                  <MoneyRow label="Packaging" value={open.money.packagingCharge} />
+                  {/* Only on an order charged one, before GST and the platform
+                      fee replaced it. */}
+                  {open.money.packagingCharge > 0 && (
+                    <MoneyRow label="Packaging" value={open.money.packagingCharge} />
+                  )}
+                  <MoneyRow
+                    label={open.money.gstRate ? `GST (${open.money.gstRate}%)` : 'GST'}
+                    value={open.money.gst}
+                  />
+                  <MoneyRow label="Platform fee" value={open.money.platformFee} />
                   <MoneyRow label="Delivery" value={open.money.deliveryFee} />
                   {open.money.discount > 0 && (
                     <MoneyRow label="Discount" value={-open.money.discount} />

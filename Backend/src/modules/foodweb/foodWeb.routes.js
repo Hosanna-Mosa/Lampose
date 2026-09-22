@@ -59,6 +59,7 @@ const express = require('express');
 
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const { requireCustomer, attachCustomerIfPresent } = require('../customers/customerAuth.middleware');
+const { customerOrTrackLink } = require('./trackLink.service');
 
 const { getCatalogue } = require('./catalogue.controller');
 const { listKitchens, getKitchen } = require('./kitchens.controller');
@@ -119,7 +120,10 @@ router.get('/coupons', attachCustomerIfPresent, listCoupons);
  */
 router.get('/addresses', requireCustomer, listAddresses);
 router.get('/orders', requireCustomer, listOrders);
-router.get('/orders/:reference', requireCustomer, getOrder);
+/* The ONE route a link from WhatsApp can open without a session, and only to
+   read: `customerOrTrackLink` accepts that order's code, and falls through to
+   `requireCustomer` when there isn't one. See `trackLink.service.js`. */
+router.get('/orders/:reference', customerOrTrackLink, getOrder);
 router.get('/usuals', requireCustomer, listUsuals);
 router.get('/spend', requireCustomer, getSpend);
 

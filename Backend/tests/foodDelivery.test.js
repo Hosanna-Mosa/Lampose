@@ -552,7 +552,19 @@ describe('the answers that are not a choice', () => {
   });
 
   it('has no delivery to arrange on a counter-pickup order', async () => {
-    const ctx = await placeOrder({ fulfilment: 'pickup', deliveryAddress: undefined });
+    /*
+     * The order is placed as a delivery and then MADE a pickup in the
+     * database, because the endpoint refuses a pickup now — collection has
+     * been withdrawn. That is not a workaround for a dead test: it reproduces
+     * exactly the orders this behaviour still exists for, the ones placed for
+     * collection before the withdrawal and still open. An operator will try to
+     * arrange a driver for one, and `NOT_A_DELIVERY` is what must come back.
+     */
+    const ctx = await placeOrder();
+    await FoodOrder.updateOne(
+      { orderNumber: ctx.orderNumber },
+      { $set: { fulfilment: 'pickup', deliveryAddress: '' } },
+    );
     const res = await accept(ctx, { deliveryBy: 'driver' });
     assert.equal(res.status, 200);
     assert.equal(sent.length, 0, 'nobody is asked to deliver a bag the diner is collecting');

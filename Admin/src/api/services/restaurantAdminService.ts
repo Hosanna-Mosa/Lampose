@@ -135,11 +135,25 @@ export interface RestaurantOrder {
   /** The kitchen as it was when the order was placed — what the link page heads itself with. */
   restaurant?: { name?: string; address?: string; phone?: string };
   lines: FoodOrderLine[];
+  /**
+   * The FOOD. This is a restaurant's total — the one its commission comes off
+   * and the only money on the order that is about what it sold.
+   */
   itemsTotal: number;
-  packagingCharge: number;
-  deliveryFee: number;
-  discount: number;
-  grandTotal: number;
+  /*
+   * What the diner paid on top — GST, the platform fee, the delivery fee — and
+   * the bill they add up to, are NOT sent to a partner session any more: see
+   * `partnerView` on the server. The keys stay, optional, because the ADMIN
+   * console reads the same `FoodOrderLine` shapes through its own endpoint and
+   * because an order fetched before the change may still carry them.
+   */
+  packagingCharge?: number;
+  gst?: number;
+  gstRate?: number;
+  platformFee?: number;
+  deliveryFee?: number;
+  discount?: number;
+  grandTotal?: number;
   /** What the kitchen is owed once commission comes off. */
   partnerPayout: number;
   commissionRate: number;
@@ -357,6 +371,8 @@ export interface EarningsRow {
   itemsTotal: number;
   deliveryFee: number;
   packagingCharge: number;
+  gst?: number;
+  platformFee?: number;
   grandTotal: number;
   partnerPayout: number;
   commissionRate: number;
@@ -842,6 +858,56 @@ export const restaurantAdminService = {
   /** Change the few things an owner owns — see `ShopSettingsInput`. */
   async updateProfile(input: ShopSettingsInput): Promise<ApiResponse<unknown>> {
     return api.patch(`${BASE}/me`, input);
+  },
+
+  /* ── The one-time link an approved owner arrives on ─────────────────── */
+
+  /**
+   * Is this link still good, and whose is it?
+   *
+   * Called before the form is drawn, so an owner meets "that link has expired"
+   * on the screen rather than after choosing a password and pressing save.
+   * Public — the token IS the credential, and the person holding it has never
+   * signed in, which is the whole reason it exists.
+   */
+  async checkSetupLink(
+    token: string
+  ): Promise<ApiResponse<{ restaurantName: string; ownerName: string; userId: string } | null>> {
+    const res = await api.get<{ data: { restaurantName: string; ownerName: string; userId: string } }>(
+      `${BASE}/set-password/${encodeURIComponent(token)}`
+    );
+    return res.success ? { ...res, data: res.data?.data ?? null } : { ...res, data: null };
+  },
+
+  /** Spend the link: set the password it was sent for. */
+  async setPasswordFromLink(
+    token: string,
+    newPassword: string
+  ): Promise<ApiResponse<{ userId: string } | null>> {
+    const res = await api.post<{ data: { userId: string } }>(`${BASE}/set-password`, {
+      token,
+      newPassword,
+    });
+    return res.success ? { ...res, data: res.data?.data ?? null } : { ...res, data: null };
+  },
+
+  /**
+   * Replace the password on this account.
+   *
+   * Its own route rather than a field on `updateProfile`, because it is the
+   * one write here that asks for the CURRENT password as well — a console
+   * left signed in on a counter tablet must not be a way for a passer-by to
+   * lock an owner out of their own shop.
+   *
+   * The first password an owner has is not one they chose: it is generated
+   * when Lampose approves their application and sent to their mobile. This is
+   * where that message tells them to change it.
+   */
+  async changePassword(
+    currentPassword: string,
+    newPassword: string
+  ): Promise<ApiResponse<unknown>> {
+    return api.post(`${BASE}/me/password`, { currentPassword, newPassword });
   },
 
   /**

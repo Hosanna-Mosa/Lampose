@@ -28,14 +28,24 @@
    ## Why an address with no coordinates is not serviceable
 
    `location` is optional on the address schema — the app saves one without a
-   pin when the device would not give it. A zone lookup needs a point, so an
-   address with no pin cannot be checked and is reported unserviceable with a
-   note saying exactly that. Reporting it serviceable would put the decision
-   on a rider standing in the wrong lane at 9pm.
+   pin when the device would not give it. The reach rule measures a distance
+   and so needs a point, so an address with no pin cannot be checked and is
+   reported unserviceable with a note saying exactly that. Reporting it
+   serviceable would put the decision on a rider standing in the wrong lane
+   at 9pm.
+
+   ## What decides it is the KITCHEN's radius
+
+   The verdict used to come from the `zones` collection, which is gone. It
+   now comes from `deliveryRadiusKm` on the kitchen itself, via
+   `deliveryReach.util.js` — the one file the feed asks the same question of.
+   Read that file before changing what "reaches" means; in particular a
+   radius of zero is read as "not declared" and reaches, rather than as a
+   kitchen that delivers nowhere.
    ══════════════════════════════════════════════════════════════════════════ */
 const FoodRestaurant = require('../foodpartners/foodRestaurant.model');
 const Customer = require('../customers/customer.model');
-const { findZoneFor } = require('../zones/zone.service');
+const { findKitchenForReach, kitchenReaches } = require('./deliveryReach.util');
 const { LISTED, firstOf } = require('./foodWeb.shape');
 
 /**
@@ -107,9 +117,7 @@ const listAddresses = async (req, res, next) => {
       return res.json({ success: true, data: { addresses, count: addresses.length, judged: false } });
     }
 
-    const kitchen = await FoodRestaurant.findOne({ restaurantId: kitchenId, ...LISTED })
-      .select('restaurantName')
-      .lean();
+    const kitchen = await findKitchenForReach(kitchenId);
 
     if (!kitchen) {
       const message = 'That kitchen is not available.';
@@ -119,32 +127,30 @@ const listAddresses = async (req, res, next) => {
     }
 
     /*
-     * Judged one at a time rather than in one query, because `findZoneFor`
-     * answers for a single point and a diner has three addresses, not three
-     * hundred. Sequential rather than parallel for the same reason — three
-     * indexed lookups are not worth the concurrency.
+     * One kitchen read, then every address judged against it in memory. The
+     * rule is arithmetic on two pins, so there is nothing per-address to
+     * await — which is also why a diner with three addresses costs one query
+     * rather than four.
      */
-    const addresses = [];
-    for (const address of saved) {
+    const addresses = saved.map((address) => {
       const pin = address.location && address.location.coordinates;
 
       if (!Array.isArray(pin) || pin.length !== 2) {
-        addresses.push(addressRow(address, {
+        return addressRow(address, {
           serviceable: false,
           note: 'This address has no map pin yet, so a rider cannot be sent to it. '
             + 'Open it and drop a pin, or choose another address.',
-        }));
-        continue;
+        });
       }
 
-      /* eslint-disable-next-line no-await-in-loop -- see the note above */
-      const zone = await findZoneFor(pin[1], pin[0], 'food');
-      addresses.push(addressRow(address, {
-        serviceable: Boolean(zone),
-        note: zone ? '' : `Outside ${kitchen.restaurantName}'s delivery area. `
+      /* Stored [LONGITUDE, LATITUDE]; handed over as named latitude, longitude. */
+      const reaches = kitchenReaches(kitchen, pin[1], pin[0]);
+      return addressRow(address, {
+        serviceable: reaches,
+        note: reaches ? '' : `Outside ${kitchen.restaurantName}'s delivery area. `
           + 'Pickup is still available, or order from a kitchen closer to you.',
-      }));
-    }
+      });
+    });
 
     return res.json({
       success: true,

@@ -32,10 +32,9 @@
    also empty a bank account one click at a time.
 
    Refunding is not the same authority as reading, and it is not the same
-   authority as approving either. So it gets its own set, and the set is the
-   narrow one — the same pair `zoneAdmin.routes.js` reserves for drawing the
-   trading area, and for the same reason: a decision with money on the other
-   side of it.
+   authority as approving either. So it gets its own set, and it is the narrow
+   one — Super Admin and Admin, for the plain reason that a decision with
+   money on the other side of it belongs to the people who answer for it.
 
    Recording a refund that happened OUTSIDE the app sits behind the same gate.
    It moves no money, but it is a claim that money moved — it takes an order

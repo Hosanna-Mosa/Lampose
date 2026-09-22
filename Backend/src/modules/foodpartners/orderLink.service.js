@@ -74,14 +74,28 @@ const ttlHours = () => Number(process.env.ORDER_LINK_TTL_HOURS) || 24;
  * same production-only condition that turns sign-in off). Callers treat null as
  * "no link can be made" and fall back to the plain, sign-in link.
  */
-const codeFor = (restaurantId, orderNumber) => {
-  if (!config.auth.configured || !restaurantId || !orderNumber) return null;
+const codeFor = (restaurantId, orderNumber) => (
+  restaurantId && orderNumber ? hmacCode(PURPOSE, restaurantId, orderNumber) : null
+);
+
+/**
+ * The recipe, shared with the DINER's tracking link (`foodweb/trackLink.service.js`).
+ *
+ * Two links exist for one order — the owner's, which can move it, and the
+ * diner's, which can only read it — and they must not be the same string. The
+ * PURPOSE is what keeps them apart: the same secret and the same order number
+ * produce different codes under different purposes, so a diner's link cannot be
+ * retyped into the console's route and vice versa. One implementation of the
+ * HMAC because two would drift, and a drift here is silent.
+ */
+function hmacCode(purpose, ...parts) {
+  if (!config.auth.configured) return null;
   return crypto
     .createHmac('sha256', config.auth.jwtSecret)
-    .update(`${PURPOSE}|${restaurantId}|${orderNumber}`)
+    .update([purpose, ...parts].join('|'))
     .digest('base64url')
     .slice(0, CODE_LENGTH);
-};
+}
 
 /** Constant-time comparison; a code of the wrong length is a mismatch, not an error. */
 const sameCode = (given, expected) => {
@@ -159,5 +173,5 @@ async function requireOrderLink(req, res, next) {
 }
 
 module.exports = {
-  PARAM, CODE_LENGTH, ttlHours, codeFor, sameCode, linkSuffix, requireOrderLink,
+  PARAM, CODE_LENGTH, ttlHours, codeFor, sameCode, linkSuffix, requireOrderLink, hmacCode,
 };

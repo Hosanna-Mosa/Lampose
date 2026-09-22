@@ -39,8 +39,10 @@ export function DashProfile() {
   /* Editable operational fields */
   const [prepTime, setPrepTime] = useState("25");
   const [deliveryRadius, setDeliveryRadius] = useState("6");
-  const [minOrder, setMinOrder] = useState("150");
-  const [packagingCharge, setPackagingCharge] = useState("15");
+  /* A minimum order and a packaging charge used to be set here. Neither is
+     charged any more — there is no minimum, and GST plus a flat platform fee
+     replaced the packaging charge — and the server refuses both on this
+     update, so the boxes went with them. */
   const [acceptsOnline, setAcceptsOnline] = useState(true);
   const [acceptsCod, setAcceptsCod] = useState(true);
 
@@ -56,8 +58,6 @@ export function DashProfile() {
       setMe(restaurant);
       setPrepTime(String(restaurant.avgPreparationTime ?? 25));
       setDeliveryRadius(String(restaurant.deliveryRadiusKm ?? 6));
-      setMinOrder(String(restaurant.minOrderValue ?? 150));
-      setPackagingCharge(String(restaurant.packagingCharge ?? 15));
       setAcceptsOnline(restaurant.acceptsOnlinePayment ?? true);
       setAcceptsCod(restaurant.acceptsCod ?? true);
 
@@ -91,8 +91,6 @@ export function DashProfile() {
       const updated = await updateMe(session.token, {
         avgPreparationTime: parseInt(prepTime, 10) || 25,
         deliveryRadiusKm: parseFloat(deliveryRadius) || 6,
-        minOrderValue: parseFloat(minOrder) || 0,
-        packagingCharge: parseFloat(packagingCharge) || 0,
         acceptsOnlinePayment: acceptsOnline,
         acceptsCod: acceptsCod,
       });
@@ -224,32 +222,6 @@ export function DashProfile() {
                 style={styles.inputField}
               />
               <Text style={styles.inputUnit}>km</Text>
-            </View>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Min Order Value</Text>
-            <View style={styles.inputWrap}>
-              <TextField
-                value={minOrder}
-                onChangeText={setMinOrder}
-                keyboardType="number-pad"
-                style={styles.inputField}
-              />
-              <Text style={styles.inputUnit}>₹</Text>
-            </View>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Packaging Charge</Text>
-            <View style={styles.inputWrap}>
-              <TextField
-                value={packagingCharge}
-                onChangeText={setPackagingCharge}
-                keyboardType="number-pad"
-                style={styles.inputField}
-              />
-              <Text style={styles.inputUnit}>₹</Text>
             </View>
           </View>
 

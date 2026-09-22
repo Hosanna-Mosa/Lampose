@@ -110,6 +110,7 @@ const {
   logApplicationSteps, logApplicationSaved, logRejected, logLogin, logAvailability,
   logDependencyMissing, logError, startTimer, PREFIX,
 } = require('./foodPartner.log');
+const { generatePassword } = require('../../shared/utils/password');
 
 const {
   makeRestaurantId, phoneKey, isOpenNow, OPEN_STATES, DELIVERY_FEE_TYPES,
@@ -675,16 +676,21 @@ const submitApplication = async (req, res, next) => {
 
     /* Checked before the write so the answer can name which one, and caught
        again on the save below because two taps of one button can race through
-       this gap. Both paths answer 409 with the same codes. */
-    const clash = await FoodRestaurant.findOne({
-      $or: [
-        { ownerEmail: fields.ownerEmail },
-        { phoneKey: phoneKey(fields.ownerPhone) },
-      ],
-    }).select('ownerEmail phoneKey restaurantId');
+       this gap. Both paths answer 409 with the same codes.
+
+       The email arm is added only when there IS an email: it is optional now,
+       and `{ ownerEmail: undefined }` is a condition mongoose strips — leaving
+       `$or: [ {}, … ]`, an empty condition that matches the first document in
+       the collection. Every application without an email would then be refused
+       as a duplicate of a restaurant it has nothing to do with. */
+    const identities = [{ phoneKey: phoneKey(fields.ownerPhone) }];
+    if (fields.ownerEmail) identities.unshift({ ownerEmail: fields.ownerEmail });
+
+    const clash = await FoodRestaurant.findOne({ $or: identities })
+      .select('ownerEmail phoneKey restaurantId');
 
     if (clash) {
-      const isEmail = clash.ownerEmail === fields.ownerEmail;
+      const isEmail = Boolean(fields.ownerEmail) && clash.ownerEmail === fields.ownerEmail;
       const code = isEmail ? 'EMAIL_IN_USE' : 'PHONE_IN_USE';
       const message = isEmail
         ? 'An account already exists for that email address. Please sign in instead.'
@@ -705,23 +711,30 @@ const submitApplication = async (req, res, next) => {
        accident, and the model has no hashing hook because this controller
        hashes first — a hook would bcrypt the bcrypt.
      *
-     * A password is OPTIONAL, because an application does not always come from
-     * the person who will sign in. The Onboard console is filled in by a
-     * Lampose employee sitting with the owner, and a password chosen in that
-     * room — by the agent, out loud — is worse than no password at all. Those
-     * applications arrive without one and the field is left unset.
+     * A password is OPTIONAL in the BODY, because an application does not
+     * always come from the person who will sign in. The Onboard console is
+     * filled in by a Lampose employee sitting with the owner, and a password
+     * chosen in that room — by the agent, out loud — is worse than no password
+     * at all. Those applications arrive without one.
      *
-     * Unset is SAFE rather than open: `verifyPassword` returns false when there
-     * is no hash to compare against, so a passwordless account cannot be signed
-     * into at all. It is an account waiting for a credential, not one with a
-     * blank one. `hashPassword('')` would be the opposite — a real bcrypt hash
-     * of the empty string, which anybody sending an empty password would match. */
-    const passwordHash = password ? await FoodRestaurant.hashPassword(password) : undefined;
+     * The DOCUMENT still gets one. Where the body carries none, a random
+     * credential is generated here and only its hash is stored: nobody is told
+     * it, nothing can sign in with it, and the account is never in the state of
+     * having no hash at all. `foodAdmin.controller.js` mints a fresh one and
+     * sends it to the owner the moment their application is approved, which is
+     * the first moment there is anything worth signing in to.
+     *
+     * What is NOT done is storing the plaintext beside the hash so it could be
+     * read out later. A password legible in the database is a password legible
+     * in every backup of it, and the one the owner actually uses is the one
+     * that goes out at approval. `hashPassword('')` is the other thing not done
+     * — it is a real bcrypt hash of the empty string, which anybody sending an
+     * empty password would match. */
+    const passwordHash = await FoodRestaurant.hashPassword(password || generatePassword());
 
     let restaurant;
     try {
-      const credential = passwordHash ? { passwordHash } : {};
-      restaurant = await saveWithNewId({ ...fields, ...credential });
+      restaurant = await saveWithNewId({ ...fields, passwordHash });
     } catch (error) {
       const key = duplicateKeyOf(error);
       if (key === 'ownerEmail' || key === 'ownerPhone' || key === 'phoneKey') {
@@ -787,8 +800,9 @@ const submitApplication = async (req, res, next) => {
              restaurant with no menu, and they cannot resubmit until somebody
              removes it. */
           logError(
-            `COULD NOT ROLL BACK ${restaurant.restaurantId} — it holds ${fields.ownerEmail} `
-            + 'and must be deleted by hand before that partner can apply again',
+            `COULD NOT ROLL BACK ${restaurant.restaurantId} — it holds `
+            + `${fields.ownerEmail || fields.ownerPhone} and must be deleted by hand `
+            + 'before that partner can apply again',
             cleanupError,
           );
         }
@@ -1044,9 +1058,15 @@ const EDITABLE_FIELDS = [
   'contactNumber',
   /* C. Operations. */
   'openingHours', 'openState', 'avgPreparationTime', 'deliveryRadiusKm',
-  'minOrderValue', 'packagingCharge', 'deliveryFee',
+  'deliveryFee',
   'acceptsOnlinePayment', 'acceptsCod',
 ];
+
+/* `minOrderValue` and `packagingCharge` were on that list and are not any
+   more. Neither is charged: there is no minimum order, and the packaging
+   charge was replaced by GST and a flat platform fee — see
+   `foodCharges.util.js`. The COLUMNS stay for the orders that were billed
+   under them; what is gone is the ability to set a figure nothing will read. */
 
 /* Server-decided. A partner who could set `verificationStatus` would list an
    unverified kitchen at two in the morning; one who could set `ratingAvg`

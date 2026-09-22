@@ -18,6 +18,7 @@
  * form, so the form sends what it reads rather than a shape it has to guess at.
  */
 
+import { isMenuItemStarted } from './restaurantOptions';
 import { hasBankDetails } from './validateRestaurant';
 
 const trim = (value) => String(value ?? '').trim();
@@ -51,6 +52,9 @@ export const buildApplicationPayload = (form) => {
     cuisines: form.cuisines,
 
     ownerName: trim(form.ownerName),
+    /* May be empty, and the backend now takes that: it omits the field
+       entirely rather than storing '', because two empty strings collide on a
+       unique index. The mobile number is the login identity. */
     ownerEmail: trim(form.ownerEmail).toLowerCase(),
     ownerPhone: trim(form.ownerPhone),
 
@@ -141,18 +145,55 @@ export const buildApplicationPayload = (form) => {
     },
   };
 
+  /*
+   * The menu, flattened the way `sanitiseProduct` reads it.
+   *
+   * Only the rows somebody typed into — an "Add a dish" pressed by accident
+   * leaves an empty row on screen, and an empty row sent is an item the
+   * backend refuses for having no name. `displayOrder` is the position on the
+   * form, because the order the agent typed them in is the order the owner
+   * will look for them in.
+   *
+   * `price` is sent as a NUMBER and `discountedPrice` as null unless there is
+   * a real offer: the backend keeps null and 0 apart on purpose — 0 is a dish
+   * given away — and an empty box is not an offer of nothing.
+   */
+  const products = (form.menuItems || [])
+    .filter(isMenuItemStarted)
+    .map((item, index) => {
+      const offer = trim(item.discountedPrice);
+      return {
+        productName: trim(item.name),
+        category: trim(item.category),
+        price: Number(trim(item.price)),
+        discountedPrice: offer === '' ? null : Number(offer),
+        isVeg: item.isVeg || 'veg',
+        description: trim(item.description),
+        displayOrder: index,
+        /* The File itself, not a field the backend reads: the submit call
+           uploads it, turns it into `productImage`, and strips this key
+           before the body is posted. */
+        photoFile: item.photoFile || null,
+      };
+    });
+
   return {
     restaurant,
-    /* Always empty. Kept on the payload rather than dropped so the submit
-       call's upload loop has a list to iterate and does not need a branch for
-       the one shape it will ever see. */
-    products: [],
+    /* Empty when the agent skipped the section, which is the ordinary case.
+       The submit call iterates this for the dish photographs. */
+    products,
 
     /* Read by the submit call, which uploads each one and turns it into a
-       `verificationDocuments` row carrying the number beside the scan. */
+       `verificationDocuments` row carrying the number beside the scan.
+
+       `logo` is the odd one out and is kept here anyway: it is uploaded the
+       same way, in the same pass, but it is not a DOCUMENT — it becomes
+       `logoImage` on the restaurant rather than a verification row. One list
+       of files to upload beats two. */
     files: {
       pan: form.panFile,
       fssai: form.fssaiFile,
+      logo: form.logoFile,
     },
     panNumber: trim(form.panNumber).toUpperCase(),
     gstin: trim(form.gstin).toUpperCase(),
