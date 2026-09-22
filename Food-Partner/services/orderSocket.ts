@@ -44,7 +44,15 @@ import { API_URL } from "./api";
 
 export type OrderPlaced = {
   orderNumber: string;
+  /*
+   * The FOOD total. The field is still called `grandTotal` on the wire so an
+   * app mid-update keeps reading something rather than `undefined`, but the
+   * server now puts `itemsTotal` in it — a kitchen is never shown GST, the
+   * platform fee or the delivery fee. `itemsTotal` travels beside it and is
+   * the name to move to.
+   */
   grandTotal: number;
+  itemsTotal?: number;
   itemCount: number;
   summary: string;
   placedAt: string;

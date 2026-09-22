@@ -56,7 +56,8 @@ const FoodOrder = require('./foodOrder.model');
 const FoodPayout = require('./foodPayout.model');
 const payouts = require('./foodPayout.service');
 const { normalisePhone } = require('./foodPartner.util');
-const { logLogin, logError, logPayoutChange } = require('./foodPartner.log');
+const { BADGE, logLogin, logError, logPayoutChange } = require('./foodPartner.log');
+const { hashSetupToken, setupProblem } = require('./passwordSetup.util');
 const { signRestaurantAdminToken } = require('./restaurantAdmin.middleware');
 
 const { phoneKey, isOpenNow, makePayoutAccountId } = FoodRestaurant;
@@ -661,7 +662,7 @@ const earnings = async (req, res, next) => {
       FoodOrder.find(match)
         .sort({ placedAt: -1 })
         .limit(LEDGER_LIMIT)
-        .select('orderNumber placedAt itemsTotal deliveryFee packagingCharge grandTotal partnerPayout commissionRate paymentMode paymentStatus fulfilment')
+        .select('orderNumber placedAt itemsTotal deliveryFee packagingCharge gst platformFee grandTotal partnerPayout commissionRate paymentMode paymentStatus fulfilment')
         .lean(),
 
       FoodOrder.aggregate([
@@ -738,7 +739,12 @@ const earnings = async (req, res, next) => {
           placedAt: row.placedAt,
           itemsTotal: row.itemsTotal,
           deliveryFee: row.deliveryFee,
+          /* None of these three is the restaurant's money — the payout is
+             worked out from `itemsTotal` alone. They are listed so a ledger
+             row adds up to the total the diner actually paid. */
           packagingCharge: row.packagingCharge,
+          gst: row.gst || 0,
+          platformFee: row.platformFee || 0,
           grandTotal: row.grandTotal,
           partnerPayout: row.partnerPayout,
           commissionRate: row.commissionRate,
@@ -1310,8 +1316,227 @@ const requestPayout = async (req, res, next) => {
   }
 };
 
+/* ── Setting the first password, from a one-time link ───────────────────── */
+
+/** The shortest a password may be. The app's own reset route holds the same line. */
+const MIN_PASSWORD = 6;
+
+
+/**
+ * The restaurant a live set-password token belongs to, or null.
+ *
+ * The token is the only thing either handler below has: these two routes are
+ * PUBLIC by necessity — an owner who has never signed in cannot present a
+ * session — so the link is the whole of the authentication. It is looked up by
+ * the SHA-256 of what arrived, never by the raw value, because the raw value is
+ * a credential and the stored one is a digest.
+ */
+const bySetupToken = async (token) => {
+  const raw = String(token || '').trim();
+  /* A short or empty token is not a lookup. Answering it with a query is a
+     free scan for anybody who wants to know what an empty index returns. */
+  if (raw.length < 32) return null;
+
+  return FoodRestaurant
+    .findOne({ 'passwordSetup.tokenHash': hashSetupToken(raw) })
+    .select('+passwordHash');
+};
+
+/**
+ * Is this link still good, and whose is it?
+ *
+ * @route   GET /api/v1/restaurant-admin/set-password/:token
+ * @access  public — the token IS the credential
+ *
+ * Read before the form is drawn, so an owner meets "that link has expired" on
+ * the screen rather than after choosing a password and pressing save. The
+ * reply carries the restaurant's name and the user id they will sign in with,
+ * and nothing else: whoever holds the link was sent it, and a page that cannot
+ * say which shop it is about is a page nobody trusts with a password.
+ */
+const checkPasswordSetup = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+
+    const restaurant = await bySetupToken(req.params.token);
+    const problem = setupProblem(restaurant && restaurant.passwordSetup);
+
+    if (!restaurant || problem) {
+      return fail(res, 410, 'LINK_NOT_USABLE', problem || 'That link is not valid. Ask Lampose to send you a new one.');
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        restaurantName: restaurant.restaurantName,
+        ownerName: restaurant.ownerName,
+        /* What the sign-in box wants. The email is optional on an application
+           now, so the mobile is the identity we can always name. */
+        userId: restaurant.ownerPhone,
+      },
+    });
+  } catch (error) {
+    logError('restaurant-admin/set-password check', error);
+    return next(error);
+  }
+};
+
+/**
+ * Spend the link: set the password it was sent for.
+ *
+ * @route   POST /api/v1/restaurant-admin/set-password
+ * @access  public — the token IS the credential
+ *
+ * The token is checked AGAIN here rather than trusted from the GET above: the
+ * two calls are minutes apart, they are separate requests, and a link that
+ * expired or was spent in between must not be honoured because a page said it
+ * was fine a moment ago.
+ *
+ * Marked used in the SAME save as the new password, so there is no window in
+ * which a password is set and the link still works.
+ */
+const completePasswordSetup = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+
+    const body = req.body || {};
+    const newPassword = String(body.newPassword || body.password || '');
+
+    if (newPassword.length < MIN_PASSWORD) {
+      return fail(res, 400, 'WEAK_PASSWORD', `Use a password of at least ${MIN_PASSWORD} characters.`);
+    }
+
+    const restaurant = await bySetupToken(body.token);
+    const problem = setupProblem(restaurant && restaurant.passwordSetup);
+
+    if (!restaurant || problem) {
+      return fail(res, 410, 'LINK_NOT_USABLE', problem || 'That link is not valid. Ask Lampose to send you a new one.');
+    }
+
+    restaurant.passwordHash = await FoodRestaurant.hashPassword(newPassword);
+    restaurant.passwordSetup.usedAt = new Date();
+    await restaurant.save();
+
+    console.log(`${BADGE} [Restaurant Admin] ${restaurant.restaurantId} set its first password from a link`);
+
+    return res.json({
+      success: true,
+      message: 'Your password is set. Sign in with your mobile number and the password you just chose.',
+      data: { userId: restaurant.ownerPhone },
+    });
+  } catch (error) {
+    logError('restaurant-admin/set-password', error);
+    return next(error);
+  }
+};
+
+/* ── The password ───────────────────────────────────────────────────────── */
+
+/**
+ * Change the password on this restaurant's account.
+ *
+ * @route   POST /api/v1/restaurant-admin/me/password
+ * @access  Restaurant Admin session
+ *
+ * ## Why this route has to exist
+ *
+ * An owner does not choose their first password. It is generated when an
+ * administrator approves the application and sent to their mobile over
+ * WhatsApp — which means, until this route, the credential to a console
+ * holding a restaurant's orders, menu and payout accounts was a string sitting
+ * in a chat thread on a phone that gets handed around a kitchen, with no way to
+ * replace it. The message that carries it tells the owner to change it here.
+ *
+ * ## The current password is required, and a session is not enough
+ *
+ * The threat this closes is the console left signed in on the counter tablet:
+ * anybody who walks past it could otherwise lock the owner out of their own
+ * shop by setting a password only they know. Asking for the current one means
+ * the person changing it is the person who knows it.
+ *
+ * `/auth/forgot-password/reset` in the app remains the route for an owner who
+ * has forgotten it — that one proves the MOBILE rather than the password, and
+ * proving one or the other is the whole of this question.
+ *
+ * ## The session is not invalidated
+ *
+ * There is no `sessionVersion` on a restaurant and this does not add one: the
+ * token is twelve hours and its own type, and signing the owner out of the tab
+ * they just used to change their password would be a worse answer to a problem
+ * nobody has reported. Worth revisiting the day "sign out everywhere" is asked
+ * for, which is the same day it becomes buildable.
+ */
+const changePassword = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+
+    const body = req.body || {};
+    const currentPassword = String(body.currentPassword || body.current || '');
+    const newPassword = String(body.newPassword || body.password || '');
+
+    if (!currentPassword || !newPassword) {
+      return fail(
+        res, 400, 'MISSING_FIELDS',
+        'Enter your current password and the new one.',
+      );
+    }
+
+    if (newPassword.length < MIN_PASSWORD) {
+      return fail(
+        res, 400, 'WEAK_PASSWORD',
+        `Use a password of at least ${MIN_PASSWORD} characters.`,
+      );
+    }
+
+    if (newPassword === currentPassword) {
+      return fail(
+        res, 400, 'SAME_PASSWORD',
+        'That is the password you are already using. Choose a different one.',
+      );
+    }
+
+    /* The guard set `req.restaurantAdmin` from a read that deliberately did not
+       select the hash — see the model. This is the one route here that needs
+       it, and it asks by name. */
+    const restaurant = await FoodRestaurant
+      .findOne({ restaurantId: req.restaurantAdmin.restaurantId })
+      .select('+passwordHash');
+
+    if (!restaurant) return fail(res, 401, 'ACCOUNT_GONE', 'This account no longer exists.');
+
+    const ok = await restaurant.verifyPassword(currentPassword);
+    if (!ok) {
+      logLogin({
+        identifier: restaurant.restaurantId,
+        ok: false,
+        reason: 'the current password did not match on a password change',
+        code: 'INVALID_CREDENTIALS',
+        surface: 'restaurant-admin console',
+      });
+      return fail(res, 401, 'INVALID_CREDENTIALS', 'That is not your current password.');
+    }
+
+    restaurant.passwordHash = await FoodRestaurant.hashPassword(newPassword);
+    await restaurant.save();
+
+    /* The change, never the password. */
+    console.log(`${BADGE} [Restaurant Admin] ${restaurant.restaurantId} changed its password`);
+
+    return res.json({
+      success: true,
+      message: 'Your password has been changed. Use it the next time you sign in.',
+    });
+  } catch (error) {
+    logError('restaurant-admin/password', error);
+    return next(error);
+  }
+};
+
 module.exports = {
   login,
+  checkPasswordSetup,
+  completePasswordSetup,
+  changePassword,
   summary,
   analytics,
   earnings,

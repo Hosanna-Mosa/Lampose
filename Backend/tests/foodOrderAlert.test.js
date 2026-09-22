@@ -70,10 +70,18 @@ const CONSOLE = 'https://admin.lampose.com';
 const CODE = codeFor('FP-TEST0001', 'LO241045');
 const LINK = `${CONSOLE}/?order=LO241045&token=${CODE}`;
 
+/*
+ * `itemsTotal` is the figure this message quotes, and `grandTotal` is here to
+ * prove it is NOT the one: the bill carries GST, the platform fee and the
+ * delivery fee, none of which the restaurant sells, collects or keeps. A
+ * kitchen reading "₹402" for ₹350 of food is being told it sold somebody
+ * else's revenue.
+ */
 const order = () => ({
   orderNumber: 'LO241045',
   restaurantId: 'FP-TEST0001',
-  grandTotal: 350,
+  itemsTotal: 350,
+  grandTotal: 402,
   lines: [{ quantity: 5, productName: 'Butter Naan' }],
   placedAt: new Date(),
 });
@@ -150,7 +158,7 @@ describe('the alert, as the approved text template', () => {
     const v = JSON.parse(sent.contentVariables);
     assert.equal(v[1], 'Paradise Biryani House');
     assert.equal(v[2], 'LO241045');
-    assert.equal(v[3], '₹350');
+    assert.equal(v[3], '₹350', 'the food, not the ₹402 bill');
     assert.equal(v[4], '5× Butter Naan');
     assert.equal(v[5], `Accept it here: ${LINK}`);
   });
@@ -197,6 +205,7 @@ describe('the alert, as plain text', () => {
     assert.equal(sent.contentSid, undefined);
     assert.match(sent.body, /New order at Paradise Biryani House/);
     assert.match(sent.body, /Order LO241045 · ₹350/);
+    assert.equal(sent.body.includes('402'), false, 'the diner\'s bill is not in a kitchen\'s message');
     assert.ok(sent.body.includes(`Accept it here: ${LINK}`), 'the plain-text message carries the same link');
   });
 

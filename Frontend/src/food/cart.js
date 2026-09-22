@@ -20,24 +20,24 @@
  * this surface, where the minimums come from a fixture rather than from a
  * restaurant that agreed to them, that dead end is ours, not theirs.
  *
- * So the minimum was TOLD, not enforced: the cart printed how far under it was,
- * and the button still worked.
+ * THERE IS NO MINIMUM ORDER ANY MORE. The server reports `minOrder: 0` for
+ * every kitchen, the order endpoint no longer refuses anything for being under
+ * one, and nothing here computes how far short a cart is. A kitchen that wants
+ * a floor prices its dishes for one.
  *
- * ENFORCED now, and for the reason that made it optional going away. The
- * minimums are each kitchen's OWN (`minOrderValue`), and the order endpoint
- * refuses an order under one with a 409 `BELOW_MINIMUM`. A button that stays
- * live under the minimum is no longer a kindness - it is a guaranteed refusal
- * on a screen that promised to place the order. Both the cart and the checkout
- * read this one word, so they cannot disagree about whether an order can be
- * placed; and the message under the button says how far short it is.
+ * What replaced the argument above: the bill gained GST and a flat platform
+ * fee, which ARE enforced, are the same everywhere, and come from the kitchen
+ * card rather than from figures typed into this file. See `totals` below.
  */
-export const ENFORCE_MINIMUM = true;
 
 /* A line's price is the dish plus whatever was ticked on the sheet, resolved
    once when it is added. Re-deriving it later means re-reading add-ons that
    may have been taken off the menu since. */
 export const lineUnitPrice = (dish, addOns = []) =>
   Number(dish.price) + addOns.reduce((sum, a) => sum + Number(a.price || 0), 0);
+
+/* Money, not floating point noise — 5% of ₹239 is 11.95, not 11.949999. */
+const round2 = value => Math.round((Number(value) || 0) * 100) / 100;
 
 export const lineTotal = line => line.unitPrice * line.qty;
 
@@ -52,7 +52,11 @@ export const countOf = lines => lines.reduce((sum, l) => sum + l.qty, 0);
 export function couponBlockedReason(coupon, { itemTotal, kitchenId, fulfilment }) {
   if (!coupon) return 'No such code';
   if (coupon.kitchenId && coupon.kitchenId !== kitchenId) return 'Not for this kitchen';
-  if (coupon.pickupOnly && fulfilment !== 'pickup') return 'Pickup orders only';
+  /* A coupon flagged `pickupOnly` can never run: collection is withdrawn and
+     every order is a delivery. No coupon is enforced today either — see
+     `CartProvider` — so this is the honest refusal rather than a dead branch
+     that would silently discount an order the server charges in full. */
+  if (coupon.pickupOnly) return 'No longer available';
   if (itemTotal < coupon.minimum) return `Add ₹${coupon.minimum - itemTotal} more`;
   return null;
 }
@@ -88,7 +92,20 @@ export function totals({ lines = [], kitchen = null, coupon = null, fulfilment =
   const itemTotal = itemTotalOf(lines);
   const delivering = fulfilment === 'delivery';
 
-  const packagingCharge = lines.length ? Number(kitchen?.packagingCharge || 0) : 0;
+  /*
+   * GST and the platform fee, from the kitchen card rather than from two
+   * numbers typed here.
+   *
+   * `foodCharges.util.js` on the server is where 5% and ₹2 are decided, and it
+   * puts both on every kitchen shape precisely so this preview cannot drift
+   * from the charge. The fallbacks are what an older cached card carries — a
+   * tab left open across a deploy — and they are the same figures rather than
+   * zero, because a preview that quietly drops the tax is the version a diner
+   * notices on the receipt.
+   */
+  const gstRate = Number(kitchen?.gstRate ?? 5);
+  const gst = lines.length ? round2((itemTotal * gstRate) / 100) : 0;
+  const platformFee = lines.length ? Number(kitchen?.platformFee ?? 2) : 0;
 
   /* The flat fee, unless the kitchen delivers free above a threshold and this
      cart has reached it - the same test, on the same figure (the ITEM total),
@@ -104,11 +121,13 @@ export function totals({ lines = [], kitchen = null, coupon = null, fulfilment =
     : 'No coupon';
   const discount = blocked ? 0 : Number(coupon.discount);
 
-  const toPay = Math.max(0, itemTotal + packagingCharge + deliveryFee - discount);
+  const toPay = round2(Math.max(0, itemTotal + gst + platformFee + deliveryFee - discount));
 
   return {
     itemTotal,
-    packagingCharge,
+    gst,
+    gstRate,
+    platformFee,
     deliveryFee,
     discount,
     toPay,
@@ -116,8 +135,6 @@ export function totals({ lines = [], kitchen = null, coupon = null, fulfilment =
     /* Set when a coupon is held but cannot run, so the cart can say why
        instead of silently charging full price. */
     couponBlockedReason: coupon ? blocked : null,
-    /* A kitchen's minimum is about the food, not the fees. */
-    shortOfMinimum: lines.length && kitchen ? Math.max(0, Number(kitchen.minOrder || 0) - itemTotal) : 0,
   };
 }
 

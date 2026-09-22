@@ -200,6 +200,10 @@ export type FoodKitchen = Kitchen & {
    * optional and read through `packagingChargeOf` below.
    */
   packagingCharge?: number;
+
+  /** Platform-wide, carried per kitchen — see `gstRateOf`. */
+  gstRate?: number;
+  platformFee?: number;
 };
 
 /** The server's open/closed answer, or undefined when none travelled. */
@@ -210,6 +214,24 @@ export function openNowOf(kitchen: FoodKitchen): boolean | undefined {
 /** The number to ring, or undefined — in which case nothing may offer a call. */
 export function contactNumberOf(kitchen: FoodKitchen): string | undefined {
   return kitchen.contactNumber?.trim() || undefined;
+}
+
+/**
+ * GST and the platform fee, as the server reports them on every kitchen.
+ *
+ * Neither is the kitchen's: `foodCharges.util.js` on the server decides both
+ * and they are the same for every restaurant. They ride on the kitchen shape
+ * because the CART is what needs them, and the fallbacks below are what a
+ * kitchen fetched before this change carries — the same figures rather than
+ * zero, because a preview that quietly drops the tax is the version a diner
+ * finds out about on the receipt.
+ */
+export function gstRateOf(kitchen: FoodKitchen): number {
+  return typeof kitchen.gstRate === 'number' ? kitchen.gstRate : 5;
+}
+
+export function platformFeeOf(kitchen: FoodKitchen): number {
+  return typeof kitchen.platformFee === 'number' ? kitchen.platformFee : 2;
 }
 
 /**

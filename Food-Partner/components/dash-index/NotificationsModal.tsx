@@ -95,7 +95,7 @@ export function NotificationsModal({ visible, onDismiss, onReadCountChange }: Pr
           notifications.push({
             id: `order-${ord.orderNumber}`,
             title: `Order #${ord.orderNumber}`,
-            message: `Status: ${(ord.status || "PLACED").toUpperCase()} · ${ord.lines?.length || 1} item(s) · ${rupees(ord.grandTotal || ord.itemsTotal || 0)}`,
+            message: `Status: ${(ord.status || "PLACED").toUpperCase()} · ${ord.lines?.length || 1} item(s) · ${rupees(ord.itemsTotal || 0)}`,
             timestamp: (ord as any).placedAt || (ord as any).createdAt
               ? new Date((ord as any).placedAt || (ord as any).createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               : "Recently",

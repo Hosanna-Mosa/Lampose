@@ -322,7 +322,12 @@ const normalizeDetail = (raw: unknown): FoodOrderDetail => {
 
     money: {
       itemsTotal: num(money.itemsTotal),
+      /* Zero on everything placed since it was dropped, a real figure on the
+         orders that were charged one. GST and the platform fee replaced it. */
       packagingCharge: num(money.packagingCharge),
+      gst: num(money.gst),
+      gstRate: num(money.gstRate),
+      platformFee: num(money.platformFee),
       deliveryFee: num(money.deliveryFee),
       discount: num(money.discount),
       grandTotal: num(money.grandTotal),

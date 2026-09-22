@@ -28,7 +28,7 @@
  * rather than "Invalid".
  */
 
-import { DAYS, INDIAN_STATES } from './restaurantOptions';
+import { DAYS, INDIAN_STATES, isMenuItemStarted } from './restaurantOptions';
 
 /* ------------------------------------------------------------------ *
  * Limits
@@ -133,6 +133,12 @@ export const hasBankDetails = (form = {}) => {
 /** The per-day key for a problem with that day's opening hours. */
 export const hoursKey = (day) => `hours:${day}`;
 
+/* The per-dish key for a problem with a menu row. Keyed by POSITION rather
+   than by the row's uid, because the message is printed against the box the
+   agent is looking at and the boxes are numbered "Dish 1", "Dish 2" on screen
+   — a uid in the key would be right and unreadable. */
+export const menuKey = (index, field) => `menu:${index}:${field}`;
+
 /* ------------------------------------------------------------------ *
  * Where each message is printed
  * ------------------------------------------------------------------ */
@@ -151,6 +157,9 @@ const FIELD_ANCHORS = {
   landmark: 'rst-landmark',
 
   selectedDays: 'rst-days',
+  /* The drop zone's wrapper, which is what `FileDrop` gives the `-field` id
+     to — the input inside it is `display: none`. */
+  logoFile: 'rst-logo-file-field',
 
   panNumber: 'rst-pan',
   aadhaarNumber: 'rst-aadhaar',
@@ -179,6 +188,9 @@ const FIELD_ANCHORS = {
 export const anchorFor = (key) => {
   if (FIELD_ANCHORS[key]) return FIELD_ANCHORS[key];
   if (key.startsWith('hours:')) return 'rst-hours';
+  /* The dish's own card, not the box inside it: a scroll that lands on the
+     price of dish 7 with no heading above it says nothing about which dish. */
+  if (key.startsWith('menu:')) return `rst-menu-${key.split(':')[1]}`;
   return null;
 };
 
@@ -195,7 +207,9 @@ export const STEP_FIELDS = {
     'ownerName', 'ownerEmail', 'ownerPhone', 'primaryContact',
     'mapLink', 'area', 'city', 'landmark',
   ],
-  2: ['selectedDays', ...DAYS.map(hoursKey)],
+  /* The menu's keys are not listed: there is no fixed number of dishes. They
+     are carried by `stepOfField` and picked up by `errorsForStep` below. */
+  2: ['selectedDays', ...DAYS.map(hoursKey), 'logoFile', 'menu'],
   3: [
     'panNumber', 'panFile', 'gstin',
     'aadhaarNumber', 'aadhaarPhone', 'aadhaarOtp',
@@ -208,6 +222,7 @@ export const STEP_FIELDS = {
 
 /** Which step a field belongs to, so a message can be shown on its own step. */
 export const stepOfField = (key) => {
+  if (String(key).startsWith('menu:')) return 2;
   const found = Object.keys(STEP_FIELDS)
     .find((step) => STEP_FIELDS[step].includes(key));
   return found ? Number(found) : null;
@@ -218,6 +233,12 @@ export const errorsForStep = (errors, step) => {
   const subset = {};
   (STEP_FIELDS[step] || []).forEach((key) => {
     if (errors[key]) subset[key] = errors[key];
+  });
+  /* Anything belonging to this step that the list above cannot name — the menu
+     rows, whose count is whatever the agent typed. Added after the named ones
+     so the ordering the list exists for still holds for everything in it. */
+  Object.keys(errors).forEach((key) => {
+    if (!subset[key] && stepOfField(key) === step) subset[key] = errors[key];
   });
   return subset;
 };
@@ -276,9 +297,21 @@ function validateStep1(form) {
   else if (ownerName.length < 3) errs.ownerName = "Give the owner's full name";
   else if (!hasLetters(ownerName)) errs.ownerName = 'A name needs letters, not only numbers';
 
+  /*
+   * OPTIONAL, and checked only for shape when one is given.
+   *
+   * Plenty of the owners this console signs up do not use email, and the one
+   * that was typed to get past a required box — `owner@gmail.com`, `na@na.com`
+   * — is worse than the empty field: it is a login identity that belongs to
+   * somebody else and a settlement notice sent into the dark. The account is
+   * identified by the MOBILE number, which is the credential the owner
+   * actually has; the backend's `validateApplication` agrees and its unique
+   * index on `ownerEmail` is now sparse so several restaurants may have none.
+   */
   const email = text(form.ownerEmail);
-  if (!email) errs.ownerEmail = 'Enter an email address';
-  else if (!isEmail(email)) errs.ownerEmail = 'This does not look like an email address, e.g. owner@business.com';
+  if (email && !isEmail(email)) {
+    errs.ownerEmail = 'This does not look like an email address, e.g. owner@business.com';
+  }
 
   /*
    * Checked for SHAPE, not for possession.
@@ -353,9 +386,16 @@ function validateStep2(form) {
   const errs = {};
   const days = Array.isArray(form.selectedDays) ? form.selectedDays : [];
 
+  /* Both optional, and both only checked for being a picture we can actually
+     upload — see `imageProblem`. */
+  const logo = imageProblem(form.logoFile, 'profile image');
+  if (logo) errs.logoFile = logo;
+
   if (days.length === 0) {
     errs.selectedDays = 'Tick the days this kitchen takes orders — the backend refuses an application with none';
-    return errs;
+    /* The menu still speaks. An agent who typed a dish and has not yet ticked
+       a day should not have that dish's problems appear only after they do. */
+    return { ...errs, ...validateMenu(form) };
   }
 
   days.forEach((day) => {
@@ -399,6 +439,75 @@ function validateStep2(form) {
     });
     if (duplicate) {
       errs[hoursKey(day)] = `${day}: ${duplicate.open}–${duplicate.close} is listed twice — remove one`;
+    }
+  });
+
+  return { ...errs, ...validateMenu(form) };
+}
+
+/*
+ * The menu — optional as a whole, exact once a row has been started.
+ *
+ * The three rules are the backend's, one for one: `validateApplication`
+ * refuses an item with no name, no category, or a price below zero, and a
+ * discount that is not below the full price. They are repeated here rather
+ * than left to the server because the server answers at the END of a
+ * twenty-minute form with one sentence naming three dishes, and this answers
+ * against the box.
+ *
+ * A row nobody typed into is not checked and is not sent — see
+ * `isMenuItemStarted`. "Add a dish" pressed by accident is not a refusal.
+ */
+/*
+ * A picked picture that is too big or is not a picture.
+ *
+ * `fileProblem` on step 3 also takes a PDF, because a licence is often scanned
+ * as one. These are photographs that end up on a menu card and in a feed, and
+ * the upload route stores images — so a PDF here is a file that would be
+ * refused at submit, after the form said it was fine.
+ */
+const imageProblem = (file, what) => {
+  if (!file) return null;
+  if (file.size > MAX_FILE_BYTES) {
+    const mb = (file.size / (1024 * 1024)).toFixed(1);
+    return `That ${what} is ${mb}MB — the limit is 10MB. Take it again at a lower resolution.`;
+  }
+  /* The picker asks for `image/*`, and a drag-and-drop ignores `accept`. */
+  if (String(file.type || '') && !String(file.type).startsWith('image/')) {
+    return `That ${what} is not a picture — attach a JPG or a PNG.`;
+  }
+  return null;
+};
+
+function validateMenu(form) {
+  const errs = {};
+  const items = Array.isArray(form.menuItems) ? form.menuItems : [];
+
+  items.forEach((item, index) => {
+    if (!isMenuItemStarted(item)) return;
+
+    if (!text(item.name)) errs[menuKey(index, 'name')] = 'Name this dish, or remove the row';
+    if (!text(item.category)) errs[menuKey(index, 'category')] = 'Give it a category — this is the heading it sits under on the menu';
+
+    /* An empty box and a zero are different answers: empty is "not priced
+       yet", which cannot be sent, and zero is a dish given away, which can. */
+    const priced = text(item.price) !== '';
+    const price = Number(item.price);
+    if (!priced) {
+      errs[menuKey(index, 'price')] = 'Enter the price';
+    } else if (!Number.isFinite(price) || price < 0) {
+      errs[menuKey(index, 'price')] = 'Enter a price of zero or more';
+    }
+
+    const photo = imageProblem(item.photoFile, 'dish photo');
+    if (photo) errs[menuKey(index, 'photo')] = photo;
+
+    const offered = text(item.discountedPrice) !== '';
+    const offer = Number(item.discountedPrice);
+    if (offered && (!Number.isFinite(offer) || offer < 0)) {
+      errs[menuKey(index, 'discountedPrice')] = 'Enter an offer price of zero or more, or leave it empty';
+    } else if (offered && priced && Number.isFinite(price) && offer >= price) {
+      errs[menuKey(index, 'discountedPrice')] = `An offer price has to be below the full price of ₹${price}`;
     }
   });
 

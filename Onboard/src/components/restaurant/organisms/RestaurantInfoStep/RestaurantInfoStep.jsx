@@ -227,7 +227,11 @@ export function RestaurantInfoStep({ form, set, errors = {}, touch = () => {} })
               />
             </Field>
 
-            <Field label="Email Address" required htmlFor="rst-email" error={errors.ownerEmail}>
+            {/* Optional. Plenty of these owners do not use email, and the
+                address typed to get past a required box is somebody else's.
+                The MOBILE number is the login identity and what every notice
+                goes to. */}
+            <Field label="Email Address" optional htmlFor="rst-email" error={errors.ownerEmail}>
               <Input
                 id="rst-email"
                 className={`rst-input${errors.ownerEmail ? ' is-bad' : ''}`}

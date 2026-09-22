@@ -178,7 +178,7 @@ export function FoodOrders() {
                 <Text className="fd-empty__body">
                   {tab === 'cancelled'
                     ? 'Nothing here is the good outcome.'
-                    : 'Once an order is delivered or collected it is filed here with its receipt.'}
+                    : 'Once an order is delivered it is filed here with everything it was charged.'}
                 </Text>
               </Box>
             )}

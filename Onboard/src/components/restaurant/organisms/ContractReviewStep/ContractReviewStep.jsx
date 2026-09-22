@@ -4,7 +4,7 @@ import {
   Box, Inline, Input, Label, Strong, Text,
 } from '../../../common/atoms';
 import { Field, FieldError, SectionHead } from '../../molecules/Field/Field';
-import { COMMERCIAL_TERMS, COPY } from '../../utils/restaurantOptions';
+import { COMMERCIAL_TERMS, COPY, isMenuItemStarted } from '../../utils/restaurantOptions';
 
 /*
  * Step 4 — the agreement, and one last look at what is about to be sent.
@@ -71,6 +71,29 @@ const aadhaarSummary = (form) => {
   return `Aadhaar ...${digits.slice(-4)} · mobile ${proven ? 'verified' : 'NOT VERIFIED'}`;
 };
 
+/*
+ * How many dishes are actually going with this application.
+ *
+ * The rows the agent typed into, not the rows on screen: an empty one left
+ * behind by a stray "Add a dish" is dropped at submit, and a summary that
+ * counted it would promise a menu item that never arrives.
+ */
+const menuCount = (form) => (form.menuItems || []).filter(isMenuItemStarted).length;
+
+/** The menu, in the same three-state voice as the GSTIN and the bank block. */
+const menuSummary = (form) => {
+  const count = menuCount(form);
+  if (!count) return 'No dishes added';
+  const started = (form.menuItems || []).filter(isMenuItemStarted);
+  const categories = new Set(
+    started.map((item) => String(item.category || '').trim()).filter(Boolean),
+  );
+  const photos = started.filter((item) => item.photoFile).length;
+
+  return `${count} dish${count === 1 ? '' : 'es'} in ${categories.size} categor${categories.size === 1 ? 'y' : 'ies'}`
+    + (photos ? `, ${photos} with a photo` : '');
+};
+
 export function ContractReviewStep({ form, set, errors = {}, touch = () => {} }) {
   const copy = COPY;
 
@@ -78,13 +101,19 @@ export function ContractReviewStep({ form, set, errors = {}, touch = () => {} })
     {
       label: copy.summaryLabel,
       value: form.restaurantName || '—',
-      detail: [form.cuisines.join(', '), [form.area, form.city].filter(Boolean).join(', ')]
-        .filter(Boolean).join(' · '),
+      detail: [
+        form.cuisines.join(', '),
+        [form.area, form.city].filter(Boolean).join(', '),
+        form.logoFile ? 'profile image attached' : 'no profile image',
+      ].filter(Boolean).join(' · '),
     },
     {
       label: 'Owner',
       value: form.ownerName || '—',
-      detail: [form.ownerEmail, form.ownerPhone].filter(Boolean).join(' · '),
+      /* The phone first: it is the login identity and the number a rider
+         rings. The email is optional now, and its absence is stated rather
+         than left as a blank half of a line. */
+      detail: [form.ownerPhone, form.ownerEmail || 'no email given'].filter(Boolean).join(' · '),
     },
     {
       label: 'Hours',
@@ -93,6 +122,16 @@ export function ContractReviewStep({ form, set, errors = {}, touch = () => {} })
         .map((day) => `${day.slice(0, 3)}: ${(form.dayTimeSlots[day] || [])
           .map((slot) => `${slot.open}–${slot.close}`).join(', ')}`)
         .join(' | '),
+    },
+    {
+      /* Said even when it is none, and especially then: an agent who typed six
+         dishes and a summary that never mentions them cannot tell whether they
+         were kept. */
+      label: 'Menu',
+      value: menuSummary(form),
+      detail: menuCount(form)
+        ? 'The owner adds the rest from the Food-Partner app after approval.'
+        : 'Optional — the owner adds the menu from the Food-Partner app after approval.',
     },
     {
       label: 'Documents',

@@ -408,6 +408,11 @@ const restaurantNamesFor = async (rows) => {
  * `{ restaurantId, status, placedAt }`, `{ dispatch.state, placedAt }` and the
  * unique index on `orderNumber`, which is why the search is ANCHORED.
  */
+/* The model's own enum, restated rather than imported: `foodOrder.model.js`
+   declares it inline on the field and exports no list. Two words that have
+   not changed since the collection existed. */
+const FULFILMENTS = ['delivery', 'pickup'];
+
 const filterFrom = (query, now) => {
   const and = [];
   const invalid = (message) => ({ error: message });
@@ -444,6 +449,23 @@ const filterFrom = (query, now) => {
       return invalid(`"paymentMode" must be one of: ${PAYMENT_MODES.join(', ')}.`);
     }
     and.push({ paymentMode });
+  }
+
+  /*
+   * Delivery or pickup.
+   *
+   * Pickup is no longer offered — `foodCustomerOrder.controller.js` refuses
+   * one — so in practice this filter now finds the handful of orders placed
+   * for collection before that, and nothing else. Kept for exactly that: they
+   * are still open, they still need working, and they are the hardest orders
+   * on this screen to reason about precisely because no rider is coming.
+   */
+  const fulfilment = String(query.fulfilment || '').trim();
+  if (fulfilment && fulfilment !== 'all') {
+    if (!FULFILMENTS.includes(fulfilment)) {
+      return invalid(`"fulfilment" must be one of: ${FULFILMENTS.join(', ')}.`);
+    }
+    and.push({ fulfilment });
   }
 
   const dispatchState = String(query.dispatchState || '').trim();
@@ -747,7 +769,12 @@ const detailOf = (order, { restaurant = null, now = Date.now() } = {}) => {
 
     money: {
       itemsTotal,
+      /* 0 on everything placed since it was dropped, and a real figure on the
+         orders that were charged one — see `foodCharges.util.js`. */
       packagingCharge: money(order.packagingCharge),
+      gst: money(order.gst),
+      gstRate: Number(order.gstRate) || 0,
+      platformFee: money(order.platformFee),
       deliveryFee: money(order.deliveryFee),
       discount: money(order.discount),
       grandTotal,

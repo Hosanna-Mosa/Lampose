@@ -10,7 +10,7 @@ import { BillLines } from '../components/food/molecules/BillLines';
 import { ActiveOrder } from '../components/food/organisms/ActiveOrder';
 import { useAddDish } from '../food/useAddDish';
 import { useCart } from '../food/CartProvider';
-import { ENFORCE_MINIMUM, offersFor } from '../food/cart';
+import { offersFor } from '../food/cart';
 import { useReveals } from '../hooks/useSite';
 import { rupees } from '../data/food';
 import { useFoodCatalogue } from '../food/FoodCatalogue';
@@ -36,7 +36,7 @@ import { useAuth } from '../auth/AuthProvider';
 export function FoodCart() {
   const {
     lines, kitchen, bill, coupon, coupons, fulfilment, address,
-    setQty, remove, applyCoupon, removeCoupon, setFulfilment,
+    setQty, remove, applyCoupon, removeCoupon,
   } = useCart();
   const { openDish, dialogs } = useAddDish();
   const { dishesOf, kitchens } = useFoodCatalogue();
@@ -279,41 +279,22 @@ export function FoodCart() {
           {/* ── the bill ────────────────────────────────────────────────── */}
           <Aside className="fd-two__side" aria-label="Bill">
             <Box className="fd-panel fd-panel--lift fd-sticky">
-              <Box className="fd-seg fd-seg--full" role="group" aria-label="Delivery or pickup">
-                <PlainButton
-                  type="button"
-                  className={`fd-seg__btn${fulfilment === 'delivery' ? ' is-on' : ''}`}
-                  onClick={() => setFulfilment('delivery')}
-                >
-                  Delivery · {kitchen.deliveryWindow}
-                </PlainButton>
-                <PlainButton
-                  type="button"
-                  className={`fd-seg__btn${fulfilment === 'pickup' ? ' is-on' : ''}`}
-                  onClick={() => setFulfilment('pickup')}
-                >
-                  Pickup · {kitchen.prepMinutes} min
-                </PlainButton>
+              {/* The Delivery / Pickup switch stood here. Collection is no
+                  longer offered — the order endpoint refuses one — so every
+                  order comes to an address, and there is nothing to choose
+                  between. `kitchen.deliveryWindow` moved into the line below,
+                  which is the only thing the switch was really telling
+                  anybody. */}
+              <Box className="fd-addr">
+                <Icon name="pin" className="fd-ico" />
+                <Box className="fd-addr__text">
+                  <Inline className="fd-addr__title">{address?.title}</Inline>
+                  <Inline className="fd-addr__detail">
+                    {[address?.detail, kitchen.deliveryWindow].filter(Boolean).join(' · ')}
+                  </Inline>
+                </Box>
+                <Link to="/food/address?next=/food/cart" className="fd-link">Change</Link>
               </Box>
-
-              {fulfilment === 'delivery' ? (
-                <Box className="fd-addr">
-                  <Icon name="pin" className="fd-ico" />
-                  <Box className="fd-addr__text">
-                    <Inline className="fd-addr__title">{address?.title}</Inline>
-                    <Inline className="fd-addr__detail">{address?.detail}</Inline>
-                  </Box>
-                  <Link to="/food/checkout" className="fd-link">Change</Link>
-                </Box>
-              ) : (
-                <Box className="fd-addr">
-                  <Icon name="store" className="fd-ico" />
-                  <Box className="fd-addr__text">
-                    <Inline className="fd-addr__title">Collect at {kitchen.name}</Inline>
-                    <Inline className="fd-addr__detail">{kitchen.landmark} · show your four-digit code</Inline>
-                  </Box>
-                </Box>
-              )}
 
               <Heading level={2} className="fd-panel__title">Bill details</Heading>
               <BillLines
@@ -326,31 +307,17 @@ export function FoodCart() {
                 distanceLabel={null}
               />
 
-              {/* A cart under the kitchen's minimum is told so and left alone:
-                  see ENFORCE_MINIMUM in food/cart.js. The route to payment is
-                  never taken away — it was, as a disabled button, and a
-                  disabled primary reads as a broken page. */}
-              {bill.shortOfMinimum > 0 && (
-                <Text className="fd-note fd-note--warn" role="status">
-                  {kitchen.name} usually takes orders from {rupees(kitchen.minOrder)} — this one is
-                  {' '}{rupees(bill.shortOfMinimum)} under{ENFORCE_MINIMUM ? ', so payment opens once you add that much.' : '.'}
-                </Text>
-              )}
-
+              {/* There is no minimum order any more — the warning that used to
+                  sit here, and the disabled button behind it, are gone with
+                  it. See `food/cart.js`. */}
               <Link
                 to="/food/checkout"
-                className={`fd-btn fd-btn--dark fd-btn--full fd-btn--lg${ENFORCE_MINIMUM && bill.shortOfMinimum > 0 ? ' is-off' : ''}`}
-                aria-disabled={ENFORCE_MINIMUM && bill.shortOfMinimum > 0 ? 'true' : undefined}
+                className="fd-btn fd-btn--dark fd-btn--full fd-btn--lg"
               >
                 Choose payment
                 <Icon name="arrowR" className="fd-ico" />
               </Link>
 
-              {bill.shortOfMinimum > 0 && (
-                <Link to={`/food/kitchen/${kitchen.id}`} className="fd-btn fd-btn--outline fd-btn--full">
-                  Add {rupees(bill.shortOfMinimum)} more from the menu
-                </Link>
-              )}
             </Box>
 
             <Box className="fd-panel fd-panel--row">

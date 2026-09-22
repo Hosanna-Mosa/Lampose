@@ -50,9 +50,10 @@ const mongoose = require('mongoose');
 const FoodOrder = require('./foodOrder.model');
 const FoodProduct = require('./foodProduct.model');
 const FoodRestaurant = require('./foodRestaurant.model');
-const { notifyRestaurantOfOrder } = require('./foodOrder.notifier');
+const { notifyRestaurantOfOrder, notifyCustomerOfOrder } = require('./foodOrder.notifier');
 const foodDelivery = require('./foodDelivery.service');
 const { markForRefund } = require('./foodPayment.controller');
+const { chargesFor } = require('./foodCharges.util');
 const { BADGE, logError, startTimer } = require('./foodPartner.log');
 
 const {
@@ -190,28 +191,60 @@ const placeOrder = async (req, res, next) => {
       return fail(res, 409, 'ONLINE_UNAVAILABLE', 'This restaurant is not taking online payment.');
     }
 
-    const isPickup = body.fulfilment === 'pickup';
-    const minOrder = money(restaurant.minOrderValue);
-    if (minOrder > 0 && itemsTotal < minOrder) {
-      return fail(res, 409, 'BELOW_MINIMUM', `The minimum order here is ₹${minOrder}.`);
+    /*
+     * PICKUP IS GONE, and this is the line that makes it so.
+     *
+     * Every client has had the choice removed, but a client is not a rule: the
+     * app on a handset nobody has updated still has the toggle, and this
+     * endpoint is the only place that can refuse what it sends. A pickup order
+     * accepted here would be an order no screen offers, no kitchen expects and
+     * no rider is looked for.
+     *
+     * Refused rather than quietly converted to a delivery — silently turning a
+     * collection into a delivery would send a rider to an address the diner
+     * never chose, and bill them for it.
+     *
+     * `fulfilment` stays on the model with both its values: two orders were
+     * placed for collection before this, they are still open, and the screens
+     * that draw them still say "collected by the diner". What is gone is the
+     * ability to make another.
+     */
+    if (String(body.fulfilment || '').trim() === 'pickup') {
+      return fail(
+        res,
+        409,
+        'PICKUP_UNAVAILABLE',
+        'Collection from the counter is no longer offered. Every order is delivered.',
+      );
     }
 
-    const packagingCharge = money(restaurant.packagingCharge);
+    /*
+     * There is no minimum order any more.
+     *
+     * `food_restaurants.minOrderValue` still exists and is still readable —
+     * orders were refused against it and the column is part of that history —
+     * but nothing collects it, nothing shows it and this endpoint no longer
+     * refuses an order for being under it. A kitchen that wants a floor prices
+     * its dishes for one.
+     */
+
+    /* GST and the platform fee, from the one file that defines them. The
+       restaurant's own packaging charge is no longer billed — see
+       `foodCharges.util.js`, which says why the column stays. */
+    const { gst, gstRate, platformFee } = chargesFor(itemsTotal);
 
     /* Pickup pays no delivery. Otherwise the rule the partner configured
        decides, and a per-kilometre rate falls back to its base because nothing
        has measured a distance for this order yet. */
     const fee = restaurant.deliveryFee || {};
     let deliveryFee = 0;
-    if (!isPickup) {
-      if (fee.type === 'free_above' && money(fee.freeAboveValue) > 0 && itemsTotal >= money(fee.freeAboveValue)) {
-        deliveryFee = 0;
-      } else {
-        deliveryFee = money(fee.amount);
-      }
+    if (fee.type === 'free_above' && money(fee.freeAboveValue) > 0 && itemsTotal >= money(fee.freeAboveValue)) {
+      deliveryFee = 0;
+    } else {
+      deliveryFee = money(fee.amount);
     }
 
-    const grandTotal = money(itemsTotal + packagingCharge + deliveryFee);
+    const grandTotal = money(itemsTotal + gst + platformFee + deliveryFee);
     const partnerPayout = money(itemsTotal * (1 - COMMISSION_RATE / 100));
 
     /* ── Where the two ends of the ride are ─────────────────────────────
@@ -226,8 +259,7 @@ const placeOrder = async (req, res, next) => {
 
     const dropLat = Number(body.dropLat ?? body.deliveryLat);
     const dropLng = Number(body.dropLng ?? body.deliveryLng);
-    const dropLocation = !isPickup
-      && Number.isFinite(dropLat) && Number.isFinite(dropLng)
+    const dropLocation = Number.isFinite(dropLat) && Number.isFinite(dropLng)
       && Math.abs(dropLat) <= 90 && Math.abs(dropLng) <= 180
       /* [LONGITUDE, LATITUDE] — MongoDB's order, and the named inputs above
          are the only defence against the swap. See `foodOrder.model.js`. */
@@ -242,8 +274,8 @@ const placeOrder = async (req, res, next) => {
       customerId: req.customer?.customerId || '',
       customerName: String(body.customerName || req.customer?.name || '').trim(),
       customerPhone: String(req.customer?.phone || '').trim(),
-      deliveryAddress: isPickup ? '' : String(body.deliveryAddress || '').trim().slice(0, 300),
-      fulfilment: isPickup ? 'pickup' : 'delivery',
+      deliveryAddress: String(body.deliveryAddress || '').trim().slice(0, 300),
+      fulfilment: 'delivery',
       /* Where it was placed. Only the website says `web`; anything else — the app
          sending nothing, or a value nobody recognises — is `app`, the flow that
          finds a real driver. Not a credential and not a permission: it only picks
@@ -260,7 +292,9 @@ const placeOrder = async (req, res, next) => {
       restaurant: restaurantSnapshot(restaurant),
       lines,
       itemsTotal,
-      packagingCharge,
+      gst,
+      gstRate,
+      platformFee,
       deliveryFee,
       discount: 0,
       grandTotal,
@@ -274,17 +308,17 @@ const placeOrder = async (req, res, next) => {
       status: 'placed',
       statusHistory: [{ status: 'placed', at: now, by: 'customer' }],
       /* The two hand-over codes, minted now so both are on the order before
-         anybody could need them. A pickup order still gets a `pickupCode` —
-         the diner reads it out at the counter, which is the same hand-over
-         with one fewer person in it. */
+         anybody could need them. `pickupCode` is what the RIDER shows the
+         kitchen to collect the food; `deliveryOtp` is what the diner gives the
+         rider at the door. Both still apply — every order is delivered now. */
       pickupCode: makeHandoverCode(),
-      deliveryOtp: isPickup ? '' : makeHandoverCode(),
+      deliveryOtp: makeHandoverCode(),
       placedAt: now,
     });
 
     console.log(
       `${BADGE} [New Order] ${order.orderNumber} · ${restaurant.restaurantName} · ` +
-      `${lines.length} line(s) · ₹${grandTotal} · ${paymentMode} · ${isPickup ? 'pickup' : 'delivery'} ` +
+      `${lines.length} line(s) · ₹${grandTotal} · ${paymentMode} · delivery ` +
       `(${timer.ms()}ms)`,
     );
 
@@ -317,7 +351,12 @@ const placeOrder = async (req, res, next) => {
        ever found against a real ready-time estimate rather than the instant
        the order lands. See `setOrderStatus` in `foodOrder.controller.js`,
        where accepting is what now calls `dispatch.startDispatch`. */
-    const alert = await notifyRestaurantOfOrder(order.toObject());
+    const placed = order.toObject();
+    const alert = await notifyRestaurantOfOrder(placed);
+    /* And the diner, on the number they gave. Awaited beside the kitchen's
+       alert rather than after the reply, because both resolve on their own
+       failures and neither can fail the order. */
+    await notifyCustomerOfOrder(placed);
 
     return res.status(201).json({
       success: true,

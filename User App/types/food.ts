@@ -215,6 +215,19 @@ export type FoodOrder = {
    */
   packagingCharge?: number;
   /**
+   * GST on the food, and the rate it was charged at.
+   *
+   * `food_orders.gst` / `.gstRate`. Real, unlike the `taxes` field below that
+   * this product once printed without charging: the server computes it in
+   * `foodCharges.util.js`, stores what each order was billed, and the receipt
+   * reads that rather than recomputing a percentage. Zero on an order placed
+   * before the change, which is exactly what it was charged.
+   */
+  gst?: number;
+  gstRate?: number;
+  /** The flat platform fee. Charged on pickup as well as delivery. */
+  platformFee?: number;
+  /**
    * Nothing on a real order sets this, and nothing should.
    *
    * There is no tax on a Lampose food order: the checkout adds items,

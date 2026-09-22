@@ -39,16 +39,20 @@ import { RestaurantListCard } from './RestaurantListCard';
  * ## Where it stops
  *
  * This is the browsing half only. Tapping a kitchen opens its ordinary menu
- * page, where `FulfilmentToggle` now sits in the identity block — see
- * `app/food/kitchen/[id].tsx` — so a diner picks pickup there before adding
- * anything. This screen finds an open, nearby kitchen; it does not itself
- * decide how the order leaves the counter.
+ * page. This screen finds an open, nearby kitchen; it does not itself decide
+ * how the order leaves the counter — and there is nothing left to decide.
  *
- * A true dine-in order — eaten AT the counter, not carried out as pickup —
- * still needs the server: it has no mode to be stored under.
- * `foodOrder.model.js` is `enum: ['delivery', 'pickup']`, and a third value
+ * That is not a choice this screen made, and it is now the only choice there
+ * is. The app never did offer collection: `FulfilmentToggle` existed and was
+ * exported, nothing rendered it, nothing called `setFulfilment`, and every
+ * order this app has ever placed went out as a delivery. Pickup has since been
+ * withdrawn from the product entirely — the order endpoint refuses one — so
+ * the toggle is deleted and the mode is a constant.
+ *
+ * A true dine-in order would need the server before it meant anything:
+ * `foodOrder.model.js` is `enum: ['delivery', 'pickup']`, a third value
  * reaches `foodDispatch.service.js`, the partner app and the admin console
- * before it means anything to a kitchen.
+ * before a kitchen sees it, and 'pickup' itself is now closed to new orders.
  *
  * What this screen deliberately does NOT claim, at any stage, is a table.
  * There is no reservation, no seat count and no "book" button, because a

@@ -30,15 +30,58 @@ const cfg = () => ({
   username: process.env.SMS_USERNAME,
   apikey: process.env.SMS_APIKEY,
   senderid: process.env.SMS_SENDERID,
-  templateId: process.env.SMS_OTP_TEMPLATE_ID,
-  body: process.env.OTP_SMS_TEMPLATE || '',
 });
+
+/*
+ * The registered bodies, one entry per DLT template.
+ *
+ * DLT binds every message to a template REGISTERED WITH THE OPERATOR, matched
+ * character for character, and each one has its own id. Two kinds of message
+ * therefore means two registrations — there is no generic "send some text"
+ * on this route, which is the whole point of the regime.
+ *
+ * `otp` is the one-time code the visit, diner, rider and partner sign-ins all
+ * use. `partnerPassword` is the restaurant owner's first credential, sent when
+ * an administrator approves their application: it is on SMS rather than
+ * WhatsApp because Meta refuses to register a WhatsApp template that carries a
+ * credential — twice, with no reason given. See
+ * `infrastructure/twilio/restaurantApprovedTemplate.js`.
+ *
+ * Read on every call, never captured at require time, for the same reason the
+ * account is.
+ */
+const TEMPLATES = {
+  otp: {
+    idVar: 'SMS_OTP_TEMPLATE_ID',
+    bodyVar: 'OTP_SMS_TEMPLATE',
+    what: 'the one-time code',
+  },
+  /* Two slots, in this order: the ID, then the password. `sendTemplatedSms`
+     refuses to send if the registered body and the values disagree about how
+     many there are, because the alternative is a text message telling an owner
+     their password is their phone number. */
+  partnerPassword: {
+    idVar: 'SMS_PARTNER_PASSWORD_TEMPLATE_ID',
+    bodyVar: 'PARTNER_PASSWORD_SMS_TEMPLATE',
+    what: "a restaurant owner's first password",
+  },
+};
+
+const template = (kind) => {
+  const spec = TEMPLATES[kind] || TEMPLATES.otp;
+  return {
+    ...spec,
+    templateId: process.env[spec.idVar],
+    body: process.env[spec.bodyVar] || '',
+  };
+};
 
 /* Both spellings of the variable slot are accepted so the registered template
    can be pasted in exactly as the DLT portal shows it — `{#var#}` is what the
    portal writes, and hand-editing it to `{{otp}}` is one more chance to alter
-   a body that has to match character for character. */
-const OTP_SLOT = /\{\{\s*otp\s*\}\}|\{#\s*var\d*\s*#\}/gi;
+   a body that has to match character for character. `{{password}}` is read
+   too, so the second template can name its slot after what goes in it. */
+const SLOT = /\{\{\s*(?:otp|code|password)\s*\}\}|\{#\s*var\d*\s*#\}/gi;
 
 /* The provider signals problems in prose, not in a status code. */
 const FAILURE_HINT = /invalid|error|fail|unauthori[sz]ed|authentication|insufficient|balance|blocked|reject|not\s*found/i;
@@ -68,29 +111,40 @@ const CAMP_ID = /\b[0-9a-f]{16,32}\b/i;
 
 const fail = (error, code = 'SMS_SEND_FAILED') => ({ success: false, error, code });
 
-/** Which piece is missing, named, so the fix is a step rather than a hunt. */
-const smsConfigProblem = () => {
+/**
+ * Which piece is missing, named, so the fix is a step rather than a hunt.
+ *
+ * Defaults to the OTP template because every existing caller asks about that
+ * one and says so by asking nothing — the visit, diner and rider flows all
+ * call `smsConfigProblem()` bare, and a change of default would answer them
+ * about a template they do not send.
+ */
+const smsConfigProblem = (kind = 'otp') => {
   const c = cfg();
   if (!c.username) return 'SMS_USERNAME is not set.';
   if (!c.apikey) return 'SMS_APIKEY is not set.';
   if (!c.senderid) return 'SMS_SENDERID is not set (the registered DLT header).';
-  if (!c.templateId) return 'SMS_OTP_TEMPLATE_ID is not set (the DLT template id).';
-  if (!c.body) return 'OTP_SMS_TEMPLATE is not set (the DLT-approved message body).';
+
+  const t = template(kind);
+  if (!t.templateId) return `${t.idVar} is not set (the DLT template id for ${t.what}).`;
+  if (!t.body) return `${t.bodyVar} is not set (the DLT-approved body for ${t.what}).`;
   return null;
 };
 
-const smsReady = () => !smsConfigProblem();
+const smsReady = (kind = 'otp') => !smsConfigProblem(kind);
 
 /**
- * Send a one-time code. Never throws — the caller decides what a failed send
- * means, because a code that did not arrive should not read the same as a
- * database that is down.
+ * Send one registered template, filling its slots IN ORDER.
  *
+ * Never throws — the caller decides what a failed send means, because a code
+ * that did not arrive should not read the same as a database that is down.
+ *
+ * @param {'otp'|'partnerPassword'} kind  which registered template
  * @param {string} phone  E.164 or 10-digit; normalised here
- * @param {string} otp    the code to substitute into the registered body
+ * @param {string|string[]} values  one value, or one per `{#var#}` in order
  */
-async function sendOtpSms(phone, otp) {
-  const problem = smsConfigProblem();
+async function sendTemplatedSms(kind, phone, values) {
+  const problem = smsConfigProblem(kind);
   if (problem) return fail(problem, 'SMS_NOT_CONFIGURED');
 
   // Local require: config/twilio pulls in the Twilio SDK, and this module is
@@ -100,17 +154,44 @@ async function sendOtpSms(phone, otp) {
   if (!e164) return fail('That phone number is not valid.', 'BAD_PHONE');
 
   const c = cfg();
+  const t = template(kind);
   // The API wants the country code without the plus: "919876543210".
   const mobile = e164.replace(/^\+/, '');
-  const message = c.body.replace(OTP_SLOT, otp);
+
+  /*
+   * One value per slot, in order.
+   *
+   * A registered body may have more than one — the partner sign-in text
+   * carries an ID and a password — and `String.replace` with a global pattern
+   * would otherwise put the SAME value in both. The ID and the password are
+   * not interchangeable, and a message that tells somebody their password is
+   * their phone number is worse than one that fails.
+   *
+   * A single value is accepted as itself so the OTP callers, which pass one,
+   * read the way they always did.
+   */
+  const list = Array.isArray(values) ? values : [values];
+  const slots = t.body.match(SLOT) || [];
 
   /* A template whose variable slot was never filled would send the literal
      "{#var#}" to the recipient and burn their code for nothing. */
-  if (message === c.body) {
-    console.error('[sms] OTP_SMS_TEMPLATE has no variable slot — expected {{otp}} or {#var#}. '
+  if (!slots.length) {
+    console.error(`[sms] ${t.bodyVar} has no variable slot — expected {{otp}}, {{password}} or {#var#}. `
       + 'If the body ends at "{", it is unquoted in .env and a # started a comment.');
-    return fail('The SMS template has no place to put the code.', 'TEMPLATE_NO_SLOT');
+    return fail('The SMS template has no place to put the value.', 'TEMPLATE_NO_SLOT');
   }
+
+  /* Fewer values than slots would leave a literal `{#var#}` in a real message;
+     more would mean the caller thinks the registered body says something it
+     does not. Both are a mismatch between the code and the DLT registration,
+     which is a deployment problem rather than something a retry fixes. */
+  if (slots.length !== list.length) {
+    console.error(`[sms] ${t.bodyVar} has ${slots.length} slot(s) and ${list.length} value(s) were given.`);
+    return fail('The SMS template does not match what we are trying to send.', 'TEMPLATE_SLOT_MISMATCH');
+  }
+
+  let next = 0;
+  const message = t.body.replace(SLOT, () => list[next++]);
 
   const params = new URLSearchParams({
     username: c.username,
@@ -118,7 +199,7 @@ async function sendOtpSms(phone, otp) {
     senderid: c.senderid,
     mobile,
     message,
-    templateid: c.templateId,
+    templateid: t.templateId,
   });
 
   try {
@@ -159,6 +240,31 @@ async function sendOtpSms(phone, otp) {
       : `Could not reach the SMS gateway: ${error.message}`);
   }
 }
+
+/**
+ * A one-time code, on the template every sign-in in this product uses.
+ *
+ * Kept as its own function rather than callers naming the kind: it is called
+ * from four modules, its signature predates the second template, and a caller
+ * that had to pass `'otp'` is a caller that can pass the wrong thing.
+ */
+const sendOtpSms = (phone, otp) => sendTemplatedSms('otp', phone, otp);
+
+/**
+ * A restaurant owner's sign-in details, when their application is approved.
+ *
+ * TWO values, in the order the registered body names them: the ID they sign in
+ * with — their own mobile number, because email is optional on an application
+ * and the phone is the one every account has — and the password.
+ *
+ * On SMS rather than WhatsApp because Meta has refused four WhatsApp templates
+ * on this account, two of which carried no credential at all. The WhatsApp
+ * message still goes and says the details are in a text; it carries the name,
+ * the link and the sentence that DLT text cannot.
+ */
+const sendPartnerPasswordSms = (phone, userId, password) => sendTemplatedSms(
+  'partnerPassword', phone, [userId, password],
+);
 
 /**
  * Delivery report for a campaign id captured at send time. Diagnostic only —
@@ -228,7 +334,9 @@ const logSmsStatus = () => {
 module.exports = {
   smsReady,
   smsConfigProblem,
+  sendTemplatedSms,
   sendOtpSms,
+  sendPartnerPasswordSms,
   getDeliveryReport,
   logSmsStatus,
 };

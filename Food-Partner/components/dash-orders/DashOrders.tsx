@@ -477,7 +477,12 @@ export function DashOrders() {
                   <Text variant="caption" color="tertiary">
                     {order.paymentMode === "cod" ? "Cash on delivery" : "Paid online"}
                   </Text>
-                  <Text variant="priceLg">{rupees(order.grandTotal)}</Text>
+                  {/* The FOOD. This printed `grandTotal`, which carries GST,
+                      the platform fee and the delivery fee — so a ₹160 order
+                      read ₹200 on a kitchen's own screen and none of the
+                      difference was theirs. The server stopped sending it:
+                      see `partnerView`. */}
+                  <Text variant="priceLg">{rupees(order.itemsTotal)}</Text>
                 </Box>
                 {/* `partnerPayout` is written once, when the order is placed,
                     and nothing zeroes it afterwards — so a rejected or
@@ -654,7 +659,7 @@ export function DashOrders() {
         )}
 
         <Text variant="body" color="secondary">
-          {rejecting?.orderNumber} · {rupees(rejecting?.grandTotal ?? 0)}. The diner is told what you
+          {rejecting?.orderNumber} · {rupees(rejecting?.itemsTotal ?? 0)}. The diner is told what you
           say here, and anything they have paid is sent back to them.
         </Text>
 

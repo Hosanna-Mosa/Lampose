@@ -22,6 +22,7 @@ import {
   ChevronRight,
   Clock,
   ExternalLink,
+  KeyRound,
   MapPin,
   Phone,
   Play,
@@ -121,6 +122,10 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
+  /* The sign-in link, when the message carrying it did not go — see
+     `handoff` below. Null on the ordinary path, which is most of them. */
+  const [handoff, setHandoff] = useState<{ name: string; url: string } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const queue = useFetch(
     () => foodAdminService.getRestaurants({ status, search: search || undefined }),
@@ -168,6 +173,15 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
     }
 
     setToast({ tone: 'good', message: res.message || `Application ${decision}.` });
+
+    /* The approval stands whatever WhatsApp did, and when it did nothing the
+       link comes back so a person can carry it the rest of the way. */
+    const credentials = res.data?.credentials;
+    if (credentials?.setupUrl && open) {
+      setHandoff({ name: open.restaurant.restaurantName, url: credentials.setupUrl });
+      setCopied(false);
+    }
+
     closeDrawer();
     queue.reload();
   };
@@ -182,6 +196,39 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
     }
     setToast({ tone: 'good', message: `${row.restaurantName} ${row.isActive ? 'paused' : 'resumed'}.` });
     queue.reload();
+  };
+
+  /*
+   * The owner's sign-in details, again.
+   *
+   * Confirmed first, because it REPLACES the password: an owner who did get
+   * the first message and has signed in would be locked out by a press meant
+   * to help them. The confirm names that consequence rather than asking "are
+   * you sure".
+   */
+  const resendCredentials = async (restaurantId: string, name: string) => {
+    const ok = window.confirm(
+      `Send ${name} a new sign-in link?\n\n`
+        + 'Any link sent earlier stops working. If they have already set a password, '
+        + 'that password is not affected.'
+    );
+    if (!ok) return;
+
+    setBusy(true);
+    const res = await foodAdminService.resendCredentials(restaurantId);
+    setBusy(false);
+
+    setToast(
+      res.success
+        ? { tone: 'good', message: res.message || 'New sign-in details sent.' }
+        : { tone: 'crit', message: res.message || 'Those details could not be sent.' }
+    );
+
+    const credentials = res.data?.credentials;
+    if (credentials?.setupUrl) {
+      setHandoff({ name, url: credentials.setupUrl });
+      setCopied(false);
+    }
   };
 
   const summary = useMemo(
@@ -361,6 +408,16 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
               >
                 Reject
               </Button>
+              {open.restaurant.verificationStatus === 'approved' && (
+                <Button
+                  variant="ghost"
+                  icon={KeyRound}
+                  onClick={() => resendCredentials(open.restaurant.restaurantId, open.restaurant.restaurantName)}
+                  disabled={busy}
+                >
+                  Resend sign-in details
+                </Button>
+              )}
               <Button
                 icon={CheckCircle2}
                 onClick={() => decide('approved')}
@@ -620,6 +677,62 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
             )}
           </Box>
         )}
+      </Modal>
+
+      {/*
+        The hand-off.
+
+        It appears only when the WhatsApp did not go, which today is every
+        time — there is no approved template yet. An approved owner who was
+        sent nothing cannot sign in and nobody can help them: the link is a
+        SHA-256 by then and the stored password is one nobody has ever seen.
+        So the person who just approved them is given the link to pass on by
+        whatever reaches the owner.
+
+        It stops appearing on its own the day the template is approved.
+      */}
+      <Modal
+        open={!!handoff}
+        onClose={() => setHandoff(null)}
+        title="Send this link to the owner"
+        description={
+          handoff
+            ? `The WhatsApp to ${handoff.name} did not go. This link lets them set their password — it works once and expires in 48 hours.`
+            : undefined
+        }
+        size="md"
+        footer={
+          <Box className="flex justify-end gap-2 w-full">
+            <Button variant="ghost" onClick={() => setHandoff(null)}>Done</Button>
+          </Box>
+        }
+      >
+        {handoff ? (
+          <Box className="space-y-3">
+            <Box className="rounded-control border border-line bg-canvas p-3">
+              <Text className="text-label text-ink break-all">{handoff.url}</Text>
+            </Box>
+            <Button
+              variant="ghost"
+              icon={KeyRound}
+              onClick={() => {
+                /* `writeText` is refused outside a secure context and in some
+                   in-app browsers, so the link stays on screen to be read or
+                   selected by hand either way. */
+                navigator.clipboard?.writeText(handoff.url).then(
+                  () => setCopied(true),
+                  () => setCopied(false)
+                );
+              }}
+            >
+              {copied ? 'Copied' : 'Copy link'}
+            </Button>
+            <Text className="text-label text-ink-3">
+              Anyone holding this link can set the password for {handoff.name}. Send it to the
+              owner's own number and to nobody else.
+            </Text>
+          </Box>
+        ) : null}
       </Modal>
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />

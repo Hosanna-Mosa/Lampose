@@ -28,13 +28,24 @@
    ## Why an address with no coordinates is not serviceable
 
    `location` is optional on the address schema — the app saves one without a
-   pin when the device would not give it. A zone lookup needs a point, so an
-   address with no pin cannot be checked and is reported unserviceable with a
-   note saying exactly that. Reporting it serviceable would put the decision
-   on a rider standing in the wrong lane at 9pm.
+   pin when the device would not give it. The reach rule measures a distance
+   and so needs a point, so an address with no pin cannot be checked and is
+   reported unserviceable with a note saying exactly that. Reporting it
+   serviceable would put the decision on a rider standing in the wrong lane
+   at 9pm.
+
+   ## What decides it is the KITCHEN's radius
+
+   The verdict used to come from the `zones` collection, which is gone. It
+   now comes from `deliveryRadiusKm` on the kitchen itself, via
+   `deliveryReach.util.js` — the one file the feed asks the same question of.
+   Read that file before changing what "reaches" means; in particular a
+   radius of zero is read as "not declared" and reaches, rather than as a
+   kitchen that delivers nowhere.
    ══════════════════════════════════════════════════════════════════════════ */
 const FoodRestaurant = require('../foodpartners/foodRestaurant.model');
 const Customer = require('../customers/customer.model');
+const { findKitchenForReach, kitchenReaches } = require('./deliveryReach.util');
 const { LISTED, firstOf } = require('./foodWeb.shape');
 
 /**
@@ -106,9 +117,7 @@ const listAddresses = async (req, res, next) => {
       return res.json({ success: true, data: { addresses, count: addresses.length, judged: false } });
     }
 
-    const kitchen = await FoodRestaurant.findOne({ restaurantId: kitchenId, ...LISTED })
-      .select('restaurantName')
-      .lean();
+    const kitchen = await findKitchenForReach(kitchenId);
 
     if (!kitchen) {
       const message = 'That kitchen is not available.';
@@ -118,22 +127,20 @@ const listAddresses = async (req, res, next) => {
     }
 
     /*
-     * Judged one at a time rather than in one query, because `findZoneFor`
-     * answers for a single point and a diner has three addresses, not three
-     * hundred. Sequential rather than parallel for the same reason — three
-     * indexed lookups are not worth the concurrency.
+     * One kitchen read, then every address judged against it in memory. The
+     * rule is arithmetic on two pins, so there is nothing per-address to
+     * await — which is also why a diner with three addresses costs one query
+     * rather than four.
      */
-    const addresses = [];
-    for (const address of saved) {
+    const addresses = saved.map((address) => {
       const pin = address.location && address.location.coordinates;
 
       if (!Array.isArray(pin) || pin.length !== 2) {
-        addresses.push(addressRow(address, {
+        return addressRow(address, {
           serviceable: false,
           note: 'This address has no map pin yet, so a rider cannot be sent to it. '
             + 'Open it and drop a pin, or choose another address.',
-        }));
-        continue;
+        });
       }
 
       addresses.push(addressRow(address, {
@@ -141,6 +148,14 @@ const listAddresses = async (req, res, next) => {
         note: '',
       }));
     }
+      /* Stored [LONGITUDE, LATITUDE]; handed over as named latitude, longitude. */
+      const reaches = kitchenReaches(kitchen, pin[1], pin[0]);
+      return addressRow(address, {
+        serviceable: reaches,
+        note: reaches ? '' : `Outside ${kitchen.restaurantName}'s delivery area. `
+          + 'Choose another address, or order from a kitchen closer to you.',
+      });
+    });
 
     return res.json({
       success: true,
@@ -202,14 +217,10 @@ const listPaymentMethods = async (req, res, next) => {
         note: 'Opens Razorpay. The kitchen is told once the payment is signed and verified.',
         online: true,
       });
-      methods.push({
-        id: 'card',
-        label: 'Card',
-        icon: 'card',
-        tag: '',
-        note: 'Opens Razorpay. Credit, debit and netbanking.',
-        online: true,
-      });
+      /* There is no separate CARD row any more. It was a second button that
+         opened the same Razorpay window as the one above, so the choice it
+         offered was not a choice — and whatever a diner pays with is picked
+         inside Razorpay, where the card form actually is. */
     }
 
     if (kitchen.acceptsCod !== false) {

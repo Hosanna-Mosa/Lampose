@@ -17,18 +17,25 @@
    active, and disappears when the last one closes. There is nothing to keep
    in step.
 
-   ## Why the area is not a constant either
+   ## Why the area is not a constant either, and why it is no longer a NAME
 
    `AREA` in the fixture is one hard-coded locality — Gachibowli. It is the
    copy for "near you", and near-you is a question about the person asking.
 
-   With `?lat&lng` the answer is the service zone that contains that point,
-   which is a real row in `zones` drawn by an administrator. Without them
-   there is no honest answer, so the reply says `located: false` and carries
-   no locality at all rather than naming a suburb the visitor may be nowhere
-   near.
+   It used to be answered by the service zone containing the visitor's point.
+   Zones are gone, and nothing else in the database knows what a visitor's
+   own suburb is called, so this endpoint no longer names one: naming the
+   nearest KITCHEN's locality would print "we deliver to Gachibowli" at
+   somebody who is not in Gachibowli, and a delivery promise is the last
+   thing to invent.
+
+   What it answers instead is the question the name was standing in for —
+   HOW MANY listed kitchens actually reach this point, by each kitchen's own
+   `deliveryRadiusKm` (see `deliveryReach.util.js`). Without a point there is
+   nothing to measure, so the reply says `located: false` and counts nothing.
    ══════════════════════════════════════════════════════════════════════════ */
 const FoodRestaurant = require('../foodpartners/foodRestaurant.model');
+const { countKitchensReaching } = require('./deliveryReach.util');
 const { LISTED } = require('./foodWeb.shape');
 
 /*
@@ -52,7 +59,7 @@ const DIET_LABEL = { veg: 'Veg', egg: 'Contains egg', nonveg: 'Non-veg' };
  * @access  public
  *
  * Query:
- *   lat, lng   the diner's point, for the area. Both or neither.
+ *   lat, lng   the diner's point, for the delivery verdict. Both or neither.
  */
 const getCatalogue = async (req, res, next) => {
   try {
@@ -75,20 +82,35 @@ const getCatalogue = async (req, res, next) => {
         note: '',
       };
     }
+    /*
+     * The same rule the checkout applies per address, from the same file, so
+     * the feed and the checkout cannot disagree about where Lampose
+     * delivers. A kitchen that reaches this point here is one that will not
+     * refuse the address there.
+     */
+    const kitchensReaching = located ? await countKitchensReaching(lat, lng) : 0;
 
     return res.json({
       success: true,
       data: {
         cuisines,
         dietLabels: DIET_LABEL,
-        area,
+        /* Always null, and kept so a caller that still reads it gets the
+           field rather than `undefined`. There is no row anywhere that names
+           a delivery area now that zones are gone — see the header, which is
+           why the answer below is a COUNT instead of a place name. */
+        area: null,
         located,
+        /* How many kitchens reach the visitor. Sent as the number rather than
+           only as the verdict below, because "4 kitchens deliver to you" is
+           worth printing and a boolean cannot carry it. */
+        kitchensReaching,
         /* Said out loud so the page can draw "we are not here yet" rather
            than an empty feed that looks like a loading failure. Only ever
            true when the caller sent a point — an unlocated visitor gets
            `false` and the page asks for their location instead of promising
            delivery it cannot check. */
-        serviceable: Boolean(area),
+        serviceable: kitchensReaching > 0,
       },
     });
   } catch (error) {

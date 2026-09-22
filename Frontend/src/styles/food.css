@@ -70,12 +70,6 @@
   background: var(--border-l);
   margin: 0.2rem 0;
 }
-.fd-divider {
-  width: 1px;
-  height: 1.6rem;
-  background: var(--border-l);
-  flex: none;
-}
 
 /* Visually hidden, still read aloud. Every search box and radio group on
    these pages has a real label; this is where the ones with no room for a
@@ -468,9 +462,8 @@
 .fd-seg__btn:hover { color: var(--ink); }
 .fd-seg__btn.is-on { background: var(--forest); color: #fff; }
 .fd-seg__btn.is-green { background: var(--green); color: #fff; }
-.fd-seg--sm .fd-seg__btn { height: 2.05rem; padding: 0 0.9rem; font-size: 0.8rem; }
 
-/* ── Feed: intro, rails, filters ────────────────────────────────────── */
+/* ── Feed: intro and rails ──────────────────────────────────────────── */
 .fd-intro {
   display: flex;
   align-items: flex-end;
@@ -478,7 +471,7 @@
   margin-bottom: 1.6rem;
 }
 .fd-intro__head { flex: 1; min-width: 0; }
-.fd-zone {
+.fd-reach {
   flex: none;
   width: 18rem;
   padding: 1.1rem 1.25rem;
@@ -486,7 +479,7 @@
   border: 1px solid var(--border);
   border-radius: var(--rl);
 }
-.fd-zone__body {
+.fd-reach__body {
   margin: 0.4rem 0 0.6rem;
   font-size: 0.88rem;
   line-height: 1.6;
@@ -501,35 +494,10 @@
   padding-bottom: 0.3rem;
   scrollbar-width: thin;
 }
-.fd-filters {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  flex-wrap: wrap;
-  padding: 0.85rem 1.1rem;
-  margin-bottom: 1.6rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-}
+/* The feed's filters bar is gone — veg mode, the chips, the count and the
+   sort control with it. `__spacer` outlives the bar it was named for: the
+   kitchen page pushes its menu search to the right with it. */
 .fd-filters__spacer { flex: 1; }
-.fd-filters__count {
-  font-size: 0.82rem;
-  color: var(--ink-light);
-  white-space: nowrap;
-}
-.fd-select {
-  height: 2.25rem;
-  padding: 0 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #fff;
-  font-family: var(--font-body);
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--ink);
-  cursor: pointer;
-}
 
 .fd-grid {
   display: grid;
@@ -1408,6 +1376,8 @@
 }
 .fd-choice.is-on .fd-choice__badge { background: #fff; border: 1px solid var(--green-p); color: #146b34; }
 .fd-choice__tag { font-size: 0.75rem; font-weight: 600; color: #146b34; }
+/* The same line in the other direction: why this door cannot be delivered to. */
+.fd-choice__warn { font-size: 0.75rem; font-weight: 600; color: #8a6409; }
 
 .fd-callout {
   display: flex;
@@ -1424,6 +1394,39 @@
 .fd-callout--warn p { color: #5b4206; }
 .fd-callout--bad { border-color: #f3d6d3; background: #fbeceb; color: #8e1d16; }
 .fd-callout--bad p { color: #6e1811; }
+
+/* ── The address page ───────────────────────────────────────────────── */
+
+/* A row is the choice AND the three things that can be done to it. The
+   actions sit outside the <label> in the markup — a button nested in one
+   fires the radio it is inside, so "Remove" would select the address it is
+   deleting — and are pulled back under the card here so the pair still reads
+   as one row. */
+.fd-addrRow { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.7rem; }
+.fd-addrRow__acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.1rem;
+  padding: 0 0.6rem 0.2rem 2.5rem;
+}
+.fd-addrRow__acts .fd-link { font-size: 0.78rem; }
+.fd-addrRow__acts .fd-ico { width: 14px; height: 14px; }
+.fd-addrRow__acts button:disabled { opacity: 0.45; cursor: default; }
+.fd-addrRow__ask { font-size: 0.78rem; font-weight: 600; color: var(--ink-mid); }
+
+/* The pin is reported separately from the fields, because the two come apart:
+   a fix always yields coordinates and naming them is the half that fails. */
+.fd-pinRow { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.fd-pinRow__state { margin: 0; font-size: 0.82rem; color: var(--ink-mid); }
+
+.fd-kinds { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+
+.fd-formActions { display: flex; gap: 0.7rem; flex-wrap: wrap; }
+.fd-formActions .fd-btn { flex: 1; min-width: 10rem; }
+
+/* The reach card is a fixed 18rem beside the feed's heading; in the address
+   page's side column it fills the column instead. */
+.fd-reach--side { width: 100%; }
 
 .fd-otp { display: flex; align-items: center; gap: 0.85rem; }
 .fd-otp__boxes { display: flex; gap: 0.4rem; }
@@ -1544,6 +1547,23 @@
   text-indent: 0.22em;
   color: var(--ink);
 }
+
+/* The same chip with the digits withheld: this page was opened from the "your
+   order is placed" message rather than by signing in, and that message can be
+   forwarded. Dashed, muted, and it offers the sign-in that fills it. */
+.fd-code--locked {
+  border-style: dashed;
+  border-color: var(--ink-ghost);
+  background: none;
+  cursor: pointer;
+}
+.fd-code--locked .fd-code__digits {
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  text-indent: 0;
+  color: var(--ink-light);
+}
+.fd-code--locked:hover { border-color: var(--forest); }
 
 .fd-tracks { display: flex; gap: 1.25rem; flex-wrap: wrap; }
 .fd-track {
@@ -1837,7 +1857,7 @@
   .fd-bar { flex-wrap: wrap; }
   .fd-bar__where { border-right: 0; padding-right: 0; width: 100%; }
   .fd-intro { flex-direction: column; align-items: stretch; gap: 1.25rem; }
-  .fd-zone { width: 100%; }
+  .fd-reach { width: 100%; }
   .fd-head { flex-direction: column; }
   .fd-head__photo { width: 100%; height: 12rem; }
   .fd-menu { grid-template-columns: minmax(0, 1fr); }
@@ -1893,7 +1913,6 @@
   .fd-bar .fd-seg { width: 100%; }
   .fd-bar .fd-seg__btn { flex: 1; }
   .fd-seg--full { flex-wrap: wrap; }
-  .fd-filters { gap: 0.55rem; }
   .fd-filters__spacer { display: none; }
   .fd-grid { grid-template-columns: minmax(0, 1fr); }
   .fd-dish { gap: 1rem; }

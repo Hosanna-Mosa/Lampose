@@ -24,13 +24,13 @@
 
    ## An address we do not reach cannot be continued from
 
-   The service-zone verdict is stamped onto every row in the book rather than
+   The delivery verdict is stamped onto every row in the book rather than
    onto whichever one the cart happens to be pointing at. That is what makes
    the "we do not deliver here yet" line under a row able to appear at all, and
-   it is why Continue goes dead on a row that came back outside every zone —
-   finding that out after paying is the version of this that costs somebody
-   their dinner. An address whose check has not answered yet is a different
-   case and is left alone.
+   it is why Continue goes dead on a row the kitchen cannot reach — finding
+   that out after paying is the version of this that costs somebody their
+   dinner. An address whose check has not answered yet is a different case and
+   is left alone.
 
    ## With nothing saved, this screen is the ask
 

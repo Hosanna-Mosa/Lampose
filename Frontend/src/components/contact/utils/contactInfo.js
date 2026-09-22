@@ -1,7 +1,7 @@
 export const INFO = [
   {
-    icon: 'orders', label: 'Email', value: 'hello@lampose.com',
-    href: 'mailto:hello@lampose.com', sub: 'Answered within a day, usually sooner',
+    icon: 'orders', label: 'Email', value: 'contact@lampose.com',
+    href: 'mailto:contact@lampose.com', sub: 'Answered within a day, usually sooner',
   },
   {
     icon: 'bell', label: 'Phone', value: '+91 63023 21942',
@@ -12,8 +12,8 @@ export const INFO = [
     sub: 'Come and see us if you are nearby',
   },
   {
-    icon: 'users', label: 'Partnerships', value: 'hello@lampose.com',
-    href: 'mailto:hello@lampose.com', sub: 'Rooms, kitchens, riders, press',
+    icon: 'users', label: 'Partnerships', value: 'contact@lampose.com',
+    href: 'mailto:contact@lampose.com', sub: 'Rooms, kitchens, riders, press',
   },
 ];
 

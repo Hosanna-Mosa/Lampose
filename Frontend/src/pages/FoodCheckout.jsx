@@ -8,8 +8,8 @@ import { BillLines } from '../components/food/molecules/BillLines';
 import { PhotoTile } from '../components/food/atoms/PhotoTile';
 import { ActiveOrder } from '../components/food/organisms/ActiveOrder';
 import { useCart } from '../food/CartProvider';
-import { ENFORCE_MINIMUM } from '../food/cart';
 import { useReveals } from '../hooks/useSite';
+import { payForOrder } from '../food/payOnline';
 import { rupees } from '../data/food';
 import { fetchPaymentMethods } from '../api/foodApi';
 import { useAuth } from '../auth/AuthProvider';
@@ -20,8 +20,8 @@ import { useAuth } from '../auth/AuthProvider';
    ## An address that cannot be delivered to says so, here
 
    Not after payment. The unserviceable address stays in the list, disabled,
-   with the reason in a sentence and a way out — pickup, or a kitchen that
-   does reach it. A hidden address reads as a deleted address.
+   with the reason in a sentence and a way out — another address, or a kitchen
+   that does reach this one. A hidden address reads as a deleted address.
 
    ## This places a REAL order
 
@@ -29,13 +29,19 @@ import { useAuth } from '../auth/AuthProvider';
    prices the order, writes it, and tells the kitchen - it is in the restaurant
    admin's queue by the time this page navigates to its tracking screen.
 
-   ## Cash and pickup only, and the page says so
+   ## Two ways to pay, and the online one opens Razorpay HERE
 
-   Paying online is not offered on the website yet: the payment page can only
-   return a customer to the app's `lampose://` links, so a card payment started
-   here would have nowhere to come back to. The online methods are SHOWN, greyed
-   out with the reason, rather than hidden - a diner who wanted to pay by UPI
-   should learn that it exists and where, not that it does not.
+   Cash on delivery places the order and goes straight to tracking. UPI writes
+   the order UNPAID and opens Razorpay's own window over this page: the kitchen
+   is not told and no rider is looked for until the signature verifies, because
+   `paymentStatus: 'paid'` has exactly one cause in this product.
+
+   There is no separate "Card" row any more. It opened the same window as UPI,
+   so it was not a choice; what a diner pays with is picked inside Razorpay.
+
+   Closing that window is not a lost order — the order is real and unpaid, so
+   this page hands over to tracking, which offers to pay again. Anything else
+   would leave a diner on a checkout that has forgotten their order exists.
 
    ## A refusal is the ordinary case, and it keeps the cart
 
@@ -91,17 +97,24 @@ export function FoodCheckout() {
     return () => { live = false; };
   }, [kitchen?.id]);
 
-  /* What can be paid HERE. Online methods are listed but not selectable - see
-     the header - so the ones the site can take are the cash ones. */
-  const usable = methods.filter(m => !m.online);
+  /* Every method this kitchen offers can be used here now — the online one
+     opens Razorpay over this page. What is listed is what is usable. */
+  const usable = methods;
 
-  /* A method held in the cart that cannot be used (a card, from a session that
-     ran in the app; or cash, after the kitchen switched it off) is replaced by
-     the first one that can. */
+  /* A method held from an earlier session that this kitchen no longer takes
+     (it switched cash or online off) is replaced by the first one it does. */
   useEffect(() => {
-    const ok = methods.filter(m => !m.online);
-    if (ok.length && !ok.some(m => m.id === payment)) setPayment(ok[0].id);
+    if (methods.length && !methods.some(m => m.id === payment)) setPayment(methods[0].id);
   }, [methods, payment, setPayment]);
+
+  /* Cash goes straight to tracking; anything else is paid before it is cooked. */
+  const payingOnline = usable.some(m => m.id === payment && m.online);
+
+  /* The order that exists but is not paid for: they closed Razorpay, or the
+     verification is still being answered. Kept so the button pays for THAT
+     order instead of placing a second one. */
+  const [unpaidRef, setUnpaidRef] = useState(null);
+  const [payStage, setPayStage] = useState('');
 
   useReveals([lines.length, payment, addressId]);
 
@@ -152,12 +165,10 @@ export function FoodCheckout() {
      as in the cart: this page has its own URL, and a rule enforced only by
      the button on the previous screen is not enforced at all. */
   const unreachable = fulfilment === 'delivery' && !chosen?.serviceable;
-  const underMinimum = bill.shortOfMinimum > 0;
   /* An address we cannot reach is a hard stop — there is nowhere to send the
-     rider. The kitchen's minimum only stops the order when the site is set to
-     enforce it; see ENFORCE_MINIMUM in food/cart.js. */
-  const cashOnly = methodsLoaded && payable && usable.length === 0;
-  const blocked = placing || unreachable || !payable || !usable.length || (ENFORCE_MINIMUM && underMinimum);
+     rider. A kitchen minimum was the other one and is gone: there is no
+     minimum order any more, here or on the server. */
+  const blocked = placing || unreachable || !payable || !usable.length;
 
   /**
    * What the diner is told when the order did not go through.
@@ -181,15 +192,48 @@ export function FoodCheckout() {
   const place = async () => {
     setPlaceError(null);
     setPlacing(true);
-    const result = await placeOrder({ instructions });
-    setPlacing(false);
 
-    /* The session ended while this page was open: sign in rather than a
-       tracking page for an order that does not exist. */
-    if (result.authRequired) { openSignIn(); return; }
-    if (result.error) { setPlaceError(result.error); return; }
+    /* An order that is already written and unpaid is PAID, never placed again.
+       The commonest way to reach this button twice is closing Razorpay and
+       changing your mind, and a second order is not what that means. */
+    let reference = unpaidRef;
 
-    navigate(`/food/orders/${result.order.orderNumber}`);
+    if (!reference) {
+      const result = await placeOrder({ instructions });
+
+      /* The session ended while this page was open: sign in rather than a
+         tracking page for an order that does not exist. */
+      if (result.authRequired) { setPlacing(false); openSignIn(); return; }
+      if (result.error) { setPlacing(false); setPlaceError(result.error); return; }
+
+      reference = result.order.orderNumber;
+
+      if (!payingOnline) {
+        setPlacing(false);
+        navigate(`/food/orders/${reference}`);
+        return;
+      }
+      setUnpaidRef(reference);
+    }
+
+    try {
+      const outcome = await payForOrder(reference, setPayStage);
+      setPayStage('');
+      setPlacing(false);
+
+      /* Paid, or paid a moment ago — either way the kitchen has it now. */
+      if (outcome.paid) { navigate(`/food/orders/${reference}`); return; }
+
+      /* Not paid, and the order is real. Tracking is where it can be paid for
+         again, and where a refresh would have landed them anyway. */
+      navigate(`/food/orders/${reference}`);
+    } catch (error) {
+      /* The gateway would not even open. The order stands, unpaid, and the
+         button now says "Pay" for it rather than placing another. */
+      setPayStage('');
+      setPlacing(false);
+      setPlaceError(error);
+    }
   };
 
   return (
@@ -209,7 +253,7 @@ export function FoodCheckout() {
         <Box className="fd-pageHead">
           <Heading level={1} className="fd-h1">Checkout</Heading>
           <Text className="fd-pageHead__note">
-            <Icon name="verified" className="fd-ico" /> Pay in cash when it arrives, or at the counter for pickup.
+            <Icon name="verified" className="fd-ico" /> Pay in cash when it arrives.
           </Text>
         </Box>
 
@@ -217,14 +261,20 @@ export function FoodCheckout() {
           <Box className="fd-two__main">
 
             {/* ── address ───────────────────────────────────────────────── */}
-            {fulfilment === 'delivery' ? (
+            {/* Every order is delivered — collection is no longer offered, and
+                the "Collecting it yourself" panel that stood beside this one
+                went with it. */}
+            {fulfilment === 'delivery' && (
               <Box className="fd-panel fd-panel--lift reveal">
                 <Box className="fd-panel__head">
                   <Heading level={2} className="fd-panel__title">Where should the rider come?</Heading>
-                  <PlainButton type="button" className="fd-btn fd-btn--ghost fd-btn--sm">
+                  {/* The book is edited on its own page — this panel chooses
+                      between what is in it. The button here used to do
+                      nothing at all. */}
+                  <Link to="/food/address?next=/food/checkout" className="fd-btn fd-btn--ghost fd-btn--sm">
                     <Icon name="pin" className="fd-ico" />
-                    Use my location
-                  </PlainButton>
+                    Manage addresses
+                  </Link>
                 </Box>
 
                 {/* Two states a fixture never had: nobody signed in, and a diner
@@ -244,8 +294,9 @@ export function FoodCheckout() {
                   <Box className="fd-callout">
                     <Icon name="info" className="fd-ico" />
                     <Text>
-                      You have no saved addresses yet. Add one in the Lampose app, or choose pickup to collect it
-                      yourself.
+                      You have no saved addresses yet.{' '}
+                      <Link to="/food/address?next=/food/checkout&new=1" className="fd-link">Add one</Link>
+                      {' '}An order needs somewhere to go.
                     </Text>
                   </Box>
                 )}
@@ -278,15 +329,19 @@ export function FoodCheckout() {
                         )}
                       </Box>
                       {addr.serviceable
-                        ? <Inline className="fd-link">Edit</Inline>
+                        ? (
+                          <Link to={`/food/address?next=/food/checkout&edit=${addr.id}`} className="fd-link">
+                            Edit
+                          </Link>
+                        )
                         : <Link to="/food" className="fd-link">See kitchens</Link>}
                     </Label>
                   ))}
                 </FieldSet>
 
-                <PlainButton type="button" className="fd-btn fd-btn--dashed fd-btn--full">
+                <Link to="/food/address?next=/food/checkout&new=1" className="fd-btn fd-btn--dashed fd-btn--full">
                   + Add a new address
-                </PlainButton>
+                </Link>
 
                 <Box className="fd-fieldRow">
                   <Box className="fd-field">
@@ -308,23 +363,6 @@ export function FoodCheckout() {
                   </Box>
                 </Box>
               </Box>
-            ) : (
-              <Box className="fd-panel fd-panel--lift reveal">
-                <Heading level={2} className="fd-panel__title">Collecting it yourself</Heading>
-                <Box className="fd-addr">
-                  <Icon name="store" className="fd-ico" />
-                  <Box className="fd-addr__text">
-                    <Inline className="fd-addr__title">{kitchen.name}</Inline>
-                    <Inline className="fd-addr__detail">
-                      {kitchen.landmark} · ready in about {kitchen.prepMinutes} minutes
-                    </Inline>
-                  </Box>
-                  <Link to="/food/cart" className="fd-link">Switch to delivery</Link>
-                </Box>
-                <Text className="fd-note">
-                  Pay at the counter when you collect it. No delivery fee is charged on a pickup.
-                </Text>
-              </Box>
             )}
 
             {/* ── payment ───────────────────────────────────────────────── */}
@@ -333,51 +371,30 @@ export function FoodCheckout() {
 
               <FieldSet className="fd-field">
                 <Legend className="fd-sr">Payment method</Legend>
-                {methods.map(method => {
-                  /* Online methods are shown and cannot be chosen - see the header. */
-                  const offApp = Boolean(method.online);
-                  const pickup = fulfilment === 'pickup';
-                  return (
-                    <Label
-                      key={method.id}
-                      className={`fd-choice fd-choice--block${payment === method.id ? ' is-on' : ''}${offApp ? ' is-off' : ''}`}
-                    >
-                      <Input
-                        type="radio"
-                        name="payment"
-                        checked={payment === method.id}
-                        disabled={offApp}
-                        onChange={() => setPayment(method.id)}
-                      />
-                      <Inline className="fd-choice__badge"><Icon name={method.icon} className="fd-ico" /></Inline>
-                      <Box className="fd-choice__text">
-                        <Inline className="fd-choice__title">
-                          {method.id === 'cod' && pickup ? 'Pay at the counter' : method.label}
-                        </Inline>
-                        <Inline className="fd-choice__detail">
-                          {offApp
-                            ? 'Not on the website yet - pay online in the Lampose app.'
-                            : pickup
-                              ? 'Pay when you collect it.'
-                              : method.note}
-                        </Inline>
-                      </Box>
-                      {!offApp && method.tag && <Inline className="fd-choice__tag">{method.tag}</Inline>}
-                    </Label>
-                  );
-                })}
+                {methods.map(method => (
+                  <Label
+                    key={method.id}
+                    className={`fd-choice fd-choice--block${payment === method.id ? ' is-on' : ''}`}
+                  >
+                    <Input
+                      type="radio"
+                      name="payment"
+                      checked={payment === method.id}
+                      onChange={() => setPayment(method.id)}
+                    />
+                    <Inline className="fd-choice__badge"><Icon name={method.icon} className="fd-ico" /></Inline>
+                    <Box className="fd-choice__text">
+                      <Inline className="fd-choice__title">{method.label}</Inline>
+                      <Inline className="fd-choice__detail">{method.note}</Inline>
+                    </Box>
+                    {method.tag && <Inline className="fd-choice__tag">{method.tag}</Inline>}
+                  </Label>
+                ))}
               </FieldSet>
 
               {methodsLoaded && !payable && (
                 <Text className="fd-note fd-note--warn" role="alert">
                   {kitchen.name} is not taking any payment method right now, so an order cannot be placed with it.
-                </Text>
-              )}
-
-              {cashOnly && (
-                <Text className="fd-note fd-note--warn" role="alert">
-                  {kitchen.name} only takes online payment, which the website cannot do yet. Order from this kitchen in
-                  the Lampose app, or choose another kitchen.
                 </Text>
               )}
 
@@ -399,7 +416,7 @@ export function FoodCheckout() {
                   <Inline className="fd-cart__name">{kitchen.name}</Inline>
                   <Inline className="fd-cart__meta">
                     {bill.count} item{bill.count === 1 ? '' : 's'} ·{' '}
-                    {fulfilment === 'delivery' ? (chosen ? `delivery to ${chosen.title}` : 'delivery') : 'pickup'}
+                    {chosen ? `delivery to ${chosen.title}` : 'delivery'}
                   </Inline>
                 </Box>
                 <Link to="/food/cart" className="fd-link">Edit</Link>
@@ -420,7 +437,7 @@ export function FoodCheckout() {
                 bill={bill}
                 fulfilment={fulfilment}
                 couponCode={coupon?.code}
-                payLabel={fulfilment === 'pickup' ? 'Pay at the counter' : 'Pay on delivery'}
+                payLabel={payingOnline ? 'To pay now' : 'Pay on delivery'}
               />
 
               <PlainButton
@@ -430,8 +447,12 @@ export function FoodCheckout() {
                 onClick={place}
               >
                 {placing
-                  ? 'Placing your order…'
-                  : `Place order · ${rupees(bill.toPay)} ${fulfilment === 'pickup' ? 'at the counter' : 'on delivery'}`}
+                  ? (payStage === 'verifying' ? 'Checking the payment…'
+                    : payStage === 'opening' ? 'Opening Razorpay…'
+                      : 'Placing your order…')
+                  : payingOnline
+                    ? `${unpaidRef ? 'Pay again' : 'Pay'} · ${rupees(bill.toPay)}`
+                    : `Place order · ${rupees(bill.toPay)} on delivery`}
               </PlainButton>
 
               {/* Why the last attempt did not go through - the server's own sentence
@@ -446,16 +467,10 @@ export function FoodCheckout() {
                 </Box>
               )}
 
-              {underMinimum && (
-                <Text className="fd-note fd-note--warn" role="status">
-                  The minimum order at {kitchen.name} is {rupees(kitchen.minOrder)}. Add {rupees(bill.shortOfMinimum)}
-                  {' '}more{ENFORCE_MINIMUM ? ' to place it.' : '.'}
-                </Text>
-              )}
 
               {unreachable && (
                 <Text className="fd-note fd-note--warn" role="alert">
-                  Pick a serviceable address, or switch to pickup, before placing this order.
+                  Pick an address we can deliver to before placing this order.
                 </Text>
               )}
 

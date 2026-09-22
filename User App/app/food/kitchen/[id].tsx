@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { contactNumberOf, deliveryFeeFor, metaLine, walkLabel } from '@/services/adapters/food.adapter';
+import { contactNumberOf, metaLine, walkLabel } from '@/services/adapters/food.adapter';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
@@ -12,7 +12,6 @@ import {
   FoodEmptyState,
   FoodMenuSkeleton,
   FoodNotice,
-  FulfilmentToggle,
   RatingPill,
   DishRow,
 } from '@/components/food';
@@ -21,7 +20,6 @@ import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { Diet, Dish } from '@/types/food';
-import { formatRupees } from '@/utils/money';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 
 /**
@@ -35,9 +33,9 @@ import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
  * carries no title: it used to hold the name as well, which printed it twice
  * on one screen with the upper copy truncated.
  *
- * The deliver/pickup pair (`FulfilmentToggle`) sits in the identity block
- * below, while the kitchen is open — the one place in the app that calls
- * `setFulfilment`, so this is where a diner actually chooses.
+ * There is no deliver/pickup pair here any more. Pickup was withdrawn from the
+ * product — the order endpoint refuses one — so every order is a delivery and
+ * there is nothing on this screen for a diner to choose between.
  *
  * A CLOSED kitchen keeps its whole menu, greyed. Hiding the menu would make
  * the commonest question here ("is this the place with the ₹95 thali?")
@@ -56,8 +54,6 @@ export default function KitchenScreen() {
     lines,
     count,
     itemTotal,
-    fulfilment,
-    setFulfilment,
     address,
     preferences,
     setPreferences,
@@ -180,17 +176,6 @@ export default function KitchenScreen() {
     Linking.openURL(`tel:${phone.replace(/[^\d+]/g, '')}`).catch(() => setCallFailed(true));
   };
 
-  /* "Ready about 7:45 PM" — the counter-ready clock time, not a minute count.
-     `deliveryMinutes` is ZERO always (see `food.adapter.ts`: nothing in
-     `food_restaurants` records how long a rider takes), which is why
-     `arrivesAt` is null on every kitchen today and `FulfilmentToggle` already
-     has a fallback line for exactly that case. */
-  const clockAfter = (minutes: number) =>
-    new Date(Date.now() + minutes * 60000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const readyAt = clockAfter(kitchen.prepMinutes);
-  const arrivesAt = kitchen.deliveryMinutes > 0 ? clockAfter(kitchen.prepMinutes + kitchen.deliveryMinutes) : null;
-  const deliveryFee = deliveryFeeFor(kitchen, itemTotal);
-
   const setDishQty = (dish: Dish, next: number) => {
     const existing = lines.find((line) => line.dishId === dish.id);
     if (existing) {
@@ -288,24 +273,12 @@ export default function KitchenScreen() {
             />
           ) : null}
 
-          {fulfilment !== 'pickup' ? (
+          {address ? (
             <View style={styles.metaRow}>
               <Text variant="numMeta" color="tertiary" style={{ flex: 1 }}>
-                Minimum {formatRupees(kitchen.minOrder)} for delivery{address ? ` to ${address.title}` : ''}
+                Delivering to {address.title}
               </Text>
             </View>
-          ) : null}
-
-          {open ? (
-            <FulfilmentToggle
-              value={fulfilment}
-              onChange={setFulfilment}
-              kitchen={kitchen}
-              readyAt={readyAt}
-              arrivesAt={arrivesAt}
-              deliveryFee={deliveryFee}
-              size="compact"
-            />
           ) : null}
 
           {!open ? (
@@ -511,7 +484,7 @@ export default function KitchenScreen() {
           <DockedCartBar
             count={count}
             total={itemTotal}
-            context={fulfilment === 'pickup' ? 'pickup' : address ? address.title : 'no address yet'}
+            context={address ? address.title : 'no address yet'}
             onPress={() => router.push(foodHref.cart)}
           />
         </View>

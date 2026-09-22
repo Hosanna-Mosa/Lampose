@@ -215,7 +215,7 @@ const main = async () => {
        can show them as completeness rather than as a scary raw number. */
     health: [
       { label: 'Listings with a map pin', good: properties.filter((p) => p.location).length, total: properties.length,
-        note: 'Needed by service-zone checks and every map view.' },
+        note: 'Needed by the delivery-radius check and every map view.' },
       { label: 'Listings with a photograph', good: properties.filter((p) => (p.images || []).length || p.imageUrl).length, total: properties.length },
       { label: 'Listings with a description', good: properties.filter((p) => s(p.description).trim()).length, total: properties.length,
         note: 'The field exists on every listing and is empty on every one.' },

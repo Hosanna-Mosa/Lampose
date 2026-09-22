@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Article, Aside, Box, Heading, Inline, Input, Label, Option, PlainButton, Region, Select, Strong, Text,
+  Article, Aside, Box, Heading, Inline, Input, Label, PlainButton, Region, Strong, Text,
 } from '../components/common/atoms';
 import { Icon } from '../components/common/atoms/Icon/Icon';
 import { SecHead } from '../components/common/molecules/SecHead/SecHead';
@@ -24,18 +24,21 @@ import { useFoodCatalogue } from '../food/FoodCatalogue';
 
    ## Every kitchen here is a food partner with an approved menu
 
-   The list is `data/food.js` while the ordering surface is a prototype — see
-   the note at the top of that file. What it is NOT is a curated selection:
-   the order is the sort the visitor picked, the ratings are the restaurant's
-   own, and nothing is boosted.
+   Not a curated selection: the ratings are the restaurant's own and nothing is
+   boosted. The ORDER is open kitchens first, then nearest when the visitor's
+   address carries a pin and delivery time when it does not — nobody picks it,
+   because there is nothing here to pick it with.
 
-   ## Veg mode has three states, because it is two questions
+   ## There are two controls on this page
 
-   Off, veg dishes, pure-veg kitchens. Hiding a dish and hiding a kitchen are
-   different things: a diner who orders veg from a mixed kitchen is served by
-   most of this city, and a diner who will not order from a kitchen that
-   cooks meat at all is served by neither of the other two settings. A
-   two-state switch forces one of those two people to be wrong.
+   The search box in the bar at the top, and the cuisine row. A filters bar
+   stood under the cuisines — veg mode, "Open now", "Rating 4.0+", "Free
+   delivery", "Under ₹150", a kitchen count and a sort — and it is gone.
+
+   Its "Open now" chip defaulted to ON, which is the part worth remembering:
+   a kitchen that opens at five was missing from this page all afternoon, and
+   the only thing saying so was a chip nobody had pressed. Now every kitchen
+   lists and a closed one sorts to the bottom.
 
    ## A closed kitchen still lists
 
@@ -62,46 +65,43 @@ const ascending = pick => (a, b) => {
   return x - y;
 };
 
+/* Two orderings, chosen by whether the visitor's address has a pin — see
+   `sortBy` below. Rating and cost-for-one were options on the sort control
+   that stood in the filters bar; the control is gone and so are they. */
 const SORTS = {
-  nearest: { label: 'Nearest first', by: ascending(k => k.walkMinutes) },
-  rating: { label: 'Rating', by: (a, b) => b.rating - a.rating },
-  time: { label: 'Delivery time', by: ascending(k => k.deliveryMinutes) },
-  cost: { label: 'Cost for one', by: ascending(k => k.costForOne) },
+  nearest: { by: ascending(k => k.walkMinutes) },
+  time: { by: ascending(k => k.deliveryMinutes) },
 };
 
-const EMPTY = {
-  q: '', cuisine: 'all', veg: 'off', openNow: true, rated: false, freeDelivery: false, cheap: false,
-};
+/* What a diner can still narrow this page by: a search box and one cuisine. */
+const EMPTY = { q: '', cuisine: 'all' };
 
 export function FoodOrder() {
   const [filters, setFilters] = useState(EMPTY);
-  const [chosenSort, setSortBy] = useState('nearest');
-  const { address, fulfilment, setFulfilment } = useCart();
+  const { address } = useCart();
   const { openDish, dialogs } = useAddDish();
 
-  /* The real catalogue. `area` is null until the visitor's point resolves to
-     a service zone — see the Serviceable card below, which says so rather
-     than naming a suburb nobody confirmed. */
+  /* The real catalogue. `serviceable` stays false until the visitor's point
+     falls inside some kitchen's own delivery radius — see the card below,
+     which says so rather than naming a suburb nobody confirmed. */
   const {
-    kitchens: allKitchens, cuisines: CUISINES, area: AREA, serviceable,
+    kitchens: allKitchens, cuisines: CUISINES, serviceable, kitchensReaching,
     popular, loading, error, refresh, kitchenById, dishById, dishesOf,
   } = useFoodCatalogue();
 
   /*
+   * The order, which nobody picks any more: the sort control went with the
+   * filters bar.
+   *
    * "Nearest first" is only a real sort when the server knew where the visitor
    * is. Without a location every kitchen's `walkMinutes` is null, the
-   * comparator returns 0 for every pair, and the list stays in whatever order
-   * it arrived in - while the control above it says "Nearest first". A label
-   * that promises an ordering nothing performed is the kind of small lie this
-   * page has been stripped of everywhere else.
-   *
-   * So the option is offered only when it works, and a visitor whose chosen
-   * sort has stopped being available falls back to delivery time rather than
-   * to a silently unsorted list.
+   * comparator returns 0 for every pair and the list keeps whatever order it
+   * arrived in — which is why this still checks rather than always asking for
+   * nearest. With a pinned address the list is nearest-first; without one it
+   * is by delivery time, which is a real ordering either way.
    */
   const hasDistance = allKitchens.some(k => k.walkMinutes != null);
-  const sortBy = chosenSort === 'nearest' && !hasDistance ? 'time' : chosenSort;
-  const sortChoices = Object.entries(SORTS).filter(([key]) => key !== 'nearest' || hasDistance);
+  const sortBy = hasDistance ? 'nearest' : 'time';
 
   useReveals([filters, sortBy, allKitchens]);
 
@@ -112,13 +112,6 @@ export function FoodOrder() {
 
     const rows = allKitchens.filter(k => {
       if (filters.cuisine !== 'all' && !k.cuisineTypes.includes(filters.cuisine)) return false;
-      /* Veg mode hides a KITCHEN only in its strictest setting; the middle
-         setting is about dishes, and the menu page applies it. */
-      if (filters.veg === 'restaurants' && !k.pureVeg) return false;
-      if (filters.openNow && !k.openNow) return false;
-      if (filters.rated && k.rating < 4) return false;
-      if (filters.freeDelivery && k.deliveryFee > 0) return false;
-      if (filters.cheap && k.costForOne > 150) return false;
       if (!q) return true;
       /* The box says “biryani, thali, or a kitchen name”, so a dish name has
          to find its kitchen — searching only the kitchen's own fields makes
@@ -142,13 +135,6 @@ export function FoodOrder() {
     return [...rows].sort((a, b) => (Number(b.openNow) - Number(a.openNow)) || SORTS[sortBy].by(a, b));
   }, [allKitchens, dishesOf, filters, sortBy]);
 
-  const chips = [
-    { key: 'openNow', label: 'Open now' },
-    { key: 'rated', label: 'Rating 4.0+' },
-    { key: 'freeDelivery', label: 'Free delivery' },
-    { key: 'cheap', label: 'Under ₹150' },
-  ];
-
   /* Ranked by the server — see `/dishes/popular`. Empty until dishes carry
      ratings, and the strip below hides itself rather than showing a heading
      over nothing. */
@@ -167,7 +153,12 @@ export function FoodOrder() {
               <Inline className="fd-lbl">Deliver to</Inline>
               <Inline className="fd-bar__addrName">{address?.title || 'Pick an address'}</Inline>
             </Box>
-            <Link to="/food/checkout" className="fd-link">Change</Link>
+            {/* The address page, not the checkout: there is no cart on this
+                screen, and the checkout answers an empty one with "there is
+                nothing to pay for". */}
+            <Link to="/food/address?next=/food" className="fd-link">
+              {address ? 'Change' : 'Add'}
+            </Link>
           </Box>
 
           <Box className="fd-search">
@@ -180,23 +171,6 @@ export function FoodOrder() {
               value={filters.q}
               onChange={e => set('q', e.target.value)}
             />
-          </Box>
-
-          <Box className="fd-seg" role="group" aria-label="Delivery or pickup">
-            <PlainButton
-              type="button"
-              className={`fd-seg__btn${fulfilment === 'delivery' ? ' is-on' : ''}`}
-              onClick={() => setFulfilment('delivery')}
-            >
-              Delivery
-            </PlainButton>
-            <PlainButton
-              type="button"
-              className={`fd-seg__btn${fulfilment === 'pickup' ? ' is-on' : ''}`}
-              onClick={() => setFulfilment('pickup')}
-            >
-              Pickup
-            </PlainButton>
           </Box>
         </Box>
 
@@ -211,18 +185,23 @@ export function FoodOrder() {
               mb="0"
             />
           </Box>
-          {/* The area, only when a real service zone answered for the
-              visitor's point. Without one there is nothing honest to put
-              here — "we deliver to Gachibowli" was the fixture's guess, and a
-              delivery promise is the last thing to invent. */}
-          <Aside className="fd-zone reveal">
+          {/* Whether anybody can actually cook for this visitor, counted from
+              the kitchens whose own delivery radius covers their point. A
+              COUNT rather than a place name: nothing here knows what the
+              visitor's suburb is called, and "we deliver to Gachibowli" was
+              the fixture's guess. A delivery promise is the last thing to
+              invent. */}
+          <Aside className="fd-reach reveal">
             <Text className="fd-lbl">{serviceable ? 'Serviceable' : 'Delivery area'}</Text>
-            <Text className="fd-zone__body">
-              {serviceable && AREA
-                ? <>We deliver to <Strong>{AREA.locality}</Strong>.</>
+            <Text className="fd-reach__body">
+              {serviceable
+                ? <>
+                  <Strong>{kitchensReaching}</Strong>
+                  {kitchensReaching === 1 ? ' kitchen delivers' : ' kitchens deliver'} to you.
+                </>
                 : 'Add your address to see whether we deliver to you.'}
             </Text>
-            <Link to="/food/checkout" className="fd-link">
+            <Link to="/food/address?next=/food" className="fd-link">
               {serviceable ? 'Check another address →' : 'Check your address →'}
             </Link>
           </Aside>
@@ -249,40 +228,23 @@ export function FoodOrder() {
           ))}
         </Box>
 
-        {/* ── filters ───────────────────────────────────────────────────── */}
-        <Box className="fd-filters">
-          <Inline className="fd-lbl">Veg mode</Inline>
-          <Box className="fd-seg fd-seg--sm" role="group" aria-label="Veg mode">
-            <PlainButton type="button" className={`fd-seg__btn${filters.veg === 'off' ? ' is-on' : ''}`} onClick={() => set('veg', 'off')}>Off</PlainButton>
-            <PlainButton type="button" className={`fd-seg__btn${filters.veg === 'items' ? ' is-green' : ''}`} onClick={() => set('veg', 'items')}>Veg dishes</PlainButton>
-            <PlainButton type="button" className={`fd-seg__btn${filters.veg === 'restaurants' ? ' is-green' : ''}`} onClick={() => set('veg', 'restaurants')}>Pure-veg kitchens</PlainButton>
-          </Box>
+        {/*
+            The filters bar stood here: veg mode, "Open now", "Rating 4.0+",
+            "Free delivery", "Under ₹150", the kitchen count and a sort
+            control. All of it is gone.
 
-          <Inline className="fd-divider" aria-hidden="true" />
+            What that leaves is the cuisine row above and the search box in the
+            bar at the top, which is the whole of what a diner picks from now.
+            The ORDERING is unchanged and is not a filter: open kitchens first,
+            then nearest when the visitor's address has a pin and delivery time
+            when it does not.
 
-          {chips.map(chip => (
-            <PlainButton
-              key={chip.key}
-              type="button"
-              aria-pressed={filters[chip.key]}
-              className={`fd-chipBtn fd-chipBtn--sm${filters[chip.key] ? ' is-green' : ''}`}
-              onClick={() => set(chip.key, !filters[chip.key])}
-            >
-              {chip.label}{filters[chip.key] ? ' ✕' : ''}
-            </PlainButton>
-          ))}
-
-          <Inline className="fd-filters__spacer" />
-          <Inline className="fd-filters__count">
-            {kitchens.length} kitchen{kitchens.length === 1 ? '' : 's'}
-          </Inline>
-          <Label className="fd-sr" htmlFor="fd-sort">Sort kitchens</Label>
-          <Select id="fd-sort" className="fd-select" value={sortBy} onChange={e => setSortBy(e.target.value)}>
-            {sortChoices.map(([key, sort]) => (
-              <Option key={key} value={key}>{sort.label}</Option>
-            ))}
-          </Select>
-        </Box>
+            One behaviour changed with it rather than being hidden: "Open now"
+            defaulted to ON, so a kitchen that opens at five was missing from
+            this page all afternoon with a chip nobody had pressed explaining
+            it. Closed kitchens now list, at the bottom, with their opening
+            time on the card — which is what the card was built to say.
+        */}
 
         {/* ── the kitchens ──────────────────────────────────────────────── */}
         {/*
@@ -316,16 +278,14 @@ export function FoodOrder() {
         ) : (
           <Box className="fd-empty reveal">
             <Inline className="fd-empty__mark"><Icon name="search" className="fd-ico" /></Inline>
-            <Heading level={2} className="fd-empty__title">No kitchen matches all of that</Heading>
+            <Heading level={2} className="fd-empty__title">Nothing matches that</Heading>
             <Text className="fd-empty__body">
-              {filters.veg === 'restaurants'
-                ? 'Pure-veg mode hides every kitchen that cooks meat at all. “Veg dishes” keeps the kitchens and filters their menus instead.'
-                : filters.openNow
-                  ? 'Some of these kitchens open later in the day — drop “Open now” to see them.'
-                  : 'Drop a filter or two and they come back.'}
+              {filters.q
+                ? `Nothing here is called “${filters.q}”, and no menu we have loaded has a dish by that name.`
+                : 'No kitchen is filed under that cuisine yet.'}
             </Text>
             <PlainButton type="button" className="fd-btn fd-btn--dark" onClick={() => setFilters(EMPTY)}>
-              Clear the filters
+              Show every kitchen
             </PlainButton>
           </Box>
         )}

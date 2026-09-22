@@ -65,11 +65,14 @@ import { submitRestaurantApplication } from '../../../../services/api';
  * restaurant.
  *
  * The restaurant lands as `verificationStatus: 'pending'` and `isActive:
- * false`, WITH NO MENU. It is invisible to diners and cannot take an order
- * until somebody approves it in the admin console; that is the backend's
- * default and this form deliberately sends nothing that could change it.
- * The menu is entered by the restaurant from the Food-Partner app after
- * approval, which is why none is collected here.
+ * false`. It is invisible to diners and cannot take an order until somebody
+ * approves it in the admin console; that is the backend's default and this
+ * form deliberately sends nothing that could change it.
+ *
+ * It may carry a menu and it may not. Step 2 collects dishes OPTIONALLY —
+ * whatever the owner has to hand at the counter — and the rest are entered
+ * from the Food-Partner app after approval. An application with no products
+ * is a valid application; see `MenuSection`.
  */
 
 export function RestaurantOnboardForm({ onDone }) {

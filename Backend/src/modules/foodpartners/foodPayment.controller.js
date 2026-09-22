@@ -52,7 +52,7 @@ const mongoose = require('mongoose');
 const config = require('../../config/env');
 const razorpay = require('../../infrastructure/razorpay/razorpay');
 const FoodOrder = require('./foodOrder.model');
-const { notifyRestaurantOfOrder } = require('./foodOrder.notifier');
+const { notifyRestaurantOfOrder, notifyCustomerOfOrder } = require('./foodOrder.notifier');
 const { BADGE, logError } = require('./foodPartner.log');
 
 /*
@@ -125,7 +125,11 @@ async function confirmPayment(order, { paymentId, amountPaise }) {
      where that now happens: the kitchen accepting with a prep-time quote,
      which for an online order cannot come before this payment has verified,
      since the restaurant is not even told about an unpaid one. */
-  const alert = await notifyRestaurantOfOrder(order.toObject());
+  const placed = order.toObject();
+  const alert = await notifyRestaurantOfOrder(placed);
+  /* The diner learns it is real at the same instant the kitchen does — never
+     before, because an unpaid order is invisible to both. */
+  await notifyCustomerOfOrder(placed);
 
   return { alreadyPaid: false, notified: alert.sent > 0 };
 }

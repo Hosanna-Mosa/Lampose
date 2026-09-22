@@ -51,11 +51,11 @@ const clean = (params = {}) => Object.fromEntries(
 /* ── Public ─────────────────────────────────────────────────────────────── */
 
 /**
- * The feed's chrome: cuisine chips, the diet labels, and the area.
+ * The feed's chrome: cuisine chips, the diet labels, and the delivery verdict.
  *
  * `lat`/`lng` are optional. Without them the reply carries `located: false`
- * and no area, and the page asks for a location rather than naming a suburb
- * the visitor may be nowhere near.
+ * and `kitchensReaching: 0`, and the page asks for a location rather than
+ * promising a delivery it has not measured.
  */
 export const fetchCatalogue = ({ lat, lng } = {}) => apiClient
   .get(`${BASE}/catalogue`, clean({ lat, lng }))
@@ -147,9 +147,16 @@ export const fetchOrders = ({ limit } = {}) => apiClient
   .get(`${BASE}/orders`, clean({ limit }))
   .then((res) => res.data);
 
-/** One order with both tracks — what the tracking page draws. */
-export const fetchOrder = (reference) => apiClient
-  .get(`${BASE}/orders/${encodeURIComponent(reference)}`)
+/**
+ * One order with both tracks — what the tracking page draws.
+ *
+ * `token` is the read-only code from the "your order is placed" WhatsApp. With
+ * it the page opens on a phone that has never signed in here, which is most of
+ * them: a link tapped in WhatsApp lands in an in-app browser holding nothing.
+ * Without it the route is the diner's own session, exactly as before.
+ */
+export const fetchOrder = (reference, { token } = {}) => apiClient
+  .get(`${BASE}/orders/${encodeURIComponent(reference)}`, clean({ token }))
   .then((res) => res.data.order);
 
 /** What this diner reaches for, most-ordered first, priced as it is today. */
@@ -190,7 +197,8 @@ const ORDERS = '/v2/food-partners/orders';
  * @param {string} order.restaurantId
  * @param {{productId: string, quantity: number, addOns?: {name: string}[], note?: string}[]} order.lines
  * @param {'cod'} order.paymentMode   only cash for now - see the checkout page
- * @param {'delivery'|'pickup'} order.fulfilment
+ * @param {'delivery'} order.fulfilment  delivery only — the server refuses a
+ *        pickup order, which is no longer offered anywhere
  * @param {string} [order.deliveryAddress]
  * @param {number} [order.dropLat]    named, never a pair: see the address row
  * @param {number} [order.dropLng]
@@ -202,6 +210,32 @@ const ORDERS = '/v2/food-partners/orders';
  *   "we are still reaching them" are different things to say to a hungry person.
  */
 export const placeFoodOrder = (order) => apiClient.post(ORDERS, order);
+
+/**
+ * Open the gateway for an order that is waiting to be paid.
+ *
+ * Mints (or re-uses) the Razorpay order for the amount THIS server computed —
+ * the price is never sent from here — and answers with the publishable key and
+ * the ids the checkout window needs. Re-callable: a diner who backs out of the
+ * UPI screen and taps again lands on the same Razorpay order rather than a
+ * second one.
+ */
+export const startFoodPayment = (reference) => apiClient
+  .post(`${ORDERS}/${encodeURIComponent(reference)}/payment`)
+  .then((res) => res.data);
+
+/**
+ * Hand back what Razorpay returned, and let the server decide.
+ *
+ * `paymentStatus: 'paid'` has exactly one cause in this product — a verified
+ * signature — so this is not "tell the server it worked": it is handing over
+ * three strings the server checks against its own secret. Until it answers,
+ * nothing has been paid, the kitchen has not been told, and no rider is looked
+ * for.
+ */
+export const verifyFoodPayment = (reference, proof) => apiClient
+  .post(`${ORDERS}/${encodeURIComponent(reference)}/payment/verify`, proof)
+  .then((res) => res.data);
 
 /**
  * "Delivered" — the diner says a website order has reached them.
@@ -229,5 +263,7 @@ export default {
   fetchUsuals,
   fetchSpend,
   placeFoodOrder,
+  startFoodPayment,
+  verifyFoodPayment,
   confirmDelivered,
 };

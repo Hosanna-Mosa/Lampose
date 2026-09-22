@@ -243,14 +243,116 @@ describe('placing an order', () => {
     const saved = await FoodOrder.findOne({ restaurantId: 'FP-TEST0001' }).lean();
     assert.ok(saved, 'an order row exists');
 
-    /* 2 x (120 + 10 add-on) = 260, + 10 packing + 20 delivery. */
+    /*
+     * 2 x (120 + 10 add-on) = 260 of food, + 13 GST (5%) + 2 platform fee
+     * + 20 delivery = 295.
+     *
+     * The kitchen fixture still carries `packagingCharge: 10` and it is NOT in
+     * that sum: the charge is no longer billed, and the assertion is here to
+     * catch it coming back. See `foodCharges.util.js`.
+     */
     assert.equal(saved.itemsTotal, 260);
-    assert.equal(saved.grandTotal, 290);
+    assert.equal(saved.gst, 13);
+    assert.equal(saved.gstRate, 5);
+    assert.equal(saved.platformFee, 2);
+    assert.equal(saved.packagingCharge, 0, 'the kitchen packing charge is not billed any more');
+    assert.equal(saved.grandTotal, 295);
     assert.equal(saved.lines[0].unitPrice, 130);
     assert.equal(saved.status, 'placed');
     assert.equal(saved.paymentMode, 'cod');
     assert.equal(saved.paymentStatus, 'pending');
     assert.equal(saved.customerId, 'cus_diner1');
+  });
+
+  it('takes an order under what used to be the kitchen minimum', async () => {
+    /* The fixture asks for ₹100 and this order is ₹120 of food… which is over
+       it. Set the minimum well above the order to prove the refusal is gone
+       rather than merely not triggered. */
+    await makeKitchen({ minOrderValue: 5000 });
+    await makeDish();
+    const { token } = await makeDiner();
+
+    const placed = await call('POST', '/api/v2/food-partners/orders', {
+      token,
+      body: order({ lines: [{ productId: 'FPI-TEST0001', quantity: 1 }] }),
+    });
+
+    assert.equal(placed.status, 201, JSON.stringify(placed.body));
+
+    const saved = await FoodOrder.findOne({ restaurantId: 'FP-TEST0001' }).lean();
+    /* 120 + 6 GST + 2 platform + 20 delivery. */
+    assert.equal(saved.grandTotal, 148);
+  });
+
+  it('refuses a PICKUP order — collection is withdrawn — and writes nothing', async () => {
+    /*
+     * Refused rather than quietly delivered. A client nobody has updated still
+     * has the toggle, and turning a collection into a delivery behind the
+     * diner's back would send a rider to an address they never chose and bill
+     * them for it.
+     */
+    await makeKitchen();
+    await makeDish();
+    const { token } = await makeDiner();
+
+    const placed = await call('POST', '/api/v2/food-partners/orders', {
+      token,
+      body: order({ fulfilment: 'pickup', lines: [{ productId: 'FPI-TEST0001', quantity: 1 }] }),
+    });
+
+    assert.equal(placed.status, 409, JSON.stringify(placed.body));
+    assert.equal(placed.body.code, 'PICKUP_UNAVAILABLE');
+    assert.equal(await FoodOrder.countDocuments({}), 0, 'nothing was written');
+  });
+
+  it('shows the KITCHEN the food, never the diner\'s bill', async () => {
+    /*
+     * ₹160 of food + 5% GST + ₹2 platform + ₹20 delivery = ₹202 for the diner,
+     * and ₹160 for the restaurant. The three charges between those two numbers
+     * are not the restaurant's to sell, collect or keep, and a partner console
+     * that printed the larger one was telling a kitchen it had sold ₹42 of
+     * somebody else's revenue.
+     */
+    await makeKitchen();
+    await makeDish();
+    const { token } = await makeDiner();
+
+    await call('POST', '/api/v2/food-partners/orders', {
+      token,
+      body: order({ lines: [{ productId: 'FPI-TEST0001', quantity: 1, addOns: [{ name: 'Extra sauce' }] }] }),
+    });
+
+    const saved = await FoodOrder.findOne({ restaurantId: 'FP-TEST0001' });
+    const forKitchen = FoodOrder.partnerView(saved);
+
+    assert.equal(forKitchen.itemsTotal, 130, 'the food');
+    assert.equal(forKitchen.partnerPayout, 110.5, 'and what they are paid for it');
+
+    for (const hidden of ['grandTotal', 'gst', 'gstRate', 'platformFee', 'deliveryFee', 'packagingCharge', 'discount']) {
+      assert.equal(hidden in forKitchen, false, `${hidden} is not the kitchen's business`);
+    }
+
+    /* The DINER still sees all of it — they are the one paying it. */
+    const forDiner = FoodOrder.customerView(saved);
+    assert.equal(forDiner.grandTotal, 158.5);
+    assert.equal(forDiner.gst, 6.5);
+    assert.equal(forDiner.platformFee, 2);
+  });
+
+  it('and an order that says nothing about fulfilment is a delivery', async () => {
+    await makeKitchen();
+    await makeDish();
+    const { token } = await makeDiner();
+
+    const placed = await call('POST', '/api/v2/food-partners/orders', {
+      token,
+      body: order({ lines: [{ productId: 'FPI-TEST0001', quantity: 1 }] }),
+    });
+
+    assert.equal(placed.status, 201, JSON.stringify(placed.body));
+    const saved = await FoodOrder.findOne({ restaurantId: 'FP-TEST0001' }).lean();
+    assert.equal(saved.fulfilment, 'delivery');
+    assert.ok(saved.deliveryOtp, 'and it carries a hand-over code for the door');
   });
 
   it('shows that order back to the diner on the website, and to nobody else', async () => {
@@ -267,7 +369,7 @@ describe('placing an order', () => {
     assert.equal(mine.body.data.orders.length, 1);
     assert.equal(mine.body.data.orders[0].reference, orderNumber);
     assert.equal(mine.body.data.orders[0].status, 'placed');
-    assert.equal(mine.body.data.orders[0].dueOnDelivery, 290);
+    assert.equal(mine.body.data.orders[0].dueOnDelivery, 295);
     assert.equal(mine.body.data.orders[0].paid, 0);
 
     const one = await call('GET', `/api/v2/food-web/orders/${orderNumber}`, { token });
@@ -325,13 +427,6 @@ describe('the refusals - each one an order that must never be written', () => {
     await expectRefused(order(), 409, 'DISH_SOLD_OUT', async () => {
       await makeKitchen();
       await makeDish({ isAvailable: false });
-    });
-  });
-
-  it('an order under the kitchen\'s minimum', async () => {
-    await expectRefused(order({ lines: [{ productId: 'FPI-TEST0001', quantity: 1 }] }), 409, 'BELOW_MINIMUM', async () => {
-      await makeKitchen({ minOrderValue: 500 });
-      await makeDish();
     });
   });
 
@@ -460,6 +555,47 @@ describe('the kitchen\'s side - does the restaurant admin see it?', () => {
     /* A DINER's token is not a kitchen's, and no token is not a kitchen at all. */
     assert.equal((await queue(token)).status, 401);
     assert.equal((await call('GET', '/api/v1/restaurant-admin/orders?status=placed')).status, 401);
+  });
+});
+
+describe('what the website offers to pay with', () => {
+  const methods = (kitchenId = 'FP-TEST0001') => call(
+    'GET', `/api/v2/food-web/payment-methods?kitchenId=${kitchenId}`,
+  );
+
+  it('is UPI and cash — there is no separate card row', async () => {
+    await makeKitchen();
+
+    const res = await methods();
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+
+    const ids = res.body.data.methods.map((m) => m.id);
+    assert.deepEqual(ids, ['upi', 'cod']);
+    /* It opened the same Razorpay window as UPI, so it was a second button for
+       one choice; the card form is inside the gateway, where it belongs. */
+    assert.equal(ids.includes('card'), false);
+
+    const upi = res.body.data.methods.find((m) => m.id === 'upi');
+    assert.equal(upi.online, true, 'the website opens the gateway for this one');
+    assert.equal(res.body.data.payable, true);
+  });
+
+  it('follows the kitchen\'s own two switches', async () => {
+    await makeKitchen({ acceptsOnlinePayment: false });
+    assert.deepEqual((await methods()).body.data.methods.map((m) => m.id), ['cod']);
+
+    await FoodRestaurant.updateOne(
+      { restaurantId: 'FP-TEST0001' },
+      { acceptsOnlinePayment: true, acceptsCod: false },
+    );
+    assert.deepEqual((await methods()).body.data.methods.map((m) => m.id), ['upi']);
+
+    /* Both off is a kitchen that can take no order at all, said plainly rather
+       than as an empty list the checkout would read as a fault. */
+    await FoodRestaurant.updateOne({ restaurantId: 'FP-TEST0001' }, { acceptsOnlinePayment: false });
+    const none = await methods();
+    assert.deepEqual(none.body.data.methods, []);
+    assert.equal(none.body.data.payable, false);
   });
 });
 

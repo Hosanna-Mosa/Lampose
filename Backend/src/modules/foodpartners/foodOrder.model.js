@@ -448,7 +448,32 @@ const foodOrderSchema = new mongoose.Schema(
     lines: { type: [orderLineSchema], default: [] },
 
     itemsTotal: { type: Number, default: 0, min: 0 },
+
+    /*
+     * The restaurant's own packaging charge — NO LONGER CHARGED.
+     *
+     * Kept because orders placed before it was dropped carry a real figure
+     * here and their receipts have to keep adding up. Nothing writes it any
+     * more; `foodCharges.util.js` replaced it with GST and a platform fee.
+     * Removing the column would silently reduce the total of every historical
+     * order that had one.
+     */
     packagingCharge: { type: Number, default: 0, min: 0 },
+
+    /*
+     * GST, and the rate it was charged at.
+     *
+     * Stored rather than derived for the same reason `commissionRate` is: a
+     * rate can change, and a historical order must keep the one it was billed
+     * under. An order written before this field existed reads 0, which is
+     * exactly what it was charged.
+     */
+    gst: { type: Number, default: 0, min: 0 },
+    gstRate: { type: Number, default: 0, min: 0 },
+
+    /** The flat platform fee. Charged on pickup as well as delivery. */
+    platformFee: { type: Number, default: 0, min: 0 },
+
     deliveryFee: { type: Number, default: 0, min: 0 },
     discount: { type: Number, default: 0, min: 0 },
     grandTotal: { type: Number, default: 0, min: 0 },
@@ -1164,6 +1189,36 @@ const partnerView = (order) => {
      kitchen needs — whether the money is in — and the payment id is a handle
      for support and reconciliation on our side. */
   delete doc.razorpay;
+
+  /*
+   * THE KITCHEN'S TOTAL IS THE FOOD, and nothing else.
+   *
+   * `itemsTotal` is what they cooked and what their commission comes off;
+   * `partnerPayout` is what they are paid for it. Neither of those is
+   * `grandTotal`, which also carries GST, the platform fee and the delivery
+   * fee — three charges that are not the restaurant's, that they neither
+   * collect nor keep, and that made every screen in the partner console quote
+   * a number ₹40 above the order it was describing.
+   *
+   * A kitchen was shown ₹200 for ₹160 of food. That is not a rounding
+   * difference: it is the platform's revenue and a rider's fee printed as if
+   * the restaurant had sold it.
+   *
+   * Deleted here rather than filtered per screen, because there are five of
+   * them across a console and a phone app and each one would have had to
+   * remember. What is left cannot be added up into the diner's bill, which is
+   * the point — the diner's bill is the diner's.
+   *
+   * The DINER keeps seeing all of it (`customerView`), and so does the admin
+   * console, which is the reader that reconciles the two.
+   */
+  delete doc.grandTotal;
+  delete doc.gst;
+  delete doc.gstRate;
+  delete doc.platformFee;
+  delete doc.deliveryFee;
+  delete doc.packagingCharge;
+  delete doc.discount;
 
   const delivery = doc.delivery || {};
   const request = delivery.request || {};

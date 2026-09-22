@@ -1031,6 +1031,11 @@ textarea.rst-input { resize: vertical; min-height: 78px; }
 .rst-drop-title { font-size: 0.86rem; font-weight: 700; color: var(--text-main); }
 .rst-drop-desc { font-size: 0.74rem; line-height: 1.4; }
 
+/* The dish-sized drop zone. One of these sits inside every dish card, which
+   already holds six boxes — at the full height it doubles the card. */
+.rst-drop--sm { padding: 12px; gap: 4px; }
+.rst-drop--sm .rst-drop-title { font-size: 0.78rem; }
+
 .rst-file {
   display: flex;
   align-items: center;
@@ -1039,6 +1044,18 @@ textarea.rst-input { resize: vertical; min-height: 78px; }
   border: 1px solid var(--lampose-green-border);
   border-radius: var(--radius-md);
   background: var(--lampose-green-light);
+}
+
+/* What was actually picked, at a size you can tell a biryani from a receipt
+   in. Fixed and square so a portrait photograph and a landscape one leave the
+   row the same height. */
+.rst-file-thumb {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  background: var(--bg-card-secondary);
 }
 
 .rst-file-name {
@@ -1191,6 +1208,35 @@ textarea.rst-input { resize: vertical; min-height: 78px; }
   align-items: center;
   justify-content: center;
   margin: 0 auto 12px;
+}
+
+/* -- One dish on the optional menu ----------------------------------------- */
+
+/* A card per dish rather than a table row: the six boxes are stacked on a
+   phone whatever the screen, and a dish needs a heading of its own so that
+   "Dish 4 needs a price" has something to point at. */
+.rst-dish {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card-secondary);
+}
+
+.rst-dish-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.rst-dish-num {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
 }
 
 /* The uploaded-sheet rows. A table on a phone is a horizontal scrollbar, so

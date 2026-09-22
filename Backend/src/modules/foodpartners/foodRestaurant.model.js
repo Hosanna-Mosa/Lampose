@@ -67,7 +67,9 @@
    module's does) an auto-hook silently bcrypts the bcrypt. `hashPassword` and
    `verifyPassword` below are the supported way in and out.
 
-   Login is by `ownerEmail` OR `ownerPhone`, so both are unique.
+   Login is by `ownerEmail` OR `ownerPhone`, so both are unique. The email is
+   OPTIONAL and its index is sparse — see the field. The phone is not: it is
+   the identity every account here is reached and recovered through.
 
    ## What the app may never set
 
@@ -372,8 +374,29 @@ const foodRestaurantSchema = new mongoose.Schema(
        latency budget at eight thousand. */
     phoneKey: { type: String, default: '', index: true },
 
+    /*
+     * OPTIONAL, and unique when it is there.
+     *
+     * `sparse` is what makes those two statements compatible: an index entry
+     * exists only for a document that HAS the field, so any number of
+     * restaurants may carry no email while no two may share one. Without it,
+     * every document missing the field indexes as `null` and the second one
+     * is a duplicate key.
+     *
+     * The controller is the other half — `sanitiseApplication` omits the key
+     * rather than writing '', because an empty string is a value this index
+     * would happily collide on.
+     *
+     * Login is by `ownerEmail` OR `ownerPhone`; the phone is the one that is
+     * always there, and the one an account is recovered through.
+     *
+     * NOTE FOR DEPLOYMENT: the index that exists on a database created before
+     * this change is unique and NOT sparse, and mongoose will not alter an
+     * index that already exists. Run `npm run fix:owner-email-index` once
+     * against each environment — it drops `ownerEmail_1` and rebuilds it.
+     */
     ownerEmail: {
-      type: String, required: true, unique: true, index: true, lowercase: true, trim: true,
+      type: String, required: false, unique: true, sparse: true, lowercase: true, trim: true,
     },
 
     /* bcrypt. `select: false` so it is absent from every ordinary read — the
@@ -602,6 +625,36 @@ const foodRestaurantSchema = new mongoose.Schema(
       }],
       default: [],
       select: false,
+    },
+
+    /*
+     * The one-time link that lets an owner choose their first password.
+     *
+     * An account onboarded by a field agent has a hash nobody has ever seen —
+     * see `passwordHash` — so approval has to hand the owner a way in. It
+     * hands them a LINK rather than a credential: Meta refused twice to
+     * register a WhatsApp template carrying one, and a link that expires and
+     * dies on first use is the better answer anyway. A forwarded message, a
+     * shared handset or a screenshot in a group is worth nothing.
+     *
+     * Only the HASH of the token is stored, for the same reason `passwordHash`
+     * is: the link is a credential while it lives, and a database that can
+     * reveal a live one is a database that can be read to take over a shop.
+     * `usedAt` is what makes it single-use — the row is kept rather than
+     * cleared so "that link has already been used" can be said in those words
+     * rather than as "not found".
+     *
+     * Never serialised. The `toJSON` transform below deletes it, because the
+     * approvals console reads this document in full.
+     */
+    passwordSetup: {
+      type: new mongoose.Schema({
+        tokenHash: { type: String, default: '', index: true },
+        expiresAt: { type: Date, default: null },
+        sentAt: { type: Date, default: null },
+        usedAt: { type: Date, default: null },
+      }, { _id: false }),
+      default: undefined,
     },
 
     verificationStatus: {
@@ -863,6 +916,9 @@ foodRestaurantSchema.set('toJSON', {
   transform: (doc, ret) => {
     delete ret.__v;
     delete ret.passwordHash;
+    /* The live set-password token's hash. Nothing outside this module has any
+       use for it, and the approvals console reads the whole document. */
+    delete ret.passwordSetup;
     if (ret.payout) delete ret.payout.bankAccountNumber;
     /* The same deletion for every saved account. The array arrives without
        them (`select: false`), so this is the belt to that braces — and it is

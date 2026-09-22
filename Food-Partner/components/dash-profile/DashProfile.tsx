@@ -38,8 +38,13 @@ export function DashProfile() {
   /* Editable operational fields */
   const [prepTime, setPrepTime] = useState("25");
   const [deliveryRadius, setDeliveryRadius] = useState("6");
-  const [minOrder, setMinOrder] = useState("150");
-  const [packagingCharge, setPackagingCharge] = useState("15");
+  /* A minimum order and a packaging charge used to be set here. Neither is
+     charged any more — there is no minimum, and GST plus a flat platform fee
+     replaced the packaging charge — and the server refuses both on this
+     update, so the boxes went with them. */
+  const [acceptsOnline, setAcceptsOnline] = useState(true);
+  const [acceptsCod, setAcceptsCod] = useState(true);
+
 
   /* Editable restaurant details — accepted by PATCH /me since onboarding, but
      with no screen to reach them from after it. Business hours and the
@@ -66,8 +71,8 @@ export function DashProfile() {
       setMe(restaurant);
       setPrepTime(String(restaurant.avgPreparationTime ?? 25));
       setDeliveryRadius(String(restaurant.deliveryRadiusKm ?? 6));
-      setMinOrder(String(restaurant.minOrderValue ?? 150));
-      setPackagingCharge(String(restaurant.packagingCharge ?? 15));
+      setAcceptsOnline(restaurant.acceptsOnlinePayment ?? true);
+      setAcceptsCod(restaurant.acceptsCod ?? true);
       setDescription(restaurant.description ?? "");
       setCuisineTypesText((restaurant.cuisineTypes ?? []).join(", "));
       setContactNumber(restaurant.contactNumber ?? "");
@@ -100,8 +105,8 @@ export function DashProfile() {
       const updated = await updateMe(session.token, {
         avgPreparationTime: parseInt(prepTime, 10) || 25,
         deliveryRadiusKm: parseFloat(deliveryRadius) || 6,
-        minOrderValue: parseFloat(minOrder) || 0,
-        packagingCharge: parseFloat(packagingCharge) || 0,
+        acceptsOnlinePayment: acceptsOnline,
+        acceptsCod: acceptsCod,
       });
       setMe(updated);
       setSavedNote("Operational settings updated successfully!");
@@ -297,30 +302,31 @@ export function DashProfile() {
             </View>
           </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Min Order Value</Text>
-            <View style={styles.inputWrap}>
-              <TextField
-                value={minOrder}
-                onChangeText={setMinOrder}
-                keyboardType="number-pad"
-                style={styles.inputField}
-              />
-              <Text style={styles.inputUnit}>₹</Text>
+          {/* Payment Toggles */}
+          <View style={styles.switchRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.switchTitle}>Online Payments</Text>
+              <Text style={styles.switchSub}>Accept UPI, Cards & NetBanking</Text>
             </View>
+            <Switch
+              value={acceptsOnline}
+              onValueChange={setAcceptsOnline}
+              trackColor={{ false: "#E5E7EB", true: "#A7F3D0" }}
+              thumbColor={acceptsOnline ? "#059669" : "#9CA3AF"}
+            />
           </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Packaging Charge</Text>
-            <View style={styles.inputWrap}>
-              <TextField
-                value={packagingCharge}
-                onChangeText={setPackagingCharge}
-                keyboardType="number-pad"
-                style={styles.inputField}
-              />
-              <Text style={styles.inputUnit}>₹</Text>
+          <View style={styles.switchRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.switchTitle}>Cash on Delivery (COD)</Text>
+              <Text style={styles.switchSub}>Allow customers to pay cash on delivery</Text>
             </View>
+            <Switch
+              value={acceptsCod}
+              onValueChange={setAcceptsCod}
+              trackColor={{ false: "#E5E7EB", true: "#A7F3D0" }}
+              thumbColor={acceptsCod ? "#059669" : "#9CA3AF"}
+            />
           </View>
 
           <Pressable

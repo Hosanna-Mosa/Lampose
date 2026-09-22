@@ -757,7 +757,21 @@ export const submitRestaurantApplication = async (form, onStage = () => { }) => 
       });
     }
 
-    /* ── 2. The dish photographs ─────────────────────────────────────────── */
+    /* ── 2. The restaurant's own picture ─────────────────────────────────── */
+
+    /* Optional, and uploaded under `kind: 'logo'` — which puts it in the same
+       application folder as the scans and makes it `logoImage` on the
+       restaurant rather than a `verificationDocuments` row. It is the picture
+       the feed draws a kitchen's card with; nothing is refused for its
+       absence. */
+    let logoImage = null;
+    if (form.files.logo) {
+      onStage('Uploading the restaurant photo...');
+      const uploaded = await uploadRestaurantFile({ file: form.files.logo, kind: 'logo' });
+      logoImage = { url: uploaded.url, publicId: uploaded.publicId };
+    }
+
+    /* ── 3. The dish photographs ─────────────────────────────────────────── */
 
     /* Sent as `products` already flattened, so the two menu-building modes —
        typed categories and an uploaded sheet — converge here and the upload
@@ -773,12 +787,17 @@ export const submitRestaurantApplication = async (form, onStage = () => { }) => 
       product.productImage = { url: uploaded.url, publicId: uploaded.publicId };
     }
 
-    /* ── 3. The application ──────────────────────────────────────────────── */
+    /* ── 4. The application ──────────────────────────────────────────────── */
 
     onStage('Submitting the application...');
 
     const body = {
       ...form.restaurant,
+      /* Left off entirely when no picture was taken, rather than sent as an
+         empty pair: `sanitiseApplication` only sets `logoImage` when it can
+         read a url out of it, and an empty object is a field written to say
+         nothing. */
+      ...(logoImage ? { logoImage } : null),
       verificationDocuments,
       products: products.map(({ photoFile, ...product }) => product),
     };

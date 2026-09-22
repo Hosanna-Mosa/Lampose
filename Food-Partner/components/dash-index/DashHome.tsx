@@ -271,18 +271,21 @@ export function DashHome() {
             <Text style={styles.metricLabel}>Delivers</Text>
           </View>
 
-          {/* Tile 5: Min order */}
+          {/* Tile 5: what the kitchen usually takes to cook, which is the
+              figure it actually controls. It replaced a "Min order" tile: there
+              is no minimum order any more, and the tile was reporting ₹150 to
+              every kitchen that had never set one. */}
           <View style={[styles.metricCard, { backgroundColor: "#F5F3FF" }]}>
             <View style={styles.metricCardHeader}>
               <View style={[styles.metricIconCircle, { backgroundColor: "#EDE9FE" }]}>
-                <Icon name="rupee" size={18} color="#7C3AED" />
+                <Icon name="clock" size={18} color="#7C3AED" />
               </View>
-              <Text style={styles.metricValue}>{rupees(me?.minOrderValue ?? 150)}</Text>
+              <Text style={styles.metricValue}>{me?.avgPreparationTime ?? 0} min</Text>
               <View style={{ marginLeft: "auto" }}>
                 <Icon name="chevronRight" size={16} color="#9CA3AF" />
               </View>
             </View>
-            <Text style={styles.metricLabel}>Min order</Text>
+            <Text style={styles.metricLabel}>Usual prep time</Text>
           </View>
 
           {/* Tile 6: Rating */}

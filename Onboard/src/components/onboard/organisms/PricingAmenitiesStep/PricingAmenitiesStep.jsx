@@ -3,6 +3,7 @@ import { IndianRupee, Clock, Calendar, Check, Sparkles, Upload, CloudUpload, Ale
 import { FieldError, errorBorder } from '../../atoms/FieldError/FieldError';
 import { PRESET_IMAGES, ALL_AMENITIES, DEFAULT_FALLBACK_SPLASH } from '../../utils/pricingOptions';
 import { formatPin, geoErrorMessage, isShortMapLink, readPin, splitAddress } from '../../../../services/mapLink';
+import { stayOffersFor, staySelectable, stayTypeFrom } from '../../../../services/stayOffers';
 import { Box, Heading, Image, Inline, Input, Label, Link, Option, PlainButton, Select, Strong, Text } from '../../../common/atoms';
 
 
@@ -15,7 +16,15 @@ export function PricingAmenitiesStep({ formData, onChange, errors = {} }) {
   const [urlError, setUrlError] = useState('');
 
   const selectedAmenities = Array.isArray(formData.amenities) ? formData.amenities : [];
-  const currentStayType = formData.stayType === 'Short Stay' ? 'Short Stay' : 'Long Stay';
+  /*
+   * What this property offers, which can be BOTH.
+   *
+   * Read through `stayOffersFor` rather than compared here: `validation.js`
+   * reads the same function, so what the form draws and what the check demands
+   * cannot drift. It also holds the categories whose answer is fixed — a hotel
+   * is nightly, a shop and a whole-property let are monthly.
+   */
+  const offers = stayOffersFor(formData);
   const derivedRent = formData.monthlyPrice || formData.rent || '';
   const isHotel = formData.category === 'HOTEL';
   /* Written by App.jsx whenever a layout price changes — see the rent
@@ -38,8 +47,19 @@ export function PricingAmenitiesStep({ formData, onChange, errors = {} }) {
     });
   };
 
-  const setStayType = (type) => {
-    onChange({ target: { name: 'stayType', value: type } });
+  /*
+   * Turn one length on or off, keeping the other as it is.
+   *
+   * The last one cannot be turned off: a property that offers no stay length
+   * is not a listing, and the string it would have to be saved as does not
+   * exist in the model's enum. The button simply does not answer — which reads
+   * as "this one is already the answer" rather than as a broken control.
+   */
+  const toggleStay = (which) => {
+    const next = { ...offers, [which]: !offers[which] };
+    const value = stayTypeFrom(next);
+    if (!value) return;
+    onChange({ target: { name: 'stayType', value } });
   };
 
   /* ── Where the property is ────────────────────────────────────────────
@@ -155,14 +175,16 @@ export function PricingAmenitiesStep({ formData, onChange, errors = {} }) {
   /* A hotel is nightly by definition, so it takes the short-stay path
      whatever `stayType` happens to hold — a stale Long Stay carried over from
      a previous category would otherwise hide check-in and check-out. */
-  const isShortStay = (currentStayType === 'Short Stay' || isHotel) && !isBachelor && !isCommercial;
-  const isLongStay = (currentStayType === 'Long Stay' || isBachelor || isCommercial) && !isShortStay;
+  /* Both can be true now — see `stayOffersFor`, which is also where the
+     hotel / shop / whole-property exceptions live. */
+  const isShortStay = offers.short;
+  const isLongStay = offers.long;
   /*
    * Categories that are never asked "short or long?" — the answer is fixed by
    * what they are. They still take the typed-price path below, unlike the
    * whole-property lets, which read a rent derived from their layouts.
    */
-  const fixedStayLength = isHotel || isCommercial;
+  const fixedStayLength = !staySelectable(formData.category);
 
   // Local File Selection (Does not upload to cloud until form submit)
   const handleFileSelect = (e) => {
@@ -273,12 +295,21 @@ export function PricingAmenitiesStep({ formData, onChange, errors = {} }) {
             * answered.
             */}
           {fixedStayLength ? null : (
-            <Label className="form-label" style={{ fontSize: '0.95rem', color: '#181e1b', fontWeight: 700, marginBottom: '14px' }}>
-              Are you looking for / Offering Stay Type *
-            </Label>
+            <Box style={{ marginBottom: '14px' }}>
+              <Label className="form-label" style={{ fontSize: '0.95rem', color: '#181e1b', fontWeight: 700, marginBottom: '4px' }}>
+                Are you looking for / Offering Stay Type *
+              </Label>
+              {/* Said out loud, because two buttons that look like a radio are
+                  read as a radio. A property that lets a room by the night and
+                  by the month picks both, and prices both below. */}
+              <Text style={{ fontSize: '0.82rem', color: '#64748b', lineHeight: 1.5 }}>
+                Pick both if this property takes guests for a few nights and for
+                months at a time. Each one you pick asks for its own price.
+              </Text>
+            </Box>
           )}
 
-          {/* 2 Main Stay Type Buttons (Short Stay vs Long Stay) */}
+          {/* Short and Long, and they are not exclusive — see `toggleStay`. */}
           <Box style={{ display: fixedStayLength ? 'none' : 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '18px' }}>
             <PlainButton
               type="button"
@@ -298,7 +329,8 @@ export function PricingAmenitiesStep({ formData, onChange, errors = {} }) {
                 gap: '8px',
                 transition: 'all 0.2s ease'
               }}
-              onClick={() => setStayType('Short Stay')}
+              aria-pressed={isShortStay}
+              onClick={() => toggleStay('short')}
             >
               <Clock size={16} color={isShortStay ? '#ffffff' : '#45855a'} />
               <Inline>Short Stay (1-7 Days)</Inline>
@@ -322,7 +354,8 @@ export function PricingAmenitiesStep({ formData, onChange, errors = {} }) {
                 gap: '8px',
                 transition: 'all 0.2s ease'
               }}
-              onClick={() => setStayType('Long Stay')}
+              aria-pressed={isLongStay}
+              onClick={() => toggleStay('long')}
             >
               <Calendar size={16} color={isLongStay ? '#ffffff' : '#45855a'} />
               <Inline>Long Stay (1+ Month)</Inline>
