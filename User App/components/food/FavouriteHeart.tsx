@@ -33,11 +33,11 @@ export function FavouriteHeart({
   kind,
   id,
   label,
-  size = 20,
+  size = 18,
   tone = 'plain',
   style,
 }: FavouriteHeartProps) {
-  const { colors, space, radius } = useTheme();
+  const { colors, mode } = useTheme();
   const { status, requireSignIn } = useAuth();
   const { isFavouriteDish, isFavouriteKitchen, toggleFavouriteDish, toggleFavouriteKitchen } = useFood();
 
@@ -56,7 +56,7 @@ export function FavouriteHeart({
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       } catch {}
       scale.value = withSequence(
-        withSpring(1.38, { damping: 8, stiffness: 350 }),
+        withSpring(1.38, { damping: 9, stiffness: 350 }),
         withSpring(1.0, { damping: 12, stiffness: 220 })
       );
       if (kind === 'dish') toggleFavouriteDish(id);
@@ -64,11 +64,13 @@ export function FavouriteHeart({
     });
   };
 
+  const isOverlay = tone === 'overlay';
+
   return (
     <Animated.View style={animatedStyle}>
       <Pressable
         onPress={press}
-        hitSlop={12}
+        hitSlop={8}
         accessibilityRole="button"
         accessibilityState={{ selected: saved }}
         accessibilityLabel={
@@ -76,20 +78,28 @@ export function FavouriteHeart({
         }
         style={({ pressed }) => [
           styles.button,
-          tone === 'overlay' && {
-            backgroundColor: pressed ? colors.surfaceSunken : colors.surface,
-            borderRadius: radius.chip,
-            padding: space[1] + 2,
-          },
-          pressed && tone === 'plain' && { opacity: 0.6 },
+          isOverlay
+            ? {
+                backgroundColor: pressed ? 'rgba(0, 0, 0, 0.65)' : 'rgba(0, 0, 0, 0.42)',
+                borderColor: 'rgba(255, 255, 255, 0.18)',
+                borderWidth: StyleSheet.hairlineWidth,
+              }
+            : {
+                backgroundColor: saved
+                  ? (mode === 'dark' ? 'rgba(255, 56, 92, 0.18)' : 'rgba(255, 56, 92, 0.08)')
+                  : (pressed ? colors.surfaceSunken : colors.surfaceRaised),
+                borderColor: saved ? 'rgba(255, 56, 92, 0.25)' : colors.borderSubtle,
+                borderWidth: StyleSheet.hairlineWidth,
+              },
+          pressed && { opacity: 0.85 },
           style,
         ]}
       >
         <Icon
           name="heart"
           size={size}
-          color={saved ? colors.danger.ink : colors.textTertiary}
-          fill={saved ? colors.danger.ink : 'none'}
+          color={saved ? '#FF385C' : (isOverlay ? '#FFFFFF' : colors.textSecondary)}
+          fill={saved ? '#FF385C' : 'none'}
         />
       </Pressable>
     </Animated.View>
@@ -130,6 +140,13 @@ export function FavouritesUnavailableNote({ count }: { count: number }) {
 }
 
 const styles = StyleSheet.create({
-  button: { alignItems: 'center', justifyContent: 'center' },
+  button: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   note: { flexDirection: 'row', alignItems: 'flex-start' },
 });

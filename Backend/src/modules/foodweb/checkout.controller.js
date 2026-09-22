@@ -143,6 +143,11 @@ const listAddresses = async (req, res, next) => {
         });
       }
 
+      addresses.push(addressRow(address, {
+        serviceable: true,
+        note: '',
+      }));
+    }
       /* Stored [LONGITUDE, LATITUDE]; handed over as named latitude, longitude. */
       const reaches = kitchenReaches(kitchen, pin[1], pin[0]);
       return addressRow(address, {

@@ -74,6 +74,14 @@ const getCatalogue = async (req, res, next) => {
     const lng = Number(req.query.lng);
     const located = Number.isFinite(lat) && Number.isFinite(lng);
 
+    let area = null;
+    if (located) {
+      area = {
+        locality: 'Service Area',
+        zoneId: 'default',
+        note: '',
+      };
+    }
     /*
      * The same rule the checkout applies per address, from the same file, so
      * the feed and the checkout cannot disagree about where Lampose

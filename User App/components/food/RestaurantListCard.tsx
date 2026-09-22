@@ -138,7 +138,7 @@ export function RestaurantListCard({
             ) : null}
 
             <View style={styles.heart}>
-              <FavouriteHeart kind="kitchen" id={kitchen.id} label={kitchen.name} size={20} />
+              <FavouriteHeart kind="kitchen" id={kitchen.id} label={kitchen.name} size={18} tone="overlay" />
             </View>
 
             {/* Real facts only. Free delivery is a thing this kitchen actually
@@ -216,10 +216,9 @@ const styles = StyleSheet.create({
   onPhotoInk: { color: '#FFFFFF', flexShrink: 1 },
   heart: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    borderRadius: 999,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    top: 10,
+    right: 10,
+    zIndex: 10,
   },
   ribbon: {
     position: 'absolute',

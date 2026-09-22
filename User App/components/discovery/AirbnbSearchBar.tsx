@@ -201,48 +201,6 @@ export function AirbnbSearchBar({
             </Text>
           </Pressable>
         )}
-
-        {/* Right Divider & Filter Button */}
-        <View
-          style={[
-            styles.divider,
-            { backgroundColor: colors.borderSubtle },
-          ]}
-        />
-
-        <Pressable
-          onPress={handleFilterPress}
-          hitSlop={8}
-          style={({ pressed }) => [
-            styles.filterButton,
-            {
-              backgroundColor: mode === 'dark' ? 'rgba(15,76,58,0.3)' : '#E2F1EA',
-              borderColor: 'transparent',
-              borderRadius: radius.pill,
-              opacity: pressed ? 0.75 : 1,
-            },
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel={`Filter stays. ${activeFilterCount} active filters.`}
-        >
-          <Icon
-            name="filters"
-            size={18}
-            color={mode === 'dark' ? '#34D399' : '#0F4C3A'}
-          />
-          {activeFilterCount > 0 ? (
-            <View
-              style={[
-                styles.badge,
-                { backgroundColor: '#0F4C3A', borderRadius: radius.pill },
-              ]}
-            >
-              <Text variant="numMeta" style={styles.badgeText}>
-                {activeFilterCount}
-              </Text>
-            </View>
-          ) : null}
-        </Pressable>
       </View>
     </Animated.View>
   );
