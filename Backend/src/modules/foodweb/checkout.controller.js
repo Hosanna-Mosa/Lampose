@@ -212,14 +212,10 @@ const listPaymentMethods = async (req, res, next) => {
         note: 'Opens Razorpay. The kitchen is told once the payment is signed and verified.',
         online: true,
       });
-      methods.push({
-        id: 'card',
-        label: 'Card',
-        icon: 'card',
-        tag: '',
-        note: 'Opens Razorpay. Credit, debit and netbanking.',
-        online: true,
-      });
+      /* There is no separate CARD row any more. It was a second button that
+         opened the same Razorpay window as the one above, so the choice it
+         offered was not a choice — and whatever a diner pays with is picked
+         inside Razorpay, where the card form actually is. */
     }
 
     if (kitchen.acceptsCod !== false) {

@@ -528,6 +528,11 @@ const orderCard = (doc, full = false, position = null, { viaLink = false } = {})
     dueOnDelivery: doc.paymentMode === 'cod' && doc.paymentStatus !== 'paid' ? rupees(doc.grandTotal) : 0,
     paymentLabel: `${String(doc.paymentMode || '').toUpperCase()} · ${PAYMENT_LABEL[doc.paymentStatus] || doc.paymentStatus}`,
     paymentStatus: doc.paymentStatus,
+    /* Reported because 'unpaid' means two different things: a cash order owes
+       the rider at the door, an online one has not been paid for at all and
+       the kitchen has not been told. Only the second is something the diner
+       can still act on, and the tracking page offers to. */
+    paymentMode: doc.paymentMode,
     /* What the rider must still collect at the door — 0 on a prepaid order.
        Named rather than derived on the client so the card and the rider's
        own screen cannot disagree about who owes what. */

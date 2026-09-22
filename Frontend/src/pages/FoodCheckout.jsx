@@ -9,6 +9,7 @@ import { PhotoTile } from '../components/food/atoms/PhotoTile';
 import { ActiveOrder } from '../components/food/organisms/ActiveOrder';
 import { useCart } from '../food/CartProvider';
 import { useReveals } from '../hooks/useSite';
+import { payForOrder } from '../food/payOnline';
 import { rupees } from '../data/food';
 import { fetchPaymentMethods } from '../api/foodApi';
 import { useAuth } from '../auth/AuthProvider';
@@ -28,13 +29,19 @@ import { useAuth } from '../auth/AuthProvider';
    prices the order, writes it, and tells the kitchen - it is in the restaurant
    admin's queue by the time this page navigates to its tracking screen.
 
-   ## Cash only, and the page says so
+   ## Two ways to pay, and the online one opens Razorpay HERE
 
-   Paying online is not offered on the website yet: the payment page can only
-   return a customer to the app's `lampose://` links, so a card payment started
-   here would have nowhere to come back to. The online methods are SHOWN, greyed
-   out with the reason, rather than hidden - a diner who wanted to pay by UPI
-   should learn that it exists and where, not that it does not.
+   Cash on delivery places the order and goes straight to tracking. UPI writes
+   the order UNPAID and opens Razorpay's own window over this page: the kitchen
+   is not told and no rider is looked for until the signature verifies, because
+   `paymentStatus: 'paid'` has exactly one cause in this product.
+
+   There is no separate "Card" row any more. It opened the same window as UPI,
+   so it was not a choice; what a diner pays with is picked inside Razorpay.
+
+   Closing that window is not a lost order — the order is real and unpaid, so
+   this page hands over to tracking, which offers to pay again. Anything else
+   would leave a diner on a checkout that has forgotten their order exists.
 
    ## A refusal is the ordinary case, and it keeps the cart
 
@@ -90,17 +97,24 @@ export function FoodCheckout() {
     return () => { live = false; };
   }, [kitchen?.id]);
 
-  /* What can be paid HERE. Online methods are listed but not selectable - see
-     the header - so the ones the site can take are the cash ones. */
-  const usable = methods.filter(m => !m.online);
+  /* Every method this kitchen offers can be used here now — the online one
+     opens Razorpay over this page. What is listed is what is usable. */
+  const usable = methods;
 
-  /* A method held in the cart that cannot be used (a card, from a session that
-     ran in the app; or cash, after the kitchen switched it off) is replaced by
-     the first one that can. */
+  /* A method held from an earlier session that this kitchen no longer takes
+     (it switched cash or online off) is replaced by the first one it does. */
   useEffect(() => {
-    const ok = methods.filter(m => !m.online);
-    if (ok.length && !ok.some(m => m.id === payment)) setPayment(ok[0].id);
+    if (methods.length && !methods.some(m => m.id === payment)) setPayment(methods[0].id);
   }, [methods, payment, setPayment]);
+
+  /* Cash goes straight to tracking; anything else is paid before it is cooked. */
+  const payingOnline = usable.some(m => m.id === payment && m.online);
+
+  /* The order that exists but is not paid for: they closed Razorpay, or the
+     verification is still being answered. Kept so the button pays for THAT
+     order instead of placing a second one. */
+  const [unpaidRef, setUnpaidRef] = useState(null);
+  const [payStage, setPayStage] = useState('');
 
   useReveals([lines.length, payment, addressId]);
 
@@ -154,7 +168,6 @@ export function FoodCheckout() {
   /* An address we cannot reach is a hard stop — there is nowhere to send the
      rider. A kitchen minimum was the other one and is gone: there is no
      minimum order any more, here or on the server. */
-  const cashOnly = methodsLoaded && payable && usable.length === 0;
   const blocked = placing || unreachable || !payable || !usable.length;
 
   /**
@@ -179,15 +192,48 @@ export function FoodCheckout() {
   const place = async () => {
     setPlaceError(null);
     setPlacing(true);
-    const result = await placeOrder({ instructions });
-    setPlacing(false);
 
-    /* The session ended while this page was open: sign in rather than a
-       tracking page for an order that does not exist. */
-    if (result.authRequired) { openSignIn(); return; }
-    if (result.error) { setPlaceError(result.error); return; }
+    /* An order that is already written and unpaid is PAID, never placed again.
+       The commonest way to reach this button twice is closing Razorpay and
+       changing your mind, and a second order is not what that means. */
+    let reference = unpaidRef;
 
-    navigate(`/food/orders/${result.order.orderNumber}`);
+    if (!reference) {
+      const result = await placeOrder({ instructions });
+
+      /* The session ended while this page was open: sign in rather than a
+         tracking page for an order that does not exist. */
+      if (result.authRequired) { setPlacing(false); openSignIn(); return; }
+      if (result.error) { setPlacing(false); setPlaceError(result.error); return; }
+
+      reference = result.order.orderNumber;
+
+      if (!payingOnline) {
+        setPlacing(false);
+        navigate(`/food/orders/${reference}`);
+        return;
+      }
+      setUnpaidRef(reference);
+    }
+
+    try {
+      const outcome = await payForOrder(reference, setPayStage);
+      setPayStage('');
+      setPlacing(false);
+
+      /* Paid, or paid a moment ago — either way the kitchen has it now. */
+      if (outcome.paid) { navigate(`/food/orders/${reference}`); return; }
+
+      /* Not paid, and the order is real. Tracking is where it can be paid for
+         again, and where a refresh would have landed them anyway. */
+      navigate(`/food/orders/${reference}`);
+    } catch (error) {
+      /* The gateway would not even open. The order stands, unpaid, and the
+         button now says "Pay" for it rather than placing another. */
+      setPayStage('');
+      setPlacing(false);
+      setPlaceError(error);
+    }
   };
 
   return (
@@ -325,48 +371,30 @@ export function FoodCheckout() {
 
               <FieldSet className="fd-field">
                 <Legend className="fd-sr">Payment method</Legend>
-                {methods.map(method => {
-                  /* Online methods are shown and cannot be chosen - see the header. */
-                  const offApp = Boolean(method.online);
-                  return (
-                    <Label
-                      key={method.id}
-                      className={`fd-choice fd-choice--block${payment === method.id ? ' is-on' : ''}${offApp ? ' is-off' : ''}`}
-                    >
-                      <Input
-                        type="radio"
-                        name="payment"
-                        checked={payment === method.id}
-                        disabled={offApp}
-                        onChange={() => setPayment(method.id)}
-                      />
-                      <Inline className="fd-choice__badge"><Icon name={method.icon} className="fd-ico" /></Inline>
-                      <Box className="fd-choice__text">
-                        <Inline className="fd-choice__title">
-                          {method.label}
-                        </Inline>
-                        <Inline className="fd-choice__detail">
-                          {offApp
-                            ? 'Not on the website yet - pay online in the Lampose app.'
-                            : method.note}
-                        </Inline>
-                      </Box>
-                      {!offApp && method.tag && <Inline className="fd-choice__tag">{method.tag}</Inline>}
-                    </Label>
-                  );
-                })}
+                {methods.map(method => (
+                  <Label
+                    key={method.id}
+                    className={`fd-choice fd-choice--block${payment === method.id ? ' is-on' : ''}`}
+                  >
+                    <Input
+                      type="radio"
+                      name="payment"
+                      checked={payment === method.id}
+                      onChange={() => setPayment(method.id)}
+                    />
+                    <Inline className="fd-choice__badge"><Icon name={method.icon} className="fd-ico" /></Inline>
+                    <Box className="fd-choice__text">
+                      <Inline className="fd-choice__title">{method.label}</Inline>
+                      <Inline className="fd-choice__detail">{method.note}</Inline>
+                    </Box>
+                    {method.tag && <Inline className="fd-choice__tag">{method.tag}</Inline>}
+                  </Label>
+                ))}
               </FieldSet>
 
               {methodsLoaded && !payable && (
                 <Text className="fd-note fd-note--warn" role="alert">
                   {kitchen.name} is not taking any payment method right now, so an order cannot be placed with it.
-                </Text>
-              )}
-
-              {cashOnly && (
-                <Text className="fd-note fd-note--warn" role="alert">
-                  {kitchen.name} only takes online payment, which the website cannot do yet. Order from this kitchen in
-                  the Lampose app, or choose another kitchen.
                 </Text>
               )}
 
@@ -409,7 +437,7 @@ export function FoodCheckout() {
                 bill={bill}
                 fulfilment={fulfilment}
                 couponCode={coupon?.code}
-                payLabel="Pay on delivery"
+                payLabel={payingOnline ? 'To pay now' : 'Pay on delivery'}
               />
 
               <PlainButton
@@ -419,8 +447,12 @@ export function FoodCheckout() {
                 onClick={place}
               >
                 {placing
-                  ? 'Placing your order…'
-                  : `Place order · ${rupees(bill.toPay)} on delivery`}
+                  ? (payStage === 'verifying' ? 'Checking the payment…'
+                    : payStage === 'opening' ? 'Opening Razorpay…'
+                      : 'Placing your order…')
+                  : payingOnline
+                    ? `${unpaidRef ? 'Pay again' : 'Pay'} · ${rupees(bill.toPay)}`
+                    : `Place order · ${rupees(bill.toPay)} on delivery`}
               </PlainButton>
 
               {/* Why the last attempt did not go through - the server's own sentence

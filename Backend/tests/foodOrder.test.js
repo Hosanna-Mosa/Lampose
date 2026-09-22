@@ -558,6 +558,47 @@ describe('the kitchen\'s side - does the restaurant admin see it?', () => {
   });
 });
 
+describe('what the website offers to pay with', () => {
+  const methods = (kitchenId = 'FP-TEST0001') => call(
+    'GET', `/api/v2/food-web/payment-methods?kitchenId=${kitchenId}`,
+  );
+
+  it('is UPI and cash — there is no separate card row', async () => {
+    await makeKitchen();
+
+    const res = await methods();
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+
+    const ids = res.body.data.methods.map((m) => m.id);
+    assert.deepEqual(ids, ['upi', 'cod']);
+    /* It opened the same Razorpay window as UPI, so it was a second button for
+       one choice; the card form is inside the gateway, where it belongs. */
+    assert.equal(ids.includes('card'), false);
+
+    const upi = res.body.data.methods.find((m) => m.id === 'upi');
+    assert.equal(upi.online, true, 'the website opens the gateway for this one');
+    assert.equal(res.body.data.payable, true);
+  });
+
+  it('follows the kitchen\'s own two switches', async () => {
+    await makeKitchen({ acceptsOnlinePayment: false });
+    assert.deepEqual((await methods()).body.data.methods.map((m) => m.id), ['cod']);
+
+    await FoodRestaurant.updateOne(
+      { restaurantId: 'FP-TEST0001' },
+      { acceptsOnlinePayment: true, acceptsCod: false },
+    );
+    assert.deepEqual((await methods()).body.data.methods.map((m) => m.id), ['upi']);
+
+    /* Both off is a kitchen that can take no order at all, said plainly rather
+       than as an empty list the checkout would read as a fault. */
+    await FoodRestaurant.updateOne({ restaurantId: 'FP-TEST0001' }, { acceptsOnlinePayment: false });
+    const none = await methods();
+    assert.deepEqual(none.body.data.methods, []);
+    assert.equal(none.body.data.payable, false);
+  });
+});
+
 describe('and it stayed that way', () => {
   it('made no attempt to reach a real provider while placing orders', () => {
     assert.deepEqual(blocked, [], 'something tried to send a request out of this machine: ' + blocked.join(', '));
