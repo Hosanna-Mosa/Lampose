@@ -17,19 +17,17 @@
    active, and disappears when the last one closes. There is nothing to keep
    in step.
 
-   ## Why the area is not a constant either
+   ## Why the area is always null
 
-   `AREA` in the fixture is one hard-coded locality — Gachibowli. It is the
-   copy for "near you", and near-you is a question about the person asking.
-
-   With `?lat&lng` the answer is the service zone that contains that point,
-   which is a real row in `zones` drawn by an administrator. Without them
-   there is no honest answer, so the reply says `located: false` and carries
-   no locality at all rather than naming a suburb the visitor may be nowhere
-   near.
+   `AREA` in the fixture is one hard-coded locality — Gachibowli. It was the
+   copy for "near you", answered by looking up the service zone containing
+   the diner's point. Service zones are gone — there is no row anywhere that
+   names a delivery area — so there is no honest locality to report. `area`
+   stays `null` and `serviceable` stays `false` unconditionally; `located`
+   only says whether the caller sent a point, not whether anything is known
+   about it.
    ══════════════════════════════════════════════════════════════════════════ */
 const FoodRestaurant = require('../foodpartners/foodRestaurant.model');
-const { findZoneFor } = require('../zones/zone.service');
 const { LISTED } = require('./foodWeb.shape');
 
 /*
@@ -68,42 +66,17 @@ const getCatalogue = async (req, res, next) => {
     const lng = Number(req.query.lng);
     const located = Number.isFinite(lat) && Number.isFinite(lng);
 
-    let area = null;
-    if (located) {
-      /*
-       * The same lookup the address screen uses to answer "do you deliver
-       * here". Reused rather than re-implemented, so the feed and the
-       * checkout cannot disagree about where Lampose operates.
-       *
-       * The third argument does the work: `findZoneFor` filters to zones that
-       * allow FOOD and are inside their active hours, so a zone drawn for
-       * stays only — or one that closes at 11pm — simply does not come back.
-       * A non-null answer therefore IS the serviceability answer, and there
-       * is nothing left here to re-check.
-       */
-      const zone = await findZoneFor(lat, lng, 'food');
-      if (zone) {
-        area = {
-          locality: zone.name || '',
-          zoneId: zone.zoneId || '',
-          note: zone.description || '',
-        };
-      }
-    }
-
     return res.json({
       success: true,
       data: {
         cuisines,
         dietLabels: DIET_LABEL,
-        area,
+        /* No service zones left to answer either of these from — see the
+           header. `located` is honest about the request; `area` and
+           `serviceable` cannot be, so they stay null/false always. */
+        area: null,
         located,
-        /* Said out loud so the page can draw "we are not here yet" rather
-           than an empty feed that looks like a loading failure. Only ever
-           true when the caller sent a point — an unlocated visitor gets
-           `false` and the page asks for their location instead of promising
-           delivery it cannot check. */
-        serviceable: Boolean(area),
+        serviceable: false,
       },
     });
   } catch (error) {
