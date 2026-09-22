@@ -35,7 +35,6 @@
    ══════════════════════════════════════════════════════════════════════════ */
 const FoodRestaurant = require('../foodpartners/foodRestaurant.model');
 const Customer = require('../customers/customer.model');
-const { findZoneFor } = require('../zones/zone.service');
 const { LISTED, firstOf } = require('./foodWeb.shape');
 
 /**
@@ -137,12 +136,9 @@ const listAddresses = async (req, res, next) => {
         continue;
       }
 
-      /* eslint-disable-next-line no-await-in-loop -- see the note above */
-      const zone = await findZoneFor(pin[1], pin[0], 'food');
       addresses.push(addressRow(address, {
-        serviceable: Boolean(zone),
-        note: zone ? '' : `Outside ${kitchen.restaurantName}'s delivery area. `
-          + 'Pickup is still available, or order from a kitchen closer to you.',
+        serviceable: true,
+        note: '',
       }));
     }
 

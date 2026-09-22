@@ -284,8 +284,20 @@ export default function AuthScreen() {
     return (
       <View style={styles.rootContainer}>
         <StatusBar style="dark" />
+        <Pressable
+          onPress={() => {
+            setShowPassword(false);
+            setPasswordError(null);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={12}
+          style={[styles.backButton, { top: insets.top + 12 }]}
+        >
+          <Icon name="chevronLeft" size={24} color="#12211A" />
+        </Pressable>
         <KeyboardAwareScrollViewCompat
-          contentContainerStyle={styles.pwScroll}
+          contentContainerStyle={[styles.pwScroll, { paddingTop: insets.top + 64 }]}
           keyboardShouldPersistTaps="handled"
         >
           <Text style={styles.pwTitle}>Log in</Text>
@@ -377,6 +389,25 @@ export default function AuthScreen() {
         way out of an otherwise account-first entry screen for everyone who
         just wants to look first.
       */}
+      <Pressable
+        onPress={() => {
+          if (isFlipped) {
+            changeNumber();
+          } else if (router.canGoBack()) {
+            router.back();
+          } else {
+            continueAsGuest();
+            router.replace('/');
+          }
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        hitSlop={12}
+        style={[styles.backButton, { top: insets.top + 12 }]}
+      >
+        <Icon name="chevronLeft" size={24} color="#3D4247" />
+      </Pressable>
+
       <Pressable
         onPress={() => {
           continueAsGuest();
@@ -726,6 +757,19 @@ export default function AuthScreen() {
 }
 
 const styles = StyleSheet.create({
+  backButton: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
   skipButton: {
     position: 'absolute',
     right: 16,

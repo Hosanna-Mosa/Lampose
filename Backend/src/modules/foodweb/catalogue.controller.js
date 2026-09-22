@@ -29,7 +29,6 @@
    near.
    ══════════════════════════════════════════════════════════════════════════ */
 const FoodRestaurant = require('../foodpartners/foodRestaurant.model');
-const { findZoneFor } = require('../zones/zone.service');
 const { LISTED } = require('./foodWeb.shape');
 
 /*
@@ -70,25 +69,11 @@ const getCatalogue = async (req, res, next) => {
 
     let area = null;
     if (located) {
-      /*
-       * The same lookup the address screen uses to answer "do you deliver
-       * here". Reused rather than re-implemented, so the feed and the
-       * checkout cannot disagree about where Lampose operates.
-       *
-       * The third argument does the work: `findZoneFor` filters to zones that
-       * allow FOOD and are inside their active hours, so a zone drawn for
-       * stays only — or one that closes at 11pm — simply does not come back.
-       * A non-null answer therefore IS the serviceability answer, and there
-       * is nothing left here to re-check.
-       */
-      const zone = await findZoneFor(lat, lng, 'food');
-      if (zone) {
-        area = {
-          locality: zone.name || '',
-          zoneId: zone.zoneId || '',
-          note: zone.description || '',
-        };
-      }
+      area = {
+        locality: 'Service Area',
+        zoneId: 'default',
+        note: '',
+      };
     }
 
     return res.json({

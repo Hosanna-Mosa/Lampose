@@ -17,6 +17,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { Icon, Skeleton, Text } from '@/components/ui';
 import { usePressAnimation } from '@/hooks/usePressAnimation';
@@ -220,6 +221,18 @@ function PhotoCarousel({
         page(0)
       )}
 
+      {/* Bottom scrim — the gender/count/dots badges below each sit on their
+          own opaque pill, but a pill only covers its own rectangle. A bright
+          photo (pale marble, white walls) still shows through the gap AROUND
+          it, and centred between two badges that gap reads as a stray block
+          of blank space rather than part of the photo. A soft gradient across
+          the whole bottom strip removes that gap by darkening the base of
+          every photo a little, regardless of what's in it. */}
+      <LinearGradient
+        colors={['transparent', 'rgba(0, 0, 0, 0.38)']}
+        style={styles.bottomScrim}
+        pointerEvents="none"
+      />
 
       {/* Floating Top Right: Heart Save Button */}
       {onToggleSave ? (
@@ -256,18 +269,20 @@ function PhotoCarousel({
           more than one page to move between. */}
       {swipeable && pages > 1 ? (
         <View style={styles.dotsContainer} pointerEvents="none">
-          {Array.from({ length: pages }, (_, dot) => (
-            <View
-              key={dot}
-              style={[
-                styles.dot,
-                {
-                  width: dot === index ? 14 : 5,
-                  opacity: dot === index ? 1 : 0.55,
-                },
-              ]}
-            />
-          ))}
+          <View style={styles.dotsPill}>
+            {Array.from({ length: pages }, (_, dot) => (
+              <View
+                key={dot}
+                style={[
+                  styles.dot,
+                  {
+                    width: dot === index ? 14 : 5,
+                    opacity: dot === index ? 1 : 0.5,
+                  },
+                ]}
+              />
+            ))}
+          </View>
         </View>
       ) : null}
     </View>
@@ -526,24 +541,43 @@ const styles = StyleSheet.create({
     bottom: 12,
     right: 12,
   },
+  bottomScrim: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 64,
+  },
   dotsContainer: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 12,
+    bottom: 10,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  /* Same dark translucent pill the gender/photo-count badges use — plain
+     white dots with only a drop shadow washed out to an illegible smear on
+     light photos (e.g. pale flooring). A solid backing keeps them readable
+     against any photo.
+     Matches those badges' 0.68 opacity, not a lighter one: on a bright photo
+     (pale marble, white walls) anything weaker barely tints the pixels
+     underneath and reads as a washed-out grey smudge — the same "extra white
+     space" complaint the shadow-only version drew, just fainter. */
+  dotsPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.68)',
+    borderRadius: 9,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
   },
   dot: {
     height: 5,
     borderRadius: 3,
     backgroundColor: '#FFFFFF',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.5,
-    shadowRadius: 2,
   },
   heartCircle: {
     width: 34,
