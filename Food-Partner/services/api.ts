@@ -43,6 +43,23 @@ export const isOffline = () => !API_URL;
 const CLIENT_NAME = "food-partner";
 const CLIENT_VERSION = String(Constants.expoConfig?.version ?? "1.0.0");
 
+/**
+ * Told when ANY call comes back refused because the restaurant was rejected.
+ *
+ * `requireFoodPartner` answers 403 `ACCOUNT_REJECTED` on every route behind a
+ * session the moment `verificationStatus` is `rejected` — not just `/me`. A
+ * screen that swallowed that as a generic error banner would leave a rejected
+ * partner staring at an otherwise-empty dashboard with no idea why nothing on
+ * it works, when `/status` is the screen already built to explain it. Reported
+ * once, centrally, the same way `client.ts` in the User App reports a dead
+ * session — so no screen has to recognise this code for itself.
+ */
+let onAccountRejected: ((verificationNote: string) => void) | null = null;
+
+export function setAccountRejectedHandler(handler: ((verificationNote: string) => void) | null): void {
+  onAccountRejected = handler;
+}
+
 export class ApiError extends Error {
   status: number;
   payload: unknown;
@@ -115,10 +132,16 @@ export async function api<T = unknown>(
     const payload = text ? safeParse(text) : null;
 
     if (!res.ok) {
-      const message =
-        (payload as { message?: string; error?: string } | null)?.message ??
-        (payload as { error?: string } | null)?.error ??
-        `Request failed (${res.status})`;
+      const shape = payload as {
+        message?: string; error?: string; code?: string;
+        data?: { verificationStatus?: string; verificationNote?: string };
+      } | null;
+      const message = shape?.message ?? shape?.error ?? `Request failed (${res.status})`;
+
+      if (res.status === 403 && shape?.code === "ACCOUNT_REJECTED") {
+        onAccountRejected?.(shape.data?.verificationNote ?? "");
+      }
+
       throw new ApiError(message, res.status, payload);
     }
 

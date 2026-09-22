@@ -93,6 +93,29 @@ export type VerifyAuthInput = {
   signal?: AbortSignal;
 };
 
+/**
+ * Sign out, server-side.
+ *
+ * `sessionVersion`-based revocation exists now — see `iam/session.controller.js`
+ * — so this is no longer theatre. `everywhere: true` is what actually does
+ * something: the account carries ONE `sessionVersion`, not one per device, so
+ * there is no way to revoke just the token this handset holds without it.
+ * That is the whole point of calling this at all — a token copied off this
+ * phone before signing out must stop working, which forgetting a push token
+ * alone (the pre-existing `unregisterDevice` call) never did.
+ *
+ * The caller clears the local session regardless of whether this succeeds: a
+ * phone with no connection must still be able to leave.
+ */
+export async function logoutAuth(signal?: AbortSignal): Promise<void> {
+  const envelope = await api.post<ApiEnvelope<{ everywhere: boolean }>>(
+    endpoints.customerAuthLogout,
+    { everywhere: true },
+    { signal },
+  );
+  unwrap(envelope);
+}
+
 export async function verifyAuth({
   phone,
   otp,

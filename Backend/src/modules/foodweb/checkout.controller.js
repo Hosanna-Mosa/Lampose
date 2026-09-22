@@ -148,7 +148,7 @@ const listAddresses = async (req, res, next) => {
       return addressRow(address, {
         serviceable: reaches,
         note: reaches ? '' : `Outside ${kitchen.restaurantName}'s delivery area. `
-          + 'Pickup is still available, or order from a kitchen closer to you.',
+          + 'Choose another address, or order from a kitchen closer to you.',
       });
     });
 

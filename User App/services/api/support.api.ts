@@ -22,6 +22,25 @@ import type { BackendTicket, BackendTicketDetail } from './types';
  * IST gets it wrong for two hours every night.
  */
 
+/**
+ * The ids this account may file a ticket about — never the labels.
+ *
+ * Served rather than hardcoded so this app's picker cannot drift from the
+ * server's enum, the same reason `driver/services/support.ts` and the two
+ * other partner apps already call this. `data/support.ts` keeps the wording:
+ * it works offline and on the first frame, and the server stores the id that
+ * was chosen, never the sentence — see that file's own header for why the
+ * split is drawn there.
+ */
+export async function fetchSupportCategories(signal?: AbortSignal): Promise<string[]> {
+  const envelope = await api.get<ApiEnvelope<{ categories?: string[] }>>(
+    endpoints.supportCategories,
+    { signal },
+  );
+  const data = unwrap(envelope);
+  return Array.isArray(data?.categories) ? data.categories : [];
+}
+
 export type TicketsResult = {
   tickets: BackendTicket[];
   /** How many carry something the customer has not seen. */

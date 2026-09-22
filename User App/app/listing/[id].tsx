@@ -88,7 +88,7 @@ export default function ListingDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { locality } = useAppState();
-  const { user, completeProfile } = useAuth();
+  const { status, user, completeProfile, requireSignIn } = useAuth();
   const { confirm } = useAlert();
   /* One booking at a time — the same rule the server enforces and the home
      strip draws. See `useOngoing`. */
@@ -100,7 +100,9 @@ export default function ListingDetail() {
      one cache entry. Held here too so the pull-to-refresh gesture on the
      outer scroll view can refresh the reviews alongside the listing. */
   const { refetch: refetchReviews, isFetching: reviewsFetching } = useListingReviews(id);
-  const { isSaved, toggleSaved } = useSaved();
+  /* A guest browsing needs no account, so this must not fire an authenticated
+     request just to find out a guest has nothing saved. */
+  const { isSaved, toggleSaved } = useSaved(status === 'signedIn');
   const saved = listing ? isSaved(listing.id) : false;
 
   /* ── The name and address a request needs, asked before it is sent ───────
@@ -384,8 +386,6 @@ export default function ListingDetail() {
 
 
 
-  // No sign-in check: auth is the first gate in the app, so anyone on this
-  // screen already has an account.
   /*
    * Straight to the owner. No form in between.
    *
@@ -516,22 +516,30 @@ export default function ListingDetail() {
   };
 
   const requestBed = () => {
-    if (blocking) {
-      confirm({
-        title: 'You already have a booking going on',
-        message: `${blocking.title} — ${blocking.status.toLowerCase()}. `
-          + 'Finish or cancel that one, and this place will still be here.',
-        confirmLabel: 'Open it',
-        cancelLabel: 'Not now',
-      }).then((go) => { if (go) openBlocking(); });
-      return;
-    }
-    if (!user?.name) {
-      setProfileError(null);
-      setProfileSheetOpen(true);
-      return;
-    }
-    goToConfirm();
+    /* A guest is sent to sign in first — the checks below all assume a real
+       account (`blocking` reads the signed-in student's own bookings,
+       `user?.name` reads their profile), and a guest has neither. Wrapping
+       the whole thing means the exact same tap resumes here once they are
+       signed in, rather than a guest seeing a stray "tell us your name"
+       sheet for an account that does not exist yet. */
+    requireSignIn(() => {
+      if (blocking) {
+        confirm({
+          title: 'You already have a booking going on',
+          message: `${blocking.title} — ${blocking.status.toLowerCase()}. `
+            + 'Finish or cancel that one, and this place will still be here.',
+          confirmLabel: 'Open it',
+          cancelLabel: 'Not now',
+        }).then((go) => { if (go) openBlocking(); });
+        return;
+      }
+      if (!user?.name) {
+        setProfileError(null);
+        setProfileSheetOpen(true);
+        return;
+      }
+      goToConfirm();
+    });
   };
 
   const submitProfileAndContinue = async () => {
@@ -582,7 +590,7 @@ export default function ListingDetail() {
         title={listing.name}
         scrollY={scrollY}
         onBack={() => router.back()}
-        onAction={() => listing && toggleSaved(listing.id)}
+        onAction={() => listing && requireSignIn(() => toggleSaved(listing.id))}
         actionIcon="heart"
         actionActive={saved}
       />

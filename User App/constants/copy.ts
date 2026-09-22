@@ -96,6 +96,18 @@ export const emptyStates = {
   }),
 
   /**
+   * Guest browsing a screen that needs an account — the Saved and Profile
+   * tabs, once a skip past sign-in was added. Not an error: browsing without
+   * an account is the normal, supported path, and this is just the point
+   * where it needs one.
+   */
+  signInRequired: (params: { what: string }): StateCopy => ({
+    headline: `Sign in to see ${params.what}`,
+    body: 'Browsing needs no account. This is just saved to yours, so it is there the next time you open the app.',
+    primaryAction: 'Sign in',
+  }),
+
+  /**
    * The one empty state whose action is secondary-styled. Nothing is wrong
    * here, and a brand-filled button would manufacture urgency.
    */

@@ -1,12 +1,89 @@
 /* Read-only view of the `properties` collection, shaped for lampose.com's
    public Explore page. Writes go through the property controllers instead. */
 const Property = require('../properties/property.model');
-const { DEFAULT_CATEGORY, normaliseCategory } = require('../../shared/constants/categories');
+const { DEFAULT_CATEGORY, normaliseCategory, categoryQuery } = require('../../shared/constants/categories');
 const {
   formatListing, ownerNamesFor, cityOf, localityOf, isDaily,
 } = require('./listing.formatter');
 const { escapeRegex } = require('../../shared/utils/text');
 const { rowsFor } = require('../inventory/inventory.service');
+const { sharingOptionsFor } = require('./sharing.util');
+
+/* `$centerSphere` takes its radius in RADIANS, which is kilometres over the
+   earth's radius. 6378.1 is the equatorial radius MongoDB's own
+   documentation uses for this conversion — the same constant
+   `foodDiscovery.controller.js` uses for the identical reason, restaurants
+   near a customer. */
+const EARTH_RADIUS_KM = 6378.1;
+const DEFAULT_RADIUS_KM = 5;
+const MAX_RADIUS_KM = 50;
+
+/**
+ * `?lat&lng&radiusKm`, or nothing at all.
+ *
+ * Half a pair is refused rather than ignored — a client that sent a latitude
+ * and lost the longitude would otherwise get a plain, unscoped feed that
+ * looks like a working "near me" search with the wrong properties on it.
+ * Mirrors `readLocation` in `foodDiscovery.controller.js`, the only other
+ * place in this backend answers "how far from a fix".
+ */
+const readNearby = ({ lat, lng, radiusKm } = {}) => {
+  const latText = lat === undefined || lat === null ? '' : String(lat).trim();
+  const lngText = lng === undefined || lng === null ? '' : String(lng).trim();
+  if (!latText && !lngText) return { point: null, radiusKm: null, error: null };
+
+  if (!latText || !lngText) {
+    return {
+      point: null,
+      radiusKm: null,
+      error: { code: 'MISSING_COORDINATE', message: 'Send both lat and lng, or neither.' },
+    };
+  }
+
+  const latNum = Number(latText);
+  const lngNum = Number(lngText);
+  if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)
+    || Math.abs(latNum) > 90 || Math.abs(lngNum) > 180) {
+    return {
+      point: null,
+      radiusKm: null,
+      error: {
+        code: 'BAD_COORDINATES',
+        message: 'Those coordinates are not a place. Send lat between -90 and 90, and lng between -180 and 180.',
+      },
+    };
+  }
+
+  const asked = Number(radiusKm);
+  const boundedRadiusKm = Number.isFinite(asked) && asked > 0
+    ? Math.min(asked, MAX_RADIUS_KM)
+    : DEFAULT_RADIUS_KM;
+
+  /* Mongo's own order, the same as `location.coordinates` on the document. */
+  return { point: [lngNum, latNum], radiusKm: boundedRadiusKm, error: null };
+};
+
+/**
+ * Kilometres between two lat/lng pairs, to one decimal place.
+ *
+ * Uses the same `EARTH_RADIUS_KM` the `$centerSphere` filter above converts
+ * its radius with — not the more common 6371 mean-radius figure — so the
+ * circle a property was matched against and the distance reported for it
+ * are exactly the same sphere. Two different radii would not be wrong
+ * enough to notice (well under 6km apart everywhere on Earth), but there is
+ * no reason to let a boundary case a search wants to be as tight as 2km show
+ * a distance computed against a subtly different circle than the one that
+ * decided it belonged.
+ */
+const distanceKm = (lat1, lng1, lat2, lng2) => {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  const km = EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(km * 10) / 10;
+};
 
 // @route   GET /api/v2/listings
 // @desc    Every listing, newest first, with optional filtering
@@ -128,11 +205,30 @@ const ownerPaused = (options) => {
   return known.length > 0 && known.every((option) => option.reason === 'OWNER_PAUSED');
 };
 
+/**
+ * The same "is this listing switched off" test `withAvailability` runs, done
+ * without formatting the whole listing — `getListingMeta` counts thousands of
+ * rows for a summary and has no use for images, owner names or rendered
+ * prices, only this one fact.
+ */
+const isPropertyPaused = (doc, shareRows) => ownerPaused(
+  sharingOptionsFor(doc).map((option) => {
+    const row = option.shareTypeId ? shareRows.get(option.shareTypeId) : null;
+    return { reason: !row ? 'NO_INVENTORY_RECORDED' : (row.isAvailable === false ? 'OWNER_PAUSED' : null) };
+  }),
+);
+
 const getListings = async (req, res, next) => {
   try {
     const {
-      category, city, locality, maxPrice, search,
+      category, city, locality, maxPrice, search, lat, lng, radiusKm,
     } = req.query;
+
+    const nearby = readNearby({ lat, lng, radiusKm });
+    if (nearby.error) {
+      return res.status(400).json({ success: false, code: nearby.error.code, message: nearby.error.message });
+    }
+
     /* A listing the owner deleted from their own app. Excluded here, in the
        Mongo query, rather than filtered alongside `paused` below — a removed
        property has no `partner_share_types` rows worth loading availability
@@ -141,36 +237,51 @@ const getListings = async (req, res, next) => {
     const filter = { status: { $ne: 'removed' } };
 
     /*
-     * One category, or several separated by commas.
+     * Near a fix, rather than inside a named area.
      *
-     * The comma form is what the mobile app needs. Its tabs are not this
-     * collection's categories: "PG / Hostel" is one tab covering two enum
-     * values, because a student looking for a bed does not distinguish them
-     * and both price the same way. A single-value filter forced that tab to
-     * either fetch the whole collection and narrow it on the phone, or ask
-     * twice and stitch the answers — so the list form is accepted here,
-     * where the query already lives.
+     * `city`/`locality` below stay exactly as they are — a caller sending
+     * neither, which is what "Use my current location" now does, gets every
+     * category-matching property within the radius regardless of what area
+     * or city it falls in, sorted nearest first (see the ranking below).
+     * A caller could in principle send both; the two conditions simply
+     * combine, same as `category` and `maxPrice` already do.
+     */
+    if (nearby.point) {
+      filter.location = {
+        $geoWithin: { $centerSphere: [nearby.point, nearby.radiusKm / EARTH_RADIUS_KM] },
+      };
+    }
+
+    /*
+     * One category, or several separated by commas — matched by every
+     * spelling the collection has ever stored for it, never by the query
+     * string itself.
      *
-     * Still a regex per value rather than a plain $in: the original
-     * behaviour was case-insensitive and a deployment calling `?category=pg`
-     * has been getting PGs back for as long as this endpoint has existed.
+     * `properties.category` was never migrated when the four display strings
+     * became codes (see `categories.js`): plenty of rows still hold "PG",
+     * "Hostel", "Dormitory", "Co-live". A plain regex built from the query
+     * param only ever matched a row that happened to contain that exact
+     * substring — which is how `?category=Bachelor` kept working (it is a
+     * literal substring of "Bachelor Room") while `?category=HOTEL` silently
+     * excluded every "Dormitory" row from its own feed, even though the meta
+     * screen and every other reader that goes through `normaliseCategory`
+     * counts them as HOTEL. A student saw an area offered as having one hotel
+     * and then, on the Hotels tab, none.
+     *
+     * `categoryQuery` is the same lookup `monitor.controller.js` and
+     * `payoutOnboarding.controller.js` already use for exactly this reason.
+     * Each requested value is normalised first so a bookmarked
+     * `?category=Hotel` or `?category=pg` still resolves the way it always
+     * has.
      */
     if (category && category !== 'all') {
-      const wanted = String(category)
+      const codes = String(category)
         .split(',')
         .map((value) => value.trim())
         .filter(Boolean)
-        .map((value) => new RegExp(`^${escapeRegex(value)}$`, 'i'));
+        .map((value) => normaliseCategory(value) || value.toUpperCase());
 
-      if (wanted.length === 1) {
-        /* Unanchored, as it always was — it used to be what let
-           `?category=Bachelor` match the stored "Bachelor Room". The stored
-           values are codes now, so the two agree exactly, but a bookmarked
-           link with the old spelling still resolves through the same match. */
-        filter.category = new RegExp(escapeRegex(String(category).trim()), 'i');
-      } else if (wanted.length > 1) {
-        filter.category = { $in: wanted };
-      }
+      filter.category = { $in: [...new Set(codes.flatMap((code) => categoryQuery(code).$in))] };
     }
 
     if (maxPrice && Number.isFinite(Number(maxPrice))) {
@@ -195,9 +306,60 @@ const getListings = async (req, res, next) => {
        person — see `ownerNamesFor`. */
     const ownerNames = await ownerNamesFor(properties);
     const ownerDigits = (doc) => String(doc.ownerMobile || '').replace(/\D/g, '').slice(-10);
-    let listings = properties.map(
-      (doc) => formatListing(doc, ownerNames.get(ownerDigits(doc)) || ''),
-    );
+
+    /*
+     * One aggregation for the whole page, the same shape `getListingReviews`
+     * computes per listing — see its own note on why an unrated place gets
+     * `null` rather than an invented number. The card used to hardcode
+     * "4.92" and "124 reviews" on every single listing regardless of
+     * whether anyone had ever reviewed it; this is the real figure, which is
+     * `null`/`0` for the overwhelming majority of the catalogue today
+     * because almost nothing has a review yet — an honest empty state, not
+     * a bug, and the card is expected to render accordingly.
+     */
+    // eslint-disable-next-line global-require
+    const { PartnerReview } = require('../partners/partnerDomains.model');
+    const propertyIds = properties.map((doc) => String(doc._id));
+    const ratingRows = propertyIds.length
+      ? await PartnerReview.aggregate([
+        { $match: { propertyId: { $in: propertyIds } } },
+        { $group: { _id: '$propertyId', avg: { $avg: '$rating' }, count: { $sum: 1 } } },
+      ])
+      : [];
+    const ratingById = new Map(ratingRows.map((row) => [
+      row._id,
+      { averageRating: Math.round(row.avg * 10) / 10, reviewCount: row.count },
+    ]));
+    /*
+     * Computed from the raw document, before `formatListing` — which has no
+     * use for the pin and does not carry it onto the formatted listing —
+     * strips it. `$geoWithin` filters by the circle but reports no distance
+     * (unlike `$geoNear`, which cannot run inside this pipeline's plain
+     * `find` — see the header on `foodDiscovery.controller.js` for why that
+     * file uses the aggregation instead), so it is recomputed here once per
+     * property with the exact same fix already used to build the filter.
+     */
+    const distanceById = new Map();
+    if (nearby.point) {
+      const [fixLng, fixLat] = nearby.point;
+      for (const doc of properties) {
+        const pin = doc.location && doc.location.coordinates;
+        if (Array.isArray(pin) && pin.length === 2) {
+          distanceById.set(String(doc._id), distanceKm(fixLat, fixLng, pin[1], pin[0]));
+        }
+      }
+    }
+    let listings = properties.map((doc) => {
+      const rating = ratingById.get(String(doc._id));
+      return {
+        ...formatListing(doc, ownerNames.get(ownerDigits(doc)) || ''),
+        /* Null off a radius search, not just absent, so a card template has
+           one shape whether or not "near me" was asked for. */
+        distanceKm: nearby.point ? (distanceById.get(String(doc._id)) ?? null) : null,
+        averageRating: rating ? rating.averageRating : null,
+        reviewCount: rating ? rating.reviewCount : 0,
+      };
+    });
 
     /* City and locality are both derived from free-text `place` after the
        fact, so neither can be part of the database query. */
@@ -252,12 +414,25 @@ const getListings = async (req, res, next) => {
      * flipped a switch specifically to stop new requests on part of this
      * listing; ranking it above properties nothing is paused on undoes that on
      * the one screen students actually browse.
+     *
+     * A radius search breaks the tie a second way, by distance rather than
+     * by `createdAt` — "near me" means nearest first, the same promise
+     * `foodDiscovery.controller.js` makes for a restaurant search. `.sort` is
+     * stable, so this still only reorders within the two pause groups.
      */
-    const ranked = [...visible].sort(
-      (a, b) => Number(a.anyOptionPaused) - Number(b.anyOptionPaused),
-    );
+    const ranked = [...visible].sort((a, b) => {
+      const pausedDiff = Number(a.anyOptionPaused) - Number(b.anyOptionPaused);
+      if (pausedDiff !== 0) return pausedDiff;
+      if (!nearby.point) return 0;
+      return (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity);
+    });
 
-    return res.json({ success: true, count: ranked.length, data: ranked });
+    return res.json({
+      success: true,
+      count: ranked.length,
+      data: ranked,
+      ...(nearby.point ? { radiusKm: nearby.radiusKm } : {}),
+    });
   } catch (error) {
     return next(error);
   }
@@ -400,10 +575,22 @@ const getListingMeta = async (req, res, next) => {
        that has no use for images or amenities. */
     /* `dailyPrice`, `monthlyPrice` and `categoryDetails` are here only so
        isDaily() can tell a nightly rate from a monthly one — see the median
-       below. */
-    const rows = await Property.find({}, {
+       below. `status` and the sharing fields inside `categoryDetails` are
+       what let the pause check below run without a second query per row. */
+    const properties = await Property.find({ status: { $ne: 'removed' } }, {
       category: 1, place: 1, rent: 1, dailyPrice: 1, monthlyPrice: 1, categoryDetails: 1,
     }).lean();
+
+    /*
+     * A listing the owner switched off does not appear in `getListings`
+     * either — see `isPropertyPaused`. Left in here, this screen told a
+     * student "1 hotel in Indiranagar" and the feed behind that answer then
+     * showed none, with nothing on screen explaining why the count and the
+     * result disagreed. Excluded the same way, from the same source of
+     * truth, so the count this screen shows is a promise the feed keeps.
+     */
+    const shareRows = await rowsFor(properties.map((doc) => doc._id));
+    const rows = properties.filter((doc) => !isPropertyPaused(doc, shareRows));
 
     const byCity = new Map();
     const byLocality = new Map();

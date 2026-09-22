@@ -42,7 +42,7 @@ export function DashHome() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
-  const [unreadNotifications, setUnreadNotifications] = useState(2);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
 
   const load = useCallback(async () => {
@@ -67,12 +67,10 @@ export function DashHome() {
       });
 
       try {
-        const ticketsRes = await listTickets(session.token);
-        const ticketList = Array.isArray(ticketsRes) ? ticketsRes : (ticketsRes as any)?.tickets || [];
-        const unread = ticketList.filter((t: any) => t.hasUnreadReply).length;
-        setUnreadNotifications(unread > 0 ? unread : 2);
+        const { unread } = await listTickets(session.token);
+        setUnreadNotifications(unread);
       } catch (e) {
-        setUnreadNotifications(2);
+        setUnreadNotifications(0);
       }
     } catch (err) {
       setError((err as Error)?.message || "We could not reach the server.");
@@ -223,7 +221,7 @@ export function DashHome() {
               <View style={[styles.metricIconCircle, { backgroundColor: "#DCFCE7" }]}>
                 <Icon name="utensils" size={18} color="#16A34A" />
               </View>
-              <Text style={styles.metricValue}>{products.length || 7}</Text>
+              <Text style={styles.metricValue}>{products.length}</Text>
               <View style={{ marginLeft: "auto" }}>
                 <Icon name="chevronRight" size={16} color="#9CA3AF" />
               </View>
@@ -601,46 +599,5 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#374151",
     textAlign: "center",
-  },
-
-  /* HOURS CARD */
-  hoursCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 18,
-    gap: 14,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  editBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  editText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#059669",
-  },
-  hoursList: {
-    gap: 10,
-  },
-  hoursRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  dayText: {
-    fontSize: 14,
-    color: "#374151",
-    fontWeight: "500",
-  },
-  timeSlotText: {
-    fontSize: 13,
-    color: "#4B5563",
-    fontWeight: "600",
   },
 });

@@ -20,7 +20,6 @@ import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { Diet, Dish } from '@/types/food';
-import { formatRupees } from '@/utils/money';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 
 /**
@@ -34,10 +33,9 @@ import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
  * carries no title: it used to hold the name as well, which printed it twice
  * on one screen with the upper copy truncated.
  *
- * The deliver/pickup pair used to sit above the fold here. It is gone, and
- * with it the only remaining control anywhere in the app that could set
- * `fulfilment` — the mode is now whatever `FoodContext` defaults to. If
- * pickup is meant to be reachable again, this is the screen it belongs on.
+ * There is no deliver/pickup pair here any more. Pickup was withdrawn from the
+ * product — the order endpoint refuses one — so every order is a delivery and
+ * there is nothing on this screen for a diner to choose between.
  *
  * A CLOSED kitchen keeps its whole menu, greyed. Hiding the menu would make
  * the commonest question here ("is this the place with the ₹95 thali?")
@@ -56,7 +54,6 @@ export default function KitchenScreen() {
     lines,
     count,
     itemTotal,
-    fulfilment,
     address,
     preferences,
     setPreferences,
@@ -276,11 +273,13 @@ export default function KitchenScreen() {
             />
           ) : null}
 
-          <View style={styles.metaRow}>
-            <Text variant="numMeta" color="tertiary" style={{ flex: 1 }}>
-              Minimum {formatRupees(kitchen.minOrder)} for delivery{address ? ` to ${address.title}` : ''}
-            </Text>
-          </View>
+          {address ? (
+            <View style={styles.metaRow}>
+              <Text variant="numMeta" color="tertiary" style={{ flex: 1 }}>
+                Delivering to {address.title}
+              </Text>
+            </View>
+          ) : null}
 
           {!open ? (
             <FoodNotice
@@ -485,7 +484,7 @@ export default function KitchenScreen() {
           <DockedCartBar
             count={count}
             total={itemTotal}
-            context={fulfilment === 'pickup' ? 'pickup' : address ? address.title : 'no address yet'}
+            context={address ? address.title : 'no address yet'}
             onPress={() => router.push(foodHref.cart)}
           />
         </View>

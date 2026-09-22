@@ -74,13 +74,6 @@ import {
   type OnboardingStep,
   type Vehicle,
 } from "@/store/driverStore";
-import {
-  DUMMY_DATA_ENABLED,
-  DUMMY_DOCUMENTS,
-  DUMMY_PAYOUT,
-  DUMMY_PERSONAL,
-  DUMMY_VEHICLE,
-} from "@/constants/dummyPartner";
 import { LocationRefused, locateMe } from "@/services/locateMe";
 import { ApiError } from "@/utils/api";
 import { colors, layout, radius, space, tone as resolveTone } from "@/theme";
@@ -362,98 +355,6 @@ export default function OnboardingScreen() {
     save({ onboardingStep: "bank" }, "bank");
   };
 
-  /* ── "Fill with dummy data" ──────────────────────────────────────────────
-     Each one writes the draft AND saves in the same call, passing the values
-     straight to `save` rather than reading them back off state — a `setState`
-     is not visible to the line after it, so filling and then calling the
-     step's own Continue would PATCH the previous, empty values.
-
-     The three real fields are never invented (see `dummyPartner.ts`), so each
-     of these refuses if the one it needs is still blank, and points at it. */
-
-  const fillPersonal = () => {
-    /* The two real fields this step owns. Refused rather than filled: a date
-       of birth is checked against the ID an approver reads, and an email
-       address is where a payout statement goes. Both are collected once, by
-       the person who actually owns them. */
-    const missing: Record<string, string> = {};
-    if (!dob) missing.dob = "Enter your real date of birth first — this one is not dummied.";
-    if (!email.trim()) missing.email = "Enter your real email first — this one is not dummied.";
-    if (Object.keys(missing).length) {
-      setFieldErrors(missing);
-      return;
-    }
-    setFieldErrors({});
-    setName(DUMMY_PERSONAL.name);
-    setCity(DUMMY_PERSONAL.city);
-    setLine1(DUMMY_PERSONAL.address.line1);
-    setLandmark(DUMMY_PERSONAL.address.landmark);
-    setPincode(DUMMY_PERSONAL.address.pincode);
-    const photo = photoUrl || DUMMY_PERSONAL.profilePhotoUrl;
-    setPhotoUrl(photo);
-
-    save(
-      {
-        name: DUMMY_PERSONAL.name,
-        /* Non-null by the guard above — the whole point of this button is that
-           it refuses rather than inventing one. */
-        dateOfBirth: dob!,
-        email: email.trim(),
-        city: DUMMY_PERSONAL.city,
-        address: { ...DUMMY_PERSONAL.address },
-        profilePhotoUrl: photo,
-        onboardingStep: "vehicle",
-      },
-      "vehicle",
-    );
-  };
-
-  const fillVehicle = () => {
-    setFieldErrors({});
-    setVehicleType(DUMMY_VEHICLE.type);
-    setPlate(DUMMY_VEHICLE.plate);
-    setModel(DUMMY_VEHICLE.model);
-
-    save({ vehicle: { ...DUMMY_VEHICLE }, onboardingStep: "documents" }, "documents");
-  };
-
-  /**
-   * Submit the three required documents, then move on.
-   *
-   * Sequential rather than `Promise.all`: each call saves the whole rider
-   * document, and three overlapping writes to one row is a lost update — the
-   * last response would carry only the document it happened to add. Three
-   * round trips is the correct cost of three separate submissions.
-   */
-  const fillDocuments = async () => {
-    setError("");
-    setSaving(true);
-    try {
-      for (const doc of DUMMY_DOCUMENTS) {
-        setUploading(`${doc.kind}:front`);
-        await submitDocument(doc);
-      }
-      await updateProfile({ onboardingStep: "bank" });
-      setScreen("bank");
-    } catch (err) {
-      setError(readError(err, "We could not attach those. Please try again."));
-    } finally {
-      setUploading("");
-      setSaving(false);
-    }
-  };
-
-  const fillBank = () => {
-    setFieldErrors({});
-    setHolder(DUMMY_PAYOUT.accountHolderName);
-    setAccount(DUMMY_PAYOUT.bankAccountNumber);
-    setIfsc(DUMMY_PAYOUT.ifscCode);
-    setUpi(DUMMY_PAYOUT.upiId);
-    setAccountType(DUMMY_PAYOUT.accountType);
-
-    save({ payout: { ...DUMMY_PAYOUT }, onboardingStep: "done" }, "done");
-  };
-
   const continueBank = () => {
     const errors: Record<string, string> = {};
     const hasBank = !!account.trim() || !!profile?.payout?.accountLast4;
@@ -692,12 +593,9 @@ export default function OnboardingScreen() {
                 maxLength={6}
                 mono
               />
-              {/* Collected here rather than only on the profile screen, because
-                  it is one of the three fields "Fill with dummy data" refuses
-                  to invent — and a field the shortcut demands has to be a field
-                  the form actually offers. Optional for a real rider: the
-                  server's completeness rule does not ask for it, and a rider
-                  with no email address is an ordinary case. */}
+              {/* Optional for a real rider: the server's completeness rule does
+                  not ask for it, and a rider with no email address is an
+                  ordinary case. */}
               <Input
                 label="Email"
                 value={email}
@@ -907,41 +805,21 @@ export default function OnboardingScreen() {
           )}
 
           {screen === "personal" && (
-            <>
-              <Btn label="Continue" disabled={saving} loading={saving} onPress={continuePersonal} />
-              <FillButton
-                busy={saving}
-                onPress={fillPersonal}
-                note="Fills your name, address, city and photo. Your number, email and date of birth stay yours."
-              />
-            </>
+            <Btn label="Continue" disabled={saving} loading={saving} onPress={continuePersonal} />
           )}
           {screen === "vehicle" && (
-            <>
-              <Btn label="Continue" disabled={saving} loading={saving} onPress={continueVehicle} />
-              <FillButton busy={saving} onPress={fillVehicle} note="Fills a two-wheeler and its plate." />
-            </>
+            <Btn label="Continue" disabled={saving} loading={saving} onPress={continueVehicle} />
           )}
           {screen === "documents" && (
-            <>
-              <Btn
-                label="Continue"
-                disabled={saving || !!uploading}
-                loading={saving}
-                onPress={continueDocuments}
-              />
-              <FillButton
-                busy={saving || !!uploading}
-                onPress={fillDocuments}
-                note="Attaches sample scans for the three required documents. PAN and insurance stay empty."
-              />
-            </>
+            <Btn
+              label="Continue"
+              disabled={saving || !!uploading}
+              loading={saving}
+              onPress={continueDocuments}
+            />
           )}
           {screen === "bank" && (
-            <>
-              <Btn label="Save and finish" disabled={saving} loading={saving} onPress={continueBank} />
-              <FillButton busy={saving} onPress={fillBank} note="Fills a test bank account and UPI id." />
-            </>
+            <Btn label="Save and finish" disabled={saving} loading={saving} onPress={continueBank} />
           )}
           {screen === "done" && !profile?.hasCompletedOnboarding && (
             <Btn
@@ -975,40 +853,6 @@ export default function OnboardingScreen() {
 }
 
 /* ── Pieces ───────────────────────────────────────────────────────────────── */
-
-/**
- * "Fill with dummy data" — the shortcut past a step, for testing.
- *
- * Renders nothing at all outside a development or explicitly-enabled build, so
- * the call sites do not each have to remember the guard. A real partner who
- * found this would file an application an approver then has to reject.
- *
- * Deliberately the plainest control on the screen: the quiet variant, below
- * the real action, with a line saying what it will and will not touch. It has
- * to be obviously a tool rather than a choice somebody might make by accident,
- * and the note is where the "your date of birth stays yours" promise is
- * actually made to the person reading it.
- */
-function FillButton({
-  busy,
-  onPress,
-  note,
-}: {
-  busy: boolean;
-  onPress: () => void;
-  note: string;
-}) {
-  if (!DUMMY_DATA_ENABLED) return null;
-
-  return (
-    <View style={{ gap: space[1], marginTop: space[2] }}>
-      <Btn label="Fill with dummy data" variant="quiet" glyph="plus" disabled={busy} onPress={onPress} />
-      <Text variant="caption" color="tertiary" style={{ textAlign: "center" }}>
-        {note}
-      </Text>
-    </View>
-  );
-}
 
 function Welcome() {
   return (

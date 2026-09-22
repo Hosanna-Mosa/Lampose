@@ -24,6 +24,7 @@ export {
 
 export {
   fetchMe,
+  logoutAuth,
   resendAuthCode,
   startAuth,
   updateMe,
@@ -101,6 +102,7 @@ export { fetchMyCoupon } from './api/foodCoupon.api';
 export {
   createReport,
   createTicket,
+  fetchSupportCategories,
   fetchTicket,
   fetchTickets,
   markTicketRead,

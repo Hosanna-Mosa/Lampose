@@ -36,12 +36,11 @@ import { RestaurantListCard } from './RestaurantListCard';
  *     supporting line on a card. Here it is the ordering, because ten minutes
  *     of walking is the whole decision.
  *
- * ## Where it stops, and what is NOT wired yet
+ * ## Where it stops
  *
  * This is the browsing half only. Tapping a kitchen opens its ordinary menu
- * page, and from there the cart and checkout run exactly as they do from Home
- * — which means the order goes out as a DELIVERY, not as something eaten at
- * the counter.
+ * page. This screen finds an open, nearby kitchen; it does not itself decide
+ * how the order leaves the counter — and there is nothing left to decide.
  *
  * That is not a choice this screen made, and it is now the only choice there
  * is. The app never did offer collection: `FulfilmentToggle` existed and was

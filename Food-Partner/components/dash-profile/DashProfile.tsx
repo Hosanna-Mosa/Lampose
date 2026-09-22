@@ -9,7 +9,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -46,6 +45,20 @@ export function DashProfile() {
   const [acceptsOnline, setAcceptsOnline] = useState(true);
   const [acceptsCod, setAcceptsCod] = useState(true);
 
+
+  /* Editable restaurant details — accepted by PATCH /me since onboarding, but
+     with no screen to reach them from after it. Business hours and the
+     delivery-fee scheme are the other two `updateMe` already accepts; they
+     need a structured editor of their own (the onboarding flow's `TimeRange`
+     step, and a type-dependent fee form) and are deliberately left for that
+     follow-up rather than a rushed version here. */
+  const [description, setDescription] = useState("");
+  const [cuisineTypesText, setCuisineTypesText] = useState("");
+  const [contactNumber, setContactNumber] = useState("");
+  const [savingDetails, setSavingDetails] = useState(false);
+  const [detailsError, setDetailsError] = useState("");
+  const [detailsNote, setDetailsNote] = useState("");
+
   const load = useCallback(async () => {
     if (!session?.token) {
       setLoading(false);
@@ -60,11 +73,12 @@ export function DashProfile() {
       setDeliveryRadius(String(restaurant.deliveryRadiusKm ?? 6));
       setAcceptsOnline(restaurant.acceptsOnlinePayment ?? true);
       setAcceptsCod(restaurant.acceptsCod ?? true);
+      setDescription(restaurant.description ?? "");
+      setCuisineTypesText((restaurant.cuisineTypes ?? []).join(", "));
+      setContactNumber(restaurant.contactNumber ?? "");
 
       try {
-        const ticketsRes = await listTickets(session.token);
-        const ticketList = Array.isArray(ticketsRes) ? ticketsRes : (ticketsRes as any)?.tickets || [];
-        const unread = ticketList.filter((t: any) => t.hasUnreadReply).length;
+        const { unread } = await listTickets(session.token);
         setSupportUnread(unread);
       } catch (e) {
         setSupportUnread(0);
@@ -103,6 +117,29 @@ export function DashProfile() {
     }
   };
 
+  const handleSaveDetails = async () => {
+    if (!session?.token || !me) return;
+    setSavingDetails(true);
+    setDetailsError("");
+    setDetailsNote("");
+    try {
+      const updated = await updateMe(session.token, {
+        description: description.trim(),
+        cuisineTypes: cuisineTypesText
+          .split(",")
+          .map((c) => c.trim())
+          .filter(Boolean),
+        contactNumber: contactNumber.trim(),
+      });
+      setMe(updated);
+      setDetailsNote("Restaurant details updated successfully!");
+    } catch (err) {
+      setDetailsError((err as Error)?.message || "Failed to update details.");
+    } finally {
+      setSavingDetails(false);
+    }
+  };
+
   const restaurantName = me?.restaurantName || session?.restaurantName || "Paradise Biryani House";
   const restaurantId = me?.restaurantId || session?.restaurantId || "FP-P5Y9DQ4B";
 
@@ -133,12 +170,9 @@ export function DashProfile() {
         <View style={styles.heroCard}>
           <View style={styles.avatarWrapper}>
             <Image
-              source={{ uri: (me as any)?.coverImageUrl || DEFAULT_AVATAR }}
+              source={{ uri: me?.coverBannerImage?.url || DEFAULT_AVATAR }}
               style={styles.heroAvatar}
             />
-            <View style={styles.cameraIconBadge}>
-              <Icon name="camera" size={14} color="#FFFFFF" />
-            </View>
           </View>
 
           <Text style={styles.heroName}>{restaurantName}</Text>
@@ -164,32 +198,75 @@ export function DashProfile() {
             <Text style={styles.cardTitle}>Basic Information</Text>
           </View>
 
-          <View style={styles.infoRow}>
+          <View style={styles.infoItem}>
             <Text style={styles.infoLabel}>Owner Name</Text>
-            <Text style={styles.infoValue}>{me?.ownerName || "—"}</Text>
+            <Text style={styles.infoValueBlock}>{me?.ownerName || "—"}</Text>
           </View>
 
-          <View style={styles.infoRow}>
+          <View style={styles.infoItem}>
             <Text style={styles.infoLabel}>Contact Phone</Text>
-            <Text style={styles.infoValue}>+91 {me?.ownerPhone || "—"}</Text>
+            <Text style={styles.infoValueBlock}>+91 {me?.ownerPhone || "—"}</Text>
           </View>
 
-          <View style={styles.infoRow}>
+          <View style={styles.infoItem}>
             <Text style={styles.infoLabel}>Email</Text>
-            <Text style={styles.infoValue}>{me?.ownerEmail || "—"}</Text>
+            <Text style={styles.infoValueBlock}>{me?.ownerEmail || "—"}</Text>
           </View>
 
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Cuisine</Text>
-            <Text style={styles.infoValue}>{(me as any)?.cuisines?.join(", ") || "Biryani, North Indian"}</Text>
-          </View>
-
-          <View style={styles.infoRow}>
+          <View style={styles.infoItemLast}>
             <Text style={styles.infoLabel}>Address</Text>
-            <Text style={[styles.infoValue, { flex: 1, textAlign: "right" }]} numberOfLines={2}>
-              {me?.address ? `${me.address.area}, ${me.address.city}` : "Lampose Food Hub"}
+            <Text style={styles.infoValueBlock}>
+              {[me?.address?.line1, me?.address?.city].filter(Boolean).join(", ") || "—"}
             </Text>
           </View>
+        </View>
+
+        {/* ── SECTION: RESTAURANT DETAILS (editable) ────────────────────── */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Icon name="edit" size={20} color="#059669" />
+            <Text style={styles.cardTitle}>Restaurant Details</Text>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Cuisine (comma-separated)</Text>
+            <TextField
+              value={cuisineTypesText}
+              onChangeText={setCuisineTypesText}
+              placeholder="e.g. Biryani, North Indian"
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Customer-facing Phone</Text>
+            <TextField
+              value={contactNumber}
+              onChangeText={setContactNumber}
+              keyboardType="phone-pad"
+              placeholder="Number diners may call"
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Description</Text>
+            <TextField
+              value={description}
+              onChangeText={setDescription}
+              placeholder="What should a customer know about this kitchen?"
+              multiline
+            />
+          </View>
+
+          {!!detailsError && <Note tone="bad">{detailsError}</Note>}
+          {!!detailsNote && <Note tone="ok">{detailsNote}</Note>}
+
+          <Pressable
+            style={[styles.saveBtn, savingDetails && { opacity: 0.7 }]}
+            onPress={handleSaveDetails}
+            disabled={savingDetails}
+          >
+            <Text style={styles.saveBtnText}>{savingDetails ? "Saving Changes..." : "Save Details"}</Text>
+          </Pressable>
         </View>
 
         {/* ── SECTION 2: OPERATIONAL SETTINGS ─────────────────────────── */}
@@ -270,7 +347,7 @@ export function DashProfile() {
 
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>FSSAI License No.</Text>
-            <Text style={styles.infoValue}>{(me as any)?.fssaiNumber || "Verified ✓"}</Text>
+            <Text style={styles.infoValue}>{me?.fssaiLicenseNumber || "—"}</Text>
           </View>
 
           <View style={styles.infoRow}>
@@ -281,15 +358,27 @@ export function DashProfile() {
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Bank Account</Text>
             <Text style={styles.infoValue}>
-              {(me as any)?.payoutBankLast4 ? `•••• •••• ${(me as any).payoutBankLast4}` : "•••• 4321"}
+              {me?.payout?.accountLast4 ? `•••• •••• ${me.payout.accountLast4}` : "—"}
             </Text>
           </View>
 
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>IFSC Code</Text>
-            <Text style={styles.infoValue}>{(me as any)?.payoutIfsc || "SBIN0001234"}</Text>
+            <Text style={styles.infoValue}>{me?.payout?.ifscCode || "—"}</Text>
           </View>
         </View>
+
+        {/* ── PAYOUTS & EARNINGS LINK ──────────────────────────────────── */}
+        <Pressable style={styles.payoutsLinkCard} onPress={() => router.push("/payouts")}>
+          <View style={styles.payoutsLinkIcon}>
+            <Icon name="wallet" size={20} color="#059669" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.payoutsLinkTitle}>Payouts & Earnings</Text>
+            <Text style={styles.payoutsLinkSub}>See what you're owed and request a payout</Text>
+          </View>
+          <Icon name="chevronRight" size={18} color="#9CA3AF" />
+        </Pressable>
 
         {/* ── SIGN OUT BUTTON ──────────────────────────────────────────── */}
         <Pressable style={styles.signOutBtn} onPress={() => setConfirmOut(true)}>
@@ -393,19 +482,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#FFFFFF",
   },
-  cameraIconBadge: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    backgroundColor: "#10B981",
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: "#FFFFFF",
-  },
   heroName: {
     fontSize: 20,
     fontWeight: "800",
@@ -485,6 +561,24 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#111827",
   },
+  /* Stacked label-then-value item, for fields whose value can run long
+     (a cuisine list, a full address) and would otherwise crush against the
+     label in a side-by-side row. */
+  infoItem: {
+    gap: 4,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  infoItemLast: {
+    gap: 4,
+  },
+  infoValueBlock: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+    lineHeight: 21,
+  },
 
   /* INPUT GROUPS */
   inputGroup: {
@@ -510,24 +604,6 @@ const styles = StyleSheet.create({
     width: 32,
   },
 
-  /* SWITCH ROWS */
-  switchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
-    paddingTop: 12,
-  },
-  switchTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  switchSub: {
-    fontSize: 12,
-    color: "#6B7280",
-  },
   saveBtn: {
     backgroundColor: "#059669",
     borderRadius: 14,
@@ -540,6 +616,39 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: "#FFFFFF",
+  },
+
+  /* PAYOUTS LINK CARD */
+  payoutsLinkCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  payoutsLinkIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#ECFDF5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  payoutsLinkTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  payoutsLinkSub: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 2,
   },
 
   /* SIGN OUT BUTTON */

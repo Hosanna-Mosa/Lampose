@@ -99,6 +99,16 @@ export function PayoutSetupScreen() {
 
   const set = (key: keyof Form) => (value: string) => setForm((f) => ({ ...f, [key]: value }));
 
+  /* Every other form in this app gates its submit on field completeness, not
+     just `busy` — this one didn't, so a blank field only surfaced as the
+     server's 400 after a round trip. Server-side validation is the real
+     check (a name and an account number are not shape-checked here); this is
+     purely the missing "did you fill it in at all" gate. */
+  const canSubmit = !busy
+    && form.beneficiaryName.trim().length > 0
+    && form.accountNumber.trim().length > 0
+    && form.ifsc.trim().length > 0;
+
   const submit = async () => {
     setBusy(true);
     setError('');
@@ -246,7 +256,7 @@ export function PayoutSetupScreen() {
 
             <Button
               label={busy ? 'Sending…' : 'Save and continue'}
-              disabled={busy}
+              disabled={!canSubmit}
               onPress={() => { void submit(); }}
             />
           </Box>

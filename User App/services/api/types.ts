@@ -175,6 +175,24 @@ export type BackendListing = {
   /** Only hostels carry one. `null` everywhere else — see Listing.gender. */
   gender: string | null;
   listedAt: string;
+  /**
+   * How far this listing is from the fix a "near me" search sent, in
+   * kilometres. `null` on an ordinary category/locality feed, and also
+   * `null` on a "near me" feed for a listing with no recorded pin — see
+   * `location` on the property model. Never the pin itself: the exact
+   * coordinates of a property are deliberately not part of this shape,
+   * same as the street address — see the note on `Listing`.
+   */
+  distanceKm?: number | null;
+  /**
+   * From real guest reviews only (`partner_reviews`), aggregated across the
+   * whole feed page in one query. `null` — never an invented figure like the
+   * card used to show — for a listing nobody has reviewed, which today is
+   * most of the catalogue.
+   */
+  averageRating: number | null;
+  /** `0` rather than `null` when there are none — a plain count, always known. */
+  reviewCount: number;
 };
 
 /**

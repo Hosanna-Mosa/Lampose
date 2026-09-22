@@ -45,6 +45,7 @@ const { requireAuthConfig, requireLamposeDb } = require('../../shared/middleware
 const {
   startPhoneOtp, verifyPhoneOtp, submitApplication,
   login, resetPassword, getMe, updateMe, setAvailability,
+  listMyPayouts, requestMyPayout,
 } = require('./foodPartner.controller');
 const {
   listMyProducts, createProduct, updateProduct, deleteProduct, setProductAvailability,
@@ -193,6 +194,23 @@ router.patch(
 /* ── The menu ────────────────────────────────────────────────────────────── */
 
 const session = [requireLamposeDb, requireAuthConfig, requireFoodPartner];
+
+/* ── Payouts: what this kitchen is owed, and asking to be paid ───────────
+   Reuses `foodPayout.service.js`, the same service the staff queue and the
+   web owner console call, so the balance shown here cannot disagree with
+   the number staff are asked to transfer. Only the request is rate-limited
+   — the reads cost a couple of indexed aggregations, while a request
+   writes a row a person then has to act on. Six an hour matches the ceiling
+   the web console puts on the same button. */
+const payoutRequestLimit = rateLimit({
+  name: 'fp-payout-request',
+  windowMs: 60 * 60 * 1000,
+  max: 6,
+  keyOf: (req) => (req.foodPartner && req.foodPartner.restaurantId) || req.ip,
+});
+
+router.get('/me/payouts', session, listMyPayouts);
+router.post('/me/payouts/request', session, payoutRequestLimit, requestMyPayout);
 
 router.get('/me/products', session, listMyProducts);
 router.post('/me/products', session, createProduct);

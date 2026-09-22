@@ -222,11 +222,12 @@ export default function AuthScreen() {
     } catch {}
 
     try {
-      await verifyCode(code, name.trim() || undefined);
+      const profile = await verifyCode(code, name.trim() || undefined);
       try {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch {}
-      router.replace("/(tabs)");
+      /* The SERVER decides where a rider lands, exactly as after a password sign-in. */
+      router.replace(profile.hasCompletedOnboarding ? "/(tabs)" : "/onboarding");
     } catch (err) {
       try {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);

@@ -99,6 +99,8 @@ const {
 
 const FoodRestaurant = require('./foodRestaurant.model');
 const FoodProduct = require('./foodProduct.model');
+const FoodPayout = require('./foodPayout.model');
+const payouts = require('./foodPayout.service');
 const {
   signFoodPartnerToken, signPhoneVerificationToken, readPhoneProof, PHONE_TOKEN_TTL,
 } = require('./foodPartnerAuth.middleware');
@@ -1448,6 +1450,82 @@ const setAvailability = async (req, res, next) => {
   }
 };
 
+/* ══════════════════════════════════════════════════════════════════════════
+   Payouts — what this kitchen is owed, and asking to be paid
+
+   The balance and the claim live in `foodPayout.service.js`, shared with the
+   staff queue (`foodPayoutAdmin.routes.js`) and the web owner console
+   (`restaurantAdmin.controller.js`), so the number a kitchen is shown here
+   cannot disagree with the number a member of staff is asked to transfer.
+
+   This app requests against `restaurant.payout` — the single bank account
+   captured during onboarding — rather than the web console's saved-accounts
+   list. A restaurant that later adds more accounts from that console keeps
+   whichever one is marked active there, because `syncActiveToPayout` (in
+   `restaurantAdmin.controller.js`) always mirrors the active entry back onto
+   `payout`. Nothing here needs to know that list exists.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const PAYOUT_HISTORY_LIMIT = 50;
+
+// @route   GET /api/v2/food-partners/me/payouts
+// @desc    What can be requested right now, and the history of past requests
+// @access  Food-partner session
+const listMyPayouts = async (req, res, next) => {
+  try {
+    if (mongoose.connection.readyState !== 1) return dbDown(res);
+
+    const restaurant = req.foodPartner;
+    if (!restaurant) return notFound(res, 'This account no longer exists.');
+
+    const [balance, rows] = await Promise.all([
+      payouts.availableFor(restaurant.restaurantId),
+      FoodPayout.find({ restaurantId: restaurant.restaurantId })
+        .sort({ requestedAt: -1 })
+        .limit(PAYOUT_HISTORY_LIMIT)
+        .lean(),
+    ]);
+
+    return res.json({
+      success: true,
+      data: {
+        balance,
+        /* The floor, sent rather than hardcoded in the app, so the button and
+           the server cannot disagree about when it is pressable. */
+        minimum: payouts.MIN_REQUEST,
+        history: rows.map(payouts.present),
+      },
+    });
+  } catch (error) {
+    logError('could not read the partner payout balance', error);
+    return next(error);
+  }
+};
+
+// @route   POST /api/v2/food-partners/me/payouts/request
+// @desc    Ask Lampose for the balance, paid into the account set at onboarding
+// @access  Food-partner session
+const requestMyPayout = async (req, res, next) => {
+  try {
+    if (mongoose.connection.readyState !== 1) return dbDown(res);
+
+    const restaurant = req.foodPartner;
+    if (!restaurant) return notFound(res, 'This account no longer exists.');
+
+    const payout = await payouts.requestPayout(restaurant, restaurant.payout);
+
+    console.log(`💰 [Food Payout Requested] ${payout.payoutId} · ${payout.restaurantId} · ₹${payout.amount}`);
+
+    return res.status(201).json({ success: true, data: payouts.present(payout) });
+  } catch (error) {
+    if (error instanceof payouts.PayoutError) {
+      return fail(res, error.status || 400, error.code, error.message);
+    }
+    logError('could not request a partner payout', error);
+    return next(error);
+  }
+};
+
 // @route   POST /api/v2/food-partners/auth/forgot-password/reset
 // @desc    Reset partner password using verified phone or OTP
 // @access  Public
@@ -1516,6 +1594,8 @@ module.exports = {
   getMe,
   updateMe,
   setAvailability,
+  listMyPayouts,
+  requestMyPayout,
 
   /* Shared with the routes file so a limiter and a handler cannot disagree
      about how long a code lives, and with `npm run verify`, which walks the

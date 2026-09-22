@@ -147,7 +147,7 @@ const FOOD_TAB_IDS = {
 export default function Home() {
   const { colors, space, layout, mode, radius } = useTheme();
   const router = useRouter();
-  const { user, status, signOut } = useAuth();
+  const { user, status, signOut, requireSignIn } = useAuth();
   const { confirm } = useAlert();
   const { coupon } = useMyCoupon(status === 'signedIn');
   const { locality, category, setCategory } = useAppState();
@@ -161,6 +161,21 @@ export default function Home() {
    */
   const everywhere = isAllLocalities(locality);
   const scopedCity = everywhere ? null : locality?.city ?? null;
+  /*
+   * A radius around a fix, rather than either of the above.
+   *
+   * Set by `NearbyRadiusDialog` via `nearbyLocality` — see `types/auth.ts`.
+   * It occupies the same `locality` slot `everywhere` and a named area do,
+   * so this is the one place that has to know a third shape exists; every
+   * screen below (Saved, Profile, the tab bar) still just reads `locality`
+   * for its label and never has to branch on which kind it got.
+   *
+   * Named `nearbySearch` rather than `nearby` — that name is already taken,
+   * further down, by "another area in the same city with something in it".
+   * The two are unrelated: that one suggests a DIFFERENT named area, this
+   * one IS the current one, and it happens to be a radius instead of a name.
+   */
+  const nearbySearch = locality?.near ?? null;
   /* How much of the bottom edge the tab bar is occupying, measured by the bar
      itself. The snackbar has to clear it. */
   const { reservedBottom } = usePendingRequest();
@@ -277,7 +292,7 @@ export default function Home() {
     error: savedError,
     refetch: refetchSaved,
     isFetching: savedFetching,
-  } = useSaved();
+  } = useSaved(status === 'signedIn');
 
   /**
    * The feed, from the database.
@@ -296,12 +311,19 @@ export default function Home() {
     isFetching: feedFetching,
   } = useListings({
     category,
-    city: scopedCity,
+    /* A radius search scopes by distance, not by city or area — sending
+       either alongside `near` would ask the server to match a `locality`
+       string like "your 5 km radius" against nothing, and the feed would
+       come back empty even though the radius itself matched plenty. */
+    city: nearbySearch ? null : scopedCity,
     /* Unscoped on "All locations", the same way a search is: both are the
        student asking to look past the area they picked. */
     locality:
-      everywhere || debouncedSearch ? null : (wholeCity ? null : locality?.name ?? null),
+      nearbySearch || everywhere || debouncedSearch
+        ? null
+        : (wholeCity ? null : locality?.name ?? null),
     search: debouncedSearch || null,
+    near: nearbySearch,
     enabled: Boolean(category),
   });
 
@@ -321,8 +343,11 @@ export default function Home() {
   const { listings: cityListings } = useListings({
     category,
     city: scopedCity,
-    /* Nothing to widen TO when the feed is already everywhere. */
-    enabled: Boolean(category) && Boolean(locality) && !everywhere && !wholeCity,
+    /* Nothing to widen TO when the feed is already everywhere, and no CITY
+       to widen to in the first place on a radius search — "see the whole
+       city" is a question about a named area, and a radius search never
+       asked one. */
+    enabled: Boolean(category) && Boolean(locality) && !everywhere && !wholeCity && !nearbySearch,
   });
 
   /* A new area starts narrow again. Carrying city-wide across a change of
@@ -333,7 +358,7 @@ export default function Home() {
 
   /* The same query the alerts screen reads, so the badge and the screen are
      one fetch and cannot disagree about the count. */
-  const { unread } = useNotifications();
+  const { unread } = useNotifications(status === 'signedIn');
 
   /* How many addresses are in the book, for the Profile row that states it.
      Gated on the tab being open — the same rule the bookings fetch above
@@ -379,8 +404,9 @@ export default function Home() {
   );
 
   /* Only worth offering when it would actually show more — and never when the
-     feed is already unscoped, which is as wide as it goes. */
-  const canWiden = Boolean(locality) && !everywhere && !wholeCity && cityTotal > total;
+     feed is already unscoped, which is as wide as it goes, or scoped by
+     radius, which has no city to widen to. */
+  const canWiden = Boolean(locality) && !everywhere && !wholeCity && !nearbySearch && cityTotal > total;
 
   /**
    * How much is in the other three categories.
@@ -627,8 +653,10 @@ export default function Home() {
     [liveOrder],
   );
 
-  // No guard on Profile any more: auth is the first gate, so nothing reaches
-  // this screen without an account.
+  // No guard on switching to Profile or Saved: browsing needs no account, so
+  // a guest can open either tab. Each renders its own sign-in prompt in place
+  // of the data it would otherwise need an account to show — see the
+  // `status !== 'signedIn'` branches inside their render blocks below.
   const changeTab = (next: string) => {
     // A module screen never leaves the Food tab; only the raised disc does.
     if (next.startsWith('food:')) {
@@ -1043,7 +1071,7 @@ export default function Home() {
                     variant="list"
                     index={index}
                     onPress={() => router.push(`/listing/${listing.id}`)}
-                    onToggleSave={() => toggleSaved(listing.id)}
+                    onToggleSave={() => requireSignIn(() => toggleSaved(listing.id))}
                   />
                 ))}
               </View>
@@ -1078,7 +1106,12 @@ export default function Home() {
             />
           }
         >
-          {savedPending && saved.length === 0 ? (
+          {status !== 'signedIn' ? (
+            <StateTemplate
+              copy={emptyStates.signInRequired({ what: 'your saved places' })}
+              onPrimary={() => requireSignIn(() => {})}
+            />
+          ) : savedPending && saved.length === 0 ? (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: space[8] }}>
               <ActivityIndicator color={colors.brand} size="large" />
             </View>
@@ -1134,14 +1167,21 @@ export default function Home() {
         /* Screen 64. Every row carries its current value, so most visits here
            end without a tap. */
         <ScrollView
-          contentContainerStyle={{
-            padding: layout.gutter,
-            gap: space[5],
-            paddingBottom: space[8] + barHeight,
-          }}
+          contentContainerStyle={
+            status !== 'signedIn'
+              ? { flexGrow: 1, padding: layout.gutter, paddingBottom: layout.gutter + barHeight, gap: space[3] }
+              : { padding: layout.gutter, gap: space[5], paddingBottom: space[8] + barHeight }
+          }
           onScroll={barScroll}
           scrollEventThrottle={16}
         >
+          {status !== 'signedIn' ? (
+            <StateTemplate
+              copy={emptyStates.signInRequired({ what: 'your profile' })}
+              onPrimary={() => requireSignIn(() => {})}
+            />
+          ) : (
+          <>
           <View style={[styles.identity, { gap: space[3] }]}>
             <View
               style={[
@@ -1285,6 +1325,8 @@ export default function Home() {
               />
             </ProfileGroup>
           </View>
+          </>
+          )}
         </ScrollView>
       ) : (
         <ScrollView

@@ -169,7 +169,15 @@ export default function OrderDetailScreen() {
           label="Raise an issue with this order"
           variant="ghost"
           glyph="support"
-          onPress={() => router.push("/support")}
+          /* The order number travels with it, matching the active-job
+             screen's own "Report a problem" sheet (`hooks/useSheet.ts`) — the
+             form's own hint says it is what lets support fix it first time,
+             and a rider looking at this exact screen should not have to copy
+             it by hand into the one they are about to open. */
+          onPress={() => router.push({
+            pathname: "/support-new",
+            params: { category: "order", orderNumber: job.orderNumber },
+          })}
         />
       </ScrollView>
     </View>

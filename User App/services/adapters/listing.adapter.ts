@@ -465,6 +465,12 @@ export function toListing(doc: BackendListing): Listing {
        "HSR Layout Sector 1" tells a student nothing about which city they
        would be moving to, and half this collection is not in theirs. */
     localityNote: doc.city && doc.city !== doc.locality ? doc.city : undefined,
+    /* `null` (a "near me" feed, this listing has no pin) is kept distinct
+       from `undefined` (not a "near me" feed at all) — see the note on
+       `Listing.distanceKm`. */
+    distanceKm: doc.distanceKm === undefined ? undefined : doc.distanceKm,
+    averageRating: doc.averageRating ?? null,
+    reviewCount: doc.reviewCount ?? 0,
     ownerName: doc.ownerName,
     gender: toGender(doc.gender ?? details.hostelType ?? null),
     /* Empty string is the schema's default for a row nobody filled in, and

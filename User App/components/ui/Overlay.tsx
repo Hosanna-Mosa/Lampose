@@ -1,6 +1,12 @@
 import React from 'react';
 import { Modal as RNModal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+/* The library's KeyboardAvoidingView, not React Native's — see the note on
+   its use in `app/support/[id].tsx`. A sheet is exactly the same shape of
+   problem: content anchored to the bottom of the screen, with a field inside
+   it a keyboard can cover, and RN's own component needs a per-platform
+   `behavior` ternary to do anything on Android at all. */
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Animated, {
   FadeIn,
   FadeOut,
@@ -70,7 +76,13 @@ export function BottomSheet({ visible, onClose, title, children, footer }: Botto
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
       </Animated.View>
 
-      <View style={styles.sheetHost} pointerEvents="box-none">
+      {/* `behavior="padding"` adds bottom padding equal to the keyboard's
+          height while it is open, which — combined with this host's own
+          `justifyContent: 'flex-end'` — pushes the whole sheet up rather than
+          leaving a focused field to be covered. Without it, a name or address
+          field low in a sheet's content is typed into blind, same as the
+          composer this pattern was first fixed on. */}
+      <KeyboardAvoidingView style={styles.sheetHost} pointerEvents="box-none" behavior="padding">
         <GestureDetector gesture={pan}>
           <Animated.View
             entering={reduceMotion ? FadeIn.duration(160) : SlideInDown.duration(300)}
@@ -110,7 +122,7 @@ export function BottomSheet({ visible, onClose, title, children, footer }: Botto
             ) : null}
           </Animated.View>
         </GestureDetector>
-      </View>
+      </KeyboardAvoidingView>
     </RNModal>
   );
 }

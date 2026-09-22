@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Button, Icon, InlineAlert, Text, TextField } from '@/components/ui';
@@ -9,8 +9,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { SUPPORT_HOURS_NOTE, ticketCategories } from '@/data/support';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { useBookings, useCreateSupportRequest } from '@/services';
+import { useBookings, useCreateSupportRequest, fetchSupportCategories } from '@/services';
 import type { TicketCategoryId } from '@/types/support';
 
 /** The categories that name a PROPERTY vs. the ones that never can. Splits
@@ -49,6 +50,7 @@ export default function NewTicket() {
   const { colors, space, layout, mode, radius, touch } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { status, requireSignIn } = useAuth();
 
   const [topic, setTopic] = useState<Topic | null>(null);
   const [categoryId, setCategoryId] = useState<TicketCategoryId | null>(null);
@@ -66,16 +68,37 @@ export default function NewTicket() {
 
   const { submitTicket, isSubmittingTicket, ticketError } = useCreateSupportRequest();
 
+  /*
+   * The server's own list of ids this account may file about, so this picker
+   * cannot drift from `ticket.model.js`'s enum the way it has been since the
+   * fixtures were removed — every other app already calls this endpoint. Null
+   * until it answers, which is deliberately not a loading state: the local
+   * `ticketCategories` below is correct as of this build and must be usable
+   * offline and on the first frame, so nothing here waits on the network.
+   */
+  const [serverCategoryIds, setServerCategoryIds] = useState<string[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchSupportCategories()
+      .then((ids) => { if (!cancelled) setServerCategoryIds(ids); })
+      .catch(() => {
+        /* Offline, or the call failed. The local list carries the screen
+           exactly as it always did — see the note above. */
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   /* Only fetched once "About a property" is chosen — no reason to ask for
      this student's bookings before they have said this is what the ticket
      needs. */
-  const { bookings } = useBookings(topic === 'property');
+  const { bookings } = useBookings(status === 'signedIn' && topic === 'property');
   const properties = Array.from(
     new Map(bookings.map((b) => [b.propertyId, b.propertyName])).entries(),
   );
 
   const categories = ticketCategories.filter((c) => (
-    topic === 'property' ? PROPERTY_CATEGORIES.includes(c.id) : PLATFORM_CATEGORIES.includes(c.id)
+    (topic === 'property' ? PROPERTY_CATEGORIES : PLATFORM_CATEGORIES).includes(c.id)
+    && (serverCategoryIds === null || serverCategoryIds.includes(c.id))
   ));
 
   /**
@@ -95,25 +118,27 @@ export default function NewTicket() {
    * The alert below says what happened; the throw is swallowed because the
    * mutation has already recorded it.
    */
-  const send = async () => {
+  const send = () => {
     if (!categoryId || body.trim().length === 0) return;
-    try {
-      const created = await submitTicket({
-        category: categoryId,
-        body: body.trim(),
-        /* A real listing on the property branch — this is what lets the
-           backend resolve a real owner and add them to the thread. A typed
-           name on the platform branch, which is never enough to do that and
-           is not meant to be: "a payment" is about nothing in the catalogue.
-           An empty box sends nothing rather than an empty string, so the
-           record says "not given" instead of "given as blank". */
-        listingId: topic === 'property' ? listingId : null,
-        placeLabel: topic === 'property' ? listingLabel : (place.trim() || null),
-      });
-      router.replace(`/support/${created.reference}` as never);
-    } catch {
-      /* Held in `ticketError`, rendered below. */
-    }
+    requireSignIn(async () => {
+      try {
+        const created = await submitTicket({
+          category: categoryId,
+          body: body.trim(),
+          /* A real listing on the property branch — this is what lets the
+             backend resolve a real owner and add them to the thread. A typed
+             name on the platform branch, which is never enough to do that and
+             is not meant to be: "a payment" is about nothing in the catalogue.
+             An empty box sends nothing rather than an empty string, so the
+             record says "not given" instead of "given as blank". */
+          listingId: topic === 'property' ? listingId : null,
+          placeLabel: topic === 'property' ? listingLabel : (place.trim() || null),
+        });
+        router.replace(`/support/${created.reference}` as never);
+      } catch {
+        /* Held in `ticketError`, rendered below. */
+      }
+    });
   };
 
   return (

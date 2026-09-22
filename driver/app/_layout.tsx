@@ -195,6 +195,7 @@ export default function RootLayout() {
           </Stack.Protected>
 
           <Stack.Protected guard={signedIn}>
+            <Stack.Screen name="onboarding" options={{ animation: "fade" }} />
             <Stack.Screen name="request" options={{ animation: "slide_from_bottom" }} />
             <Stack.Screen name="active" />
             <Stack.Screen name="complete" options={{ animation: "fade" }} />

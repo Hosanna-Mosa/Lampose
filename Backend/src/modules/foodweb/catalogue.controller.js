@@ -87,6 +87,11 @@ const getCatalogue = async (req, res, next) => {
       data: {
         cuisines,
         dietLabels: DIET_LABEL,
+        /* Always null, and kept so a caller that still reads it gets the
+           field rather than `undefined`. There is no row anywhere that names
+           a delivery area now that zones are gone — see the header, which is
+           why the answer below is a COUNT instead of a place name. */
+        area: null,
         located,
         /* How many kitchens reach the visitor. Sent as the number rather than
            only as the verdict below, because "4 kitchens deliver to you" is
