@@ -60,6 +60,28 @@ export function setAccountRejectedHandler(handler: ((verificationNote: string) =
   onAccountRejected = handler;
 }
 
+/**
+ * Told when a call carrying a bearer token comes back 401 for one of the
+ * reasons that mean the TOKEN is dead rather than the request being wrong —
+ * expired, malformed, the account gone, or issued for a different session
+ * type. Reported once, centrally, exactly like `onAccountRejected` above,
+ * so no screen has to recognise these codes for itself. `orderPump.ts` has
+ * its own narrower version of this same idea for the order-polling loop
+ * specifically; this is the general one every other call goes through.
+ *
+ * Guarded on `token` being present in the request that failed — a 401 from
+ * `/auth/login` with a wrong password carries no bearer at all, and is not
+ * this.
+ */
+const SESSION_DEAD_CODES = new Set([
+  "TOKEN_EXPIRED", "BAD_TOKEN", "ACCOUNT_GONE", "WRONG_TOKEN_TYPE", "SESSION_REVOKED",
+]);
+let onSessionExpired: (() => void) | null = null;
+
+export function setSessionExpiredHandler(handler: (() => void) | null): void {
+  onSessionExpired = handler;
+}
+
 export class ApiError extends Error {
   status: number;
   payload: unknown;
@@ -140,6 +162,10 @@ export async function api<T = unknown>(
 
       if (res.status === 403 && shape?.code === "ACCOUNT_REJECTED") {
         onAccountRejected?.(shape.data?.verificationNote ?? "");
+      }
+
+      if (token && res.status === 401 && shape?.code && SESSION_DEAD_CODES.has(shape.code)) {
+        onSessionExpired?.();
       }
 
       throw new ApiError(message, res.status, payload);

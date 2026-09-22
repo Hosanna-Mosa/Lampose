@@ -6,6 +6,31 @@ export const API_URL = String(
   process.env.EXPO_PUBLIC_API_URL ?? Constants.expoConfig?.extra?.apiUrl ?? "",
 ).replace(/\/+$/, "");
 
+/**
+ * Told when a call carrying a bearer token comes back 401 for one of the
+ * reasons that mean the TOKEN is dead rather than the request being wrong —
+ * expired, malformed, the account gone, or issued for a different session
+ * type. Reported once, centrally, so no screen has to recognise these codes
+ * for itself; `driverStore.ts`'s `refreshProfile` has its own narrower
+ * handling for the SAME codes on cold start (see the comment there for how
+ * the two are kept from fighting over the logout).
+ *
+ * Guarded on `token` being present in the request that failed — a 401 from
+ * `/auth/login-otp` (wrong code) or `/auth/send-otp` carries no bearer at
+ * all, and is not this.
+ *
+ * Exported so `driverStore.ts` can recognise the same set of codes rather
+ * than keeping a second copy that could drift from this one.
+ */
+export const SESSION_DEAD_CODES = new Set([
+  "TOKEN_EXPIRED", "BAD_TOKEN", "ACCOUNT_GONE", "WRONG_TOKEN_TYPE", "SESSION_REVOKED",
+]);
+let onSessionExpired: (() => void) | null = null;
+
+export function setSessionExpiredHandler(handler: (() => void) | null): void {
+  onSessionExpired = handler;
+}
+
 export class ApiError extends Error {
   status: number;
   payload: unknown;
@@ -70,10 +95,13 @@ export async function api<T = unknown>(
     const payload = text ? safeParse(text) : null;
 
     if (!res.ok) {
-      const message =
-        (payload as { message?: string; error?: string } | null)?.message ??
-        (payload as { error?: string } | null)?.error ??
-        `Request failed (${res.status})`;
+      const shape = payload as { message?: string; error?: string; code?: string } | null;
+      const message = shape?.message ?? shape?.error ?? `Request failed (${res.status})`;
+
+      if (token && res.status === 401 && shape?.code && SESSION_DEAD_CODES.has(shape.code)) {
+        onSessionExpired?.();
+      }
+
       throw new ApiError(message, res.status, payload);
     }
 

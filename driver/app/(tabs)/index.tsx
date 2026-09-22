@@ -320,10 +320,25 @@ export default function HomeScreen() {
     say(`Switched map to ${nextType} view`);
   };
 
-  const driverCity = addressLabel || profile?.city || profile?.address?.city || "Rajahmundry, Andhra Pradesh";
+  /* Every one of these is a REAL value or an honest "we don't have one yet" —
+     no placeholder that could be mistaken for a real reading. `addressLabel`
+     is live GPS reverse-geocoded by `useDriverLocation`; the app's own
+     location pill previously fell back to a hardcoded "Rajahmundry, Andhra
+     Pradesh" the moment that geocode hadn't landed yet, which reads as a real
+     reading and is not one. */
+  const driverCity =
+    addressLabel ||
+    profile?.city ||
+    profile?.address?.city ||
+    (permissionDenied ? "Location access needed" : "Locating…");
   const driverPlate = profile?.vehicle?.plate || profile?.driverId || "";
   const driverName = profile?.name || "Rider";
-  const driverRating = ((profile as any)?.rating ?? 5.0).toFixed(1);
+  /* No fallback number: the backend has no rating field on a driver at all
+     today, so `profile?.rating` is never populated by anything real, and the
+     "5.0" this used to show for every single rider regardless of history was
+     not a default — it was fabricated on every load. `StatCard` below prints
+     "—" when this is null rather than inventing a number. */
+  const driverRating = typeof (profile as any)?.rating === "number" ? (profile as any).rating.toFixed(1) : null;
 
   /* Color & Style Interpolations */
   const headerBgColor = dutyAnim.interpolate({
@@ -506,7 +521,7 @@ export default function HomeScreen() {
           <StatCard iconName="package" value={String(earnings.todayTrips)} label="Today's Orders" />
           <StatCard iconName="rupee" value={`₹${earnings.today}`} label="Today's Earnings" />
           <StatCard iconName="clock" value={formatOnline(earnings.onlineMinutes)} label="Online Time" />
-          <StatCard iconName="star" value={driverRating} label="Rating" />
+          <StatCard iconName="star" value={driverRating ?? "—"} label="Rating" />
         </View>
 
         {/* ── Active Delivery Card ────────────────────────────────────── */}

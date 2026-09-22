@@ -135,11 +135,13 @@ export default function ProfileScreen() {
                   pressed && styles.pressedRow,
                 ]}
               >
-                {/* Round Mint Icon Circle */}
+                {/* Icon circle — neutral by default, tinted only when the
+                    row itself carries a real status (e.g. a rejected
+                    document), never mint as a decoration. */}
                 <View
                   style={[
                     styles.rowGlyphCircle,
-                    { backgroundColor: ink ? ink.tint : "#ecfdf5" },
+                    { backgroundColor: ink ? ink.tint : "#f3f4f6" },
                   ]}
                 >
                   <Icon name={row.icon} size={18} color={ink ? ink.ink : "#059669"} />
@@ -185,7 +187,7 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#f8faf9" },
+  root: { flex: 1, backgroundColor: "#FFFFFF" },
   content: {
     paddingHorizontal: layout.gutter,
     paddingTop: space[3],
@@ -193,15 +195,13 @@ const styles = StyleSheet.create({
     gap: space[4],
   },
 
-  /* Top Mint Header */
+  /* Top header — no fill of its own now, so it reads as part of the same
+     page as everything below it rather than a separate mint panel. */
   headerContainer: {
-    backgroundColor: "#ecfdf5",
     paddingHorizontal: layout.gutter,
     paddingBottom: space[4],
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
     borderBottomWidth: 1,
-    borderBottomColor: "#d1fae5",
+    borderBottomColor: "#e5e7eb",
   },
   pageHeaderTitle: {
     fontSize: 22,
@@ -236,7 +236,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-around",
     paddingTop: space[2],
     borderTopWidth: 1,
-    borderTopColor: "#d1fae5",
+    borderTopColor: "#e5e7eb",
   },
   statItem: {
     alignItems: "center",
@@ -252,7 +252,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 4,
     borderWidth: 1,
-    borderColor: "#a7f3d0",
+    borderColor: "#e5e7eb",
   },
   statValueText: {
     fontSize: 17,

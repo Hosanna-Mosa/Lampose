@@ -15,6 +15,7 @@ import {
   setSessionExpiredHandler,
 } from '@/services/api/client';
 import { Platform } from 'react-native';
+import { useAlert } from '@/components/common/organisms/AlertProvider';
 
 import { registerDevice, unregisterDevice } from '@/services/api/devices.api';
 import { clearPushState, getPushToken } from '@/services/push/push';
@@ -115,6 +116,15 @@ type AuthValue = {
 
   saveProfile: (input: UpdateMeInput) => Promise<void>;
   signOut: () => Promise<void>;
+
+  /**
+   * The server has stopped accepting this token. Set the instant it is
+   * noticed; cleared only once the owner has acknowledged it, by
+   * `acknowledgeSessionExpired` — the session is deliberately NOT dropped
+   * before that. See `SessionExpiredWatcher`.
+   */
+  sessionExpired: boolean;
+  acknowledgeSessionExpired: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
@@ -135,6 +145,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isSubmitting, setSubmitting] = useState(false);
   const [sendFailure, setSendFailure] = useState<SendFailure>(null);
   const [failureMessage, setFailureMessage] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   /* Guards the cooldown interval so a second send does not start a second
      timer counting the same number down twice as fast. */
@@ -275,12 +286,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [dropSession]);
 
   /* The client reports a dead token once, centrally, rather than every screen
-     handling its own 401. */
+     handling its own 401.
+
+     Deliberately does not call `dropSession` directly — that used to sign the
+     owner out with no explanation. Setting the flag instead lets
+     `SessionExpiredWatcher` say so and require a tap before anything is
+     cleared; `acknowledgeSessionExpired` below is what actually drops it. */
   useEffect(() => {
-    setSessionExpiredHandler(() => {
-      void dropSession();
-    });
+    setSessionExpiredHandler(() => setSessionExpired(true));
     return () => setSessionExpiredHandler(null);
+  }, []);
+
+  const acknowledgeSessionExpired = useCallback(async () => {
+    await dropSession();
+    setSessionExpired(false);
   }, [dropSession]);
 
   /** Classifies a send failure into the four the screens have copy for. */
@@ -510,10 +529,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     changeNumber,
     saveProfile,
     signOut,
+    sessionExpired,
+    acknowledgeSessionExpired,
   }), [
     status, partner, pendingPhone, challenge, resendIn,
     isSubmitting, sendFailure, failureMessage,
     sendCode, resendCode, verifyCode, changeNumber, saveProfile, signOut,
+    sessionExpired, acknowledgeSessionExpired,
   ]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -523,4 +545,37 @@ export function useAuth(): AuthValue {
   const value = useContext(AuthContext);
   if (!value) throw new Error('useAuth must be used inside AuthProvider');
   return value;
+}
+
+/**
+ * Says the session died, and requires a tap before it is cleared.
+ *
+ * Its own component rendered INSIDE `AlertProvider` rather than logic inside
+ * `AuthProvider` itself — `AuthProvider` sits above `AlertProvider` in
+ * `app/_layout.tsx`'s tree, so `useAlert()` is not reachable from inside
+ * `AuthProvider`. This is the bridge: it watches the flag, shows the
+ * one-button alert, and only then calls the function that actually drops the
+ * session.
+ */
+export function SessionExpiredWatcher() {
+  const { sessionExpired, acknowledgeSessionExpired } = useAuth();
+  const { alert } = useAlert();
+  const showing = useRef(false);
+
+  useEffect(() => {
+    if (!sessionExpired || showing.current) return;
+    showing.current = true;
+    (async () => {
+      await alert({
+        title: 'Session expired',
+        message: 'Please log out and sign in again.',
+        tone: 'warning',
+        dismissLabel: 'Logout',
+      });
+      showing.current = false;
+      await acknowledgeSessionExpired();
+    })();
+  }, [sessionExpired, alert, acknowledgeSessionExpired]);
+
+  return null;
 }

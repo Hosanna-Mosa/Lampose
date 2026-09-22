@@ -24,12 +24,19 @@ export function Notice({
   body,
   glyph,
   style,
+  chevron,
 }: {
   tone?: ToneName;
   title: string;
   body?: string;
   glyph?: IconName;
   style?: ViewStyle;
+  /**
+   * Draws a trailing chevron, for the callers that wrap this in a `Pressable`
+   * or `Tappable`. Off by default: most notices just say something, and a
+   * chevron on one that does not go anywhere is a promise the tap breaks.
+   */
+  chevron?: boolean;
 }) {
   const t = resolveTone(tone);
   const fallback: IconName = tone === "danger" || tone === "warning" ? "alert" : "info";
@@ -47,6 +54,7 @@ export function Notice({
           </Text>
         )}
       </View>
+      {chevron && <Icon name="chevronRight" size={18} color={t.ink} />}
     </View>
   );
 }

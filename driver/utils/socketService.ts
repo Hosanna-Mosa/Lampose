@@ -30,7 +30,15 @@ class SocketService {
     if (this.socket) return this.socket;
 
     this.socket = io(API_URL, {
-      transports: ["websocket"],
+      /* Not websocket-only: behind a reverse proxy that does not forward the
+         Upgrade/Connection headers (see Backend/deploy/nginx-api.lampose.com.conf
+         and its own note on this), a pure WebSocket handshake never completes
+         and this connection carries a rider's 15-second offer window — the one
+         thing in this app polling was never meant to be relied on for.
+         `polling` is the fallback every other app's socket client already
+         keeps (User App, Stay Partner, Admin); this one had quietly dropped
+         it, identically to Food-Partner's `orderSocket.ts`. */
+      transports: ["websocket", "polling"],
       auth: token ? { token } : undefined,
       reconnection: true,
       reconnectionAttempts: Infinity,

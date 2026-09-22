@@ -26,6 +26,7 @@ export { Icon, RouteSketch, ICON_PATHS } from "./Icon";
 export type { IconName } from "./Icon";
 export { Sheet, Toast } from "./Sheet";
 export type { SheetSpec } from "./Sheet";
+export { SessionExpiredSheet } from "./SessionExpiredSheet";
 export { TopBar, HEADER_HEIGHT } from "./TopBar";
 export { MapPanel, PulseRing } from "./MapPanel";
 export { ScooterRiderGraphic } from "./ScooterRiderGraphic";

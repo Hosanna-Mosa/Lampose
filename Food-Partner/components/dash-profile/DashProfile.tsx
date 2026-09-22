@@ -521,17 +521,15 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  /* CARDS */
+  /* SECTIONS — flat, not cards: no background fill, no shadow, no border
+     radius. A bottom divider is what tells one section from the next,
+     matching the menu screen's flat rows rather than a floating white box
+     per section. */
   card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 18,
     gap: 14,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+    paddingBottom: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
   },
   cardHeader: {
     flexDirection: "row",
@@ -618,19 +616,12 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
 
-  /* PAYOUTS LINK CARD */
+  /* PAYOUTS LINK — a flat row, not a card. */
   payoutsLinkCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+    paddingVertical: 4,
   },
   payoutsLinkIcon: {
     width: 40,

@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { getSecret, setSecret, deleteSecret } from '../services/secureStore';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useAlert } from '@/components/ui';
 
 import {
   ApiError,
@@ -184,6 +185,17 @@ type AuthContextValue = {
   resumePendingIntent: () => boolean;
   /** The "Skip" control on the sign-in screen. Browsing needs no account. */
   continueAsGuest: () => void;
+
+  /**
+   * The server has stopped accepting this token. Set the instant it is
+   * noticed, cleared only once the student has acknowledged it — the session
+   * is deliberately NOT torn down before that, so `acknowledgeSessionExpired`
+   * is what actually signs out. See `SessionExpiredWatcher` below for why: it
+   * is what shows the "Logout" alert this flag exists for.
+   */
+  sessionExpired: boolean;
+  /** Clears the dead session and sends the student to the sign-in screen. */
+  acknowledgeSessionExpired: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -205,6 +217,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [sendCount, setSendCount] = useState(0);
   const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS);
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   const config = useMemo<AppConfig>(
     () => ({ serverTimeOffsetMs: 0, otpLength }),
@@ -384,13 +397,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [persist]);
 
   /* The client reports a token the server has stopped accepting, from
-     wherever in the app it was noticed. Registered once. */
+     wherever in the app it was noticed. Registered once.
+
+     Deliberately does NOT clear the session here. Doing that silently is
+     what this used to do, and a student mid-checkout would just find
+     themselves logged out with no idea why. Setting the flag instead lets
+     `SessionExpiredWatcher` say so and require a tap before anything is
+     torn down — see `acknowledgeSessionExpired`. */
   useEffect(() => {
-    setSessionExpiredHandler(() => {
-      void persist(null);
-      setStatus('guest');
-    });
+    setSessionExpiredHandler(() => setSessionExpired(true));
     return () => setSessionExpiredHandler(null);
+  }, []);
+
+  const acknowledgeSessionExpired = useCallback(async () => {
+    await persist(null);
+    setPendingPhone(null);
+    setPendingPhoneMasked(null);
+    setStatus('guest');
+    setSessionExpired(false);
+    router.replace('/(entry)/auth');
   }, [persist]);
 
   /* ── The resend cooldown ────────────────────────────────────────────────
@@ -696,6 +721,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       requireSignIn,
       resumePendingIntent,
       continueAsGuest,
+      sessionExpired,
+      acknowledgeSessionExpired,
     }),
     [
       status,
@@ -721,6 +748,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       completeProfile,
       syncCategory,
       signOut,
+      sessionExpired,
+      acknowledgeSessionExpired,
     ],
   );
 
@@ -788,4 +817,37 @@ export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
   if (!context) throw new Error('useAuth must be used inside AuthProvider');
   return context;
+}
+
+/**
+ * Says the session died, and requires a tap before it is cleared.
+ *
+ * Lives outside `AuthProvider` on purpose, as its own component rendered
+ * INSIDE `AlertProvider` — `AuthProvider` sits above `AlertProvider` in
+ * `app/_layout.tsx`'s tree, so `useAlert()` is not reachable from inside
+ * `AuthProvider` itself. This is the bridge: it watches the flag, shows the
+ * one-button alert, and only then calls the function that actually signs
+ * the student out.
+ */
+export function SessionExpiredWatcher() {
+  const { sessionExpired, acknowledgeSessionExpired } = useAuth();
+  const { alert } = useAlert();
+  const showing = useRef(false);
+
+  useEffect(() => {
+    if (!sessionExpired || showing.current) return;
+    showing.current = true;
+    (async () => {
+      await alert({
+        title: 'Session expired',
+        message: 'Please log out and sign in again.',
+        tone: 'warning',
+        dismissLabel: 'Logout',
+      });
+      showing.current = false;
+      await acknowledgeSessionExpired();
+    })();
+  }, [sessionExpired, alert, acknowledgeSessionExpired]);
+
+  return null;
 }

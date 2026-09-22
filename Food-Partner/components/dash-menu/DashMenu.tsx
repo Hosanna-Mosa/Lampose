@@ -235,8 +235,14 @@ export function DashMenu() {
               <Text style={styles.groupCount}>{group.items.length} items</Text>
             </View>
 
-            {group.items.map((item) => (
-              <View key={item.productId} style={styles.dishCard}>
+            {group.items.map((item, index) => (
+              <View
+                key={item.productId}
+                style={[
+                  styles.dishRow,
+                  index < group.items.length - 1 && styles.dishRowDivider,
+                ]}
+              >
                 <Pressable
                   style={styles.dishMain}
                   onPress={() => router.push(`/product/${item.productId}`)}
@@ -482,7 +488,7 @@ const styles = StyleSheet.create({
 
   /* GROUP CONTAINER */
   groupContainer: {
-    gap: 10,
+    gap: 4,
   },
   groupHeader: {
     flexDirection: "row",
@@ -501,17 +507,19 @@ const styles = StyleSheet.create({
     color: "#6B7280",
   },
 
-  /* DISH CARD */
-  dishCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 14,
+  /* DISH ROW — a flat list row, not a card: no background, no shadow, no
+     border radius. Rows are told apart by the divider below, not by each
+     being its own floating surface. */
+  dishRow: {
+    paddingVertical: 14,
     gap: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 2,
+  },
+  /* A fixed 1px rather than `StyleSheet.hairlineWidth` — hairline rounds to
+     an unreliable, sometimes-invisible sub-pixel width on several Android
+     densities, and the whole point of this line is that it's seen. */
+  dishRowDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
   },
   dishMain: {
     flexDirection: "row",

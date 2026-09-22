@@ -13,6 +13,7 @@ import {
   LayoutDashboard,
   LifeBuoy,
   ListChecks,
+  MapPinned,
   MessageCircle,
   Package,
   Radar,
@@ -142,6 +143,17 @@ export const NAV_GROUPS: NavGroup[] = [
     roles: ['Super Admin', 'Admin', 'Support'],
     items: [
       { id: 'support', label: 'Support Queue', icon: LifeBuoy },
+    ],
+  },
+  {
+    /* The sales team's own app — Tracker — is a separate identity system
+       (`app_sales_reps`) from every other client this console reads, the
+       same way Support spans three apps and gets its own group rather than
+       a row under one of them. Open to every signed-in administrator: the
+       backend gates this read-only, nothing here decides anything. */
+    heading: 'Sales',
+    items: [
+      { id: 'sales-tracking', label: 'Sales Tracking', icon: MapPinned },
     ],
   },
   {

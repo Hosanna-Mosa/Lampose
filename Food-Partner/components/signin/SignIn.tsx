@@ -22,7 +22,7 @@ import { Btn, Icon, Text, TopBar } from "@/components/common";
 import { API_URL } from "@/services/api";
 import { login as loginRequest } from "@/services/foodPartner";
 import { usePartnerStore, type ApplicationStatus } from "@/store/partnerStore";
-import { colors, layout, space, touch } from "@/theme";
+import { colors, elevation, layout, radius, space, touch } from "@/theme";
 import { ForgotPasswordModal } from "./ForgotPasswordModal";
 
 export function SignIn() {
@@ -68,13 +68,26 @@ export function SignIn() {
 
   return (
     <Box style={{ flex: 1, backgroundColor: colors.bg }}>
-      <TopBar back={null} title="Sign in" />
+      {/* `back` is non-null now — reached from `Pitch`'s "Already applied?"
+          link (real history to pop) or a deep link (falls back to "/",
+          `TopBar`'s own default when there is nothing to go back to). Either
+          way there is now a way out that is not the OS back gesture. */}
+      <TopBar back="Lampose" title="Sign in" />
 
       <Scroller contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-        <Text variant="display2">Partner Sign In</Text>
-        <Text variant="body" color="secondary">
-          Enter your registered email or phone number and password to access your kitchen dashboard.
-        </Text>
+        <Box style={{ alignItems: "center", gap: space[2], marginBottom: space[2] }}>
+          <Box style={styles.markHalo}>
+            <Box style={styles.mark}>
+              <Text variant="display1" style={{ color: colors.onBrand }}>
+                L
+              </Text>
+            </Box>
+          </Box>
+          <Text variant="display2">Welcome back</Text>
+          <Text variant="body" color="secondary" style={{ textAlign: "center" }}>
+            Sign in with your registered email or phone number to open your kitchen dashboard.
+          </Text>
+        </Box>
 
         <Field label="Email or phone number" required>
           <TextField
@@ -128,7 +141,28 @@ export function SignIn() {
           onPress={attempt}
           loading={busy}
           disabled={!identifier.trim() || !password}
+          style={elevation.card}
         />
+
+        <Box style={styles.rule} />
+
+        {/* The other door. `Pitch.tsx` is the full version of this same
+            junction (in flight → status, draft → resume, otherwise → this
+            route) but is not the app's landing screen today, so a restaurant
+            with no account yet had no way in from here — this link is the
+            minimal fix for that until it is. */}
+        <Tappable
+          accessibilityRole="button"
+          onPress={() => router.push("/onboarding/restaurant")}
+          style={styles.link}
+        >
+          <Text variant="body" color="secondary">
+            New restaurant?
+          </Text>
+          <Text variant="bodyStrong" color="brand">
+            Start onboarding
+          </Text>
+        </Tappable>
       </Scroller>
 
       <ForgotPasswordModal
@@ -147,11 +181,37 @@ export function SignIn() {
 }
 
 const styles = StyleSheet.create({
-  body: { padding: layout.gutter, gap: space[4] },
+  body: { padding: layout.gutter, paddingTop: space[6], gap: space[4] },
   link: centredLinkRow,
   forgotPassRow: {
     alignSelf: "flex-end",
     marginTop: -space[2],
     paddingVertical: space[1],
+  },
+  markHalo: {
+    width: 72,
+    height: 72,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brandTint,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mark: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.card,
+    backgroundColor: colors.brand,
+    alignItems: "center",
+    justifyContent: "center",
+    ...elevation.card,
+  },
+  /* A hairline rather than another `Note`/`Card` — the two doors below it
+     (sign in, start onboarding) are already told apart by their own weight;
+     this just keeps "Start onboarding" from reading as part of the form
+     instead of a separate way in. */
+  rule: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+    marginVertical: space[1],
   },
 });

@@ -23,6 +23,8 @@
     "partner:password": "node scripts/set-partner-password.js",
     "sms:test": "node scripts/send-test-sms.js",
     "verify:partner-login": "node scripts/verify-partner-login.js",
+    "verify:sales-login": "node scripts/verify-sales-login.js",
+    "verify:sales-tracking": "node scripts/verify-sales-tracking.js",
     "export:listings": "node scripts/export-listings.js",
     "export:listings:clean": "node scripts/export-listings.js --clean",
     "migrate:json": "node scripts/migrate-json-store.js",

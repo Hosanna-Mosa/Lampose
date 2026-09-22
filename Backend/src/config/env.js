@@ -441,11 +441,12 @@ const config = {
      * own one-time code.
      */
     webJwtExpiresIn: process.env.WEB_JWT_EXPIRES_IN || process.env.JWT_EXPIRES_IN || '7d',
-    /* The admin console's session. A browser on a desk, not a phone in a
-       pocket: twelve hours outlives a working day and not a machine somebody
-       walked away from. Revocation does not wait for this — see
-       admins/adminToken.js. */
-    adminSessionTtl: process.env.ADMIN_SESSION_TTL || '12h',
+    /* The admin console's session. Brought in line with every other identity
+       in this process — one token lifetime, one number to reason about —
+       rather than the desk/pocket distinction this used to encode. A stolen
+       token still outlives that distinction; revocation is what actually
+       bounds it, not the TTL. See admins/adminToken.js. */
+    adminSessionTtl: process.env.ADMIN_SESSION_TTL || '7d',
     adminSecretKey,
     /*
      * Guards the v2 routes that only ever run behind the leads panel's login

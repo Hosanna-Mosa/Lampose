@@ -15,7 +15,7 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 /* Imported for the side effect as well as the call: the module sets Expo's
@@ -25,6 +25,8 @@ import { ensureChannels } from "@/services/offerAlerts";
 import { primeOfferSound } from "@/services/alertSound";
 import { startOfferPump, useDriverStore } from "@/store/driverStore";
 import { colors } from "@/theme";
+import { setSessionExpiredHandler } from "@/utils/api";
+import { SessionExpiredSheet } from "@/components/ui";
 
 /**
  * The three faces the type scale names.
@@ -69,6 +71,21 @@ export default function RootLayout() {
   const refreshProfile = useDriverStore((s) => s.refreshProfile);
   const fetchActiveJob = useDriverStore((s) => s.fetchActiveJob);
   const registerForOffers = useDriverStore((s) => s.registerForOffers);
+  const logout = useDriverStore((s) => s.logout);
+
+  /*
+    Set the instant ANY authenticated call comes back with a dead token —
+    see `SESSION_DEAD_CODES` in `utils/api.ts`. Local state rather than a
+    store field: nothing about a dead session needs to survive a reload (there
+    is nothing left to resume once it is cleared), and keeping it here means
+    the handler registration below has an obvious, single owner.
+
+    Deliberately NOT cleared by `logout()` itself — only by the sheet's own
+    button, right after it calls `logout()`. That keeps the one rule intact:
+    the ONLY thing that dismisses this dialog is the rider acknowledging it,
+    never a side effect of something else changing the token.
+  */
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   const signedIn = !!token;
   /*
@@ -127,6 +144,20 @@ export default function RootLayout() {
   }, [hydrated, typeReady]);
 
   /*
+    Registered once, for the life of the app, exactly like the offer pump
+    below — a dead token can turn up on any screen the rider happens to be on
+    (mid-delivery, editing a profile field, wherever), so the hook that hears
+    about it cannot be scoped to one screen either. The handler only flips a
+    flag; it deliberately does NOT call `logout()` itself, so the token stays
+    in place — and whatever the rider was looking at stays on screen behind
+    the dialog — until they tap its one button.
+  */
+  useEffect(() => {
+    setSessionExpiredHandler(() => setSessionExpired(true));
+    return () => setSessionExpiredHandler(null);
+  }, []);
+
+  /*
     The offer pump: the socket listeners plus the poll fallback.
 
     Started once, here, for the life of the app rather than per screen. An
@@ -160,6 +191,19 @@ export default function RootLayout() {
       registerForOffers().catch(() => {});
     });
   }, [hydrated, signedIn, refreshProfile, fetchActiveJob, registerForOffers]);
+
+  /*
+    The sheet's one button. Clears the flag AFTER `logout()` rather than
+    before — `logout()` itself is synchronous up to its `set({ token: null,
+    ... })` (nothing before that line is awaited), so by the time this
+    function returns the store has already flipped `signedIn` to false and
+    `Stack.Protected guard={!signedIn}` has already picked the auth screen.
+    No `router.replace` needed on top of that.
+  */
+  const handleSessionExpiredLogout = () => {
+    logout();
+    setSessionExpired(false);
+  };
 
   if (!typeReady) return null;
 
@@ -226,6 +270,16 @@ export default function RootLayout() {
 
           <Stack.Screen name="+not-found" options={{ animation: "fade" }} />
         </Stack>
+
+        {/*
+          Always mounted, as a sibling of the Stack rather than a route — the
+          whole point is that it can appear over whatever screen the rider is
+          on (mid-delivery, filling a form) without a navigation happening
+          first. `visible` is the only thing that changes; the Modal it
+          renders portals above everything else regardless of where it sits
+          in this tree.
+        */}
+        <SessionExpiredSheet visible={sessionExpired} onLogout={handleSessionExpiredLogout} />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

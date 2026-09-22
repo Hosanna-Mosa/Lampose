@@ -9,7 +9,7 @@ import { SystemNavigationBar } from '@/components/shell';
 import { AlertProvider } from '@/components/ui';
 import { AppStateProvider } from '@/context/AppStateContext';
 import { BottomBarProvider } from '@/context/BottomBarContext';
-import { AuthProvider } from '@/context/AuthContext';
+import { AuthProvider, SessionExpiredWatcher } from '@/context/AuthContext';
 import { FoodCatalogueProvider } from '@/context/FoodCatalogueContext';
 import { FoodProvider } from '@/context/FoodContext';
 import { PendingRequestProvider } from '@/context/PendingRequestContext';
@@ -165,6 +165,11 @@ function Shell() {
   return (
     <View style={styles.root}>
       <RootLayoutNav />
+      {/* Renders nothing — watches for a dead token and shows the one-button
+          "Session expired" alert. Needs to sit inside `AlertProvider` (it does;
+          see that provider's placement below), which is why it is not part of
+          `AuthProvider` itself. */}
+      <SessionExpiredWatcher />
       {/* Last, so it paints over every screen and over the Dock. Android only:
           the ground the system's buttons or gesture pill sit on. */}
       <SystemNavigationBar />
