@@ -83,6 +83,7 @@ const v1OrderLinkRoutes = require('../src/modules/foodpartners/orderLink.routes'
 const v1FoodPayoutAdminRoutes = require('../src/modules/foodpartners/foodPayoutAdmin.routes');
 const v1DriverAdminRoutes = require('../src/modules/drivers/driverAdmin.routes');
 const v1SupportAdminRoutes = require('../src/modules/support/supportAdmin.routes');
+const v1SalesAdminRoutes = require('../src/modules/sales/salesAdmin.routes');
 
 const v2ListingRoutes = require('../src/modules/listings/listing.routes');
 const v2VisitRequestRoutes = require('../src/modules/visits/visitRequest.routes');
@@ -110,6 +111,7 @@ const v2FoodPartnerRoutes = require('../src/modules/foodpartners/foodPartner.rou
    above, which is the one that starts a dispatch. */
 const v2FoodWebRoutes = require('../src/modules/foodweb/foodWeb.routes');
 const v2DriverRoutes = require('../src/modules/drivers/driver.routes');
+const v2SalesRoutes = require('../src/modules/sales/sales.routes');
 
 /* [mount path, router, one-line description]. The description is what the
    banner and GET /api print, so it is worth keeping accurate. */
@@ -167,6 +169,10 @@ const V1_GROUPS = [
      or restaurant files arrives here; the three app-facing routers under v2
      can only ever read their own author's threads. */
   ['/admin/support', v1SupportAdminRoutes, 'support queue: threads from all three apps, replies, status and assignment'],
+  /* The Sales Tracking page: the roster and one rep's path. Read-only — no
+     route here can touch a rep's own duty status, matching the rule that
+     keeps the driver queue from approving itself. */
+  ['/admin/sales-reps', v1SalesAdminRoutes, 'sales tracking: the roster and each rep\'s live position and path'],
 ];
 
 const V2_GROUPS = [
@@ -244,6 +250,13 @@ const V2_GROUPS = [
      Before the general /drivers mount, for the ordering reason given above. */
   ['/drivers/support', v2DriverSupportRoutes, 'Driver app: support tickets'],
   ['/drivers', v2DriverRoutes, 'Driver app: rider accounts, duty, live position, delivery offers'],
+  /* The sales team, in `app_sales_reps`. A SEVENTH identity system — see
+     salesAuth.middleware.js, which refuses any token not carrying
+     `typ: 'sales_rep'`. Account, duty switch, and the location heartbeat
+     that runs while it is on. No unversioned alias, matching /drivers and
+     /food-partners: this is a new surface with no old caller to keep
+     working. */
+  ['/sales', v2SalesRoutes, 'Tracker app: sales rep accounts, duty switch, live location'],
 ];
 
 /* Which version answers each unversioned path, and whether it also answers

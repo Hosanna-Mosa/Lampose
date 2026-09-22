@@ -35,7 +35,6 @@ import {
   getAuthToken,
   getCurrentUser,
   getSavedEmployeeEmail,
-  logout,
   setAuthSession,
 } from './auth.js';
 
@@ -127,7 +126,7 @@ api.interceptors.request.use((requestConfig) => {
 });
 
 /**
- * A dead session is cleared here, once, rather than at every call site.
+ * A dead session is flagged here, once, rather than at every call site.
  *
  * The token lasts seven days. When it lapses the browser still holds a name
  * and an email, so the header goes on showing the agent as signed in while
@@ -136,16 +135,31 @@ api.interceptors.request.use((requestConfig) => {
  * the same thing at all: one needs the server started, the other needs the
  * agent to sign in again.
  *
+ * This used to call `logout()` directly, which is a smaller fix than it
+ * looks: clearing `localStorage` does nothing to `App.jsx`'s `user` state,
+ * since nothing was telling it to re-render — the agent's name stayed in the
+ * header, every screen kept firing requests with a token the server had
+ * already thrown out, and the only visible sign anything was wrong was a
+ * stream of "could not load" banners. Dispatching a `window` event instead
+ * lets `App.jsx` show a blocking "Session expired" dialog while the old
+ * session is still technically in storage, and the actual clearing happens
+ * only once the agent clicks that dialog's one button — the same
+ * `api:unauthorized` bridge `Admin/` uses, and for the same reason: never
+ * sign someone out from underneath them without telling them why.
+ *
  * The sign-in call itself is exempt. A 401 there means "wrong password",
  * which is an answer to a question that was asked, not a session that ran
- * out, and clearing storage on it would be clearing nothing.
+ * out, and popping the session-expired dialog on it would be nonsense — there
+ * is no session to have expired.
  */
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     const url = error?.config?.url || '';
     const isSignIn = /\/auth\/(onboarding-login|login|register)$/i.test(url);
-    if (error?.response?.status === 401 && !isSignIn) logout();
+    if (error?.response?.status === 401 && !isSignIn) {
+      window.dispatchEvent(new CustomEvent('api:unauthorized'));
+    }
     return Promise.reject(error);
   },
 );

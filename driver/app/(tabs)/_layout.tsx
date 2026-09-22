@@ -16,10 +16,14 @@ const TABS: { name: string; label: string; icon: IconName }[] = [
 /**
  * Four evenly-weighted destinations on a white bar.
  *
- * The selected tab takes a brand-tinted pill behind its glyph and green ink on
- * both glyph and label. The old bar signalled selection with ink-versus-grey
- * alone, which is a 1.6:1 difference at 21px and reads as "nothing is
- * selected" in daylight — the tint is what makes it legible on a scooter.
+ * The selected tab goes to full-strength ink (near-black) on both glyph and
+ * label; an unselected one stays at `textTertiary`. The old bar signalled
+ * selection with ink-versus-grey alone at a 1.6:1 difference at 21px, which
+ * reads as "nothing is selected" in daylight — the stronger jump to
+ * `textPrimary` is what makes it legible on a scooter. Was an orange
+ * (`#FF5200`) belonging to neither this app's brand teal nor its neutral
+ * scale; black reads as selected without introducing a colour nothing else
+ * here uses.
  */
 function TabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
@@ -30,7 +34,7 @@ function TabBar({ state, navigation }: BottomTabBarProps) {
     >
       {TABS.map((tab, index) => {
         const focused = state.index === index;
-        const ink = focused ? "#FF5200" : colors.textTertiary;
+        const ink = focused ? colors.textPrimary : colors.textTertiary;
 
         return (
           <Pressable

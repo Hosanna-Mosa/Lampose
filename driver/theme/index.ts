@@ -108,27 +108,39 @@ export type ThemeColors = {
 
 const lightColors: ThemeColors = {
   /*
-   * The Dock palette (see the file header). Ground is warm bone, content
-   * sits on white cards, and the only saturated colour is a single deep
-   * teal that is dark enough to carry a white label on its own.
+   * A deliberate departure from Dock's own "warm bone" ground here — this
+   * app was reading, on an actual device, as a light brown wash across every
+   * gap between cards, and that reads as unfinished on this app's own
+   * screens (a map, food-delivery photography, a bright green accent)
+   * whatever it looks like on Stay Partner's. Ground, the two raised/sunken
+   * surface tiers and both hairlines are re-picked neutral (true white or
+   * true grey, no warm cast); the saturated ACCENT/CONFIRM/CAUTION roles
+   * below and the text colours are untouched — this app and Stay Partner
+   * now agree on those, just not on the ground colour. `borderInput` is also
+   * untouched: its contrast was measured against the white field fill it
+   * actually sits on, which has not changed.
    */
-  bg: "#EFEDE9",
+  bg: "#FFFFFF",
   surface: "#FFFFFF",
-  surfaceRaised: "#F8F7F5",
-  surfaceSunken: "#E5E2DB",
+  surfaceRaised: "#FFFFFF",
+  surfaceSunken: "#F0F0F0",
 
   textPrimary: "#1A1917",
   textSecondary: "#55524C",
-  /* 3.6:1 on the ground — Dock's own `textTertiary`. */
   textTertiary: "#837D72",
 
-  /* Hairline around cards and between rows — Dock's `borderCard`. */
-  border: "#E2DED6",
-  /* Quieter hairline for dividers inside a card — Dock's `borderSubtle`. */
-  borderSubtle: "#EDEAE4",
-  /* The one border that is not decorative — Dock's own `border`, 3:1 on the
-     white field fill, 3.0:1 on the ground behind it. */
-  borderInput: "#8F897C",
+  /* Hairline around cards and between rows. */
+  border: "#E5E7EB",
+  /* Quieter hairline for dividers inside a card. */
+  borderSubtle: "#F0F0F1",
+  /* The one border that is not decorative — 3:1 on the white field fill it
+     sits on, unaffected by the ground colour above it. Re-picked neutral
+     (equal R/G/B) rather than the warm grey-brown Dock specifies, at a
+     luminance close enough to the original that the ratio barely moves
+     (~3.45:1 vs ~3.48:1) — this removes the tan cast from every input
+     border and every empty photo slot without weakening the one border in
+     this palette that actually has to clear a number. */
+  borderInput: "#8A8A8A",
 
   /*
    * Dock's ACCENT. White on it is 6.17:1, so — unlike the old whitish
@@ -155,14 +167,19 @@ const lightColors: ThemeColors = {
    * colour alone — every status chip ships a glyph or a word beside it.
    */
   success: { base: "#0E6E5C", ink: "#0B5245", tint: "#E3F0EB", border: "#B7D4CE", on: "#FFFFFF" },
-  /* Dock's CAUTION. White on it is 5.06:1, so one value now covers the icon
-     tone AND a solid fill — no separate near-black ink required. */
+  /* Re-picked off Dock's CAUTION for the same reason as `borderInput` above:
+     `#A85A1E` reads as rust/brown on an actual screen, not as an amber
+     "pending" caution — and this is the colour behind every "Under review"
+     pill in the app, so it was the least neutral, most visible instance of
+     the same cast. A proper amber instead, at the same ~5:1 white-on-`base`
+     contrast the original measured (5.02:1 here), so nothing that relied on
+     that ratio regresses. */
   warning: {
-    base: "#A85A1E",
-    ink: "#7A3D0F",
-    tint: "#FBEEE2",
-    border: "#E3CAB7",
-    borderStrong: "#A85A1E",
+    base: "#B45309",
+    ink: "#78350F",
+    tint: "#FEF3C7",
+    border: "#FDE68A",
+    borderStrong: "#B45309",
     on: "#FFFFFF",
   },
   /* Dock has no danger role; re-picked as a warm red in the same
@@ -170,9 +187,11 @@ const lightColors: ThemeColors = {
      token was chosen. White on it is 6.54:1. */
   danger: { base: "#B3261E", ink: "#8C1D17", tint: "#FBEAE8", border: "#E4B3B0", on: "#FFFFFF" },
   /* Neutral rather than a second saturated hue: a note is a note, and
-     making it green would dress a caveat up as good news. This is Dock's
-     own `textSecondary` tone, used verbatim as the info colour. */
-  info: { base: "#55524C", ink: "#1A1917", tint: "#E9E6E0", border: "#E2DED6", on: "#FFFFFF" },
+     making it green would dress a caveat up as good news. `tint`/`border`
+     follow the same neutral re-pick as `border`/`borderSubtle` above, rather
+     than the warm-bone family they used to share — otherwise an info notice
+     would be the one thing left with a tan cast. */
+  info: { base: "#55524C", ink: "#1A1917", tint: "#ECECEC", border: "#E5E7EB", on: "#FFFFFF" },
 };
 
 /**

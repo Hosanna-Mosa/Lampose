@@ -3,6 +3,9 @@ import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { visibleGroupsFor } from './components/common/organisms/Sidebar';
 import { AdminLayout } from './components/common/templates/AdminLayout';
+import { Modal } from './components/common/organisms/Modal';
+import { Button } from './components/common/atoms/Button';
+import { Box } from './components/common/atoms/Box';
 import { Dashboard } from './pages/Dashboard';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { WebAnalyticsPage } from './pages/WebAnalyticsPage';
@@ -28,6 +31,7 @@ import { DriversPage } from './pages/DriversPage';
 import { MonitorPage } from './pages/MonitorPage';
 import { PartnerPayoutsPage } from './pages/PartnerPayoutsPage';
 import { RefundsPage } from './pages/RefundsPage';
+import { SalesTrackingPage } from './pages/SalesTrackingPage';
 import { SupportPage } from './pages/SupportPage';
 import { RestaurantDashboard } from './pages/restaurant/RestaurantDashboard';
 import { RestaurantOrdersPage } from './pages/restaurant/RestaurantOrdersPage';
@@ -71,6 +75,7 @@ const VALID_TABS = [
   'monitor',
   'partner-payouts',
   'refunds',
+  'sales-tracking',
 ] as const;
 
 type Tab = (typeof VALID_TABS)[number];
@@ -547,6 +552,11 @@ const AppContent: React.FC = () => {
          write regardless. */
       case 'refunds':
         return <RefundsPage search={search} role={user?.role} />;
+      /* Read-only for every signed-in administrator, matching Monitor and the
+         two payout queues above — nothing on this page decides anything, so
+         there is no role to gate it on. */
+      case 'sales-tracking':
+        return <SalesTrackingPage search={search} />;
       case 'support':
         return tabAllowedFor('support', user?.role) ? (
           <SupportPage search={search} />
@@ -586,18 +596,42 @@ const AppContent: React.FC = () => {
  * before it mounts is what stops those requests from ever being made.
  */
 const Root: React.FC = () => {
-  const { isAuthenticated, kind } = useAuth();
+  const { isAuthenticated, kind, sessionExpired, logout } = useAuth();
   const [authView, setAuthView] = useState<'login' | 'register'>('login');
 
-  if (!isAuthenticated) {
-    return authView === 'register' ? (
+  const content = !isAuthenticated ? (
+    authView === 'register' ? (
       <RegisterPage onSwitchToLogin={() => setAuthView('login')} />
     ) : (
       <LoginPage onSwitchToRegister={() => setAuthView('register')} />
-    );
-  }
+    )
+  ) : kind === 'restaurant' ? (
+    <RestaurantConsole />
+  ) : (
+    <AppContent />
+  );
 
-  return kind === 'restaurant' ? <RestaurantConsole /> : <AppContent />;
+  return (
+    <>
+      {content}
+      {/*
+        Shown OVER whatever is on screen the instant a 401 is seen — the
+        console does not sign anybody out silently. `isAuthenticated` is
+        still true here (nothing has been cleared yet); clicking Logout is
+        what calls `logout()`, which is what flips it and swaps `content`
+        above to the login screen on the next render.
+      */}
+      <Modal
+        open={sessionExpired}
+        onClose={logout}
+        title="Session expired"
+        description="Please log out and sign in again."
+        footer={<Button onClick={logout}>Logout</Button>}
+      >
+        <Box />
+      </Modal>
+    </>
+  );
 };
 
 /**

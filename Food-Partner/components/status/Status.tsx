@@ -141,8 +141,9 @@ export function Status() {
           <Btn label="Open the dashboard" glyph="arrowRight" onPress={() => router.replace("/(dash)")} />
         )}
 
-        {/* ── Timeline ─────────────────────────────────────────────────── */}
-        <Card style={{ gap: space[3] }}>
+        {/* ── Timeline — a flat section, not a card: told apart from the one
+            below it by the divider, not by its own white box. ───────────── */}
+        <Box style={[styles.section, { gap: space[3] }]}>
           <Text variant="title1">Where it has got to</Text>
           {STAGES.map((stage, i) => {
             const done = i <= reached;
@@ -161,10 +162,12 @@ export function Status() {
               </Box>
             );
           })}
-        </Card>
+        </Box>
 
-        {/* ── What was sent ────────────────────────────────────────────── */}
-        <Card style={{ gap: space[1] }}>
+        {/* ── What was sent — flat too; `DataRow` already draws its own
+            hairline between rows, which is what separated these before and
+            still does with the surrounding card gone. ───────────────────── */}
+        <Box style={[styles.section, { gap: space[1] }]}>
           <Text variant="title1" style={{ marginBottom: space[1] }}>
             What you sent
           </Text>
@@ -176,9 +179,9 @@ export function Status() {
           <DataRow label="Prep time" value={`${data.avgPreparationTime} min`} />
           <DataRow label="Delivers within" value={`${data.deliveryRadiusKm} km`} />
           <DataRow label="Payout account" value={`ending ${data.account.slice(-4) || "—"}`} />
-        </Card>
+        </Box>
 
-        <Card style={{ gap: space[2] }}>
+        <Box style={{ gap: space[2] }}>
           <Text variant="title1">{BENEFITS[3].title}</Text>
           <Text variant="body" color="secondary">
             {BENEFITS[3].desc}
@@ -186,7 +189,7 @@ export function Status() {
           <Text variant="caption" color="tertiary">
             {deliverySentence(data)}
           </Text>
-        </Card>
+        </Box>
 
         {!!checkError && <Notice tone="warning" glyph="alert" title="Could not refresh" body={checkError} />}
 
@@ -232,6 +235,14 @@ export function Status() {
 
 const styles = StyleSheet.create({
   body: { padding: layout.gutter, gap: space[4] },
+  /* A flat section, not a card: no background, no border, no radius — just a
+     bottom divider to tell it from whatever comes after it. Matches the
+     Menu and Profile screens' own move away from a white box per section. */
+  section: {
+    paddingBottom: space[4],
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
   stage: { flexDirection: "row", alignItems: "center", gap: space[3] },
   stageDot: {
     width: 20,

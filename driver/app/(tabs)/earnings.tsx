@@ -203,22 +203,21 @@ export default function EarningsScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#f8faf9" },
+  root: { flex: 1, backgroundColor: "#FFFFFF" },
 
   loadingContent: {
     padding: layout.gutter,
     gap: space[4],
   },
 
-  /* Header & Segment Selector */
+  /* Header & Segment Selector — no fill of its own, matching the profile
+     screen's own header: it reads as part of the same page rather than a
+     separate mint panel. */
   headerWrap: {
-    backgroundColor: "#ecfdf5",
     paddingHorizontal: layout.gutter,
     paddingBottom: space[3],
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
     borderBottomWidth: 1,
-    borderBottomColor: "#d1fae5",
+    borderBottomColor: "#e5e7eb",
   },
   pageTitle: {
     fontSize: 22,
@@ -258,14 +257,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: "#ecfdf5",
+    backgroundColor: "#f3f4f6",
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: radius.pill,
     alignSelf: "flex-start",
     marginTop: 6,
     borderWidth: 1,
-    borderColor: "#d1fae5",
+    borderColor: "#e5e7eb",
   },
   deltaText: {
     fontSize: 12,
@@ -316,12 +315,11 @@ const styles = StyleSheet.create({
   statBar: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(236, 253, 245, 0.6)",
     borderRadius: 16,
     paddingVertical: 14,
     paddingHorizontal: 20,
     borderWidth: 1,
-    borderColor: "#d1fae5",
+    borderColor: "#e5e7eb",
   },
   statItem: {
     flex: 1,
@@ -341,7 +339,7 @@ const styles = StyleSheet.create({
   statDivider: {
     width: 1,
     height: 28,
-    backgroundColor: "#a7f3d0",
+    backgroundColor: "#e5e7eb",
   },
 
   /* Unboxed Breakdown Section */
@@ -384,7 +382,7 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     marginTop: 4,
     borderTopWidth: 1.5,
-    borderTopColor: "#d1fae5",
+    borderTopColor: "#e5e7eb",
   },
   totalLabel: {
     fontSize: 16,
@@ -412,11 +410,11 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#ecfdf5",
+    backgroundColor: "#f3f4f6",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#d1fae5",
+    borderColor: "#e5e7eb",
   },
   infoTitle: {
     fontSize: 15,

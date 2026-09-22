@@ -14,7 +14,7 @@ import {
 } from "react-native";
 
 import { Block, Box, CheckRow, Field, Note, Scroller, StepFrame, Tappable, TextField } from "@/components/common";
-import { DataRow, Icon, Notice, Rule, Text, Well } from "@/components/common";
+import { Icon, Notice, Rule, Text, Well } from "@/components/common";
 import { COMMERCIALS, COPY, STEPS } from "@/constants/partner";
 import {
   CONTRACT_CLAUSES,
@@ -137,9 +137,26 @@ export function StepContract() {
       onNext={send}
       onBack={() => router.back()}
     >
+      {/*
+        Stacked, not `DataRow`'s side-by-side label/value — that layout is
+        built for a short answer next to a short label ("Owner: Asha Rao")
+        and breaks down on a full sentence. A long value next to a `flex: 1`
+        label with nothing constraining either one's natural width is exactly
+        the shape that made "Payment cycle" and "Promotional contribution"
+        collapse to a single-character-wide column, wrapping vertically
+        letter by letter — a real layout bug, not a styling opinion. Label
+        above, value below, both take the full row width and wrap normally,
+        which a sentence needs anyway regardless of the bug.
+      */}
       <Block glyph="contract" title="Commission & commercial terms">
         {COMMERCIALS.map((term, i) => (
-          <DataRow key={term.label} label={term.label} value={term.value} tabular={false} first={i === 0} />
+          <Box key={term.label} style={{ gap: 4 }}>
+            {i > 0 && <Rule subtle style={{ marginBottom: space[3] }} />}
+            <Text variant="eyebrow" color="tertiary">
+              {term.label}
+            </Text>
+            <Text variant="body">{term.value}</Text>
+          </Box>
         ))}
       </Block>
 

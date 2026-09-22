@@ -12,20 +12,14 @@
    The credentials are shared. The SESSION is not.
 
      typ 'foodpartner'        the mobile app. `jwtExpiresIn`, 7 days.
-     typ 'restaurant_admin'   this console. 12 hours, and it can reach a
-                              route surface the app has never had.
+     typ 'restaurant_admin'   this console. Also 7 days now, but it can reach
+                              a route surface the app has never had — the TTL
+                              converged with every other identity in the
+                              process, the TYPE separation below did not.
 
-   Two reasons they stay apart, and both of them are the reason every other
-   identity in this process is kept apart from every other:
+   The reason they stay apart is not the TTL. It is this:
 
-   1. A browser on a desk in a shop office is not a phone in somebody's
-      pocket. The mobile session is a week long because re-typing a password
-      on a handset is a real cost and the device has a lock screen. A laptop
-      in a kitchen is shared, is left logged in, and is the case a short
-      session exists for. `admins/adminToken.js` reached the same conclusion
-      about the staff console for the same reason.
-
-   2. A token issued for one surface should not silently unlock another. If
+   1. A token issued for one surface should not silently unlock another. If
       the two shared a type, then every Food-Partner app token in circulation
       today — issued before this console existed, to a device nobody in
       operations can see — would already be a valid console session. Making
@@ -70,15 +64,15 @@ const TOKEN_TYPE = 'restaurant_admin';
 /**
  * How long a console session lasts.
  *
- * Twelve hours by default — the same figure `admins/adminToken.js` chose for
- * the staff console, for the same reason: it outlives a working day and does
- * not outlive a machine somebody walked away from. Its own environment knob
- * rather than a reuse of `ADMIN_SESSION_TTL`, because they are two decisions
- * that happen to agree today and shortening one should not move the other.
+ * Seven days by default — the same figure every other identity in this
+ * process uses, `admins/adminToken.js` included. Still its own environment
+ * knob rather than a bare reuse of `ADMIN_SESSION_TTL`, because they are two
+ * decisions that happen to agree today; changing one should not silently
+ * move the other.
  */
 const SESSION_TTL = process.env.RESTAURANT_ADMIN_SESSION_TTL
   || config.auth.adminSessionTtl
-  || '12h';
+  || '7d';
 
 /**
  * A console session for one restaurant.

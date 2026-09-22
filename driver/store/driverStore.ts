@@ -2,7 +2,7 @@ import { AppState, type AppStateStatus } from "react-native";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { secureFields } from "../services/secureStore";
-import { api, ApiError } from "@/utils/api";
+import { api, ApiError, SESSION_DEAD_CODES } from "@/utils/api";
 import type { ChatMessage } from "@/utils/chatMessages";
 import { getPushToken } from "@/services/offerAlerts";
 import { playOfferAlert } from "@/services/alertSound";
@@ -743,6 +743,25 @@ export const useDriverStore = create<DriverState>()(
                 suspensionNotice: payload?.message || err.message || "",
               }));
               return true;
+            }
+
+            /*
+              A dead token (expired, malformed, the account gone, issued for a
+              different session type) is ALSO reported to `utils/api.ts`'s
+              central session-expired handler, above this catch, before `api()`
+              ever threw — that is what raises the blocking "session expired"
+              dialog registered in `_layout.tsx`. Logging out here too would
+              clear the session before the rider has ever seen or acknowledged
+              that dialog, which defeats the one rule the new UX is built on:
+              nothing signs a rider out except them tapping its Logout button.
+              So this branch stands down for exactly the codes the central
+              handler recognises, and falls back to the old immediate, silent
+              logout only for a 401 that ISN'T one of them — a fail-safe so a
+              cold start can never get stuck sitting on a token that neither
+              list will clear.
+            */
+            if (err.status === 401 && SESSION_DEAD_CODES.has(payload?.code ?? "")) {
+              return false;
             }
             await get().logout();
             return false;

@@ -20,7 +20,7 @@ import {
 import { JetBrainsMono_500Medium } from '@expo-google-fonts/jetbrains-mono';
 import { Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { AuthProvider, SessionExpiredWatcher, useAuth } from '@/context/AuthContext';
 import { IncomingRequestAlert } from '@/components/IncomingRequestAlert';
 import { usePushRouting } from '@/services/push/usePushRouting';
 import { setupQueryFocus } from '@/services/queryFocus';
@@ -258,6 +258,11 @@ export default function RootLayout() {
                     <>
                       <StatusBar style="dark" />
                       <RootLayoutNav />
+                      {/* Renders nothing — watches for a dead token and shows
+                          the one-button "Session expired" alert. Has to sit
+                          inside `AlertProvider`, which is why it is not part
+                          of `AuthProvider` itself. */}
+                      <SessionExpiredWatcher />
                     </>
                   ) : (
                     <SplashView />

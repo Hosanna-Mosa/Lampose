@@ -25,13 +25,14 @@ import { Stack, router } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ensureOrderChannel, getPushToken } from "@/services/orderAlerts";
 import { primeOrderSound } from "@/services/alertSound";
-import { setAccountRejectedHandler } from "@/services/api";
+import { setAccountRejectedHandler, setSessionExpiredHandler } from "@/services/api";
+import { SessionExpiredSheet } from "@/components/common";
 import { registerDevice } from "@/services/foodPartner";
 import { isSheetOpen, onNewOrder, onSessionExpired, startOrderPump } from "@/services/orderPump";
 import { usePartnerStore } from "@/store/partnerStore";
@@ -68,6 +69,7 @@ export default function RootLayout() {
   const signOut = usePartnerStore((s) => s.signOut);
   const setStatus = usePartnerStore((s) => s.setStatus);
   const [fontsLoaded, fontError] = useFonts(fonts);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   /* A font that fails to resolve must not strand a partner on a splash
      screen — the app degrades to the platform face and carries on. */
@@ -174,17 +176,31 @@ export default function RootLayout() {
     starts getting a 401. The tablet kept showing the last queue it had loaded
     and never rang again, which reads as "no orders today".
 
-    So the pump reports it and this signs out, which is what actually happened,
-    and lands on the screen that can fix it. Everything the kitchen had is
-    still on the server; the menu is untouched.
+    So the pump reports it — this used to sign out immediately on that report,
+    which is the bug worth naming: a cook mid-order would be bounced to the
+    sign-in screen with no explanation. Now it only raises the flag;
+    `SessionExpiredSheet` below is what says so and requires the Logout tap
+    before `handleSessionExpiredLogout` actually clears anything.
+
+    `services/api.ts`'s own handler is registered the same way, unconditionally
+    like the ACCOUNT_REJECTED one above — it is what catches every OTHER call
+    (a menu edit, a profile save) hitting a dead token, not just the pump.
   */
   useEffect(() => {
     if (!hydrated || !sessionToken) return;
-    return onSessionExpired(() => {
-      signOut();
-      router.replace("/signin");
-    });
-  }, [hydrated, sessionToken, signOut]);
+    return onSessionExpired(() => setSessionExpired(true));
+  }, [hydrated, sessionToken]);
+
+  useEffect(() => {
+    setSessionExpiredHandler(() => setSessionExpired(true));
+    return () => setSessionExpiredHandler(null);
+  }, []);
+
+  const handleSessionExpiredLogout = () => {
+    setSessionExpired(false);
+    signOut();
+    router.replace("/signin");
+  };
 
   /*
     An order arriving slides the ticket up, from wherever the kitchen is.
@@ -239,6 +255,7 @@ export default function RootLayout() {
           <Stack.Screen name="product/[id]" options={{ animation: "slide_from_bottom" }} />
           <Stack.Screen name="+not-found" options={{ animation: "fade" }} />
         </Stack>
+        <SessionExpiredSheet visible={sessionExpired} onLogout={handleSessionExpiredLogout} />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

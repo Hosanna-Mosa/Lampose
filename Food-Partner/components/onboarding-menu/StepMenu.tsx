@@ -121,10 +121,18 @@ export function StepMenu() {
           )}
 
           {/* A five-column table does not survive a 390pt frame, so the
-              website's table becomes one card per row. This is the only place
-              the partner can see which item each photo belongs to. */}
-          {data.menuRows.map((row) => (
-            <Card key={row.id} raised style={{ gap: space[2] }}>
+              website's table becomes one row per item. This is the only place
+              the partner can see which item each photo belongs to. A flat
+              divided row rather than a card per row — the same move made on
+              the dashboard's own menu list, for the same reason. */}
+          {data.menuRows.map((row, i) => (
+            <Box
+              key={row.id}
+              style={[
+                { gap: space[2], paddingBottom: space[3] },
+                i < data.menuRows.length - 1 && styles.rowDivider,
+              ]}
+            >
               <Text variant="eyebrow" color="tertiary">
                 {row.category || "Uncategorised"}
               </Text>
@@ -140,7 +148,7 @@ export function StepMenu() {
                 value={row.image}
                 onChange={(img) => setRowImage(row.id, img)}
               />
-            </Card>
+            </Box>
           ))}
 
           {data.menuRows.length > 0 && (
@@ -304,6 +312,7 @@ export function StepMenu() {
 
 const styles = StyleSheet.create({
   summary: { flexDirection: "row", alignItems: "center", gap: space[3] },
+  rowDivider: { borderBottomWidth: 1, borderBottomColor: colors.border },
   empty: { alignItems: "center", gap: space[2], paddingVertical: space[4] },
   chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: space[2], justifyContent: "center" },
   suggest: {

@@ -27,6 +27,7 @@ export { AssignLeadsModal } from './organisms/AssignLeadsModal';
 export { Header } from './organisms/Header';
 export { LiveProgressModal } from './organisms/LiveProgressModal';
 export { NewlyExtractedModal } from './organisms/NewlyExtractedModal';
+export { SessionExpiredModal } from './organisms/SessionExpiredModal';
 export { Sidebar } from './organisms/Sidebar';
 export { MainAppContent } from './templates/MainAppContent';
 export { useLeadSelection } from './hooks/useLeadSelection';

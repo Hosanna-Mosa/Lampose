@@ -1,37 +1,40 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   The pitch.
+   The pitch — kept deliberately short.
 
-   This app's answer to the website's food-partner landing page, in the same
-   words, laid out for a 390pt phone instead of a two-column hero. The copy is
-   transcribed rather than rewritten — see `constants/partner.ts`.
+   This used to be the full website pitch transcribed onto a phone screen:
+   hero paragraph, a demo order ticket, stat cards, a benefits list, a
+   how-it-works walkthrough, a commercials section, an FAQ accordion, a
+   closing band. All of that asked to be READ before the one thing this
+   screen actually needs to do — get a new restaurant into onboarding, or get
+   a returning one to their status/draft/dashboard — could happen, and it
+   made the app's front door a page you had to scroll through on a phone.
+   The full sales pitch lives on the website; this is a door, not a deck.
 
-   It is also the app's junction: a partner with an application in flight is
+   It is still the app's junction: a partner with an application in flight is
    offered the status screen, one mid-form is offered their draft back, and a
    returning partner can sign in. Nothing is redirected automatically, because
    a redirect out of the first screen is a screen nobody can reach.
    ══════════════════════════════════════════════════════════════════════════ */
-import { centredLinkRow, iconBadge } from "@/components/common/utils/sharedStyles";
+import { centredLinkRow } from "@/components/common/utils/sharedStyles";
 import { router } from "expo-router";
-import React, { useState } from "react";
-import {
-  StyleSheet,
-} from "react-native";
+import React from "react";
+import { StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Box, Btn, Card, Chip, Dot, Icon, Notice, Rule, Scroller, Tappable, Text } from "@/components/common";
-import { BENEFITS, COMMERCIALS, FAQS, HOW_STEPS, STATS } from "@/constants/partner";
+import { Box, Btn, Icon, Notice, Scroller, Tappable, Text } from "@/components/common";
 import { usePartnerStore } from "@/store/partnerStore";
-import { colors, layout, radius, space, touch } from "@/theme";
+import { colors, elevation, layout, radius, space } from "@/theme";
 
-const TICKET = [
-  { qty: "1", name: "Chicken biryani", price: "320" },
-  { qty: "2", name: "Butter naan", price: "80" },
-  { qty: "1", name: "Gulab jamun", price: "60" },
-];
+/** Three words each, glanceable rather than read — not the benefits list this
+    screen used to carry. */
+const TRUST = [
+  { glyph: "check", label: "No listing fee" },
+  { glyph: "shieldCheck", label: "Verified kitchens" },
+  { glyph: "wallet", label: "Weekly payouts" },
+] as const;
 
 export function Pitch() {
   const insets = useSafeAreaInsets();
-  const [openFaq, setOpenFaq] = useState<number | null>(null);
 
   const status = usePartnerStore((s) => s.status);
   const data = usePartnerStore((s) => s.data);
@@ -50,15 +53,20 @@ export function Pitch() {
   return (
     <Box style={{ flex: 1, backgroundColor: colors.bg }}>
       <Scroller
-        contentContainerStyle={[styles.body, { paddingTop: insets.top + space[5] }]}
+        contentContainerStyle={[
+          styles.body,
+          { paddingTop: insets.top + space[6], paddingBottom: insets.bottom + space[5] },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         {/* ── Wordmark ─────────────────────────────────────────────────── */}
         <Box style={{ alignItems: "center", gap: space[2] }}>
-          <Box style={styles.mark}>
-            <Text variant="display1" style={{ color: colors.onBrand }}>
-              L
-            </Text>
+          <Box style={styles.markHalo}>
+            <Box style={styles.mark}>
+              <Text variant="display1" style={{ color: colors.onBrand }}>
+                L
+              </Text>
+            </Box>
           </Box>
           <Text variant="display1">Lampose</Text>
           <Text variant="eyebrow" color="brand">
@@ -66,14 +74,21 @@ export function Pitch() {
           </Text>
         </Box>
 
-        {/* ── Anything already in flight ───────────────────────────────── */}
+        {/* ── Whichever of these is true is the one thing worth saying —
+            ahead of anything else, not after a scroll past it. The chevron
+            plus the raised shadow (`elevation.card`, the same weight the app
+            gives a real card elsewhere) is what tells these three apart from
+            `Notice`'s ordinary, static use on the Status screen: those never
+            go anywhere when tapped, these always do. ──────────────────── */}
         {signedIn && (
           <Tappable accessibilityRole="button" onPress={() => router.replace("/(dash)")}>
             <Notice
               tone="success"
               glyph="check"
+              chevron
               title={`${session?.restaurantName} is live`}
               body="Tap to open your dashboard."
+              style={elevation.card}
             />
           </Tappable>
         )}
@@ -82,8 +97,10 @@ export function Pitch() {
             <Notice
               tone="success"
               glyph="check"
+              chevron
               title="Your application is with us"
               body="Tap to see where it has got to."
+              style={elevation.card}
             />
           </Tappable>
         )}
@@ -92,218 +109,36 @@ export function Pitch() {
             <Notice
               tone="warning"
               glyph="edit"
+              chevron
               title={`${data.restaurantName} is half finished`}
-              body="Tap to pick the application back up where you left it."
+              body="Tap to pick the application back up where you left off."
+              style={elevation.card}
             />
           </Tappable>
         )}
 
-        {/* ── Hero ─────────────────────────────────────────────────────── */}
-        <Box style={{ gap: space[3] }}>
-          <Text variant="display1">Your kitchen, on the street</Text>
-          <Text variant="display1" color="brand" style={{ marginTop: -space[2] }}>
-            it already feeds.
-          </Text>
-          <Text variant="bodyLg" color="secondary">
-            Lampose lists verified stays and the kitchens beside them. Put yours on the map and take
-            orders from the residents who live a walk away — no listing fee, no brokerage, and a person
-            from our team who turns up in the first week.
-          </Text>
-        </Box>
+        <Text variant="display2" style={{ textAlign: "center" }}>
+          List your kitchen on Lampose.
+        </Text>
 
-        {/* ── The ticket. Decorative, so screen readers skip the lot. ──── */}
-        <Card
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={styles.ticket}
-        >
-          <Box style={styles.ticketHead}>
-            <Box style={styles.live}>
-              <Dot tone={colors.brand} size={6} />
-              <Text variant="label" color="brand">
-                Live order
+        {/* ── Three words each, not three sentences — enough to still look
+            like a page rather than a form with a logo on it. ─────────────── */}
+        <Box style={styles.trustRow}>
+          {TRUST.map((t) => (
+            <Box key={t.label} style={styles.trustItem}>
+              <Box style={styles.trustIcon}>
+                <Icon name={t.glyph} size={16} color={colors.brandInk} />
+              </Box>
+              <Text variant="caption" color="secondary" style={{ textAlign: "center" }}>
+                {t.label}
               </Text>
-            </Box>
-            <Text variant="numMeta" color="tertiary">
-              #ORD-2481
-            </Text>
-          </Box>
-          <Text variant="caption" color="tertiary">
-            Table of one · MVP Colony · 600 m away
-          </Text>
-          <Rule subtle />
-          {TICKET.map((line) => (
-            <Box key={line.name} style={styles.ticketLine}>
-              <Text variant="priceSm" color="tertiary">
-                {line.qty}×
-              </Text>
-              <Text variant="body" style={{ flex: 1 }} numberOfLines={1}>
-                {line.name}
-              </Text>
-              <Text variant="priceSm">₹{line.price}</Text>
             </Box>
           ))}
-          <Rule subtle />
-          <Box style={styles.ticketFoot}>
-            <Box>
-              <Text variant="caption" color="tertiary">
-                Order total
-              </Text>
-              <Text variant="priceLg">₹460</Text>
-            </Box>
-            <Chip label="Accept" tone="brand" glyph="check" />
-          </Box>
-        </Card>
-
-        <Box style={{ flexDirection: "row", gap: space[3] }}>
-          <Card style={styles.float}>
-            <Icon name="wallet" size={16} color={colors.brandInk} />
-            <Text variant="priceMd">₹8,240</Text>
-            <Text variant="caption" color="tertiary">
-              settled Monday
-            </Text>
-          </Card>
-          <Card style={styles.float}>
-            <Icon name="star" size={16} color={colors.warning.base} />
-            <Text variant="priceMd">4.8 / 214</Text>
-            <Text variant="caption" color="tertiary">
-              all within a walk
-            </Text>
-          </Card>
         </Box>
 
         <Btn label="Start onboarding" glyph="arrowRight" onPress={start} />
 
-        {/* ── Stats ────────────────────────────────────────────────────── */}
-        <Box style={styles.statGrid}>
-          {STATS.map(([value, label]) => (
-            <Card key={label} style={styles.stat}>
-              <Text variant="priceLg">{value}</Text>
-              <Text variant="caption" color="tertiary">
-                {label}
-              </Text>
-            </Card>
-          ))}
-        </Box>
-
-        {/* ── Benefits ─────────────────────────────────────────────────── */}
-        <Box style={{ gap: space[3] }}>
-          <Text variant="eyebrow" color="tertiary">
-            Why partner
-          </Text>
-          <Text variant="display2">What you get, in plain terms.</Text>
-          {BENEFITS.map((b) => (
-            <Card key={b.title} style={{ gap: space[2] }}>
-              <Box style={styles.benefitIco}>
-                <Icon name={b.glyph} size={18} color={colors.brandInk} />
-              </Box>
-              <Text variant="title1">{b.title}</Text>
-              <Text variant="body" color="secondary">
-                {b.desc}
-              </Text>
-            </Card>
-          ))}
-        </Box>
-
-        {/* ── How it works ─────────────────────────────────────────────── */}
-        <Box style={{ gap: space[3] }}>
-          <Text variant="eyebrow" color="tertiary">
-            How it works
-          </Text>
-          <Text variant="display2">Five steps, about ten minutes.</Text>
-          <Text variant="body" color="secondary">
-            You can save a half-finished application and come back to it — nothing here has to be done
-            in one sitting.
-          </Text>
-          {HOW_STEPS.map((s) => (
-            <Box key={s.step} style={styles.howRow}>
-              <Box style={styles.howNum}>
-                <Text variant="priceSm" color="brand">
-                  {s.step}
-                </Text>
-              </Box>
-              <Box style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                <Text variant="title2">{s.title}</Text>
-                <Text variant="caption" color="tertiary">
-                  {s.desc}
-                </Text>
-              </Box>
-            </Box>
-          ))}
-        </Box>
-
-        <Card style={{ gap: space[2] }}>
-          <Text variant="title1">Have these to hand</Text>
-          <Text variant="body" color="secondary">
-            PAN · FSSAI licence · GST registration (unless exempt) · a cancelled cheque · your bank
-            account
-          </Text>
-        </Card>
-
-        {/* ── Commercials ──────────────────────────────────────────────── */}
-        <Box style={{ gap: space[3] }}>
-          <Text variant="eyebrow" color="tertiary">
-            What it costs
-          </Text>
-          <Card style={{ gap: space[3] }}>
-            {COMMERCIALS.slice(0, 3).map((c) => (
-              <Box key={c.label} style={{ gap: 2 }}>
-                <Text variant="title3">{c.label}</Text>
-                <Text variant="caption" color="tertiary">
-                  {c.value}
-                </Text>
-              </Box>
-            ))}
-          </Card>
-        </Box>
-
-        {/* ── FAQs ─────────────────────────────────────────────────────── */}
-        <Box style={{ gap: space[3] }}>
-          <Text variant="eyebrow" color="tertiary">
-            Questions
-          </Text>
-          <Text variant="display2">Asked before, answered here.</Text>
-          {FAQS.map((faq, i) => {
-            const open = openFaq === i;
-            return (
-              <Card key={faq.q} style={{ gap: open ? space[2] : 0 }}>
-                <Tappable
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: open }}
-                  onPress={() => setOpenFaq(open ? null : i)}
-                  style={styles.faqRow}
-                >
-                  <Text variant="title2" style={{ flex: 1 }}>
-                    {faq.q}
-                  </Text>
-                  <Icon name={open ? "minus" : "plus"} size={16} color={colors.textSecondary} />
-                </Tappable>
-                {open && (
-                  <Text variant="body" color="secondary">
-                    {faq.a}
-                  </Text>
-                )}
-              </Card>
-            );
-          })}
-        </Box>
-
-        {/* ── Closing band ─────────────────────────────────────────────── */}
-        <Box style={styles.band}>
-          <Text variant="display2" style={{ color: colors.onGraphite }}>
-            Ready to cook for the street?
-          </Text>
-          <Text variant="body" style={{ color: colors.onGraphiteMuted }}>
-            Fill the application in today and someone from the team will be in touch within 24 hours.
-          </Text>
-          <Btn label="Start onboarding" onPress={start} />
-        </Box>
-
-        <Tappable
-          accessibilityRole="button"
-          onPress={() => router.push("/signin")}
-          style={styles.signinRow}
-        >
+        <Tappable accessibilityRole="button" onPress={() => router.push("/signin")} style={styles.link}>
           <Text variant="body" color="secondary">
             Already applied?
           </Text>
@@ -312,13 +147,29 @@ export function Pitch() {
           </Text>
         </Tappable>
       </Scroller>
-
     </Box>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { paddingHorizontal: layout.gutter, paddingBottom: space[10], gap: space[6] },
+  /* `flexGrow: 1` + `justifyContent: "center"` is what keeps this vertically
+     centred on an ordinary screen rather than pinned to the top with empty
+     space below — there is deliberately little enough content left here that
+     it would otherwise look like an unfinished page. The `Scroller` is kept
+     rather than swapped for a bare `View` only so a very small device or a
+     large system font size still has somewhere for the overflow to go. */
+  body: { paddingHorizontal: layout.gutter, gap: space[5], flexGrow: 1, justifyContent: "center" },
+  /* A soft tinted disc behind the mark — the one purely decorative touch on
+     the screen, there so the logo does not sit directly on the bare
+     background the way everything else here does. */
+  markHalo: {
+    width: 88,
+    height: 88,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brandTint,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   mark: {
     width: 56,
     height: 56,
@@ -326,57 +177,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brand,
     alignItems: "center",
     justifyContent: "center",
+    ...elevation.card,
   },
+  link: centredLinkRow,
 
-  ticket: { gap: space[3] },
-  ticketHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  live: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space[1],
-    backgroundColor: colors.brandTint,
-    borderRadius: radius.chip,
-    paddingHorizontal: space[2],
-    paddingVertical: 4,
-  },
-  ticketLine: { flexDirection: "row", alignItems: "center", gap: space[2] },
-  ticketFoot: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  float: { flex: 1, gap: space[1], padding: space[3] },
-
-  statGrid: { flexDirection: "row", flexWrap: "wrap", gap: space[3] },
-  stat: { flexBasis: "47%", flexGrow: 1, gap: space[1], padding: space[3] },
-
-  benefitIco: iconBadge,
-
-  howRow: { flexDirection: "row", gap: space[3], alignItems: "flex-start" },
-  howNum: {
-    width: 40,
-    height: 28,
-    borderRadius: radius.chip,
+  trustRow: { flexDirection: "row", justifyContent: "center", gap: space[5] },
+  trustItem: { alignItems: "center", gap: space[1], width: 88 },
+  trustIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.pill,
     backgroundColor: colors.brandTint,
     alignItems: "center",
     justifyContent: "center",
-  },
-
-  faqRow: { flexDirection: "row", alignItems: "center", gap: space[3], minHeight: touch.min },
-
-  band: {
-    backgroundColor: colors.graphite,
-    borderRadius: radius.card,
-    padding: space[5],
-    gap: space[3],
-  },
-
-  signinRow: centredLinkRow,
-
-  pick: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space[3],
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    borderRadius: radius.card,
-    padding: space[3],
   },
 });

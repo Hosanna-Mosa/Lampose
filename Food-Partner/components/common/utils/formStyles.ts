@@ -115,13 +115,18 @@ export const toHHMM = (d: Date): string =>
 
 export const styles = StyleSheet.create({
   blockIco: iconBadge,
+  /* A flat section, not a card: no background, no border, no radius, and no
+     horizontal padding of its own — the fields sit at the same left edge as
+     the block's own title above them rather than indented into a box. A
+     bottom divider is what tells one block's fields from the next block's
+     title, the same move already made on the Menu, Profile and Status
+     screens. Every step screen in the app gets this for free, since `Block`
+     is the one component all five of them build their sections from. */
   blockCard: {
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    borderRadius: radius.card,
-    padding: space[4],
     gap: space[4],
+    paddingBottom: space[4],
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
 
   note: {

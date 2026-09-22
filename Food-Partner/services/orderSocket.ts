@@ -114,7 +114,15 @@ export function connectOrderSocket(token: string | null): Socket | null {
   if (socket) return socket;
 
   socket = io(API_URL, {
-    transports: ["websocket"],
+    /* Not websocket-only: behind a reverse proxy that does not forward the
+       Upgrade/Connection headers (see Backend/deploy/nginx-api.lampose.com.conf
+       and its own note on this), a pure WebSocket handshake never completes
+       and this app has nothing else — the support thread screen in particular
+       has no poll of its own and depends entirely on this connection for a
+       reply to appear without leaving and coming back. `polling` is the
+       fallback every other app's socket client already keeps (User App,
+       Stay Partner, Admin); this one had quietly dropped it. */
+    transports: ["websocket", "polling"],
     auth: { token },
     reconnection: true,
     reconnectionAttempts: Infinity,

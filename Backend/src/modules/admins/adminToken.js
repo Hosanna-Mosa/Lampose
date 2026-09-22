@@ -16,10 +16,12 @@
                       "sign out everywhere". A token whose `ver` is behind the
                       account's is refused with SESSION_REVOKED — revocation
                       that takes effect on the next request, not next month.
-     exp   ADMIN_SESSION_TTL, default 12 hours. A console is a browser on a
-                      desk; a session that outlives the working day on a
-                      machine somebody walked away from is the case this
-                      shortens.
+     exp   ADMIN_SESSION_TTL, default 7 days — brought in line with the five
+                      app identities so there is one lifetime to reason about
+                      across the whole process. `ver` above is what actually
+                      bounds a compromised or stale token: revocation is
+                      immediate on the next request regardless of how long
+                      the token still has left to run.
 
    Tokens from before this file carry no `typ` and are refused with
    LEGACY_TOKEN — every open console signs in once more, and that is the

@@ -93,6 +93,13 @@ interface AuthContextType {
   logout: () => void;
   /** Keep the stored restaurant profile in step after the owner changes it. */
   updateRestaurant: (patch: Partial<RestaurantProfile>) => void;
+  /**
+   * A `401` was seen and the session is dead, but NOT yet cleared — the
+   * console shows a "Session expired" dialog and waits for the Logout button
+   * rather than signing somebody out from underneath them mid-click. See the
+   * `api:unauthorized` listener below and `Root`'s dialog in `App.tsx`.
+   */
+  sessionExpired: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -131,12 +138,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [restaurant, setRestaurant] = useState<RestaurantProfile | null>(() =>
     readStored<RestaurantProfile>(RESTAURANT_PROFILE_KEY)
   );
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   useEffect(() => {
-    // Global event listener for API 401 unauthorized responses
+    /* Flags it rather than calling `logout()` directly — signing somebody out
+       silently is what this used to do, and a console left open on a shared
+       desk would just show the login screen with no explanation. `Root`'s
+       dialog is what actually calls `logout()`, once the person clicks
+       Logout. */
     const handleUnauthorized = () => {
       console.warn('[AuthContext] Session expired or unauthorized response detected.');
-      logout();
+      setSessionExpired(true);
     };
 
     window.addEventListener('api:unauthorized', handleUnauthorized);
@@ -263,6 +275,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToken(null);
     setKind(null);
     clearSessions();
+    setSessionExpired(false);
   };
 
   const identity: Identity | null = (() => {
@@ -305,6 +318,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         register,
         logout,
         updateRestaurant,
+        sessionExpired,
       }}
     >
       {children}

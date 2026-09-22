@@ -9,6 +9,7 @@ import { FormSuccessModal } from './components/onboard/organisms/FormSuccessModa
 import { AddLeadForm } from './components/leads';
 import { RestaurantOnboardForm } from './components/restaurant';
 import { AuthScreen } from './components/auth/organisms/AuthScreen';
+import { SessionExpiredDialog } from './components/common/organisms/SessionExpiredDialog';
 import { FilterBar } from './components/listings/molecules/FilterBar';
 import { PropertyCard } from './components/listings/organisms/PropertyCard';
 import { PropertyDetailModal } from './components/listings/organisms/PropertyDetailModal';
@@ -32,6 +33,15 @@ import { Box, ContentInfo, Form, Heading, Inline, Main, PlainButton, Strong, Tex
 export function App() {
   // Authentication State
   const [user, setUser] = useState(getCurrentUser());
+  /*
+   * A `401` was seen and the session is dead, but NOT yet cleared — the
+   * dialog below is on screen and waiting for the Logout click rather than
+   * signing the agent out from underneath them mid-action. Set by the
+   * `api:unauthorized` listener just below, which `services/api.js`'s
+   * response interceptor dispatches on any unauthorised response (other than
+   * the sign-in call itself — see the comment there).
+   */
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   const [activeTab, setActiveTab] = useState('listings'); // 'listings' | 'onboard' | 'leads' | 'restaurant'
   const [properties, setProperties] = useState([]);
@@ -58,6 +68,34 @@ export function App() {
   const [activeModalProperty, setActiveModalProperty] = useState(null);
 
   /*
+   * The bridge from the axios interceptor to this component's state.
+   *
+   * `services/api.js` cannot call `setUser`/`setSessionExpired` itself — it is
+   * a plain module, not a component — so it dispatches a `window` event
+   * instead and this is the only place that listens for it. Added/removed on
+   * every mount rather than once at import time so a hot reload during
+   * development can't leave a stale closure attached.
+   */
+  useEffect(() => {
+    const onUnauthorized = () => setSessionExpired(true);
+    window.addEventListener('api:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('api:unauthorized', onUnauthorized);
+  }, []);
+
+  /**
+   * Called by the dialog's Logout button (and by dismissing it any other
+   * way — see `SessionExpiredDialog`, which treats a backdrop click and
+   * Escape as the same action). Does the full job: clears storage AND resets
+   * the `user` state that actually controls what's on screen, then lowers the
+   * flag so the dialog does not simply reopen on the next render.
+   */
+  const handleLogout = () => {
+    logout();
+    setUser(null);
+    setSessionExpired(false);
+  };
+
+  /*
    * Fetch the listings, and say what actually went wrong when it fails.
    *
    * This used to answer every failure with "ensure Node server is running",
@@ -68,11 +106,13 @@ export function App() {
    *
    * The case it hid most often is an EXPIRED SESSION. The token lasts seven
    * days, the header goes on showing the agent's name after it has lapsed, and
-   * every request comes back 401 — so the screen said the server was down
-   * while the server was answering perfectly well. That one gets handled
-   * rather than reported: `SESSION_EXPIRED` from the interceptor in api.js
-   * clears the session, and there is nothing to say beyond asking them to sign
-   * in again.
+   * every request comes back 401. That case is no longer handled HERE at all:
+   * the response interceptor in api.js already dispatched `api:unauthorized`
+   * before this promise even resolved, which is what raises the "Session
+   * expired" dialog above whatever is on screen. This function's own 401
+   * branch only has to stop the spinner and stay quiet — painting a "could not
+   * load listings" banner underneath a dialog that already explains what
+   * happened would just be a second, worse-worded copy of the same message.
    */
   const loadData = async () => {
     setLoading(true);
@@ -86,8 +126,6 @@ export function App() {
     }
 
     if (res?.status === 401) {
-      logout();
-      setUser(null);
       setLoading(false);
       return;
     }
@@ -116,11 +154,6 @@ export function App() {
       }));
     }
   }, [user]);
-
-  const handleLogout = () => {
-    logout();
-    setUser(null);
-  };
 
   // Compute stats for header badges
   const categoryCounts = properties.reduce((acc, p) => {
@@ -735,9 +768,22 @@ export function App() {
   const myPropertiesCount = properties.filter(p => isMyProperty(p, activeEmployeeEmail)).length;
   const allPropertiesCount = properties.length;
 
-  // If user is not logged in, display full-screen Login Screen first
+  // If user is not logged in, display full-screen Login Screen first.
+  // The dialog is rendered here too, defensively: `sessionExpired` can only
+  // become true off a request `handleLogout` hasn't yet answered, and every
+  // one of those requires a signed-in `user` (the sign-in/register calls
+  // that run while signed OUT are exempted in the interceptor), so this
+  // branch should never actually see the flag up. It costs nothing to cover
+  // anyway, since the alternative — the flag getting stuck true across a
+  // sign-out for some path this reasoning missed — is a dialog that can never
+  // be dismissed.
   if (!user) {
-    return <AuthScreen onAuthSuccess={(authUser) => setUser(authUser)} />;
+    return (
+      <>
+        <AuthScreen onAuthSuccess={(authUser) => setUser(authUser)} />
+        <SessionExpiredDialog open={sessionExpired} onLogout={handleLogout} />
+      </>
+    );
   }
 
   // Filtered Properties for Display Page
@@ -1221,6 +1267,15 @@ export function App() {
           onUpdated={handlePropertyUpdated}
         />
       )}
+
+      {/*
+        Shown OVER whatever else is on screen the instant a 401 comes back —
+        including mid-submit, mid-upload, behind another modal. `user` is
+        still non-null here (see the `api:unauthorized` listener above); the
+        Logout click is what actually clears the session and swaps this whole
+        tree out for `AuthScreen` on the next render.
+      */}
+      <SessionExpiredDialog open={sessionExpired} onLogout={handleLogout} />
     </Box>
   );
 }

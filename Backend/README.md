@@ -578,7 +578,8 @@ role holds which capability (`money.release`, `support.answer`,
 one place.
 
 **The console's token is `{ id, typ: 'admin', ver }`** (`admins/adminToken.js`),
-default 12 hours (`ADMIN_SESSION_TTL`). `verifyAdminToken` checks, on every
+default 7 days (`ADMIN_SESSION_TTL`) — the same lifetime every other identity
+in the process uses. `verifyAdminToken` checks, on every
 request, that the account exists, is Active, and that `ver` equals the
 account's `sessionVersion` — so a password change, a role or status change made
 by a Super Admin, or `POST /me/sign-out-everywhere` ends every open session on
