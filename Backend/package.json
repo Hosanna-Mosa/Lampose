@@ -51,6 +51,8 @@
     "verify:hotel-payout": "node scripts/verify-hotel-payout.js",
     "verify:addresses": "node scripts/verify-addresses.js",
     "verify:support": "node scripts/verify-support.js",
+    "deletions:process": "node scripts/process-account-deletions.js",
+    "review-accounts:ensure": "node scripts/ensure-review-accounts.js",
     "verify:access": "node scripts/verify-access.js",
     "verify:food-favourites": "node scripts/verify-food-favourites.js",
     "check:schema": "node scripts/check-schema-coverage.js",

@@ -249,6 +249,7 @@ export default function RootLayout() {
             <Stack.Screen name="profile-details" />
             <Stack.Screen name="bank-details" />
             <Stack.Screen name="settings" />
+            <Stack.Screen name="delete-account" />
             <Stack.Screen name="support" />
             <Stack.Screen name="support-new" />
             <Stack.Screen name="ticket" />

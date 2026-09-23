@@ -119,7 +119,7 @@ export function StayHeroSection({
   onPressAlerts,
   alertCount = 0,
   onPressProfile,
-  userName = 'Varun',
+  userName,
   searchBarProps,
   style,
 }: StayHeroSectionProps) {
@@ -127,7 +127,9 @@ export function StayHeroSection({
   const { width: screenWidth } = useWindowDimensions();
   const { space } = useTheme();
 
-  const userInitial = userName?.trim().charAt(0).toUpperCase() || 'V';
+  /* Null for a guest, or an account with no name yet — the button then shows
+     a person icon, never a made-up letter. */
+  const userInitial = userName?.trim().charAt(0).toUpperCase() || null;
   const fullLocalityText =
     city && city.trim().length > 0
       ? `${locality}, ${city}`
@@ -349,7 +351,11 @@ export function StayHeroSection({
                   accessibilityRole="button"
                   accessibilityLabel="Your Profile"
                 >
-                  <Text style={styles.profileInitial}>{userInitial}</Text>
+                  {userInitial ? (
+                    <Text style={styles.profileInitial}>{userInitial}</Text>
+                  ) : (
+                    <Icon name="user" size={18} color="#1E293B" />
+                  )}
                 </Pressable>
               ) : null}
             </View>

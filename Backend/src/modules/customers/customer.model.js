@@ -37,6 +37,7 @@
 const mongoose = require('mongoose');
 
 const { addressSchema } = require('../../shared/utils/address');
+const { deletionField } = require('../accountDeletion/accountDeletion.schema');
 
 const customerSchema = new mongoose.Schema(
   {
@@ -236,6 +237,10 @@ const customerSchema = new mongoose.Schema(
        flag exists only so support can stop an abusive number from ordering
        SMS at our expense. */
     status: { type: String, enum: ['active', 'blocked'], default: 'active' },
+
+    /* A request to delete this account — from the app or lampose.com/delete-account.
+       Marked, never removed on the spot; see accountDeletion.schema.js. */
+    deletion: deletionField(),
 
     otp: {
       hash: { type: String, default: null },

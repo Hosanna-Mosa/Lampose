@@ -43,6 +43,7 @@ import {
   SprayCan,
   Star,
   Tv,
+  User,
   UserCheck,
   Users,
   UtensilsCrossed,
@@ -233,6 +234,8 @@ const LUCIDE_GLYPHS = {
   wifi: Wifi,
   laundry: Shirt,
   sharing: Users,
+  /* One person — the account button when there is no name to show. */
+  user: User,
   mapPin: MapPin,
   /* The "use my location" control on every address form. A crosshair rather
      than a pin: a pin marks a place, a crosshair asks to be centred on one. */

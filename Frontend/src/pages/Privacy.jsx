@@ -414,7 +414,7 @@ export function Privacy() {
                 <Box className="deletion-box">
                   <Heading level={4}>Account Deletion Channels:</Heading>
                   <List>
-                    <ListItem><Strong>In-App:</Strong> Go to <Code>Settings &rarr; Account &rarr; Delete Account</Code></ListItem>
+                    <ListItem><Strong>In-App:</Strong> In any Lampose app, go to <Code>Profile &rarr; Delete account</Code></ListItem>
                     <ListItem><Strong>Website:</Strong> Submit a request via <Anchor href="https://lampose.com/delete-account">lampose.com/delete-account</Anchor></ListItem>
                   </List>
                 </Box>

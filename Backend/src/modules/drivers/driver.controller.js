@@ -46,6 +46,7 @@
    ══════════════════════════════════════════════════════════════════════════ */
 const mongoose = require('mongoose');
 
+const config = require('../../config/env');
 const Driver = require('./driver.model');
 const FoodOrder = require('../foodpartners/foodOrder.model');
 const { signDriverToken } = require('./driverAuth.middleware');
@@ -93,8 +94,17 @@ const readPhone = (body) => {
  * on our side still leaves a code the rider can use. The reverse order sends a
  * code that verifies against nothing.
  */
+/*
+ * The store-review number (`config.auth.reviewLogin`, shared with the User App)
+ * — answered with its fixed code and no SMS, and never made to wait. Still a
+ * real code check against a real account: the fixed code is hashed into the
+ * same slot, so `verifyAuth`, the attempt counter and the lock all apply.
+ */
+const isReviewNumber = (phone) => Boolean(config.auth.reviewLogin && phone === config.auth.reviewLogin.phone);
+
 const issueOtp = async (driver) => {
-  const otp = generateOtp();
+  const review = isReviewNumber(driver.phone);
+  const otp = review ? config.auth.reviewLogin.otp : generateOtp();
   const salt = newSalt();
 
   driver.otp.salt = salt;
@@ -104,6 +114,11 @@ const issueOtp = async (driver) => {
   driver.otp.lockedUntil = null;
   driver.otp.lastSentAt = new Date();
   await driver.save();
+
+  if (review) {
+    console.log(`🧪 [Review Login] rider ${maskPhone(driver.phone)} — fixed code, no SMS sent`);
+    return { success: true };
+  }
 
   const sent = await sendOtpSms(driver.phone, otp);
   if (sent.success && sent.campId) {
@@ -189,7 +204,8 @@ const startAuth = async (req, res, next) => {
     const phone = readPhone(req.body);
     if (!phone) return fail(res, 400, 'BAD_PHONE', 'Please enter a valid 10-digit Indian mobile number.');
 
-    const problem = smsConfigProblem();
+    const review = isReviewNumber(phone);
+    const problem = review ? null : smsConfigProblem();
     if (problem) {
       /* Named 503 on this route only, leaving every other flow serving — the
          same rule the rest of the codebase follows. Outside production
@@ -201,12 +217,17 @@ const startAuth = async (req, res, next) => {
       );
     }
 
+    /* The review rider is made by reviewAccounts.service.js, approved — never
+       here as an ordinary pending sign-up, which that service would then
+       refuse to adopt as its own. */
+    if (review) await require('../reviewAccounts/reviewAccounts.service').ensureDriver();
+
     let driver = await Driver.findOne({ phone });
     if (!driver) {
       driver = new Driver({ driverId: makeDriverId(), phone });
     }
 
-    if (driver.otp.lastSentAt) {
+    if (driver.otp.lastSentAt && !review) {
       const since = Date.now() - new Date(driver.otp.lastSentAt).getTime();
       if (since < OTP_RESEND_COOLDOWN_MS) {
         const wait = Math.ceil((OTP_RESEND_COOLDOWN_MS - since) / 1000);
@@ -240,14 +261,15 @@ const resendAuth = async (req, res, next) => {
        identical from outside. */
     if (!driver) return res.json({ success: true, data: { otpLength: OTP_LENGTH } });
 
-    const since = driver.otp.lastSentAt
+    const review = isReviewNumber(phone);
+    const since = driver.otp.lastSentAt && !review
       ? Date.now() - new Date(driver.otp.lastSentAt).getTime()
       : Infinity;
     if (since < OTP_RESEND_COOLDOWN_MS) {
       const wait = Math.ceil((OTP_RESEND_COOLDOWN_MS - since) / 1000);
       return fail(res, 429, 'OTP_COOLDOWN', `Please wait ${wait} seconds.`, { retryAfter: wait });
     }
-    if ((driver.otp.resends || 0) >= OTP_MAX_RESENDS) {
+    if (!review && (driver.otp.resends || 0) >= OTP_MAX_RESENDS) {
       return fail(
         res, 429, 'OTP_TOO_MANY_RESENDS',
         'Too many codes have been sent to that number. Please try again later.',

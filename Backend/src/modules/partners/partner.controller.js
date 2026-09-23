@@ -82,8 +82,16 @@ const readPhone = (body) => {
  * on our side still leaves a code the partner can use. The reverse order would
  * send a code that verifies against nothing.
  */
+/*
+ * The store-review number (`config.auth.reviewLogin`) is also the review Stay
+ * Partner account's phone, so a reviewer who picks the phone tab gets the same
+ * fixed code and no SMS as in the User App. Every other number: unchanged.
+ */
+const isReviewNumber = (phone) => Boolean(config.auth.reviewLogin && phone === config.auth.reviewLogin.phone);
+
 const issueOtp = async (partner) => {
-  const otp = generateOtp();
+  const review = isReviewNumber(partner.phone);
+  const otp = review ? config.auth.reviewLogin.otp : generateOtp();
   const salt = newSalt();
 
   partner.otp.salt = salt;
@@ -93,6 +101,11 @@ const issueOtp = async (partner) => {
   partner.otp.lockedUntil = null;
   partner.otp.lastSentAt = new Date();
   await partner.save();
+
+  if (review) {
+    console.log(`🧪 [Review Login] Stay Partner ${maskPhone(partner.phone)} — fixed code, no SMS sent`);
+    return { success: true };
+  }
 
   const sent = await sendOtpSms(partner.phone, otp);
   if (sent.success && sent.campId) {

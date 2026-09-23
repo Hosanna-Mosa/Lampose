@@ -47,6 +47,7 @@ const {
 const { getMyCoupon } = require('./foodCoupon.controller');
 const { listMine: listStayCoupons } = require('./stayCoupon.controller');
 const { requireCustomer } = require('./customerAuth.middleware');
+const { makeInAppDeletionRouter } = require('../accountDeletion/accountDeletion.routes');
 const { makeLogout } = require('../iam/session.controller');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const { rateLimit } = require('../../shared/middleware/rateLimit');
@@ -90,6 +91,10 @@ router.post('/auth/verify', requireLamposeDb, verifyByIp, verifyByPhone, verifyA
    provides is for staff clients that cannot send a header. */
 router.get('/me', requireLamposeDb, requireCustomer, getMe);
 router.patch('/me', requireLamposeDb, requireCustomer, updateMe);
+
+/* Asking to delete the account from inside the app — status, request, cancel.
+   The public half is lampose.com/delete-account; see accountDeletion.routes.js. */
+router.use('/me/account-deletion', makeInAppDeletionRouter('customer', 'customer', [requireLamposeDb, requireCustomer]));
 
 /* Derived from this customer's own visit requests — see
    notification.controller.js for why there is no notifications collection. */

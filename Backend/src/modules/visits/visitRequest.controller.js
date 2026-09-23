@@ -323,7 +323,9 @@ const createVisitRequest = async (req, res, next) => {
       ? await Property.findById(listingId).lean()
       : null;
 
-    if (!property) {
+    /* The review owner's sample listing is never requestable — nobody should
+       be put through to that number, and no student can see it anyway. */
+    if (!property || property.status === 'review') {
       return res.status(404).json({ success: false, code: 'NO_LISTING', message: 'That listing is no longer available.' });
     }
 

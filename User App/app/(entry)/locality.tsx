@@ -9,7 +9,7 @@ import { Button, Divider, Icon, SearchField, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
 import { CurrentLocationRow, LocalityRow, NearbyRadiusDialog } from '@/components/auth';
 import { useAppState } from '@/context/AppStateContext';
-import { useTheme } from '@/context/ThemeContext';
+import { LightThemeScope, useTheme } from '@/context/ThemeContext';
 import { useListingMeta } from '@/services';
 import { locateMe, LocationRefused } from '@/services/location/useMyLocation';
 import { ALL_LOCALITIES, matchesQuery, nearbyLocality, type Locality } from '@/types/auth';
@@ -69,11 +69,24 @@ import { ALL_LOCALITIES, matchesQuery, nearbyLocality, type Locality } from '@/t
  * locality as an unanswered question and redirects back here — see the note on
  * `ALL_LOCALITIES` in `types/auth.ts`.
  */
+/*
+ * Always light, like the category grid before it: the two first-run choices
+ * are designed for one appearance. The scope wraps the whole screen so every
+ * row, the search field and the status bar (which reads `mode`) follow.
+ */
 export default function LocalityPickerScreen() {
+  return (
+    <LightThemeScope>
+      <LocalityPicker />
+    </LightThemeScope>
+  );
+}
+
+function LocalityPicker() {
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { locality: chosen, category, setLocality } = useAppState();
+  const { locality: chosen, category, setLocality, completeOnboardingStep } = useAppState();
   const [query, setQuery] = useState('');
 
   const { meta, isPending, error, refetch, isFetching } = useListingMeta(category);
@@ -122,6 +135,8 @@ export default function LocalityPickerScreen() {
 
   const choose = async (locality: Locality) => {
     await setLocality(locality);
+    // The last step of the first-run walk-through; a no-op every other time.
+    await completeOnboardingStep('locality');
     /*
      * Always the feed, and always by `dismissTo`.
      *

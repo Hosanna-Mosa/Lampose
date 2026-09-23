@@ -97,6 +97,11 @@ async function requirePartner(req, res, next) {
 
     const partner = await Partner.findOne({ partnerId: decoded.sub });
     if (!partner) return deny(res, 'This account no longer exists.', 'ACCOUNT_GONE');
+    /* Erased by a deletion request (accountDeletion.eraser.js): the row stays
+       for the records that point at it, but it is nobody's account now. */
+    if (partner.deletion && partner.deletion.status === 'completed') {
+      return deny(res, 'This account no longer exists.', 'ACCOUNT_GONE');
+    }
 
     if (partner.status === 'blocked') {
       return res.status(403).json({

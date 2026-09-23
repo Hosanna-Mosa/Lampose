@@ -1,7 +1,12 @@
 import { apiClient } from './apiClient';
 
 /* ══════════════════════════════════════════════════════════════════════════
-   "Delete my Lampose Delivery Partner account", from the open web.
+   "Delete my Lampose account", from the open web — for every Lampose app.
+
+   `app` is one of `customer` | `partner` | `restaurant` | `driver`: the
+   Lampose app, Stay Partner, the restaurant Partner app, and the Delivery
+   Partner app. Each has its own accounts, so the same number can hold one in
+   each and each is deleted on its own.
 
    Two calls, and a one-time code between them:
 
@@ -9,7 +14,7 @@ import { apiClient } from './apiClient';
      confirm  the code back, and the account is marked for deletion
 
    The code is the whole point. This page is public — Google Play requires
-   that a rider be able to ask for deletion without the app and without
+   that somebody be able to ask for deletion without the app and without
    signing in — so the only thing the form can be given is a phone number,
    and a phone number is a string somebody typed. Nothing is marked until a
    code sent to that handset comes back.
@@ -47,7 +52,8 @@ const wrap = err => {
 
 const unwrap = res => res?.data ?? res;
 
-const BASE = '/v2/drivers/account/deletion';
+const BASE = '/v2/account-deletion';
+const appPath = app => `${BASE}/${encodeURIComponent(app)}`;
 
 export const deleteAccountApi = {
   /**
@@ -74,18 +80,18 @@ export const deleteAccountApi = {
    * it is. `alreadyRequested` is the exception, and it is only ever true for
    * somebody who has already proved this number once.
    */
-  async start(phone) {
+  async start(app, phone) {
     try {
-      return unwrap(await apiClient.post(`${BASE}/start`, { phone }));
+      return unwrap(await apiClient.post(`${appPath(app)}/start`, { phone }));
     } catch (err) {
       throw wrap(err);
     }
   },
 
   /** The code back, plus the optional things the form collected. */
-  async confirm({ phone, code, email, reason }) {
+  async confirm(app, { phone, code, email, reason }) {
     try {
-      return unwrap(await apiClient.post(`${BASE}/confirm`, {
+      return unwrap(await apiClient.post(`${appPath(app)}/confirm`, {
         phone,
         code,
         ...(email?.trim() ? { email: email.trim() } : null),

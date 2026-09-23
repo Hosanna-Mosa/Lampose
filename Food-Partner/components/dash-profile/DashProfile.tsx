@@ -9,6 +9,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -385,6 +386,16 @@ export function DashProfile() {
           <Icon name="logout" size={18} color="#DC2626" />
           <Text style={styles.signOutText}>Sign Out of Partner Account</Text>
         </Pressable>
+
+        {/* Quieter than Sign Out, and a door rather than an action: the screen
+            behind it explains what is kept, asks, and offers the way back. */}
+        <Pressable
+          style={styles.deleteBtn}
+          onPress={() => router.push("/delete-account")}
+          accessibilityRole="button"
+        >
+          <Text style={styles.deleteText}>Delete account</Text>
+        </Pressable>
       </Scroller>
 
       {/* SIGN OUT CONFIRMATION MODAL */}
@@ -602,6 +613,26 @@ const styles = StyleSheet.create({
     width: 32,
   },
 
+  /* PAYMENT TOGGLES — restored after a merge kept the rows and lost these. */
+  switchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+  },
+  switchTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  switchSub: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+
   saveBtn: {
     backgroundColor: "#059669",
     borderRadius: 14,
@@ -659,6 +690,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: "#DC2626",
+  },
+
+  deleteBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+  },
+  deleteText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#6B7280",
+    textDecorationLine: "underline",
   },
 
   /* MODAL */

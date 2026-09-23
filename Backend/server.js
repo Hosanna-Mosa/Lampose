@@ -21,6 +21,12 @@ const { initStore, countUsers } = require('./src/modules/scraper/scraper.store')
 const { stopAllJobs } = require('./src/modules/scraper/playwrightScraper.service');
 const { startExpiryWorker, stopExpiryWorker, setExpiryHandler } = require('./src/modules/visits/expiry.worker');
 const { startSlotReminderWorker, stopSlotReminderWorker } = require('./src/modules/visits/slotReminder.worker');
+const {
+  startAccountDeletionWorker, stopAccountDeletionWorker,
+} = require('./src/modules/accountDeletion/accountDeletion.worker');
+const {
+  keepReviewAccountsUsable, stopReviewAccountKeeper,
+} = require('./src/modules/reviewAccounts/reviewAccounts.service');
 const { notifyExpired } = require('./src/modules/notifications/stayRequest.notifier');
 const { logSmsStatus } = require('./src/infrastructure/sms/sms');
 const { attachRealtime, realtimeProblem } = require('./src/infrastructure/realtime/realtime');
@@ -285,6 +291,18 @@ const startServer = async () => {
   /* The second timer: paid ₹199 visits that never picked a slot get one
      nudge and one team alert. Minutes-scale, harmless when idle. */
   startSlotReminderWorker();
+  /* The third, and the only destructive one: erases accounts whose deletion
+     request has passed its grace period. On in production only, unless
+     ACCOUNT_DELETION_WORKER says otherwise — see the worker's header. */
+  if (startAccountDeletionWorker()) {
+    console.log('🗑️  [Account Deletion] worker on — due requests are carried out hourly');
+  } else {
+    console.log('🗑️  [Account Deletion] worker off — run scripts/process-account-deletions.js to carry out due requests');
+  }
+  /* The Google Play review accounts: created if missing and unlocked if
+     anything locked them, at every connect and hourly. Each is off until its
+     REVIEW_* settings exist, so a server without them does nothing here. */
+  keepReviewAccountsUsable();
 
   const server = app.listen(config.port, config.host, () => {
     banner();
@@ -383,6 +401,8 @@ const startServer = async () => {
        would write to a connection `closeConnections` is about to drop. */
     stopExpiryWorker();
     stopSlotReminderWorker();
+    stopAccountDeletionWorker();
+    stopReviewAccountKeeper();
     /* Same reason, and one more: a dispatch timer that fires mid-shutdown
        would offer an order to a rider this process can no longer hear the
        answer from. The orders themselves are picked up by the resume sweep on

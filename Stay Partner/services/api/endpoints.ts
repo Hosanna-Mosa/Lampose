@@ -51,6 +51,13 @@ export const endpoints = {
   partnerMe: `${V2}/partners/me`,
 
   /**
+   * Asking to delete the account: GET the request, POST to make one, DELETE to
+   * cancel it inside the grace period. The signed-in half of
+   * lampose.com/delete-account — see `accountDeletion.api.ts`.
+   */
+  partnerAccountDeletion: `${V2}/partners/me/account-deletion`,
+
+  /**
    * This handset, so the backend can reach it when the app is closed.
    *
    * Behind a session on purpose: the token says WHICH device, the session

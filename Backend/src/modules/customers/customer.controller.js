@@ -87,8 +87,17 @@ const readPhone = (body) => {
  * on our side still leaves a code the customer can use. The reverse order
  * would send a code that verifies against nothing.
  */
+/*
+ * The store-review number (`config.auth.reviewLogin`) — answered with its fixed
+ * code and no SMS. It is still a real account and a real code check: the fixed
+ * code is hashed into the same slot, so `verifyAuth`, the attempt counter and
+ * the lock all apply to it unchanged.
+ */
+const isReviewNumber = (phone) => Boolean(config.auth.reviewLogin && phone === config.auth.reviewLogin.phone);
+
 const issueOtp = async (customer) => {
-  const otp = generateOtp();
+  const review = isReviewNumber(customer.phone);
+  const otp = review ? config.auth.reviewLogin.otp : generateOtp();
   const salt = newSalt();
 
   customer.otp.salt = salt;
@@ -98,6 +107,11 @@ const issueOtp = async (customer) => {
   customer.otp.lockedUntil = null;
   customer.otp.lastSentAt = new Date();
   await customer.save();
+
+  if (review) {
+    console.log(`🧪 [Review Login] ${maskPhone(customer.phone)} — fixed code, no SMS sent`);
+    return { success: true };
+  }
 
   const sent = await sendOtpSms(customer.phone, otp);
   if (sent.success && sent.campId) {
@@ -120,7 +134,6 @@ const sentPayload = (customer) => ({
 const startAuth = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
-    if (smsConfigProblem()) return smsUnavailable(res);
 
     const phone = readPhone(req.body);
     if (!phone) {
@@ -130,6 +143,8 @@ const startAuth = async (req, res, next) => {
         message: 'Please enter a valid 10-digit Indian mobile number.',
       });
     }
+    /* The review number sends nothing, so it does not need the gateway. */
+    if (!isReviewNumber(phone) && smsConfigProblem()) return smsUnavailable(res);
 
     /* Found or created in one call. A find-then-create would race two taps of
        the same button into two documents for one number, and the unique index
@@ -156,7 +171,11 @@ const startAuth = async (req, res, next) => {
     /* The server's own cooldown, applied to `start` as well as `resend`.
        Without it, closing the screen and reopening it is an unlimited resend
        button — and every press is an SMS we pay for. */
-    const since = customer.otp.lastSentAt ? Date.now() - customer.otp.lastSentAt.getTime() : Infinity;
+    /* The cooldown exists because every press is an SMS we pay for; the review
+       number sends none, and a reviewer retrying should not be made to wait. */
+    const since = customer.otp.lastSentAt && !isReviewNumber(phone)
+      ? Date.now() - customer.otp.lastSentAt.getTime()
+      : Infinity;
     if (since < OTP_RESEND_COOLDOWN_MS) {
       const wait = Math.ceil((OTP_RESEND_COOLDOWN_MS - since) / 1000);
       return res.status(429).json({
@@ -191,12 +210,12 @@ const startAuth = async (req, res, next) => {
 const resendAuth = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
-    if (smsConfigProblem()) return smsUnavailable(res);
 
     const phone = readPhone(req.body);
     if (!phone) {
       return res.status(400).json({ success: false, code: 'BAD_PHONE', message: 'Please enter a valid mobile number.' });
     }
+    if (!isReviewNumber(phone) && smsConfigProblem()) return smsUnavailable(res);
 
     const customer = await Customer.findOne({ phone });
     /* Deliberately the same answer as a real cooldown would give for a number

@@ -245,6 +245,7 @@ export default function RootLayout() {
               own _layout, so the three screens under it are one route here. */}
           <Stack.Screen name="support" />
           <Stack.Screen name="payouts" />
+          <Stack.Screen name="delete-account" />
           {/* Named by its FILE, not its folder: `app/product/` has no _layout, so
               expo-router flattens it and the child route is `product/[id]`.
               Declaring "product" warns that no such route exists. */}

@@ -26,7 +26,6 @@ import { disconnectOrderSocket } from "@/services/orderSocket";
 import { releaseOrderSound } from "@/services/alertSound";
 import { getPushToken } from "@/services/orderAlerts";
 import { unregisterDevice } from "@/services/foodPartner";
-import { exitDemo } from "@/services/demoMode";
 
 // ─── Domain types ─────────────────────────────────────────────────────────────
 
@@ -665,11 +664,6 @@ export const usePartnerStore = create<PartnerState>()(
            screen they are trying to get out of by a call that is going to time
            out. A failed unregister is a stale row on the server; a sign-out
            that hangs is a person standing there. */
-        /* Demo mode ends with the session it belonged to. Left on, the next
-           person at the sign-in screen would still be served canned data by
-           `demoRespond` and never reach the network at all. */
-        exitDemo();
-
         const token = get().session?.token;
         if (token) {
           getPushToken()

@@ -178,6 +178,15 @@ export default function ProfileScreen() {
           onPress={() => setOverlay("logout")}
           style={styles.logoutBtn}
         />
+
+        {/* Below Log out and quieter than it: the one row here whose effect
+            cannot be undone with another tap, so it is a door to a screen
+            that explains and asks, never an action on the tap itself. */}
+        <Btn
+          label="Delete account"
+          variant="quiet"
+          onPress={() => router.push("/delete-account")}
+        />
       </ScrollView>
 
       <Toast message={toast} top={insets.top + space[2]} />

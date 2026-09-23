@@ -19,9 +19,6 @@ import { useAlert } from '@/components/common/organisms/AlertProvider';
 
 import { registerDevice, unregisterDevice } from '@/services/api/devices.api';
 import { clearPushState, getPushToken } from '@/services/push/push';
-import {
-  isDemoCredentials, enterDemo, exitDemo, demoPartner, DEMO_TOKEN,
-} from '@/services/demo/demoMode';
 import { API_BASE_URL_CONFIGURED } from '@/services/api/config';
 import {
   fetchMe,
@@ -208,11 +205,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       pushToken.current = null;
     }
     await clearPushState();
-
-    /* Demo mode ends with the session it belonged to. Left on, the next
-       person to reach the login screen would still be served canned data by
-       `demoRespond` and never touch the network at all. */
-    exitDemo();
 
     setAuthToken(null);
     setPartner(null);
@@ -439,28 +431,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (email, password) => {
       setSubmitting(true);
       try {
-        /*
-         * DEMO MODE — a stopgap, not a feature. See `services/demo/demoMode.ts`.
-         *
-         * The deployed API does not have `/auth/login` yet and answers 404, so
-         * this one hard-coded pair opens the app against invented data. It is
-         * checked BEFORE the network call only because the call cannot
-         * succeed; the moment the backend is deployed, delete `services/demo/`
-         * and the real route below takes over untouched.
-         *
-         * Nothing here is persisted: `saveSession` is deliberately NOT called,
-         * so demo mode dies with the process and a relaunch returns to this
-         * screen. `DEMO_TOKEN` is not a JWT and the server would refuse it, so
-         * no request can escape to production carrying it.
-         */
-        if (isDemoCredentials(email, password)) {
-          enterDemo();
-          setAuthToken(DEMO_TOKEN);
-          setPartner(demoPartner);
-          setStatus('signedIn');
-          return { ok: true, profileComplete: demoPartner.profileComplete };
-        }
-
         const session = await loginWithPassword({ email, password });
 
         setAuthToken(session.token);

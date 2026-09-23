@@ -133,6 +133,12 @@ export const endpoints = {
   customerAuthLogout: `${V2}/customers/auth/logout`,
   /** GET for the profile behind a session; PATCH to change name or email. */
   customerMe: `${V2}/customers/me`,
+  /**
+   * Asking to delete the account: GET the request, POST to make one, DELETE to
+   * cancel it inside the grace period. The signed-in half of
+   * lampose.com/delete-account — see `accountDeletion.api.ts`.
+   */
+  customerAccountDeletion: `${V2}/customers/me/account-deletion`,
 
   /**
    * This handset, so the backend can reach it when the app is closed.

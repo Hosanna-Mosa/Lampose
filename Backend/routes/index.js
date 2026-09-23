@@ -112,6 +112,7 @@ const v2FoodPartnerRoutes = require('../src/modules/foodpartners/foodPartner.rou
 const v2FoodWebRoutes = require('../src/modules/foodweb/foodWeb.routes');
 const v2DriverRoutes = require('../src/modules/drivers/driver.routes');
 const v2SalesRoutes = require('../src/modules/sales/sales.routes');
+const v2AccountDeletionRoutes = require('../src/modules/accountDeletion/accountDeletion.routes');
 
 /* [mount path, router, one-line description]. The description is what the
    banner and GET /api print, so it is worth keeping accurate. */
@@ -257,6 +258,12 @@ const V2_GROUPS = [
      /food-partners: this is a new surface with no old caller to keep
      working. */
   ['/sales', v2SalesRoutes, 'Tracker app: sales rep accounts, duty switch, live location'],
+  /* lampose.com/delete-account, for all four self-serve apps. Public by
+     design — Google Play requires a way to ask without the app or a
+     sign-in — and nothing is marked until a code texted to the number
+     comes back. The signed-in half lives on each app's own router at
+     /me/account-deletion. See accountDeletion.controller.js. */
+  ['/account-deletion', v2AccountDeletionRoutes, 'delete-account page: request deletion of a diner, owner, kitchen or rider account by SMS code'],
 ];
 
 /* Which version answers each unversioned path, and whether it also answers

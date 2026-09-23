@@ -46,6 +46,7 @@
 const mongoose = require('mongoose');
 
 const Driver = require('./driver.model');
+const { DRIVER_ID: REVIEW_DRIVER_ID } = require('../reviewAccounts/reviewAccounts.service');
 
 const { LOCATION_MAX_AGE_MS } = Driver;
 
@@ -106,7 +107,9 @@ const findCandidatesWithinRadius = async ({
     ],
   };
 
-  if (exclude.length) predicate.driverId = { $nin: exclude };
+  /* The Play review rider can go online but is never offered real work — see
+     reviewAccounts.service.js. */
+  predicate.driverId = { $nin: [...exclude, REVIEW_DRIVER_ID] };
 
   const near = { type: 'Point', coordinates: [Number(pickup[0]), Number(pickup[1])] };
 
