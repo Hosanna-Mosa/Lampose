@@ -1,4 +1,5 @@
 import { usePathname, useRouter } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
 import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -198,10 +199,16 @@ export function WaitingPill() {
       } as never);
   };
 
+  const pillGradient: [string, string] = accepted
+    ? ['#F0FDF4', '#DCFCE7']
+    : over
+      ? ['#FEF2F2', '#FEE2E2']
+      : ['#FFFBEB', '#FEF3C7'];
+  const pillBorder = accepted ? '#10B981' : over ? '#EF4444' : '#F59E0B';
+  const pillTextColor = accepted ? '#064E3B' : over ? '#991B1B' : '#78350F';
+
   return (
     <Animated.View
-      // `box-none` on the host so the pill is tappable but the strip of screen
-      // either side of it is not — the feed underneath still scrolls.
       pointerEvents="box-none"
       entering={reduceMotion ? undefined : FadeInDown.duration(240)}
       exiting={reduceMotion ? undefined : FadeOutDown.duration(180)}
@@ -216,74 +223,90 @@ export function WaitingPill() {
             waiting ? `${title}. ${formatRemaining(secondsRemaining)} left. Opens the request.` : title
           }
           style={({ pressed }) => [
-            elevation.float,
-            styles.pill,
             {
-              minHeight: touch.min,
-              paddingLeft: space[4],
-              paddingRight: cancelled ? space[2] : space[4],
-              paddingVertical: space[2],
-              gap: space[3],
+              transform: [{ scale: pressed ? 0.985 : 1 }],
               borderRadius: radius.pill,
-              backgroundColor: tint,
-              borderColor: edge,
+              shadowColor: pillBorder,
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: 0.28,
+              shadowRadius: 10,
+              elevation: 8,
               opacity: pressed ? 0.85 : 1,
             },
           ]}
         >
-          <View
+          <LinearGradient
+            colors={pillGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
             style={[
-              styles.dot,
+              styles.pill,
               {
-                backgroundColor: over ? colors.warning.base : colors.brand,
+                minHeight: touch.min,
+                paddingLeft: space[4],
+                paddingRight: cancelled ? space[2] : space[4],
+                paddingVertical: space[2] + 2,
+                gap: space[3],
                 borderRadius: radius.pill,
+                borderColor: pillBorder,
+                borderWidth: 1.5,
               },
             ]}
-          />
+          >
+            <View
+              style={[
+                styles.dot,
+                {
+                  backgroundColor: pillBorder,
+                  borderRadius: radius.pill,
+                },
+              ]}
+            />
 
-          <View style={styles.flex}>
-            <Text variant="bodyStrong" numberOfLines={1}>
-              {title}
-            </Text>
-            {/* The draining bar, at pill scale. Only while there is something
-                to drain, and only over a window short enough that draining is
-                visible — see `showBar`. */}
-            {showBar ? (
-              <View
-                style={[
-                  styles.track,
-                  { backgroundColor: colors.surfaceSunken, borderRadius: radius.pill, marginTop: 4 },
-                ]}
-              >
+            <View style={styles.flex}>
+              <Text variant="bodyStrong" numberOfLines={1} style={{ color: pillTextColor, fontWeight: '700' }}>
+                {title}
+              </Text>
+              {/* The draining bar, at pill scale. Only while there is something
+                  to drain, and only over a window short enough that draining is
+                  visible — see `showBar`. */}
+              {showBar ? (
                 <View
                   style={[
-                    styles.fill,
-                    {
-                      width: `${Math.max(0, Math.min(1, secondsRemaining / request.windowSeconds)) * 100}%`,
-                      backgroundColor: secondsRemaining <= 30 ? colors.warning.base : colors.brand,
-                      borderRadius: radius.pill,
-                    },
+                    styles.track,
+                    { backgroundColor: 'rgba(0,0,0,0.08)', borderRadius: radius.pill, marginTop: 4 },
                   ]}
-                />
-              </View>
-            ) : null}
-          </View>
+                >
+                  <View
+                    style={[
+                      styles.fill,
+                      {
+                        width: `${Math.max(0, Math.min(1, secondsRemaining / request.windowSeconds)) * 100}%`,
+                        backgroundColor: secondsRemaining <= 30 ? '#EF4444' : pillBorder,
+                        borderRadius: radius.pill,
+                      },
+                    ]}
+                  />
+                </View>
+              ) : null}
+            </View>
 
-          {/* Only a finished request offers a way to get rid of it. A live one
-              and an unpaid confirmation both still have to be acted on. */}
-          {over ? (
-            <Pressable
-              onPress={clear}
-              accessibilityRole="button"
-              accessibilityLabel="Dismiss"
-              hitSlop={space[3]}
-              style={styles.dismiss}
-            >
-              <Icon name="close" size={20} color={colors.textTertiary} />
-            </Pressable>
-          ) : (
-            <Icon name="chevronRight" size={20} color={colors.textSecondary} />
-          )}
+            {/* Only a finished request offers a way to get rid of it. A live one
+                and an unpaid confirmation both still have to be acted on. */}
+            {over ? (
+              <Pressable
+                onPress={clear}
+                accessibilityRole="button"
+                accessibilityLabel="Dismiss"
+                hitSlop={space[3]}
+                style={styles.dismiss}
+              >
+                <Icon name="close" size={20} color={pillTextColor} />
+              </Pressable>
+            ) : (
+              <Icon name="chevronRight" size={20} color={pillBorder} />
+            )}
+          </LinearGradient>
         </Pressable>
       </GestureDetector>
     </Animated.View>
