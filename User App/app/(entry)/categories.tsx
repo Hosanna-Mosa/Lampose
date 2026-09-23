@@ -12,7 +12,7 @@ import {
   CATEGORY_TILE_BLURB,
 } from '@/components/discovery';
 import { useAppState } from '@/context/AppStateContext';
-import { useTheme } from '@/context/ThemeContext';
+import { LightThemeScope, useTheme } from '@/context/ThemeContext';
 import type { StayCategory } from '@/constants/tokens';
 
 /**
@@ -53,17 +53,35 @@ import type { StayCategory } from '@/constants/tokens';
  * Single-select is a radio, not a checkbox: tapping a second card moves the
  * choice rather than adding to it, and the accessibility role says so.
  */
+/*
+ * Always light, whatever the phone or the app's Appearance setting says: the
+ * grid is the first thing a new user chooses from and is designed for one
+ * appearance. The scope wraps the whole screen so every card, label and button
+ * inside it — and the status bar, which reads `mode` — follows.
+ */
 export default function CategoryChoiceScreen() {
+  return (
+    <LightThemeScope>
+      <CategoryChoice />
+    </LightThemeScope>
+  );
+}
+
+function CategoryChoice() {
   const { colors, space, radius, layout, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { locality, setCategory } = useAppState();
+  const { locality, setCategory, onboarding, completeOnboardingStep } = useAppState();
 
   const [picked, setPicked] = useState<StayCategory | null>(null);
 
   const finish = async () => {
     if (!picked) return;
+    /* Read before it moves: during the first-run walk-through the location
+       screen comes next EVERY time, even when a locality is already stored. */
+    const firstRun = onboarding !== 'done';
     await setCategory(picked);
+    await completeOnboardingStep('category');
     /*
      * Two destinations, and deliberately two different VERBS.
      *
@@ -82,7 +100,7 @@ export default function CategoryChoiceScreen() {
      * one instead. It still falls back to a replace when no home is in the
      * stack, so it is safe on either path.
      */
-    if (locality) router.dismissTo('/home');
+    if (locality && !firstRun) router.dismissTo('/home');
     else router.push('/(entry)/locality');
   };
 

@@ -235,7 +235,7 @@ export function ExploreHeader({
               </Pressable>
             ) : (
               <IconButton
-                name="sharing"
+                name="user"
                 ink={ink}
                 onPress={onPressProfile}
                 accessibilityLabel="Your profile"

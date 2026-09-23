@@ -23,7 +23,6 @@
  */
 
 import Constants from "expo-constants";
-import { demoRespond, isDemoActive } from "./demoMode";
 
 /** Base URL for the Lampose backend, without a trailing slash. */
 export const API_URL = String(
@@ -111,21 +110,6 @@ export async function api<T = unknown>(
   path: string,
   { method = "GET", body, token, signal, timeoutMs = 15000 }: RequestOptions = {},
 ): Promise<T> {
-  /*
-   * DEMO MODE — before the API-URL check and before any fetch, because in
-   * demo mode none of that should happen.
-   *
-   * Off unless somebody signed in with the demo credentials this launch, so a
-   * real partner's session never touches it. `/auth/login` is the exception:
-   * it is inspected even while off, since it is the call that turns demo mode
-   * on — and only the exact demo pair is claimed, so a genuine restaurant
-   * signing in on this build reaches the real route untouched.
-   *
-   * See `services/demoMode.ts`; delete it when the demo build is done with.
-   */
-  const demo = demoRespond(method, path, body);
-  if (demo.handled) return demo.payload as T;
-
   if (!API_URL) {
     throw new ApiError("API URL is not configured. Set EXPO_PUBLIC_API_URL.", 0);
   }
@@ -207,12 +191,6 @@ export async function apiUpload<T = unknown>(
   form: FormData,
   { token, timeoutMs = 60000 }: { token?: string | null; timeoutMs?: number } = {},
 ): Promise<T> {
-  /* An upload in demo mode is accepted and dropped — there is nowhere to put
-     it, and a screen that waits forever on a file read as a broken app. */
-  if (isDemoActive()) {
-    return { success: true, data: null } as T;
-  }
-
   if (!API_URL) {
     throw new ApiError("API URL is not configured. Set EXPO_PUBLIC_API_URL.", 0);
   }

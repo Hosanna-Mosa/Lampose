@@ -902,7 +902,7 @@ export default function Home() {
               }
               alertCount={inFoodModule ? foodUnread : unread}
               onPressProfile={() => (inFoodModule ? router.push(foodHref.profile) : setTab('profile'))}
-              userName={user?.name ?? 'Varun'}
+              userName={user?.name}
               searchBarProps={searchBarProps}
             />
 
@@ -1279,11 +1279,10 @@ export default function Home() {
 
           <View style={{ gap: space[2] }}>
             <ProfileGroup>
-              {/* "Delete my account" and the paragraph that explained what it
-                  kept are both gone. Nothing behind them was ever built — the
-                  row had no handler — so what is removed is a destructive
-                  control that could not do anything and a promise about data
-                  retention nobody was in a position to keep. */}
+              {/* "Delete account" is back, and now it opens something real:
+                  `app/profile/delete-account.tsx`, which schedules the request
+                  on the server, says what is kept, and can cancel it. The row
+                  is a door to that screen, never an action on the tap. */}
               {/*
                 Logging out ASKS first.
 
@@ -1302,7 +1301,6 @@ export default function Home() {
               */}
               <ProfileRow
                 label="Log out"
-                last
                 onPress={() => {
                   void (async () => {
                     const ok = await confirm({
@@ -1322,6 +1320,12 @@ export default function Home() {
                     router.replace('/');
                   })();
                 }}
+              />
+              <ProfileRow
+                label="Delete account"
+                destructive
+                last
+                onPress={() => router.push('/profile/delete-account')}
               />
             </ProfileGroup>
           </View>

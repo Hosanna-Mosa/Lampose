@@ -74,6 +74,7 @@ const {
    onboarding upload route below. */
 const { protect: requireStaff } = require('../../shared/middleware/authMiddleware');
 const { tagFoodPartnerRequest } = require('./foodPartner.log');
+const { makeInAppDeletionRouter } = require('../accountDeletion/accountDeletion.routes');
 
 const router = express.Router();
 
@@ -194,6 +195,10 @@ router.patch(
 /* ── The menu ────────────────────────────────────────────────────────────── */
 
 const session = [requireLamposeDb, requireAuthConfig, requireFoodPartner];
+
+/* Asking to delete the kitchen's account from inside the app — status,
+   request, cancel. The public half is lampose.com/delete-account. */
+router.use('/me/account-deletion', makeInAppDeletionRouter('restaurant', 'foodPartner', session));
 
 /* ── Payouts: what this kitchen is owed, and asking to be paid ───────────
    Reuses `foodPayout.service.js`, the same service the staff queue and the

@@ -65,6 +65,7 @@ const {
 } = require('./portfolio.controller');
 const { createInvite, getInvites } = require('./customerReferral.controller');
 const { requirePartner } = require('./partnerAuth.middleware');
+const { makeInAppDeletionRouter } = require('../accountDeletion/accountDeletion.routes');
 const { makeLogout } = require('../iam/session.controller');
 const {
   registerPartnerDevice, unregisterPartnerDevice,
@@ -173,6 +174,10 @@ const partnerKey = (req) => (req.partner ? req.partner.partnerId : req.ip);
 /* The profile. `PATCH /me` is what the profile-setup screen writes. */
 router.get('/me', requireLamposeDb, requirePartner, getMe);
 router.patch('/me', requireLamposeDb, requirePartner, updateMe);
+
+/* Asking to delete the account from inside the app — status, request, cancel.
+   The public half is lampose.com/delete-account; see accountDeletion.routes.js. */
+router.use('/me/account-deletion', makeInAppDeletionRouter('partner', 'partner', [requireLamposeDb, requirePartner]));
 
 /* This device. An owner with no registered handset cannot be told a request
    arrived, and a three-minute deadline then expires every time. */

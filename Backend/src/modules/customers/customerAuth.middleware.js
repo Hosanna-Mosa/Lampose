@@ -96,6 +96,11 @@ async function requireCustomer(req, res, next) {
 
     const customer = await Customer.findOne({ customerId: decoded.sub });
     if (!customer) return deny(res, 'This account no longer exists.', 'ACCOUNT_GONE');
+    /* Erased by a deletion request (accountDeletion.eraser.js): the row stays
+       for the records that point at it, but it is nobody's account now. */
+    if (customer.deletion && customer.deletion.status === 'completed') {
+      return deny(res, 'This account no longer exists.', 'ACCOUNT_GONE');
+    }
     if (customer.status === 'blocked') {
       return res.status(403).json({
         success: false,

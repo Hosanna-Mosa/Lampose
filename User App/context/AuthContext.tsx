@@ -22,9 +22,6 @@ import { registerDevice, unregisterDevice } from '@/services/api/devices.api';
 import { clearPushState, getPushToken } from '@/services/push/push';
 import type { AppConfig, AuthStatus, AuthUser, SendFailure } from '@/types/auth';
 import type { BackendReferralOutcome } from '@/services/api/types';
-import {
-  isDemoCredentials, enterDemo, exitDemo, demoCustomer, DEMO_TOKEN,
-} from '@/services/demoMode';
 
 /**
  * Phone and a one-time code. There are no passwords in this product.
@@ -153,8 +150,6 @@ type AuthContextValue = {
   resendCode: () => Promise<SendResult>;
   /** The held profile lands in the same write that proves the number. */
   verifyCode: (code: string) => Promise<VerifyResult>;
-  /** Demo sign-in for Play Console review. See `services/demoMode.ts`. */
-  signInWithPassword: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>;
   changeNumber: () => void;
 
   completeProfile: (params: { name: string; email?: string }) => Promise<void>;
@@ -297,9 +292,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setToken(null);
       /* Cleared in the client FIRST. A request that fires between these two
          lines would otherwise carry a token the app has decided to forget. */
-      /* Demo mode ends with the session it belonged to. */
-      exitDemo();
-
       setAuthToken(null);
       await Promise.all([
         AsyncStorage.removeItem(SESSION_KEY),
@@ -307,17 +299,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ]);
       return;
     }
-    /*
-     * A real session forcibly ends demo mode, even if something left it on.
-     *
-     * `enterDemo()` sets a module-level flag that nothing but `signOut`
-     * otherwise clears — and it does not ask whether a real session already
-     * exists before replacing it. Without this, a signed-in student who ever
-     * opened the demo password screen (or a device that had one open before)
-     * would have every future request answered by fake data from
-     * `services/demoMode.ts` for the rest of that real session.
-     */
-    exitDemo();
     setUser(session.user);
     setToken(session.token);
     setAuthToken(session.token);
@@ -528,33 +509,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     categoryRef.current = category;
   }, []);
 
-  /*
-   * DEMO ONLY — this never reaches the network.
-   *
-   * There is no password route for customers on the server and there is not
-   * meant to be one: a student signs in with a number and a code. The pair is
-   * checked here, against `services/demoMode.ts`, and a wrong one is refused
-   * with the same sentence either way so the form cannot be used to learn
-   * which addresses Lampose has.
-   *
-   * `persist` is deliberately NOT called: the demo session must not survive a
-   * relaunch, and `DEMO_TOKEN` written to storage would be sent on the next
-   * launch's `/me` and rejected, signing the reviewer out mid-review.
-   */
-  const signInWithPassword = useCallback(
-    async (email: string, password: string): Promise<{ ok: boolean; message?: string }> => {
-      if (!isDemoCredentials(email, password)) {
-        return { ok: false, message: 'That email address and password do not match.' };
-      }
-      enterDemo();
-      setAuthToken(DEMO_TOKEN);
-      setUser(toAuthUser(demoCustomer));
-      setStatus('signedIn');
-      return { ok: true };
-    },
-    [],
-  );
-
   const verifyCode = useCallback(
     async (code: string): Promise<VerifyResult> => {
       if (!pendingPhone) {
@@ -713,7 +667,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sendCode,
       resendCode,
       verifyCode,
-      signInWithPassword,
       changeNumber,
       completeProfile,
       syncCategory,
@@ -740,7 +693,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sendCode,
       resendCode,
       verifyCode,
-      signInWithPassword,
       changeNumber,
       requireSignIn,
       resumePendingIntent,

@@ -1,5 +1,4 @@
 import Constants from "expo-constants";
-import { demoRespond } from "@/constants/demoMode";
 
 /** Base URL for the Driver backend, without a trailing slash. */
 export const API_URL = String(
@@ -60,17 +59,6 @@ export async function api<T = unknown>(
   path: string,
   { method = "GET", body, token, signal, timeoutMs = 15000 }: RequestOptions = {},
 ): Promise<T> {
-  /*
-   * DEMO MODE — before the API-URL check and before any fetch, because in
-   * demo mode none of that should happen.
-   *
-   * Off unless somebody signed in with the demo credentials this launch, so a
-   * real rider's session never touches it. See `constants/demoMode.ts`, and
-   * delete that file when the demo build is no longer needed.
-   */
-  const demo = demoRespond(method, path, body);
-  if (demo.handled) return demo.payload as T;
-
   if (!API_URL) {
     throw new ApiError("API URL is not configured. Set EXPO_PUBLIC_API_URL.", 0);
   }

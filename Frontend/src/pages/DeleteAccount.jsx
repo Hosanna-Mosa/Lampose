@@ -1,25 +1,27 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import deleteAccountApi from '../api/deleteAccountApi';
 import {
-  Anchor, Box, Emphasis, Form, Heading, Inline, Input, Label, List, ListItem,
+  Anchor, Box, Emphasis, FieldSet, Form, Heading, Inline, Input, Label, Legend, List, ListItem,
   PlainButton, Region, Small, Strong, Text, TextArea,
 } from '../components/common/atoms';
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Delete Your Lampose Delivery Partner Account.
+   Delete Your Lampose Account — for every Lampose app.
 
    A public page, and it has to be: Google Play requires that somebody be able
    to find out how to delete their account, and ask for it, from the open web —
    without the app, and without signing in. That is why there is no guard on
    this route and why it is linked from the footer.
 
-   ## The shape of it
+   ## Four apps, four accounts
 
-   Read first, form second. Somebody arriving here from the Play listing wants
-   to know what happens before they set it going, so what is deleted, what is
-   kept and how long it takes are all above the fold of the form rather than
-   in small print under the button.
+   The Lampose app (students and diners), Stay Partner (property owners), the
+   Partner app (restaurants) and Delivery Partner (riders) each hold their own
+   accounts, and one phone number can have one in each. So the page asks which
+   app FIRST, and the request only ever touches that one. Each store listing
+   links straight to its own app with `?app=` — see `APPS` below for the keys
+   and `ALIASES` for the friendlier spellings a hand-written link might use.
 
    ## Public, and still not something a stranger can do to you
 
@@ -27,31 +29,116 @@ import {
    type. So it is not what the request is made on: submitting sends a one-time
    code to that handset, and nothing is marked until the code comes back. The
    server answers an unregistered number exactly as it answers a registered
-   one, so the page cannot be used to find out who rides for Lampose either.
+   one, so the page cannot be used to find out who uses Lampose either.
 
    ## Say what actually happens
 
    The request is a REQUEST. It marks the account and schedules it; it does not
    empty the row while the button is still animating, and this page does not
-   say it does. Riders carry orders, are owed money, and are covered by records
-   we are required to keep — so the copy names what is deleted, what is kept,
-   and why, rather than promising everything disappears at once.
-
-   The grace period is READ FROM THE SERVER rather than typed into the copy. A
-   page promising thirty days against a server that waits fourteen is the
-   disagreement that ends up in front of a regulator.
+   say it does. The grace period is READ FROM THE SERVER rather than typed into
+   the copy — a page promising thirty days against a server that waits fourteen
+   is the disagreement that ends up in front of a regulator.
    ══════════════════════════════════════════════════════════════════════════ */
 
-const APP_NAME = 'Lampose Delivery Partner';
+/* What the page says about each app. The keys are the server's
+   (`accountDeletion.audiences.js`); the words are the page's. */
+const APPS = {
+  customer: {
+    name: 'Lampose',
+    who: 'students and diners who book stays and order food',
+    short: 'Book stays, order food',
+    workNoun: ['order or booking', 'orders or bookings'],
+    deleted: [
+      'Your profile — name, email address and profile details.',
+      'Your mobile number, once the request is carried out.',
+      'Saved places, favourite kitchens and dishes, and your address book.',
+      'Search, notification and app preferences.',
+      'Device registrations, so the app stops sending you notifications.',
+      'Your name and number on support conversations you raised from the app.',
+    ],
+    kept: [
+      ['Booking and payment records.', 'Completed stays, rental agreements, food orders and the payments and refunds made against them are books of account, and we are required to keep them.'],
+    ],
+    beforeYouGo: 'If you have a stay in progress or a food order on its way, it carries on as normal. Refunds owed to you are paid during the grace period.',
+  },
+  partner: {
+    name: 'Lampose Stay Partner',
+    who: 'property owners who list rooms, PGs and hostels',
+    short: 'List and manage your property',
+    workNoun: ['booking', 'bookings'],
+    deleted: [
+      'Your owner profile — name, email address and profile photograph.',
+      'Your mobile number and address, once the request is carried out.',
+      'Bank and payout details held for settlements.',
+      'Staff you invited, and the notifications sent to you.',
+      'Device registrations, so the app stops sending you notifications.',
+      'Your name and number on support conversations you raised from the app.',
+    ],
+    kept: [
+      ['Booking and payout records.', 'Bookings made at your property and the payouts made against them are books of account, and we are required to keep them.'],
+      ['Your property listing.', 'A listing is held separately from your owner account. Say so in the reason box if you would also like it taken off Lampose, and we will confirm it with you.'],
+    ],
+    beforeYouGo: 'Guests already staying with you are not affected. Anything owed to you is paid to the bank details on the account during the grace period.',
+  },
+  restaurant: {
+    name: 'Lampose Partner',
+    who: 'restaurants and kitchens that sell food on Lampose',
+    short: 'Restaurants and kitchens',
+    workNoun: ['order', 'orders'],
+    deleted: [
+      'The owner profile — name, email address and mobile number.',
+      'Your kitchen’s listing, menu, dish photographs and opening hours.',
+      'Identity and business documents you uploaded — FSSAI, GST, PAN and cheque — removed from your account.',
+      'Bank and payout details held for settlements.',
+      'Device registrations, so the app stops sending you order alerts.',
+      'Your name and number on support conversations you raised from the app.',
+    ],
+    kept: [
+      ['Order and payout records.', 'Orders your kitchen served and the payouts made against them are books of account, and we are required to keep them.'],
+    ],
+    beforeYouGo: 'Orders already placed with your kitchen still have to be prepared. Anything owed to you is paid to the bank details on the account during the grace period.',
+  },
+  driver: {
+    name: 'Lampose Delivery Partner',
+    who: 'delivery riders who carry Lampose orders',
+    short: 'Deliver Lampose orders',
+    workNoun: ['delivery', 'deliveries'],
+    deleted: [
+      'Your profile — name, date of birth, city, and profile photograph.',
+      'Your contact details — mobile number and email address.',
+      'Identity and vehicle documents you uploaded — licence, RC, Aadhaar, PAN and insurance — removed from your account.',
+      'Your address and any saved location details.',
+      'Bank and payout details held for settlements.',
+      'Your live and historical location data.',
+      'Device registrations, so the app stops sending you notifications.',
+      'Your name and number on support conversations you raised from the rider app.',
+    ],
+    kept: [
+      ['Delivery and payment records.', 'Records of completed deliveries and the payouts made against them are books of account, and we are required to keep them.'],
+    ],
+    beforeYouGo: 'If you are carrying a delivery, please complete it — the food still has to reach the customer. Anything owed to you is paid during the grace period.',
+  },
+};
+
+const APP_KEYS = Object.keys(APPS);
+
+/* The spellings a store listing or a support reply might use in `?app=`. */
+const ALIASES = {
+  user: 'customer', lampose: 'customer',
+  'stay-partner': 'partner', owner: 'partner',
+  'food-partner': 'restaurant', kitchen: 'restaurant',
+  rider: 'driver', delivery: 'driver',
+};
+const appFrom = value => {
+  const key = String(value || '').trim().toLowerCase();
+  return APPS[key] ? key : ALIASES[key] || null;
+};
 
 /* What the page prints before the server has answered, and if it never does.
-   The same numbers the controller holds — see `driverDeletion.controller.js`. */
+   The same numbers the controller holds — see `accountDeletion.controller.js`. */
 const FALLBACK_POLICY = { graceDays: 30, otpLength: 6, supportEmail: 'contact@lampose.com' };
 
 const TEN_DIGITS = /^[6-9]\d{9}$/;
-
-const CONFIRM_LINE = 'Are you sure you want to request deletion of your Lampose Delivery Partner '
-  + 'account? This action cannot be easily undone.';
 
 /** "12 October 2026" — a date somebody can hold against a calendar. */
 const longDate = (value) => {
@@ -61,11 +148,16 @@ const longDate = (value) => {
 };
 
 export function DeleteAccount() {
+  const [params, setParams] = useSearchParams();
+  const [app, setApp] = useState(() => appFrom(params.get('app')));
+  const meta = app ? APPS[app] : null;
+  const appName = meta ? meta.name : 'Lampose';
+
   const [policy, setPolicy] = useState(FALLBACK_POLICY);
 
-  /* 'form' → 'code' → 'done'. `confirming` is the interstitial the spec asks
-     for, and it is a step rather than a `window.confirm` so that it can be
-     read, styled and dismissed like the rest of the page. */
+  /* 'form' → 'code' → 'done'. `confirming` is the interstitial before any
+     code is sent, a step rather than `window.confirm` so it can be read,
+     styled and dismissed like the rest of the page. */
   const [step, setStep] = useState('form');
   const [confirming, setConfirming] = useState(false);
 
@@ -91,14 +183,33 @@ export function DeleteAccount() {
 
   useEffect(() => { window.scrollTo(0, 0); }, []);
 
+  /* Choosing an app starts the form again and puts the choice in the address,
+     so the link somebody copies is the link to THEIR app. */
+  const chooseApp = (key) => {
+    if (key === app) return;
+    setApp(key);
+    setStep('form');
+    setCode('');
+    setProblem(null);
+    setNotice(null);
+    setResult(null);
+    const next = new URLSearchParams(params);
+    next.set('app', key);
+    setParams(next, { replace: true });
+  };
+
   const askToConfirm = (event) => {
     event.preventDefault();
     setProblem(null);
 
+    if (!app) {
+      setProblem('Choose the app your account is on.');
+      return;
+    }
     if (!TEN_DIGITS.test(phone)) {
       setProblem(phone.length === 10
         ? 'An Indian mobile number starts with 6, 7, 8 or 9.'
-        : 'Enter the 10-digit mobile number registered on your Lampose Delivery Partner account.');
+        : `Enter the 10-digit mobile number registered on your ${appName} account.`);
       return;
     }
     if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) {
@@ -117,18 +228,18 @@ export function DeleteAccount() {
     setNotice(null);
 
     try {
-      const started = await deleteAccountApi.start(`+91${phone}`);
+      const started = await deleteAccountApi.start(app, `+91${phone}`);
 
       /* Already asked for, and still inside the window. Nothing further to do,
          and saying "we sent a code" would be untrue. */
       if (started?.alreadyRequested && started.request) {
-        setResult(started.request);
+        setResult({ ...started.request, alreadyRequested: true });
         setStep('done');
         return;
       }
 
       setStep('code');
-      setNotice(started?.resendInSeconds
+      setNotice(started?.cooling
         ? `A code was sent to this number moments ago — enter that one. You can ask for another in ${started.resendInSeconds}s.`
         : null);
     } catch (err) {
@@ -149,7 +260,7 @@ export function DeleteAccount() {
 
     setBusy(true);
     try {
-      const confirmed = await deleteAccountApi.confirm({
+      const confirmed = await deleteAccountApi.confirm(app, {
         phone: `+91${phone}`, code, email, reason,
       });
       setResult(confirmed);
@@ -165,6 +276,13 @@ export function DeleteAccount() {
   const support = policy.supportEmail || FALLBACK_POLICY.supportEmail;
   const days = policy.graceDays || FALLBACK_POLICY.graceDays;
 
+  /* Work still in hand, as the server counted it — reported, never a refusal. */
+  const inFlight = useMemo(() => {
+    const n = (result?.activeOrders || 0) + (result?.activeBookings || 0);
+    if (!n || !meta) return null;
+    return `${n} ${n === 1 ? meta.workNoun[0] : meta.workNoun[1]}`;
+  }, [result, meta]);
+
   return (
     <Region id="delete-account" className="da-page">
       <Box className="da-inner">
@@ -173,16 +291,26 @@ export function DeleteAccount() {
         <Box className="da-head">
           <Inline className="da-tag">Account &amp; data</Inline>
           <Heading level={1} className="da-h1">
-            Delete Your <Emphasis>{APP_NAME}</Emphasis> Account
+            Delete Your <Emphasis>{appName}</Emphasis> Account
           </Heading>
           <Text className="da-lede">
-            This page is for <Strong>{APP_NAME}</Strong> users — the delivery riders who take
-            Lampose orders — who want to request deletion of their account and the personal
-            data held against it. You do not need to sign in, and you do not need the app.
+            {meta ? (
+              <>
+                This page is for <Strong>{meta.name}</Strong> users — {meta.who} — who want to
+                request deletion of their account and the personal data held against it.
+              </>
+            ) : (
+              <>
+                Use this page to request deletion of an account on any Lampose app, and the
+                personal data held against it.
+              </>
+            )}
+            {' '}You do not need to sign in, and you do not need the app.
           </Text>
           <Text className="da-note">
-            Requesting deletion here affects your <Strong>{APP_NAME}</Strong> rider account only.
-            It does not affect a separate Lampose customer account registered on the same number.
+            Each Lampose app has its own account. Requesting deletion here affects the account on
+            the app you choose only — an account on another Lampose app, even on the same number,
+            is not touched.
           </Text>
         </Box>
 
@@ -195,7 +323,7 @@ export function DeleteAccount() {
               <Box className="da-done__mark" aria-hidden="true">✓</Box>
               <Heading level={3} className="da-done__title">Your request has been received</Heading>
               <Text className="da-done__body">
-                We have recorded a deletion request for{' '}
+                We have recorded a deletion request for the <Strong>{appName}</Strong> account on{' '}
                 <Strong>{result?.phoneMasked || `the number ending ${phone.slice(-4)}`}</Strong>.
                 {result?.alreadyRequested && ' This account was already scheduled for deletion, so nothing has changed.'}
               </Text>
@@ -214,19 +342,17 @@ export function DeleteAccount() {
                 </ListItem>
               </List>
 
-              {result?.activeOrders > 0 && (
+              {inFlight && (
                 <Text className="da-warn" role="alert">
-                  You currently have {result.activeOrders} delivery
-                  {result.activeOrders === 1 ? '' : 'ies'} in progress. Please complete
-                  {result.activeOrders === 1 ? ' it' : ' them'} — your request is recorded either way,
-                  and the food still has to reach the customer.
+                  You currently have {inFlight} in progress. {meta.beforeYouGo}
                 </Text>
               )}
 
               <Text className="da-done__after">
-                Changed your mind? Email <Anchor href={`mailto:${support}`}>{support}</Anchor> from
-                the phone number or email address on the account before the date above and we will
-                cancel the request.
+                Changed your mind? Open the {appName} app and cancel the request from the Delete
+                account screen in your profile, or email{' '}
+                <Anchor href={`mailto:${support}`}>{support}</Anchor> from the phone number or email
+                address on the account before the date above.
               </Text>
             </Box>
           ) : step === 'code' ? (
@@ -235,6 +361,10 @@ export function DeleteAccount() {
                 We sent a {policy.otpLength}-digit code by SMS to <Strong>+91 {phone}</Strong>.
                 Enter it to confirm the request. This is how we check the account is yours —
                 without it, anybody could request deletion of somebody else&rsquo;s account.
+              </Text>
+              <Text className="da-hint">
+                No code? We only text numbers that have a {appName} account. Check you chose the
+                right app, or email <Anchor href={`mailto:${support}`}>{support}</Anchor>.
               </Text>
 
               <Label className="da-field">
@@ -274,6 +404,28 @@ export function DeleteAccount() {
             </Form>
           ) : (
             <Form className="da-form" onSubmit={askToConfirm} noValidate>
+              <FieldSet className="da-field da-apps">
+                <Legend className="da-label">
+                  Which app is the account on? <Inline className="da-req">*</Inline>
+                </Legend>
+                <Box className="da-apps__grid">
+                  {APP_KEYS.map(key => (
+                    <Label key={key} className={`da-app${app === key ? ' is-on' : ''}`}>
+                      <Input
+                        className="da-app__radio"
+                        type="radio"
+                        name="app"
+                        value={key}
+                        checked={app === key}
+                        onChange={() => chooseApp(key)}
+                      />
+                      <Inline className="da-app__name">{APPS[key].name}</Inline>
+                      <Inline className="da-app__who">{APPS[key].short}</Inline>
+                    </Label>
+                  ))}
+                </Box>
+              </FieldSet>
+
               <Label className="da-field">
                 <Inline className="da-label">Registered mobile number <Inline className="da-req">*</Inline></Inline>
                 <Box className="da-phone">
@@ -290,13 +442,13 @@ export function DeleteAccount() {
                   />
                 </Box>
                 <Small className="da-hint">
-                  The number you sign in to the {APP_NAME} app with. We will text a code to it.
+                  The number you sign in to the {appName} app with. We will text a code to it.
                 </Small>
               </Label>
 
               <Label className="da-field">
                 <Inline className="da-label">
-                  Registered email address <Inline className="da-opt">(optional)</Inline>
+                  Email address <Inline className="da-opt">(optional)</Inline>
                 </Inline>
                 <Input
                   className="da-input"
@@ -307,8 +459,7 @@ export function DeleteAccount() {
                   placeholder="you@example.com"
                 />
                 <Small className="da-hint">
-                  The app signs in by mobile number, so this is not required. Give one if you would
-                  like written confirmation of the request.
+                  Not required. Give one if you would like written confirmation of the request.
                 </Small>
               </Label>
 
@@ -348,20 +499,21 @@ export function DeleteAccount() {
         {/* ── 2. How to request ───────────────────────────────────────── */}
         <Box className="da-card">
           <Heading level={2} className="da-h2">How to request account deletion</Heading>
-          <Text className="da-p">There are two ways, and both end in the same place.</Text>
+          <Text className="da-p">There are three ways, and all of them end in the same place.</Text>
           <List className="da-steps">
             <ListItem>
-              <Strong>From this page.</Strong> Enter the mobile number registered on your
-              {' '}{APP_NAME} account above, confirm, and enter the code we text you.
+              <Strong>From the app.</Strong> Open the {appName} app, go to <Strong>Profile</Strong>,
+              and tap <Strong>Delete account</Strong>. You are already signed in, so no code is
+              needed — and you can cancel the request from the same screen.
             </ListItem>
             <ListItem>
-              <Strong>From the app.</Strong> Open the {APP_NAME} app, go to Profile, and use the
-              account deletion option there. You are already signed in, so no code is needed.
+              <Strong>From this page.</Strong> Choose the app, enter the mobile number registered on
+              your account, confirm, and enter the code we text you.
             </ListItem>
             <ListItem>
               <Strong>By email.</Strong> If neither works — for example you no longer have the SIM —
               write to <Anchor href={`mailto:${support}`}>{support}</Anchor> from the email address
-              on your account and we will verify you another way.
+              on your account, name the app, and we will verify you another way.
             </ListItem>
           </List>
         </Box>
@@ -372,20 +524,16 @@ export function DeleteAccount() {
           <Text className="da-p">
             When an account deletion request is approved and processed, personal account
             information and other data associated with the account will be deleted where
-            applicable. For a {APP_NAME} account that means:
+            applicable.{meta ? ` For a ${meta.name} account that means:` : ' Choose an app above to see exactly what that covers. In every app it includes:'}
           </Text>
           <List className="da-list">
-            <ListItem>Your profile — name, date of birth, city, and profile photograph.</ListItem>
-            <ListItem>Your contact details — mobile number and email address.</ListItem>
-            <ListItem>
-              Identity and vehicle documents you uploaded — licence, RC, Aadhaar, PAN and
-              insurance — together with the images themselves.
-            </ListItem>
-            <ListItem>Your address and any saved location details.</ListItem>
-            <ListItem>Bank and payout details held for settlements.</ListItem>
-            <ListItem>Your live and historical location data.</ListItem>
-            <ListItem>Device registrations, so the app stops sending you notifications.</ListItem>
-            <ListItem>Support conversations you raised from the rider app.</ListItem>
+            {(meta ? meta.deleted : [
+              'Your profile — name, email address and profile photograph.',
+              'Your mobile number and addresses, once the request is carried out.',
+              'Documents, bank and payout details you gave us, where the app collected them.',
+              'Device registrations, so the app stops sending you notifications.',
+              'Your name and number on support conversations you raised.',
+            ]).map(line => <ListItem key={line}>{line}</ListItem>)}
           </List>
         </Box>
 
@@ -398,10 +546,11 @@ export function DeleteAccount() {
             will be kept only for the required retention period.
           </Text>
           <List className="da-list">
-            <ListItem>
-              <Strong>Delivery and payment records.</Strong> Records of completed deliveries and
-              the payouts made against them are books of account, and we are required to keep them.
-            </ListItem>
+            {(meta ? meta.kept : [
+              ['Transaction records.', 'Bookings, orders, deliveries and the payments, refunds and payouts made against them are books of account, and we are required to keep them.'],
+            ]).map(([title, body]) => (
+              <ListItem key={title}><Strong>{title}</Strong> {body}</ListItem>
+            ))}
             <ListItem>
               <Strong>Tax and financial documents.</Strong> Invoices, settlements and statements
               required under applicable tax law.
@@ -418,7 +567,7 @@ export function DeleteAccount() {
           </List>
           <Text className="da-p">
             Where records like these are kept, they are separated from your profile and are not
-            used to contact you or to identify you as an active rider.
+            used to contact you or to identify you as an active user.
           </Text>
         </Box>
 
@@ -428,8 +577,8 @@ export function DeleteAccount() {
           <List className="da-list">
             <ListItem>
               <Strong>Grace period — {days} days.</Strong> A confirmed request is scheduled, not
-              carried out immediately. This window lets us settle anything owed to you and lets
-              you change your mind.
+              carried out immediately. This window lets us settle anything owed and lets you change
+              your mind.
             </ListItem>
             <ListItem>
               <Strong>Deletion — after the grace period.</Strong> Account data in the list above is
@@ -453,23 +602,23 @@ export function DeleteAccount() {
           <List className="da-steps">
             <ListItem>
               <Strong>Straight away.</Strong> Your request is recorded against the account and
-              scheduled. You will see a confirmation on this page.
+              scheduled. You will see a confirmation on this page or in the app.
             </ListItem>
             <ListItem>
-              <Strong>Any work in progress.</Strong> If you are carrying a delivery, please
-              complete it. Your request stands either way.
+              <Strong>Anything in progress.</Strong>{' '}
+              {meta ? meta.beforeYouGo : 'A stay, an order or a delivery already under way carries on as normal. Your request stands either way.'}
             </ListItem>
             <ListItem>
-              <Strong>Settlement.</Strong> Anything owed to you is paid to the bank details on the
-              account during the grace period. Keep those details correct until then.
+              <Strong>Changing your mind.</Strong> Until the date you are given, you can cancel the
+              request from the Delete account screen in the app, or by emailing support.
             </ListItem>
             <ListItem>
               <Strong>After {days} days.</Strong> The account is deleted in line with the policy on
-              this page, and you will no longer be able to sign in to the {APP_NAME} app.
+              this page, and you will no longer be able to sign in to the {appName} app with it.
             </ListItem>
             <ListItem>
               <Strong>Starting again.</Strong> You are welcome to register again later, but it will
-              be a new account — your documents will need to be verified afresh.
+              be a new account{app === 'driver' || app === 'restaurant' ? ' — your documents will need to be verified afresh' : ''}.
             </ListItem>
           </List>
         </Box>
@@ -483,7 +632,7 @@ export function DeleteAccount() {
           </Text>
           <Text className="da-p">
             Please write from the email address or mobile number registered on your account, and
-            tell us it is about a <Strong>{APP_NAME}</Strong> account, so we can find it quickly.
+            tell us which app it is about{meta ? <> — <Strong>{meta.name}</Strong></> : ''} — so we can find it quickly.
           </Text>
         </Box>
 
@@ -507,7 +656,10 @@ export function DeleteAccount() {
             <Heading level={2} className="da-modal__title" id="da-confirm-title">
               Confirm your request
             </Heading>
-            <Text className="da-modal__body">{CONFIRM_LINE}</Text>
+            <Text className="da-modal__body">
+              Are you sure you want to request deletion of your {appName} account? This action
+              cannot be easily undone.
+            </Text>
             <Text className="da-modal__sub">
               We will text a {policy.otpLength}-digit code to <Strong>+91 {phone}</Strong>. Nothing
               is scheduled until you enter it.

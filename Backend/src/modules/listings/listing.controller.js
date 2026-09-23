@@ -9,6 +9,15 @@ const { escapeRegex } = require('../../shared/utils/text');
 const { rowsFor } = require('../inventory/inventory.service');
 const { sharingOptionsFor } = require('./sharing.util');
 
+/*
+ * Never in the feed, the area counts, or a listing page:
+ *   removed  the owner took it down (propertyEdit.controller.js#removeMyProperty)
+ *   review   the Google Play review owner's sample listing
+ *            (reviewAccounts/reviewAccounts.service.js) — real in that owner's
+ *            dashboard, invisible to every student.
+ */
+const HIDDEN_STATUSES = ['removed', 'review'];
+
 /* `$centerSphere` takes its radius in RADIANS, which is kilometres over the
    earth's radius. 6378.1 is the equatorial radius MongoDB's own
    documentation uses for this conversion — the same constant
@@ -234,7 +243,7 @@ const getListings = async (req, res, next) => {
        property has no `partner_share_types` rows worth loading availability
        for, and the point is that it is gone from the feed as completely as a
        property that never existed. See `removeMyProperty`. */
-    const filter = { status: { $ne: 'removed' } };
+    const filter = { status: { $nin: HIDDEN_STATUSES } };
 
     /*
      * Near a fix, rather than inside a named area.
@@ -498,7 +507,9 @@ const getListingById = async (req, res, next) => {
       ? await Property.findById(id).lean()
       : null;
 
-    if (!property) {
+    /* A review listing is answered exactly like one that does not exist — it
+       is for the review owner's own dashboard, never for a student. */
+    if (!property || property.status === 'review') {
       return res.status(404).json({
         success: false,
         code: 'NOT_FOUND',
@@ -577,7 +588,7 @@ const getListingMeta = async (req, res, next) => {
        isDaily() can tell a nightly rate from a monthly one — see the median
        below. `status` and the sharing fields inside `categoryDetails` are
        what let the pause check below run without a second query per row. */
-    const properties = await Property.find({ status: { $ne: 'removed' } }, {
+    const properties = await Property.find({ status: { $nin: HIDDEN_STATUSES } }, {
       category: 1, place: 1, rent: 1, dailyPrice: 1, monthlyPrice: 1, categoryDetails: 1,
     }).lean();
 

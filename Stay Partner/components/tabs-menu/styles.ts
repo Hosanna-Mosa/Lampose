@@ -72,6 +72,8 @@ export const styles = StyleSheet.create({
     marginBottom: 8,
   },
   logoutLabel: { fontFamily: fonts.semibold },
+  deleteAccount: { alignItems: 'center', paddingVertical: 10, marginBottom: 8 },
+  deleteAccountLabel: { fontFamily: fonts.semibold, textDecorationLine: 'underline' },
   note: {
     marginTop: 8,
   },

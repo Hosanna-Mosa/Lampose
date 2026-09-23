@@ -74,9 +74,10 @@ const {
   getMyOffer, acceptOrder, declineOrder, getActiveOrder,
   setOrderStatus, releaseOrder, listMyOrders,
 } = require('./driverOrder.controller');
+const { AUDIENCES } = require('../accountDeletion/accountDeletion.audiences');
 const {
-  startDeletion, confirmDeletion, deletionPolicy,
-} = require('./driverDeletion.controller');
+  mountPublicDeletion, makeInAppDeletionRouter,
+} = require('../accountDeletion/accountDeletion.routes');
 const { registerDriverDevice, unregisterDriverDevice } = require('../notifications/device.controller');
 const {
   requireDriver, requireApprovedDriver, requireDriverForSupport,
@@ -126,42 +127,20 @@ router.post(
 
 /* ── Public: "delete my account", from the website ───────────────────────── *
 
-   Open to anybody, because Google Play requires a rider to be able to ask for
-   deletion from the web without the app and without signing in. The page is
-   `lampose.com/delete-account`.
+   The rider page's ORIGINAL address, kept so nothing already pointing at it
+   breaks. The page itself now serves all four apps from
+   `/api/v2/account-deletion/:app/*`; these are the same handlers and limits
+   mounted a second time — see `accountDeletion.routes.js`. */
 
-   Public does NOT mean unauthenticated in the sense that matters: nothing is
-   marked until a one-time code sent to that number comes back, which is the
-   same proof `/auth/verify` above accepts. See the controller's header.
-
-   The limits are tighter than sign-in's. A rider signs in most days; nobody
-   deletes their account twice a week, so a number asking repeatedly is
-   somebody working through a list of numbers rather than somebody leaving.
-   `confirm` is the guessing surface — six digits against one number — and the
-   per-code attempt counter in the controller is what actually stops a brute
-   force; this ceiling catches somebody cycling fresh codes to reset it. */
-
-router.get('/account/deletion/policy', byIp('driver-del-policy-ip', 60 * 60 * 1000, 120), deletionPolicy);
-
-router.post(
-  '/account/deletion/start',
-  byIp('driver-del-start-ip', 60 * 60 * 1000, 10),
-  byPhone('driver-del-start-phone', 60 * 60 * 1000, 3),
-  requireLamposeDb,
-  startDeletion,
-);
-
-router.post(
-  '/account/deletion/confirm',
-  byIp('driver-del-confirm-ip', 15 * 60 * 1000, 30),
-  byPhone('driver-del-confirm-phone', 15 * 60 * 1000, 10),
-  requireLamposeDb,
-  confirmDeletion,
-);
+mountPublicDeletion(router, AUDIENCES.driver, '/account/deletion');
 
 /* ── The signed-in rider (approval not required) ─────────────────────────── */
 
 const session = [requireLamposeDb, requireAuthConfig, requireDriver];
+
+/* Asking to leave, from inside the app. Any rider, approved or not — the one
+   whose application was refused is the one most likely to want to go. */
+router.use('/me/account-deletion', makeInAppDeletionRouter('driver', 'driver', session));
 
 router.get('/me', session, getMe);
 

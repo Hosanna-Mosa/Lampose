@@ -47,6 +47,7 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const { addressSchema, publicAddress } = require('../../shared/utils/address');
+const { deletionField } = require('../accountDeletion/accountDeletion.schema');
 
 /**
  * The last ten digits of a number, and the only safe way to match an owner to
@@ -288,6 +289,10 @@ const partnerSchema = new mongoose.Schema(
        consequences that are handled where bookings live. This flag exists so
        support can stop an abusive number ordering SMS at our expense. */
     status: { type: String, enum: ['active', 'blocked'], default: 'active' },
+
+    /* A request to delete this account — from the app or lampose.com/delete-account.
+       Marked, never removed on the spot; see accountDeletion.schema.js. */
+    deletion: deletionField(),
 
     otp: {
       hash: { type: String, default: null },

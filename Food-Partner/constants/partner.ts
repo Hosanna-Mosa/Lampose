@@ -188,15 +188,6 @@ export const INDIAN_STATES = [
   "Uttar Pradesh", "Uttarakhand", "West Bengal",
 ] as const;
 
-/**
- * The demo code.
- *
- * No SMS gateway is attached to this flow yet, and a partner walking the form
- * should not be stopped by a code that can never arrive. The error message
- * names it for exactly that reason — see the website's own handling.
- */
-export const DEMO_OTP = "1234";
-
 /* ── Commercials ─────────────────────────────────────────────────────────── */
 
 /** Shown on the contract step AND quoted on the pitch. One source, so they cannot drift. */

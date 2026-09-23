@@ -229,6 +229,11 @@ async function requireFoodPartner(req, res, next) {
 
     const restaurant = await FoodRestaurant.findOne({ restaurantId: decoded.sub });
     if (!restaurant) return deny(res, 'This account no longer exists.', 'ACCOUNT_GONE');
+    /* Erased by a deletion request (accountDeletion.eraser.js): the row stays
+       for the records that point at it, but it is nobody's account now. */
+    if (restaurant.deletion && restaurant.deletion.status === 'completed') {
+      return deny(res, 'This account no longer exists.', 'ACCOUNT_GONE');
+    }
 
     /*
      * Rejected is a dead end, and the app must be able to draw a screen for it:

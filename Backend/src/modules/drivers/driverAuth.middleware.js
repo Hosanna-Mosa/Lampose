@@ -134,6 +134,11 @@ const identifyDriver = async (req, res) => {
 
   const driver = await Driver.findOne({ driverId: decoded.sub });
   if (!driver) return { denial: deny(res, 'This account no longer exists.', 'ACCOUNT_GONE') };
+  /* Erased by a deletion request (accountDeletion.eraser.js): the row stays
+     for the records that point at it, but it is nobody's account now. */
+  if (driver.deletion && driver.deletion.status === 'completed') {
+    return { denial: deny(res, 'This account no longer exists.', 'ACCOUNT_GONE') };
+  }
 
   return { driver };
 };

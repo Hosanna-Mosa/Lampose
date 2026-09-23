@@ -59,6 +59,7 @@
    the only way they cannot disagree is for there to be one of them.
    ══════════════════════════════════════════════════════════════════════════ */
 const mongoose = require('mongoose');
+const { deletionField } = require('../accountDeletion/accountDeletion.schema');
 const crypto = require('crypto');
 
 const { addressSchema } = require('../../shared/utils/address');
@@ -355,55 +356,14 @@ const driverSchema = new mongoose.Schema(
     },
 
     /*
-     * The rider asked us to delete their account.
-     *
-     * A REQUEST, not the deletion. Google Play requires a way to ask for this
-     * from the open web, without the app and without signing in, and the page
-     * at lampose.com/delete-account is that route — which means the thing on
-     * the other end of it must not be a delete. Anybody can type a phone
-     * number into a public form; what proves it is theirs is the one-time code
-     * this flow sends to it, and even then the row is marked rather than
-     * removed.
-     *
-     * Why marked rather than removed even after the code is right:
-     *
-     *   · A rider mid-delivery has somebody's dinner on their bike. Deleting
-     *     the row underneath a live order strands it.
-     *   · Payouts owed have to be paid, and the payment records that prove
-     *     they were paid are books of account we are required to keep.
-     *   · A tap made in anger at 11pm is one people ask us to undo the next
-     *     morning, and `scheduledFor` is the window in which we still can.
-     *
-     * `status` here is the request's, never the account's — `status` on the
-     * driver stays whatever an administrator set it to. The two are separate
-     * questions and collapsing them would make "suspended" and "asked to
-     * leave" the same word.
+     * The rider asked us to delete their account — from the app or from
+     * lampose.com/delete-account. A REQUEST, not the deletion: a rider
+     * mid-delivery has somebody's dinner on their bike, and payouts owed have
+     * to be paid first. The shape is shared by all four self-serve identities;
+     * see accountDeletion.schema.js. `status` there is the request's, never
+     * the account's.
      */
-    deletion: {
-      status: {
-        type: String,
-        enum: ['none', 'requested', 'cancelled', 'completed'],
-        default: 'none',
-        index: true,
-      },
-      requestedAt: { type: Date, default: null },
-      /* When the request becomes eligible to be carried out. The grace period
-         is the rider's chance to change their mind and ours to settle what is
-         owed. */
-      scheduledFor: { type: Date, default: null },
-      processedAt: { type: Date, default: null },
-      /* Optional, and free text the rider typed. Trimmed and capped because it
-         is printed in an admin console. */
-      reason: { type: String, default: '', trim: true, maxlength: 500 },
-      /* Where to write back about the request, when they gave one. Kept apart
-         from `email` on the account: a rider may ask to be deleted from an
-         address they never registered, and overwriting the registered one
-         would be an unverified change to the account they are leaving. */
-      contactEmail: { type: String, default: '', lowercase: true, trim: true },
-      /* `web` today. Named so a later in-app request is distinguishable in the
-         queue without guessing from timestamps. */
-      source: { type: String, default: '' },
-    },
+    deletion: deletionField(),
   },
   { timestamps: true, collection: 'app_drivers', strict: true },
 );

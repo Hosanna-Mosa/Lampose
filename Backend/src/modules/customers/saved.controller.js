@@ -81,7 +81,9 @@ const addSaved = async (req, res, next) => {
        something that does not exist would put a row on the shortlist that can
        never render. */
     const property = await Property.findById(listingId).lean();
-    if (!property) {
+    /* The review owner's sample listing is invisible to students, so it cannot
+       be saved either — see listing.controller.js#HIDDEN_STATUSES. */
+    if (!property || property.status === 'review') {
       return res.status(404).json({
         success: false, code: 'NOT_FOUND', message: 'That listing is no longer available.',
       });

@@ -36,6 +36,27 @@ import type { Locality } from '@/types/auth';
 
 const LOCALITY_KEY = '@lampose/locality';
 const CATEGORY_KEY = '@lampose/category';
+const ONBOARDING_KEY = '@lampose/onboarding';
+
+/**
+ * Where a first-time user is in the walk-through every new install gets:
+ *
+ *   auth      → the sign-in screen (a code, or Skip / Continue as guest)
+ *   category  → the category grid
+ *   locality  → the location screen
+ *   done      → the app
+ *
+ * Persisted, so a user who closes the app halfway resumes at the step they
+ * left rather than starting over — and so it never runs twice on one install.
+ *
+ * Each step is shown IN FULL even when its answer is already known — a
+ * category adopted from the account on a reinstall, say — because the point
+ * of the walk-through is that every new user sees it, not that it fills blanks.
+ * `app/index.tsx` routes on this; `category` and `locality` being null are
+ * the fallback for anyone past it.
+ */
+export type OnboardingStep = 'auth' | 'category' | 'locality' | 'done';
+const STEPS: readonly OnboardingStep[] = ['auth', 'category', 'locality', 'done'];
 
 type AppStateValue = {
   /** True until the stored values have been read. */
@@ -55,6 +76,17 @@ type AppStateValue = {
    * two are the same act, so they are the same function.
    */
   setCategory: (category: StayCategory) => Promise<void>;
+
+  /** The first-run walk-through's current step. See `OnboardingStep`. */
+  onboarding: OnboardingStep;
+  /**
+   * Marks `step` finished and moves to the one after it. A no-op once the
+   * walk-through is PAST that step, so screens reached again later — sign-in
+   * from a Save button, the category screen from the tabs — can call it
+   * without effect. From an EARLIER step it jumps forward: a session that
+   * survived a reinstall skips sign-in and starts at the category grid.
+   */
+  completeOnboardingStep: (step: Exclude<OnboardingStep, 'done'>) => Promise<void>;
 };
 
 const AppStateContext = createContext<AppStateValue | null>(null);
@@ -63,6 +95,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [hydrating, setHydrating] = useState(true);
   const [locality, setLocalityState] = useState<Locality | null>(null);
   const [category, setCategoryState] = useState<StayCategory | null>(null);
+  const [onboarding, setOnboarding] = useState<OnboardingStep>('auth');
 
   /* This provider sits inside AuthProvider in `app/_layout.tsx`, which is
      what makes the mirror below possible. If the two are ever reordered,
@@ -71,9 +104,22 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    Promise.all([AsyncStorage.getItem(LOCALITY_KEY), AsyncStorage.getItem(CATEGORY_KEY)])
-      .then(([storedLocality, storedCategory]) => {
+    Promise.all([
+      AsyncStorage.getItem(LOCALITY_KEY),
+      AsyncStorage.getItem(CATEGORY_KEY),
+      AsyncStorage.getItem(ONBOARDING_KEY),
+    ])
+      .then(([storedLocality, storedCategory, storedStep]) => {
         if (!active) return;
+        if (storedStep && (STEPS as readonly string[]).includes(storedStep)) {
+          setOnboarding(storedStep as OnboardingStep);
+        } else if (storedLocality && storedCategory) {
+          /* Installed before the walk-through existed and already past both
+             questions: not a first-time user, so they are not sent back
+             through it. Written down so this guess is made once. */
+          setOnboarding('done');
+          void AsyncStorage.setItem(ONBOARDING_KEY, 'done');
+        }
         if (storedLocality) {
           try {
             setLocalityState(JSON.parse(storedLocality) as Locality);
@@ -133,9 +179,21 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     await AsyncStorage.setItem(CATEGORY_KEY, next);
   }, [syncCategory]);
 
+  const completeOnboardingStep = useCallback(
+    async (step: Exclude<OnboardingStep, 'done'>) => {
+      if (STEPS.indexOf(onboarding) > STEPS.indexOf(step)) return;
+      const next = STEPS[STEPS.indexOf(step) + 1];
+      setOnboarding(next);
+      await AsyncStorage.setItem(ONBOARDING_KEY, next);
+    },
+    [onboarding],
+  );
+
   const value = useMemo<AppStateValue>(
-    () => ({ hydrating, locality, setLocality, category, setCategory }),
-    [hydrating, locality, setLocality, category, setCategory],
+    () => ({
+      hydrating, locality, setLocality, category, setCategory, onboarding, completeOnboardingStep,
+    }),
+    [hydrating, locality, setLocality, category, setCategory, onboarding, completeOnboardingStep],
   );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;

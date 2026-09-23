@@ -87,6 +87,14 @@ const jwtSecret = rawJwtSecret || (isProduction ? '' : DEV_JWT_SECRET);
 const adminSecretKey = String(process.env.ADMIN_SECRET_KEY || process.env.ADMIN_PASSWORD || '').trim()
   || (isProduction ? '' : 'admin_secret_123');
 
+/** An email + password pair from the environment, or null if either is missing or weak. */
+const reviewCredential = (emailKey, passwordKey) => {
+  const email = String(process.env[emailKey] || '').trim().toLowerCase();
+  const password = String(process.env[passwordKey] || '');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) || password.length < 8) return null;
+  return { email, password };
+};
+
 const config = {
   nodeEnv: NODE_ENV,
   isProduction,
@@ -447,6 +455,31 @@ const config = {
        token still outlives that distinction; revocation is what actually
        bounds it, not the TTL. See admins/adminToken.js. */
     adminSessionTtl: process.env.ADMIN_SESSION_TTL || '7d',
+    /*
+     * The store-review sign-in for the User App: one number that is answered
+     * with a FIXED code and no SMS, so an App Store / Play reviewer can sign in
+     * without a SIM. Everything after the code is the real flow on a real
+     * account — see `customers/customer.controller.js#issueOtp`.
+     *
+     * Both from the environment, never defaulted in source: a fixed code for a
+     * known number is a credential. Off unless BOTH are set and well-formed.
+     */
+    reviewLogin: (() => {
+      const digits = String(process.env.REVIEW_LOGIN_PHONE || '').replace(/\D/g, '').slice(-10);
+      const otp = String(process.env.REVIEW_LOGIN_OTP || '').trim();
+      if (!/^[6-9]\d{9}$/.test(digits) || !/^\d{6}$/.test(otp)) return null;
+      return { phone: `+91${digits}`, otp };
+    })(),
+    /*
+     * The Stay Partner and Food-Partner review accounts: an email and a
+     * password each, signing in through the apps' ordinary password login.
+     * Both accounts are created and kept usable by
+     * `reviewAccounts/reviewAccounts.service.js` at every connect, and they
+     * carry the review phone above as their (required) number — so each is
+     * off unless REVIEW_LOGIN_PHONE is set too.
+     */
+    reviewPartner: reviewCredential('REVIEW_PARTNER_EMAIL', 'REVIEW_PARTNER_PASSWORD'),
+    reviewRestaurant: reviewCredential('REVIEW_RESTAURANT_EMAIL', 'REVIEW_RESTAURANT_PASSWORD'),
     adminSecretKey,
     /*
      * Guards the v2 routes that only ever run behind the leads panel's login

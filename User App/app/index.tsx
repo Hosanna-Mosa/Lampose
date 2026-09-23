@@ -12,10 +12,23 @@ import { useAuth } from '@/context/AuthContext';
  * and first-run flags hydrate, then hands over:
  *
  *   still hydrating           → wait
+ *   first run (`onboarding`)  → sign-in, then categories, then locality —
+ *                               every step, in order, for every new install
  *   no category yet           → the category choice, which is REQUIRED and
  *                               filters everything after it
  *   no locality yet           → the one-time location screen
  *   otherwise                 → home
+ *
+ * ## The first run is a walk-through, not a set of blanks
+ *
+ * A new install sees the sign-in screen FIRST — even though browsing needs no
+ * account, and even though no session means the status is already `'guest'`.
+ * Signing in with a code, "Continue as guest" and "Skip" all end that step.
+ * Then the category grid, then the location screen, each shown even if its
+ * answer is already known (a category restored from the account after a
+ * reinstall, say). `onboarding` in `AppStateContext` is the persisted cursor.
+ * Once it reads `done` it is never consulted again, and the rest of this file
+ * behaves exactly as it did before the walk-through existed.
  *
  * Auth moved to the front on 15 Aug 2026 ("an account is required for
  * everything"), and that has been reversed again: browsing needs no account,
@@ -63,7 +76,7 @@ let splashPlayed = false;
 
 export default function Index() {
   const { status } = useAuth();
-  const { hydrating, locality, category } = useAppState();
+  const { hydrating, locality, category, onboarding } = useAppState();
   const [splashDone, setSplashDone] = useState(splashPlayed);
 
   const ready = status !== 'hydrating' && !hydrating;
@@ -81,6 +94,15 @@ export default function Index() {
       />
     );
   }
+
+  /* The first-run walk-through. A session on a fresh install (the iOS
+     keychain survives a reinstall) has nothing to sign in for, so it starts
+     at the category step instead. */
+  if (onboarding === 'auth' && status !== 'signedIn') return <Redirect href="/(entry)/auth" />;
+  if (onboarding === 'auth' || onboarding === 'category') {
+    return <Redirect href="/(entry)/categories" />;
+  }
+  if (onboarding === 'locality') return <Redirect href="/(entry)/locality" />;
 
   // Guest or signed in, both browse — see the header. Anything else
   // ('hydrating' cannot reach here past `ready` above; 'awaitingCode' means

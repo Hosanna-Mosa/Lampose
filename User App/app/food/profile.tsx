@@ -118,12 +118,16 @@ export default function FoodProfileScreen() {
                 router.replace('/');
               }}
             />
-            <ProfileRow label="Delete my account" destructive last />
+            <ProfileRow
+              label="Delete account"
+              destructive
+              last
+              onPress={() => router.push('/profile/delete-account')}
+            />
           </ProfileGroup>
           <Text variant="caption" color="tertiary">
-            Deleting removes your profile, saved places and search history. Your completed
-            bookings and their agreements stay with us for 7 years — we are required to keep them,
-            and you may need them. An active booking must end before you can delete.
+            Deleting is scheduled, not immediate — you can cancel it until the date we give you.
+            Completed bookings, agreements and orders are kept for as long as the law requires.
           </Text>
         </View>
       </ScrollView>

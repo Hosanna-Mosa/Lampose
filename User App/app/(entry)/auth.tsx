@@ -26,6 +26,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { Button, Icon, InlineAlert, OtpInput, type OtpState } from '@/components/ui';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
+import { useAppState } from '@/context/AppStateContext';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { isValidIndianMobile, phoneError, sendFailureCopy } from '@/types/auth';
@@ -54,12 +55,21 @@ export default function AuthScreen() {
     failureMessage,
     pendingPhone,
     pendingPhoneMasked,
-    signInWithPassword,
     resumePendingIntent,
     continueAsGuest,
   } = useAuth();
 
   const { next } = useLocalSearchParams<{ next?: string }>();
+  const { completeOnboardingStep } = useAppState();
+
+  /* Every way past this screen that is not a code. On a first run it ends the
+     sign-in step of the walk-through, and `/` then sends the student on to the
+     category grid; any other time it is just "browse without an account". */
+  const leaveAsGuest = async () => {
+    continueAsGuest();
+    await completeOnboardingStep('auth');
+    router.replace('/');
+  };
 
   // Front Form State (Phone)
   const [digits, setDigits] = useState('');
@@ -89,15 +99,6 @@ export default function AuthScreen() {
   const flipValue = useSharedValue(0);
   const [isFlipped, setIsFlipped] = useState(false);
 
-  /* The Play Console review sign-in. A separate panel rather than a third face
-     of the flip card above: that animation interpolates between exactly two
-     sides, and threading a third through it would risk the real sign-in for
-     the sake of a temporary one. See `services/demoMode.ts`. */
-  const [showPassword, setShowPassword] = useState(false);
-  const [emailValue, setEmailValue] = useState('');
-  const [passwordValue, setPasswordValue] = useState('');
-  const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [passwordBusy, setPasswordBusy] = useState(false);
 
   // Sync flip state with pendingPhone if we load directly into OTP
   useEffect(() => {
@@ -200,6 +201,7 @@ export default function AuthScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch {}
       setOtpState('idle');
+      await completeOnboardingStep('auth');
 
       /* A held action (from `requireSignIn`) wins over the ordinary
          destination — it already returned to the screen it was called from
@@ -256,128 +258,6 @@ export default function AuthScreen() {
           ? `That code is wrong — ${attemptsLeft} ${attemptsLeft === 1 ? 'try' : 'tries'} left.`
           : undefined);
 
-  const submitPassword = async () => {
-    if (!emailValue.trim() || !passwordValue || passwordBusy) return;
-    setPasswordBusy(true);
-    setPasswordError(null);
-    try {
-      const result = await signInWithPassword(emailValue, passwordValue);
-      if (!result.ok) {
-        setPasswordError(result.message ?? 'That email address and password do not match.');
-        return;
-      }
-      /* Same rule as a verified code: a held action wins over the ordinary
-         destination. */
-      if (!resumePendingIntent()) {
-        /* The same destination a verified code reaches. `next` is honoured so
-           a reviewer who deep-linked somewhere lands back there. */
-        /* `as never` because typedRoutes cannot know a runtime `next`; the
-           same cast the rest of this app uses for a computed path. */
-        router.replace(((next as string) || '/') as never);
-      }
-    } finally {
-      setPasswordBusy(false);
-    }
-  };
-
-  if (showPassword) {
-    return (
-      <View style={styles.rootContainer}>
-        <StatusBar style="dark" />
-        <Pressable
-          onPress={() => {
-            setShowPassword(false);
-            setPasswordError(null);
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-          hitSlop={12}
-          style={[styles.backButton, { top: insets.top + 12 }]}
-        >
-          <Icon name="chevronLeft" size={24} color="#12211A" />
-        </Pressable>
-        <KeyboardAwareScrollViewCompat
-          contentContainerStyle={[styles.pwScroll, { paddingTop: insets.top + 64 }]}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Text style={styles.pwTitle}>Log in</Text>
-          <Text style={styles.pwSubtitle}>
-            Enter the email address and password for your account.
-          </Text>
-
-          <TextInput
-            style={styles.pwInput}
-            value={emailValue}
-            onChangeText={(v) => { setEmailValue(v); setPasswordError(null); }}
-            placeholder="you@email.com"
-            placeholderTextColor="#9AA0A6"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            textContentType="emailAddress"
-            autoComplete="email"
-            returnKeyType="next"
-          />
-
-          <TextInput
-            style={styles.pwInput}
-            value={passwordValue}
-            onChangeText={(v) => { setPasswordValue(v); setPasswordError(null); }}
-            placeholder="Your password"
-            placeholderTextColor="#9AA0A6"
-            secureTextEntry
-            autoCapitalize="none"
-            autoCorrect={false}
-            textContentType="password"
-            autoComplete="current-password"
-            returnKeyType="go"
-            onSubmitEditing={submitPassword}
-          />
-
-          {passwordError ? (
-            <View style={{ marginTop: 12 }}>
-              <InlineAlert tone="error" title={passwordError} />
-            </View>
-          ) : null}
-
-          <Pressable
-            onPress={submitPassword}
-            disabled={!emailValue.trim() || !passwordValue || passwordBusy}
-            style={({ pressed }) => [
-              styles.primaryButtonPress,
-              { marginTop: 24 },
-              pressed && !passwordBusy ? { opacity: 0.92 } : null,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Log in"
-          >
-            <LinearGradient
-              colors={['#1E7B4C', '#0E6342', '#0A563A']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-              style={styles.primaryButton}
-            >
-              {passwordBusy ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Text style={styles.primaryButtonText}>Log in</Text>
-              )}
-            </LinearGradient>
-          </Pressable>
-
-          <View style={{ marginTop: 16 }}>
-            <Button
-              label="Use my mobile number instead"
-              variant="ghost"
-              fullWidth
-              onPress={() => { setShowPassword(false); setPasswordError(null); }}
-            />
-          </View>
-        </KeyboardAwareScrollViewCompat>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.rootContainer}>
       <StatusBar style="dark" />
@@ -396,8 +276,7 @@ export default function AuthScreen() {
           } else if (router.canGoBack()) {
             router.back();
           } else {
-            continueAsGuest();
-            router.replace('/');
+            void leaveAsGuest();
           }
         }}
         accessibilityRole="button"
@@ -409,10 +288,7 @@ export default function AuthScreen() {
       </Pressable>
 
       <Pressable
-        onPress={() => {
-          continueAsGuest();
-          router.replace('/');
-        }}
+        onPress={() => void leaveAsGuest()}
         accessibilityRole="button"
         accessibilityLabel="Skip sign-in and browse"
         hitSlop={12}
@@ -627,13 +503,17 @@ export default function AuthScreen() {
                   </Pressable>
                 </Animated.View>
 
-                {/* The review sign-in. Students use the number above. */}
+                {/* Browsing needs no account, so the way past sign-in is a real
+                    button, not only the small Skip in the corner. No account,
+                    fake or otherwise, is created — the app simply opens as a
+                    guest, and anything that needs an account asks for one
+                    when it is tapped (`requireSignIn`). */}
                 <View style={{ marginTop: 12 }}>
                   <Button
-                    label="Log in with email and password"
+                    label="Continue as guest"
                     variant="ghost"
                     fullWidth
-                    onPress={() => setShowPassword(true)}
+                    onPress={() => void leaveAsGuest()}
                   />
                 </View>
 
@@ -784,22 +664,6 @@ const styles = StyleSheet.create({
   },
   skipButtonText: { fontSize: 13, fontWeight: '600', color: '#3D4247' },
 
-  /* The review sign-in panel. Plain on purpose — it is temporary, and styling
-     it to match the animated card would make it harder to delete cleanly. */
-  pwScroll: { paddingHorizontal: 24, paddingTop: 96, paddingBottom: 48 },
-  pwTitle: { fontSize: 30, fontWeight: '700', color: '#12211A' },
-  pwSubtitle: { fontSize: 15, color: '#5B6B63', marginTop: 8, marginBottom: 28, lineHeight: 21 },
-  pwInput: {
-    borderWidth: 1,
-    borderColor: '#D7DEDA',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: '#12211A',
-    backgroundColor: '#FFFFFF',
-    marginBottom: 14,
-  },
   rootContainer: {
     flex: 1,
     backgroundColor: '#FFFFFF',

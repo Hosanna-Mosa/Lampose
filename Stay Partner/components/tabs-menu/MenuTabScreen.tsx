@@ -157,6 +157,18 @@ export function MenuTabScreen() {
           Log out
         </Text>
       </Tappable>
+
+      {/* Quieter than Log out, and a door rather than an action: the screen
+          behind it explains what is kept, asks, and offers the way back. */}
+      <Tappable
+        onPress={() => router.push('/settings/delete-account')}
+        accessibilityRole="button"
+        style={({ pressed }) => [styles.deleteAccount, { opacity: pressed ? 0.6 : 1 }]}
+      >
+        <Text variant="caption" color="textSecondary" style={styles.deleteAccountLabel}>
+          Delete account
+        </Text>
+      </Tappable>
     </Screen>
   );
 }

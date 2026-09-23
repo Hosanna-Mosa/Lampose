@@ -106,6 +106,8 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
 
+const { deletionField } = require('../accountDeletion/accountDeletion.schema');
+
 /* The cuisines the website's onboarding form offers — kept in step with
    `Frontend/src/data/partner.js` CUISINE_OPTIONS, which is what a partner is
    actually shown. NOT an enum on the field: a kitchen that types "Andhra
@@ -726,6 +728,10 @@ const foodRestaurantSchema = new mongoose.Schema(
      * the other would split the listing screen in half.
      */
     partnerType: { type: String, enum: PARTNER_TYPES, default: 'food', index: true },
+
+    /* A request to delete this account — from the app or lampose.com/delete-account.
+       Marked, never removed on the spot; see accountDeletion.schema.js. */
+    deletion: deletionField(),
   },
   {
     timestamps: true,

@@ -101,6 +101,23 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
+/**
+ * Renders its children in the LIGHT palette, whatever the app is set to.
+ *
+ * For the few screens that are designed for one appearance only — the
+ * first-run category grid is one. Everything inside that reads `useTheme` or
+ * `useColors` (Text, Button, cards) gets light colours; the preference itself
+ * is untouched, so the rest of the app keeps following it.
+ */
+export function LightThemeScope({ children }: { children: React.ReactNode }) {
+  const outer = useTheme();
+  const value = useMemo<ThemeContextValue>(
+    () => ({ ...outer, mode: 'light', colors: palettes.light }),
+    [outer],
+  );
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+}
+
 export function useTheme(): ThemeContextValue {
   const context = useContext(ThemeContext);
   if (!context) throw new Error('useTheme must be used inside ThemeProvider');
