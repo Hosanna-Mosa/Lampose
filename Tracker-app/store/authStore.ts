@@ -17,6 +17,9 @@ import { secureFields } from "@/services/secureStore";
 import { setSessionExpiredHandler, type ApiError } from "@/services/api";
 import { getMe, login as loginRequest, type SalesRep } from "@/services/auth";
 import { sendLocation, setDuty as setDutyRequest } from "@/services/tracking";
+/* Also what registers the background task — see that file on why it must be
+   defined at import time. */
+import { startDutyTracking, stopDutyTracking } from "@/services/backgroundLocation";
 
 export type Session = { token: string; salesRep: SalesRep };
 
@@ -101,10 +104,12 @@ export const useAuthStore = create<AuthState>()(
       },
 
       signOut: () => {
+        void stopDutyTracking();
         set({ session: null, sessionExpired: false });
       },
 
       acknowledgeSessionExpired: () => {
+        void stopDutyTracking();
         set({ session: null, sessionExpired: false });
       },
 
@@ -122,7 +127,12 @@ export const useAuthStore = create<AuthState>()(
             const coords = await getLocationFix();
             const salesRep = await setDutyRequest(token, true, coords);
             set((state) => (state.session ? { session: { ...state.session, salesRep } } : {}));
+            /* Keeps sending with the app minimised or closed. A refused
+               "Allow all the time" leaves the rep online anyway, reported
+               only while the app is open — see `useDutyLocationHeartbeat`. */
+            await startDutyTracking();
           } else {
+            await stopDutyTracking();
             const salesRep = await setDutyRequest(token, false);
             set((state) => (state.session ? { session: { ...state.session, salesRep } } : {}));
           }
@@ -149,6 +159,9 @@ export const useAuthStore = create<AuthState>()(
         try {
           const salesRep = await getMe(token);
           set((state) => (state.session ? { session: { ...state.session, salesRep } } : {}));
+          /* The server's word on duty wins over whatever the service is
+             doing — offline there means nothing should be running here. */
+          if (!salesRep.onDuty) void stopDutyTracking();
         } catch (err) {
           /* A dead token is handled by the session-expired flow below, fired
              from `api()` itself. A dropped connection is not a dead session —
