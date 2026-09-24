@@ -12,20 +12,28 @@ const BASE = "/api/v2/sales";
 type DutyResponse = { success: true; data: { salesRep: SalesRep } };
 
 /** Turning ON requires a starting fix; turning OFF does not. */
-export async function setDuty(token: string, onDuty: boolean, coords?: { lat: number; lng: number }) {
+export async function setDuty(
+  token: string,
+  onDuty: boolean,
+  coords?: { lat: number; lng: number; accuracy?: number | null },
+) {
   const res = await api<DutyResponse>(`${BASE}/me/duty`, {
     method: "PATCH",
     token,
-    body: onDuty ? { onDuty: true, lat: coords?.lat, lng: coords?.lng } : { onDuty: false },
+    body: onDuty
+      ? { onDuty: true, lat: coords?.lat, lng: coords?.lng, accuracy: coords?.accuracy ?? undefined }
+      : { onDuty: false },
   });
   return res.data.salesRep;
 }
 
-/** Refused by the server with a 409 while off duty — see the controller. */
-export async function sendLocation(token: string, lat: number, lng: number) {
+/** Refused by the server with a 409 while off duty — see the controller.
+ *  `accuracy` is the fix's radius in metres, as the OS reports it; the admin
+ *  map drops fixes too vague to draw a path through. */
+export async function sendLocation(token: string, lat: number, lng: number, accuracy?: number | null) {
   await api(`${BASE}/me/location`, {
     method: "PATCH",
     token,
-    body: { lat, lng },
+    body: { lat, lng, accuracy: accuracy ?? undefined },
   });
 }

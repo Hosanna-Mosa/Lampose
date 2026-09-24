@@ -35,15 +35,15 @@ export type Session = { token: string; salesRep: SalesRep };
  */
 const FRESH_FIX_TIMEOUT_MS = 8000;
 
-const getLocationFix = async (): Promise<{ lat: number; lng: number }> => {
+const getLocationFix = async (): Promise<{ lat: number; lng: number; accuracy: number | null }> => {
   try {
     const fresh = await Promise.race([
-      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
       new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error("TIMEOUT")), FRESH_FIX_TIMEOUT_MS);
       }),
     ]);
-    return { lat: fresh.coords.latitude, lng: fresh.coords.longitude };
+    return { lat: fresh.coords.latitude, lng: fresh.coords.longitude, accuracy: fresh.coords.accuracy };
   } catch {
     const last = await Location.getLastKnownPositionAsync();
     if (!last) {
@@ -51,7 +51,7 @@ const getLocationFix = async (): Promise<{ lat: number; lng: number }> => {
         "Could not get your location. Make sure location is turned on for this app and try again.",
       );
     }
-    return { lat: last.coords.latitude, lng: last.coords.longitude };
+    return { lat: last.coords.latitude, lng: last.coords.longitude, accuracy: last.coords.accuracy };
   }
 };
 
@@ -82,7 +82,7 @@ type AuthState = {
    * `pushLocation` — a screen mid-visit must not see an error banner because
    * one heartbeat among hundreds dropped.
    */
-  pushLocation: (lat: number, lng: number) => void;
+  pushLocation: (lat: number, lng: number, accuracy?: number | null) => void;
   /** Re-checks the stored token against the server, once, at launch — the
       same reason every other Lampose app's cold-start effect calls `/me`:
       a token cached as valid may have been revoked since the app was last
@@ -141,11 +141,11 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      pushLocation: (lat, lng) => {
+      pushLocation: (lat, lng, accuracy) => {
         const token = get().session?.token;
         const onDuty = get().session?.salesRep?.onDuty;
         if (!token || !onDuty) return;
-        void sendLocation(token, lat, lng).catch(() => {
+        void sendLocation(token, lat, lng, accuracy).catch(() => {
           /* A dropped connection or a momentary 409 (raced with going
              offline) is not something a rep mid-visit needs to see — the
              next fix tries again. A dead token is handled by the

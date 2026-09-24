@@ -156,6 +156,7 @@ const getSalesRepPath = async (req, res) => {
         path: pings.map((p) => ({
           lat: p.location.coordinates[1],
           lng: p.location.coordinates[0],
+          accuracy: p.accuracy ?? null,
           at: p.recordedAt,
         })),
       },

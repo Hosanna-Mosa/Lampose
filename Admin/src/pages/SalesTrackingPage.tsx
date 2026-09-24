@@ -50,7 +50,10 @@
    configured" state in this codebase uses instead of silently failing.
    ══════════════════════════════════════════════════════════════════════════ */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { GoogleMap, Marker, Polyline, useJsApiLoader } from '@react-google-maps/api';
+/* The `F` (function component) overlays, not `Marker`/`Polyline`: the class
+   versions leak their overlay on unmount under React StrictMode, which left
+   old lines drawn underneath the current one. */
+import { GoogleMap, MarkerF, PolylineF, useJsApiLoader } from '@react-google-maps/api';
 import {
   AlertTriangle, MapPinned, Plus, RefreshCw, Radio, WifiOff,
 } from 'lucide-react';
@@ -76,6 +79,7 @@ import { filterBySearch } from '../components/common/utils';
 import {
   salesTrackingService, type SalesRepPathPoint, type SalesRepPathRange, type SalesRepRow,
 } from '../api/services/salesTrackingService';
+import { useRoadSnappedPath } from '../lib/roadPath';
 
 const MAPS_API_KEY = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || '';
 
@@ -83,6 +87,25 @@ const MAPS_API_KEY = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || '';
    is a new array/object identity on every render. */
 const MAP_LIBRARIES: 'places'[] = [];
 const MAP_CONTAINER_STYLE = { width: '100%', height: '420px', borderRadius: '12px' };
+
+/* Both set `icons` and `strokeOpacity`, so switching one line between them
+   fully replaces the other style rather than leaving dashes on a solid line. */
+const SNAPPED_PATH_OPTIONS = {
+  strokeColor: '#2563eb',
+  strokeWeight: 4,
+  strokeOpacity: 0.85,
+  icons: [],
+};
+
+const DASHED_PATH_OPTIONS = {
+  strokeColor: '#2563eb',
+  strokeOpacity: 0,
+  icons: [{
+    icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.8, strokeColor: '#2563eb', scale: 3 },
+    offset: '0',
+    repeat: '12px',
+  }],
+};
 
 const ROSTER_POLL_MS = 20000;
 const PATH_POLL_MS = 8000;
@@ -438,6 +461,11 @@ function SalesRepMapModal({ salesRep, onClose }: { salesRep: SalesRepRow; onClos
     return () => window.clearInterval(timer);
   }, [loadPath]);
 
+  /* Raw fixes joined point-to-point zig-zag through buildings — see
+     `lib/roadPath.ts`. A solid line is a road-snapped route; a dashed one is
+     the cleaned fixes, shown only when snapping is unavailable. */
+  const { path: drawnPath, snapped } = useRoadSnappedPath(path, MAPS_API_KEY);
+
   const last = path[path.length - 1];
   const center = last ?? (rep.currentLocation ? { lat: rep.currentLocation[1], lng: rep.currentLocation[0] } : null);
   const rangeLabel = formatRange(since, until);
@@ -513,21 +541,21 @@ function SalesRepMapModal({ salesRep, onClose }: { salesRep: SalesRepRow; onClos
           </Box>
         ) : (
           <GoogleMap mapContainerStyle={MAP_CONTAINER_STYLE} center={center} zoom={15}>
-            {path.length > 1 && (
-              <Polyline
-                path={path.map((p) => ({ lat: p.lat, lng: p.lng }))}
-                options={{ strokeColor: '#2563eb', strokeWeight: 3, strokeOpacity: 0.8 }}
+            {drawnPath.length > 1 && (
+              <PolylineF
+                path={drawnPath}
+                options={snapped ? SNAPPED_PATH_OPTIONS : DASHED_PATH_OPTIONS}
               />
             )}
             {path[0] && path.length > 1 && (
-              <Marker
+              <MarkerF
                 position={{ lat: path[0].lat, lng: path[0].lng }}
                 label={{ text: 'Start', fontSize: '11px' }}
                 opacity={0.75}
               />
             )}
             {last && (
-              <Marker position={{ lat: last.lat, lng: last.lng }} label={{ text: rep.name.charAt(0).toUpperCase(), fontSize: '11px' }} />
+              <MarkerF position={{ lat: last.lat, lng: last.lng }} label={{ text: rep.name.charAt(0).toUpperCase(), fontSize: '11px' }} />
             )}
           </GoogleMap>
         )}

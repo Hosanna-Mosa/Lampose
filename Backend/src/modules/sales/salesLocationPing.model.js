@@ -43,6 +43,11 @@ const salesLocationPingSchema = new mongoose.Schema(
   {
     salesRepId: { type: String, required: true, index: true },
     location: { type: pointSchema, required: true },
+    /* The fix's radius in metres, as the phone reported it. Null on rows
+       written before the app sent it. The admin map drops vague fixes — a
+       Wi-Fi/cell position can be 500 m off, and joined into a path it draws
+       streets the rep never walked. */
+    accuracy: { type: Number, default: null },
     recordedAt: { type: Date, required: true, default: Date.now },
   },
   { collection: 'sales_location_pings' },
