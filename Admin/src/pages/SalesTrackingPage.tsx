@@ -22,6 +22,16 @@
    gating its own location watcher on duty status rather than the app being
    open at all.
 
+   ## "Online" means on duty AND heard from recently
+
+   `onDuty` is the rep's own switch and nothing on the server turns it off,
+   so a phone that is force-stopped, dead or out of signal stays `onDuty`
+   forever on the one position it last sent. The Tracker app reports every
+   ~15 seconds while online (in the background too), so a rep on duty whose
+   last fix is older than `SIGNAL_LOST_MS` is shown as "Signal lost" rather
+   than "Online" — a stale position presented as live is the trap
+   `locationUpdatedAt` exists to avoid.
+
    ## The time window
 
    `SalesRepMapModal` can ask for more than "now": a rolling last-N-hours
@@ -42,7 +52,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { GoogleMap, Marker, Polyline, useJsApiLoader } from '@react-google-maps/api';
 import {
-  AlertTriangle, MapPinned, Plus, RefreshCw, Radio,
+  AlertTriangle, MapPinned, Plus, RefreshCw, Radio, WifiOff,
 } from 'lucide-react';
 
 import { Badge } from '../components/common/atoms/Badge';
@@ -76,6 +86,29 @@ const MAP_CONTAINER_STYLE = { width: '100%', height: '420px', borderRadius: '12p
 
 const ROSTER_POLL_MS = 20000;
 const PATH_POLL_MS = 8000;
+
+/* Generous against Android batching fixes during doze, tight enough that a
+   dead phone stops reading as live within minutes. */
+const SIGNAL_LOST_MS = 5 * 60 * 1000;
+
+type Presence = 'online' | 'lost' | 'offline';
+
+const presenceOf = (rep: SalesRepRow): Presence => {
+  if (!rep.onDuty) return 'offline';
+  const at = rep.locationUpdatedAt ? new Date(rep.locationUpdatedAt).getTime() : NaN;
+  return Number.isFinite(at) && Date.now() - at <= SIGNAL_LOST_MS ? 'online' : 'lost';
+};
+
+const PresenceBadge: React.FC<{ rep: SalesRepRow }> = ({ rep }) => {
+  const presence = presenceOf(rep);
+  if (presence === 'online') return <Badge tone="good" icon={Radio}>Online</Badge>;
+  if (presence === 'lost') return <Badge tone="warn" icon={WifiOff}>Signal lost</Badge>;
+  return <Badge tone="neutral">Offline</Badge>;
+};
+
+const PRESENCE_LABEL: Record<Presence, string> = {
+  online: 'Online', lost: 'Signal lost', offline: 'Offline',
+};
 
 const ago = (iso: string | null): string => {
   if (!iso) return 'Never';
@@ -136,7 +169,8 @@ export const SalesTrackingPage: React.FC<Props> = ({ search = '' }) => {
     [rows, search],
   );
 
-  const onlineCount = useMemo(() => rows.filter((r) => r.onDuty).length, [rows]);
+  const onlineCount = useMemo(() => rows.filter((r) => presenceOf(r) === 'online').length, [rows]);
+  const lostCount = useMemo(() => rows.filter((r) => presenceOf(r) === 'lost').length, [rows]);
 
   return (
     <Box className="space-y-5">
@@ -157,6 +191,12 @@ export const SalesTrackingPage: React.FC<Props> = ({ search = '' }) => {
           <Box className="text-label uppercase tracking-wide text-ink-3">Online now</Box>
           <Box className="text-h2 font-semibold tabular-nums">{onlineCount}</Box>
         </Box>
+        {lostCount > 0 && (
+          <Box title="On duty in the app, but no location for over 5 minutes — the phone may be off, out of signal, or the app force-stopped.">
+            <Box className="text-label uppercase tracking-wide text-ink-3">Signal lost</Box>
+            <Box className="text-h2 font-semibold tabular-nums">{lostCount}</Box>
+          </Box>
+        )}
         <Box>
           <Box className="text-label uppercase tracking-wide text-ink-3">Sales reps</Box>
           <Box className="text-h2 font-semibold tabular-nums">{rows.length}</Box>
@@ -202,11 +242,7 @@ export const SalesTrackingPage: React.FC<Props> = ({ search = '' }) => {
                     <Box className="mt-0.5 text-[11px] text-ink-3">{rep.email}</Box>
                   </Td>
                   <Td>
-                    {rep.onDuty ? (
-                      <Badge tone="good" icon={Radio}>Online</Badge>
-                    ) : (
-                      <Badge tone="neutral">Offline</Badge>
-                    )}
+                    <PresenceBadge rep={rep} />
                   </Td>
                   <Td>
                     <Text className="text-ink-2">{ago(rep.locationUpdatedAt)}</Text>
@@ -411,7 +447,7 @@ function SalesRepMapModal({ salesRep, onClose }: { salesRep: SalesRepRow; onClos
       open
       onClose={onClose}
       title={rep.name}
-      description={rep.onDuty ? `Online · last seen ${ago(rep.locationUpdatedAt)}` : `Offline · last seen ${ago(rep.locationUpdatedAt)}`}
+      description={`${PRESENCE_LABEL[presenceOf(rep)]} · last seen ${ago(rep.locationUpdatedAt)}`}
       size="lg"
     >
       <Box className="space-y-3">

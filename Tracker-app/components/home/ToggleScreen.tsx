@@ -32,8 +32,8 @@ export function ToggleScreen() {
     void refreshMe();
   }, [refreshMe]);
 
-  /* Sends a fix to the server for as long as `onDuty` reads true — see the
-     hook's own header for why this is foreground-only. */
+  /* Makes sure the background location service is running for as long as
+     `onDuty` reads true — including after a relaunch. See the hook's header. */
   useDutyLocationHeartbeat();
 
   const toggle = async (value: boolean) => {
@@ -85,7 +85,7 @@ export function ToggleScreen() {
           {dutyBusy
             ? "Getting your location…"
             : onDuty
-              ? "Lampose can see where you're visiting clients."
+              ? "Lampose can see where you're visiting clients, even with the app closed. Go offline when you're done."
               : "Turn this on when you head out to visit a client."}
         </Text>
 

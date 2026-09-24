@@ -11,5 +11,14 @@ export default defineConfig({
       '@': path.resolve(import.meta.dirname, './src'),
     },
   },
+  // Always 5174: strictPort fails loudly instead of drifting to another port.
+  server: {
+    port: 5174,
+    strictPort: true,
+  },
+  preview: {
+    port: 5174,
+    strictPort: true,
+  },
 })
 
