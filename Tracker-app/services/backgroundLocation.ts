@@ -90,7 +90,7 @@ TaskManager.defineTask(DUTY_LOCATION_TASK, async ({ data, error }) => {
   const last = locations[locations.length - 1];
 
   try {
-    await sendLocation(token, last.coords.latitude, last.coords.longitude);
+    await sendLocation(token, last.coords.latitude, last.coords.longitude, last.coords.accuracy);
   } catch (err) {
     const status = (err as ApiError)?.status;
     /* 409 NOT_ON_DUTY: the server says this rep is offline (turned off from
@@ -136,7 +136,10 @@ export async function startDutyTracking(): Promise<boolean> {
     }
 
     await Location.startLocationUpdatesAsync(DUTY_LOCATION_TASK, {
-      accuracy: Location.Accuracy.Balanced,
+      /* High, not Balanced: on Android Balanced is Wi-Fi/cell positioning,
+         routinely 100–500 m off, which drew paths down streets the rep
+         never walked. High turns the GPS on. */
+      accuracy: Location.Accuracy.High,
       /* The same cadence the foreground watcher used, so the admin map looks
          the same whether the app is open or not. */
       timeInterval: 15000,

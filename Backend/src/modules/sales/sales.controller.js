@@ -93,6 +93,13 @@ const getMe = async (req, res) => {
 const validCoords = (lat, lng) => Number.isFinite(lat) && Number.isFinite(lng)
   && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
 
+/* Optional — an app build from before it was sent simply omits it. */
+const accuracyOf = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+};
+
 /**
  * The switch. Turning ON requires a starting fix — "where he started" is not
  * a sentence this route can write without one. Turning OFF needs nothing but
@@ -121,6 +128,7 @@ const setDuty = async (req, res) => {
       await SalesLocationPing.create({
         salesRepId: rep.salesRepId,
         location: { type: 'Point', coordinates: [lng, lat] },
+        accuracy: accuracyOf(body.accuracy),
         recordedAt: now,
       });
     } else {
@@ -164,6 +172,7 @@ const updateLocation = async (req, res) => {
     await SalesLocationPing.create({
       salesRepId: rep.salesRepId,
       location: { type: 'Point', coordinates: [lng, lat] },
+      accuracy: accuracyOf(body.accuracy),
       recordedAt: now,
     });
 

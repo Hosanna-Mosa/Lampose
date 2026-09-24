@@ -36,7 +36,9 @@ export type SalesRepRow = {
   createdAt: string;
 };
 
-export type SalesRepPathPoint = { lat: number; lng: number; at: string };
+/** `accuracy` is the fix's radius in metres; null on rows from app builds
+    that did not send it. */
+export type SalesRepPathPoint = { lat: number; lng: number; accuracy: number | null; at: string };
 
 /** Either bound may be left out — the backend defaults an omitted `to` to
     now, and an omitted `from` (with no `to` either) to the rep's current
@@ -106,7 +108,12 @@ export const salesTrackingService = {
       ...res,
       data: {
         salesRep: payload?.salesRep ? normalizeRow(payload.salesRep) : null,
-        path: path.map((p: any) => ({ lat: num(p?.lat), lng: num(p?.lng), at: str(p?.at) })),
+        path: path.map((p: any) => ({
+          lat: num(p?.lat),
+          lng: num(p?.lng),
+          accuracy: Number.isFinite(Number(p?.accuracy)) && p?.accuracy !== null ? Number(p.accuracy) : null,
+          at: str(p?.at),
+        })),
         since: payload?.since ?? null,
         until: payload?.until ?? null,
       },

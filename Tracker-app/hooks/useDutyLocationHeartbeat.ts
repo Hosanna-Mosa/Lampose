@@ -37,8 +37,9 @@ export function useDutyLocationHeartbeat() {
       if (status !== "granted" || cancelled) return;
 
       const sub = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.Balanced, timeInterval: 15000, distanceInterval: 30 },
-        (fix) => pushLocation(fix.coords.latitude, fix.coords.longitude),
+        /* High for the same reason as the background task — see there. */
+        { accuracy: Location.Accuracy.High, timeInterval: 15000, distanceInterval: 30 },
+        (fix) => pushLocation(fix.coords.latitude, fix.coords.longitude, fix.coords.accuracy),
       );
       if (cancelled) sub.remove();
       else subscription.current = sub;
