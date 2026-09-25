@@ -126,8 +126,8 @@ export default function FoodProfileScreen() {
             />
           </ProfileGroup>
           <Text variant="caption" color="tertiary">
-            Deleting is scheduled, not immediate — you can cancel it until the date we give you.
-            Completed bookings, agreements and orders are kept for as long as the law requires.
+            Deleting is immediate and cannot be undone. Bookings, orders, payments and a copy of
+            your account details are kept for legal and accounting records.
           </Text>
         </View>
       </ScrollView>

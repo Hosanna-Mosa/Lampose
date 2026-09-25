@@ -151,7 +151,11 @@ export function defaultHotelIntent(
   if (current.sharingId !== null || current.rateStructure !== null) return null;
   if (!options?.length) return null;
 
-  const sharingId = options.length === 1 ? options[0].id : null;
+  /* The first room the owner listed that is not sold out — with one room or
+     several. It used to pick only when there was a single room, so a hotel
+     with a choice opened with nothing selected, no rate on screen and a dead
+     button. The rate for that room follows below; the dates never do. */
+  const sharingId = firstAvailable(options);
   if (!sharingId) return null;
 
   return {

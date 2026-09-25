@@ -26,6 +26,7 @@ import {
   SORT_LABEL,
   type SearchQuery,
 } from '@/types/filters';
+import { formatRupees } from '@/utils/money';
 
 /**
  * The results list — where "See all" lands.
@@ -104,7 +105,7 @@ export default function Results() {
     locality?.name ?? locality?.city ?? 'Everywhere',
     ...query.categories.map((c) => CATEGORY_LABEL[c]),
     query.gender === 'BOYS' ? 'Boys' : query.gender === 'GIRLS' ? 'Girls' : query.gender ? 'Co-ed' : null,
-    query.rentCeiling !== null ? `≤ ₹${query.rentCeiling.toLocaleString('en-IN')}` : null,
+    query.rentCeiling !== null ? `≤ ${formatRupees(query.rentCeiling)}` : null,
   ].filter(Boolean) as string[];
 
   const title = category ? CATEGORY_LABEL[category] : 'All places';

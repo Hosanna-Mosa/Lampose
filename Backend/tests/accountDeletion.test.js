@@ -3,13 +3,16 @@
 
    What has to hold, and each of these fails silently on its own:
 
-     · Every app — diner, owner, kitchen, rider — can ask from the public page
-       with a code texted to the number, and from inside the app with its own
-       session. Both mark the account; neither removes the row.
+     · Every app — diner, owner, kitchen, rider — can delete from the public
+       page with a code texted to the number, and from inside the app with its
+       own session. Both delete AT ONCE: the account is archived into
+       `deleted_account_archives`, the live row is emptied (never removed),
+       and the session it held stops working.
      · The public page never says whether a number has an account: the same
        reply for a stranger's number, and no SMS sent to it.
      · A wrong code is counted and locks; a right one is spent once.
-     · Asking twice keeps the FIRST dates. Cancelling needs the session.
+     · A request queued from before deletion was immediate can still be
+       cancelled in the app, and the public page still reports it.
      · A token from one app cannot read or write another app's request.
      · The rider page's original address still answers.
 
@@ -32,7 +35,7 @@ const { signCustomerToken } = require('../src/modules/customers/customerAuth.mid
 const { signPartnerToken } = require('../src/modules/partners/partnerAuth.middleware');
 const { signFoodPartnerToken } = require('../src/modules/foodpartners/foodPartnerAuth.middleware');
 const { signDriverToken } = require('../src/modules/drivers/driverAuth.middleware');
-const { DELETION_GRACE_DAYS } = require('../src/modules/accountDeletion/accountDeletion.controller');
+const DeletedAccountArchive = require('../src/modules/accountDeletion/deletedAccountArchive.model');
 
 withDatabase();
 
@@ -111,15 +114,16 @@ const makers = {
 const APPS = Object.keys(makers);
 
 describe('the public page', () => {
-  it('lists all four apps and one grace period', async () => {
+  it('lists all four apps, and says deletion is immediate', async () => {
     const res = await call('GET', '/api/v2/account-deletion/policy');
     assert.equal(res.status, 200);
     assert.deepEqual(res.body.data.apps.map((a) => a.key), APPS);
-    assert.equal(res.body.data.graceDays, DELETION_GRACE_DAYS);
+    assert.equal(res.body.data.graceDays, 0);
+    assert.equal(res.body.data.immediate, true);
   });
 
   for (const app of APPS) {
-    it(`${app}: a texted code marks the account, and the row stays`, async () => {
+    it(`${app}: a texted code deletes the account at once, archived first`, async () => {
       const phone = nextPhone();
       const { doc, Model } = await makers[app](phone);
 
@@ -131,18 +135,24 @@ describe('the public page', () => {
       const confirmed = await call('POST', `/api/v2/account-deletion/${app}/confirm`, {
         body: { phone, code: outbox[0].otp, reason: 'Moving city', email: 'Me@Example.com' },
       });
-      assert.equal(confirmed.status, 201, JSON.stringify(confirmed.body));
-      assert.equal(confirmed.body.data.status, 'requested');
+      assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+      assert.equal(confirmed.body.data.status, 'completed');
+      assert.equal(confirmed.body.data.deleted, true);
       assert.equal(confirmed.body.data.app, app);
 
       const row = await Model.findById(doc._id).lean();
-      assert.ok(row, 'the account must not be removed on the spot');
-      assert.equal(row.deletion.status, 'requested');
+      assert.ok(row, 'the row stays — emptied, never removed');
+      assert.equal(row.deletion.status, 'completed');
       assert.equal(row.deletion.source, 'web');
-      assert.equal(row.deletion.reason, 'Moving city');
-      assert.equal(row.deletion.contactEmail, 'me@example.com');
-      const days = (row.deletion.scheduledFor - row.deletion.requestedAt) / (24 * 60 * 60 * 1000);
-      assert.equal(Math.round(days), DELETION_GRACE_DAYS);
+      assert.equal(row.deletion.reason, '', 'free text is kept on the archive, not the row');
+
+      const archive = await DeletedAccountArchive.findOne({ app, accountObjectId: doc._id }).lean();
+      assert.ok(archive, 'the account is archived');
+      assert.equal(archive.status, 'completed');
+      assert.equal(archive.phone, phone);
+      assert.equal(archive.source, 'web');
+      assert.equal(archive.reason, 'Moving city');
+      assert.equal(archive.contactEmail, 'me@example.com');
 
       /* The code is spent. */
       const replay = await call('POST', `/api/v2/account-deletion/${app}/confirm`, {
@@ -209,14 +219,27 @@ describe('the public page', () => {
     const confirmed = await call('POST', '/api/v2/drivers/account/deletion/confirm', {
       body: { phone, code: outbox[0].otp },
     });
-    assert.equal(confirmed.status, 201);
-    assert.equal((await Driver.findById(doc._id).lean()).deletion.status, 'requested');
+    assert.equal(confirmed.status, 200);
+    assert.equal((await Driver.findById(doc._id).lean()).deletion.status, 'completed');
   });
 
-  it('reports an existing request instead of sending another code', async () => {
+  it('a deleted account is a stranger to the page: no code is sent', async () => {
     const phone = nextPhone();
     const { token, inApp } = await makers.restaurant(phone);
     await call('POST', inApp, { token });
+
+    const started = await call('POST', '/api/v2/account-deletion/restaurant/start', { body: { phone } });
+    assert.equal(started.status, 200);
+    assert.equal(started.body.data.alreadyRequested, undefined);
+    assert.equal(outbox.length, 0);
+  });
+
+  it('still reports a request queued from before deletion was immediate', async () => {
+    const phone = nextPhone();
+    const { doc, Model } = await makers.restaurant(phone);
+    await Model.updateOne({ _id: doc._id }, {
+      $set: { deletion: { status: 'requested', requestedAt: new Date(), scheduledFor: new Date(Date.now() + 86400000), source: 'app' } },
+    });
 
     const started = await call('POST', '/api/v2/account-deletion/restaurant/start', { body: { phone } });
     assert.equal(started.body.data.alreadyRequested, true);
@@ -227,36 +250,65 @@ describe('the public page', () => {
 
 describe('inside the app', () => {
   for (const app of APPS) {
-    it(`${app}: status, request, a second request, then cancel`, async () => {
+    it(`${app}: status, then delete — archived, emptied, and the session ends`, async () => {
       const { doc, token, Model, inApp } = await makers[app](nextPhone());
 
       const before = await call('GET', inApp, { token });
       assert.equal(before.status, 200, JSON.stringify(before.body));
       assert.equal(before.body.data.status, 'none');
+      assert.equal(before.body.data.immediate, true);
 
-      const asked = await call('POST', inApp, { token, body: { reason: 'Not using it' } });
-      assert.equal(asked.status, 201, JSON.stringify(asked.body));
-      assert.equal(asked.body.data.status, 'requested');
-      assert.equal(asked.body.data.canCancel, true);
-      const firstDate = asked.body.data.scheduledFor;
-
-      const again = await call('POST', inApp, { token });
-      assert.equal(again.status, 200);
-      assert.equal(again.body.data.alreadyRequested, true);
-      assert.equal(again.body.data.scheduledFor, firstDate, 'a second request must not move the date');
+      const deleted = await call('POST', inApp, { token, body: { reason: 'Not using it' } });
+      assert.equal(deleted.status, 200, JSON.stringify(deleted.body));
+      assert.equal(deleted.body.data.status, 'completed');
+      assert.equal(deleted.body.data.deleted, true);
+      assert.equal(deleted.body.data.canCancel, false);
 
       const row = await Model.findById(doc._id).lean();
+      assert.equal(row.deletion.status, 'completed');
       assert.equal(row.deletion.source, 'app');
 
-      const cancelled = await call('DELETE', inApp, { token });
-      assert.equal(cancelled.status, 200);
-      assert.equal(cancelled.body.data.status, 'cancelled');
-      assert.equal((await Model.findById(doc._id).lean()).deletion.status, 'cancelled');
+      const archive = await DeletedAccountArchive.findOne({ app, accountObjectId: doc._id }).lean();
+      assert.equal(archive.status, 'completed');
+      assert.equal(archive.reason, 'Not using it');
 
-      const nothing = await call('DELETE', inApp, { token });
-      assert.equal(nothing.status, 409);
+      /* The account is gone for this person: the same token no longer works. */
+      const after = await call('GET', inApp, { token });
+      assert.equal(after.status, 401, JSON.stringify(after.body));
+      assert.equal(after.body.code, 'ACCOUNT_GONE');
     });
   }
+
+  it('a request queued from before deletion was immediate can still be cancelled', async () => {
+    const { doc, token, Model, inApp } = await makers.partner(nextPhone());
+    await Model.updateOne({ _id: doc._id }, {
+      $set: { deletion: { status: 'requested', requestedAt: new Date(), scheduledFor: new Date(Date.now() + 86400000), source: 'app' } },
+    });
+
+    const cancelled = await call('DELETE', inApp, { token });
+    assert.equal(cancelled.status, 200, JSON.stringify(cancelled.body));
+    assert.equal(cancelled.body.data.status, 'cancelled');
+    assert.equal((await Model.findById(doc._id).lean()).deletion.status, 'cancelled');
+
+    const nothing = await call('DELETE', inApp, { token });
+    assert.equal(nothing.status, 409);
+  });
+
+  it('deletes even with a stay still open, and records it', async () => {
+    const { doc, token, inApp } = await makers.partner(nextPhone());
+    const { PartnerBooking } = require('../src/modules/partners/partnerDomains.model');
+    await PartnerBooking.create({
+      partnerPhoneDigits: doc.phoneDigits, propertyId: 'p-open', propertyName: 'PG', guestName: 'G',
+      guestPhone: '+919811100097', roomNumber: '1', checkInDate: '2026-01-01',
+      totalAmount: 1000, paidAmount: 1000, status: 'in_house',
+    });
+
+    const deleted = await call('POST', inApp, { token });
+    assert.equal(deleted.status, 200, JSON.stringify(deleted.body));
+    assert.equal(deleted.body.data.openWork.activeBookings, 1);
+    const archive = await DeletedAccountArchive.findOne({ app: 'partner', accountObjectId: doc._id }).lean();
+    assert.equal(archive.openWork.activeBookings, 1);
+  });
 
   it('needs a session, and only its own app’s', async () => {
     const diner = await makers.customer(nextPhone());

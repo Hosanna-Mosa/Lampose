@@ -1,13 +1,17 @@
 /* ══════════════════════════════════════════════════════════════════════════
    Asking to delete the rider's account, from inside the app.
 
-   The signed-in half of lampose.com/delete-account — same request, same
-   `deletion` record on the account, no code needed because the session is the
-   proof. See `Backend/src/modules/accountDeletion/`.
+   The signed-in half of lampose.com/delete-account — same handlers, no code
+   needed because the session is the proof. See
+   `Backend/src/modules/accountDeletion/`.
 
-   A REQUEST, not a deletion: the account is scheduled `graceDays` out, so a
-   rider carrying an order can still finish it and be paid for it, and can
-   change their mind with `cancelDeletion` until the date.
+   IMMEDIATE: `requestDeletion` erases the account on the tap and answers
+   `status: 'completed'`. The same token is refused ACCOUNT_GONE from then on,
+   so the caller signs out straight after. A delivery in hand does not stop it
+   — the order is kept, the rider just can no longer manage it.
+
+   `cancelDeletion` survives for one case only: an account that asked BEFORE
+   deletion became immediate still carries a `requested` row with a date on it.
    ══════════════════════════════════════════════════════════════════════════ */
 import { api } from "@/utils/api";
 
@@ -25,6 +29,23 @@ export type DeletionState = {
   /** Deliveries still in hand — reported, never a refusal. */
   activeOrders?: number;
   alreadyRequested?: boolean;
+  /** Always true now; kept so a stale server is visible rather than guessed. */
+  immediate?: boolean;
+};
+
+/** What `POST` answers: the account is already gone when this arrives. */
+export type DeletionResult = {
+  app: string;
+  status: "completed";
+  deleted: boolean;
+  deletedAt: string | null;
+  immediate: boolean;
+  graceDays: number;
+  canCancel: boolean;
+  /** Work that was in hand at the moment of deletion — kept, not refused. */
+  openWork?: { activeOrders?: number };
+  phoneMasked?: string;
+  supportEmail?: string;
 };
 
 type Envelope<T> = { success: boolean; data: T; message?: string };
@@ -34,8 +55,8 @@ export async function fetchDeletion(token: string): Promise<DeletionState> {
   return res.data;
 }
 
-export async function requestDeletion(token: string, reason: string): Promise<DeletionState> {
-  const res = await api<Envelope<DeletionState>>(PATH, {
+export async function requestDeletion(token: string, reason: string): Promise<DeletionResult> {
+  const res = await api<Envelope<DeletionResult>>(PATH, {
     method: "POST",
     token,
     body: reason.trim() ? { reason: reason.trim() } : {},
@@ -43,14 +64,8 @@ export async function requestDeletion(token: string, reason: string): Promise<De
   return res.data;
 }
 
+/** Legacy only — withdraws a request made before deletion became immediate. */
 export async function cancelDeletion(token: string): Promise<DeletionState> {
   const res = await api<Envelope<DeletionState>>(PATH, { method: "DELETE", token });
   return res.data;
-}
-
-/** "12 October 2026" — a date somebody can hold against a calendar. */
-export function longDate(value: string | null | undefined): string {
-  const date = value ? new Date(value) : null;
-  if (!date || Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
 }

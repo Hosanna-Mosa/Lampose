@@ -5,9 +5,11 @@
    `deletion` record on the account, no code needed because the session is the
    proof. See `Backend/src/modules/accountDeletion/`.
 
-   A REQUEST, not a deletion: the account is scheduled `graceDays` out, so
-   orders already placed can still be cooked and paid out, and the owner can
-   change their mind with `cancelDeletion` until the date.
+   IMMEDIATE: `requestDeletion` erases the account on the call and answers
+   `status: 'completed'`; the same token is refused (401 ACCOUNT_GONE) from
+   then on. `status: 'requested'` only survives on an account that asked
+   before deletion became immediate — `cancelDeletion` exists for that
+   legacy case alone.
    ══════════════════════════════════════════════════════════════════════════ */
 import { api } from "./api";
 
@@ -25,6 +27,22 @@ export type DeletionState = {
   /** Orders still in the kitchen — reported, never a refusal. */
   activeOrders?: number;
   alreadyRequested?: boolean;
+  immediate?: boolean;
+};
+
+/** The reply to `requestDeletion` — the account no longer exists. */
+export type DeletionResult = {
+  app: string;
+  status: "completed";
+  deleted: true;
+  deletedAt: string | null;
+  immediate: true;
+  graceDays: 0;
+  canCancel: false;
+  /** Work that was open at the moment of deletion — kept, not refused. */
+  openWork: { activeOrders?: number };
+  phoneMasked?: string;
+  supportEmail: string;
 };
 
 type Envelope<T> = { success: boolean; data: T; message?: string };
@@ -34,8 +52,8 @@ export async function fetchDeletion(token: string): Promise<DeletionState> {
   return res.data;
 }
 
-export async function requestDeletion(token: string, reason: string): Promise<DeletionState> {
-  const res = await api<Envelope<DeletionState>>(PATH, {
+export async function requestDeletion(token: string, reason: string): Promise<DeletionResult> {
+  const res = await api<Envelope<DeletionResult>>(PATH, {
     method: "POST",
     token,
     body: reason.trim() ? { reason: reason.trim() } : {},
@@ -43,6 +61,7 @@ export async function requestDeletion(token: string, reason: string): Promise<De
   return res.data;
 }
 
+/** Legacy only: withdraws a request made before deletion became immediate. */
 export async function cancelDeletion(token: string): Promise<DeletionState> {
   const res = await api<Envelope<DeletionState>>(PATH, { method: "DELETE", token });
   return res.data;

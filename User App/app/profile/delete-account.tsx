@@ -8,7 +8,8 @@ import { Button, InlineAlert, Text, TextField, useAlert } from '@/components/ui'
 import { StandardHeader } from '@/components/shell';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { useTheme } from '@/context/ThemeContext';
-import { ApiError } from '@/services';
+import { useAuth } from '@/context/AuthContext';
+import { ApiError, setAuthToken } from '@/services';
 import {
   cancelAccountDeletion,
   fetchAccountDeletion,
@@ -17,34 +18,29 @@ import {
 } from '@/services/api/accountDeletion.api';
 
 /**
- * Delete account — a student asking to leave, from inside the app.
+ * Delete account — a student leaving, from inside the app.
  *
  * The App Store and Google Play both require that an account created in the
  * app can be deleted from the app. This is that door; lampose.com/delete-account
- * is the other one, and both write the same request.
+ * is the other one, and both reach the same eraser.
  *
- * What the screen promises is what the server does: the account is SCHEDULED
- * for deletion `graceDays` out, not emptied on the tap. A stay in progress or a
- * food order on its way carries on and refunds owed are still paid — so the
- * screen says so, and inside the window it offers the way back.
+ * What the screen promises is what the server does: the account is deleted on
+ * the tap, not scheduled. The token dies with it (every later call answers
+ * `ACCOUNT_GONE`), so success signs the student out on the spot and returns to
+ * the entry route, exactly as Log out does.
+ *
+ * `status: 'requested'` is only ever an account that asked while deletion was
+ * still scheduled; it keeps a way to withdraw that older request.
  *
  * Reached from BOTH profiles — the stay side's and Food's — because it is one
  * account either way.
  */
 
 const WHAT_GOES = [
-  'Your profile — name and email',
-  'Your mobile number, once the request is carried out',
+  'Your profile — name, email and mobile number',
   'Saved places, favourites and your address book',
   'App and notification preferences',
 ];
-
-/** "12 October 2026" — a date somebody can hold against a calendar. */
-const longDate = (value: string | null | undefined) => {
-  const date = value ? new Date(value) : null;
-  if (!date || Number.isNaN(date.getTime())) return '';
-  return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
-};
 
 const messageOf = (caught: unknown) =>
   caught instanceof ApiError ? caught.displayMessage : 'Something went wrong. Please try again.';
@@ -53,7 +49,8 @@ export default function DeleteAccountScreen() {
   const { colors, space, layout, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { confirm } = useAlert();
+  const { alert, confirm } = useAlert();
+  const { signOut } = useAuth();
 
   const [state, setState] = useState<AccountDeletion | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,10 +76,11 @@ export default function DeleteAccountScreen() {
 
   const submit = async () => {
     const ok = await confirm({
-      title: 'Delete your account?',
-      message: 'Your Lampose account will be scheduled for deletion. You can cancel from this '
-        + 'screen until the date we give you.',
-      confirmLabel: 'Yes, delete my account',
+      title: 'Delete your account now?',
+      message: 'This deletes your Lampose account immediately and cannot be undone. '
+        + 'Bookings, orders, payments and a copy of your account details are kept for legal and '
+        + 'accounting records.',
+      confirmLabel: 'Delete my account',
       cancelLabel: 'Keep my account',
       destructive: true,
     });
@@ -90,13 +88,31 @@ export default function DeleteAccountScreen() {
 
     setBusy(true);
     setProblem(null);
+    let result;
     try {
-      setState(await requestAccountDeletion(reason));
+      result = await requestAccountDeletion(reason);
     } catch (caught) {
       setProblem(messageOf(caught));
-    } finally {
       setBusy(false);
+      return;
     }
+    if (!result.deleted && result.status !== 'completed') {
+      setBusy(false);
+      setProblem('Something went wrong. Please try again.');
+      return;
+    }
+
+    /*
+     * The account is gone, and so is its token. Dropped from the client first
+     * so the revoke and device-unregister calls inside `signOut` go out
+     * without it — sent with it, each answers `ACCOUNT_GONE` and the app
+     * would follow a deletion with a "Session expired" alert. Everything else
+     * is the ordinary Log out, then the same route it takes.
+     */
+    setAuthToken(null);
+    await signOut();
+    router.replace('/');
+    void alert({ title: 'Your account has been deleted', tone: 'success', dismissLabel: 'Close' });
   };
 
   const undo = async () => {
@@ -112,8 +128,7 @@ export default function DeleteAccountScreen() {
     }
   };
 
-  const requested = state?.status === 'requested';
-  const days = state?.graceDays ?? 30;
+  const legacyRequest = state?.status === 'requested';
   const support = state?.supportEmail || 'contact@lampose.com';
   const inFlight = (state?.activeOrders ?? 0) + (state?.activeBookings ?? 0);
 
@@ -128,47 +143,39 @@ export default function DeleteAccountScreen() {
       >
         {loading && !state ? (
           <Text variant="body" color="secondary">Checking your account…</Text>
-        ) : requested ? (
-          <>
-            <InlineAlert
-              tone="warning"
-              title={`Scheduled for deletion on ${longDate(state?.scheduledFor)}`}
-              body="Until then your account works as normal. After that date your account and its personal data are deleted."
-            />
-            {inFlight > 0 ? (
-              <InlineAlert
-                tone="info"
-                title={`${inFlight} ${inFlight === 1 ? 'order or stay' : 'orders or stays'} still in progress`}
-                body="They carry on as normal, and any refund owed to you is still paid."
-              />
-            ) : null}
-            <View style={{ gap: space[1] }}>
-              <Text variant="caption" color="tertiary">
-                Requested {longDate(state?.requestedAt) || '—'}
-              </Text>
-            </View>
-            <View style={{ gap: space[2] }}>
-              <Button
-                label="Cancel deletion request"
-                loadingLabel="Cancelling"
-                variant="secondary"
-                loading={busy}
-                disabled={busy}
-                fullWidth
-                onPress={undo}
-              />
-              <Text variant="caption" color="tertiary">
-                Cancelling keeps your account exactly as it is — bookings, saved places and all.
-              </Text>
-            </View>
-          </>
         ) : (
           <>
             <Text variant="body" color="secondary">
-              Deleting your Lampose account is permanent once it is carried out. We schedule it{' '}
-              {days} days from today, so anything in progress can finish, any refund owed to you can
-              be paid, and you can change your mind.
+              Deleting your Lampose account happens immediately and cannot be undone. You will be
+              signed out, and this account cannot be restored.
             </Text>
+
+            {legacyRequest ? (
+              <View style={{ gap: space[2] }}>
+                <InlineAlert
+                  tone="info"
+                  title="You have an older deletion request pending"
+                  body="Deleting now replaces it. If you would rather keep your account, cancel that request."
+                />
+                <Button
+                  label="Cancel request"
+                  loadingLabel="Cancelling"
+                  variant="secondary"
+                  loading={busy}
+                  disabled={busy}
+                  fullWidth
+                  onPress={undo}
+                />
+              </View>
+            ) : null}
+
+            {inFlight > 0 ? (
+              <InlineAlert
+                tone="warning"
+                title={`${inFlight} ${inFlight === 1 ? 'order or stay' : 'orders or stays'} still in progress`}
+                body="They stay exactly as they are, but you will no longer be able to manage them from this account."
+              />
+            ) : null}
 
             <View style={{ gap: space[2] }}>
               <Text variant="bodyStrong">What is deleted</Text>
@@ -176,8 +183,8 @@ export default function DeleteAccountScreen() {
                 <Text key={line} variant="body">{`•  ${line}`}</Text>
               ))}
               <Text variant="caption" color="tertiary">
-                Completed bookings, rental agreements, food orders and payments are kept for as long
-                as the law requires, separately from your profile — you may need them too.
+                Bookings, orders, payments and a copy of your account details are kept for legal and
+                accounting records.
               </Text>
             </View>
 
@@ -187,12 +194,12 @@ export default function DeleteAccountScreen() {
               value={reason}
               onChangeText={setReason}
               multiline
-              helper="It does not affect the request."
+              helper="Optional — it helps us improve."
             />
 
             <Button
               label="Delete my account"
-              loadingLabel="Sending"
+              loadingLabel="Deleting"
               variant="destructive"
               loading={busy}
               disabled={busy}

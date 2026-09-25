@@ -33,5 +33,9 @@ export const styles = StyleSheet.create({
   amount: { fontFamily: fonts.extrabold, fontSize: 15, lineHeight: 20 },
   badges: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   empty: { minHeight: 320, borderRadius: radius.card },
+  /* Height is set by the screen from the window, so the button lands in the
+     middle of the space below the filters. */
+  searchEmpty: { alignItems: 'center', justifyContent: 'center' },
+  searchEmptyButton: { alignSelf: 'center' },
 });
 

@@ -27,10 +27,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Path } from "react-native-svg";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { Icon, Notice } from "@/components/ui";
+import { Icon, Notice, Toast } from "@/components/ui";
 import { useDriverStore } from "@/store/driverStore";
+import { useFlowStore } from "@/store/flowStore";
 import { ApiError } from "@/utils/api";
-import { colors } from "@/theme";
+import { colors, space } from "@/theme";
 
 const OTP_LENGTH = 6;
 const RESEND_SECONDS = 60;
@@ -48,6 +49,17 @@ export default function AuthScreen() {
   const resendCode = useDriverStore((s) => s.resendCode);
   const verifyCode = useDriverStore((s) => s.verifyCode);
   const otpSending = useDriverStore((s) => s.otpSending);
+
+  /* The one toast that reaches this screen is "Your account has been deleted",
+     said by `delete-account.tsx` just before it signs out. Cleared on a timer
+     like the home screen's, so it does not sit over the next sign-in. */
+  const toast = useFlowStore((s) => s.toast);
+  const clearToast = useFlowStore((s) => s.clearToast);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(clearToast, 3000);
+    return () => clearTimeout(timer);
+  }, [toast, clearToast]);
 
   // Phone Step State
   const [digits, setDigits] = useState("");
@@ -582,6 +594,8 @@ export default function AuthScreen() {
           Faster Deliveries  <Text style={styles.footerPipe}>|</Text>  Higher Earnings  <Text style={styles.footerPipe}>|</Text>  Brighter Days
         </Text>
       </View>
+
+      <Toast message={toast} top={insets.top + space[2]} />
     </View>
   );
 }

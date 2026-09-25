@@ -1,25 +1,30 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   Delete account — the rider asking to leave, from inside the app.
+   Delete account — the rider leaving, from inside the app.
 
    The App Store and Google Play both require that an account created in the
    app can be deleted from the app. This is that door; lampose.com/delete-account
-   is the other one, and both write the same request.
+   is the other one, and both reach the same handlers.
 
-   What the screen promises is what the server does: the account is SCHEDULED
-   for deletion `graceDays` out, not emptied on the tap. A rider with a bag on
-   the bike still has to deliver it and still gets paid for it, so the screen
-   says so rather than pretending the account vanished. Inside the window the
-   same screen offers the way back.
+   What the screen promises is what the server does: the account is deleted on
+   the tap, and the same token is refused from the next request on. So success
+   signs the rider out exactly as Logout does, and the stack guard in
+   `_layout.tsx` takes them to sign-in. A delivery in hand does not block it —
+   the order is kept, but nobody can manage it from this account any more, and
+   the confirm sheet says so before the tap rather than after.
+
+   An account that asked BEFORE deletion became immediate may still carry a
+   pending request; it gets a note and the old way to withdraw it.
    ══════════════════════════════════════════════════════════════════════════ */
 import { Linking, ScrollView, StyleSheet, View } from "react-native";
 import React from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Btn, DataRow, Input, Notice, SectionHeader, Sheet, Text, TopBar } from "@/components/ui";
+import { Btn, Input, Notice, SectionHeader, Sheet, Text, TopBar } from "@/components/ui";
 import type { SheetSpec } from "@/components/ui";
 import {
-  cancelDeletion, fetchDeletion, longDate, requestDeletion, type DeletionState,
+  cancelDeletion, fetchDeletion, requestDeletion, type DeletionState,
 } from "@/services/accountDeletion";
 import { useDriverStore } from "@/store/driverStore";
+import { useFlowStore } from "@/store/flowStore";
 import { ApiError } from "@/utils/api";
 import { colors, layout, radius, space } from "@/theme";
 
@@ -34,7 +39,10 @@ const CONFIRM: SheetSpec = {
   kicker: "Delete account",
   tone: "danger",
   title: "Delete your rider account?",
-  body: "Your account will be scheduled for deletion. You can cancel from this screen until the date we give you.",
+  body:
+    "This deletes your account immediately and cannot be undone. A delivery in progress stays as it " +
+    "is, but you will no longer be able to manage it from this account. Deliveries, earnings, payouts " +
+    "and a copy of your account details are kept for legal and accounting records.",
   primary: "Yes, delete my account",
   secondary: "Keep my account",
 };
@@ -45,6 +53,8 @@ const messageOf = (caught: unknown) =>
 export default function DeleteAccountScreen() {
   const insets = useSafeAreaInsets();
   const token = useDriverStore((s) => s.token);
+  const logout = useDriverStore((s) => s.logout);
+  const say = useFlowStore((s) => s.say);
 
   const [state, setState] = React.useState<DeletionState | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -76,7 +86,17 @@ export default function DeleteAccountScreen() {
     setBusy(true);
     setProblem(null);
     try {
-      setState(await requestDeletion(token, reason));
+      const result = await requestDeletion(token, reason);
+      if (result.deleted || result.status === "completed") {
+        /* Said BEFORE signing out, so the sign-in screen mounts showing it.
+           `accountGone` skips the handset unregister: the server already
+           dropped it, and the token is now refused ACCOUNT_GONE. */
+        say("Your account has been deleted");
+        await logout({ accountGone: true });
+        return;
+      }
+      // Anything else is a server that did not delete — show what it now says.
+      await load();
     } catch (caught) {
       setProblem(messageOf(caught));
     } finally {
@@ -98,8 +118,8 @@ export default function DeleteAccountScreen() {
     }
   };
 
+  // Only an account that asked before deletion became immediate can be here.
   const requested = state?.status === "requested";
-  const days = state?.graceDays ?? 30;
   const support = state?.supportEmail || "contact@lampose.com";
 
   return (
@@ -113,42 +133,23 @@ export default function DeleteAccountScreen() {
       >
         {loading ? (
           <Text variant="body" color="tertiary">Checking your account…</Text>
-        ) : requested ? (
-          <>
-            <Notice
-              tone="warning"
-              title={`Scheduled for deletion on ${longDate(state?.scheduledFor)}`}
-              body="Until then you can keep riding and you will be paid for every delivery you complete. After that date your account and personal data are deleted."
-            />
-            {!!state?.activeOrders && (
-              <Notice
-                tone="info"
-                title={`${state.activeOrders} deliver${state.activeOrders === 1 ? "y" : "ies"} in progress`}
-                body="Please complete it — the food still has to reach the customer."
-              />
-            )}
-            <View style={styles.group}>
-              <View style={styles.dataWrap}>
-                <DataRow label="Requested" value={longDate(state?.requestedAt) || "—"} first />
-                <DataRow label="Deleted on or after" value={longDate(state?.scheduledFor) || "—"} />
-              </View>
-            </View>
-            <Btn
-              label="Cancel deletion request"
-              variant="ink"
-              loading={busy}
-              onPress={undo}
-            />
-            <Text variant="caption" color="tertiary">
-              Cancelling keeps your account exactly as it is — documents, bank details and all.
-            </Text>
-          </>
         ) : (
           <>
+            {requested && (
+              <>
+                <Notice
+                  tone="warning"
+                  title="An older deletion request is pending"
+                  body="You asked to delete this account before deletion became immediate. You can withdraw that request, or delete the account now below."
+                />
+                <Btn label="Cancel request" variant="ink" loading={busy} onPress={undo} />
+              </>
+            )}
+
             <Text variant="body" color="secondary">
-              Deleting your Lampose Delivery Partner account is permanent once it is carried out.
-              We schedule it {days} days from today, so anything owed to you can be paid and you can
-              change your mind.
+              Deleting your Lampose Delivery Partner account happens immediately and cannot be
+              undone. A delivery still in progress stays as it is, but you will no longer be able
+              to manage it from this account.
             </Text>
 
             <View style={{ gap: space[2] }}>
@@ -167,15 +168,15 @@ export default function DeleteAccountScreen() {
                 </View>
               </View>
               <Text variant="caption" color="tertiary">
-                Records of completed deliveries and payouts are kept for as long as the law
-                requires, separately from your profile.
+                Deliveries, earnings, payouts and a copy of your account details are kept for legal
+                and accounting records.
               </Text>
             </View>
 
             <Input
               label="Why are you leaving?"
               required={false}
-              hint="Optional. It does not affect the request."
+              hint="Optional. It does not affect the deletion."
               value={reason}
               onChangeText={setReason}
               maxLength={500}

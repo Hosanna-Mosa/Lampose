@@ -4,7 +4,7 @@ import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
 
-import { Button, RentDisplay, Text } from '@/components/ui';
+import { Button, Icon, RentDisplay, Text, type IconName } from '@/components/ui';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { withAlpha } from '@/utils/color';
@@ -19,6 +19,15 @@ export type StickyCtaBarProps = {
   loading?: boolean;
   /** The last thing read before the tap. Part of the bar, not the body. */
   note?: string;
+  /**
+   * One short fact worth seeing before the price — "Pay at Visit". Drawn as a
+   * tinted pill above the row, so it reads as a promise about the money rather
+   * than as another line of small print. Separate from `note`, which keeps
+   * saying what happens after the tap.
+   */
+  highlight?: string;
+  /** The glyph in front of `highlight`. Rupee by default: it is about money. */
+  highlightIcon?: IconName;
   /** Present means the money variant: rent and deposit sit left of the action. */
   rent?: number;
   deposit?: number;
@@ -59,6 +68,8 @@ export function StickyCtaBar({
   disabled = false,
   loading = false,
   note,
+  highlight,
+  highlightIcon = 'rupee',
   rent,
   deposit,
   depositMonths,
@@ -67,7 +78,7 @@ export function StickyCtaBar({
   multiplier,
   onMeasure,
 }: StickyCtaBarProps) {
-  const { colors, space, layout, elevation } = useTheme();
+  const { colors, space, layout, elevation, radius } = useTheme();
   const bottomInset = useBottomEdgeInset();
 
   /*
@@ -198,6 +209,27 @@ export function StickyCtaBar({
           </View>
         ) : null}
 
+        {highlight ? (
+          <View
+            accessibilityRole="text"
+            style={[
+              styles.highlight,
+              {
+                backgroundColor: colors.success.tint,
+                borderColor: colors.success.border,
+                borderRadius: radius.pill,
+                paddingHorizontal: space[3],
+                gap: space[1] + 2,
+              },
+            ]}
+          >
+            <Icon name={highlightIcon} size={14} color={colors.success.ink} />
+            <Text variant="bodyStrong" style={{ color: colors.success.ink }}>
+              {highlight}
+            </Text>
+          </View>
+        ) : null}
+
         <View
           onLayout={measure(setRowWidth, rowWidth)}
           style={[
@@ -312,6 +344,13 @@ function PriceSlot({
 }
 
 const styles = StyleSheet.create({
+  highlight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    minHeight: 26,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   stack: { flexDirection: 'column', alignItems: 'stretch' },
   noShrink: { flexShrink: 0 },
   /*

@@ -7,8 +7,29 @@ import { money } from '@/constants/tokens';
  * and getting it wrong is the kind of detail that tells a user the app was not
  * built for them.
  */
+/**
+ * Indian digit grouping, done by hand: 16,000 · 1,20,000 · 12,34,567.
+ *
+ * Not `toLocaleString('en-IN')`. What that returns depends on the phone: on
+ * Android, Hermes can ignore the locale argument and group by the DEVICE's
+ * locale, so a phone set to a European region printed "16.000" for sixteen
+ * thousand rupees. A price that changes shape with a settings menu is a
+ * price a student can misread, so the grouping is spelled out here and is
+ * the same on every device.
+ */
+export function groupIndian(value: number): string {
+  const negative = value < 0;
+  const [whole, fraction] = Math.abs(Math.round(value * 100) / 100).toString().split('.');
+  const last3 = whole.slice(-3);
+  const rest = whole.slice(0, -3);
+  const grouped = rest
+    ? `${rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',')},${last3}`
+    : last3;
+  return `${negative ? '-' : ''}${grouped}${fraction ? `.${fraction}` : ''}`;
+}
+
 export function formatRupees(value: number): string {
-  return `${money.symbol}${value.toLocaleString(money.locale)}`;
+  return `${money.symbol}${groupIndian(value)}`;
 }
 
 /** Formats a ceiling, marking the top of the range with a trailing +. */
@@ -25,7 +46,7 @@ export function formatShort(value: number, max: number): string {
 
 /** Digits only, for pairing with a separately-typeset ₹ symbol. */
 export function formatDigits(value: number): string {
-  return value.toLocaleString(money.locale);
+  return groupIndian(value);
 }
 
 /**

@@ -488,13 +488,17 @@ export function toListing(doc: BackendListing): Listing {
     rent: positive(doc.rent) ?? null,
     /* A dormitory is quoted per night; the server says so in `pricePeriod`,
        derived from the rate type the panel recorded. */
-    perNight: doc.pricePeriod === '/day' || undefined,
+    /* A hotel is ALWAYS quoted per night — its headline rent is the nightly
+       figure Onboard requires for the category (`nightly` → `sharingPrices`),
+       whether or not the panel also ticked "Daily Rate". Without this a hotel
+       card read "/bed/month" under a price that was one night's stay. */
+    perNight: doc.pricePeriod === '/day' || category === 'HOTEL' || undefined,
     /* Priced per bed rather than per room — renders the "/bed" suffix.
        This used to be Hostel-or-Dormitory, and PGs showed no suffix at all.
        The merge widened it, and correctly: a PG's "2 Sharing — ₹5,999" is
        ₹5,999 per person per month, which is exactly what /bed means. The old
        behaviour quoted a per-bed price without saying so. */
-    perBed: category === 'PG_HOSTEL' || category === 'HOTEL' || undefined,
+    perBed: category === 'PG_HOSTEL' || undefined,
     monthlyEquivalent: doc.pricePeriod === '/day' ? positive(doc.monthlyPrice) : undefined,
 
     deposit: positive(doc.deposit),

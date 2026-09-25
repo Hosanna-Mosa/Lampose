@@ -186,13 +186,21 @@ export default function RootLayout() {
     like the ACCOUNT_REJECTED one above — it is what catches every OTHER call
     (a menu edit, a profile save) hitting a dead token, not just the pump.
   */
+  /* Only a session that still exists can expire. Signing out (and deleting
+     the account, which signs out) fires a push-unregister that is not awaited
+     and comes back 401 ACCOUNT_GONE once the session is already gone — that
+     must not raise the sheet on the sign-in screen, or on the next sign-in. */
+  const flagExpired = () => {
+    if (usePartnerStore.getState().session) setSessionExpired(true);
+  };
+
   useEffect(() => {
     if (!hydrated || !sessionToken) return;
-    return onSessionExpired(() => setSessionExpired(true));
+    return onSessionExpired(flagExpired);
   }, [hydrated, sessionToken]);
 
   useEffect(() => {
-    setSessionExpiredHandler(() => setSessionExpired(true));
+    setSessionExpiredHandler(flagExpired);
     return () => setSessionExpiredHandler(null);
   }, []);
 

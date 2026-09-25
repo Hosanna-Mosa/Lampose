@@ -1,8 +1,9 @@
 /* ══════════════════════════════════════════════════════════════════════════
    "Delete my account", for every app — from the open web and from inside it.
 
-   Two doors, one outcome. Both write the same `deletion` sub-document
-   (`accountDeletion.schema.js`) on the account, and neither removes the row:
+   Two doors, one outcome: the account is deleted AT ONCE through
+   `deleteAccountNow` (`accountDeletion.eraser.js`) — archived into
+   `deleted_account_archives`, then emptied, and every session it held ends:
 
      PUBLIC   /api/v2/account-deletion/:app/{policy,start,confirm}
               lampose.com/delete-account. Google Play requires that somebody
@@ -17,12 +18,14 @@
               no code is needed. No guard is widened to understand a second
               audience — each router is built for one.
 
-   ## Nothing is deleted here
+   ## Immediate, with a copy kept apart
 
-   A confirmed request is scheduled `DELETION_GRACE_DAYS` out. The window is
-   for work in flight, money owed, and the person who changes their mind by
-   morning — which is also why the in-app door can CANCEL and the public one
-   cannot: cancelling needs the session that proves the account is theirs.
+   There is no grace period and nothing to wait for. Work still open (a stay
+   running, an order out) does not hold it up; it is recorded on the archive
+   copy. Before deletion was immediate, a confirmed request was scheduled days
+   out and could be cancelled in the app — requests of that kind that are
+   still queued are carried out by the worker, and the in-app DELETE still
+   cancels one, but nothing here creates a new one.
 
    ## Nothing here says whether a number has an account
 
@@ -31,16 +34,17 @@
    refusal. A public form that replied differently would be a way to test
    whether somebody rides, cooks, lets rooms or eats with Lampose.
 
-   ## Asking twice is not an error
+   ## A store review account is never deleted
 
-   A request that already stands is reported as the existing one, with its own
-   dates. A second request must not quietly extend the window being waited out.
+   The reply is the same as for anybody else, so the reviewer's flow completes,
+   but the account is left for the next reviewer (see reviewAccounts).
    ══════════════════════════════════════════════════════════════════════════ */
 
 const mongoose = require('mongoose');
 
 const DeletionOtp = require('./deletionOtp.model');
 const { AUDIENCES } = require('./accountDeletion.audiences');
+const { deleteAccountNow } = require('./accountDeletion.eraser');
 /* The module object, not destructured functions, so a test can stand in for
    the gateway without a network. */
 const sms = require('../../infrastructure/sms/sms');
@@ -53,17 +57,16 @@ const {
 const OTP_LENGTH = 6;
 const LOCK_MS = 10 * 60 * 1000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * How long a confirmed request waits before it may be carried out.
+ * How long a deletion waits: nothing. Deletion is immediate.
  *
- * Printed on the page and in four apps, so they ASK for it (`policy`, and
- * every status reply) rather than repeating it — a page promising 30 days
- * against a server that waits 14 is the disagreement that ends up in front of
- * a regulator.
+ * Still sent in `policy` and every status reply, because the page and four
+ * apps ASK for it rather than repeating it — a page promising 30 days against
+ * a server that deletes at once is the disagreement that ends up in front of
+ * a regulator. `immediate: true` travels beside it for the same reason.
  */
-const DELETION_GRACE_DAYS = 30;
+const DELETION_GRACE_DAYS = 0;
 const MAX_REASON = 500;
 
 const supportEmail = () => process.env.SUPPORT_EMAIL || 'contact@lampose.com';
@@ -100,6 +103,7 @@ const requestView = (audience, doc) => {
     cancelledAt: d.cancelledAt || null,
     source: d.source || '',
     graceDays: DELETION_GRACE_DAYS,
+    immediate: true,
     canCancel: d.status === 'requested',
     phoneMasked: maskPhone(toE164(audience.phoneOf(doc)) || audience.phoneOf(doc)),
     supportEmail: supportEmail(),
@@ -127,39 +131,31 @@ const writeDeletion = async (doc, condition, deletion) => {
   return true;
 };
 
-/** Mark the account. The caller has already proved it is theirs. */
-const markRequested = (doc, { source, reason = '', contactEmail = '' }) => {
-  const now = new Date();
-  return writeDeletion(doc, { 'deletion.status': { $ne: 'requested' } }, {
-    status: 'requested',
-    requestedAt: now,
-    scheduledFor: new Date(now.getTime() + DELETION_GRACE_DAYS * DAY_MS),
-    cancelledAt: null,
-    processedAt: null,
-    reason,
-    contactEmail,
-    source,
+/** What the page or the app prints once the account is gone. */
+const deletedView = (audience, doc, result) => ({
+  app: audience.key,
+  status: 'completed',
+  deleted: true,
+  deletedAt: result.deletedAt || new Date(),
+  immediate: true,
+  graceDays: DELETION_GRACE_DAYS,
+  canCancel: false,
+  openWork: result.openWork || {},
+  phoneMasked: maskPhone(toE164(audience.phoneOf(doc)) || audience.phoneOf(doc)),
+  supportEmail: supportEmail(),
+});
+
+/*
+ * Delete, and answer. A review account is answered exactly like any other so
+ * the reviewer's flow completes — see the header.
+ */
+const deleteAndReply = async (res, audience, account, request) => {
+  const result = await deleteAccountNow(audience.key, account, request);
+  return res.json({
+    success: true,
+    message: 'Your account has been deleted.',
+    data: deletedView(audience, account, result),
   });
-};
-
-/** Re-read after losing a race, so the reply carries the request that won. */
-const reload = (audience, doc) => audience.model().findById(doc._id);
-
-/* Counted AFTER the request is saved, so a slow query can never be the reason
-   a request was lost — and a failed count is not worth failing it over. */
-const workInHand = async (audience, doc) => {
-  try {
-    return await audience.activeWork(doc);
-  } catch {
-    return {};
-  }
-};
-
-const logRequest = (audience, doc, source) => {
-  console.log(
-    `🗑️  [Account Deletion] ${audience.key} ${audience.idOf(doc)} requested deletion from ${source}`
-    + ` — due ${deletionOf(doc).scheduledFor.toISOString()}`,
-  );
 };
 
 /* ── Public: the website ──────────────────────────────────────────────────── */
@@ -171,12 +167,14 @@ const startedPayload = (audience, phone) => ({
   resendInSeconds: Math.ceil(OTP_RESEND_COOLDOWN_MS / 1000),
   maxAttempts: OTP_MAX_ATTEMPTS,
   graceDays: DELETION_GRACE_DAYS,
+  immediate: true,
 });
 
 const policyPayload = (audience) => ({
   app: audience.key,
   appName: audience.appName,
   graceDays: DELETION_GRACE_DAYS,
+  immediate: true,
   otpLength: OTP_LENGTH,
   supportEmail: supportEmail(),
 });
@@ -186,6 +184,7 @@ const allPolicies = (req, res) => res.json({
   success: true,
   data: {
     graceDays: DELETION_GRACE_DAYS,
+    immediate: true,
     otpLength: OTP_LENGTH,
     supportEmail: supportEmail(),
     apps: Object.values(AUDIENCES).map((a) => ({ key: a.key, appName: a.appName, who: a.who })),
@@ -295,7 +294,7 @@ const makePublicHandlers = (audience) => {
     }
   };
 
-  /* The code back, and the account is marked — marked, not deleted. */
+  /* The code back, and the account is deleted. */
   const confirm = async (req, res, next) => {
     try {
       if (!isUp()) return dbDown(res);
@@ -351,24 +350,11 @@ const makePublicHandlers = (audience) => {
         return fail(res, 400, 'CODE_INCORRECT', 'That code is not right. Please check and try again.');
       }
 
-      const marked = !isRequested(account)
-        && await markRequested(account, { source: 'web', reason: readReason(body), contactEmail: email });
-      if (!marked) {
-        const current = (await reload(audience, account)) || account;
-        return res.json({
-          success: true,
-          data: { ...requestView(audience, current), alreadyRequested: true },
-          message: 'Your account is already scheduled for deletion.',
-        });
-      }
-
-      const work = await workInHand(audience, account);
-      logRequest(audience, account, 'web');
-
-      return res.status(201).json({
-        success: true,
-        message: 'Your deletion request has been received.',
-        data: { ...requestView(audience, account), ...work },
+      return await deleteAndReply(res, audience, account, {
+        source: 'web',
+        reason: readReason(body),
+        contactEmail: email,
+        requestedAt: isRequested(account) ? deletionOf(account).requestedAt : undefined,
       });
     } catch (error) {
       return next(error);
@@ -393,8 +379,7 @@ const makeInAppHandlers = (audience, reqKey) => {
   const status = async (req, res, next) => {
     try {
       const account = accountOf(req);
-      const work = isRequested(account) ? await workInHand(audience, account) : {};
-      return res.json({ success: true, data: { ...requestView(audience, account), ...work } });
+      return res.json({ success: true, data: requestView(audience, account) });
     } catch (error) {
       return next(error);
     }
@@ -409,24 +394,14 @@ const makeInAppHandlers = (audience, reqKey) => {
         return fail(res, 400, 'BAD_EMAIL', 'That email address does not look right. Leave it blank if you would rather not give one.');
       }
 
-      const marked = !isRequested(account)
-        && await markRequested(account, { source: 'app', reason: readReason(req.body), contactEmail: email });
-      if (!marked) {
-        const current = (await reload(audience, account)) || account;
-        return res.json({
-          success: true,
-          message: 'Your account is already scheduled for deletion.',
-          data: { ...requestView(audience, current), alreadyRequested: true },
-        });
-      }
-
-      const work = await workInHand(audience, account);
-      logRequest(audience, account, 'app');
-
-      return res.status(201).json({
-        success: true,
-        message: 'Your deletion request has been received.',
-        data: { ...requestView(audience, account), ...work },
+      /* A request left over from before deletion was immediate is carried
+         out now too — the person is asking again, and there is no longer a
+         date to wait for. */
+      return await deleteAndReply(res, audience, account, {
+        source: 'app',
+        reason: readReason(req.body),
+        contactEmail: email,
+        requestedAt: isRequested(account) ? deletionOf(account).requestedAt : undefined,
       });
     } catch (error) {
       return next(error);

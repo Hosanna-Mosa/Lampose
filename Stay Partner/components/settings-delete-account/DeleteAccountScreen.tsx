@@ -1,25 +1,31 @@
 /*
- * Delete account — a property owner asking to leave, from inside the app.
+ * Delete account — a property owner leaving, from inside the app.
  *
  * The App Store and Google Play both require that an account created in the app
  * can be deleted from the app. This is that door; lampose.com/delete-account is
- * the other one, and both write the same request.
+ * the other one, and both land on the same record.
  *
- * What the screen promises is what the server does: the account is SCHEDULED for
- * deletion `graceDays` out, not emptied on the tap. Guests already staying are not
- * stranded and payouts owed are still paid — so the screen says so, and inside the
- * window it offers the way back.
+ * What the screen promises is what the server does: the account is deleted ON
+ * THE TAP. There is no window and no way back, so the confirm says so plainly.
+ * Open bookings are kept but can no longer be managed from here, and the token
+ * is dead the moment the reply arrives — which is why success signs out with
+ * the same `signOut` the Menu's Log out uses, rather than reading anything else.
+ *
+ * `requested` is legacy: an owner who asked under the old 30-day schedule. They
+ * see a note and can still withdraw it; Delete still deletes immediately.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Linking, StyleSheet, View } from 'react-native';
-import { Button, Card, Input, Screen, Text, TopHeader, useAlert } from '@/components/common';
+import { Linking, StyleSheet } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Box, Button, Card, Input, Screen, Text, TopHeader, useAlert } from '@/components/common';
 import {
   cancelAccountDeletion,
   fetchAccountDeletion,
   requestAccountDeletion,
   type AccountDeletion,
 } from '@/services/api/accountDeletion.api';
-import { ApiError } from '@/services';
+import { ApiError, setAuthToken } from '@/services';
+import { useAuth } from '@/context/AuthContext';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 
@@ -30,23 +36,18 @@ const WHAT_GOES = [
   'Staff you invited and your notifications',
 ];
 
-/** "12 October 2026" — a date somebody can hold against a calendar. */
-const longDate = (value: string | null | undefined) => {
-  const date = value ? new Date(value) : null;
-  if (!date || Number.isNaN(date.getTime())) return '';
-  return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
-};
-
 const messageOf = (caught: unknown) =>
   caught instanceof ApiError ? caught.displayMessage : 'Something went wrong. Please try again.';
 
 export function DeleteAccountScreen() {
   const c = useColors();
-  const { confirm } = useAlert();
+  const router = useRouter();
+  const { confirm, alert } = useAlert();
+  const { signOut } = useAuth();
 
   const [state, setState] = useState<AccountDeletion | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'delete' | 'cancel' | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [reason, setReason] = useState('');
 
@@ -68,92 +69,82 @@ export function DeleteAccountScreen() {
 
   const submit = async () => {
     const ok = await confirm({
-      title: 'Delete your account?',
-      message: 'Your Stay Partner account will be scheduled for deletion. You can cancel from this '
-        + 'screen until the date we give you.',
+      title: 'Delete your account now?',
+      message: 'Your Stay Partner account is deleted immediately. This cannot be undone.',
       confirmLabel: 'Yes, delete my account',
       cancelLabel: 'Keep my account',
       destructive: true,
     });
     if (!ok) return;
 
-    setBusy(true);
+    setBusy('delete');
     setProblem(null);
     try {
-      setState(await requestAccountDeletion(reason));
+      const result = await requestAccountDeletion(reason);
+      if (result.deleted === true || result.status === 'completed') {
+        /* The token is already dead. Drop it from the client FIRST: `signOut`
+           unregisters this phone's push token over the API, and with the dead
+           token attached that call answers ACCOUNT_GONE — which the client
+           treats as an expired session and follows with a "Session expired"
+           alert on top of this one. The server already removed every device
+           when it erased the account, so nothing is lost by skipping it. */
+        setAuthToken(null);
+        await signOut();
+        router.replace('/login');
+        alert({ title: 'Your account has been deleted', tone: 'success' });
+        return;
+      }
+      setProblem('Your account could not be deleted. Please try again.');
     } catch (caught) {
       setProblem(messageOf(caught));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
+  /* Legacy only: withdraws a request made under the old 30-day schedule. */
   const undo = async () => {
-    setBusy(true);
+    setBusy('cancel');
     setProblem(null);
     try {
       setState(await cancelAccountDeletion());
-      setReason('');
     } catch (caught) {
       setProblem(messageOf(caught));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
-  const requested = state?.status === 'requested';
-  const days = state?.graceDays ?? 30;
+  const legacyRequest = state?.status === 'requested';
   const support = state?.supportEmail || 'contact@lampose.com';
 
   return (
     <Screen header={<TopHeader title="Delete account" showBack />} background="bg">
-      <View style={styles.container}>
+      <Box style={styles.container}>
         {loading && !state ? (
           <Text variant="body" color="textSecondary">Checking your account…</Text>
-        ) : requested ? (
-          <>
-            <Card style={[styles.card, { backgroundColor: c.warningTint }]}>
-              <Text variant="label" style={{ color: c.warningOnTint, fontFamily: fonts.semibold }}>
-                Scheduled for deletion on {longDate(state?.scheduledFor)}
-              </Text>
-              <Text variant="bodySm" style={{ color: c.warningOnTint }}>
-                Until then your account works as normal and anything owed to you is paid. After that
-                date your account and its personal data are deleted.
-              </Text>
-            </Card>
-            {state?.activeBookings ? (
-              <Text variant="bodySm" color="textSecondary">
-                {state.activeBookings} booking{state.activeBookings === 1 ? ' is' : 's are'} still
-                running at your property. Guests already staying are not affected.
-              </Text>
-            ) : null}
-            <Card style={styles.card}>
-              <View style={styles.fact}>
-                <Text variant="bodySm" color="textSecondary">Requested</Text>
-                <Text variant="bodySm">{longDate(state?.requestedAt) || '—'}</Text>
-              </View>
-              <View style={styles.fact}>
-                <Text variant="bodySm" color="textSecondary">Deleted on or after</Text>
-                <Text variant="bodySm">{longDate(state?.scheduledFor) || '—'}</Text>
-              </View>
-            </Card>
-            <Button
-              label={busy ? 'Cancelling…' : 'Cancel deletion request'}
-              variant="secondary"
-              loading={busy}
-              onPress={undo}
-            />
-            <Text variant="caption" color="textSecondary">
-              Cancelling keeps your account exactly as it is — properties, bookings, payout details
-              and all.
-            </Text>
-          </>
         ) : (
           <>
+            {legacyRequest ? (
+              <Card style={[styles.card, { backgroundColor: c.warningTint }]}>
+                <Text variant="label" style={{ color: c.warningOnTint, fontFamily: fonts.semibold }}>
+                  An earlier deletion request is pending
+                </Text>
+                <Text variant="bodySm" style={{ color: c.warningOnTint }}>
+                  You can withdraw it and keep your account, or delete it now below.
+                </Text>
+                <Button
+                  label={busy === 'cancel' ? 'Cancelling…' : 'Cancel request'}
+                  variant="secondary"
+                  loading={busy === 'cancel'}
+                  disabled={busy !== null}
+                  onPress={undo}
+                />
+              </Card>
+            ) : null}
+
             <Text variant="body" color="textSecondary">
-              Deleting your Lampose Stay Partner account is permanent once it is carried out. We
-              schedule it {days} days from today, so anything owed to you can be paid and you can
-              change your mind.
+              Deleting your Lampose Stay Partner account happens immediately and cannot be undone.
             </Text>
 
             <Card style={styles.card}>
@@ -161,12 +152,22 @@ export function DeleteAccountScreen() {
               {WHAT_GOES.map((line) => (
                 <Text key={line} variant="bodySm">{`•  ${line}`}</Text>
               ))}
+              <Text variant="bodySm">
+                Your properties come off Lampose. Open bookings stay as they are, but can no longer
+                be managed from this account.
+              </Text>
               <Text variant="caption" color="textSecondary">
-                Booking and payout records are kept for as long as the law requires, separately from
-                your profile. Your property listing is held separately — say so below if you also
-                want it taken off Lampose.
+                Bookings, payments and a copy of your account details are kept for legal and
+                accounting records.
               </Text>
             </Card>
+
+            {state?.activeBookings ? (
+              <Text variant="bodySm" color="textSecondary">
+                {state.activeBookings} booking{state.activeBookings === 1 ? ' is' : 's are'} still
+                open at your property.
+              </Text>
+            ) : null}
 
             <Input
               label="Why are you leaving?"
@@ -179,9 +180,10 @@ export function DeleteAccountScreen() {
             />
 
             <Button
-              label={busy ? 'Sending…' : 'Delete my account'}
+              label={busy === 'delete' ? 'Deleting…' : 'Delete my account'}
               variant="dangerOutline"
-              loading={busy}
+              loading={busy === 'delete'}
+              disabled={busy !== null}
               onPress={submit}
             />
           </>
@@ -202,7 +204,7 @@ export function DeleteAccountScreen() {
           </Text>
           .
         </Text>
-      </View>
+      </Box>
     </Screen>
   );
 }
@@ -210,5 +212,4 @@ export function DeleteAccountScreen() {
 const styles = StyleSheet.create({
   container: { gap: 16, paddingBottom: 24 },
   card: { padding: 16, borderRadius: 16, gap: 10 },
-  fact: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
 });

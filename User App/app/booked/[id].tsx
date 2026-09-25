@@ -14,6 +14,7 @@ import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { addressVisible, confirmedBookingFor, fromRealBooking } from '@/data/bookings';
 import { useBooking, useListing, useStayRequest } from '@/services';
+import { formatRupees } from '@/utils/money';
 
 /**
  * Screen two of two: it is yours.
@@ -405,7 +406,7 @@ export default function Booked() {
                 <Text variant="caption" color="secondary" style={styles.flex}>
                   {isStayBooking ? 'Your stay' : 'Assisted visit'}
                 </Text>
-                <Text variant="priceMd">₹{paidRupees.toLocaleString('en-IN')}</Text>
+                <Text variant="priceMd">{formatRupees(paidRupees)}</Text>
               </View>
 
               {/*
@@ -424,10 +425,10 @@ export default function Booked() {
                     <View style={styles.payRow}>
                       <Text variant="caption" color="tertiary" style={styles.flex}>
                         {stayNights} {stayNights === 1 ? stayUnit.replace(/s$/, '') : stayUnit}
-                        {' × '}₹{stayRate.toLocaleString('en-IN')}
+                        {' × '}{formatRupees(stayRate)}
                       </Text>
                       <Text variant="priceSm" color="tertiary">
-                        ₹{paidRupees.toLocaleString('en-IN')}
+                        {formatRupees(paidRupees)}
                       </Text>
                     </View>
                   </>
@@ -440,7 +441,7 @@ export default function Booked() {
                       Lampose representative who comes with you
                     </Text>
                     <Text variant="priceSm" color="tertiary">
-                      ₹{repRupees.toLocaleString('en-IN')}
+                      {formatRupees(repRupees)}
                     </Text>
                   </View>
                   <View style={styles.payRow}>
@@ -448,7 +449,7 @@ export default function Booked() {
                       Lampose fee
                     </Text>
                     <Text variant="priceSm" color="tertiary">
-                      ₹{feeRupees.toLocaleString('en-IN')}
+                      {formatRupees(feeRupees)}
                     </Text>
                   </View>
                 </>

@@ -23,6 +23,7 @@ import Svg, { Path } from 'react-native-svg';
 
 import { Icon, Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
+import { withAlpha } from '@/utils/color';
 import { AirbnbSearchBar, type AirbnbSearchBarProps } from './AirbnbSearchBar';
 
 // Character sets for letter-by-letter fall & arrange
@@ -125,7 +126,27 @@ export function StayHeroSection({
 }: StayHeroSectionProps) {
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
-  const { space } = useTheme();
+  const { space, colors, mode } = useTheme();
+
+  /*
+   * The bell and profile discs over the banner follow the theme.
+   *
+   * They were literal white with a literal slate glyph, in both modes. On
+   * Android phones that apply a system "force dark" to anything the app did
+   * not theme itself, that white disc was darkened while the glyph stayed
+   * dark — both icons vanished in dark mode. In dark mode they are now a
+   * near-opaque raised surface with the light ink and a hairline ring (so
+   * they keep an edge on the photo); light mode is unchanged.
+   */
+  const isDark = mode === 'dark';
+  const discStyle = isDark
+    ? {
+      backgroundColor: withAlpha(colors.surfaceRaised, 0.92),
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: withAlpha('#FFFFFF', 0.18),
+    }
+    : null;
+  const discInk = isDark ? colors.textPrimary : '#1E293B';
 
   /* Null for a guest, or an account with no name yet — the button then shows
      a person icon, never a made-up letter. */
@@ -335,26 +356,33 @@ export function StayHeroSection({
               {/* Notification Bell */}
               <Pressable
                 onPress={onPressAlerts}
-                style={styles.actionCircleGlass}
+                style={[styles.actionCircleGlass, discStyle]}
                 accessibilityRole="button"
                 accessibilityLabel="Notifications"
               >
-                <Icon name="bell" size={18} color="#1E293B" />
-                {alertCount > 0 ? <View style={styles.redBadge} /> : null}
+                <Icon name="bell" size={18} color={discInk} />
+                {alertCount > 0 ? (
+                  <View
+                    style={[
+                      styles.redBadge,
+                      isDark ? { borderColor: colors.surfaceRaised } : null,
+                    ]}
+                  />
+                ) : null}
               </Pressable>
 
               {/* Profile Initial Avatar */}
               {onPressProfile ? (
                 <Pressable
                   onPress={onPressProfile}
-                  style={styles.profileAvatar}
+                  style={[styles.profileAvatar, discStyle]}
                   accessibilityRole="button"
                   accessibilityLabel="Your Profile"
                 >
                   {userInitial ? (
-                    <Text style={styles.profileInitial}>{userInitial}</Text>
+                    <Text style={[styles.profileInitial, { color: discInk }]}>{userInitial}</Text>
                   ) : (
-                    <Icon name="user" size={18} color="#1E293B" />
+                    <Icon name="user" size={18} color={discInk} />
                   )}
                 </Pressable>
               ) : null}

@@ -70,6 +70,7 @@ import {
 } from '@/types/filters';
 import { ownerWindowLabel } from '@/types/request';
 import { withAlpha } from '@/utils/color';
+import { formatRupees } from '@/utils/money';
 
 /**
  * Home — four carousels, one per category.
@@ -532,7 +533,7 @@ export default function Home() {
     {
       id: 'rent',
       label:
-        query.rentCeiling !== null ? `Up to ₹${query.rentCeiling.toLocaleString('en-IN')}` : 'Price',
+        query.rentCeiling !== null ? `Up to ${formatRupees(query.rentCeiling)}` : 'Price',
       active: query.rentCeiling !== null,
       clearable: true,
     },
@@ -977,9 +978,9 @@ export default function Home() {
                   <StateTemplate
                     copy={emptyStates.noSearchResults({
                       locality: scopeLabel,
-                      rentCeiling: `₹${query.rentCeiling!.toLocaleString('en-IN')}`,
+                      rentCeiling: `${formatRupees(query.rentCeiling!)}`,
                       fittingCount: relaxed.count,
-                      suggestedCeiling: `₹${relaxed.ceiling.toLocaleString('en-IN')}`,
+                      suggestedCeiling: `${formatRupees(relaxed.ceiling)}`,
                       nearbyCount: nearby.listingCount,
                       nearbyLocality: nearby.name,
                     })}
