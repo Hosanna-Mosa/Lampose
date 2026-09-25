@@ -38,6 +38,7 @@ export function PropertyDetailModal({ property, onClose, onDelete, onUpdated }) 
     longStayDuration = '1 Month+',
     monthlyPrice = 0,
     deposit,
+    agreedSuccessCharge,
     address,
     imageUrl,
     images = [],
@@ -584,6 +585,13 @@ export function PropertyDetailModal({ property, onClose, onDelete, onUpdated }) 
               <Inline style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 500 }}>Security Deposit</Inline>
               <Box style={{ fontSize: '1.2rem', fontWeight: 800, color: '#181e1b', marginTop: '2px' }}>
                 ₹{deposit || 0}
+              </Box>
+            </Box>
+
+            <Box>
+              <Inline style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 500 }}>Agreed Success Charge</Inline>
+              <Box style={{ fontSize: '1.2rem', fontWeight: 800, color: '#181e1b', marginTop: '2px' }}>
+                ₹{agreedSuccessCharge || 0}
               </Box>
             </Box>
 

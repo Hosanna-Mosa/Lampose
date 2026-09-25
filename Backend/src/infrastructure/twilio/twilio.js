@@ -153,8 +153,9 @@ function describeAmenities(property) {
 /**
  * Sends approval request message to property owner.
  *
- * With a `property` object it fills the full-data template (7 variables:
- * name, address, stay options, mess, owner number, amenities). Extra
+ * With a `property` object it fills the full-data template (name, address,
+ * stay options, mess, owner number, amenities, {{8}} the request id for the
+ * buttons, {{9}} the agreed success charge). Extra
  * variables are ignored by a template that does not reference them, so this
  * is safe to ship while TWILIO_VERIFY_CONTENT_SID still points at the old
  * two-variable template awaiting the new one's Meta approval.
@@ -185,6 +186,10 @@ async function sendVerificationMessage(ownerMobile, ownerName, propertyName, pro
       '7': oneLine(describeAmenities(property), 140),
       // Rides in the button payloads (VERIFY_YES:<id>), never in the body.
       '8': String(requestId || ''),
+      /* The success charge the agent agreed with the owner, so the owner
+         approves the listing and the charge together. Always a figure —
+         a blank at onboarding is ₹0, never an empty variable Meta rejects. */
+      '9': inr(Math.max(0, Number(property.agreedSuccessCharge) || 0)),
     })
     : JSON.stringify({
       '1': ownerName || 'Property Owner',

@@ -14,6 +14,8 @@ export const INITIAL_FORM_STATE = {
   monthlyPrice: '',
   rent: '',
   deposit: '',
+  // What the owner agreed to pay Lampose per successful booking. Blank saves as 0.
+  agreedSuccessCharge: '',
   address: '',
   /* The pin, as `{lat, lng}`, when the crosshair took one — null otherwise.
      There is no `mapLink` here on purpose: a pasted link lives in `address`

@@ -589,6 +589,25 @@ export function PricingAmenitiesStep({ formData, onChange, errors = {} }) {
           <FieldError message={errors.deposit} />
         </Box>
 
+        {/* Agreed Success Charge — every category, never shown to students. */}
+        <Box className="form-group">
+          <Label className="form-label" htmlFor="agreedSuccessChargeInput" style={{ color: '#181e1b' }}>
+            Agreed Success Charge (₹)
+          </Label>
+          <Input
+            id="agreedSuccessChargeInput"
+            type="number"
+            min="0"
+            name="agreedSuccessCharge"
+            placeholder="e.g. 1000"
+            value={formData.agreedSuccessCharge || ''}
+            onChange={onChange}
+            className="form-input"
+            style={{ borderColor: errorBorder(errors.agreedSuccessCharge) }}
+          />
+          <FieldError message={errors.agreedSuccessCharge} />
+        </Box>
+
         {/*
           Address — ONE box, which may hold words, a pasted map link, or both.
 

@@ -15,7 +15,9 @@ export function EditPropertyPanel({ property, saving, onCancel, onSave }) {
     ownerAltMobile: property.ownerAltMobile || '',
     monthlyPrice: property.monthlyPrice ?? '',
     dailyPrice: property.dailyPrice ?? '',
-    deposit: property.deposit ?? ''
+    deposit: property.deposit ?? '',
+    // Rows onboarded before this field existed carry none — they open at 0.
+    agreedSuccessCharge: property.agreedSuccessCharge ?? 0
   });
 
   const setField = (key) => (e) => setForm((prev) => ({ ...prev, [key]: e.target.value }));
@@ -35,6 +37,7 @@ export function EditPropertyPanel({ property, saving, onCancel, onSave }) {
       monthlyPrice,
       dailyPrice,
       deposit: Number(form.deposit) || 0,
+      agreedSuccessCharge: Math.max(0, Number(form.agreedSuccessCharge) || 0),
       // `rent` is the field the listings and admin figures read, so it tracks
       // whichever price the listing is actually sold on.
       rent: monthlyPrice || dailyPrice || Number(property.rent) || 0
@@ -116,6 +119,9 @@ export function EditPropertyPanel({ property, saving, onCancel, onSave }) {
             </Labelled>
             <Labelled label="Deposit (₹)">
               <Input type="number" min="0" value={form.deposit} onChange={setField('deposit')} style={editInputStyle} />
+            </Labelled>
+            <Labelled label="Agreed Success Charge (₹)">
+              <Input type="number" min="0" value={form.agreedSuccessCharge} onChange={setField('agreedSuccessCharge')} style={editInputStyle} />
             </Labelled>
           </Box>
         </Box>
