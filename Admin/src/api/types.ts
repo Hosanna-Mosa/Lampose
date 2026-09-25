@@ -89,6 +89,9 @@ export type PropertyCategory = 'PG_HOSTEL' | 'BACHELOR' | 'HOTEL' | 'COLIVE' | '
  */
 export interface PropertyEntity {
   id: string;
+  /** Taps on this property's card in the User App and on lampose.com — every
+      tap counts. Null for a listing still awaiting verification (not public). */
+  clickCount: number | null;
   name: string;
   place: string;
   address: string;

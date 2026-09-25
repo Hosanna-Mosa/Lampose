@@ -24,6 +24,7 @@ import { usePressAnimation } from '@/hooks/usePressAnimation';
 import { useTheme } from '@/context/ThemeContext';
 import { formatRupees } from '@/utils/money';
 import { availabilityLabel, isGone, isScarce, type Availability, type Listing } from '@/types/listing';
+import { recordListingClick } from '@/services/api/listings.api';
 
 export type ListingCardVariant = 'carousel' | 'list';
 
@@ -378,7 +379,23 @@ function CardBody({
           <Text style={styles.unitSuffixText}>{unitSuffix}</Text>
         </View>
 
-        {scarceBedCount !== null ? (
+        {/*
+          No beds free: the card stays in the feed and SAYS so, rather than
+          vanishing. A student who saw this place yesterday and cannot find it
+          today assumes the app lost it; "Unavailable" tells them it is full
+          and that it may open again (an owner can free a bed at any time).
+        */}
+        {isGone(listing.availability) ? (
+          <View
+            style={[styles.unavailableBadge, { backgroundColor: colors.warning.tint, borderColor: colors.warning.border }]}
+            accessibilityLabel="Unavailable, no beds free right now"
+          >
+            <Icon name="alert" size={14} color={colors.warning.ink} />
+            <Text style={[styles.urgencyText, { color: colors.warning.ink }]}>
+              Unavailable · No beds free
+            </Text>
+          </View>
+        ) : scarceBedCount !== null ? (
           <View style={styles.urgencyBadge}>
             <Icon name="flame" size={14} color="#DC2626" fill="#DC2626" />
             <Text style={styles.urgencyText}>
@@ -411,6 +428,15 @@ export function ListingCard({
 }: ListingCardProps) {
   const { colors, mode } = useTheme();
   const { animatedStyle, onPressIn, onPressOut } = usePressAnimation('card');
+  /* Every tap that opens a listing is counted for the owner and the console
+     (see `recordListingClick`). Done here, once, so every screen that shows a
+     property card counts the same way. */
+  const handlePress = onPress
+    ? () => {
+        recordListingClick(listing.id);
+        onPress();
+      }
+    : undefined;
   const gone = isGone(listing.availability);
 
   const [listWidth, setListWidth] = useState(358);
@@ -447,12 +473,12 @@ export function ListingCard({
         width={variant === 'carousel' ? GEOMETRY.carousel.width : listWidth}
         height={variant === 'carousel' ? GEOMETRY.carousel.photoHeight : GEOMETRY.list.photoHeight}
         swipeable
-        onPress={onPress}
+        onPress={handlePress}
         onPressIn={onPressIn}
         onPressOut={onPressOut}
         onToggleSave={onToggleSave}
       />
-      <CardBody listing={listing} onPress={onPress} />
+      <CardBody listing={listing} onPress={handlePress} />
     </View>
   );
 
@@ -701,6 +727,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
+    gap: 4,
+  },
+  unavailableBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
     gap: 4,
   },
   urgencyText: {

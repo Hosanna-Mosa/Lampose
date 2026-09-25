@@ -121,6 +121,11 @@ const getMyProperties = async (req, res, next) => {
       byProperty.set(row.propertyId, list);
     });
 
+    /* How many times each card has been tapped open, from the User App and
+       lampose.com. See `listings/propertyClick.model.js`. */
+    const { clickCountsFor } = require('../listings/propertyClick.model');
+    const clicks = await clickCountsFor(owned.map((p) => String(p._id)));
+
     const data = owned
       .map((property) => {
         const flags = byProperty.get(String(property._id));
@@ -131,6 +136,7 @@ const getMyProperties = async (req, res, next) => {
              disagree about one property. */
           isAvailable: flags && flags.length ? flags.some(Boolean) : null,
           roomTypeCount: flags ? flags.length : 0,
+          clickCount: clicks.get(String(property._id)) || 0,
         };
       })
       .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));

@@ -58,6 +58,8 @@ export const endpoints = {
   listing: (id: string) => `${V2}/listings/${encodeURIComponent(id)}`,
   /* What guests said about a place, with the owner's replies. Public. */
   listingReviews: (id: string) => `${V2}/listings/${encodeURIComponent(id)}/reviews`,
+  /** One tap on a property card. Public, fire-and-forget; see `recordListingClick`. */
+  listingClick: (id: string) => `${V2}/listings/${encodeURIComponent(id)}/click`,
 
   /**
    * The stay request: ask an owner for a bed, watch the clock, pull it back.

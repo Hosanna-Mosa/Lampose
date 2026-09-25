@@ -11,6 +11,7 @@ const normalize = (raw: any): PropertyEntity => {
   const images: string[] = Array.isArray(raw.images) ? raw.images.filter(Boolean) : [];
   return {
     id: raw._id || raw.id,
+    clickCount: typeof raw.clickCount === 'number' ? raw.clickCount : null,
     name: raw.name || 'Untitled property',
     place: raw.place || '',
     address: raw.address || '',
@@ -37,6 +38,36 @@ const normalize = (raw: any): PropertyEntity => {
     updatedAt: raw.updatedAt || null,
   };
 };
+
+/**
+ * One room type on a verified listing: capacity next to what is FREE now.
+ *
+ * `totalBeds` is capacity (`categoryDetails.sharingBeds`, edited with the
+ * property). `availableBeds` moves by itself with every booking and is what
+ * students see as "N left". `recorded: false` means no total bed count exists
+ * yet for this room type, so there is nothing to count.
+ */
+export interface PropertyInventoryItem {
+  shareTypeId: string;
+  label: string;
+  capacity: number | null;
+  recorded: boolean;
+  totalBeds: number | null;
+  availableBeds: number | null;
+  /** Lampose bookings on a bed (upcoming / arriving / in-house / departing). */
+  bookedInApp: number;
+  /** Beds a person said are taken outside the app. */
+  offlineOccupied: number;
+  /** Lampose bookings a person marked vacant — tenant left, booking still open. */
+  markedVacant?: number;
+  /** Free beds possible WITHOUT overriding a Lampose booking: total − Lampose bookings. */
+  maxFree: number | null;
+  /** Set on a save that went above `maxFree`. */
+  override?: boolean;
+  isAvailable: boolean | null;
+  freeBedsEditedAt: string | null;
+  freeBedsEditedBy: string;
+}
 
 export const propertyService = {
   /** Listings from the `properties` collection. */
@@ -101,5 +132,30 @@ export const propertyService = {
     return res.success
       ? { ...res, data: { attempts: res.data?.attempts, expiresAt: res.data?.expiresAt } }
       : { ...res, data: null };
+  },
+
+  /** Beds per room type — total, free now, Lampose bookings. Verified listings only. */
+  async getInventory(id: string): Promise<ApiResponse<PropertyInventoryItem[]>> {
+    const res = await api.get<any>(`/properties/${id}/inventory`);
+    return res.success
+      ? { ...res, data: Array.isArray(res.data?.data?.items) ? res.data.data.items : [] }
+      : { ...res, data: [] };
+  },
+
+  /**
+   * Set how many beds of one room type are free right now. Never touches the
+   * total. Accepts 0 to the total; above total − Lampose bookings is an
+   * override (tenant left, booking still open). Refusals carry `message`.
+   */
+  async setFreeBeds(
+    id: string,
+    shareTypeId: string,
+    availableBeds: number
+  ): Promise<ApiResponse<PropertyInventoryItem | null>> {
+    const res = await api.patch<any>(
+      `/properties/${id}/inventory/${encodeURIComponent(shareTypeId)}`,
+      { availableBeds }
+    );
+    return res.success ? { ...res, data: res.data?.data ?? null } : { ...res, data: null };
   },
 };

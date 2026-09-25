@@ -37,7 +37,7 @@ const {
 } = require('./addCustomer.controller');
 const {
   getMyPropertyById, updateMyProperty, setMyPropertyAvailability, removeMyProperty,
-  uploadPropertyImages, MAX_PROPERTY_IMAGES,
+  uploadPropertyImages, MAX_PROPERTY_IMAGES, getMyPropertyInventory, setMyFreeBeds,
 } = require('./propertyEdit.controller');
 
 /* Held in memory and streamed straight to Cloudinary — nothing identity-
@@ -205,6 +205,12 @@ router.patch('/properties/:id', requireLamposeDb, requirePartner, updateMyProper
    property at once — which left an owner with more than one no way to take a
    single listing off. See `setMyPropertyAvailability`. */
 router.patch('/properties/:id/availability', requireLamposeDb, requirePartner, setMyPropertyAvailability);
+
+/* Beds per room type — total, free right now, and booked through Lampose —
+   and the owner's correction of the FREE count (capacity is edited on the
+   property). See `inventoryForProperty` / `setFreeBeds` in inventory.service.js. */
+router.get('/properties/:id/inventory', requireLamposeDb, requirePartner, getMyPropertyInventory);
+router.patch('/properties/:id/inventory/:shareTypeId', requireLamposeDb, requirePartner, setMyFreeBeds);
 
 /* Soft — sets `status: 'removed'`, never drops the document. Refused with a
    409 while a guest is currently staying/due or a student is waiting on an

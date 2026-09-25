@@ -795,12 +795,11 @@ export default function ListingDetail() {
                   gap: space[2],
                 }}
               >
-                <Text variant="bodyStrong">No longer available</Text>
+                <Text variant="bodyStrong">Unavailable right now</Text>
                 <Text variant="caption" color="secondary">
-                  {availabilityLabel(listing.availability)}. We keep this page so a saved link still
-                  works, but you cannot request it right now.
+                  {availabilityLabel(listing.availability)}. You cannot request a bed here at the
+                  moment — check back later, as the owner may free one up.
                 </Text>
-                <Button label="Notify me if a bed opens" variant="secondary" onPress={() => {}} />
               </View>
 
               {similar.length > 0 ? (

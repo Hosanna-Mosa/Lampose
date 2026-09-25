@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import listingsApi from '../../../../api/listingsApi';
 import { Icon } from '../../atoms/Icon/Icon';
 import { labelForCategory } from '../../../../data/categories';
 import { Article, Box, Heading, Image, Inline, Italic, PlainButton, Strong, Text } from '../../atoms';
@@ -166,7 +167,14 @@ export function ListingCard({ item, index = 0, view = 'grid' }) {
         <Heading level={3} className="xp-card__title">
           {/* The pseudo-element on this link covers the whole card, so the
               card is one big target and the controls above it still work. */}
-          <Link className="xp-card__link" to={`/explore/${item.id}`}>{item.name}</Link>
+          <Link
+            className="xp-card__link"
+            to={`/explore/${item.id}`}
+            /* Counted for the owner and the console — every tap, guests too. */
+            onClick={() => listingsApi.recordClick(item.id)}
+          >
+            {item.name}
+          </Link>
         </Heading>
 
         <Text className="xp-card__where">
@@ -183,7 +191,11 @@ export function ListingCard({ item, index = 0, view = 'grid' }) {
 
           <Box className="xp-card__actions">
 
-            <Link className="xp-card__details" to={`/explore/${item.id}`}>
+            <Link
+              className="xp-card__details"
+              to={`/explore/${item.id}`}
+              onClick={() => listingsApi.recordClick(item.id)}
+            >
               Details <Inline aria-hidden="true">→</Inline>
             </Link>
           </Box>

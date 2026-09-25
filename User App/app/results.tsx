@@ -16,7 +16,7 @@ import {
 import { useAppState } from '@/context/AppStateContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useListings, useSaved } from '@/services';
-import { isGone } from '@/types/listing';
+import { availableFirst } from '@/types/listing';
 import type { StayCategory } from '@/constants/tokens';
 import {
   activeFilterCount,
@@ -86,11 +86,11 @@ export default function Results() {
     locality: locality?.name ?? null,
   });
 
-  const inventory = useMemo(
-    () => listings.filter((listing) => !isGone(listing.availability)),
-    [listings],
-  );
-  const results = useMemo(() => applyQuery(inventory, query), [inventory, query]);
+  /* Full listings stay listed, last, with an "Unavailable" card — the same
+     rule as the home feed, so "See all" never shows fewer places than the
+     feed it was opened from. */
+  const inventory = listings;
+  const results = useMemo(() => availableFirst(applyQuery(inventory, query)), [inventory, query]);
   const suggestions = useMemo(
     () => (results.length === 0 ? relaxationSuggestions(query, inventory) : []),
     [results.length, query, inventory],

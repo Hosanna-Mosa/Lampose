@@ -576,10 +576,65 @@ const uploadPropertyImages = async (req, res, next) => {
   }
 };
 
+// @route   GET /api/v2/partners/properties/:id/inventory
+// @desc    Every room type on one listing: total beds, free now, booked in app
+// @access  Partner session (owner of the listing only)
+const getMyPropertyInventory = async (req, res, next) => {
+  try {
+    if (mongoose.connection.readyState !== 1) return dbDown(res);
+
+    const property = await findOwnedProperty(req.partner, req.params.id);
+    if (!property) return notFound(res);
+
+    const { inventoryForProperty } = require('../inventory/inventory.service');
+    const items = await inventoryForProperty(property);
+    return res.json({ success: true, data: { propertyId: String(property._id), items } });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// @route   PATCH /api/v2/partners/properties/:id/inventory/:shareTypeId
+// @desc    Set how many beds of one room type are free right now
+// @access  Partner session (owner of the listing only)
+/**
+ * Free beds only — capacity is edited on the property itself. Ownership is
+ * checked on the PROPERTY (by its owner number), and the share type must
+ * belong to that property, so one owner cannot move another's beds by
+ * guessing an id. The rules on the number live in `setFreeBeds`.
+ */
+const setMyFreeBeds = async (req, res, next) => {
+  try {
+    if (mongoose.connection.readyState !== 1) return dbDown(res);
+
+    const property = await findOwnedProperty(req.partner, req.params.id);
+    if (!property) return notFound(res);
+
+    const { setFreeBeds } = require('../inventory/inventory.service');
+    const result = await setFreeBeds({
+      propertyId: String(property._id),
+      shareTypeId: String(req.params.shareTypeId || ''),
+      freeBeds: req.body ? req.body.availableBeds : undefined,
+      editedBy: `owner ${req.partner.partnerId || req.partner.name || ''}`.trim(),
+    });
+
+    if (!result.ok) {
+      return res.status(result.status).json({
+        success: false, code: result.code, message: result.message, maxFree: result.maxFree,
+      });
+    }
+    return res.json({ success: true, message: 'Free beds updated.', data: result.data });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 module.exports = {
   getMyPropertyById,
   updateMyProperty,
   setMyPropertyAvailability,
+  getMyPropertyInventory,
+  setMyFreeBeds,
   removeMyProperty,
   uploadPropertyImages,
   MAX_PROPERTY_IMAGES,

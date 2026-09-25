@@ -75,7 +75,11 @@ export function availabilityLabel(availability: Availability): string {
         ? 'Last bed tonight'
         : `${availability.count} beds free tonight`;
     case 'FILLED':
-      return `Filled ${availability.minutesAgo} min ago`;
+      /* The adapter does not know WHEN the last bed went and passes 0; "Filled
+         0 min ago" would be a time nobody recorded. */
+      return availability.minutesAgo > 0
+        ? `Filled ${availability.minutesAgo} min ago`
+        : 'No beds free right now';
     case 'UNSTATED':
       /* Empty on purpose, and every caller treats an empty label as "draw
          nothing". A placeholder — "availability unknown", a dash — would be a
@@ -100,6 +104,15 @@ export function isGone(availability: Availability): boolean {
     (availability.kind === 'UNIT' && !availability.vacant) ||
     ((availability.kind === 'BEDS' || availability.kind === 'TONIGHT') && availability.count === 0)
   );
+}
+
+/**
+ * The same list with every full listing moved to the end, order otherwise
+ * kept. Feeds show full places (with an "Unavailable" card) rather than
+ * hiding them, but a student should reach the ones they can book first.
+ */
+export function availableFirst<T extends { availability: Availability }>(listings: readonly T[]): T[] {
+  return [...listings].sort((a, b) => Number(isGone(a.availability)) - Number(isGone(b.availability)));
 }
 
 /* ------------------------------------------------------------------ *

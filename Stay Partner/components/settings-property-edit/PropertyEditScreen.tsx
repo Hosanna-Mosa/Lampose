@@ -23,9 +23,11 @@ import { PropertyCategoryFields } from '@/components/PropertyCategoryFields';
 import {
   ApiError,
   fetchMyProperty,
+  fetchPropertyInventory,
   updateMyProperty,
   uploadPropertyImages,
   type BackendListing,
+  type PropertyInventoryItem,
 } from '@/services';
 import { useColors } from '@/hooks/useColors';
 import { Section } from '@/components/settings-property-edit/molecules/Section/Section';
@@ -132,6 +134,9 @@ export function PropertyEditScreen() {
   const [form, setForm] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone: 'error' | 'success' } | null>(null);
+  /* Free beds per room type. Loaded beside the form and saved on their own
+     (FreeBedsRow), so a failure here never blocks editing the listing. */
+  const [inventory, setInventory] = useState<PropertyInventoryItem[] | undefined>(undefined);
 
   const load = useCallback(async () => {
     if (!id) {
@@ -144,6 +149,7 @@ export function PropertyEditScreen() {
     try {
       const property = await fetchMyProperty(id);
       setForm(toFormState(property));
+      fetchPropertyInventory(id).then(setInventory).catch(() => setInventory(undefined));
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.displayMessage : 'We could not load this property.');
     } finally {
@@ -392,10 +398,21 @@ export function PropertyEditScreen() {
           </Section>
 
           <Section title={`${form.category} details`}>
+            {inventory ? (
+              <Text variant="caption" color="textSecondary" style={styles.intro}>
+                Total beds save with "Save changes". Free beds (how many are empty right now) save
+                straight away and never change the total.
+              </Text>
+            ) : null}
             <PropertyCategoryFields
               category={form.category}
               details={form.categoryDetails}
               onChange={(categoryDetails) => setForm((f) => f && { ...f, categoryDetails })}
+              propertyId={id}
+              inventory={inventory}
+              onInventorySaved={(next) => setInventory((prev) => prev && prev.map((item) => (
+                item.shareTypeId === next.shareTypeId ? next : item
+              )))}
             />
           </Section>
         </Box>

@@ -36,31 +36,82 @@ export function VerificationCodeDisplay({
   variant = 'standalone',
   onCodeNotWorking,
 }: VerificationCodeDisplayProps) {
-  const { space } = useTheme();
+  const { colors, mode } = useTheme();
   const reduceMotion = useReduceMotion();
 
   const digits = code.split('');
 
+  /*
+   * Dark mode. The pass was drawn in fixed light colours, and inside a dark
+   * card the title and captions — which DO follow the theme — came out light
+   * on light. Light mode keeps its original palette exactly; dark mode maps
+   * each role onto the theme's own tokens.
+   */
+  const dark = mode === 'dark';
+  const skin = dark
+    ? {
+        passBadge: { backgroundColor: colors.success.tint, borderColor: colors.success.border },
+        passBadgeText: { color: colors.success.ink },
+        passIcon: colors.success.ink,
+        passTitle: { color: colors.textPrimary },
+        offerBox: { backgroundColor: colors.warning.tint, borderColor: colors.warning.borderStrong },
+        offerIconBg: { backgroundColor: colors.warning.border },
+        offerIcon: colors.warning.ink,
+        offerText: { color: colors.warning.ink },
+        tile: { backgroundColor: colors.brandTint, borderColor: colors.success.border },
+        digit: { color: colors.brandInk },
+        metaRow: { backgroundColor: colors.surfaceSunken, borderColor: colors.borderSubtle },
+        metaRef: { color: colors.textPrimary },
+        metaDot: { backgroundColor: colors.textTertiary },
+        metaValid: { color: colors.textSecondary },
+        assurances: { backgroundColor: colors.surfaceSunken, borderColor: colors.borderSubtle },
+        checkBadge: { backgroundColor: colors.success.tint, borderColor: colors.success.border },
+        checkIcon: colors.success.ink,
+        assuranceText: { color: colors.textSecondary },
+        link: colors.brandInk,
+      }
+    : {
+        passBadge: {},
+        passBadgeText: {},
+        passIcon: '#059669',
+        passTitle: {},
+        offerBox: {},
+        offerIconBg: {},
+        offerIcon: '#D97706',
+        offerText: {},
+        tile: {},
+        digit: {},
+        metaRow: {},
+        metaRef: {},
+        metaDot: {},
+        metaValid: {},
+        assurances: {},
+        checkBadge: {},
+        checkIcon: '#059669',
+        assuranceText: {},
+        link: '#4F46E5',
+      };
+
   return (
     <View style={{ gap: 14, alignItems: 'center', alignSelf: 'stretch' }}>
       {/* Top Pass Category Tag */}
-      <View style={styles.passBadge}>
-        <Icon name="verified" size={12} color="#059669" />
-        <Text style={styles.passBadgeText}>MOVE-IN PASS</Text>
+      <View style={[styles.passBadge, skin.passBadge]}>
+        <Icon name="verified" size={12} color={skin.passIcon} />
+        <Text style={[styles.passBadgeText, skin.passBadgeText]}>MOVE-IN PASS</Text>
       </View>
 
       <View style={{ gap: 4, alignItems: 'center', alignSelf: 'stretch' }}>
-        <Text variant="title2" style={[styles.centred, styles.passTitle]}>
+        <Text variant="title2" style={[styles.centred, styles.passTitle, skin.passTitle]}>
           Show this to {ownerName ?? 'the owner'}
         </Text>
       </View>
 
       {/* Particularly Highlighted Offer Banner */}
-      <View style={styles.offerHighlightBox}>
-        <View style={styles.offerBadgeIcon}>
-          <Icon name="verified" size={14} color="#D97706" />
+      <View style={[styles.offerHighlightBox, skin.offerBox]}>
+        <View style={[styles.offerBadgeIcon, skin.offerIconBg]}>
+          <Icon name="verified" size={14} color={skin.offerIcon} />
         </View>
-        <Text style={styles.offerHighlightText}>
+        <Text style={[styles.offerHighlightText, skin.offerText]}>
           {ownerName
             ? `Share this PIN with ${ownerName} to confirm your move-in & get a ₹100 coupon code on hotel stays!`
             : 'Share this PIN to confirm your move-in & get a ₹100 coupon code on hotel stays!'}
@@ -77,9 +128,9 @@ export function VerificationCodeDisplay({
         {digits.map((digit, index) => (
           <View
             key={`${digit}-${index}`}
-            style={styles.tile}
+            style={[styles.tile, skin.tile]}
           >
-            <Text style={styles.digitText}>
+            <Text style={[styles.digitText, skin.digit]}>
               {digit}
             </Text>
           </View>
@@ -97,24 +148,24 @@ export function VerificationCodeDisplay({
         validity label pushed "Booking LV-672426" out through the capsule's
         left edge.
       */}
-      <View style={styles.metaBadgeRow}>
-        <Text style={styles.metaRefText} numberOfLines={1}>
+      <View style={[styles.metaBadgeRow, skin.metaRow]}>
+        <Text style={[styles.metaRefText, skin.metaRef]} numberOfLines={1}>
           Booking {bookingReference}
         </Text>
-        <View style={styles.metaDot} />
-        <Text style={styles.metaValidText} numberOfLines={1}>
+        <View style={[styles.metaDot, skin.metaDot]} />
+        <Text style={[styles.metaValidText, skin.metaValid]} numberOfLines={1}>
           {validLabel}
         </Text>
       </View>
 
       {/* Assurances: Offline Banner */}
       {variant === 'standalone' ? (
-        <View style={styles.assurancesCard}>
+        <View style={[styles.assurancesCard, skin.assurances]}>
           <View style={[styles.row, { gap: 10 }]}>
-            <View style={styles.checkCircleBadge}>
-              <Icon name="check" size={12} color="#059669" />
+            <View style={[styles.checkCircleBadge, skin.checkBadge]}>
+              <Icon name="check" size={12} color={skin.checkIcon} />
             </View>
-            <Text variant="caption" style={styles.assuranceText}>
+            <Text variant="caption" style={[styles.assuranceText, skin.assuranceText]}>
               Downloaded &amp; works offline with no signal.
             </Text>
           </View>
@@ -128,7 +179,7 @@ export function VerificationCodeDisplay({
           accessibilityLabel="Code not working"
           style={{ minHeight: 38, justifyContent: 'center' }}
         >
-          <Text variant="bodyStrong" style={{ color: '#4F46E5' }}>
+          <Text variant="bodyStrong" style={{ color: skin.link }}>
             Code not working?
           </Text>
         </Pressable>

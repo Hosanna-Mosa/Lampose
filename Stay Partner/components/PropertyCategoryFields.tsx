@@ -1,6 +1,8 @@
 import { StyleSheet, View } from 'react-native';
 import { Text, Input, Select, Segmented, Chip, ChipRow, Checkbox, FieldLabel } from '@/components/common';
 import { useColors } from '@/hooks/useColors';
+import { FreeBedsRow } from '@/components/FreeBedsRow';
+import type { PropertyInventoryItem } from '@/services';
 
 /**
  * The category-specific half of the onboarding form — mirrors
@@ -173,12 +175,47 @@ export function PropertyCategoryFields({
   category,
   details,
   onChange,
+  propertyId,
+  inventory,
+  onInventorySaved,
 }: {
   category: string;
   details: Details;
   onChange: (next: Details) => void;
+  /*
+   * Free beds, when editing a saved listing. Optional: Add Customer reuses
+   * this component and has no listing of its own to count.
+   *
+   * Free beds save STRAIGHT AWAY through their own endpoint; the total beds
+   * above them save with the form. Kept separate on purpose — see
+   * FreeBedsRow.
+   */
+  propertyId?: string;
+  inventory?: PropertyInventoryItem[];
+  onInventorySaved?: (next: PropertyInventoryItem) => void;
 }) {
   const c = useColors();
+
+  /* "Free now" for one room type, under its total-beds field. */
+  const freeNow = (label: string) => {
+    if (!propertyId || !inventory) return null;
+    const item = inventory.find((i) => i.label.trim().toLowerCase() === label.trim().toLowerCase());
+    if (!item) {
+      return (
+        <Text variant="caption" color="textTertiary">
+          Free beds for {label} can be set after you save the total beds.
+        </Text>
+      );
+    }
+    if (!item.recorded) {
+      return (
+        <Text variant="caption" color="textTertiary">
+          Enter the total beds for {label} and save — then free beds can be tracked and set here.
+        </Text>
+      );
+    }
+    return <FreeBedsRow compact propertyId={propertyId} item={item} onSaved={onInventorySaved} />;
+  };
 
   const set = (key: string, value: unknown) => onChange({ ...details, [key]: value });
 
@@ -257,7 +294,7 @@ export function PropertyCategoryFields({
                 key={type}
                 label={type}
                 selected={sharingTypes.includes(type)}
-                onPress={() => toggleArrayItem('sharingTypes', type, ['sharingPrices', 'sharingAC', 'sharingAcPrices'])}
+                onPress={() => toggleArrayItem('sharingTypes', type, ['sharingPrices', 'sharingAC', 'sharingAcPrices', 'sharingBeds'])}
               />
             ))}
           </ChipRow>
@@ -275,6 +312,16 @@ export function PropertyCategoryFields({
                   onChangeNumber={(n) => setMapValue('sharingPrices', type, n)}
                   placeholder="e.g. 6000"
                 />
+                {/* The count bed availability is tracked against. Without it a
+                    sharing type can never be requested, and there is no
+                    "free now" to show. */}
+                <NumberInput
+                  label={`Total ${type} beds`}
+                  value={details.sharingBeds?.[type]}
+                  onChangeNumber={(n) => setMapValue('sharingBeds', type, n)}
+                  placeholder="e.g. 12"
+                />
+                {freeNow(type)}
                 <Checkbox
                   label={`AC available for ${type}`}
                   checked={hasAC}
@@ -385,11 +432,12 @@ export function PropertyCategoryFields({
                   {bed}
                 </Text>
                 <NumberInput
-                  label={`Total ${bed} beds available`}
+                  label={`Total ${bed} beds`}
                   value={details.sharingBeds?.[bed]}
                   onChangeNumber={(n) => setMapValue('sharingBeds', bed, n)}
                   placeholder="e.g. 12"
                 />
+                {freeNow(bed)}
                 <Checkbox
                   label={`AC available for ${bed}`}
                   checked={hasAC}
@@ -542,6 +590,7 @@ export function PropertyCategoryFields({
                   }}
                   placeholder="e.g. 3"
                 />
+                {freeNow(type)}
                 <Select
                   label={`${type} furnishing`}
                   options={FURNISHING_OPTIONS}

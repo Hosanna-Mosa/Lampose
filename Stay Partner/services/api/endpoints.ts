@@ -122,6 +122,12 @@ export const endpoints = {
      is partner-wide and takes every property off at once. */
   partnerPropertyAvailability: (id: string) =>
     `${V2}/partners/properties/${encodeURIComponent(id)}/availability`,
+  /* Beds per room type — total, free now, booked through Lampose — and the
+     owner's correction of the FREE count. Capacity is edited on the property. */
+  partnerPropertyInventory: (id: string) =>
+    `${V2}/partners/properties/${encodeURIComponent(id)}/inventory`,
+  partnerPropertyFreeBeds: (id: string, shareTypeId: string) =>
+    `${V2}/partners/properties/${encodeURIComponent(id)}/inventory/${encodeURIComponent(shareTypeId)}`,
   partnerPropertyImageUpload: `${V2}/partners/uploads/property-images`,
 
   /**

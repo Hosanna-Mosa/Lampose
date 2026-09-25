@@ -54,6 +54,7 @@ const razorpay = require('../../infrastructure/razorpay/razorpay');
 const FoodOrder = require('./foodOrder.model');
 const { notifyRestaurantOfOrder, notifyCustomerOfOrder } = require('./foodOrder.notifier');
 const { BADGE, logError } = require('./foodPartner.log');
+const { returnToAppPage } = require('../../shared/utils/returnToApp');
 
 /*
  * The claim on a checkout link.
@@ -304,10 +305,13 @@ min-height:100vh;margin:0;background:#f7f9f7;color:#14201a;text-align:center;pad
 p{color:#46564d;max-width:32ch}</style>
 </head><body><div><h2>${title}</h2><p>${body}</p></div></body></html>`;
 
-const bounce = (redirect, state) => `<!doctype html>
-<html><head><meta charset="utf-8">
-<meta http-equiv="refresh" content="0;url=${redirect}?paid=${state === 'paid' ? 1 : 0}">
-</head><body></body></html>`;
+/* Hands control back to the app — a tap-to-return page, because Chrome will
+   not follow a bare redirect to `lampose://` without one (see
+   `shared/utils/returnToApp.js`). The URL shape is unchanged. */
+const bounce = (redirect, state) => returnToAppPage(
+  `${redirect}?paid=${state === 'paid' ? 1 : 0}`,
+  state === 'paid',
+);
 
 /** The order this checkout link names, or null if the link is not valid. */
 const orderFromToken = async (raw) => {

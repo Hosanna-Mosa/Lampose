@@ -188,3 +188,17 @@ export async function fetchListingMeta(signal?: AbortSignal): Promise<BackendLis
   const envelope = await api.get<ApiEnvelope<BackendListingMeta>>(endpoints.listingMeta, { signal });
   return unwrap(envelope);
 }
+
+/**
+ * Count one tap on a property card — shown to the owner in Stay Partner and
+ * to admins in the console as the property's click total.
+ *
+ * Fire-and-forget: never awaited by the caller, never throws, never retried.
+ * Opening the listing must not wait on a counter, and a count lost to a bad
+ * signal is not worth an error on screen. Guests count too, so no token is
+ * needed; the server ignores ids it does not recognise.
+ */
+export function recordListingClick(id: string): void {
+  if (!id) return;
+  api.post(endpoints.listingClick(id), undefined, { retries: 0 }).catch(() => {});
+}

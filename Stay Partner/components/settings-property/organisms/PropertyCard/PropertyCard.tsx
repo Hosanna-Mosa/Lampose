@@ -1,6 +1,7 @@
 import { Box, Tappable } from '@/components/common';
 import { Text, Card, Badge, Button, DetailRow, Icon, Switch } from '@/components/common';
-import { type BackendListing } from '@/services';
+import { type BackendListing, type PropertyInventoryItem } from '@/services';
+import { FreeBedsRow } from '@/components/FreeBedsRow';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 import { styles } from '@/components/settings-property/styles';
@@ -13,12 +14,19 @@ export function PropertyCard({
   onAvailability,
   onRemove,
   removing,
+  inventory,
+  inventoryError,
+  onInventorySaved,
 }: {
   property: BackendListing & Record<string, any>;
   onEdit?: () => void;
   onAvailability?: (next: boolean) => void;
   onRemove?: () => void;
   removing?: boolean;
+  /** Beds per room type: total and free now. `undefined` while loading. */
+  inventory?: PropertyInventoryItem[];
+  inventoryError?: string | null;
+  onInventorySaved?: (next: PropertyInventoryItem) => void;
 }) {
   const c = useColors();
 
@@ -94,6 +102,35 @@ export function PropertyCard({
       ) : null}
 
       {/*
+        Beds: the total next to what is FREE right now.
+
+        The total is what the building has and never moves by itself; free
+        beds go down when a request is accepted and back up on a cancel or a
+        check-out — the same number students see as "N left". Showing only
+        the total made a booking look like it changed nothing.
+      */}
+      {inventoryError ? (
+        <Block label="Beds">
+          <Text variant="caption" color="textTertiary">
+            {inventoryError}
+          </Text>
+        </Block>
+      ) : inventory === undefined ? null : inventory.length ? (
+        <Block label="Beds · free now">
+          <Box style={styles.stack}>
+            {inventory.map((item) => (
+              <FreeBedsRow
+                key={item.shareTypeId}
+                propertyId={String(property.id ?? property._id)}
+                item={item}
+                onSaved={onInventorySaved}
+              />
+            ))}
+          </Box>
+        </Block>
+      ) : null}
+
+      {/*
         Short facts only.
 
         A label/value row works when the value is a word or a number. The
@@ -102,6 +139,14 @@ export function PropertyCard({
         block of its own below.
       */}
       <Box>
+        {/* How many times students opened this property from its card — in
+            the Lampose app and on lampose.com. Every tap counts. */}
+        {typeof property.clickCount === 'number' ? (
+          <DetailRow
+            label="Clicks"
+            value={`${property.clickCount.toLocaleString('en-IN')} ${property.clickCount === 1 ? 'click' : 'clicks'}`}
+          />
+        ) : null}
         <DetailRow label="Category" value={dash(property.category)} />
         <DetailRow label="Area" value={dash(property.locality ?? property.place)} />
         <DetailRow label="Rent" value={money(property.rent)} />
