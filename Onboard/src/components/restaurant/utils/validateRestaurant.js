@@ -164,7 +164,6 @@ const FIELD_ANCHORS = {
   panNumber: 'rst-pan',
   aadhaarNumber: 'rst-aadhaar',
   aadhaarPhone: 'rst-aadhaar-phone',
-  aadhaarOtp: 'rst-aadhaar-otp',
   /* The drop zone's wrapper, not the `<input type="file">` inside it — that
      input is `display: none`, so scrolling to it moves nothing. */
   panFile: 'rst-pan-file-field',
@@ -212,7 +211,7 @@ export const STEP_FIELDS = {
   2: ['selectedDays', ...DAYS.map(hoursKey), 'logoFile', 'menu'],
   3: [
     'panNumber', 'panFile', 'gstin',
-    'aadhaarNumber', 'aadhaarPhone', 'aadhaarOtp',
+    'aadhaarNumber', 'aadhaarPhone',
     'fssaiNumber', 'fssaiExpiry', 'fssaiFile',
     'fssaiCompanyName', 'state', 'district',
     'accountHolderName', 'bankAccount', 'bankConfirm', 'ifsc',
@@ -589,20 +588,6 @@ function validateStep3(form) {
    * occasional real number typed correctly, and a partner who cannot be
    * onboarded at all is a worse failure than one the verification queue
    * catches beside the scan.
-   *
-   * ## The mobile IS proven, and it is the only field here that is
-   *
-   * Every other box on this form is read off a document the agent is holding.
-   * This one cannot be: a number that reaches nobody looks exactly like a
-   * number that reaches the owner. So a code goes to it and has to come back,
-   * and until it does, step 3 does not open. `aadhaarToken` is the signed
-   * proof the backend issued and the thing the backend will actually re-check
-   * — the booleans are for the screen.
-   *
-   * `aadhaarVerifiedPhone` is compared rather than trusted, because the
-   * commonest way this goes wrong is innocent: verify, notice a typo, correct
-   * the number, and walk on carrying a proof for a handset that is no longer
-   * on the form.
    */
   const aadhaar = onlyDigits(form.aadhaarNumber);
   if (!aadhaar) {
@@ -622,19 +607,6 @@ function validateStep3(form) {
     errs.aadhaarPhone = `Enter all 10 digits — you have typed ${aadhaarPhone.length}`;
   } else if (!isIndianMobile(aadhaarPhone)) {
     errs.aadhaarPhone = 'Enter a real 10-digit mobile number starting 6, 7, 8 or 9';
-  }
-
-  /* Only once there is a number worth sending a code to. Asking for the code
-     while the number is still half-typed is a second red message about a box
-     the agent has not finished with. */
-  if (!errs.aadhaarPhone) {
-    if (!form.aadhaarVerified || !form.aadhaarToken) {
-      errs.aadhaarOtp = form.aadhaarOtpSent
-        ? 'Enter the 6-digit code sent to the Aadhaar mobile, then tap Verify'
-        : 'Tap "Send code" and enter the one-time code sent to the Aadhaar mobile';
-    } else if (onlyDigits(form.aadhaarVerifiedPhone) !== aadhaarPhone) {
-      errs.aadhaarOtp = 'This number changed after it was verified — send a new code to it';
-    }
   }
 
   const fssai = onlyDigits(form.fssaiNumber);

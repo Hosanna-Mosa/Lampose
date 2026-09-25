@@ -236,21 +236,9 @@ export const INITIAL_RESTAURANT_STATE = {
   gstin: '',
   gstExempt: false,
 
-  /* Step 3 — the owner's Aadhaar, and the mobile it is registered against.
-
-     Seven fields for one question, because "is this number proven?" cannot be
-     one boolean. `aadhaarToken` is the signed proof the backend issued and the
-     only thing that actually convinces it — the booleans beside it exist to
-     drive the screen. `aadhaarVerifiedPhone` records WHICH number was proven,
-     so that editing the number after verifying it silently un-verifies it
-     rather than carrying a proof for a handset nobody typed. */
+  // Step 3 — the owner's Aadhaar, and the mobile it is registered against
   aadhaarNumber: '',
   aadhaarPhone: '',
-  aadhaarOtp: '',
-  aadhaarOtpSent: false,
-  aadhaarVerified: false,
-  aadhaarVerifiedPhone: '',
-  aadhaarToken: '',
 
   // Step 3 — safety
   fssaiNumber: '',

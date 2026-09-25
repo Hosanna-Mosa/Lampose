@@ -841,13 +841,6 @@ textarea.rst-input { resize: vertical; min-height: 78px; }
   white-space: nowrap;
 }
 
-.rst-otp-input {
-  text-align: center;
-  letter-spacing: 0.4em;
-  font-size: 1.15rem;
-  font-weight: 800;
-}
-
 /* -- Chips, days and toggles ----------------------------------------------- */
 
 .rst-chips {
