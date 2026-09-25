@@ -136,6 +136,14 @@ const propertySchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
+    /* The success charge agreed with the owner at onboarding. Internal —
+       never projected to students (listing.formatter.js picks its fields).
+       Defaulted so every row written before the field existed reads 0. */
+    agreedSuccessCharge: {
+      type: Number,
+      default: 0,
+      min: [0, 'Agreed success charge cannot be negative']
+    },
     address: {
       type: String,
       default: ''

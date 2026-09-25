@@ -91,7 +91,7 @@ const PENDING_STATUSES = ['sent', 'pending', 'failed'];
 const EDITABLE_PROPERTY_FIELDS = [
   'name', 'place', 'ownerName', 'ownerMobile', 'ownerAltMobile', 'category', 'employeeEmail',
   'stayType', 'shortStayDuration', 'dailyPrice', 'longStayDuration', 'monthlyPrice',
-  'rent', 'deposit', 'address', 'mapLink', 'location', 'description', 'imageUrl', 'images', 'amenities', 'categoryDetails',
+  'rent', 'deposit', 'agreedSuccessCharge', 'address', 'mapLink', 'location', 'description', 'imageUrl', 'images', 'amenities', 'categoryDetails',
   /* Ownership and premises paperwork. Never projected publicly — see the
      schema note on `documents`. */
   'documents',
@@ -508,6 +508,7 @@ router.post('/', requireWriter, async (req, res) => {
       monthlyPrice,
       rent,
       deposit,
+      agreedSuccessCharge,
       address,
       /* Where it is on a map: the pasted link and the pin, independently.
          Both optional — see property.util.js. */
@@ -532,7 +533,7 @@ router.post('/', requireWriter, async (req, res) => {
     console.log(`📞 Owner WhatsApp:   "${ownerMobile}"`);
     console.log(`📱 Owner Mobile:     "${ownerAltMobile || '— not given —'}"`);
     console.log(`👨‍💼 Onboarded By:     "${assignedEmpEmail}"`);
-    console.log(`💰 Pricing:          Monthly: ₹${monthlyPrice || rent || 0} | Daily: ₹${dailyPrice || 0} | Deposit: ₹${deposit || 0}`);
+    console.log(`💰 Pricing:          Monthly: ₹${monthlyPrice || rent || 0} | Daily: ₹${dailyPrice || 0} | Deposit: ₹${deposit || 0} | Success charge: ₹${agreedSuccessCharge || 0}`);
     console.log(`✨ Amenities:        ${Array.isArray(amenities) && amenities.length > 0 ? amenities.join(', ') : 'None'}`);
     console.log(`========================================================================`);
 
@@ -607,6 +608,7 @@ router.post('/', requireWriter, async (req, res) => {
       monthlyPrice: Number(monthlyPrice || 0),
       rent: determinedRent,
       deposit: Number(deposit || 0),
+      agreedSuccessCharge: Math.max(0, Number(agreedSuccessCharge) || 0),
       address: address || '',
       mapLink: readMapLink(mapLink),
       imageUrl: determinedImages[0] || imageUrl || '/lampose-logo-splash.png',

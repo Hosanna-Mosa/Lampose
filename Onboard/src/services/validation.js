@@ -130,6 +130,7 @@ export const FIELD_ANCHORS = {
   dailyPrice: 'dailyPriceInput',
   monthlyPrice: 'monthlyPriceInput',
   deposit: 'depositInput',
+  agreedSuccessCharge: 'agreedSuccessChargeInput',
   address: 'addressInput',
   photos: 'propertyPhotos',
   amenities: 'propertyAmenities',
@@ -166,6 +167,7 @@ const FIELD_ORDER = [
   'dailyPrice',
   'monthlyPrice',
   'deposit',
+  'agreedSuccessCharge',
   'address',
   'photos',
 ];
@@ -355,6 +357,14 @@ export function validateOnboarding(formData = {}) {
     else if (!isNaN(monthlyForCheck) && monthlyForCheck > 0 && deposit > monthlyForCheck * MAX_DEPOSIT_MONTHS) {
       errs.deposit = `That is more than a year of rent (${rupees(monthlyForCheck)}/month) — check the amount`;
     }
+  }
+
+  /* Optional, saved as 0 when blank — but a typed value has to be a real amount. */
+  const successRaw = formData.agreedSuccessCharge;
+  if (successRaw !== '' && successRaw !== null && successRaw !== undefined) {
+    const success = amount(successRaw);
+    if (isNaN(success)) errs.agreedSuccessCharge = 'Enter the success charge as a number, or leave it blank';
+    else if (success < 0) errs.agreedSuccessCharge = 'A success charge cannot be negative';
   }
 
   /* Address stays optional — `place` already carries the area, and an agent
