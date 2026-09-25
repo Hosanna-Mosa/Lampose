@@ -91,22 +91,12 @@ export const buildApplicationPayload = (form) => {
     gstin: trim(form.gstin).toUpperCase(),
     gstExempt: form.gstExempt,
 
-    /*
-     * The Aadhaar, and the proof that its mobile answered.
-     *
-     * `verificationToken` is what the backend re-checks; it is deliberately
-     * NOT a `verified: true`. The server compares the number inside the token
-     * against `phone` beside it and stamps `aadhaar.verifiedAt` itself, so
-     * nothing sent from here can assert a verification that never happened.
-     *
-     * It travels in the BODY rather than the Authorization header because
-     * that header already carries the AGENT's staff token: an application is
-     * signed by two identities at once and they cannot share one header.
-     */
+    /* The Aadhaar and its registered mobile, as typed. The mobile is not
+       OTP-verified, so no proof is sent and the backend leaves
+       `aadhaar.verifiedAt` null. */
     aadhaar: {
       number: trim(form.aadhaarNumber).replace(/\D/g, ''),
       phone: trim(form.aadhaarPhone).replace(/\D/g, ''),
-      verificationToken: trim(form.aadhaarToken),
     },
 
     fssaiNumber: trim(form.fssaiNumber),

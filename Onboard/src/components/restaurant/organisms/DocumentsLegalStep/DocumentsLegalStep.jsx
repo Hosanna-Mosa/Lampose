@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import {
-  AlertCircle, BadgeCheck, CheckCircle2, CreditCard, Fingerprint, Info,
-  Landmark, Loader2, Receipt, Send, ShieldCheck,
+  BadgeCheck, CheckCircle2, CreditCard, Fingerprint, Info,
+  Landmark, Receipt,
 } from 'lucide-react';
 import {
   Box, Inline, Input, Label, PlainButton, Select, Text,
@@ -9,16 +9,12 @@ import {
 import { Field, FieldError, Note, SectionHead } from '../../molecules/Field/Field';
 import { FileDrop } from '../../molecules/FileDrop/FileDrop';
 import { COPY, INDIAN_STATES } from '../../utils/restaurantOptions';
-import { startAadhaarOtp, verifyAadhaarOtp } from '../../../../services/api';
 
 /*
  * Step 3 — the papers, and where the money goes.
  *
- * Every scan picked here is uploaded at SUBMIT, not now, and the reason is
- * the phone-verification token: it is short-lived, and uploading a licence
- * the moment it is picked would spread four separate windows of expiry
- * across however long the agent spends on step 4. One upload pass, at the
- * end, either works or is retried as a whole.
+ * Every scan picked here is uploaded at SUBMIT, not now: one upload pass, at
+ * the end, either works or is retried as a whole.
  *
  * ## The account holder's name
  *
@@ -43,155 +39,18 @@ import { startAadhaarOtp, verifyAadhaarOtp } from '../../../../services/api';
  * 400 at the end of a twenty-minute form.
  */
 
-/** What the send button says: mid-flight, cooling down, or ready. */
-const sendLabel = ({ sending, cooldown, sent }) => {
-  if (sending) return 'Sending the code...';
-  if (cooldown > 0) return `Resend in ${cooldown}s`;
-  return sent ? 'Send the code again' : 'Send code';
-};
-
 /*
- * The Aadhaar, and the one field on this form that is PROVEN rather than read.
+ * The owner's Aadhaar, and the mobile it is registered against.
  *
- * Every other box on step 3 is copied off a document the agent is holding, and
- * the verification queue can check it later against the scan. A mobile number
- * cannot be checked that way at all: a number that reaches nobody looks
- * exactly like a number that reaches the owner, and the first time anybody
- * finds out is when the account needs recovering. So a one-time code goes to
- * it and has to come back before step 3 will open.
- *
- * ## The proof is a token, not a tick
- *
- * `aadhaarVerified` drives this screen; `aadhaarToken` is what the backend
- * actually re-checks, and it derives `aadhaar.verifiedAt` from that rather
- * than believing anything sent in the body. The same rule a rider's
- * `hasCompletedOnboarding` follows, for the same reason: a client that could
- * assert this could file an application against a stranger's Aadhaar.
- *
- * ## Editing the number un-verifies it
- *
- * Done here rather than left to the validator, because the agent has to SEE it
- * happen — a green tick that survives the number underneath it changing is
- * worse than no tick at all. `aadhaarVerifiedPhone` records which number was
- * proven and the validator compares the two as well, so a stale proof cannot
- * survive a route this component did not think of.
- *
- * ## Why the endpoints are the Food-Partner app's own
- *
- * `/auth/otp/start` and `/verify` already solve "prove a number before any
- * account exists", with expiry, lock-out and resend rules that cost real money
- * to get wrong. A second implementation would be a second set of them to keep
- * in step.
+ * Both are recorded as typed — the mobile is NOT verified with a one-time
+ * code. The backend leaves `aadhaar.verifiedAt` null when no proof comes with
+ * the application, which is how the verification queue tells an unproven
+ * number apart from a proven one.
  */
-function AadhaarVerification({ form, set, errors, touch }) {
-  const [sending, setSending] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [note, setNote] = useState(null);
-  const [cooldown, setCooldown] = useState(0);
-  const [otpLength, setOtpLength] = useState(6);
-
-  const phoneDigits = String(form.aadhaarPhone || '').replace(/\D/g, '');
-  const phoneReady = /^[6-9]\d{9}$/.test(phoneDigits);
-
-  /* The same three-part test the validator makes. Read off the form rather
-     than kept in local state, so that coming back to step 3 from step 4 shows
-     what is actually true rather than a component that has just remounted. */
-  const verified = Boolean(
-    form.aadhaarVerified
-    && form.aadhaarToken
-    && String(form.aadhaarVerifiedPhone || '').replace(/\D/g, '') === phoneDigits,
-  );
-
-  /* The wait the SERVER asked for, counted down here. A resend button that is
-     live while the backend is still refusing sends the agent into a 429 they
-     can do nothing about; one that reads "14s" is an instruction. */
-  useEffect(() => {
-    if (cooldown <= 0) return undefined;
-    const id = setTimeout(() => setCooldown((n) => n - 1), 1000);
-    return () => clearTimeout(id);
-  }, [cooldown]);
-
-  /* Any edit to the number drops the proof with it. See the header. */
-  const setPhone = (value) => {
-    const next = value.replace(/\D/g, '').slice(0, 10);
-    if (next === phoneDigits) return;
-
-    setNote(null);
-    set({
-      aadhaarPhone: next,
-      aadhaarOtp: '',
-      aadhaarOtpSent: false,
-      aadhaarVerified: false,
-      aadhaarVerifiedPhone: '',
-      aadhaarToken: '',
-    });
-  };
-
-  const send = async () => {
-    setNote(null);
-    setSending(true);
-    const res = await startAadhaarOtp(phoneDigits);
-    setSending(false);
-    touch('aadhaarOtp');
-
-    if (res && res.success) {
-      const data = res.data || {};
-      const minutes = Math.max(1, Math.round((Number(data.expiresInSeconds) || 300) / 60));
-      setOtpLength(Number(data.otpLength) || 6);
-      setCooldown(Number(data.resendInSeconds) || 30);
-      set({ aadhaarOtpSent: true, aadhaarOtp: '' });
-      setNote({
-        tone: 'ok',
-        text: `Code sent to ${data.phoneMasked || phoneDigits}. It expires in ${minutes} minute${minutes === 1 ? '' : 's'}.`,
-      });
-      return;
-    }
-
-    /* A cooldown or a resend cap answers with the wait, so the button can show
-       it rather than the agent pressing again into the same refusal. */
-    if (res && res.retryAfter) setCooldown(Number(res.retryAfter));
-    setNote({
-      tone: 'bad',
-      text: (res && (res.message || res.error))
-        || 'The code could not be sent. Check the number and try again.',
-    });
-  };
-
-  const check = async () => {
-    setNote(null);
-    setChecking(true);
-    const res = await verifyAadhaarOtp({ phone: phoneDigits, otp: form.aadhaarOtp });
-    setChecking(false);
-    touch('aadhaarOtp');
-
-    if (res && res.success && res.data && res.data.verificationToken) {
-      set({
-        aadhaarVerified: true,
-        aadhaarVerifiedPhone: phoneDigits,
-        aadhaarToken: res.data.verificationToken,
-      });
-      setNote(null);
-      return;
-    }
-
-    /* A wrong code is no reason to make them ask for a new one — the server
-       counts the attempts left and says so, and that sentence is the useful
-       one. An expired or locked code is different: there is nothing left to
-       type into, so the flow goes back to asking for a send. */
-    const code = res && res.code;
-    if (code === 'OTP_EXPIRED' || code === 'OTP_LOCKED') {
-      set({ aadhaarOtp: '', aadhaarOtpSent: false });
-    }
-
-    setNote({
-      tone: 'bad',
-      text: (res && (res.message || res.error)) || 'That code could not be checked. Try again.',
-    });
-  };
-
+function AadhaarDetails({ form, set, errors, touch }) {
   return (
     <Box className="rst-section">
-      <SectionHead icon={<Fingerprint size={16} color="#45855a" />} title="Aadhaar Verification" />
+      <SectionHead icon={<Fingerprint size={16} color="#45855a" />} title="Aadhaar Details" />
 
       <Box className="rst-card">
         <Field
@@ -218,101 +77,25 @@ function AadhaarVerification({ form, set, errors, touch }) {
 
         <Field
           label="Aadhaar Registered Mobile Number"
-          hint="The number this Aadhaar is registered against. A one-time code is sent to it, so the owner needs that handset in the room."
+          hint="The number this Aadhaar is registered against."
           required
           htmlFor="rst-aadhaar-phone"
           error={errors.aadhaarPhone}
         >
           <Input
             id="rst-aadhaar-phone"
-            className={`rst-input${errors.aadhaarPhone ? ' is-bad' : ''}${verified ? ' is-good' : ''}`}
+            className={`rst-input${errors.aadhaarPhone ? ' is-bad' : ''}`}
             type="text"
             inputMode="numeric"
             maxLength={10}
             value={form.aadhaarPhone}
-            onChange={(event) => setPhone(event.target.value)}
+            onChange={(event) => set({
+              aadhaarPhone: event.target.value.replace(/\D/g, '').slice(0, 10),
+            })}
             onBlur={() => touch('aadhaarPhone')}
             placeholder="10-digit mobile number"
-            disabled={sending || checking}
           />
-
-          {!verified && (
-            <PlainButton
-              type="button"
-              onClick={send}
-              disabled={!phoneReady || sending || checking || cooldown > 0}
-              className="rst-btn rst-btn-ghost rst-btn-sm"
-              style={{ width: '100%', marginTop: '10px' }}
-            >
-              {sending ? <Loader2 size={15} /> : <Send size={15} />}
-              {sendLabel({ sending, cooldown, sent: form.aadhaarOtpSent })}
-            </PlainButton>
-          )}
         </Field>
-
-        {/* The code box appears only once there is something to type into it.
-            A permanently visible empty OTP field on a form this long reads as
-            one more required box the agent has skipped. */}
-        {!verified && form.aadhaarOtpSent && (
-          <Field
-            label="One-Time Code"
-            hint="Ask the owner to read out the code that has just arrived."
-            required
-            htmlFor="rst-aadhaar-otp"
-            error={errors.aadhaarOtp}
-          >
-            <Input
-              id="rst-aadhaar-otp"
-              className={`rst-input${errors.aadhaarOtp ? ' is-bad' : ''}`}
-              type="text"
-              inputMode="numeric"
-              maxLength={otpLength}
-              value={form.aadhaarOtp}
-              onChange={(event) => set({
-                aadhaarOtp: event.target.value.replace(/\D/g, '').slice(0, otpLength),
-              })}
-              placeholder={`${otpLength}-digit code`}
-              autoComplete="one-time-code"
-            />
-            <PlainButton
-              type="button"
-              onClick={check}
-              disabled={String(form.aadhaarOtp || '').length !== otpLength || checking}
-              className="rst-btn rst-btn-primary rst-btn-sm"
-              style={{ width: '100%', marginTop: '10px' }}
-            >
-              {checking ? <Loader2 size={15} /> : <ShieldCheck size={15} />}
-              {checking ? 'Checking...' : 'Verify mobile number'}
-            </PlainButton>
-          </Field>
-        )}
-
-        {/* The anchor the validator scrolls to when this gate is what is in the
-            way. It has to exist even when the code box does not: before the
-            first send there is nothing else on screen to point at. */}
-        {!form.aadhaarOtpSent && (
-          <Box id="rst-aadhaar-otp" tabIndex={-1}>
-            <FieldError message={errors.aadhaarOtp} />
-          </Box>
-        )}
-
-        {verified && (
-          <Note tone="ok" icon={<CheckCircle2 size={15} />}>
-            Mobile verified — the code reached {form.aadhaarPhone}. Changing the
-            number above asks for a new one.
-          </Note>
-        )}
-
-        {note && !verified && (
-          <Box style={{ marginTop: '10px' }}>
-            <Note
-              tone={note.tone}
-              icon={note.tone === 'ok' ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
-            >
-              {note.text}
-            </Note>
-          </Box>
-        )}
       </Box>
     </Box>
   );
@@ -331,8 +114,7 @@ export function DocumentsLegalStep({ form, set, errors = {}, touch = () => {} })
         <Text className="rst-step-title">Documents &amp; Legal Verification</Text>
         <Text className="rst-step-sub">
           The PAN, Aadhaar and FSSAI numbers are needed. The scans and the bank
-          details can follow later — what cannot is the code sent to the
-          Aadhaar-registered mobile.
+          details can follow later.
         </Text>
       </Box>
 
@@ -412,7 +194,7 @@ export function DocumentsLegalStep({ form, set, errors = {}, touch = () => {} })
       </Box>
 
       {/* ── 3.2 Aadhaar ─────────────────────────────────────────────────── */}
-      <AadhaarVerification form={form} set={set} errors={errors} touch={touch} />
+      <AadhaarDetails form={form} set={set} errors={errors} touch={touch} />
 
       {/* ── 3.3 Safety licence ──────────────────────────────────────────── */}
       <Box className="rst-section">
