@@ -85,6 +85,32 @@ const BOX_RADIUS = 10;
 
 export default function BookingDetail() {
   const { colors, space, layout, mode } = useTheme();
+
+  /*
+   * Dark mode. The cards below were painted a fixed white while their text
+   * follows the theme, so in dark mode headings and labels came out light on
+   * white and vanished. Light mode keeps its exact palette; dark mode takes
+   * the theme's own surfaces and tints.
+   */
+  const dark = mode === 'dark';
+  const cardSkin = dark
+    ? { backgroundColor: colors.surface, borderColor: colors.borderSubtle, shadowOpacity: 0 }
+    : null;
+  const badgeSkin = {
+    clock: dark ? { bg: colors.success.tint, fg: colors.success.ink } : { bg: '#ECFDF5', fg: '#059669' },
+    pin: dark ? { bg: colors.info.tint, fg: colors.info.base } : { bg: '#EFF6FF', fg: '#2563EB' },
+    terms: dark ? { bg: colors.surfaceSunken, fg: colors.textSecondary } : { bg: '#F8FAFC', fg: '#64748B' },
+  };
+  const chipSkin = dark
+    ? {
+        chip: { backgroundColor: colors.success.tint, borderColor: colors.success.border },
+        dot: { backgroundColor: colors.success.base },
+        text: { color: colors.success.ink },
+      }
+    : { chip: {}, dot: {}, text: {} };
+  const disclaimerSkin = dark
+    ? { backgroundColor: colors.surfaceSunken, borderColor: colors.borderSubtle }
+    : null;
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -340,7 +366,7 @@ export default function BookingDetail() {
       >
         {/* Pass Card: Plain White Card with Highlighted OTP Tiles & Offer Banner */}
         {booking.status === 'CONFIRMED' && entryPin ? (
-          <View style={styles.heroPassCard}>
+          <View style={[styles.heroPassCard, cardSkin]}>
             <VerificationCodeDisplay
               code={entryPin.replace(/\D/g, '')}
               bookingReference={entryPin}
@@ -351,23 +377,23 @@ export default function BookingDetail() {
         ) : null}
 
         {/* Section: Timeline Progress Card */}
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, cardSkin]}>
           {/* The title shrinks and the chip does not: the chip is one short
               word and the heading is the line that can afford to give. They
               also hold a gap between them, so the two can never meet however
               long the status word or the font scale gets. */}
           <View style={styles.cardHeaderRow}>
             <View style={[styles.cardHeaderLeft, styles.flex]}>
-              <View style={[styles.cardHeaderIconBadge, { backgroundColor: '#ECFDF5' }]}>
-                <Icon name="clock" size={16} color="#059669" />
+              <View style={[styles.cardHeaderIconBadge, { backgroundColor: badgeSkin.clock.bg }]}>
+                <Icon name="clock" size={16} color={badgeSkin.clock.fg} />
               </View>
               <Text variant="title3" style={styles.cardHeaderTitle} numberOfLines={1}>
                 Where this booking is
               </Text>
             </View>
-            <View style={styles.statusChip}>
-              <View style={styles.statusDot} />
-              <Text style={styles.statusChipText}>
+            <View style={[styles.statusChip, chipSkin.chip]}>
+              <View style={[styles.statusDot, chipSkin.dot]} />
+              <Text style={[styles.statusChipText, chipSkin.text]}>
                 {booking.status === 'CONFIRMED'
                   ? 'Confirmed'
                   : booking.status === 'ACCEPTED'
@@ -388,10 +414,10 @@ export default function BookingDetail() {
 
         {/* Section: Destination & Address Card */}
         {addressVisible(booking.status) && booking.address ? (
-          <View style={styles.sectionCard}>
+          <View style={[styles.sectionCard, cardSkin]}>
             <View style={styles.cardHeaderLeft}>
-              <View style={[styles.cardHeaderIconBadge, { backgroundColor: '#EFF6FF' }]}>
-                <Icon name="mapPin" size={16} color="#2563EB" />
+              <View style={[styles.cardHeaderIconBadge, { backgroundColor: badgeSkin.pin.bg }]}>
+                <Icon name="mapPin" size={16} color={badgeSkin.pin.fg} />
               </View>
               <Text variant="title3" style={styles.cardHeaderTitle}>Where to go</Text>
             </View>
@@ -410,10 +436,10 @@ export default function BookingDetail() {
         ) : null}
 
         {/* Section: Terms Summary Card */}
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, cardSkin]}>
           <View style={styles.cardHeaderLeft}>
-            <View style={[styles.cardHeaderIconBadge, { backgroundColor: '#F8FAFC' }]}>
-              <Icon name="verified" size={16} color="#64748B" />
+            <View style={[styles.cardHeaderIconBadge, { backgroundColor: badgeSkin.terms.bg }]}>
+              <Icon name="verified" size={16} color={badgeSkin.terms.fg} />
             </View>
             <Text variant="title3" style={styles.cardHeaderTitle}>Your terms</Text>
           </View>
@@ -459,7 +485,7 @@ export default function BookingDetail() {
             ) : null}
           </View>
 
-          <View style={styles.disclaimerBox}>
+          <View style={[styles.disclaimerBox, disclaimerSkin]}>
             <Text variant="caption" color="tertiary" style={{ lineHeight: 17 }}>
               Rent and deposit are settled directly with {booking.ownerName ?? 'the owner'} — Lampose
               does not hold them. Anything shown here is what we were told.
@@ -474,7 +500,7 @@ export default function BookingDetail() {
                had marked the student in, because that was the moment their
                button woke up; there is no button and no second state now, so
                the card is simply an instruction until it is a confirmation. */
-            style={[styles.sectionCard, { borderColor: '#E2E8F0' }]}
+            style={[styles.sectionCard, cardSkin ?? { borderColor: '#E2E8F0' }]}
           >
             {/* One instruction, and it is the only thing the student has to
                 do: be there and read out the PIN. There is no button under
@@ -660,8 +686,9 @@ function Term({
   refundable?: boolean;
 }) {
   const depositMark = useDepositMark();
+  const { colors, mode } = useTheme();
   return (
-    <View style={styles.termRow}>
+    <View style={[styles.termRow, mode === 'dark' ? { borderBottomColor: colors.borderSubtle } : null]}>
       <Text variant="caption" color="secondary" style={styles.termLabel}>
         {label}
       </Text>

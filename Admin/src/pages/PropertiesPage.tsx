@@ -1,5 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   Building2,
   Calendar,
   Hourglass,
@@ -41,6 +44,7 @@ import type { PropertyEntity } from '../api/types';
 
 import { Thumb } from '../components/properties/atoms/Thumb';
 import { KeyValueEditor } from '../components/properties/organisms/KeyValueEditor';
+import { BedAvailability } from '../components/properties/organisms/BedAvailability';
 import type { KVRow } from '../components/properties/organisms/KeyValueEditor';
 import { Aside } from '../components/common/atoms/Aside';
 import { Box } from '../components/common/atoms/Box';
@@ -266,15 +270,28 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
     [category, stayType]
   );
 
+  /* Sorting by card clicks: off → most clicked first → least clicked first.
+     Pending listings (no count yet) always sort last. */
+  const [clickSort, setClickSort] = useState<'none' | 'desc' | 'asc'>('none');
+  const cycleClickSort = () =>
+    setClickSort((s) => (s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none'));
+
   // The header filter narrows what is already loaded, so typing costs no request.
-  const properties = useMemo(
-    () => filterBySearch(data ?? [], search, (p, q) =>
+  const properties = useMemo(() => {
+    const matched = filterBySearch(data ?? [], search, (p, q) =>
       [p.name, p.place, p.ownerName, p.ownerMobile, p.address, p.employeeEmail]
         .filter(Boolean)
         .some((field) => field.toLowerCase().includes(q))
-    ),
-    [data, search]
-  );
+    );
+    if (clickSort === 'none') return matched;
+    const dir = clickSort === 'desc' ? -1 : 1;
+    return [...matched].sort((a, b) => {
+      if (a.clickCount === null && b.clickCount === null) return 0;
+      if (a.clickCount === null) return 1;
+      if (b.clickCount === null) return -1;
+      return (a.clickCount - b.clickCount) * dir;
+    });
+  }, [data, search, clickSort]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -522,12 +539,13 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                   <Th>Category</Th>
                   <Th>Owner</Th>
                   <Th className="text-right">Rent</Th>
+                  <Th className="text-right">Clicks</Th>
                   <Th>Onboarded</Th>
                   <Th />
                 </PlainTr>
               </TableHead>
               <TableBody>
-                <TableSkeleton cols={6} />
+                <TableSkeleton cols={7} />
               </TableBody>
             </Table>
           </Card>
@@ -617,6 +635,23 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                 <Th>Category</Th>
                 <Th>Owner</Th>
                 <Th className="text-right">Rent</Th>
+                <Th className="text-right" aria-sort={clickSort === 'none' ? 'none' : clickSort === 'desc' ? 'descending' : 'ascending'}>
+                  <PlainButton
+                    type="button"
+                    onClick={cycleClickSort}
+                    className="inline-flex items-center gap-1 hover:text-ink"
+                    title="Sort by clicks"
+                  >
+                    Clicks
+                    {clickSort === 'desc' ? (
+                      <ArrowDown className="size-3" strokeWidth={2} />
+                    ) : clickSort === 'asc' ? (
+                      <ArrowUp className="size-3" strokeWidth={2} />
+                    ) : (
+                      <ArrowUpDown className="size-3 opacity-60" strokeWidth={2} />
+                    )}
+                  </PlainButton>
+                </Th>
                 <Th>Onboarded</Th>
                 <Th />
               </PlainTr>
@@ -657,6 +692,9 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                     </Inline>
                   </Td>
                   <Td className="text-right text-ink tabular">{rupees(p.rent)}</Td>
+                  <Td className="text-right tabular">
+                    {p.clickCount === null ? '—' : p.clickCount.toLocaleString('en-IN')}
+                  </Td>
                   <Td className="tabular">{formatDate(p.createdAt)}</Td>
                   <Td className="text-right">
                     <Box className="flex items-center justify-end gap-0.5">
@@ -830,6 +868,16 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
                   </Region>
                 )}
 
+                {/* Total beds next to what is FREE right now — the number
+                    students see as "N left". See BedAvailability. */}
+                <BedAvailability
+                  key={selected.id}
+                  propertyId={selected.id}
+                  isVerified={selected.isVerified}
+                  capacityHint="Add it with Edit → sharingBeds."
+                  onToast={setToast}
+                />
+
                 {(() => {
                   const detailRows = describeCategoryDetails(selected.categoryDetails);
                   return detailRows.length > 0 ? (
@@ -846,6 +894,15 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
 
                 <Region>
                   <Heading level={3} className="text-micro uppercase text-ink-3 mb-1">Record</Heading>
+                  <DataRow
+                    label="Clicks"
+                    value={
+                      selected.clickCount === null
+                        ? 'Not public yet'
+                        : `${selected.clickCount.toLocaleString('en-IN')} (app + lampose.com)`
+                    }
+                    mono={selected.clickCount !== null}
+                  />
                   <DataRow label="Onboarded by" value={selected.employeeEmail || 'Not recorded'} />
                   <DataRow label="Created" value={formatDateTime(selected.createdAt)} />
                   <DataRow label="Updated" value={formatDateTime(selected.updatedAt)} />
@@ -1056,6 +1113,18 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
             >
               <KeyValueEditor rows={editDetailRows} onChange={setEditDetailRows} />
             </Field>
+
+            {/* Free beds save on their own, straight away — the total above
+                (sharingBeds) saves with "Save". */}
+            {editing && (
+              <BedAvailability
+                key={editing.id}
+                propertyId={editing.id}
+                isVerified={editing.isVerified}
+                capacityHint='Add a "sharingBeds" entry above and save.'
+                onToast={setToast}
+              />
+            )}
           </Form>
         )}
       </Modal>

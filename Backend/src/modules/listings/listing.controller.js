@@ -1,5 +1,6 @@
 /* Read-only view of the `properties` collection, shaped for lampose.com's
    public Explore page. Writes go through the property controllers instead. */
+const mongoose = require('mongoose');
 const Property = require('../properties/property.model');
 const { DEFAULT_CATEGORY, normaliseCategory, categoryQuery } = require('../../shared/constants/categories');
 const {
@@ -717,6 +718,33 @@ const getListingMeta = async (req, res, next) => {
   }
 };
 
-module.exports = { getListings, getListingById, getListingMeta,
+// @route   POST /api/v2/listings/:id/click
+// @desc    Count one tap on a property card (User App and lampose.com)
+// @access  Public — guests included, rate-limited per address in the router
+/**
+ * Fire-and-forget from the clients: they do not wait on this, and it never
+ * answers with an error a client would have to handle. A malformed id, an
+ * unknown property or one students cannot see (removed, under review) is
+ * simply not counted — `counted: false` — rather than refused, so a stale
+ * card in someone's cache cannot put an error on screen.
+ */
+const recordListingClick = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) return res.status(202).json({ success: true, counted: false });
+
+    const visible = await Property.exists({ _id: id, status: { $nin: HIDDEN_STATUSES } });
+    if (!visible) return res.status(202).json({ success: true, counted: false });
+
+    const { recordClick } = require('./propertyClick.model');
+    await recordClick(id);
+    return res.status(202).json({ success: true, counted: true });
+  } catch (error) {
+    console.warn('[listings] click not counted:', error.message);
+    return res.status(202).json({ success: true, counted: false });
+  }
+};
+
+module.exports = { getListings, getListingById, getListingMeta, recordListingClick,
   getListingReviews,
 };

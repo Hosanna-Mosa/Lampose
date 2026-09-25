@@ -17,7 +17,12 @@ import {
 } from '@/components/common';
 import { useAlert } from '@/components/common';
 import { ApiError, fetchMyProperties, type BackendListing } from '@/services';
-import { removeMyProperty, setPropertyAvailability } from '@/services/api/portfolio.api';
+import {
+  fetchPropertyInventory,
+  removeMyProperty,
+  setPropertyAvailability,
+  type PropertyInventoryItem,
+} from '@/services/api/portfolio.api';
 import { formatDateLong, formatINR } from '@/lib/format';
 import { fonts } from '@/constants/typography';
 import { PropertyCard } from '@/components/settings-property/organisms/PropertyCard/PropertyCard';
@@ -56,14 +61,43 @@ export function PropertyDetailsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  /* Beds per property, loaded alongside the list. A failure for one property
+     is shown on its card and does not blank the whole screen. */
+  const [inventory, setInventory] = useState<Record<string, PropertyInventoryItem[]>>({});
+  const [inventoryErrors, setInventoryErrors] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      setProperties(await fetchMyProperties());
+      const list = await fetchMyProperties();
+      setProperties(list);
+
+      const ids = list.map((p) => p.id ?? p._id).filter((id): id is string => Boolean(id));
+      const results = await Promise.allSettled(ids.map((id) => fetchPropertyInventory(id)));
+      const nextInventory: Record<string, PropertyInventoryItem[]> = {};
+      const nextErrors: Record<string, string> = {};
+      results.forEach((result, i) => {
+        if (result.status === 'fulfilled') nextInventory[ids[i]] = result.value;
+        else {
+          nextErrors[ids[i]] = result.reason instanceof ApiError
+            ? result.reason.displayMessage
+            : 'Could not load bed counts.';
+        }
+      });
+      setInventory(nextInventory);
+      setInventoryErrors(nextErrors);
     } catch (err) {
       setError(err instanceof ApiError ? err.displayMessage : 'We could not load your properties.');
     }
+  }, []);
+
+  const onInventorySaved = useCallback((propertyId: string, next: PropertyInventoryItem) => {
+    setInventory((prev) => ({
+      ...prev,
+      [propertyId]: (prev[propertyId] ?? []).map((item) => (
+        item.shareTypeId === next.shareTypeId ? next : item
+      )),
+    }));
   }, []);
 
   /*
@@ -194,6 +228,9 @@ export function PropertyDetailsScreen() {
                 onAvailability={id ? (next) => toggleAvailability(id, next) : undefined}
                 onRemove={id ? () => removeProperty(id, p.name ?? '') : undefined}
                 removing={id != null && id === removingId}
+                inventory={id ? inventory[id] : undefined}
+                inventoryError={id ? inventoryErrors[id] ?? null : null}
+                onInventorySaved={id ? (next) => onInventorySaved(id, next) : undefined}
               />
             );
           })}

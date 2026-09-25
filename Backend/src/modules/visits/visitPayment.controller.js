@@ -32,6 +32,7 @@ const razorpay = require('../../infrastructure/razorpay/razorpay');
 const VisitRequest = require('./visitRequest.model');
 const { generateEntryPin } = require('./otp.util');
 const { chargesUpFront } = require('../../shared/constants/categories');
+const { returnToAppPage } = require('../../shared/utils/returnToApp');
 const twilio = require('../../infrastructure/twilio/twilio');
 
 const OBJECT_ID = /^[0-9a-fA-F]{24}$/;
@@ -762,17 +763,14 @@ const paymentCallback = async (req, res, next) => {
   }
 };
 
-/** A bare page that hands control back to the app. The redirect has already
-    been through `safeRedirect`, whose charset admits nothing that can close
-    an attribute or a tag. */
-const bounce = (redirect, outcome) => `<!doctype html>
-<html><head><meta charset="utf-8">
-<meta http-equiv="refresh" content="0;url=${redirect}?paid=${outcome === 'paid' ? '1' : '0'}&outcome=${outcome}">
-<title>Returning to Lampose</title></head>
-<body style="font-family:system-ui;display:grid;place-items:center;min-height:100vh;margin:0">
-<p>Returning to the app…</p>
-<script>window.location = ${JSON.stringify(`${redirect}?paid=`)} + ${outcome === 'paid' ? "'1'" : "'0'"} + '&outcome=${outcome}';</script>
-</body></html>`;
+/** Hands control back to the app — see `shared/utils/returnToApp.js` for why
+    it is a tap-to-return page and not a bare redirect. The redirect has already
+    been through `safeRedirect`, whose charset admits nothing that can close an
+    attribute or a tag. The URL shape is unchanged. */
+const bounce = (redirect, outcome) => returnToAppPage(
+  `${redirect}?paid=${outcome === 'paid' ? '1' : '0'}&outcome=${outcome}`,
+  outcome === 'paid',
+);
 
 const page = (title, body) => `<!doctype html>
 <html><head><meta charset="utf-8"><title>${title}</title></head>

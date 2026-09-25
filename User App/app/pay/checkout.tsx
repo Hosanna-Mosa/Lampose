@@ -1,9 +1,9 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useCallback, useRef, useState } from 'react';
-import { Linking, StyleSheet, View } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { WebView, type WebViewNavigation } from 'react-native-webview';
 
 import { Button, Spinner, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
@@ -11,27 +11,25 @@ import { API_BASE_URL } from '@/services/api/config';
 import { useTheme } from '@/context/ThemeContext';
 
 /**
- * Razorpay checkout, inside the app.
+ * The return link the checkout page redirects to when it is done. The server
+ * adds `?paid=1|0`; `+native-intent.tsx` stops the router from treating it as
+ * a route, because this screen is the one that decides where to go next.
+ */
+const PAYMENT_RETURN_URL = 'lampose://payment-done';
+
+/**
+ * Razorpay checkout, in the browser.
  *
- * ## Why this screen exists
+ * The page is rendered by the backend and loads Razorpay's own `checkout.js`.
+ * It is opened with `WebBrowser.openAuthSessionAsync`: Chrome Custom Tabs on
+ * Android, `ASWebAuthenticationSession` on iOS. The student pays there, with
+ * the browser's own cookies, 3-D Secure pages and UPI app hand-offs, and the
+ * server verifies the signature and then redirects to `lampose://payment-done`,
+ * which closes the browser and brings them back here.
  *
- * This used to be `WebBrowser.openAuthSessionAsync`, which hands the URL to
- * Chrome Custom Tabs on Android and `ASWebAuthenticationSession` on iOS. Both
- * are meant to be in-app, and on a handset with no Custom Tabs provider
- * installed the Android one quietly falls back to launching the BROWSER APP —
- * the student watches Lampose disappear and a browser open on their payment.
- * Paying is the least reassuring moment in the product to leave the app.
- *
- * A `WebView` cannot fall back to anywhere. The checkout is rendered by this
- * screen, inside this navigator, under the app's own header.
- *
- * ## What is still the server's job
- *
- * Everything that matters. The page loaded here is rendered by the backend and
- * loads Razorpay's own `checkout.js`; on success it POSTs to the server, which
- * verifies the HMAC where the secret lives and only then bounces to a
- * `lampose://` deep link. This screen never sees a payment id or a signature —
- * it shows a page and watches for the bounce.
+ * This screen never sees a payment id or a signature. Closing the browser is
+ * not evidence either way, so on return it leaves, and the screen it goes to
+ * re-reads the payment from the SERVER.
  */
 export default function PaymentCheckout() {
   const { mode, colors, space, layout } = useTheme();
@@ -39,19 +37,14 @@ export default function PaymentCheckout() {
   const router = useRouter();
 
   /*
-   * Two flows land here, and they are told apart by which id arrives.
+   * Two flows land here, told apart by which id arrives.
    *
-   *   requestId   an assisted visit (`/visit-requests/:id/payment/checkout`)
+   *   requestId   an assisted visit or hotel stay (`/visit-requests/:id/payment/checkout`)
    *   foodToken   a food order (`/food-partners/checkout?t=…`)
    *
-   * One screen rather than two, because everything below this line — the UPI
-   * intent handling, the cookie settings, the user agent, the bounce — is the
-   * same problem twice, and the second copy is the one that would not get the
-   * next fix. What differs is one URL.
-   *
-   * The food link carries a TOKEN rather than an order number because an order
-   * number is six digits: a WebView sends no Authorization header, so the link
-   * itself has to be the proof. It expires in ten minutes.
+   * The food link carries a short-lived TOKEN rather than an order number,
+   * because the browser sends no Authorization header, so the link itself has
+   * to be the proof.
    */
   const { requestId, foodToken, orderNumber, returnTo } = useLocalSearchParams<{
     requestId?: string;
@@ -60,11 +53,10 @@ export default function PaymentCheckout() {
     returnTo?: string;
   }>();
 
-  const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
-  /* Guards the pop. The bounce can fire on both `onShouldStartLoadWithRequest`
-     and `onNavigationStateChange` for one redirect, and popping twice takes
-     the student a screen further back than they came from. */
+  /* Bumped by "Try again" to open the browser once more. */
+  const [attempt, setAttempt] = useState(0);
+  /* Guards the navigation away, so it happens once. */
   const done = useRef(false);
 
   const leave = useCallback(() => {
@@ -73,73 +65,57 @@ export default function PaymentCheckout() {
 
     /*
       A food order gets REPLACED onto its tracking screen rather than popped.
-
-      The screen underneath it is the payment screen, whose cart is now an
-      order that already exists — going back there would offer to place it a
-      second time. The tracking screen re-reads the order from the server on
-      open, so it shows the truth whether the payment landed or not: closing
-      this view is not evidence of anything either way, which is the same
-      reason the visit flow pops rather than assuming.
+      The screen underneath is the payment screen, whose cart is now an order
+      that already exists; going back there would offer to place it again. The
+      tracking screen re-reads the order from the server on open.
     */
     if (foodToken && orderNumber) {
       router.replace(`/food/order/${encodeURIComponent(String(orderNumber))}` as never);
       return;
     }
 
-    /* Back rather than replace: the screen underneath is the request the
-       student is paying for, and it is the screen they expect to land on. It
-       re-checks the payment with the SERVER when it regains focus — closing
-       this view is not evidence of anything either way. */
+    /* Back rather than replace: underneath is the request being paid for, and
+       it re-checks the payment with the server when it regains focus. */
     if (router.canGoBack()) router.back();
     else router.replace((returnTo as never) ?? ('/home' as never));
   }, [router, returnTo, foodToken, orderNumber]);
 
-  /**
-   * Which URLs this view is allowed to load.
-   *
-   * Three cases, and the third is the one that makes UPI work at all:
-   *
-   *   `lampose://`   the server is handing control back. Never loaded — the
-   *                  WebView cannot render it, and it is the finish line.
-   *   http/https     the checkout itself. Loaded here.
-   *   anything else  `upi://`, `phonepe://`, `tez://`, `paytmmp://` — a UPI
-   *                  intent. These are SUPPOSED to leave: the whole point is
-   *                  to open the payment app. A WebView that tries to load
-   *                  them shows a blank error page and the payment dies, so
-   *                  they are handed to the OS and the student comes back here
-   *                  when their bank app is done.
-   */
-  const allow = useCallback(
-    (request: { url: string }) => {
-      const url = request.url || '';
+  /* Built here rather than passed in, so this screen can only ever open our
+     own API with our own redirect. */
+  const url = foodToken
+    ? `${API_BASE_URL}/api/v2/food-partners/checkout` +
+      `?t=${encodeURIComponent(String(foodToken))}` +
+      `&redirect=${encodeURIComponent(PAYMENT_RETURN_URL)}`
+    : requestId
+      ? `${API_BASE_URL}/api/v2/visit-requests/${encodeURIComponent(String(requestId))}` +
+        `/payment/checkout?redirect=${encodeURIComponent(PAYMENT_RETURN_URL)}`
+      : null;
 
-      if (url.startsWith('lampose://')) {
-        leave();
-        return false;
+  useEffect(() => {
+    if (!url) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        /* Resolves when the server redirects to the return link (success), or
+           when the student closes the browser (cancel/dismiss). Either way the
+           server is the one that knows whether it was paid. */
+        await WebBrowser.openAuthSessionAsync(url, PAYMENT_RETURN_URL);
+        if (!cancelled) leave();
+      } catch {
+        /* No browser could be opened at all. Nothing has been charged. */
+        if (!cancelled) setFailed(true);
       }
+    })();
 
-      if (/^https?:/i.test(url) || url === 'about:blank') return true;
+    return () => {
+      cancelled = true;
+    };
+  }, [url, attempt, leave]);
 
-      Linking.openURL(url).catch(() => {
-        /* No app installed for that scheme. Staying put is right — the
-           checkout is still on screen and another method can be picked. */
-      });
-      return false;
-    },
-    [leave],
-  );
+  const heading = foodToken ? 'Pay for your order' : 'Pay for your visit';
 
-  /* Android does not always consult `onShouldStartLoadWithRequest` for a
-     scheme redirect, so the bounce is watched for here as well. `done` makes
-     the duplicate harmless. */
-  const onNavigate = useCallback(
-    (nav: WebViewNavigation) => {
-      if ((nav.url || '').startsWith('lampose://')) leave();
-    },
-    [leave],
-  );
-
-  if (!requestId && !foodToken) {
+  if (!url) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
@@ -157,159 +133,49 @@ export default function PaymentCheckout() {
     );
   }
 
-  /* Built here rather than passed in, so a URL this screen loads can only ever
-     point at our own API with our own redirect. `API_BASE_URL` rather than the
-     raw env value: it is the same resolved origin every other call uses, with
-     the dev fallback to the Metro host — the raw value is undefined in
-     development, and `undefined/api/v2/…` was this screen's one way to break
-     while the rest of the app worked. */
-  const back = 'lampose://payment-done';
-
-  /* The header says which of the two flows this is. One screen serving both
-     means the title is the only thing on it that can, and "Pay for your visit"
-     over a food order reads as the wrong payment having opened — which, at the
-     one moment somebody is about to part with money, is when they back out
-     rather than read on. */
-  const heading = foodToken ? 'Pay for your order' : 'Pay for your visit';
-
-  const source = {
-    uri: foodToken
-      ? `${API_BASE_URL}/api/v2/food-partners/checkout` +
-        `?t=${encodeURIComponent(String(foodToken))}` +
-        `&redirect=${encodeURIComponent(back)}`
-      : `${API_BASE_URL}/api/v2/visit-requests/${encodeURIComponent(String(requestId))}` +
-        `/payment/checkout?redirect=${encodeURIComponent(back)}`,
-  };
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
-      {/*
-        A real header with a way out.
-
-        A payment page with no visible exit is the one screen people force-quit
-        the app to escape, and a force-quit during checkout is how a paid token
-        goes unrecorded on the device. Leaving is safe: the server is the
-        authority on whether this was paid.
-      */}
       <StandardHeader title={heading} onBack={leave} />
 
-      {failed ? (
-        <View style={[styles.centre, { padding: layout.gutter, gap: space[3] }]}>
-          <Text variant="title2" style={styles.centred}>
-            The payment page did not load
-          </Text>
-          <Text variant="bodyLg" color="secondary" style={styles.centred}>
-            Nothing has been charged. Check your connection and try again.
-          </Text>
-          <View style={{ gap: space[2] }}>
-            <Button
-              label="Try again"
-              onPress={() => {
-                setFailed(false);
-                setLoading(true);
-              }}
-            />
-            <Button label="Go back" variant="secondary" onPress={leave} />
-          </View>
-        </View>
-      ) : (
-        <View style={styles.flex}>
-          <WebView
-            source={source}
-            /* Razorpay's checkout is a script that writes a modal, and it keeps
-               state in storage between steps. Both of these are required for it
-               to run at all. */
-            javaScriptEnabled
-            domStorageEnabled
-            /* The checkout opens its own overlay in a new context on some
-               methods; without this the tap does nothing. */
-            setSupportMultipleWindows={false}
-            javaScriptCanOpenWindowsAutomatically
-            originWhitelist={['*']}
-            /*
-             * Cookies, and why a payment works in a browser and fails here.
-             *
-             * A card or netbanking payment is not one page — it is a bounce
-             * between Razorpay, the bank's 3-D Secure page and back, and the
-             * session that ties those together lives in a cookie set by a
-             * domain that is not the one in the address bar. A browser keeps
-             * those. An Android WebView blocks third-party cookies by default,
-             * and an iOS one keeps its own jar separate from Safari's — so the
-             * bank hands back a result that Razorpay no longer recognises, and
-             * the student sees "payment could not be completed" for a card
-             * that is perfectly good.
-             *
-             * This is the single most likely reason an in-app checkout behaves
-             * differently from the same URL in a browser.
-             */
-            thirdPartyCookiesEnabled
-            sharedCookiesEnabled
-            /*
-             * Some bank 3-D Secure pages still pull a subresource over http.
-             * A browser handles that on its own terms; a WebView's default is
-             * stricter and silently drops it, so the page never finishes
-             * loading and the payment dies with no error.
-             *
-             * `compatibility`, not `always`. `always` permits any mixed content
-             * on any page, which is not a thing to switch on for a checkout —
-             * this mode is documented as behaving the way a modern browser
-             * does, which is exactly the behaviour being matched here.
-             */
-            mixedContentMode="compatibility"
-            /*
-             * A real mobile-browser user agent.
-             *
-             * Gateways and banks branch on this, and the default WebView string
-             * is what several of them use to decide a device cannot handle a
-             * method — which is how UPI quietly disappears from the list. This
-             * is not spoofing anything about the payment; it is telling them
-             * the truth, that this is a Chrome-based mobile browser view.
-             */
-            userAgent="Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
-            onShouldStartLoadWithRequest={allow}
-            onNavigationStateChange={onNavigate}
-            onLoadEnd={() => setLoading(false)}
-            onError={() => {
-              setLoading(false);
-              setFailed(true);
-            }}
-            onHttpError={({ nativeEvent }) => {
-              /* A 4xx/5xx from our own checkout route is a real failure. The
-                 page the server renders for "not confirmed yet" is a 409 and
-                 says so in words, so it is left on screen rather than replaced
-                 by this screen's generic message. */
-              if (nativeEvent.statusCode >= 500) {
-                setLoading(false);
-                setFailed(true);
-              }
-            }}
-            style={{ backgroundColor: colors.bg }}
-          />
-
-          {loading ? (
-            <View
-              style={[
-                StyleSheet.absoluteFillObject,
-                styles.centre,
-                { backgroundColor: colors.bg, gap: space[3] },
-              ]}
-              pointerEvents="none"
-            >
-              <Spinner />
-              <Text variant="bodyLg" color="secondary">
-                Opening the payment window…
-              </Text>
+      <View style={[styles.centre, { padding: layout.gutter, gap: space[3] }]}>
+        {failed ? (
+          <>
+            <Text variant="title2" style={styles.centred}>
+              The payment page did not open
+            </Text>
+            <Text variant="bodyLg" color="secondary" style={styles.centred}>
+              Nothing has been charged. Check your connection and try again.
+            </Text>
+            <View style={{ gap: space[2], alignSelf: 'stretch' }}>
+              <Button
+                label="Try again"
+                onPress={() => {
+                  setFailed(false);
+                  setAttempt((n) => n + 1);
+                }}
+              />
+              <Button label="Go back" variant="secondary" onPress={leave} />
             </View>
-          ) : null}
-        </View>
-      )}
+          </>
+        ) : (
+          <>
+            <Spinner />
+            <Text variant="title2" style={styles.centred}>
+              Complete your payment in the browser
+            </Text>
+            <Text variant="bodyLg" color="secondary" style={styles.centred}>
+              Razorpay has opened in your browser. You will come back here as soon as the
+              payment is done.
+            </Text>
+          </>
+        )}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   centred: { textAlign: 'center' },
 });

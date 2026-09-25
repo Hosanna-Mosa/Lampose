@@ -62,8 +62,9 @@ import {
   useAddresses, useBookings, useListingMeta, useListings, useMyCoupon, useNotifications, useSaved,
 } from '@/services';
 import { BACKEND_CATEGORIES } from '@/services/adapters/listing.adapter';
+import { recordListingClick } from '@/services/api/listings.api';
 import { isAllLocalities } from '@/types/auth';
-import { genderMeta, isGone } from '@/types/listing';
+import { availableFirst, genderMeta } from '@/types/listing';
 import {
   activeFilterCount, applyQuery, EMPTY_QUERY, filterSpecFor, type SearchQuery, type SortKey,
 } from '@/types/filters';
@@ -376,8 +377,16 @@ export default function Home() {
    * running them again is a no-op — but `applyQuery` also sorts, and gender,
    * sharing and amenities have nowhere else to be applied.
    */
+  /*
+   * Listings with no free beds STAY in the feed, after the ones that have
+   * beds, and their card says "Unavailable". They used to be dropped here,
+   * so a full property simply disappeared — a student looking for a place
+   * they had seen, and an owner checking their own listing, both read that
+   * as the app losing it. Sorted last with a stable sort, so `applyQuery`'s
+   * own order still decides within each group.
+   */
   const shown = useMemo(
-    () => applyQuery(listings.filter((listing) => !isGone(listing.availability)), query),
+    () => availableFirst(applyQuery(listings, query)),
     [listings, query],
   );
 
@@ -399,7 +408,7 @@ export default function Home() {
    * offering it.
    */
   const cityTotal = useMemo(
-    () => applyQuery(cityListings.filter((listing) => !isGone(listing.availability)), query).length,
+    () => applyQuery(cityListings, query).length,
     [cityListings, query],
   );
 
@@ -460,10 +469,7 @@ export default function Home() {
    */
   const relaxed = useMemo(() => {
     if (query.rentCeiling === null) return null;
-    const withoutCeiling = applyQuery(
-      listings.filter((listing) => !isGone(listing.availability)),
-      { ...query, rentCeiling: null },
-    );
+    const withoutCeiling = applyQuery(listings, { ...query, rentCeiling: null });
     const above = withoutCeiling
       .map((listing) => listing.rent)
       .filter((rent): rent is number => rent !== null && rent > query.rentCeiling!)
@@ -1139,7 +1145,12 @@ export default function Home() {
                   <SavedRow
                     key={entry.listing.id}
                     entry={row}
-                    onPress={() => router.push(`/listing/${entry.listing.id}`)}
+                    onPress={() => {
+                      /* A saved row opens the listing too, so it counts as a
+                         click like any property card. */
+                      recordListingClick(entry.listing.id);
+                      router.push(`/listing/${entry.listing.id}`);
+                    }}
                     onRemove={() => removeSaved(row)}
                   />
                 );

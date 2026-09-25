@@ -109,6 +109,8 @@ export type BackendListing = {
   isAvailable?: boolean | null;
   /** How many room types the switch would move. 0 when none are recorded. */
   roomTypeCount?: number;
+  /** Times students tapped this property's card open, in the app and on lampose.com. Every tap counts. */
+  clickCount?: number;
   id?: string;
   _id?: string;
   name?: string;

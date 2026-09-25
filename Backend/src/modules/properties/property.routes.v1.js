@@ -13,8 +13,9 @@ const { identifyStaffOrAdmin, adminNeeds, bindEmployeeEmail, can } = require('..
 /* Matches the partner edit surface, so a listing cannot hold more photos
    than either app is built to show. */
 const MAX_PROPERTY_IMAGES = 10;
-const { syncShareTypes } = require('../inventory/inventory.service');
+const { syncShareTypes, inventoryForProperty, setFreeBeds } = require('../inventory/inventory.service');
 const { readMapLink, readPin } = require('./property.util');
+const { clickCountsFor } = require('../listings/propertyClick.model');
 
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
@@ -421,8 +422,16 @@ router.get('/', async (req, res) => {
       }
     }
 
+    /* Card taps from the User App and lampose.com, for the console's Clicks
+       column. Pending listings are not public yet, so they have none. */
+    const clicks = await clickCountsFor(verifiedProps.map((p) => String(p._id)));
+    const verifiedWithClicks = verifiedProps.map((p) => ({
+      ...p.toJSON(),
+      clickCount: clicks.get(String(p._id)) || 0,
+    }));
+
     // Combine both arrays (pending properties first)
-    const combined = [...pendingProps, ...verifiedProps];
+    const combined = [...pendingProps, ...verifiedWithClicks];
     console.log(`   📊 [MongoDB Mode] Returning ${combined.length} property listing(s) (${verifiedProps.length} verified, ${pendingProps.length} pending)`);
 
     res.json({
@@ -484,6 +493,90 @@ router.get('/:id', async (req, res) => {
   } catch (err) {
     console.error(`   ❌ [GET /properties/${id} Error]:`, err.message);
     res.status(500).json({ success: false, error: 'Server Error', message: err.message });
+  }
+});
+
+/*
+ * Beds per room type, for the console's property drawer.
+ *
+ * Capacity lives on the property (`categoryDetails`, edited through PUT /:id);
+ * what is FREE right now lives on `partner_share_types` and moves with every
+ * booking. The console only ever showed the first, so a bed being taken never
+ * looked like it changed anything. These two routes are the same read and the
+ * same correction the owner gets in Stay Partner — one implementation, in
+ * inventory.service.js, so the two can never disagree.
+ *
+ * Only verified listings have rows: a pending listing is not a document in
+ * `properties` yet and has no beds to count.
+ */
+const inventoryUnavailable = (res) => res.status(503).json({
+  success: false,
+  code: 'DB_UNAVAILABLE',
+  error: 'Bed counts need the database, which is not reachable right now.',
+});
+
+// @route   GET /api/v1/properties/:id/inventory
+router.get('/:id/inventory', async (req, res) => {
+  const { id } = req.params;
+  try {
+    if (getIsInMemory()) return inventoryUnavailable(res);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(404).json({ success: false, error: 'Property not found' });
+    }
+    const property = await Property.findById(id).lean();
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        code: 'NOT_VERIFIED_YET',
+        error: 'This listing is not verified yet, so it has no bed counts.',
+      });
+    }
+    const items = await inventoryForProperty(property);
+    return res.json({ success: true, data: { propertyId: String(property._id), items } });
+  } catch (err) {
+    console.error(`   ❌ [GET /properties/${id}/inventory Error]:`, err.message);
+    return res.status(500).json({ success: false, error: 'Server Error', message: err.message });
+  }
+});
+
+// @route   PATCH /api/v1/properties/:id/inventory/:shareTypeId
+// @desc    Set how many beds of one room type are free now (never capacity)
+router.patch('/:id/inventory/:shareTypeId', requireWriter, async (req, res) => {
+  const { id, shareTypeId } = req.params;
+  try {
+    if (getIsInMemory()) return inventoryUnavailable(res);
+
+    const gate = await authorizeEmployeeWrite(req, 'edit', id);
+    if (!gate.allowed) {
+      return res.status(403).json({ success: false, error: gate.message, requiresPermission: true, action: 'edit' });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(id) || !(await Property.exists({ _id: id }))) {
+      return res.status(404).json({ success: false, error: 'Property not found' });
+    }
+
+    const who = (req.admin && (req.admin.email || req.admin.name))
+      || gate.employeeEmail
+      || 'admin console';
+
+    const result = await setFreeBeds({
+      propertyId: id,
+      shareTypeId: String(shareTypeId || ''),
+      freeBeds: req.body ? req.body.availableBeds : undefined,
+      editedBy: `admin ${who}`,
+    });
+
+    if (!result.ok) {
+      return res.status(result.status).json({
+        success: false, code: result.code, error: result.message, message: result.message, maxFree: result.maxFree,
+      });
+    }
+
+    if (gate.grant) await permissionStore.markUsed(gate.grant._id);
+    return res.json({ success: true, message: 'Free beds updated.', data: result.data });
+  } catch (err) {
+    console.error(`   ❌ [PATCH /properties/${id}/inventory Error]:`, err.message);
+    return res.status(500).json({ success: false, error: 'Server Error', message: err.message });
   }
 });
 

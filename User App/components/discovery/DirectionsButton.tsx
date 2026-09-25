@@ -35,8 +35,11 @@ export function DirectionsButton({
   variant = 'secondary',
   label = 'Open in Google Maps',
 }: DirectionsButtonProps) {
-  const { colors, space, radius } = useTheme();
+  const { colors, space, radius, mode } = useTheme();
   const [failed, setFailed] = useState(false);
+  /* The address box was a fixed near-white; its text follows the theme, so
+     in dark mode the address was light on light. Light mode is unchanged. */
+  const dark = mode === 'dark';
 
   const open = async () => {
     const ok = await openInGoogleMaps(place, 'directions');
@@ -49,12 +52,12 @@ export function DirectionsButton({
       {address || landmark ? (
         <View
           style={{
-            backgroundColor: '#F8FAFC',
+            backgroundColor: dark ? colors.surfaceSunken : '#F8FAFC',
             borderRadius: 14,
             padding: 14,
             gap: 4,
             borderWidth: 1,
-            borderColor: '#E2E8F0',
+            borderColor: dark ? colors.borderSubtle : '#E2E8F0',
           }}
         >
           {address ? (
@@ -64,7 +67,7 @@ export function DirectionsButton({
           ) : null}
           {landmark ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 }}>
-              <Icon name="mapPin" size={12} color="#64748B" />
+              <Icon name="mapPin" size={12} color={dark ? colors.textTertiary : '#64748B'} />
               <Text variant="caption" color="secondary">
                 {landmark}
               </Text>

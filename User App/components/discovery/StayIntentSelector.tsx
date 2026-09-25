@@ -296,6 +296,8 @@ type Option = {
   meta?: string;
   /** A sold-out sharing stays listed and stays unpickable. */
   disabled?: boolean;
+  /** Drawn with the warning colour so "Unavailable" reads as a message, not a faded row. */
+  unavailable?: boolean;
 };
 
 type DropdownProps = {
@@ -438,7 +440,7 @@ function Dropdown({
                     paddingHorizontal: space[3],
                     paddingVertical: space[2],
                     gap: space[2],
-                    opacity: option.disabled ? 0.45 : 1,
+                    opacity: option.disabled ? 0.7 : 1,
                     backgroundColor: active
                       ? colors.brandTint
                       : pressed
@@ -453,7 +455,14 @@ function Dropdown({
                   </Text>
                   {option.price || option.meta ? (
                     <Text variant="numMeta" color={active ? 'brand' : 'secondary'} numberOfLines={1}>
-                      {[option.price, option.meta].filter(Boolean).join(' · ')}
+                      {option.unavailable
+                        ? option.price
+                        : [option.price, option.meta].filter(Boolean).join(' · ')}
+                    </Text>
+                  ) : null}
+                  {option.unavailable && option.meta ? (
+                    <Text variant="numMeta" style={{ color: colors.warning.ink }} numberOfLines={1}>
+                      {option.meta}
                     </Text>
                   ) : null}
                 </View>
@@ -701,11 +710,21 @@ export function StayIntentSelector({
        * the four sharing types assumes the place is small, not that the cheap
        * bed went — and the cheap bed going is the thing that decides.
        */
-      meta: option.availableBeds === undefined
-        ? undefined
-        : option.availableBeds === 0
-          ? 'Full'
+      /*
+       * An option that cannot be picked SAYS so, and why. It used to be only
+       * greyed out — and with no count recorded or the owner's pause, it said
+       * nothing at all, which reads as a broken row rather than a closed one.
+       */
+      meta: option.requestable === false
+        ? option.unavailableReason === 'OWNER_PAUSED'
+          ? 'Unavailable · Not taking requests'
+          : option.unavailableReason === 'NO_BEDS_FREE' || option.availableBeds === 0
+            ? 'Unavailable · No beds free'
+            : 'Unavailable'
+        : option.availableBeds === undefined
+          ? undefined
           : `${option.availableBeds} left`,
+      unavailable: option.requestable === false,
       /* The server's own verdict, which folds in the two states a bed count
          cannot express on its own: the owner paused this room type, and no
          inventory was ever recorded. */

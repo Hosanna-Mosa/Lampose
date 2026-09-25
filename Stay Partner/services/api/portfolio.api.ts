@@ -286,3 +286,71 @@ export async function uploadPropertyImages(
   const data = unwrap(envelope);
   return Array.isArray(data) ? data : [];
 }
+
+/* ------------------------------------------------------------------ *
+ * Beds: capacity next to what is free right now
+ * ------------------------------------------------------------------ */
+
+/**
+ * One room type on a listing, with both numbers.
+ *
+ * `capacity` is what the property says the building has (edited with the rest
+ * of the listing). `availableBeds` is what is free right now — the number
+ * students see as "N left" — and moves by itself when a request is accepted,
+ * a booking is cancelled or a guest checks out.
+ *
+ * `recorded: false` means no total bed count has been entered for this room
+ * type, so there is nothing to count down from yet.
+ */
+export type PropertyInventoryItem = {
+  shareTypeId: string;
+  label: string;
+  capacity: number | null;
+  recorded: boolean;
+  totalBeds: number | null;
+  availableBeds: number | null;
+  /** Lampose bookings on a bed: upcoming, arriving, in-house, departing. */
+  bookedInApp: number;
+  /** Beds the owner said are taken outside the app. */
+  offlineOccupied: number;
+  /** Lampose bookings the owner marked vacant — the tenant left, the booking is still open. */
+  markedVacant?: number;
+  /** Free beds possible WITHOUT overriding a Lampose booking: total − Lampose bookings. */
+  maxFree: number | null;
+  /** Set on a save that went above `maxFree`. */
+  override?: boolean;
+  isAvailable: boolean | null;
+  freeBedsEditedAt: string | null;
+  freeBedsEditedBy: string;
+};
+
+export async function fetchPropertyInventory(
+  id: string,
+  signal?: AbortSignal,
+): Promise<PropertyInventoryItem[]> {
+  const envelope = await api.get<ApiEnvelope<{ propertyId: string; items: PropertyInventoryItem[] }>>(
+    endpoints.partnerPropertyInventory(id),
+    { signal },
+  );
+  return unwrap(envelope).items ?? [];
+}
+
+/**
+ * Say how many beds of one room type are free right now. Never changes the
+ * total. Anything from 0 to the total is accepted — above total − Lampose
+ * bookings is an override (a tenant left and their booking is still open).
+ * Refusals come back with the server's sentence in `ApiError.displayMessage`.
+ */
+export async function setFreeBeds(
+  id: string,
+  shareTypeId: string,
+  availableBeds: number,
+  signal?: AbortSignal,
+): Promise<PropertyInventoryItem> {
+  const envelope = await api.patch<ApiEnvelope<PropertyInventoryItem>>(
+    endpoints.partnerPropertyFreeBeds(id, shareTypeId),
+    { availableBeds },
+    { signal },
+  );
+  return unwrap(envelope);
+}

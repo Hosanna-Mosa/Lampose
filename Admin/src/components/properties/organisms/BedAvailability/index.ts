@@ -1,0 +1,1 @@
+export { BedAvailability } from './BedAvailability';

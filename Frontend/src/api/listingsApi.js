@@ -113,6 +113,16 @@ export const listingsApi = {
   },
 
   /**
+   * Count one tap on a property card — the owner sees the total in Stay
+   * Partner and admins in the console. Fire-and-forget: never awaited, never
+   * throws, so opening the listing never waits on a counter. Guests count too.
+   */
+  recordClick(id) {
+    if (!id) return;
+    apiClient.post(`/listings/${encodeURIComponent(id)}/click`).catch(() => {});
+  },
+
+  /**
    * Ask the backend which link is broken. Used only to sharpen an error the
    * page is already showing, so it never throws — an unreachable health probe
    * simply means the diagnosis stands as it was.

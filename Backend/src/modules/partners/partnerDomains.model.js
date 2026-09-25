@@ -479,6 +479,31 @@ const partnerShareTypeSchema = new mongoose.Schema(
     totalBeds: { type: Number, required: true, min: 0 },
     /* Availability. Never set directly outside the inventory service. */
     availableBeds: { type: Number, required: true, min: 0 },
+    /*
+     * Beds taken OUTSIDE Lampose — a tenant who moved in over the phone, a
+     * room the owner is holding for a relative. Nothing in the app knows about
+     * them, so they cannot be counted from `partner_bookings`; the owner (or an
+     * admin) says how many beds are free and the inventory service stores the
+     * difference here.
+     *
+     * Kept as its own number rather than folded into `availableBeds` so that
+     * anything which rebuilds availability from bookings — the first sync, the
+     * reconcile — subtracts it too, and a person's correction is never undone
+     * by a recount:
+     *
+     *   availableBeds = totalBeds − (Lampose bookings on a bed) − offlineOccupied
+     *
+     * NEGATIVE is allowed and means the opposite correction: Lampose bookings
+     * that still say a tenant is in, but the owner says the bed is empty — a
+     * PG tenant who left after a dispute, whose booking nobody closed. The
+     * owner may free those beds (up to the total) without closing the
+     * booking, and −1 here is what keeps a recount from taking the bed back.
+     */
+    offlineOccupied: { type: Number, default: 0 },
+    /* The last time a person set the free count by hand, and who. Shown next
+       to the number so "why does it say 9" has an answer. */
+    freeBedsEditedAt: { type: Date, default: null },
+    freeBedsEditedBy: { type: String, default: '' },
     /* The owner's master switch for this room type. Checked when a request is
        CREATED, deliberately not when one is accepted — pausing a room type
        stops new askers, it does not strand a request mid-decision. */

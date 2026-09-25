@@ -347,21 +347,16 @@ export default function OwnerConfirmation() {
    * the address arrives with the slot. A PG has no charge and goes straight
    * through, so this whole branch is invisible there.
    *
-   * ## A WebView in the app, not a browser and not the native SDK
+   * ## In the browser, not the native SDK
    *
    * Razorpay's React Native SDK needs a prebuild and a config plugin on both
    * platforms for one screen, so the checkout is a page the SERVER renders and
    * verifies — the app never touches a payment id or a signature.
    *
-   * That page used to be handed to `WebBrowser.openAuthSessionAsync`. It is
-   * meant to stay in-app, and on Android with no Chrome Custom Tabs provider it
-   * quietly falls back to launching the browser APP instead: Lampose disappears
-   * and a browser opens on the student's payment. Paying is the worst moment in
-   * the product to leave the app.
-   *
-   * `pay/checkout.tsx` renders the same URL in a `WebView` inside this
-   * navigator, where there is no fallback to fall back TO. What the server does
-   * is unchanged.
+   * `pay/checkout.tsx` opens that page in the browser with
+   * `WebBrowser.openAuthSessionAsync`; the server redirects to
+   * `lampose://payment-done` when it is done, which brings the student back
+   * here, and this screen re-reads the payment from the server on focus.
    */
   const [paying, setPaying] = useState(false);
 
