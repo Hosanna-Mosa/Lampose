@@ -22,6 +22,7 @@ import { addAddress } from '@/services/api/addresses.api';
 /* DEVELOPMENT ONLY — remove with the dev bypass button below. */
 import { ApiError } from '@/services/api/client';
 import { devMarkVisitPaid } from '@/services/api/stayRequests.api';
+import { formatRupees } from '@/utils/money';
 
 /**
  * The request, and the owner deciding — in three minutes.
@@ -670,7 +671,7 @@ export default function OwnerConfirmation() {
     }`;
     const per = unit === 'nights' ? 'a night' : unit === 'months' ? 'a month' : 'an hour';
 
-    return `${counted} · ₹${intent.rateAmount.toLocaleString('en-IN')} ${per}`;
+    return `${counted} · ${formatRupees(intent.rateAmount)} ${per}`;
   })();
 
   const answered = accepted || declined || ranOut || cancelled;
@@ -757,7 +758,7 @@ export default function OwnerConfirmation() {
         id: 'paid',
         label: stay.request?.payment?.status === 'paid'
           ? 'Booking paid'
-          : `Pay ₹${tokenAmount.toLocaleString('en-IN')} to confirm`,
+          : `Pay ${formatRupees(tokenAmount)} to confirm`,
         note: stay.request?.payment?.status === 'paid'
           ? 'Your dates are booked. The address is on your booking.'
           : 'Your dates are held until this is paid.',
@@ -800,7 +801,7 @@ export default function OwnerConfirmation() {
           /* A hotel: the money IS the booking, and the dates are already
              chosen. Saying "nothing has been charged" here would be true for
              one more tap and misleading about what the tap does. */
-          ? `Your room is held. Pay ₹${tokenAmount.toLocaleString('en-IN')} to confirm the booking — `
+          ? `Your room is held. Pay ${formatRupees(tokenAmount)} to confirm the booking — `
             + 'your dates are already set, and the address arrives the moment it clears.'
           : `Your room is held. Nothing has been charged. Book your assisted visit for ₹${tokenAmount} `
             + '— a Lampose representative accompanies you, and you pick the day and time right '
@@ -1106,7 +1107,7 @@ export default function OwnerConfirmation() {
                     /* Names the total, and says what it buys. "Pay ₹3,600 and
                        continue" reads as a step in a longer flow; this is the
                        last one. */
-                    ? `Pay ₹${tokenAmount.toLocaleString('en-IN')} and book`
+                    ? `Pay ${formatRupees(tokenAmount)} and book`
                     : `Pay ₹${tokenAmount} and continue`)
                 : 'Continue to booking'}
               onPress={tokenDue ? payThenContinue : goToBooking}

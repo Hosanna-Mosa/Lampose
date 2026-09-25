@@ -1,5 +1,6 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   Carry out account-deletion requests whose grace period has passed — by hand.
+   Carry out account-deletion requests still queued from before deletion
+   became immediate — by hand.
 
      node scripts/process-account-deletions.js         report only
      node scripts/process-account-deletions.js --run   actually erase
@@ -8,8 +9,10 @@
    the worker is off — outside production it is off by default — or when
    somebody wants to see what the next sweep will do before it does it.
 
-   Erases, never removes: see accountDeletion.eraser.js. An account with an
-   order or a stay still in progress is reported as postponed and left alone.
+   Deletion is immediate now, so this only ever finds requests written before
+   it was — scheduled ones still waiting out their date. Each is archived and
+   erased through the same `deleteAccountNow` the apps use: see
+   accountDeletion.eraser.js.
 
    Reporting is the default, and the write goes through the database guard
    like every writing script: against a protected database it refuses unless
@@ -38,7 +41,7 @@ const { processDueDeletions } = require('../src/modules/accountDeletion/accountD
 
   if (!summary.items.length) console.log('  Nothing is due.');
   if (run) {
-    console.log(`\n  ${summary.erased} erased, ${summary.postponed} postponed, ${summary.failed} failed\n`);
+    console.log(`\n  ${summary.erased} erased, ${summary.skipped} skipped, ${summary.failed} failed\n`);
   } else {
     console.log('');
   }

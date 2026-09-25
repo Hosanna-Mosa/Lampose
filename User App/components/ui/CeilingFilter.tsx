@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -54,7 +54,23 @@ export function CeilingSlider({
   const dragging = useSharedValue(0);
   const lastHaptic = useRef(0);
 
-  const fraction = max > min ? (value - min) / (max - min) : 0;
+  const span = max - min;
+  const fraction = span > 0 ? (value - min) / span : 0;
+
+  /*
+   * Where the thumb is drawn, 0..1, owned by the UI thread.
+   *
+   * While a finger is down the thumb follows it exactly, frame by frame, and
+   * only the SNAPPED value crosses to JS. It used to be drawn from `value`,
+   * which meant every frame of a drag waited on a JS round trip and the thumb
+   * hopped from step to step behind the finger. When no finger is down it
+   * follows `value`, so a preset tap still glides it into place.
+   */
+  const progress = useSharedValue(fraction);
+  useEffect(() => {
+    if (dragging.value) return;
+    progress.value = reduceMotion ? fraction : withTiming(fraction, SNAP);
+  }, [fraction, reduceMotion, dragging, progress]);
 
   // Haptics are capped to one per 60ms: a step of ₹500 across a 27,000 range
   // is fifty-four steps, and firing on every one turns a drag into a buzz.
@@ -65,59 +81,95 @@ export function CeilingSlider({
     Haptics.selectionAsync();
   }, []);
 
+  // Only report a value when the snapped step actually changes.
+  const lastSent = useRef(value);
+  lastSent.current = value;
   const commit = useCallback(
-    (nextFraction: number) => {
-      const raw = min + nextFraction * (max - min);
-      const snapped = Math.min(max, Math.max(min, Math.round(raw / step) * step));
-      if (snapped !== value) {
+    (snapped: number) => {
+      if (snapped !== lastSent.current) {
+        lastSent.current = snapped;
         tick();
         onChange(snapped);
       }
     },
-    [min, max, step, value, onChange, tick],
+    [onChange, tick],
   );
 
+  const moveTo = (x: number) => {
+    'worklet';
+    if (trackWidth <= 0) return;
+    const next = Math.min(1, Math.max(0, x / trackWidth));
+    progress.value = next;
+    const raw = min + next * span;
+    const snapped = Math.min(max, Math.max(min, Math.round(raw / step) * step));
+    runOnJS(commit)(snapped);
+  };
+
+  const settle = () => {
+    'worklet';
+    dragging.value = 0;
+    // Land the thumb on the step it reported, not between two.
+    const raw = min + progress.value * span;
+    const snapped = Math.min(max, Math.max(min, Math.round(raw / step) * step));
+    const target = span > 0 ? (snapped - min) / span : 0;
+    progress.value = reduceMotion ? target : withTiming(target, SNAP);
+  };
+
+  /*
+   * The pan only claims the touch once it has moved sideways, and gives it up
+   * if it moves vertically first — this slider sits inside a scrolling sheet,
+   * and a scroll that starts on the track must stay a scroll. A plain tap on
+   * the track jumps the thumb there.
+   */
   const pan = Gesture.Pan()
-    .onBegin(() => {
+    .activeOffsetX([-6, 6])
+    .failOffsetY([-12, 12])
+    .onStart((event) => {
       dragging.value = 1;
+      moveTo(event.x);
     })
     .onUpdate((event) => {
-      if (trackWidth <= 0) return;
-      const next = Math.min(1, Math.max(0, event.x / trackWidth));
-      runOnJS(commit)(next);
+      moveTo(event.x);
     })
     .onFinalize(() => {
-      dragging.value = 0;
+      if (dragging.value) settle();
     });
 
-  // While dragging the thumb tracks the finger immediately; on a preset tap it
-  // glides, so the slider is visibly agreeing with the chip that was pressed.
+  const tapToJump = Gesture.Tap()
+    .maxDuration(400)
+    .onEnd((event, success) => {
+      if (!success) return;
+      dragging.value = 1;
+      moveTo(event.x);
+      settle();
+    });
+
+  const gesture = Gesture.Race(pan, tapToJump);
+
   /**
    * Batch 12 motion audit, rule 2: transform and opacity only. This animated
    * `width` before, which runs layout on every frame — the exact thing that
    * janks a slider on the mid-range Android this product is mostly used on.
    *
-   * The fill is now laid out at full track width and scaled. `scaleX` grows
+   * The fill is laid out at full track width and scaled. `scaleX` grows
    * about the centre, so it is pushed back left by half the shortfall to keep
    * the fill anchored to the start of the track.
    */
   const fillStyle = useAnimatedStyle(() => {
-    const target = Math.max(fraction, 0.0001);
-    const scaleX = dragging.value || reduceMotion ? target : withTiming(target, SNAP);
+    const scaleX = Math.max(progress.value, 0.0001);
     return {
-      transform: [
-        { translateX: (scaleX - 1) * (trackWidth / 2) },
-        { scaleX },
-      ],
+      transform: [{ translateX: (scaleX - 1) * (trackWidth / 2) }, { scaleX }],
     };
-  }, [fraction, trackWidth, reduceMotion]);
+  }, [trackWidth]);
 
-  const thumbStyle = useAnimatedStyle(() => {
-    const x = fraction * trackWidth - THUMB / 2;
-    return {
-      transform: [{ translateX: dragging.value || reduceMotion ? x : withTiming(x, SNAP) }],
-    };
-  }, [fraction, trackWidth, reduceMotion]);
+  const thumbStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: progress.value * trackWidth - THUMB / 2 },
+      // The thumb swells under the finger so it shows through it; not under
+      // reduced motion, where scale is banned.
+      { scale: reduceMotion ? 1 : withTiming(dragging.value ? 1.15 : 1, { duration: 120 }) },
+    ],
+  }), [trackWidth, reduceMotion]);
 
   return (
     <View style={{ gap: space[3] }}>
@@ -161,7 +213,7 @@ export function CeilingSlider({
         })}
       </View>
 
-      <GestureDetector gesture={pan}>
+      <GestureDetector gesture={gesture}>
         <View
           style={[styles.gestureBand, { height: GESTURE_BAND }]}
           onLayout={(event) => setTrackWidth(event.nativeEvent.layout.width)}

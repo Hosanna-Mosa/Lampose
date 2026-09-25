@@ -48,10 +48,10 @@ const tick = async () => {
     const summary = await processDueDeletions({
       log: (line) => console.log(`🗑️  [Account Deletion] ${line}`),
     });
-    if (summary.erased || summary.postponed || summary.failed) {
+    if (summary.erased || summary.skipped || summary.failed) {
       console.log(
         `🗑️  [Account Deletion] sweep: ${summary.erased} erased, `
-        + `${summary.postponed} postponed (work in hand), ${summary.failed} failed`,
+        + `${summary.skipped} skipped, ${summary.failed} failed`,
       );
     }
   } catch (error) {

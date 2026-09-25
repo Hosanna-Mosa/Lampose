@@ -984,15 +984,14 @@ const sunandProperties = [
       console.log(`✅ Updated existing Partner account for ${OWNER_NAME} (${OWNER_MOBILE})`);
     }
 
-    // 2. Clear old seeded / existing properties for owner 9704726252
-    console.log(`\n🧹 Finding and removing existing properties for owner ${PHONE_DIGITS}...`);
-    const existingProps = await Property.find({
-      $or: [
-        { employeeEmail: SEED_TAG },
-        { ownerMobile: { $regex: '9704726252' } },
-        { ownerAltMobile: { $regex: '9704726252' } },
-      ],
-    }).lean();
+    // 2. Clear this script's own earlier run — and ONLY that.
+    //
+    // This used to delete every property whose owner number matched, which
+    // on a shared development database also removed listings other people
+    // had onboarded against this number to test with. A re-run now replaces
+    // exactly the rows it wrote (tagged with SEED_TAG) and leaves the rest.
+    console.log(`\n🧹 Removing properties from an earlier run of this seed (${SEED_TAG})...`);
+    const existingProps = await Property.find({ employeeEmail: SEED_TAG }).lean();
 
     const existingPropIds = existingProps.map((p) => String(p._id));
     if (existingPropIds.length > 0) {
@@ -1002,13 +1001,7 @@ const sunandProperties = [
       console.log(`   └─ Removed ${deletedShareTypes} associated PartnerShareTypes.`);
     }
 
-    const { deletedCount: deletedProps } = await Property.deleteMany({
-      $or: [
-        { employeeEmail: SEED_TAG },
-        { ownerMobile: { $regex: '9704726252' } },
-        { ownerAltMobile: { $regex: '9704726252' } },
-      ],
-    });
+    const { deletedCount: deletedProps } = await Property.deleteMany({ employeeEmail: SEED_TAG });
     console.log(`   └─ Removed ${deletedProps} existing properties for owner ${OWNER_NAME}.`);
 
     // 3. Insert 25 new properties (5 of each category)

@@ -11,13 +11,14 @@ import { apiClient } from './apiClient';
    Two calls, and a one-time code between them:
 
      start    a number in, a code out by SMS
-     confirm  the code back, and the account is marked for deletion
+     confirm  the code back, and the account is deleted there and then
 
    The code is the whole point. This page is public — Google Play requires
    that somebody be able to ask for deletion without the app and without
    signing in — so the only thing the form can be given is a phone number,
-   and a phone number is a string somebody typed. Nothing is marked until a
-   code sent to that handset comes back.
+   and a phone number is a string somebody typed. Nothing is deleted until a
+   code sent to that handset comes back — and deletion is immediate, so the
+   code is the only thing standing between a typed number and an account.
 
    Nothing here carries a token, a key or a secret, and nothing needs to: the
    endpoints are open by design and hold nothing worth stealing. The only
@@ -57,12 +58,10 @@ const appPath = app => `${BASE}/${encodeURIComponent(app)}`;
 
 export const deleteAccountApi = {
   /**
-   * The numbers the page prints, from the server that enforces them.
-   *
-   * Asked for rather than written into the copy: a page promising 30 days
-   * against a server that waits 14 is the disagreement worth one request to
-   * prevent. A failure here is not worth showing anybody — the page falls
-   * back to the same figures and carries on.
+   * The code length and support address the page prints, from the server.
+   * It now also reports `immediate: true` / `graceDays: 0`; the page states
+   * immediacy outright rather than reading a window from here. A failure is
+   * not worth showing anybody — the page falls back to the same figures.
    */
   async policy() {
     try {
@@ -77,8 +76,8 @@ export const deleteAccountApi = {
    *
    * The reply is identical whether or not the number is registered, so there
    * is nothing here to branch on and nothing to report back about whose number
-   * it is. `alreadyRequested` is the exception, and it is only ever true for
-   * somebody who has already proved this number once.
+   * it is. `alreadyRequested` is the exception: only an account that asked
+   * BEFORE deletion became immediate can still be in that state.
    */
   async start(app, phone) {
     try {
@@ -88,7 +87,10 @@ export const deleteAccountApi = {
     }
   },
 
-  /** The code back, plus the optional things the form collected. */
+  /**
+   * The code back, plus the optional things the form collected. A right code
+   * deletes the account at once; the reply is a 200 with `deleted: true`.
+   */
   async confirm(app, { phone, code, email, reason }) {
     try {
       return unwrap(await apiClient.post(`${appPath(app)}/confirm`, {

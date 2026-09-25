@@ -14,6 +14,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { facetsFor, filterSpecFor, type SearchQuery } from '@/types/filters';
 import { genderMeta, type Gender, type Listing } from '@/types/listing';
 import type { StayCategory } from '@/constants/tokens';
+import { formatRupees } from '@/utils/money';
 
 export type QuickFilterDropdownProps = {
   visible: boolean;
@@ -141,8 +142,8 @@ export function QuickFilterDropdown({
         },
         ...presets.map((preset) => ({
           id: `rent-${preset}`,
-          label: `Up to ₹${preset.toLocaleString('en-IN')}`,
-          sublabel: `Show places ₹${preset.toLocaleString('en-IN')} or less`,
+          label: `Up to ${formatRupees(preset)}`,
+          sublabel: `Show places ${formatRupees(preset)} or less`,
           selected: current === preset,
           onPress: () => selectOption({ rentCeiling: preset }),
         })),

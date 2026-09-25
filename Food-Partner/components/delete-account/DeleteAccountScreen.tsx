@@ -5,16 +5,19 @@
    app can be deleted from the app. This is that door; lampose.com/delete-account
    is the other one, and both write the same request.
 
-   What the screen promises is what the server does: the account is SCHEDULED
-   for deletion `graceDays` out, not emptied on the tap. Orders already placed
-   still have to be cooked, and what the kitchen is owed is still paid — so the
-   screen says so, and inside the window it offers the way back.
+   What the screen promises is what the server does: the account is DELETED on
+   the tap — the kitchen and its menu come off Lampose, and the session dies
+   with it (the next call would be a 401 ACCOUNT_GONE). So success signs out
+   exactly as the Profile screen does and lands on sign-in. An account that
+   asked before deletion became immediate may still carry a pending request;
+   that is the only case the old "Cancel request" is offered for.
    ══════════════════════════════════════════════════════════════════════════ */
 import React, { useCallback, useEffect, useState } from "react";
-import { Linking, StyleSheet, View } from "react-native";
+import { Alert, Linking, StyleSheet, View } from "react-native";
+import { router } from "expo-router";
 
 import {
-  Box, Btn, Card, ConfirmSheet, DataRow, Field, Notice, Scroller, Text, TextField, TopBar,
+  Box, Btn, Card, ConfirmSheet, Field, Notice, Scroller, Text, TextField, TopBar,
 } from "@/components/common";
 import type { SheetSpec } from "@/components/common";
 import {
@@ -35,7 +38,10 @@ const CONFIRM: SheetSpec = {
   kicker: "Delete account",
   tone: "danger",
   title: "Delete your kitchen's account?",
-  body: "Your kitchen will be scheduled for deletion. You can cancel from this screen until the date we give you.",
+  body:
+    "This deletes your account immediately and cannot be undone. Your kitchen and its menu come off " +
+    "Lampose; open orders stay as they are but can no longer be managed from this account. Orders, " +
+    "payments and a copy of your account details are kept for legal and accounting records.",
   primary: "Yes, delete my account",
   secondary: "Keep my account",
 };
@@ -46,6 +52,7 @@ const messageOf = (caught: unknown) =>
 export function DeleteAccountScreen() {
   const session = usePartnerStore((s) => s.session);
   const token = session?.token ?? null;
+  const signOut = usePartnerStore((s) => s.signOut);
 
   const [state, setState] = useState<DeletionState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -81,7 +88,16 @@ export function DeleteAccountScreen() {
     setBusy(true);
     setProblem("");
     try {
-      setState(await requestDeletion(token, reason));
+      const result = await requestDeletion(token, reason);
+      if (result.deleted || result.status === "completed") {
+        /* The token is dead now — clear the session the way a normal sign-out
+           does (socket, alert tone, push registration) and leave for sign-in. */
+        signOut();
+        router.replace("/signin");
+        Alert.alert("Account deleted", "Your account has been deleted.");
+        return;
+      }
+      await load();
     } catch (caught) {
       setProblem(messageOf(caught));
     } finally {
@@ -103,8 +119,8 @@ export function DeleteAccountScreen() {
     }
   };
 
+  /* Legacy: a request made while deletion still had a waiting period. */
   const requested = state?.status === "requested";
-  const days = state?.graceDays ?? 30;
   const support = state?.supportEmail || "contact@lampose.com";
 
   return (
@@ -118,35 +134,23 @@ export function DeleteAccountScreen() {
       >
         {loading ? (
           <Text variant="body" color="tertiary">Checking your account…</Text>
-        ) : requested ? (
-          <>
-            <Notice
-              tone="warning"
-              title={`Scheduled for deletion on ${longDate(state?.scheduledFor)}`}
-              body="Until then your kitchen keeps working as normal and you are paid for every order you complete. After that date the account and its personal data are deleted."
-            />
-            {!!state?.activeOrders && (
-              <Notice
-                tone="info"
-                title={`${state.activeOrders} order${state.activeOrders === 1 ? "" : "s"} in progress`}
-                body="Orders already placed with your kitchen still have to be prepared."
-              />
-            )}
-            <Card>
-              <DataRow label="Requested" value={longDate(state?.requestedAt) || "—"} first />
-              <DataRow label="Deleted on or after" value={longDate(state?.scheduledFor) || "—"} />
-            </Card>
-            <Btn label="Cancel deletion request" variant="ink" loading={busy} onPress={undo} />
-            <Text variant="caption" color="tertiary">
-              Cancelling keeps your kitchen exactly as it is — menu, documents, bank details and all.
-            </Text>
-          </>
         ) : (
           <>
+            {requested && (
+              <>
+                <Notice
+                  tone="warning"
+                  title="An earlier deletion request is pending"
+                  body={`You asked to delete this account${state?.requestedAt ? ` on ${longDate(state.requestedAt)}` : ""}. You can withdraw that request, or delete the account now below.`}
+                />
+                <Btn label="Cancel request" variant="ink" loading={busy} onPress={undo} />
+              </>
+            )}
+
             <Text variant="body" color="secondary">
-              Deleting your Lampose Partner account is permanent once it is carried out. We schedule
-              it {days} days from today, so any orders can be finished, anything owed to you can be
-              paid, and you can change your mind.
+              Deleting your Lampose Partner account happens immediately and cannot be undone. Your
+              kitchen and its menu come off Lampose. Orders already placed stay as they are, but can
+              no longer be managed from this account.
             </Text>
 
             <View style={{ gap: space[2] }}>
@@ -159,12 +163,12 @@ export function DeleteAccountScreen() {
                 ))}
               </Card>
               <Text variant="caption" color="tertiary">
-                Records of orders served and payouts made are kept for as long as the law requires,
-                separately from your profile.
+                Orders, payments and a copy of your account details are kept for legal and
+                accounting records.
               </Text>
             </View>
 
-            <Field label="Why are you leaving?" optional hint="It does not affect the request.">
+            <Field label="Why are you leaving?" optional hint="It does not affect the deletion.">
               <TextField
                 value={reason}
                 onChangeText={setReason}
@@ -175,7 +179,7 @@ export function DeleteAccountScreen() {
             </Field>
 
             <Btn
-              label="Delete my account"
+              label="Delete my account now"
               variant="danger"
               glyph="alert"
               loading={busy}

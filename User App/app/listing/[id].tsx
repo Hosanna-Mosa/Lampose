@@ -41,11 +41,12 @@ import { useAppState } from '@/context/AppStateContext';
 import { useAuth } from '@/context/AuthContext';
 import { useOngoing } from '@/hooks/useOngoing';
 import { useTheme } from '@/context/ThemeContext';
-import { useListing, useListingReviews, useListings, useSaved } from '@/services';
+import { useListing, useListings, useSaved } from '@/services';
 import { addAddress } from '@/services/api/addresses.api';
 import { ApiError } from '@/services/api/client';
 import { availabilityLabel, isGone } from '@/types/listing';
 import { actions } from '@/constants/actions';
+import { formatRupees } from '@/utils/money';
 
 /**
  * Listing detail.
@@ -95,11 +96,6 @@ export default function ListingDetail() {
   const { blocking } = useOngoing();
 
   const { listing, isPending, error, notFound, refetch, isFetching } = useListing(id);
-  /* Same query key `GuestReviews` reads below, so this is not a second
-     request — React Query dedupes on the key and both call sites share the
-     one cache entry. Held here too so the pull-to-refresh gesture on the
-     outer scroll view can refresh the reviews alongside the listing. */
-  const { refetch: refetchReviews, isFetching: reviewsFetching } = useListingReviews(id);
   /* A guest browsing needs no account, so this must not fire an authenticated
      request just to find out a guest has nothing saved. */
   const { isSaved, toggleSaved } = useSaved(status === 'signedIn');
@@ -362,6 +358,16 @@ export default function ListingDetail() {
     : selected
       ? selected.pricePerPerson ?? listing.rent
       : listing.rent;
+  /* A hotel's sharing prices are nightly (Onboard's required rate for the
+     category), so the note under the selector must not call them monthly. */
+  /* A bachelor room and a house / co-living unit are let whole, so their
+     prices are not per person — only a PG or hostel bed is. */
+  const pricedPerPerson = listing.category !== 'BACHELOR' && listing.category !== 'COLIVE';
+  const priceBasisNote = listing.perNight
+    ? 'Every price is per person, per night.'
+    : pricedPerPerson
+      ? 'Every price is per person, per month.'
+      : 'Every price is per month.';
   const shownDeposit = totals ? totals.deposit : selected ? selected.deposit : listing.deposit;
   const shownDepositMonths = totals ? undefined : selected ? selected.depositMonths : listing.depositMonths;
 
@@ -602,11 +608,8 @@ export default function ListingDetail() {
         contentContainerStyle={{ paddingBottom: ctaHeight + space[6] }}
         refreshControl={
           <RefreshControl
-            refreshing={(isFetching || reviewsFetching) && !isPending}
-            onRefresh={() => {
-              refetch();
-              refetchReviews();
-            }}
+            refreshing={isFetching && !isPending}
+            onRefresh={() => refetch()}
             tintColor={colors.brand}
           />
         }
@@ -722,13 +725,19 @@ export default function ListingDetail() {
                 >
                   Starting Rent
                 </Text>
+                {/* `priceHero`, the price style, rather than a heading with an
+                    800 weight laid over it: the family is only loaded to 700,
+                    and Android substitutes a system face for the missing
+                    weight. The digits go through `formatRupees` so the
+                    grouping never follows the phone's region (see
+                    `groupIndian`). */}
                 <Text
-                  variant="title1"
-                  style={{ color: colors.brand, fontWeight: '800', fontSize: 28, marginTop: 2 }}
+                  variant="priceHero"
+                  style={{ color: colors.brand, fontSize: 28, lineHeight: 34, marginTop: 2 }}
                 >
-                  ₹{shownRent ? shownRent.toLocaleString('en-IN') : '—'}
+                  {shownRent ? formatRupees(shownRent) : '₹—'}
                   <Text variant="body" color="secondary" style={{ fontWeight: '500' }}>
-                    {totals && totals.rate.id === 'DAILY' ? ' / night' : ' / month'}
+                    {(totals ? totals.rate.id === 'DAILY' : listing.perNight) ? ' / night' : ' / month'}
                   </Text>
                 </Text>
               </View>
@@ -758,7 +767,7 @@ export default function ListingDetail() {
                 <Text variant="caption" color="secondary" style={{ marginLeft: 6 }}>
                   Deposit:{' '}
                   <Text variant="caption" style={{ color: colors.textPrimary, fontWeight: '700' }}>
-                    {shownDeposit ? `₹${shownDeposit.toLocaleString('en-IN')}` : 'Nil'}
+                    {shownDeposit ? formatRupees(shownDeposit) : 'Nil'}
                   </Text>
                   {shownDepositMonths ? ` (${shownDepositMonths} mo)` : ''}
                 </Text>
@@ -887,7 +896,7 @@ export default function ListingDetail() {
                     Room & Sharing Type
                   </Text>
                   <Text variant="caption" color="secondary">
-                    Every price is per person, per month.
+                    {priceBasisNote}
                   </Text>
                 </View>
               </View>
@@ -895,38 +904,14 @@ export default function ListingDetail() {
                 options={listing.sharingOptions}
                 value={sharing}
                 onChange={setSharing}
-                note="Every price is per person, per month."
+                note={priceBasisNote}
+                perPerson={pricedPerPerson}
               />
             </View>
           ) : null}
 
-          {/* Verified Host / Property Management Card */}
-          <View
-            style={[
-              styles.hostCard,
-              {
-                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : colors.surface,
-                borderColor: colors.borderSubtle,
-              },
-            ]}
-          >
-            <View style={[styles.hostAvatar, { backgroundColor: colors.brand }]}>
-              <Text variant="title3" style={{ color: '#FFFFFF', fontWeight: '700' }}>
-                {(listing.ownerName ? listing.ownerName.charAt(0) : 'L').toUpperCase()}
-              </Text>
-            </View>
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text variant="bodyStrong" style={{ color: colors.textPrimary, fontWeight: '700' }}>
-                  {listing.ownerName ?? 'Lampose Stay Partner'}
-                </Text>
-                {listing.isVerified ? <Icon name="verified" size={14} color={colors.brand} /> : null}
-              </View>
-              <Text variant="caption" color="secondary" style={{ marginTop: 2 }}>
-                {listing.isVerified ? 'Verified Property Partner' : 'Property Partner'}
-              </Text>
-            </View>
-          </View>
+          {/* Host card — the owner's name only, with no "verified" mark. */}
+         
 
           {/* About this place (Expandable) */}
           {listing.description ? (
@@ -964,12 +949,7 @@ export default function ListingDetail() {
           {/* Meal Plan */}
           {listing.meals ? <MealPlanCard plan={listing.meals} /> : null}
 
-          {/* Amenities & Facilities Showcase (Single dedicated place).
-
-              Ahead of the reviews deliberately: what a place HAS is a fact
-              the listing can always state, while "what guests say" is empty
-              on most listings today — an empty section between the meals
-              card and the amenities read as the page having run out. */}
+          {/* Amenities & Facilities Showcase (Single dedicated place). */}
           {listing.amenities?.length ? (
             <View style={styles.amenitiesCardWrapper}>
               <View style={styles.amenitiesHeaderRow}>
@@ -988,9 +968,6 @@ export default function ListingDetail() {
               <AmenityGrid amenities={listing.amenities} category={listing.category} />
             </View>
           ) : null}
-
-          {/* Guest Reviews & Ratings */}
-          <GuestReviews listingId={listing.id} />
 
           {/* Legal Consent Gate */}
           <View
@@ -1098,6 +1075,10 @@ export default function ListingDetail() {
               : byStay
                 ? '5 free requests per week'
                 : 'Free to request · you pay only after the owner accepts')}
+          /* Nothing is paid in the app to see a room: the owner is paid at
+             the visit. Hotels are the exception — the whole stay is paid once
+             the owner confirms (see the note above) — so they do not say it. */
+          highlight={isHotel ? undefined : 'Pay at Visit'}
           onMeasure={setCtaHeight}
         />
       ) : null}
@@ -1356,101 +1337,3 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
 });
-
-
-/* ── Guest reviews ─────────────────────────────────────────────────────── */
-
-function Stars({ rating }: { rating: number }) {
-  const { colors } = useTheme();
-  const full = Math.max(0, Math.min(5, Math.round(rating)));
-  return (
-    <Text
-      variant="numMeta"
-      style={{ color: colors.warning.base, letterSpacing: 1 }}
-      accessibilityLabel={`${full} out of 5`}
-    >
-      {'★'.repeat(full)}
-      <Text variant="numMeta" style={{ color: colors.borderSubtle, letterSpacing: 1 }}>
-        {'★'.repeat(5 - full)}
-      </Text>
-    </Text>
-  );
-}
-
-function GuestReviews({ listingId }: { listingId: string }) {
-  const { colors, space } = useTheme();
-  const { reviews, averageRating, count, isPending } = useListingReviews(listingId);
-
-  /* Nothing to say yet, and still loading is not "nothing". */
-  if (isPending) return null;
-
-  return (
-    <View style={{ gap: space[3] }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
-        <SectionHeading
-          icon="star"
-          title="What guests say"
-          tint={colors.warning.tint}
-          ink={colors.warning.ink}
-        />
-        {count > 0 && averageRating != null ? (
-          <Text variant="numMeta" style={{ color: colors.warning.ink }}>
-            {averageRating.toFixed(1)} · {count === 1 ? '1 review' : `${count} reviews`}
-          </Text>
-        ) : null}
-      </View>
-
-      {count === 0 ? (
-        <Text variant="body" color="secondary">
-          No reviews yet. Guests can rate a stay once it is over.
-        </Text>
-      ) : (
-        reviews.slice(0, 10).map((r) => (
-          <View
-            key={r.id}
-            style={{
-              backgroundColor: colors.warning.tint,
-              borderLeftColor: colors.warning.base,
-              borderLeftWidth: 3,
-              borderRadius: BOX_RADIUS,
-              padding: space[4],
-              gap: space[2],
-            }}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[3] }}>
-              <Text variant="bodyStrong" numberOfLines={1} style={{ flex: 1 }}>
-                {r.author}
-              </Text>
-              <Stars rating={r.rating} />
-            </View>
-            <Text variant="body" color="secondary">
-              {r.comment}
-            </Text>
-            <Text variant="caption" color="tertiary">
-              {r.date}
-            </Text>
-
-            {r.reply ? (
-              <View
-                style={{
-                  marginTop: space[1],
-                  paddingLeft: space[3],
-                  borderLeftWidth: 2,
-                  borderLeftColor: colors.brand,
-                  gap: space[1],
-                }}
-              >
-                <Text variant="label" color="brand">
-                  Owner replied
-                </Text>
-                <Text variant="body" color="secondary">
-                  {r.reply.text}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-        ))
-      )}
-    </View>
-  );
-}

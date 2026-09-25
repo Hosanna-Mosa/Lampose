@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useWindowDimensions } from 'react-native';
 import { Box, Tappable } from '@/components/common';
 import { useRouter } from 'expo-router';
 import {
   Screen,
   Text,
+  Button,
   Chip,
   ChipRow,
   Select,
@@ -26,9 +28,21 @@ import { logWarn } from '@/lib/log';
 import { secondsLeft, useStayRequests } from '@/services/hooks/useStayRequests';
 import { toRequestCard } from '@/components/tabs-requests/RequestsInboxScreen';
 import { BookingRow } from '@/components/tabs-bookings/organisms/BookingRow/BookingRow';
+import {
+  BookingSearch,
+  bookingMatches,
+  normaliseQuery,
+  requestMatches,
+} from '@/components/tabs-bookings/organisms/BookingSearch';
 import { styles } from '@/components/tabs-bookings/styles';
 
 type Tab = 'upcoming' | 'history';
+
+/* Everything above and below the empty list on this screen, in points: the
+   status bar and title, the search field, the tab chips, the two dropdowns
+   and the tab bar. An estimate — it only has to land the button near the
+   middle, not on a pixel. */
+const SEARCH_EMPTY_CHROME = 400;
 type Outcome = 'all' | 'completed' | 'cancelled';
 
 const OUTCOMES: { key: Outcome; label: string }[] = [
@@ -159,6 +173,8 @@ export function BookingsTabScreen() {
   const [outcome, setOutcome] = useState<Outcome>('all');
   const [liveStatus, setLiveStatus] = useState<LiveStatus>('all');
   const [category, setCategory] = useState<CategoryFilter>('all');
+  const [search, setSearch] = useState('');
+  const q = normaliseQuery(search);
   const [allBookings, setAllBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -240,8 +256,16 @@ export function BookingsTabScreen() {
    * They sort to the top instead, because they are the two that need doing
    * today.
    */
+  /* The search narrows the fetched rows BEFORE they are split into tabs, so
+     both tab counts answer "how many match", and a guest found under the
+     other tab shows up in its count rather than as an unexplained empty list. */
+  const searchedBookings = useMemo(
+    () => (q ? allBookings.filter((b) => bookingMatches(b, q)) : allBookings),
+    [allBookings, q],
+  );
+
   const upcomingList = useMemo(() => {
-    const live = allBookings.filter(
+    const live = searchedBookings.filter(
       (b) => b.status === 'inHouse' || b.status === 'confirmed'
         || b.status === 'arriving' || b.status === 'departing'
         || b.status === 'overdueArrival' || b.status === 'overdueDeparture',
@@ -261,7 +285,7 @@ export function BookingsTabScreen() {
       (a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9)
         || a.checkIn.getTime() - b.checkIn.getTime(),
     );
-  }, [allBookings]);
+  }, [searchedBookings]);
 
   /*
    * History: past bookings and the requests that never became one, as one
@@ -276,8 +300,8 @@ export function BookingsTabScreen() {
    * Requests tab itself draws for an unanswered ask.
    */
   const historyBookings = useMemo(
-    () => allBookings.filter((b) => b.status === 'completed' || b.status === 'cancelled'),
-    [allBookings],
+    () => searchedBookings.filter((b) => b.status === 'completed' || b.status === 'cancelled'),
+    [searchedBookings],
   );
   const historyRequests = useMemo(
     () => requestGroups.answered.filter(
@@ -288,9 +312,10 @@ export function BookingsTabScreen() {
            these client-side instead, which is fine here: this is already a
            small, already-fetched "answered" list, not the full bookings
            table `loadBookings` is deliberately not over-fetching above. */
-        && (category === 'all' || r.category === category),
+        && (category === 'all' || r.category === category)
+        && requestMatches(r, q),
     ),
-    [requestGroups.answered, category],
+    [requestGroups.answered, category, q],
   );
 
   /*
@@ -366,6 +391,15 @@ export function BookingsTabScreen() {
     return [...bookingRows, ...requestRows].sort((a, b) => b.sortAt - a.sortAt);
   }, [historyBookings, historyRequests, outcome]);
 
+  /*
+   * The empty-search box fills what is left of the screen below the filters,
+   * so the button sits in its middle rather than near the top. The list
+   * scrolls, so there is no parent height to flex into; the window height
+   * minus the pinned header, the filter rows and the tab bar is that space.
+   */
+  const { height: windowHeight } = useWindowDimensions();
+  const searchEmptyHeight = Math.max(240, windowHeight - SEARCH_EMPTY_CHROME);
+
   const open = (b: Booking) =>
     router.push({ pathname: '/booking/[id]', params: { id: b.id } });
 
@@ -379,6 +413,7 @@ export function BookingsTabScreen() {
           <Text variant="screenTitle" style={styles.title}>
             Bookings
           </Text>
+          <BookingSearch value={search} onChange={setSearch} />
         </>
       }
     >
@@ -472,6 +507,22 @@ export function BookingsTabScreen() {
         />
       ) : loading || (tab === 'history' && requestsLoading && !historyRows.length) ? (
         <EmptyState icon="bookings" title="Loading…" body="" style={styles.empty} />
+      ) : q && (tab === 'upcoming' ? shownUpcoming.length : historyRows.length) === 0 ? (
+        /* A search that found nothing here is answered with the one thing to
+           do about it, centred in the empty list. The tab counts above already
+           say whether the other tab holds a match. */
+        <Box style={[styles.searchEmpty, { minHeight: searchEmptyHeight }]}>
+          {/* `alignSelf` because `Button` pins itself to the start when it is
+              not full width, which overrode the box's own centring. */}
+          <Button
+            label="Clear search"
+            icon="close"
+            size="sm"
+            fullWidth={false}
+            style={styles.searchEmptyButton}
+            onPress={() => setSearch('')}
+          />
+        </Box>
       ) : tab === 'upcoming' ? (
         shownUpcoming.length > 0 ? (
           shownUpcoming.map((b) => <BookingRow key={b.id} booking={b} onPress={() => open(b)} />)

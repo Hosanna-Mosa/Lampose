@@ -566,7 +566,12 @@ type DriverState = {
    * dependency.
    */
   registerForOffers: () => Promise<void>;
-  logout: () => Promise<void>;
+  /**
+   * `accountGone` after the rider deleted their own account: the server has
+   * already dropped the handset, and asking again with a token it now refuses
+   * would raise the "session expired" sheet over the sign-in screen.
+   */
+  logout: (options?: { accountGone?: boolean }) => Promise<void>;
 
   setOnline: (online: boolean) => Promise<void>;
   pushLocation: (lat: number, lng: number, heading?: number) => Promise<void>;
@@ -816,7 +821,7 @@ export const useDriverStore = create<DriverState>()(
         return res.data;
       },
 
-      logout: async () => {
+      logout: async (options) => {
         /* Same reasoning as the device unregister below: on a shared handset a
            service left running would keep reporting the PREVIOUS rider's
            position, under their token, with a notification the next person can
@@ -828,7 +833,7 @@ export const useDriverStore = create<DriverState>()(
            rider's offers ringing on it — somebody else's work on a screen
            they can read. */
         const { token } = get();
-        if (token) {
+        if (token && !options?.accountGone) {
           getPushToken()
             .then((registration) =>
               registration

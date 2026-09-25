@@ -96,7 +96,7 @@ export function ExploreHeader({
   userName,
   variant = 'surface',
 }: ExploreHeaderProps) {
-  const { colors, space, layout, touch, radius } = useTheme();
+  const { colors, space, layout, touch, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
 
   const initial = userName?.trim().charAt(0).toUpperCase() || null;
@@ -217,7 +217,11 @@ export function ExploreHeader({
                     /* Translucent white over artwork rather than the sunken
                        surface token — that token is near-black in dark mode
                        and would sit on the banner as a hole. */
-                    backgroundColor: over ? 'rgba(255,255,255,0.22)' : colors.surfaceSunken,
+                    /* `surfaceRaised`, not `surfaceSunken`, in dark mode: sunken
+                       is darker than the bar there, so the disc disappeared. */
+                    backgroundColor: over
+                      ? 'rgba(255,255,255,0.22)'
+                      : mode === 'dark' ? colors.surfaceRaised : colors.surfaceSunken,
                     borderWidth: over ? StyleSheet.hairlineWidth : 0,
                     borderColor: over ? 'rgba(255,255,255,0.5)' : undefined,
                     alignItems: 'center',
@@ -504,16 +508,6 @@ export function PhotoHeader({
     ),
   }));
 
-  // The glyph colour crosses from white to ink over the same window as the
-  // background, so it is never white-on-white or ink-on-photo.
-  const glyphStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      scrollY.value,
-      [windows.background[0], windows.background[1]],
-      [0, 1],
-      Extrapolation.CLAMP,
-    ),
-  }));
 
   return (
     <Animated.View
@@ -525,15 +519,14 @@ export function PhotoHeader({
     >
       <View style={styles.content}>
         <View>
-          {/* Two stacked glyphs crossfading is cheaper and steadier than
-              interpolating a colour prop through the icon library. */}
           {onBack ? (
-            <>
-              <IconButton name="chevronLeft" onPress={onBack} accessibilityLabel="Back" variant="onImage" />
-              <Animated.View style={[StyleSheet.absoluteFill, glyphStyle]} pointerEvents="none">
-                <IconButton name="chevronLeft" accessibilityLabel="Back" />
-              </Animated.View>
-            </>
+            <HeaderDisc
+              name="chevronLeft"
+              onPress={onBack}
+              accessibilityLabel="Back"
+              scrollY={scrollY}
+              window={windows.background}
+            />
           ) : null}
         </View>
 
@@ -545,16 +538,107 @@ export function PhotoHeader({
 
         <View>
           {actionIcon && onAction ? (
-            <>
-              <IconButton name={actionIcon} onPress={onAction} accessibilityLabel={actionIcon} variant="onImage" active={actionActive} />
-              <Animated.View style={[StyleSheet.absoluteFill, glyphStyle]} pointerEvents="none">
-                <IconButton name={actionIcon} accessibilityLabel={actionIcon} active={actionActive} />
-              </Animated.View>
-            </>
+            <HeaderDisc
+              name={actionIcon}
+              onPress={onAction}
+              accessibilityLabel={ACTION_LABEL[actionIcon](!!actionActive)}
+              active={actionActive}
+              scrollY={scrollY}
+              window={windows.background}
+            />
           ) : null}
         </View>
       </View>
     </Animated.View>
+  );
+}
+
+const ACTION_LABEL: Record<NonNullable<PhotoHeaderProps['actionIcon']>, (active: boolean) => string> = {
+  heart: (active) => (active ? 'Remove from saved' : 'Save'),
+  bookmark: (active) => (active ? 'Remove bookmark' : 'Bookmark'),
+  phone: () => 'Call',
+};
+
+/**
+ * A photo-header control: ONE disc whose fill follows the scroll.
+ *
+ * This used to be two stacked `IconButton`s — an opaque white `onImage` disc
+ * underneath and a transparent one fading in on top. The white disc never
+ * left, so in dark mode it glared over the photo, and once the header went
+ * solid the top glyph (near-white `textPrimary`) sat on that same white disc:
+ * two blank circles on a black bar.
+ *
+ * Now the disc is themed at both ends. Over the photo it is white in light
+ * mode and a near-opaque raised surface in dark mode — dark enough to carry
+ * the light glyph, opaque enough that a bright photo cannot wash it out, and
+ * ringed by a hairline so it keeps an edge on a night shot. Once the header
+ * is solid it settles to the header's own raised tone. The glyph is always
+ * `textPrimary`, which contrasts with the disc at both ends in either mode,
+ * so nothing needs to crossfade.
+ */
+function HeaderDisc({
+  name,
+  onPress,
+  accessibilityLabel,
+  active = false,
+  scrollY,
+  window,
+}: {
+  name: 'chevronLeft' | 'bookmark' | 'phone' | 'heart';
+  onPress: () => void;
+  accessibilityLabel: string;
+  active?: boolean;
+  scrollY: SharedValue<number>;
+  window: readonly [number, number];
+}) {
+  const { colors, touch, radius, mode, elevation } = useTheme();
+  const dark = mode === 'dark';
+
+  // Hoisted for the same reason as `surfaceFrom` in `PhotoHeader`: the UI
+  // runtime cannot call `withAlpha`.
+  const discFrom = dark ? withAlpha(colors.surfaceRaised, 0.92) : '#FFFFFF';
+  const discTo = dark ? colors.surfaceRaised : colors.surfaceSunken;
+  const ringFrom = dark ? withAlpha('#FFFFFF', 0.14) : withAlpha('#000000', 0.06);
+  const ringTo = withAlpha(colors.border, 0);
+  const start = window[0];
+  const end = window[1];
+
+  const discStyle = useAnimatedStyle(
+    () => ({
+      backgroundColor: interpolateColor(scrollY.value, [start, end], [discFrom, discTo]),
+      borderColor: interpolateColor(scrollY.value, [start, end], [ringFrom, ringTo]),
+    }),
+    [discFrom, discTo, ringFrom, ringTo, start, end],
+  );
+
+  const glyph = active ? colors.brandInk : colors.textPrimary;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={touch.iconButtonHitSlop}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ selected: active }}
+      style={({ pressed }) => [
+        styles.discTarget,
+        { width: touch.min, height: touch.min, opacity: pressed ? 0.7 : 1 },
+      ]}
+    >
+      <Animated.View
+        style={[
+          styles.disc,
+          { width: touch.iconButtonVisual, height: touch.iconButtonVisual, borderRadius: radius.pill },
+          // Static, never animated. Only light mode needs the lift: a white
+          // disc on an overexposed sky has no edge without it, while the dark
+          // disc already has its ring.
+          dark ? null : elevation.raised,
+          discStyle,
+        ]}
+      >
+        <Icon name={name} size={20} color={glyph} fill={active ? glyph : 'none'} />
+      </Animated.View>
+    </Pressable>
   );
 }
 
@@ -702,6 +786,8 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   flex: { flex: 1 },
   headerBadge: { position: 'absolute', top: 2, right: 2 },
+  discTarget: { alignItems: 'center', justifyContent: 'center' },
+  disc: { alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth },
   searchPill: {
     flex: 1,
     minHeight: 48,

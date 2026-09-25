@@ -1,13 +1,19 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   Carrying out a due deletion — `accountDeletion.eraser.js`.
+   Carrying out a deletion — `accountDeletion.eraser.js`.
 
-   What has to hold:
+   Deletion is immediate now; these drive it through the worker's sweep of
+   requests queued from before it was, which runs the same `deleteAccountNow`
+   the apps call. What has to hold:
 
-     · A due request, with nothing in hand, empties the account of everything
-       that identifies the person — and the ROW stays, marked completed.
+     · The account is copied into `deleted_account_archives` FIRST — the
+       person's details and the side records about to be deleted — without
+       its credentials (password hash, OTP, push tokens).
+     · Then the live row is emptied of everything that identifies the person,
+       and the ROW stays, marked completed.
      · The real number is freed: a new account can register on it.
      · Old sessions stop working, with ACCOUNT_GONE.
-     · Work in hand (a stay still running) postpones it; the request stands.
+     · Work in hand (a stay still running) does NOT hold it up; it is
+       recorded on the archive copy.
      · Not due yet, cancelled, or never asked: untouched.
      · The side collections that exist only for the person go; the records
        the deletion page promises to keep (bookings, orders) do not.
@@ -29,6 +35,7 @@ const { signCustomerToken } = require('../src/modules/customers/customerAuth.mid
 const { signFoodPartnerToken } = require('../src/modules/foodpartners/foodPartnerAuth.middleware');
 const { signDriverToken } = require('../src/modules/drivers/driverAuth.middleware');
 const { processDueDeletions } = require('../src/modules/accountDeletion/accountDeletion.eraser');
+const DeletedAccountArchive = require('../src/modules/accountDeletion/deletedAccountArchive.model');
 
 withDatabase();
 
@@ -87,6 +94,19 @@ describe('carrying out a due request', () => {
     const me = await getMe('/api/v2/customers/me', token);
     assert.equal(me.status, 401);
 
+    /* The copy kept apart: the person as they were, minus credentials. */
+    const archive = await DeletedAccountArchive.findOne({ app: 'customer', accountId: 'cus_erase1' }).lean();
+    assert.ok(archive, 'the account is archived before it is erased');
+    assert.equal(archive.status, 'completed');
+    assert.equal(archive.phone, phone);
+    assert.equal(archive.name, 'Asha');
+    assert.equal(archive.account.email, 'asha@example.com');
+    assert.equal(archive.account.addresses[0].line1, 'Room 4, Block B');
+    assert.equal(archive.reason, 'Leaving the city');
+    assert.equal(archive.contactEmail, 'me@example.com');
+    assert.equal(archive.account.devices, undefined, 'push tokens are not kept');
+    assert.equal(archive.account.otp, undefined);
+
     /* The real number can start again as somebody new. */
     await Customer.create({ customerId: 'cus_fresh', phone });
   });
@@ -116,6 +136,10 @@ describe('carrying out a due request', () => {
     assert.equal(row.ownerEmail, undefined);
     assert.equal(row.location, undefined);
     assert.equal(await FoodProduct.countDocuments({ restaurantId: 'FP-ERASE001' }), 0);
+    const archive = await DeletedAccountArchive.findOne({ app: 'restaurant', accountId: 'FP-ERASE001' }).lean();
+    assert.equal(archive.account.ownerEmail, 'owner@example.com');
+    assert.equal(archive.related.dishes.length, 1, 'the menu is archived before it is deleted');
+    assert.equal(archive.related.dishes[0].productName, 'Noodles');
     assert.equal((await getMe('/api/v2/food-partners/me', token)).status, 401);
   });
 
@@ -155,12 +179,15 @@ describe('carrying out a due request', () => {
     assert.equal(row.deletion.status, 'completed');
     assert.equal(row.name, '');
     assert.equal(await PartnerStaff.countDocuments({ partnerPhoneDigits: doc.phoneDigits }), 0);
+    const archive = await DeletedAccountArchive.findOne({ app: 'partner', accountId: 'par_erase1' }).lean();
+    assert.equal(archive.name, 'Ramesh');
+    assert.ok(Array.isArray(archive.related.staff));
     assert.equal(await PartnerBooking.countDocuments({ propertyId: 'p1' }), 1, 'bookings are records we keep');
   });
 });
 
-describe('leaving alone', () => {
-  it('postpones while a stay is still running, and keeps the request', async () => {
+describe('work in hand, and requests left alone', () => {
+  it('deletes even while a stay is still running, and records it on the archive', async () => {
     const doc = await Customer.create({
       customerId: 'cus_busy', phone: '+919811100005', name: 'Busy', deletion: due(),
     });
@@ -171,10 +198,14 @@ describe('leaving alone', () => {
     });
 
     const summary = await processDueDeletions();
-    assert.equal(summary.postponed, 1);
+    assert.equal(summary.erased, 1, JSON.stringify(summary));
     const row = await Customer.findById(doc._id).lean();
-    assert.equal(row.deletion.status, 'requested');
-    assert.equal(row.name, 'Busy');
+    assert.equal(row.deletion.status, 'completed');
+    assert.equal(row.name, '');
+    assert.equal(await PartnerBooking.countDocuments({ customerId: 'cus_busy', status: 'in_house' }), 1,
+      'the running stay itself is kept');
+    const archive = await DeletedAccountArchive.findOne({ accountId: 'cus_busy' }).lean();
+    assert.equal(archive.openWork.activeBookings, 1);
   });
 
   it('does not touch a request that is not due, or one that was cancelled', async () => {

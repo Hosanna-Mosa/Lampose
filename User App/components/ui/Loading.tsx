@@ -98,14 +98,19 @@ export type SkeletonProps = { width?: number | `${number}%`; height?: number; ra
  * mid-range Android hardware this app targets.
  *
  * The radius must match the real element it stands in for, or the reveal jumps.
+ *
+ * The fill is one step LIGHTER than the surface in dark mode, not darker:
+ * `surfaceSunken` there is #0A0B0C, below the page itself, so a block drawn in
+ * it read as a hole punched through the card rather than content arriving.
  */
 export function Skeleton({ width = '100%', height = 12, radius: r, style }: SkeletonProps) {
-  const { colors, radius } = useTheme();
+  const { colors, radius, mode } = useTheme();
+  const fill = mode === 'dark' ? colors.surfaceRaised : colors.surfaceSunken;
   return (
     <View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[{ width, height, borderRadius: r ?? radius.chip, backgroundColor: colors.surfaceSunken }, style]}
+      style={[{ width, height, borderRadius: r ?? radius.chip, backgroundColor: fill }, style]}
     />
   );
 }

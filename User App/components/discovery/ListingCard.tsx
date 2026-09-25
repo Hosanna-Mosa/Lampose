@@ -311,7 +311,15 @@ function CardBody({
   const hasRating = typeof listing.averageRating === 'number' && (listing.reviewCount ?? 0) > 0;
 
   const rentValue = formatRupees(listing.rent || 6500);
-  const unitSuffix = listing.perBed ? '/bed/month' : listing.perNight ? '/night' : '/bed/month';
+  /* Nightly first: a nightly price labelled monthly understates the stay
+     thirty times over, so no other flag may outrank it. */
+  const unitSuffix = listing.perNight || listing.category === 'HOTEL'
+    ? '/night'
+    /* "House / Co-live" is one category, `COLIVE`, and it is let as a whole
+       unit, so its rent is per month rather than per bed. */
+    : listing.category === 'COLIVE' || listing.category === 'BACHELOR'
+      ? '/month'
+      : '/bed/month';
 
   // Real data-driven scarcity: only show urgency if real inventory records <= 3 beds
   const scarceBedCount = useMemo(() => {
@@ -504,19 +512,25 @@ export function ListingCard({
   );
 }
 
+/**
+ * Drawn on the same surface and border as the real card in both modes, so the
+ * reveal swaps content in without the card itself changing colour. It used to
+ * hardcode a white card, which in dark mode was a row of glaring slabs.
+ */
 export function ListingCardSkeleton({ variant = 'carousel' }: { variant?: ListingCardVariant }) {
-  const { space, radius } = useTheme();
+  const { colors, mode, space } = useTheme();
   const width = variant === 'carousel' ? GEOMETRY.carousel.width : undefined;
 
   return (
     <View
+      accessibilityLabel="Loading place"
       style={[
         styles.cardOuter,
         {
           width,
           paddingBottom: space[3],
-          borderColor: '#E2E8F0',
-          backgroundColor: '#FFFFFF',
+          backgroundColor: colors.surface,
+          borderColor: mode === 'dark' ? colors.borderSubtle : '#E2E8F0',
         },
       ]}
     >
@@ -526,16 +540,26 @@ export function ListingCardSkeleton({ variant = 'carousel' }: { variant?: Listin
         radius={0}
       />
       <View style={{ padding: 14, gap: 10 }}>
-        <Skeleton width="60%" height={18} />
-        <Skeleton width="40%" height={12} />
-        <Skeleton width="85%" height={26} />
-        <Skeleton width="45%" height={22} />
+        <View style={styles.skeletonRow}>
+          <Skeleton width="58%" height={16} />
+          <Skeleton width={36} height={14} />
+        </View>
+        <Skeleton width="42%" height={12} />
+        <View style={[styles.skeletonRow, { marginTop: 4 }]}>
+          <Skeleton width="38%" height={22} />
+          <Skeleton width={72} height={22} radius={999} />
+        </View>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  skeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   cardOuter: {
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,

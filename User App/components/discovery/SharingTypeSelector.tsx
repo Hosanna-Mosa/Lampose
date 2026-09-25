@@ -53,10 +53,10 @@ export function defaultSharingSelection(options: readonly SharingOption[]): stri
 const PRICE_UNKNOWN = 'Price on request';
 
 /** What a screen reader says for the price. Never reads out a missing one. */
-function priceSpoken(option: SharingOption): string {
+function priceSpoken(option: SharingOption, perPerson: boolean): string {
   return option.pricePerPerson === undefined
     ? PRICE_UNKNOWN
-    : `${formatRupees(option.pricePerPerson)} per person per month`;
+    : `${formatRupees(option.pricePerPerson)} ${perPerson ? 'per person ' : ''}per month`;
 }
 
 /** "3 beds free", or nothing at all when occupancy was never recorded. */
@@ -72,6 +72,12 @@ export type SharingTypeSelectorProps = {
   onChange: (id: string) => void;
   /** Shown under the rows: the note that explains the deposit or the unit. */
   note?: string;
+  /**
+   * Whether the prices are per person. True for a PG or co-living bed; false
+   * for a bachelor room, which is let as a unit — "per person" there would
+   * divide a price nobody divides. The unit (per month) is said either way.
+   */
+  perPerson?: boolean;
 };
 
 /**
@@ -85,7 +91,13 @@ export type SharingTypeSelectorProps = {
  * A dormitory has one option and no choice to make, so the selector collapses
  * to a static line instead of offering a radio group with one button in it.
  */
-export function SharingTypeSelector({ options, value, onChange, note }: SharingTypeSelectorProps) {
+export function SharingTypeSelector({
+  options,
+  value,
+  onChange,
+  note,
+  perPerson = true,
+}: SharingTypeSelectorProps) {
   const { colors, space, radius } = useTheme();
 
   if (options.length === 0) return null;
@@ -109,7 +121,7 @@ export function SharingTypeSelector({ options, value, onChange, note }: SharingT
           <Text variant="numMeta" color="secondary">
             {only.pricePerPerson === undefined
               ? PRICE_UNKNOWN
-              : `${formatRupees(only.pricePerPerson)} per person, per month`}
+              : `${formatRupees(only.pricePerPerson)} ${perPerson ? 'per person, ' : ''}per month`}
             {bedsLine(only) ? ` · ${bedsLine(only)}` : ''}
           </Text>
         </View>
@@ -133,7 +145,7 @@ export function SharingTypeSelector({ options, value, onChange, note }: SharingT
         <Text variant="title3">Choose your sharing</Text>
         {/* Said out loud, once, above the column it governs. */}
         <Text variant="label" color="tertiary">
-          price per person
+          {perPerson ? 'price per person' : 'price per month'}
         </Text>
       </View>
 
@@ -154,6 +166,7 @@ export function SharingTypeSelector({ options, value, onChange, note }: SharingT
                 : null
             }
             onSelect={() => onChange(option.id)}
+            perPerson={perPerson}
           />
         ))}
       </View>
@@ -208,12 +221,14 @@ function SharingRow({
   selected,
   delta,
   onSelect,
+  perPerson,
 }: {
   option: SharingOption;
   selected: boolean;
   /** `null` when either side of the comparison has no price. */
   delta: number | null;
   onSelect: () => void;
+  perPerson: boolean;
 }) {
   const { colors } = useTheme();
   /* Strictly zero. `undefined` is "never recorded", and treating that as sold
@@ -240,8 +255,8 @@ function SharingRow({
       onSelect={onSelect}
       accessibilityLabel={
         soldOut
-          ? `${option.label}, none free, ${priceSpoken(option)}`
-          : `${option.label}, ${priceSpoken(option)}${beds ? `, ${beds}` : ''}`
+          ? `${option.label}, none free, ${priceSpoken(option, perPerson)}`
+          : `${option.label}, ${priceSpoken(option, perPerson)}${beds ? `, ${beds}` : ''}`
       }
       trailing={
         option.pricePerPerson === undefined ? (
@@ -259,7 +274,7 @@ function SharingRow({
             {/* The unit is repeated on every card. The header is not enough — a
                 user scrolling a list reads one row, not the column head. */}
             <Text variant="numMeta" color="tertiary">
-              per person / mo
+              {perPerson ? 'per person / mo' : '/ month'}
             </Text>
             {/* The decision is comparative, so a cheaper option says how much
                 cheaper rather than leaving the reader to subtract. */}
