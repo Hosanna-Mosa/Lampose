@@ -12,7 +12,7 @@ import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import { formatRupees } from '@/utils/money';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
-import { useActionBarInset } from '@/hooks/useActionBarInset';
+import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
 import { useAuth } from '@/context/AuthContext';
 
 type Method = { id: string; label: string; detail: string; disabled?: boolean };
@@ -47,7 +47,7 @@ export default function PaymentScreen() {
   const insets = useSafeAreaInsets();
   /* Nothing on a handset that reports a real inset; the shortfall on one
      that reports none, so the action clears the navigation bar. */
-  const actionInset = useActionBarInset();
+  const actionInset = useBottomEdgeInset();
   const router = useRouter();
   const { requireSignIn } = useAuth();
   const {

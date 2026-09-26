@@ -254,6 +254,8 @@ export type BackendOtpChallenge = {
   resendInSeconds: number;
   /** Wrong tries allowed on this code before it locks. */
   maxAttempts: number;
+  /** `password` for the store-review number, which gets no SMS. */
+  credential?: 'otp' | 'password';
 };
 
 /**

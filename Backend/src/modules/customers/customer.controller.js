@@ -127,6 +127,10 @@ const sentPayload = (customer) => ({
   otpLength: OTP_LENGTH,
   resendInSeconds: Math.ceil(OTP_RESEND_COOLDOWN_MS / 1000),
   maxAttempts: OTP_MAX_ATTEMPTS,
+  /* The review number received no SMS, so the app asks for a password instead
+     of a code. The password is the fixed `REVIEW_LOGIN_OTP` and is checked by
+     `verifyAuth` exactly like a code — only the screen's wording changes. */
+  credential: isReviewNumber(customer.phone) ? 'password' : 'otp',
 });
 
 /* ── POST /auth/start ─────────────────────────────────────────────────────── */

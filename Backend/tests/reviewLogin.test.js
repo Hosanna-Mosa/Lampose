@@ -57,6 +57,7 @@ describe('the review number', () => {
     const started = await post('/api/v2/customers/auth/start', { phone: '9998887456' });
     assert.equal(started.status, 200, JSON.stringify(started.body));
     assert.equal(outbox.length, 0, 'no SMS for the review number');
+    assert.equal(started.body.data.credential, 'password', 'the app asks the reviewer for a password');
 
     const verified = await post('/api/v2/customers/auth/verify', { phone: '9998887456', otp: '665544' });
     assert.equal(verified.status, 200, JSON.stringify(verified.body));
@@ -75,6 +76,7 @@ describe('the review number', () => {
     const started = await post('/api/v2/customers/auth/start', { phone: '9876501234' });
     assert.equal(started.status, 200);
     assert.equal(outbox.length, 1);
+    assert.equal(started.body.data.credential, 'otp');
     assert.notEqual(outbox[0].otp, '665544');
   });
 });

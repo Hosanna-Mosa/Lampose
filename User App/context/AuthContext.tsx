@@ -128,6 +128,9 @@ type AuthContextValue = {
   pendingPhone: string | null;
   /** "•••••43210", from the server. Safer to show than the raw number. */
   pendingPhoneMasked: string | null;
+  /** `password` for the store-review number: it gets no SMS, so the screen
+      asks for a password instead of a code. */
+  pendingCredential: 'otp' | 'password';
   isSubmitting: boolean;
   sendFailure: SendFailure | null;
   /** The server's own sentence, when it wrote one worth showing. */
@@ -202,6 +205,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const [pendingPhone, setPendingPhone] = useState<string | null>(null);
   const [pendingPhoneMasked, setPendingPhoneMasked] = useState<string | null>(null);
+  const [pendingCredential, setPendingCredential] = useState<'otp' | 'password'>('otp');
   const [pendingProfile, setPendingProfile] = useState<PendingProfile | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [sendFailure, setSendFailure] = useState<SendFailure | null>(null);
@@ -433,6 +437,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setPendingPhone(phone);
         setPendingPhoneMasked(challenge.phoneMasked);
         setOtpLength(challenge.otpLength === 4 ? 4 : 6);
+        setPendingCredential(challenge.credential === 'password' ? 'password' : 'otp');
         setStatus('awaitingCode');
         setSendCount((count) => count + 1);
         setResendIn(challenge.resendInSeconds || DEFAULT_RESEND_SECONDS);
@@ -584,6 +589,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Available even while the code is locked — the lock is on the code.
     setPendingPhone(null);
     setPendingPhoneMasked(null);
+    setPendingCredential('otp');
     setPendingProfile(null);
     setSendFailure(null);
     setFailureMessage(null);
@@ -657,6 +663,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       config,
       pendingPhone,
       pendingPhoneMasked,
+      pendingCredential,
       isSubmitting,
       sendFailure,
       failureMessage,
@@ -683,6 +690,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       config,
       pendingPhone,
       pendingPhoneMasked,
+      pendingCredential,
       isSubmitting,
       sendFailure,
       failureMessage,

@@ -16,7 +16,7 @@ import { findListing } from '@/data/listings';
 import { formatRupees } from '@/utils/money';
 import { useDepositMark } from '@/components/ui/DepositMark';
 import { findBooking } from '@/data/bookings';
-import { useActionBarInset } from '@/hooks/useActionBarInset';
+import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
 
 /**
  * "It's yours."
@@ -53,7 +53,7 @@ export default function PaymentConfirmed() {
   const insets = useSafeAreaInsets();
   /* Nothing on a handset that reports a real inset; the shortfall on one
      that reports none, so the action clears the navigation bar. */
-  const actionInset = useActionBarInset();
+  const actionInset = useBottomEdgeInset();
   const router = useRouter();
   const reduceMotion = useReduceMotion();
   const { id } = useLocalSearchParams<{ id: string }>();

@@ -51,13 +51,13 @@ import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { useActionBarInset } from '@/hooks/useActionBarInset';
+import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
 import { formatRupees } from '@/utils/money';
 
 export default function ChooseAddressScreen() {
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
-  const actionInset = useActionBarInset();
+  const actionInset = useBottomEdgeInset();
   const router = useRouter();
   const { status } = useAuth();
   const { address, addressChoices, setAddressId, toPay, count, refreshAddresses } = useFood();

@@ -13,7 +13,7 @@ import type { SpiceLevel } from '@/types/food';
 import { SPICE_LABEL } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
-import { useActionBarInset } from '@/hooks/useActionBarInset';
+import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
 
 const SPICES: readonly SpiceLevel[] = ['mild', 'medium', 'hot'];
 
@@ -37,7 +37,7 @@ export default function DishScreen() {
   const insets = useSafeAreaInsets();
   /* Nothing on a handset that reports a real inset; the shortfall on one
      that reports none, so the action clears the navigation bar. */
-  const actionInset = useActionBarInset();
+  const actionInset = useBottomEdgeInset();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { add, qtyOf, preferences } = useFood();

@@ -118,7 +118,7 @@ export function RestaurantListCard({
           <View>
             {/* Square corners: the card clips, so a radius here would show as
                 a second, smaller curve inside the first. */}
-            <FoodPhoto height={photoHeight} radius={0} uri={kitchen.photo} muted={!open} />
+            <FoodPhoto height={photoHeight} radius={0} uri={kitchen.photo} muted={!open} brandFallback />
 
             {/* The dish, named on the photo. The one piece of this layout that
                 answers "what would I actually order here", which a cuisine tag
