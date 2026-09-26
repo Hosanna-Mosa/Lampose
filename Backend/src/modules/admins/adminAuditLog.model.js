@@ -58,6 +58,8 @@ const AUDIT_ACTIONS = [
   'refund.rejected',
   /* Policy */
   'cancellation_policy.changed',
+  /* The assisted-visit fee table (visitFees.service.js). */
+  'visit_fees.changed',
   /* Accounts — who may open the console, and with what power. */
   'admin.bootstrapped',
   'admin.created',

@@ -274,6 +274,15 @@ const startServer = async () => {
   await connectDB();
   await initStore();
 
+  /* The visit-fee table, into its in-memory cache. Never throws: without a
+     database the defaults in visitFees.service.js are served, and the first
+     request after the connection lands re-reads it. */
+  {
+    const visitFees = require('./src/modules/visitFees/visitFees.service');
+    await visitFees.refresh();
+    visitFees.startAutoRefresh();
+  }
+
   /*
    * The only thing in this process that acts without being asked.
    *

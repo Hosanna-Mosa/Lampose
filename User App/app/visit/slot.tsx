@@ -14,7 +14,7 @@ import { ongoingQueryKey } from '@/hooks/useOngoing';
 import { ApiError } from '@/services/api/client';
 
 /**
- * When the visit happens — the step the ₹199 just bought.
+ * When the visit happens — the step the visit fee just bought.
  *
  * ## Where this sits in the flow
  *
@@ -176,10 +176,30 @@ export default function VisitSlot() {
           gap: space[5],
         }}
       >
+        {/* The first thing said after paying, and in a box so it is read:
+            the server has just sent a WhatsApp receipt, and that thread is
+            where the team follows up with the visit's details. */}
+        <View
+          style={{
+            backgroundColor: colors.surface,
+            borderColor: colors.border,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderRadius: radius.card,
+            padding: space[4],
+            gap: space[1],
+          }}
+        >
+          <Text variant="bodyStrong">Payment received ✓</Text>
+          <Text variant="body" color="secondary">
+            Further details about your visit will come to you on WhatsApp from the
+            Lampose team.
+          </Text>
+        </View>
+
         <Text variant="body" color="secondary">
-          Your payment is confirmed. Pick a day and time for the visit — the full
-          address arrives the moment your slot is fixed, and the owner and our
-          representative are told at the same time.
+          Pick a day and time for the visit — the full address arrives the moment
+          your slot is fixed, and the owner and our representative are told at the
+          same time.
         </Text>
 
         <View style={{ gap: space[3] }}>

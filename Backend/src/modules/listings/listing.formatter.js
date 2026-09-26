@@ -20,6 +20,7 @@ const {
   DEFAULT_CATEGORY, SIMPLE_PATH_CATEGORIES, paymentPurposeFor, normaliseCategory,
 } = require('../../shared/constants/categories');
 const config = require('../../config/env');
+const visitFees = require('../visitFees/visitFees.service');
 
 /* Cities we can name with confidence. `place` is free text from the panel and
    often has no comma, so a known name anywhere in the string beats splitting
@@ -238,13 +239,41 @@ const formatListing = (input, resolvedOwnerName = '') => {
      */
     visitToken: (() => {
       const purpose = paymentPurposeFor(doc.category);
-      if (!purpose) return { required: false, purpose: null, amountPaise: null };
+      if (!purpose) return { required: false, purpose: null, amountPaise: null, byLayout: [], varies: false };
+      if (purpose !== 'assisted_visit') {
+        return { required: true, purpose, amountPaise: null, byLayout: [], varies: false };
+      }
+
+      /*
+       * The assisted-visit fee is priced by LAYOUT (see visitFees.service.js),
+       * so a listing offering a 1 RK and a 2 BHK has two fees.
+       *
+       *   byLayout     one row per option the page offers — the fee a
+       *                visitor will actually be charged for that pick. The
+       *                request freezes the same figure, from the same rule.
+       *   amountPaise  the LOWEST of them — "from ₹299" — kept because every
+       *                client built before this reads it as "the" fee.
+       *   varies       whether the layouts differ, so a page knows to say
+       *                "from" and to show the fee next to the picker.
+       *
+       * A listing with no options (every Commercial one) prices by category.
+       */
+      const labels = sharingOptionsFor(doc).map((o) => o.label);
+      const byLayout = labels.map((label) => {
+        const fee = visitFees.feeFor(doc.category, label);
+        return { label, tier: fee ? fee.tier : null, amountPaise: fee ? fee.amountPaise : null };
+      }).filter((row) => row.amountPaise);
+
+      const amounts = byLayout.length
+        ? byLayout.map((row) => row.amountPaise)
+        : [(visitFees.feeFor(doc.category, null) || {}).amountPaise || config.razorpay.assistedVisitAmountPaise];
+
       return {
         required: true,
         purpose,
-        amountPaise: purpose === 'assisted_visit'
-          ? config.razorpay.assistedVisitAmountPaise
-          : null,
+        amountPaise: Math.min(...amounts),
+        byLayout,
+        varies: new Set(amounts).size > 1,
       };
     })(),
 

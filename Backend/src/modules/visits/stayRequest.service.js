@@ -357,7 +357,14 @@ const createStayRequest = async ({
   /* 6 — the sharing option is one the LISTING actually offers, resolved
      against the property rather than trusted. A crafted label would otherwise
      put a room type in front of an owner that the page never showed. */
-  const option = await findRequestableOption(property, sharing);
+  /* A COMMERCIAL listing has no layouts and no bed pool — a shop is one
+     premises, shown whole — so there is nothing to pick or count. It stands
+     in as a single option with no label; the visit fee is priced by the
+     category alone (see visitFees.service.js). */
+  const isCommercial = normaliseCategory(property.category) === 'COMMERCIAL';
+  const option = isCommercial
+    ? { label: null, price: property.rent || property.monthlyPrice || null, shareTypeId: null, requestable: true }
+    : await findRequestableOption(property, sharing);
   if (!option) {
     throw new StayRequestError('INVALID_SHARING', 'That room type is not offered here.', 422);
   }
@@ -486,7 +493,7 @@ const createStayRequest = async ({
      * listing's category later cannot make a paid request unpaid or reprice
      * one somebody has already settled.
      */
-    payment: paymentForNewRequest(property.category, checked.intent, discountRupees),
+    payment: await paymentForNewRequest(property.category, checked.intent, discountRupees, option.label),
 
     /* What was taken off, snapshotted — see the field on the model. */
     stayCoupon: held.coupon
@@ -728,7 +735,8 @@ const acceptAndBook = async (requestId, partner) => {
       /* Not known yet. The owner assigns one at check-in; inventory is counted
          per room TYPE, not per numbered room, so nothing here depends on it. */
       roomNumber: 'Unassigned',
-      shareType: (request.sharing && request.sharing.label) || 'Single',
+      shareType: (request.sharing && request.sharing.label)
+        || (propertyCategory === 'COMMERCIAL' ? 'Commercial' : 'Single'),
       checkInDate: joining || new Date().toISOString().slice(0, 10),
       /* Derived from the stay the student asked for, or empty when they
          named no length — see above. */

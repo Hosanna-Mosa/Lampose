@@ -522,7 +522,7 @@ const notifyExpired = async (requests) => {
 };
 
 /**
- * The ₹199 cleared: the visit is paid and waiting for its slot.
+ * The visit fee cleared: the visit is paid and waiting for its slot.
  *
  * Student only, and in-app — this is the app channel's answer to the
  * WhatsApp "payment received" the web flow sends. The owner is NOT told yet:
@@ -534,7 +534,7 @@ const notifyVisitPaid = async (request) => {
 
   return pushTo(Customer(), { customerId: request.customerId }, {
     title: 'Payment received',
-    body: `${request.propertyName} — now pick a date and time for your visit.`,
+    body: `${request.propertyName} — now pick a date and time. Further visit details will come on WhatsApp.`,
     data: payloadFor(request, 'visit.paid'),
   });
 };

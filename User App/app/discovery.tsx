@@ -51,6 +51,7 @@ const BY_CATEGORY: Record<StayCategory, typeof saiKrishnaPG> = {
   BACHELOR: vasaviBachelor,
   COLIVE: lakshmiHostel,
   HOTEL: sriSaiDormitory,
+  COMMERCIAL: vasaviBachelor,
 };
 
 function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {

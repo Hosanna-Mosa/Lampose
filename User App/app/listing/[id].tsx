@@ -47,6 +47,7 @@ import { ApiError } from '@/services/api/client';
 import { availabilityLabel, isGone } from '@/types/listing';
 import { actions } from '@/constants/actions';
 import { formatRupees } from '@/utils/money';
+import { visitFeeLabel } from '@/utils/visitFee';
 
 /**
  * Listing detail.
@@ -319,6 +320,8 @@ export default function ListingDetail() {
   /* A hotel has stay rates too, but it is not asked about them — it takes the
      dates path instead. */
   const byStay = !isHotel && listing.stayRates?.length ? listing.stayRates : null;
+  /* The assisted-visit fee for the layout picked, or "from ₹…" before one is. */
+  const visitFee = visitFeeLabel(listing, sharing);
   const totals = byStay ? stayTotals(byStay, intent, listing.sharingOptions) : null;
 
   /*
@@ -1066,15 +1069,19 @@ export default function ListingDetail() {
             which is the wrong thing to be silent about on the button that
             starts it.
             
-            Bachelor and co-live keep "you pay only after the owner accepts",
-            which is exactly what their ₹199 does.
+            Bachelor, co-live and commercial name their visit fee — priced by
+            the layout picked — and say it is paid only after the owner accepts.
           */
           note={availabilityNote
             ?? (isHotel
               ? 'Free to ask · you pay for the stay once the owner confirms'
-              : byStay
-                ? '5 free requests per week'
-                : 'Free to request · you pay only after the owner accepts')}
+              /* Bachelor, House / Co-live and Commercial: the visit fee for the
+                 layout picked, named before the tap. Details follow on WhatsApp. */
+              : visitFee
+                ? `Free to request · ${visitFee} visit fee after the owner accepts`
+                : byStay
+                  ? '5 free requests per week'
+                  : 'Free to request · you pay only after the owner accepts')}
           /* Nothing is paid in the app to see a room: the owner is paid at
              the visit. Hotels are the exception — the whole stay is paid once
              the owner confirms (see the note above) — so they do not say it. */

@@ -8,10 +8,11 @@ import { Anchor, Bold, Box, Heading, Inline, List, ListItem, PlainButton, Strong
    The one payment a confirmed customer makes, and what happens after it.
 
    The owner has replied AVAILABLE. From here the flow is a single product:
-   a ₹199 assisted visit — ₹100 for the Lampose representative who
-   accompanies them, ₹99 Lampose fee — paid in one shot. (The tabs this
-   panel used to hold — a ₹99 contact unlock and a split-payment assisted
-   visit — are retired, along with the ₹20 token that sat above them.)
+   an assisted visit, paid in one shot, priced by the layout asked about
+   (₹299 for a 1 RK up to ₹2,499 for a 5 BHK; ₹1,999 for Commercial). The
+   amount is the one frozen on the request — never re-derived here — and it
+   is shown as ONE total; the old "₹100 representative + ₹99 fee" split is
+   retired, as are the ₹99 contact unlock and the ₹20 token before it.
 
    ## The slot is picked on WhatsApp, never here
 
@@ -84,8 +85,6 @@ export function VisitNextSteps({ request, onUpdated }) {
   }
 
   const amount = payment.amountPaise || 19900;
-  const representative = payment.representativePaise || 10000;
-  const fee = payment.feePaise ?? Math.max(0, amount - representative);
 
   const visit = request.lamposeVisit || {};
   const scheduled = visit.status === 'scheduled';
@@ -154,7 +153,7 @@ export function VisitNextSteps({ request, onUpdated }) {
     }
   };
 
-  /* ── Scheduled: the slot and the address, which is what ₹199 bought ──── */
+  /* ── Scheduled: the slot and the address, which is what the fee bought ─ */
   if (paid && scheduled) {
     return (
       <Box className="vn">
@@ -179,7 +178,8 @@ export function VisitNextSteps({ request, onUpdated }) {
             </>
           ) : null}
           <Text className="vn__meta">
-            Need a different time? Reply to our WhatsApp message and the team will move it.
+            Any further details come to you on WhatsApp. Need a different time? Reply to
+            our WhatsApp message and the team will move it.
           </Text>
         </Box>
       </Box>
@@ -197,6 +197,9 @@ export function VisitNextSteps({ request, onUpdated }) {
             Lampose team member will call you shortly to fix the day and time — the full
             address comes with it.
           </Text>
+          <Text className="vn__meta">
+            Further details about your visit will come to you on WhatsApp.
+          </Text>
         </Box>
       </Box>
     );
@@ -209,10 +212,10 @@ export function VisitNextSteps({ request, onUpdated }) {
         <Box className="vn__panel">
           <Heading level={4} className="vn__title">Payment received — pick your slot on WhatsApp</Heading>
           <Text className="vn__lead">
-            Your ₹199 assisted visit is booked. We have sent you a WhatsApp message —
-            tap <Strong>Pick my slot</Strong> there and choose a day and time. The full
-            address arrives the moment your slot is fixed, and this page updates on its
-            own.
+            Your {rupees(amount)} assisted visit is booked. <Strong>Further details come to
+            you on WhatsApp</Strong> — we have sent you a message there: tap{' '}
+            <Strong>Pick my slot</Strong> and choose a day and time. The full address
+            arrives the moment your slot is fixed, and this page updates on its own.
           </Text>
           <Text className="vn__meta">
             Can&apos;t find the message? It is from the Lampose WhatsApp number that
@@ -233,27 +236,11 @@ export function VisitNextSteps({ request, onUpdated }) {
           <Inline>total</Inline>
         </Text>
 
-        {/* The same two lines the WhatsApp message shows, so the price is
-            explained identically on both surfaces. */}
-        <Box className="vn__split">
-          <Inline className="vn__split-row">
-            <Inline>A Lampose representative accompanies you on the visit</Inline>
-            <Bold>{rupees(representative)}</Bold>
-          </Inline>
-          <Inline className="vn__split-row">
-            <Inline>Lampose fee</Inline>
-            <Bold>{rupees(fee)}</Bold>
-          </Inline>
-          <Inline className="vn__split-row is-now">
-            <Inline>Total</Inline>
-            <Bold>{rupees(amount)}</Bold>
-          </Inline>
-        </Box>
-
         <List className="vn__list">
           <ListItem>A Lampose representative meets you at the property</ListItem>
           <ListItem>Visit coordination with the owner — you never need their number</ListItem>
           <ListItem>Pick your date and time on WhatsApp right after paying</ListItem>
+          <ListItem>Further details about your visit come to you on WhatsApp</ListItem>
           <ListItem>The full address comes with your confirmed slot</ListItem>
         </List>
 

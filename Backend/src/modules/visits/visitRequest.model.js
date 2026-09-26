@@ -201,6 +201,10 @@ const visitRequestSchema = new mongoose.Schema(
          change to the platform token, or to the room's nightly rate, must not
          reprice a request already made. */
       amountPaise: { type: Number, default: null },
+      /* Which visit-fee tier priced an assisted visit ('1RK' … '5BHK',
+         'COMMERCIAL'). Null on stay bookings and on every request made
+         before fees were priced by layout (those were the flat ₹199). */
+      feeTier: { type: String, default: null },
       /*
        * What it would have cost without the move-in reward, and what came off.
        *
@@ -545,14 +549,10 @@ visitRequestSchema.methods.toPublic = function toPublic() {
           ? (this.payment.amountPaise || config.razorpay.assistedVisitAmountPaise)
           : (this.payment.amountPaise || null);
 
-        /* The two lines the fee is explained with — "₹100 representative,
-           ₹99 Lampose fee". Derived here, never stored twice, so they always
-           add up to the amount charged. A stay booking has no such split: the
-           whole figure is the room, and inventing a representative's share of
-           a hotel bill would be a line nobody owes. */
-        const representative = isVisit
-          ? Math.min(config.razorpay.assistedRepresentativePaise, amount || 0)
-          : null;
+        /* The fee is shown as ONE total since 26 Sep 2026 — the old
+           "₹100 representative + ₹99 Lampose fee" split is retired. Both
+           fields stay on the wire as null so a client built for the split
+           draws a single line instead of breaking. */
 
         return {
           required: true,
@@ -570,8 +570,11 @@ visitRequestSchema.methods.toPublic = function toPublic() {
              might 404 is worse than no button. Always false in production. */
           devMarkPaidAllowed: Boolean(config.razorpay.devAllowMarkPaid),
           amountPaise: amount,
-          representativePaise: representative,
-          feePaise: representative === null ? null : Math.max(0, (amount || 0) - representative),
+          /* Which layout tier priced it, for a receipt line like "2 BHK visit".
+             Null on legacy flat-fee requests and on stay bookings. */
+          feeTier: isVisit ? (this.payment.feeTier || null) : null,
+          representativePaise: null,
+          feePaise: null,
           /* The shareable Razorpay link, so the app can open it rather than
              carrying a native SDK. Null until the owner accepts. */
           linkUrl: this.payment.linkUrl || null,
@@ -580,7 +583,7 @@ visitRequestSchema.methods.toPublic = function toPublic() {
         };
       })()
       : {
-        required: false, status: 'not_required', purpose: null, mode: 'online', devMarkPaidAllowed: false, amountPaise: null, representativePaise: null, feePaise: null, dueBy: null, paidAt: null,
+        required: false, status: 'not_required', purpose: null, mode: 'online', devMarkPaidAllowed: false, amountPaise: null, feeTier: null, representativePaise: null, feePaise: null, dueBy: null, paidAt: null,
       },
 
     /* Where the paid visit has got to: waiting for a slot, scheduled, or

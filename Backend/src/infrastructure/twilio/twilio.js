@@ -642,10 +642,10 @@ async function sendOwnerText({ ownerMobile, body }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   The ₹199 assisted-visit conversation — six messages, one flow.
+   The assisted-visit conversation — six messages, one flow.
 
-   The owner says AVAILABLE, the customer pays ₹199 (₹100 representative +
-   ₹99 Lampose fee), then picks a slot inside WhatsApp: a quick-reply button
+   The owner says AVAILABLE, the customer pays the visit fee (one total,
+   priced by layout — see modules/visitFees), then picks a slot inside WhatsApp: a quick-reply button
    opens the session, two list pickers take the day and the time, and the
    confirmation with the address closes it. The templates were created on
    2026-08-22; the four business-initiated ones are Meta-reviewed, the two
@@ -680,55 +680,186 @@ async function sendContentOrText({ to, contentSid, variables, fallbackBody }) {
   }
 }
 
+/** "₹1,999" — the fee as a person reads it. */
+const rupeeLabel = (paise) => `₹${Math.round(Number(paise || 0) / 100).toLocaleString('en-IN')}`;
+
+/* What the two legacy templates say in their FIXED, Meta-approved text:
+   "₹199 (₹100 representative accompaniment + ₹99 service fee)". They may be
+   sent for a ₹199 visit and for nothing else. */
+const LEGACY_FEE_PAISE = 19900;
+
+/*
+ * Which template a fee message goes out in — and the rule that the figure a
+ * customer READS is always the figure Razorpay CHARGES.
+ *
+ * Since 26 Sep 2026 the fee is priced by layout, and the templates approved
+ * for T1 and T2 have "₹199" written into their fixed text. Sending one of
+ * them for a ₹1,499 visit told a customer ₹199 above a link that charged
+ * ₹1,499 — which happened, and must not again. So, in order:
+ *
+ *   1. an AMOUNT template, when approved and configured — it takes the fee
+ *      as a variable (TWILIO_ASSISTED_PAY_AMOUNT_CONTENT_SID, …);
+ *   2. the legacy template, ONLY when the fee really is ₹199 (requests
+ *      created before per-layout pricing, whose amount is frozen at ₹199);
+ *   3. the approved GENERIC notice (TWILIO_ADMIN_NOTICE_CONTENT_SID —
+ *      "Hello {{1}}, this is a message from the Lampose team: {{2}} …"),
+ *      with the whole sentence, amount included, in {{2}};
+ *   4. plain text, which WhatsApp delivers only inside a 24-hour session —
+ *      logged loudly when that is all there is.
+ *
+ * A legacy template is never sent for any other amount, whatever is or is
+ * not configured. A missing message is recoverable (the page and the app show
+ * the right figure and the pay button); a wrong price is not.
+ */
+const feeMessage = ({
+  amountSid, legacySid, amountPaise, name, amountVariables, legacyVariables, generic,
+}) => {
+  if (process.env[amountSid]) {
+    return { contentSid: process.env[amountSid], variables: amountVariables };
+  }
+  if (legacySid && process.env[legacySid] && Number(amountPaise) === LEGACY_FEE_PAISE) {
+    return { contentSid: process.env[legacySid], variables: legacyVariables };
+  }
+  if (process.env.TWILIO_ADMIN_NOTICE_CONTENT_SID) {
+    return {
+      contentSid: process.env.TWILIO_ADMIN_NOTICE_CONTENT_SID,
+      variables: { 1: generic.name, 2: oneLine(generic.text, 900) },
+    };
+  }
+  console.warn(
+    `[whatsapp] ${name}: no template can carry a ${rupeeLabel(amountPaise)} fee — sending plain text, `
+    + 'which WhatsApp only delivers inside a 24-hour session. Set TWILIO_ADMIN_NOTICE_CONTENT_SID '
+    + `(the approved generic notice) or ${amountSid}.`,
+  );
+  return { contentSid: null, variables: null };
+};
+
 /**
- * T1 — the owner confirmed; here is what ₹199 buys and where to pay it.
+ * T1 — the owner confirmed; here is what the visit costs and where to pay it.
  *
  * Replaces the retired ₹20 pre-payment message. The listing URL rides along
  * as the second way to pay, and as the fallback when Razorpay refused to
- * mint a link at all.
+ * mint a link at all. The fee is ONE total (priced by layout since 26 Sep
+ * 2026); the old "₹100 representative + ₹99 fee" split is gone.
  */
 async function sendAssistedPayRequest({
-  customerPhone, customerName, sharingLabel, propertyName, payLink, listingUrl,
+  customerPhone, customerName, sharingLabel, propertyName, payLink, listingUrl, amountPaise,
 }) {
+  const name = oneLine(customerName, 60);
+  const room = oneLine(sharingLabel || 'the room', 60);
+  const property = oneLine(propertyName, 80);
+  const link = payLink || listingUrl;
+  const fee = rupeeLabel(amountPaise);
+
+  const chosen = feeMessage({
+    amountSid: 'TWILIO_ASSISTED_PAY_AMOUNT_CONTENT_SID',
+    legacySid: 'TWILIO_ASSISTED_PAY_CONTENT_SID',
+    amountPaise,
+    name: 'T1 pay request',
+    amountVariables: { 1: name, 2: room, 3: property, 4: link, 5: listingUrl, 6: fee },
+    legacyVariables: { 1: name, 2: room, 3: property, 4: link, 5: listingUrl },
+    generic: {
+      name,
+      text: `the owner has confirmed ${room} at ${property} is available to visit. `
+        + `Your assisted visit fee is ${fee} (one total), and a Lampose representative accompanies you. `
+        + `Pay here: ${link} — or on your request page: ${listingUrl} . `
+        + 'After paying, reply "Pick my slot" here to choose your visit date and time.',
+    },
+  });
+
   return sendContentOrText({
     to: customerPhone,
-    contentSid: process.env.TWILIO_ASSISTED_PAY_CONTENT_SID,
-    variables: {
-      1: oneLine(customerName, 60),
-      2: oneLine(sharingLabel || 'the room', 60),
-      3: oneLine(propertyName, 80),
-      4: payLink || listingUrl,
-      5: listingUrl,
-    },
+    contentSid: chosen.contentSid,
+    variables: chosen.variables,
     fallbackBody:
       `Good news ${customerName} — the owner has confirmed `
       + `${sharingLabel || 'the room'} at ${propertyName} is available to visit.\n\n`
-      + 'Book your assisted visit:\n'
-      + '• ₹100 — a Lampose representative accompanies you on the visit\n'
-      + '• ₹99 — Lampose fee\n\n'
-      + 'Total ₹199 — pay via the link below.\n\n'
-      + `💳 Pay here: ${payLink || listingUrl}\n\n`
+      + `Book your assisted visit: ${fee} — pay via the link below. `
+      + 'A Lampose representative accompanies you on the visit.\n\n'
+      + `💳 Pay here: ${link}\n\n`
       + `🔗 Or pay on the listing: ${listingUrl}\n\n`
-      + 'The representative arranges everything with the owner and meets you at the '
-      + 'property. After payment, you’ll pick a convenient date and time right '
-      + 'here on WhatsApp.',
+      + 'After payment, reply "Pick my slot" here to choose a convenient date and time.',
   });
 }
 
 /**
- * T2 — the money landed; nothing else yet, as designed. The quick-reply
- * button ("Pick my slot") is what opens the session the two list pickers
- * ride in.
+ * T2 — the money landed. The legacy template's quick-reply button ("Pick my
+ * slot") opens the session the two list pickers ride in; the generic notice
+ * has no button, so it asks for the same words typed — `handleSlotReply`
+ * accepts "pick my slot" as text.
  */
-async function sendPaymentReceived({ customerPhone, customerName, propertyName }) {
+async function sendPaymentReceived({
+  customerPhone, customerName, propertyName, amountPaise,
+}) {
+  const name = oneLine(customerName, 60);
+  const property = oneLine(propertyName, 80);
+  const fee = rupeeLabel(amountPaise);
+
+  const chosen = feeMessage({
+    amountSid: 'TWILIO_PAYMENT_RECEIVED_AMOUNT_CONTENT_SID',
+    legacySid: 'TWILIO_PAYMENT_RECEIVED_CONTENT_SID',
+    amountPaise,
+    name: 'T2 payment received',
+    amountVariables: { 1: name, 2: property, 3: fee },
+    legacyVariables: { 1: name, 2: property },
+    generic: {
+      name,
+      text: `your ${fee} payment for the assisted visit to ${property} is confirmed. `
+        + 'Further details about your visit will come to you here on WhatsApp. '
+        + 'Next step: reply "Pick my slot" to choose your visit date and time.',
+    },
+  });
+
   return sendContentOrText({
     to: customerPhone,
-    contentSid: process.env.TWILIO_PAYMENT_RECEIVED_CONTENT_SID,
-    variables: { 1: oneLine(customerName, 60), 2: oneLine(propertyName, 80) },
+    contentSid: chosen.contentSid,
+    variables: chosen.variables,
     fallbackBody:
-      `✅ Payment received — Lampose\n\nHi ${customerName}, your ₹199 payment for the `
+      `✅ Payment received — Lampose\n\nHi ${customerName}, your ${fee} payment for the `
       + `assisted visit to ${propertyName} is confirmed.\n\n`
-      + 'Next step: pick a date and time for your visit. Reply here to choose your slot.',
+      + 'Further details about your visit will be shared here on WhatsApp. '
+      + 'Next step: reply "Pick my slot" to choose your visit date and time.',
+  });
+}
+
+/**
+ * T2a — the APP's payment receipt on WhatsApp.
+ *
+ * An app visit is scheduled in the app, so this carries no slot prompt — its
+ * job is to open the WhatsApp thread the team uses for the visit's details,
+ * which the app's confirmation screen points the customer to. Its own
+ * template when one is approved (TWILIO_VISIT_PAID_APP_CONTENT_SID,
+ * {{1}} customer {{2}} property {{3}} amount), otherwise the generic notice.
+ */
+async function sendVisitPaidApp({
+  customerPhone, customerName, propertyName, amountPaise,
+}) {
+  const name = oneLine(customerName, 60);
+  const property = oneLine(propertyName, 80);
+  const fee = rupeeLabel(amountPaise);
+
+  const chosen = feeMessage({
+    amountSid: 'TWILIO_VISIT_PAID_APP_CONTENT_SID',
+    legacySid: null,
+    amountPaise,
+    name: 'T2a app receipt',
+    amountVariables: { 1: name, 2: property, 3: fee },
+    legacyVariables: null,
+    generic: {
+      name,
+      text: `your ${fee} payment for the assisted visit to ${property} is confirmed. `
+        + 'Further details about your visit will be shared with you here on WhatsApp by the Lampose team.',
+    },
+  });
+
+  return sendContentOrText({
+    to: customerPhone,
+    contentSid: chosen.contentSid,
+    variables: chosen.variables,
+    fallbackBody:
+      `✅ Payment received — Lampose\n\nHi ${customerName}, your ${fee} payment for the `
+      + `assisted visit to ${propertyName} is confirmed.\n\n`
+      + 'Further details about your visit will be shared with you here on WhatsApp by the Lampose team.',
   });
 }
 
@@ -1285,6 +1416,8 @@ module.exports = {
   sendVisitOutcomeMessage,
   sendAssistedPayRequest,
   sendPaymentReceived,
+  sendVisitPaidApp,
+  rupeeLabel,
   sendPickDay,
   sendPickTime,
   sendVisitScheduled,

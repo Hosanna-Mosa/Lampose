@@ -30,6 +30,7 @@ import { FoodOrdersPage } from './pages/FoodOrdersPage';
 import { FoodPayoutsPage } from './pages/FoodPayoutsPage';
 import { DriversPage } from './pages/DriversPage';
 import { MonitorPage } from './pages/MonitorPage';
+import { VisitFeesPage } from './pages/VisitFeesPage';
 import { PartnerPayoutsPage } from './pages/PartnerPayoutsPage';
 import { RefundsPage } from './pages/RefundsPage';
 import { SalesTrackingPage } from './pages/SalesTrackingPage';
@@ -76,6 +77,7 @@ const VALID_TABS = [
   'monitor',
   'partner-payouts',
   'refunds',
+  'visit-fees',
   'sales-tracking',
 ] as const;
 
@@ -553,6 +555,10 @@ const AppContent: React.FC = () => {
          write regardless. */
       case 'refunds':
         return <RefundsPage search={search} role={user?.role} />;
+      /* Readable by every administrator; the inputs are drawn for a Super
+         Admin only, and `visitFees.admin.routes.js` refuses anybody else. */
+      case 'visit-fees':
+        return <VisitFeesPage role={user?.role} />;
       /* Read-only for every signed-in administrator, matching Monitor and the
          two payout queues above — nothing on this page decides anything, so
          there is no role to gate it on. */

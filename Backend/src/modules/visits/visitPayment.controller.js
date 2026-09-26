@@ -330,6 +330,21 @@ const markVisitPaid = async (doc, paymentId) => {
     } catch (error) {
       console.error('[visit-pay] notifier unavailable:', error.message);
     }
+
+    /* And a WhatsApp receipt, because the app's confirmation screen tells the
+       customer the visit's further details come on WhatsApp — this is the
+       message that opens that thread. Visits only: a hotel stay is finished
+       by the payment and has nothing further to send. */
+    if ((doc.payment?.purpose || 'assisted_visit') === 'assisted_visit' && doc.customer?.phone) {
+      twilio.sendVisitPaidApp({
+        customerPhone: doc.customer.phone,
+        customerName: doc.customer.name,
+        propertyName: doc.propertyName,
+        amountPaise: doc.payment?.amountPaise,
+      }).then((r) => {
+        if (!r?.success) console.error('[visit-pay] App WhatsApp receipt failed:', r?.error);
+      }).catch((e) => console.error('[visit-pay] App WhatsApp receipt threw:', e.message));
+    }
     return;
   }
 
@@ -341,6 +356,7 @@ const markVisitPaid = async (doc, paymentId) => {
       customerPhone: doc.customer.phone,
       customerName: doc.customer.name,
       propertyName: doc.propertyName,
+      amountPaise: doc.payment?.amountPaise,
     }).then((r) => {
       if (!r?.success) console.error('[visit-pay] Payment-received message failed:', r?.error);
     }).catch((e) => console.error('[visit-pay] Payment-received message threw:', e.message));

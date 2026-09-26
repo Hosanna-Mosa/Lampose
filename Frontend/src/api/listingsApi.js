@@ -59,6 +59,10 @@ const classify = err => {
 /**
  * The categories this site is willing to show.
  *
+ * COMMERCIAL joined on 26 Sep 2026: shops and offices now have a listing page
+ * and an assisted visit (₹1,999 by default), so they are shown under their own
+ * "Shop / Commercial" tab. The name below is kept so no caller changes.
+ *
  * This site used to ask for everything and let `data/categories.js` derive the
  * tabs from whatever came back — which was right while every row in the
  * collection was a place to live. The onboarding panel can now file a shop, an
@@ -70,7 +74,7 @@ const classify = err => {
  * remembers to add it. The codes are defined in
  * Backend/src/shared/constants/categories.js.
  */
-const STAY_CATEGORIES = 'PG_HOSTEL,BACHELOR,HOTEL,COLIVE';
+const STAY_CATEGORIES = 'PG_HOSTEL,BACHELOR,HOTEL,COLIVE,COMMERCIAL';
 
 export const listingsApi = {
   /**

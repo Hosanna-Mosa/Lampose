@@ -11,8 +11,9 @@
                      ring the owner — and a "Collected" control records that
                      they did.
 
-     Bachelor        A ₹199 assisted-visit fee that is entirely OURS. There is
-                     no owner share, so there is no percentage and no Withdraw.
+     Bachelor        An assisted-visit fee (priced by layout — see Visit
+     Commercial      Fees) that is entirely OURS. There is no owner share,
+                     so there is no percentage and no Withdraw.
 
      Hotel           The full stay, split with the hotel:
                      Total | % | Our share | Owner share | Payment | Payout
@@ -109,7 +110,8 @@ export const MonitorPage: React.FC<{ search?: string; role?: AdminRole }> = ({ s
   }, [result, term]);
 
   const isHotel = result?.category === 'HOTEL';
-  const isBachelor = result?.category === 'BACHELOR';
+  /* Bachelor and Commercial share the assisted-visit table — see the header. */
+  const isBachelor = result?.category === 'BACHELOR' || result?.category === 'COMMERCIAL';
 
   /* ── Actions ─────────────────────────────────────────────────────────── */
 

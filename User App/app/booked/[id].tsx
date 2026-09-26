@@ -41,10 +41,9 @@ import { formatRupees } from '@/utils/money';
  * which
  *
  * It used to state "nothing was charged" unconditionally, because when it was
- * written no category charged for anything. One does now: a bachelor room
- * takes ₹199 for an assisted visit — ₹100 for the Lampose representative
- * who accompanies it, ₹99 our fee — before
- * this screen is ever reached. So the sentence was flatly untrue for the one
+ * written no category charged for anything. Several do now: Bachelor,
+ * House / Co-live and Commercial take an assisted-visit fee — priced by the
+ * layout, one total — before this screen is ever reached. So the sentence was flatly untrue for the one
  * category that had just been charged, on the screen somebody looks at
  * immediately after paying, and there was no receipt for it anywhere in the
  * app.
@@ -53,11 +52,11 @@ import { formatRupees } from '@/utils/money';
  * category charge", and `payment.status` to "did this one go through" — the
  * same two fields `confirm/[id].tsx` gates its own pay button on, so the two
  * screens cannot disagree about whether money moved. The paid block below is
- * a receipt: what was taken, how it splits, when, and what it bought. The free
+ * a receipt: what was taken, when, and what it bought. The free
  * categories say so in one clause instead.
  *
  * `payment.mode` is checked as well as the status, because the development
- * bypass marks a request paid without taking anything. Printing "₹199 paid" for
+ * bypass marks a request paid without taking anything. Printing "₹999 paid" for
  * a waived visit would put a receipt on screen for money nobody sent.
  *
  * The entry PIN stays the centre of the free path: with no payment step
@@ -250,8 +249,6 @@ export default function Booked() {
   const waivedForVisit = chargesForVisit && payment?.status === 'paid' && payment?.mode === 'dev';
 
   const paidRupees = (payment?.amountPaise ?? 0) / 100;
-  const repRupees = (payment?.representativePaise ?? 0) / 100;
-  const feeRupees = (payment?.feePaise ?? 0) / 100;
 
   const paidAtLabel = payment?.paidAt
     ? new Date(payment.paidAt).toLocaleString('en-IN', {
@@ -361,7 +358,7 @@ export default function Booked() {
           </Text>
           {/* One clause, and which one is true is the category's answer, never
               this screen's guess. Saying "nothing was charged" to somebody who
-              has just paid ₹199 is the specific failure this avoids. The
+              has just paid a visit fee is the specific failure this avoids. The
               detail behind each — the split, the dates — is the receipt
               block's job, so this line does not also carry it. */}
           <Text variant="bodyLg" color="secondary" style={styles.centred}>
@@ -383,11 +380,10 @@ export default function Booked() {
         {/*
           1b — what was paid, on the categories that charge.
 
-          A receipt rather than a confirmation: the total, the split the server
-          sent, and when. The split is the server's own `representativePaise`
-          and `feePaise` — the two always add up to `amountPaise`, so nothing
-          here is arithmetic this screen did — and it is printed because "₹199"
-          on its own invites the question this block exists to answer.
+          A receipt rather than a confirmation: the total and when. A visit is
+          ONE total since 26 Sep 2026 — priced by the layout asked about, and
+          frozen on the request — so there is no longer a representative/fee
+          split to print.
         */}
         {paidForVisit ? (
           <View style={{ gap: space[3] }}>
@@ -414,9 +410,8 @@ export default function Booked() {
 
                 A stay shows the arithmetic — "3 nights × ₹1,200" — because a
                 guest handed a four-figure total is owed the sum behind it. A
-                visit shows the two-line split the fee is explained with. Both
-                come off the server; neither is computed here, so neither can
-                disagree with what was charged.
+                visit is one total and needs no line under it. Nothing is
+                computed here, so nothing can disagree with what was charged.
               */}
               {isStayBooking ? (
                 stayNights && stayRate ? (
@@ -433,26 +428,6 @@ export default function Booked() {
                     </View>
                   </>
                 ) : null
-              ) : repRupees > 0 && feeRupees > 0 ? (
-                <>
-                  <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.borderSubtle }} />
-                  <View style={styles.payRow}>
-                    <Text variant="caption" color="tertiary" style={styles.flex}>
-                      Lampose representative who comes with you
-                    </Text>
-                    <Text variant="priceSm" color="tertiary">
-                      {formatRupees(repRupees)}
-                    </Text>
-                  </View>
-                  <View style={styles.payRow}>
-                    <Text variant="caption" color="tertiary" style={styles.flex}>
-                      Lampose fee
-                    </Text>
-                    <Text variant="priceSm" color="tertiary">
-                      {formatRupees(feeRupees)}
-                    </Text>
-                  </View>
-                </>
               ) : null}
 
               {paidAtLabel ? (
@@ -477,7 +452,15 @@ export default function Booked() {
                     : 'Pick a day and time for your visit and we will confirm the representative.'}
             </Text>
 
-            {/* What is NOT covered — on the visit fee only. ₹199 against a
+            {/* Where the rest arrives. The server sends a WhatsApp receipt the
+                moment a visit is paid, and the team follows up on that thread. */}
+            {!isStayBooking ? (
+              <Text variant="bodyStrong" color="secondary">
+                Further details about your visit will come to you on WhatsApp.
+              </Text>
+            ) : null}
+
+            {/* What is NOT covered — on the visit fee only. A visit fee against a
                 year's rent is the figure somebody can mistake for a deposit,
                 so that one line stays. A stay booking says "Paid in full"
                 above and needs no paragraph qualifying it. */}

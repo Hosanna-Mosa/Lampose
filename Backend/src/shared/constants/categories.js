@@ -239,13 +239,19 @@ const SIMPLE_PATH_CATEGORIES = ['BACHELOR', 'COLIVE', 'COMMERCIAL'];
  * them, so a co-live visitor who paid ₹199 yesterday still has a paid request
  * and a slot to pick. This changes what NEW requests are asked for.
  *
- * COMMERCIAL is absent from this and from `PREPAID_CATEGORIES`, so it charges
- * nothing of either kind. A shop is let after a negotiation between two
- * businesses, not booked; there is no viewing to hold with a token and no
- * stay total to take up front. Onboarding records the premises and the rent,
- * and the conversation happens off-platform.
+ * ## 26 September 2026 — priced by layout, and COLIVE and COMMERCIAL are back
+ *
+ * The flat ₹199 became a table: the fee depends on the LAYOUT the visitor
+ * picked (1 RK ₹299 … 5 BHK+ ₹2,499), and a Commercial visit is ₹1,999.
+ * The amounts are edited by a Super Admin in the console, and the layout rule
+ * lives in `modules/visitFees/visitFees.service.js`. Co-live pays again, on the
+ * same table as Bachelor. Commercial now has a listing page and a visit flow,
+ * and its fee is the one thing it pays — the lease itself is still negotiated
+ * between the two parties, off-platform.
+ *
+ * Requests already created keep the amount frozen onto them.
  */
-const TOKEN_CATEGORIES = ['BACHELOR'];
+const TOKEN_CATEGORIES = ['BACHELOR', 'COLIVE', 'COMMERCIAL'];
 
 /**
  * Categories paid for IN FULL, up front, as the booking itself.

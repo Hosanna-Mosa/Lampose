@@ -73,6 +73,8 @@ export const CATEGORY_AMENITY_PRIORITY: Record<StayCategory, readonly AmenityNam
   // Co-live sells the shared parts, so those lead rather than the room's.
   COLIVE: ['wifi', 'housekeeping', 'ac', 'laundry', 'powerBackup', 'tv', 'gym', 'parking'],
   HOTEL: ['attachedBath', 'hotWater', 'ac', 'wifi', 'cctv', 'housekeeping', 'tv', 'drinkingWater'],
+  /* Onboarding records no amenities for a shop; if any arrive, these lead. */
+  COMMERCIAL: ['parking', 'powerBackup', 'lift', 'cctv', 'waterSupply', 'ac', 'wifi', 'gym'],
 };
 
 export type AmenityIconSize = 18 | 20 | 24 | 28;

@@ -45,6 +45,7 @@ export {
   CATEGORY_CHIP_LABEL,
   CATEGORY_LABEL,
   CATEGORY_ORDER,
+  STAY_CATEGORY_ORDER,
   type CategoryTabsProps,
 } from './CategoryTabs';
 

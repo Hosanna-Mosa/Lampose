@@ -8,7 +8,7 @@ import { Button, OptionCard, Text } from '@/components/ui';
 import {
   CATEGORY_BLURB,
   CATEGORY_LABEL,
-  CATEGORY_ORDER,
+  STAY_CATEGORY_ORDER,
   CATEGORY_TILE_BLURB,
 } from '@/components/discovery';
 import { useAppState } from '@/context/AppStateContext';
@@ -147,7 +147,7 @@ function CategoryChoice() {
             accessibilityRole="radiogroup"
             accessibilityLabel="Kind of place"
           >
-            {CATEGORY_ORDER.map((category) => {
+            {STAY_CATEGORY_ORDER.map((category) => {
               const set = colors.category[category];
               return (
                 <OptionCard

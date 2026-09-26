@@ -339,10 +339,12 @@ export default function OwnerConfirmation() {
   }, [stay.phase, settlePill, clearPill]);
 
   /*
-   * ── The ₹199 assisted visit, on the one tap that continues ──────────────
+   * ── The assisted visit, on the one tap that continues ───────────────────
    *
-   * Bachelor and co-live charge ₹199 for a confirmed visit — ₹100 for the
-   * Lampose representative who accompanies it, ₹99 Lampose fee. Rather than
+   * Bachelor, co-live and commercial charge a visit fee once the owner
+   * confirms — priced by the layout asked about (₹299 for a 1 RK up to
+   * ₹2,499 for 5 BHK+) and frozen on the request, so `amountPaise` is the
+   * only figure this screen shows. Rather than
    * a separate panel to find, the payment sits on the button that was
    * already the next thing to press: pay, then the slot picker opens, and
    * the address arrives with the slot. A PG has no charge and goes straight
@@ -803,9 +805,9 @@ export default function OwnerConfirmation() {
              one more tap and misleading about what the tap does. */
           ? `Your room is held. Pay ${formatRupees(tokenAmount)} to confirm the booking — `
             + 'your dates are already set, and the address arrives the moment it clears.'
-          : `Your room is held. Nothing has been charged. Book your assisted visit for ₹${tokenAmount} `
+          : `Your room is held. Nothing has been charged. Book your assisted visit for ${formatRupees(tokenAmount)} `
             + '— a Lampose representative accompanies you, and you pick the day and time right '
-            + 'after paying.')
+            + 'after paying. Further details come to you on WhatsApp.')
         : 'Your room is held. Nothing has been charged.',
     }
     : bedTaken
@@ -1108,7 +1110,7 @@ export default function OwnerConfirmation() {
                        continue" reads as a step in a longer flow; this is the
                        last one. */
                     ? `Pay ${formatRupees(tokenAmount)} and book`
-                    : `Pay ₹${tokenAmount} and continue`)
+                    : `Pay ${formatRupees(tokenAmount)} and continue`)
                 : 'Continue to booking'}
               onPress={tokenDue ? payThenContinue : goToBooking}
               disabled={paying}
