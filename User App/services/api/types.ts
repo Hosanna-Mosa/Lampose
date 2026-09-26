@@ -167,6 +167,9 @@ export type BackendListing = {
     required: boolean;
     purpose?: 'assisted_visit' | 'stay_booking' | null;
     amountPaise: number | null;
+    /** Assisted visits: the fee for each layout offered. Older servers omit it. */
+    byLayout?: { label: string; tier: string | null; amountPaise: number | null }[];
+    varies?: boolean;
   };
 
   /** True for categories priced by the bed: no stay type, no duration. */

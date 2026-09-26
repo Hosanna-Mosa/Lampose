@@ -66,6 +66,7 @@ const CATEGORY: Record<string, StayCategory> = {
   BACHELOR: 'BACHELOR',
   HOTEL: 'HOTEL',
   COLIVE: 'COLIVE',
+  COMMERCIAL: 'COMMERCIAL',
 
   /* Pre-migration spellings. */
   PG: 'PG_HOSTEL',
@@ -91,6 +92,7 @@ export const BACKEND_CATEGORIES: Record<StayCategory, readonly string[]> = {
   BACHELOR: ['BACHELOR'],
   HOTEL: ['HOTEL'],
   COLIVE: ['COLIVE'],
+  COMMERCIAL: ['COMMERCIAL'],
 };
 
 /* ------------------------------------------------------------------ *
@@ -560,6 +562,12 @@ export function toListing(doc: BackendListing): Listing {
            charged for a visit, so that is the fallback. */
         purpose: doc.visitToken.purpose ?? 'assisted_visit',
         amountPaise: doc.visitToken.amountPaise ?? undefined,
+        /* The fee per layout — a 1 RK and a 2 BHK in one building do not
+           cost the same to visit. Rows without an amount are dropped. */
+        byLayout: (doc.visitToken.byLayout ?? [])
+          .filter((r): r is { label: string; tier: string | null; amountPaise: number } =>
+            typeof r.amountPaise === 'number' && r.amountPaise > 0),
+        varies: doc.visitToken.varies === true,
       }
       : { required: false },
 

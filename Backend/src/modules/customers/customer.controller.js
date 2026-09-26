@@ -56,7 +56,7 @@ const OTP_LENGTH = 6;
 const LOCK_MS = 10 * 60 * 1000;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-const CATEGORIES = ['PG_HOSTEL', 'BACHELOR', 'COLIVE', 'HOTEL'];
+const CATEGORIES = ['PG_HOSTEL', 'BACHELOR', 'COLIVE', 'HOTEL', 'COMMERCIAL'];
 
 const dbDown = (res) => res.status(503).json({
   success: false,

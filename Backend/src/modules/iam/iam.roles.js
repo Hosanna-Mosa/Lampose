@@ -65,6 +65,7 @@ const CAPABILITIES = Object.freeze({
   'money.read': { roles: EVERYONE, label: 'read bookings, payments, payouts and refunds' },
   'commission.set': { roles: ADMINS, label: 'set a settlement’s commission' },
   'money.release': { roles: SUPER, label: 'release, pay out or refund money' },
+  'fees.set': { roles: SUPER, label: 'change the assisted-visit fee for each layout' },
   'food.refund': { roles: ADMINS, label: 'refund a food order' },
   'food.complete': { roles: ADMINS, label: 'mark a website food order delivered' },
   /* The same operators who put a rider on the road take their cash back in. */

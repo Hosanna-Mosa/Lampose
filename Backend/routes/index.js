@@ -63,6 +63,7 @@ const v1VisitRequestAdminRoutes = require('../src/modules/visits/visitRequest.ad
 const v1PartnerPayoutAdminRoutes = require('../src/modules/partners/partnerPayout.admin.routes');
 const v1RefundAdminRoutes = require('../src/modules/settlements/refund.admin.routes');
 const v1MonitorAdminRoutes = require('../src/modules/settlements/monitor.admin.routes');
+const v1VisitFeeAdminRoutes = require('../src/modules/visitFees/visitFees.admin.routes');
 const v1ScriperUserAdminRoutes = require('../src/modules/scraper/scriperUser.admin.routes');
 const v1ScraperJobAdminRoutes = require('../src/modules/scraper/scraperJob.admin.routes');
 const v1ScraperLeadAdminRoutes = require('../src/modules/scraper/scraperLead.admin.routes');
@@ -132,6 +133,8 @@ const V1_GROUPS = [
      any active administrator; changing a commission needs Admin, and releasing
      a hotel's share needs Super Admin. See the router. */
   ['/admin/monitor', v1MonitorAdminRoutes, 'booking + payment monitor, per category; hotel commission and payout release'],
+  /* The assisted-visit fee per layout tier. Anyone reads; Super Admin sets. */
+  ['/admin/visit-fees', v1VisitFeeAdminRoutes, 'assisted-visit fee table per layout; Super Admin edits'],
   ['/admin/scriper-users', v1ScriperUserAdminRoutes, 'Super Admin CRUD — leads panel accounts (scriper_users)'],
   ['/admin/scriper-jobs', v1ScraperJobAdminRoutes, 'Super Admin CRUD — scrape job history (scriper_jobs)'],
   ['/admin/scriper-leads', v1ScraperLeadAdminRoutes, 'Super Admin CRUD — scraped leads (scriper_leads)'],
@@ -282,6 +285,7 @@ const LEGACY_ALIASES = [
   ['/admin/partner-payouts', v1PartnerPayoutAdminRoutes, false],
   ['/admin/refunds', v1RefundAdminRoutes, false],
   ['/admin/monitor', v1MonitorAdminRoutes, false],
+  ['/admin/visit-fees', v1VisitFeeAdminRoutes, false],
   ['/admin/scriper-users', v1ScriperUserAdminRoutes, false],
   ['/admin/scriper-jobs', v1ScraperJobAdminRoutes, false],
   ['/admin/scriper-leads', v1ScraperLeadAdminRoutes, false],

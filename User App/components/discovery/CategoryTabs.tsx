@@ -21,7 +21,14 @@ export const CATEGORY_ORDER: readonly StayCategory[] = [
   'BACHELOR',
   'COLIVE',
   'HOTEL',
+  /* Shops and offices — a listing page and an assisted visit since 26 Sep
+     2026. Last, and in the feed's tabs only: the first-run "What kind of
+     place?" picker offers the four places to live (`STAY_CATEGORY_ORDER`). */
+  'COMMERCIAL',
 ];
+
+/** The four categories somebody lives in — the first-run picker's tiles. */
+export const STAY_CATEGORY_ORDER: readonly StayCategory[] = CATEGORY_ORDER.filter((c) => c !== 'COMMERCIAL');
 
 export const CATEGORY_LABEL: Record<StayCategory, string> = {
   // PG and hostel merged: students use the words interchangeably, and the
@@ -30,6 +37,7 @@ export const CATEGORY_LABEL: Record<StayCategory, string> = {
   BACHELOR: 'Bachelor',
   COLIVE: 'House / Co-live',
   HOTEL: 'Hotel',
+  COMMERCIAL: 'Shop / Commercial',
 };
 
 /**
@@ -51,6 +59,7 @@ export const CATEGORY_CHIP_LABEL: Record<StayCategory, string> = {
   BACHELOR: 'Bachelor Rooms',
   COLIVE: 'Houses',
   HOTEL: 'Hotels',
+  COMMERCIAL: 'Shops & Offices',
 };
 
 /**
@@ -64,6 +73,7 @@ export const CATEGORY_BLURB: Record<StayCategory, string> = {
   BACHELOR: 'The deposit, the notice period, and a place of your own.',
   COLIVE: 'A whole house or a room in one, shared with people like you.',
   HOTEL: 'Per-night price, rooms free tonight, and the minimum stay.',
+  COMMERCIAL: 'Shops and offices to rent — the area, the floor, and the monthly rent.',
 };
 
 /**
@@ -79,6 +89,7 @@ export const CATEGORY_TILE_BLURB: Record<StayCategory, string> = {
   BACHELOR: 'A place of your own',
   COLIVE: 'Shared house, own room',
   HOTEL: 'Per night, short stays',
+  COMMERCIAL: 'Shops and offices',
 };
 
 const CROSSFADE = { duration: 160, easing: easing.standard };
@@ -102,6 +113,7 @@ const CATEGORY_ICON_MAP: Record<StayCategory, IconName> = {
   BACHELOR: 'home',
   COLIVE: 'houseIcon',
   HOTEL: 'calendar',
+  COMMERCIAL: 'agreement',
 };
 
 /**

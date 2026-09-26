@@ -127,6 +127,9 @@ const tellTeam = async (body) => {
   return sent.some(Boolean);
 };
 
+/* What this visit was paid — frozen on the request, since fees vary by layout. */
+const paidLabel = (doc) => twilio.rupeeLabel(doc.payment?.amountPaise || 19900);
+
 const customerLine = (doc) =>
   `Customer: ${doc.customer?.name || 'Not given'} · ${doc.customer?.phone || 'Not given'}`;
 
@@ -146,7 +149,7 @@ const confirmSchedule = async (doc, { date, time }) => {
   doc.lamposeVisit.time = time;
   doc.lamposeVisit.slotStage = 'none';
   doc.lamposeVisit.requestedAt = new Date();
-  /* The slot is what the ₹199 was for, and the address comes with it. */
+  /* The slot is what the visit fee was for, and the address comes with it. */
   doc.addressReleasedAt = doc.addressReleasedAt || new Date();
   await doc.save();
 
@@ -192,7 +195,7 @@ const confirmSchedule = async (doc, { date, time }) => {
   /* F1 — the roster, whichever channel. This is the message a representative
      plans their day from. */
   tellTeam(
-    '🏠 Assisted visit scheduled (paid ₹199)\n\n'
+    `🏠 Assisted visit scheduled (paid ${paidLabel(doc)})\n\n`
     + `Property: ${doc.propertyName || 'Unnamed'}\n`
     + (doc.sharing?.label ? `Room: ${doc.sharing.label}\n` : '')
     + `When: ${when}\n`
@@ -216,7 +219,7 @@ const handToTeam = async (doc, reason) => {
   await doc.save();
 
   tellTeam(
-    '📞 Assisted visit needs a call (paid ₹199)\n\n'
+    `📞 Assisted visit needs a call (paid ${paidLabel(doc)})\n\n`
     + `Property: ${doc.propertyName || 'Unnamed'}\n`
     + (doc.sharing?.label ? `Room: ${doc.sharing.label}\n` : '')
     + `Why: ${reason}\n`

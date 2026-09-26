@@ -504,7 +504,7 @@ const createVisitRequest = async (req, res, next) => {
        * retroactively make a paid request unpaid, reprice a settled one, or
        * turn a free one into a debt.
        */
-      payment: paymentForNewRequest(property.category, intent),
+      payment: await paymentForNewRequest(property.category, intent, 0, chosen ? chosen.label : null),
       consentWhatsApp: Boolean(consentWhatsApp),
       consentAt: consentWhatsApp ? new Date() : null,
       consentedTerms: consentedTerms === true,
@@ -1096,6 +1096,7 @@ const handleAvailabilityReply = async ({ from, body, buttonPayload }) => {
           propertyName: doc.propertyName,
           payLink,
           listingUrl,
+          amountPaise: doc.payment && doc.payment.amountPaise,
         }).then((result) => {
           if (!result.success) {
             console.error('[availability] Pay-request message failed:', result.error);

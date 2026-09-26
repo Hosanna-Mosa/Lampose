@@ -8,9 +8,14 @@
                  knows when to ring the owner and collect the commission —
                  and whether they already have.
 
-     BACHELOR    A ₹199 assisted-visit fee that is entirely OURS. There is no
+     BACHELOR    An assisted-visit fee (priced by layout — see
+     COMMERCIAL  visitFees.service.js) that is entirely OURS. There is no
                  owner share, so there is no split, no percentage and no
                  Withdraw. The tab shows whether the fee was paid.
+
+                 Co-live pays the same fee since 26 Sep 2026 but keeps its
+                 commission tab above — collecting the owner's commission is
+                 what that tab is for. Its fees are on Visit Requests.
 
      HOTEL       The full stay, split with the hotel. Total, percentage, our
                  share, owner share, payment state and payout state.
@@ -154,15 +159,15 @@ const freeCategoryRows = async (code) => {
 };
 
 /**
- * Bachelor: the ₹199 assisted visit.
+ * Bachelor and Commercial: the assisted-visit fee.
  *
  * Deliberately NOT a settlement. The fee is entirely ours — there is no owner
  * share to hold, split or release — so this tab shows a payment and nothing
  * about a payout. Giving it a percentage field would invite somebody to set
  * one on money that has no second party.
  */
-const bachelorRows = async () => {
-  const { ids, byId } = await propertyIdsFor('BACHELOR');
+const assistedVisitRows = async (code) => {
+  const { ids, byId } = await propertyIdsFor(code);
   if (!ids.length) return [];
 
   const requests = await VisitRequest.find({ listingId: { $in: ids } })
@@ -293,8 +298,8 @@ const getCategory = async (req, res, next) => {
 
     const data = code === 'HOTEL'
       ? await hotelRows()
-      : code === 'BACHELOR'
-        ? await bachelorRows()
+      : code === 'BACHELOR' || code === 'COMMERCIAL'
+        ? await assistedVisitRows(code)
         : await freeCategoryRows(code);
 
     return res.json({

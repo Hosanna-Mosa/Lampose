@@ -336,7 +336,12 @@ export type MessChoice =
 export type VisitToken = {
   required: boolean;
   purpose?: 'assisted_visit' | 'stay_booking' | null;
+  /** The assisted-visit fee — the LOWEST of `byLayout` when layouts differ. */
   amountPaise?: number;
+  /** The visit fee per layout offered (priced by layout since 26 Sep 2026). */
+  byLayout?: { label: string; tier: string | null; amountPaise: number }[];
+  /** Whether the layouts carry different fees — say "from" until one is picked. */
+  varies?: boolean;
 };
 
 export type SharingOption = {

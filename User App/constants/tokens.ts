@@ -67,7 +67,7 @@ export type CategoryColor = {
   code: string;
 };
 
-export type StayCategory = 'PG_HOSTEL' | 'BACHELOR' | 'COLIVE' | 'HOTEL';
+export type StayCategory = 'PG_HOSTEL' | 'BACHELOR' | 'COLIVE' | 'HOTEL' | 'COMMERCIAL';
 
 export type ThemeColors = {
   /** App ground. Scroll containers sit on this. */
@@ -331,6 +331,7 @@ const lightColors: ThemeColors = {
     BACHELOR: { mark: '#7A4B72', ink: '#4E2E49', tint: '#F2E9F0', code: 'BR' },
     COLIVE: { mark: '#2F6076', ink: '#1E3D4B', tint: '#E5EEF2', code: 'HC' },
     HOTEL: { mark: '#4A6B3A', ink: '#2E4424', tint: '#E9EFE3', code: 'HT' },
+    COMMERCIAL: { mark: '#5A5F6B', ink: '#353941', tint: '#ECEDF0', code: 'CM' },
   },
 };
 
@@ -447,6 +448,7 @@ const darkColors: ThemeColors = {
     BACHELOR: { mark: '#C98FBC', ink: '#DDB4D3', tint: '#261A24', code: 'BR' },
     COLIVE: { mark: '#6FAAC4', ink: '#A3C9DA', tint: '#15242B', code: 'HC' },
     HOTEL: { mark: '#8FBC7C', ink: '#B4D3A6', tint: '#1B2519', code: 'HT' },
+    COMMERCIAL: { mark: '#A7ADBA', ink: '#C9CDD6', tint: '#1E2026', code: 'CM' },
   },
 };
 

@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { rupees } from '../ListingCard/ListingCard';
 import { TRACKS } from '../../utils/stayTracks';
 import { COPY } from '../../utils/stayIntentCopy';
+import { chargesVisitFee, visitFeeLabel } from '../../utils/visitFee';
 import { DateField } from '../../molecules/DateField';
 import { Box, Emphasis, FieldSet, Inline, Input, Label, Legend, Option, PlainButton, Region, Select, Small, Strong, Text } from '../../atoms';
 
@@ -182,7 +183,7 @@ export function StayIntentPicker({ listing, value, onChange }) {
         * ── Whole-property lets: the layout, and nothing else yet ──────
         *
         * No joining date here. On a paid category the VISIT date is picked
-        * after the owner confirms and the ₹199 assisted visit is paid — at
+        * after the owner confirms and the assisted visit is paid — at
         * which point it is a commitment rather than a guess about a viewing
         * nobody has agreed to. Asking twice, once on each side of the
         * payment, would be asking the same question and then ignoring the
@@ -192,9 +193,21 @@ export function StayIntentPicker({ listing, value, onChange }) {
         <Box className="si-group">
           <Text className="si-note">
             Ask first, schedule after. The owner confirms, you book a{' '}
-            {rupees(listing.visitToken.amountPaise / 100)} assisted visit, and then you pick a
+            {visitFeeLabel(listing, value.sharing?.label)} assisted visit, and then you pick a
             date and time — a Lampose representative accompanies you, and the full address
-            comes with your slot.
+            comes with your slot. Further details come to you on WhatsApp.
+          </Text>
+        </Box>
+      )}
+
+      {/* The same fee on the full path — House / Co-live moved onto it on
+          10 Sep 2026 and pays by layout like Bachelor. */}
+      {!simple && chargesVisitFee(listing) && (
+        <Box className="si-group">
+          <Text className="si-note">
+            Assisted visit: {visitFeeLabel(listing, value.sharing?.label)}, paid once the
+            owner confirms. A Lampose representative accompanies you, and further details
+            come to you on WhatsApp.
           </Text>
         </Box>
       )}

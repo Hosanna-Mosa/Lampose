@@ -13,6 +13,7 @@ import useVisitRequest from '../hooks/useVisitRequest';
 import { Chevron } from '../components/listing/atoms/Chevron/Chevron';
 import { Aside, Box, DescriptionDetail, DescriptionList, DescriptionTerm, Emphasis, Heading, Image, Inline, Input, Label, List, ListItem, Masthead, PlainButton, Region, Strong, Text } from '../components/common/atoms';
 import { AvailabilityChip } from '../components/common/molecules/AvailabilityChip/AvailabilityChip';
+import { chargesVisitFee, visitFeeLabel } from '../components/common/utils/visitFee';
 
 const iconFor = iconForCategory;
 
@@ -108,6 +109,19 @@ const categoryFacts = (category, d = {}) => {
     add('What is included', Array.isArray(d.furnishingItems) ? d.furnishingItems.join(', ') : null);
     add('Kitchen', d.kitchenAvailable);
     add('Water supply', d.waterSupply);
+    return rows;
+  }
+
+  if (category === 'COMMERCIAL') {
+    /* What the premises can be used for leads — a shop that cannot be an
+       office is the first thing a business ruling it out needs to see. */
+    add('Suitable for', Array.isArray(d.commercialUses) ? d.commercialUses.join(', ') : d.commercialUses);
+    add('Built-up area', d.builtUpArea ? `${d.builtUpArea} sq ft` : null);
+    add('Floor', d.floor);
+    add('Furnishing', d.commercialFurnishing);
+    add('Washroom', d.washroom);
+    add('Parking', d.parking);
+    add('Notes', d.commercialNotes);
     return rows;
   }
 
@@ -450,7 +464,7 @@ export function Listing() {
     }
 
     /* A whole flat: the layout, and the tick. On paid categories the visit
-       date is picked after the owner confirms and the ₹199 is paid — see
+       date is picked after the owner confirms and the visit fee is paid — see
        VisitNextSteps. */
     if (simple) {
       if (!tokenRequired && !intent.joiningDate) return 'Pick a move-in date.';
@@ -774,10 +788,20 @@ export function Listing() {
                 </>
               )}
 
-              <Text className="lst-note">
-                Listed through the Lampose onboarding panel. Nothing is paid through
-                this site — arrange the visit with the owner directly.
-              </Text>
+              {/* The note has to match the category: an assisted-visit fee is
+                  paid through this site (after the owner confirms), and a
+                  category that charges nothing really is arranged directly. */}
+              {chargesVisitFee(item) ? (
+                <Text className="lst-note">
+                  A {visitFeeLabel(item, intent.sharing?.label)} assisted-visit fee is paid here, only
+                  after the owner confirms. Further details come to you on WhatsApp.
+                </Text>
+              ) : (
+                <Text className="lst-note">
+                  Listed through the Lampose onboarding panel. Nothing is paid through
+                  this site — arrange the visit with the owner directly.
+                </Text>
+              )}
             </Box>
           </Aside>
         </Box>

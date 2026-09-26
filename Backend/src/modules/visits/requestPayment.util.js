@@ -8,12 +8,13 @@
 
    ## Two kinds of payment through one subdocument
 
-     assisted_visit   BACHELOR — a fixed platform fee (₹199) that buys a
-                      VIEWING with a Lampose representative. Paying it opens
-                      the slot picker; the address is released with the slot.
-
-                      COLIVE was here until 9 September 2026 and is now free,
-                      like PG. See `TOKEN_CATEGORIES`.
+     assisted_visit   BACHELOR, COLIVE, COMMERCIAL — a platform fee that buys
+                      a VIEWING with a Lampose representative, priced by the
+                      layout picked (1 RK ₹299 … 5 BHK+ ₹2,499; Commercial
+                      ₹1,999). The table is edited in the console — see
+                      `modules/visitFees/visitFees.service.js`. Paying it
+                      opens the slot picker; the address is released with
+                      the slot.
 
      stay_booking     HOTEL — the stay total, which buys the STAY. Nobody views
                       a hotel room first, so there is no slot and no
@@ -25,6 +26,7 @@
    ══════════════════════════════════════════════════════════════════════════ */
 const config = require('../../config/env');
 const { paymentPurposeFor } = require('../../shared/constants/categories');
+const visitFees = require('../visitFees/visitFees.service');
 
 /**
  * Razorpay's floor. Below this no order can be created, so a total under it is
@@ -46,16 +48,31 @@ const MIN_CHARGEABLE_PAISE = 100;
  * the logs and fixable, instead of quietly taking the wrong money.
  *
  * Everything here is frozen onto the request at creation. Editing a listing's
- * category or its nightly rate afterwards must not reprice a request somebody
- * has already been asked to pay, or settled.
+ * category or its nightly rate afterwards — or the console's fee table — must
+ * not reprice a request somebody has already been asked to pay, or settled.
+ *
+ * `layoutLabel` is the request's `sharing.label`, already resolved against
+ * the listing. It prices an assisted visit; nothing else reads it.
+ *
+ * The fee comes from the in-memory table (visitFees.service.js), which is
+ * replaced the moment the console saves and re-read every minute — so this
+ * adds no database round trip to creating a request. Async so a caller never
+ * has to change if pricing ever does need one.
  */
-const paymentForNewRequest = (category, intent, discountRupees = 0) => {
+const paymentForNewRequest = async (category, intent, discountRupees = 0, layoutLabel = null) => {
   const purpose = paymentPurposeFor(category);
   if (!purpose) return { required: false, status: 'not_required' };
 
   if (purpose === 'assisted_visit') {
+    const fee = visitFees.feeFor(category, layoutLabel);
+    if (fee && !fee.recognised) {
+      console.warn(
+        `[visit-fees] layout "${layoutLabel}" on a ${category} listing matched no tier — `
+        + `charged the ${fee.tier} fee. Add a rule in visitFees.service.js if this is a real layout.`,
+      );
+    }
     /*
-     * The ₹199 platform fee is never discounted, and the coupon cannot reach
+     * The visit fee is never discounted, and the coupon cannot reach
      * it — `reserve` is only called on the stay-booking path.
      *
      * The fee buys a representative's time at a viewing; the coupon is a
@@ -67,7 +84,8 @@ const paymentForNewRequest = (category, intent, discountRupees = 0) => {
       required: true,
       status: 'pending',
       purpose,
-      amountPaise: config.razorpay.assistedVisitAmountPaise,
+      amountPaise: fee ? fee.amountPaise : config.razorpay.assistedVisitAmountPaise,
+      feeTier: fee ? fee.tier : null,
     };
   }
 

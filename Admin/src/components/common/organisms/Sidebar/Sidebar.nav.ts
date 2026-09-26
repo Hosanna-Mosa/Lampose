@@ -23,6 +23,7 @@ import {
   Settings,
   ShieldCheck,
   Store,
+  Tags,
   UserCog,
   Users,
   UtensilsCrossed,
@@ -73,6 +74,9 @@ export const NAV_GROUPS: NavGroup[] = [
       /* Guests owed money for a cancelled hotel stay. Beside the two payout
          queues because it is the third way money leaves Lampose by hand. */
       { id: 'refunds', label: 'Refunds', icon: RotateCcw },
+      /* What an assisted visit costs, per layout. Everyone may read it; the
+         page shows the inputs to a Super Admin only, matching `fees.set`. */
+      { id: 'visit-fees', label: 'Visit Fees', icon: Tags },
     ],
   },
   {

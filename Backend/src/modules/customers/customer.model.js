@@ -69,7 +69,7 @@ const customerSchema = new mongoose.Schema(
        still browse. */
     category: {
       type: String,
-      enum: ['PG_HOSTEL', 'BACHELOR', 'COLIVE', 'HOTEL', ''],
+      enum: ['PG_HOSTEL', 'BACHELOR', 'COLIVE', 'HOTEL', 'COMMERCIAL', ''],
       default: '',
     },
 

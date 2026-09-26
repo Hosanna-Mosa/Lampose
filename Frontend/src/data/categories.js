@@ -22,6 +22,7 @@ export const CATEGORY_ICONS = {
   BACHELOR: 'stay',
   COLIVE: 'stay',
   HOTEL: 'grid',
+  COMMERCIAL: 'store',
 };
 
 /**
@@ -36,6 +37,7 @@ export const CATEGORY_LABELS = {
   BACHELOR: 'Bachelor',
   COLIVE: 'House / Co-live',
   HOTEL: 'Hotels',
+  COMMERCIAL: 'Shop / Commercial',
 };
 
 export const labelForCategory = category => CATEGORY_LABELS[category] || category || 'Stays';
@@ -45,7 +47,7 @@ export const iconForCategory = category => CATEGORY_ICONS[category] || 'stay';
 /* Chosen rather than alphabetical: the filters should lead with what people
    search for most, not with whatever starts with a B. A category that is not
    in this list sorts to the end by name instead of jumping to the front. */
-const CATEGORY_ORDER = ['PG_HOSTEL', 'BACHELOR', 'COLIVE', 'HOTEL'];
+const CATEGORY_ORDER = ['PG_HOSTEL', 'BACHELOR', 'COLIVE', 'HOTEL', 'COMMERCIAL'];
 
 export const byCategoryOrder = (a, b) => {
   const ia = CATEGORY_ORDER.indexOf(a);
