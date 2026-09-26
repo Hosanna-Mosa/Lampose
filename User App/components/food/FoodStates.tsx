@@ -68,7 +68,9 @@ export function FoodEmptyState({
         </Text>
       </View>
 
-      <View style={{ alignSelf: 'stretch', gap: space[2], maxWidth: 320, width: '100%', alignItems: 'stretch' }}>
+      {/* Centred, not stretched: a stretched box capped at 320pt sits flush
+          left on any screen wider than that. */}
+      <View style={{ alignSelf: 'center', gap: space[2], maxWidth: 320, width: '100%', alignItems: 'stretch' }}>
         <Button label={primaryLabel} onPress={onPrimary} fullWidth />
         {secondaryLabel && onSecondary ? (
           <Button label={secondaryLabel} variant="secondary" onPress={onSecondary} fullWidth />

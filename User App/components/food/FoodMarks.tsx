@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -281,7 +281,18 @@ export type FoodPhotoProps = {
   style?: ViewStyle;
   /** Dims the well to match a closed kitchen's card. */
   muted?: boolean;
+  /**
+   * Draw the Lampose logo instead of the stripes when the photo is absent OR
+   * fails to load. For kitchen banners, where an empty well on the home feed
+   * reads as a broken card rather than a placeholder.
+   */
+  brandFallback?: boolean;
 };
+
+/* The logo artwork is white on this exact green, so the well is filled with it
+   and the logo's own edges disappear into it. */
+const LOGO_GREEN = '#0C4D35';
+const LOGO = require('@/assets/images/lampose-logo-badge.png');
 
 /**
  * A dish or kitchen photo, and the well it sits in.
@@ -301,8 +312,16 @@ export type FoodPhotoProps = {
  * biryani on a card that cannot be ordered from is an advertisement for
  * disappointment.
  */
-export function FoodPhoto({ height, width = '100%', radius: r, uri, label, style, muted }: FoodPhotoProps) {
+export function FoodPhoto({
+  height, width = '100%', radius: r, uri, label, style, muted, brandFallback,
+}: FoodPhotoProps) {
   const { colors, radius } = useTheme();
+  /* Only needed for the brand fallback: the stripes show through a dead URL on
+     their own, the logo has to be swapped in. Reset when the URL changes, so a
+     recycled list cell does not carry one kitchen's failure to the next. */
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [uri]);
+  const showLogo = Boolean(brandFallback) && (!uri || failed);
   const { colors: stops, locations } = stripes(
     muted ? colors.surfaceRaised : colors.surfaceSunken,
     muted ? colors.bg : colors.border,
@@ -326,7 +345,17 @@ export function FoodPhoto({ height, width = '100%', radius: r, uri, label, style
         style={StyleSheet.absoluteFill}
       />
 
-      {uri ? (
+      {showLogo ? (
+        <View style={[StyleSheet.absoluteFill, styles.logoWell, muted ? styles.mutedPhoto : null]}>
+          {/* Wider on a thumbnail, where 62% of 56pt is too small to read. */}
+          <Image
+            source={LOGO}
+            style={[styles.logo, typeof width === 'number' && width < 120 ? styles.logoSmall : null]}
+            contentFit="contain"
+            accessible={false}
+          />
+        </View>
+      ) : uri ? (
         <Image
           source={typeof uri === 'string' ? { uri } : uri}
           style={[StyleSheet.absoluteFill, muted ? styles.mutedPhoto : null]}
@@ -336,6 +365,7 @@ export function FoodPhoto({ height, width = '100%', radius: r, uri, label, style
           cachePolicy="memory-disk"
           transition={160}
           accessible={false}
+          onError={brandFallback ? () => setFailed(true) : undefined}
         />
       ) : label ? (
         <Text variant="numMeta" color="tertiary" style={styles.photoLabel}>
@@ -359,4 +389,7 @@ const styles = StyleSheet.create({
   photo: { alignItems: 'center', justifyContent: 'flex-end' },
   photoLabel: { marginBottom: 6 },
   mutedPhoto: { opacity: 0.45 },
+  logoWell: { backgroundColor: LOGO_GREEN, alignItems: 'center', justifyContent: 'center' },
+  logo: { width: '62%', aspectRatio: 762 / 216 },
+  logoSmall: { width: '88%' },
 });

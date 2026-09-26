@@ -1,8 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { contactNumberOf, metaLine, walkLabel } from '@/services/adapters/food.adapter';
-import React, { useEffect, useMemo, useState } from 'react';
-import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Icon, SearchField, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
@@ -59,7 +59,83 @@ export default function KitchenScreen() {
     setPreferences,
   } = useFood();
 
-  const [section, setSection] = useState<string | null>(null);
+  /*
+   * The section chips JUMP, they do not filter: the whole menu stays on the
+   * page and a tap scrolls its section's heading to just under the pinned bar.
+   * The chip that is lit follows the scroll, so it always names the section
+   * being read.
+   */
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollY = useRef(0);
+  const stickyY = useRef(0);
+  /* Height of the pinned overlay — what a jumped-to heading has to clear. */
+  const barHeight = useRef(0);
+  /* Each section's top, in content coordinates, from its own onLayout. */
+  const sectionTops = useRef<Record<string, number>>({});
+  const sectionsRef = useRef<readonly string[]>([]);
+  /* While a tapped jump is animating, the scroll must not light every section
+     it passes on the way. */
+  const jumpLockUntil = useRef(0);
+
+  /*
+   * The lit chip, kept OUT of this screen's state. The chips subscribe to it
+   * themselves (`SectionChips`), so a scroll across a section boundary
+   * re-renders two short chip rows, not fifty dish rows.
+   */
+  const activeSection = useRef<string | null>(null);
+  const activeListeners = useRef(new Set<(name: string | null) => void>());
+  const setActiveSection = useCallback((name: string | null) => {
+    if (activeSection.current === name) return;
+    activeSection.current = name;
+    activeListeners.current.forEach((listener) => listener(name));
+  }, []);
+  const subscribeActive = useCallback((listener: (name: string | null) => void) => {
+    activeListeners.current.add(listener);
+    return () => {
+      activeListeners.current.delete(listener);
+    };
+  }, []);
+
+  /* The section whose heading has reached the bottom of the pinned bar. */
+  const trackSection = (y: number) => {
+    if (Date.now() < jumpLockUntil.current) return;
+    const line = y + barHeight.current + 1;
+    let current: string | null = null;
+    for (const name of sectionsRef.current) {
+      const top = sectionTops.current[name];
+      if (top !== undefined && top <= line) current = name;
+    }
+    setActiveSection(current);
+  };
+
+  const jumpToSection = (name: string) => {
+    const top = sectionTops.current[name];
+    if (top === undefined) return;
+    setActiveSection(name);
+    jumpLockUntil.current = Date.now() + 600;
+    scrollRef.current?.scrollTo({ y: Math.max(0, top - barHeight.current), animated: true });
+  };
+
+  const pinnedRef = useRef(false);
+  const pinnedListeners = useRef(new Set<(pinned: boolean) => void>());
+  const subscribePinned = useCallback((listener: (pinned: boolean) => void) => {
+    pinnedListeners.current.add(listener);
+    listener(pinnedRef.current);
+    return () => {
+      pinnedListeners.current.delete(listener);
+    };
+  }, []);
+  /*
+   * The overlay is shown and hidden by the scroll position ON THE NATIVE SIDE,
+   * never by React state. It used to be `pinned ? <overlay/> : null`, and the
+   * first scroll past the bar re-rendered the whole menu and built the overlay
+   * from nothing in the middle of the gesture — a visible jerk. Now it is
+   * mounted once, and crossing the line costs no render at all.
+   */
+  const scrollAnim = useRef(new Animated.Value(0)).current;
+  /* State, unlike `stickyY`: the interpolation below is built from it. Set on
+     layout, so it changes when the identity block above does, not on scroll. */
+  const [barY, setBarY] = useState(0);
   const [callFailed, setCallFailed] = useState(false);
   const [query, setQuery] = useState('');
   /*
@@ -107,15 +183,8 @@ export default function KitchenScreen() {
     const present = new Set(visible.map((dish) => dish.section));
     return (kitchen?.sections ?? []).filter((name) => present.has(name));
   }, [visible, kitchen]);
+  sectionsRef.current = sections;
 
-  /* A section chip stays selected by name, not by position — so narrowing the
-     menu (typing a search, flipping veg-only) can leave it pointing at a
-     section that no longer has anything in it. Left alone that reads as a
-     false "no dishes" empty state over a menu that plainly has matches; this
-     drops back to "Everything" the moment the chip it was showing is gone. */
-  useEffect(() => {
-    if (section && !sections.includes(section)) setSection(null);
-  }, [sections, section]);
 
   /*
    * No kitchen under this id — which is three different situations wearing one
@@ -185,7 +254,36 @@ export default function KitchenScreen() {
     if (next > 0) add(dish, { spice: preferences.spice });
   };
 
-  const shown = section ? visible.filter((dish) => dish.section === section) : visible;
+  /*
+   * The search field and the section chips — drawn twice: once in the flow of
+   * the page, and once as an overlay pinned over the top of the list after the
+   * first copy has scrolled away.
+   *
+   * It used to be one copy made sticky with `stickyHeaderIndices`, and on
+   * Android the chips in it took several taps to answer. A sticky header stays
+   * INSIDE the scrolling list, moved down by a transform on every frame, so a
+   * tap on it is first the list's to claim — and one landing while the list
+   * is still gliding only stops the glide. The overlay is not part of the list
+   * at all, so every tap reaches the chip it lands on.
+   */
+  const renderFilterBar = () => (
+      <View style={{ paddingBottom: space[3], gap: space[4] }}>
+        <View style={{ paddingHorizontal: layout.gutter, gap: space[3] }}>
+          <SearchField
+            value={query}
+            onChangeText={setQuery}
+            onClear={() => setQuery('')}
+            placeholder={`Search ${kitchen.name}'s menu`}
+            returnKeyType="search"
+            accessibilityLabel="Search this menu"
+          />
+        </View>
+
+        {sections.length > 1 ? (
+          <SectionChips sections={sections} onPick={jumpToSection} subscribe={subscribeActive} />
+        ) : null}
+      </View>
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -203,13 +301,24 @@ export default function KitchenScreen() {
         onAction={phone ? call : undefined}
       />
 
-      <ScrollView
+      <View style={{ flex: 1 }}>
+      <Animated.ScrollView
+        ref={scrollRef}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollAnim } } }], {
+          useNativeDriver: true,
+          /* Refs only — nothing here may cause a render. */
+          listener: (event: { nativeEvent: { contentOffset: { y: number } } }) => {
+            scrollY.current = event.nativeEvent.contentOffset.y;
+            const pinned = scrollY.current > stickyY.current;
+            if (pinned !== pinnedRef.current) {
+              pinnedRef.current = pinned;
+              pinnedListeners.current.forEach((listener) => listener(pinned));
+            }
+            trackSection(scrollY.current);
+          },
+        })}
+        scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
-        /* The search row. Index 1 — the identity block is 0 — and it has to
-           stay 1: `stickyHeaderIndices` counts DIRECT children of the
-           ScrollView, so inserting anything above the search row without
-           moving this number silently sticks the wrong thing. */
-        stickyHeaderIndices={[1]}
         contentContainerStyle={{ paddingBottom: space[8] * 2, gap: space[3] }}
         refreshControl={
           <RefreshControl refreshing={loading || loadingMenus} onRefresh={refetch} tintColor={colors.brand} />
@@ -290,31 +399,23 @@ export default function KitchenScreen() {
           ) : null}
         </View>
 
-        {/*
-          THE STICKY ROW — index 1 of the ScrollView, which is what
-          `stickyHeaderIndices` below refers to. Two things it needs that a
-          non-sticky child does not:
-
-          an OPAQUE background, because a sticky header does not clip what
-          passes under it — without a fill the menu scrolls visibly through
-          the search field; and its own horizontal padding, because it is a
-          direct child of the ScrollView now rather than a sibling inside the
-          padded identity block above.
-
-          Moving it out here is also why the block above had to close: only a
-          DIRECT child of the ScrollView can be made sticky.
-        */}
-        <View style={{ paddingHorizontal: layout.gutter, paddingBottom: space[2], backgroundColor: colors.bg }}>
-          <SearchField
-            value={query}
-            onChangeText={setQuery}
-            onClear={() => setQuery('')}
-            placeholder={`Search ${kitchen.name}'s menu`}
-            returnKeyType="search"
-            accessibilityLabel="Search this menu"
-          />
+        {/* The search field and the section chips, in the flow of the page.
+            Once they scroll out of sight the overlay copy below takes over —
+            see `renderFilterBar`. */}
+        <View
+          style={{ backgroundColor: colors.bg }}
+          /* Where the bar sits in the content — the offset past which the
+             overlay shows. */
+          onLayout={(event) => {
+            stickyY.current = event.nativeEvent.layout.y;
+            setBarY(event.nativeEvent.layout.y);
+          }}
+        >
+          {renderFilterBar()}
         </View>
 
+        {/* Not pinned: only the search and the section chips stay under the
+            header while the menu scrolls. */}
         <View style={{ paddingHorizontal: layout.gutter, gap: space[3] }}>
           {/* Three chips, each backed by `Dish.diet`. Multi-select, and none
               selected means all — the reference's own behaviour, and the
@@ -352,46 +453,8 @@ export default function KitchenScreen() {
           </Text>
         </View>
 
-        {/* Section nav. Sticky is not worth the jank on this hardware; the list
-            is short and the chips jump to it. */}
-        {sections.length > 1 ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: layout.gutter, gap: space[2] }}
-          >
-            {[null, ...sections].map((name) => {
-              const active = section === name;
-              return (
-                <Pressable
-                  key={name ?? 'all'}
-                  onPress={() => setSection(name)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
-                  style={[
-                    styles.sectionChip,
-                    {
-                      borderRadius: radius.pill,
-                      paddingHorizontal: space[3],
-                      backgroundColor: active ? colors.graphite : colors.surface,
-                      borderColor: active ? colors.graphite : colors.border,
-                    },
-                  ]}
-                >
-                  <Text
-                    variant="label"
-                    style={{ color: active ? colors.onGraphite : colors.textSecondary, letterSpacing: 0.3 }}
-                  >
-                    {name ?? 'Everything'}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        ) : null}
-
         {/* The menu */}
-        {shown.length === 0 ? (
+        {visible.length === 0 ? (
           term ? (
             <FoodEmptyState
               glyph="search"
@@ -410,12 +473,19 @@ export default function KitchenScreen() {
           )
         ) : (
           sections
-            .filter((name) => !section || name === section)
             .map((name) => {
-              const dishes = shown.filter((dish) => dish.section === name);
+              const dishes = visible.filter((dish) => dish.section === name);
               if (!dishes.length) return null;
               return (
-                <View key={name} style={{ gap: 0 }}>
+                <View
+                  key={name}
+                  style={{ gap: 0 }}
+                  /* Where a chip tap scrolls to. A direct child of the
+                     ScrollView's content, so `y` is already in its terms. */
+                  onLayout={(event) => {
+                    sectionTops.current[name] = event.nativeEvent.layout.y;
+                  }}
+                >
                   <View
                     style={{
                       paddingHorizontal: layout.gutter,
@@ -477,7 +547,23 @@ export default function KitchenScreen() {
             </View>
           </View>
         ) : null}
-      </ScrollView>
+      </Animated.ScrollView>
+
+      {/* Always mounted, and never MOVED — see `PinnedBar`. */}
+      <PinnedBar
+        subscribe={subscribePinned}
+        opacity={scrollAnim.interpolate({
+          inputRange: [barY, barY + 1],
+          outputRange: [0, 1],
+          extrapolate: 'clamp',
+        })}
+        onHeight={(height) => {
+          barHeight.current = height;
+        }}
+      >
+        {renderFilterBar()}
+      </PinnedBar>
+      </View>
 
       {count > 0 ? (
         <View style={{ paddingBottom: space[3] }}>
@@ -501,7 +587,133 @@ const DIET_CHIPS: readonly { diet: Diet; label: string }[] = [
   { diet: 'nonveg', label: 'Non-veg' },
 ];
 
+/**
+ * The overlay copy of the search field and section chips.
+ *
+ * It sits at the top of the list the whole time and is only FADED in and out
+ * — by the scroll, on the native side, so the fade is frame-exact. It used to
+ * be parked 2000pt up and slid into place with a native-driven `translateY`,
+ * and taps on its chips then worked once and stopped: on the new architecture
+ * a native-driven transform is not written back to the shadow tree, so
+ * `Pressable` measured the chip where it had been PARKED, decided every touch
+ * had left it, and cancelled the press.
+ *
+ * Whether it takes touches is the one thing that needs React, and it is this
+ * component's own state — flipping it re-renders the overlay alone (its
+ * children are the same elements, so React skips them), never the menu.
+ */
+function PinnedBar({
+  subscribe,
+  opacity,
+  onHeight,
+  children,
+}: {
+  subscribe: (listener: (pinned: boolean) => void) => () => void;
+  opacity: Animated.AnimatedInterpolation<number>;
+  onHeight: (height: number) => void;
+  children: React.ReactNode;
+}) {
+  const { colors } = useTheme();
+  const [pinned, setPinned] = useState(false);
+  useEffect(() => subscribe(setPinned), [subscribe]);
+
+  return (
+    <Animated.View
+      pointerEvents={pinned ? 'auto' : 'none'}
+      onLayout={(event) => onHeight(event.nativeEvent.layout.height)}
+      style={[styles.pinnedBar, { backgroundColor: colors.bg, opacity }]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+/**
+ * The section chips — they jump to a section, they do not filter.
+ *
+ * Its own component so the lit chip can change on scroll without re-rendering
+ * the menu: it reads the active section from `subscribe`, not from a prop.
+ * Two copies are mounted (in the page and in the pinned overlay); both follow
+ * the same source, and each keeps its lit chip scrolled into view.
+ */
+function SectionChips({
+  sections,
+  onPick,
+  subscribe,
+}: {
+  sections: readonly string[];
+  onPick: (name: string) => void;
+  subscribe: (listener: (name: string | null) => void) => () => void;
+}) {
+  const { colors, space, layout, radius } = useTheme();
+  const [active, setActive] = useState<string | null>(null);
+  const rowRef = useRef<ScrollView>(null);
+  const chips = useRef<Record<string, { x: number; width: number }>>({});
+  const rowX = useRef(0);
+  const rowWidth = useRef(0);
+
+  useEffect(() => subscribe(setActive), [subscribe]);
+
+  /* Slide the row only when the lit chip is actually out of view. A chip that
+     was just TAPPED is on screen by definition, and sliding the row anyway
+     would swallow the next tap: a touch on a row that is still moving only
+     stops it. */
+  useEffect(() => {
+    const chip = active ? chips.current[active] : undefined;
+    if (!chip) return;
+    const inView = chip.x >= rowX.current && chip.x + chip.width <= rowX.current + rowWidth.current;
+    if (!inView) rowRef.current?.scrollTo({ x: Math.max(0, chip.x - layout.gutter), animated: true });
+  }, [active, layout.gutter]);
+
+  return (
+    <ScrollView
+      ref={rowRef}
+      onLayout={(event) => {
+        rowWidth.current = event.nativeEvent.layout.width;
+      }}
+      onScroll={(event) => {
+        rowX.current = event.nativeEvent.contentOffset.x;
+      }}
+      scrollEventThrottle={32}
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ paddingHorizontal: layout.gutter, gap: space[2] }}
+    >
+      {sections.map((name) => {
+        const on = active === name;
+        return (
+          <Pressable
+            key={name}
+            onLayout={(event) => {
+              const { x, width } = event.nativeEvent.layout;
+              chips.current[name] = { x, width };
+            }}
+            onPress={() => onPick(name)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={`Jump to ${name}`}
+            style={[
+              styles.sectionChip,
+              {
+                borderRadius: radius.pill,
+                paddingHorizontal: space[3],
+                backgroundColor: on ? colors.graphite : colors.surface,
+                borderColor: on ? colors.graphite : colors.border,
+              },
+            ]}
+          >
+            <Text variant="label" style={{ color: on ? colors.onGraphite : colors.textSecondary, letterSpacing: 0.3 }}>
+              {name}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
 const styles = StyleSheet.create({
+  pinnedBar: { position: 'absolute', top: 0, left: 0, right: 0 },
   identityRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   identityMeta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   dietRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },

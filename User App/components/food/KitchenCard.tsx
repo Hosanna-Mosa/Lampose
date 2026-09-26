@@ -59,7 +59,7 @@ export function KitchenCard({
         },
       ]}
     >
-      <FoodPhoto height={56} width={56} radius={radius.chip} uri={kitchen.photo} muted={!open} />
+      <FoodPhoto height={56} width={56} radius={radius.chip} uri={kitchen.photo} muted={!open} brandFallback />
 
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <View style={styles.titleRow}>

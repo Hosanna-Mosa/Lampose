@@ -55,6 +55,7 @@ export default function AuthScreen() {
     failureMessage,
     pendingPhone,
     pendingPhoneMasked,
+    pendingCredential,
     resumePendingIntent,
     continueAsGuest,
   } = useAuth();
@@ -88,6 +89,11 @@ export default function AuthScreen() {
 
   // Back Form State (OTP)
   const [code, setCode] = useState('');
+  /* The store-review number gets no SMS, so its back side asks for a password
+     (checked by the server exactly like a code) instead of six boxes. */
+  const usesPassword = pendingCredential === 'password';
+  const [passwordFocused, setPasswordFocused] = useState(false);
+  const codeReady = usesPassword ? code.length > 0 : code.length === config.otpLength;
   const [otpState, setOtpState] = useState<OtpState>('idle');
   const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null);
   const [lockedLabel, setLockedLabel] = useState<string | null>(null);
@@ -186,7 +192,7 @@ export default function AuthScreen() {
   };
 
   const submitOtp = async (value: string) => {
-    if (value.length !== config.otpLength) return;
+    if (usesPassword ? value.length === 0 : value.length !== config.otpLength) return;
     setOtpState('verifying');
     setProblem(null);
 
@@ -240,6 +246,12 @@ export default function AuthScreen() {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
+    setCode('');
+    setOtpState('idle');
+    setAttemptsLeft(null);
+    setLockedLabel(null);
+    setExpiredMessage(null);
+    setProblem(null);
     changeNumber();
   };
 
@@ -249,14 +261,22 @@ export default function AuthScreen() {
       })
     : null;
 
-  const codeError = lockedLabel
-    ? 'That code is spent. Ask for a new one below.'
-    : expiredMessage
-      ? 'That code expired. Ask for a new one below.'
-      : problem ??
-        (attemptsLeft !== null
-          ? `That code is wrong — ${attemptsLeft} ${attemptsLeft === 1 ? 'try' : 'tries'} left.`
-          : undefined);
+  const codeError = usesPassword
+    ? lockedLabel
+      ? 'Too many wrong tries. Go back and enter the number again.'
+      : expiredMessage
+        ? 'Please go back and enter the number again.'
+        : attemptsLeft !== null
+          ? `That password is wrong — ${attemptsLeft} ${attemptsLeft === 1 ? 'try' : 'tries'} left.`
+          : problem ?? undefined
+    : lockedLabel
+      ? 'That code is spent. Ask for a new one below.'
+      : expiredMessage
+        ? 'That code expired. Ask for a new one below.'
+        : problem ??
+          (attemptsLeft !== null
+            ? `That code is wrong — ${attemptsLeft} ${attemptsLeft === 1 ? 'try' : 'tries'} left.`
+            : undefined);
 
   return (
     <View style={styles.rootContainer}>
@@ -533,15 +553,58 @@ export default function AuthScreen() {
               style={[styles.cardSide, backAnimatedStyle]}
               pointerEvents={isFlipped ? 'auto' : 'none'}
             >
-              <Text style={styles.headline}>Enter the code</Text>
+              <Text style={styles.headline}>
+                {usesPassword ? 'Enter your password' : 'Enter the code'}
+              </Text>
               <Text style={styles.subtitle}>
-                We sent {config.otpLength} digits to{'\n'}
+                {usesPassword ? 'Signing in to' : `We sent ${config.otpLength} digits to`}{'\n'}
                 <Text style={{ fontWeight: '700', color: '#141A24' }}>
                   {pendingPhoneMasked ?? pendingPhone ?? 'your phone'}
                 </Text>.
               </Text>
 
               <View style={styles.formArea}>
+                {usesPassword ? (
+                  <>
+                    <View
+                      style={[
+                        styles.phoneInputContainer,
+                        passwordFocused && styles.phoneInputFocused,
+                        otpState === 'error' && styles.phoneInputError,
+                      ]}
+                    >
+                      <Icon name="security" size={18} color="#0A5A41" />
+                      <View style={styles.divider} />
+                      <TextInput
+                        value={code}
+                        onChangeText={(nextCode) => {
+                          setCode(nextCode);
+                          if (otpState === 'error' && !lockedLabel && !expiredMessage) {
+                            setOtpState('idle');
+                            setProblem(null);
+                          }
+                        }}
+                        onFocus={() => setPasswordFocused(true)}
+                        onBlur={() => setPasswordFocused(false)}
+                        onSubmitEditing={() => submitOtp(code)}
+                        placeholder="Password"
+                        placeholderTextColor="#94A3B8"
+                        secureTextEntry
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        textContentType="password"
+                        autoComplete="password"
+                        returnKeyType="go"
+                        style={styles.phoneInput}
+                        selectionColor="#0A5A41"
+                        accessibilityLabel="Password"
+                      />
+                    </View>
+                    {otpState === 'error' && codeError ? (
+                      <Text style={styles.errorText}>{codeError}</Text>
+                    ) : null}
+                  </>
+                ) : (
                 <OtpInput
                   value={code}
                   onChange={(nextCode) => {
@@ -556,13 +619,16 @@ export default function AuthScreen() {
                   errorMessage={codeError}
                   onComplete={submitOtp}
                 />
+                )}
 
                 {lockedLabel ? (
                   <View style={{ marginTop: 16, width: '100%' }}>
                     <InlineAlert
                       tone="warning"
-                      title="Code locked"
-                      body="Too many wrong tries. Ask for a new one below."
+                      title={usesPassword ? 'Sign-in locked' : 'Code locked'}
+                      body={usesPassword
+                        ? 'Too many wrong tries. Go back and enter the number again.'
+                        : 'Too many wrong tries. Ask for a new one below.'}
                     />
                   </View>
                 ) : null}
@@ -581,7 +647,7 @@ export default function AuthScreen() {
                   <Animated.View style={[buttonAnimatedStyle, styles.primaryButtonWrap, { marginTop: 0 }]}>
                     <Pressable
                       onPress={() => submitOtp(code)}
-                      disabled={code.length !== config.otpLength || isSubmitting}
+                      disabled={!codeReady || isSubmitting}
                       style={({ pressed }) => [
                         styles.primaryButtonPress,
                         pressed && !isSubmitting ? { opacity: 0.92 } : null,
@@ -605,7 +671,7 @@ export default function AuthScreen() {
                     </Pressable>
                   </Animated.View>
 
-                  {resendIn > 0 ? (
+                  {usesPassword ? null : resendIn > 0 ? (
                     <Text style={styles.resendCountdownText}>
                       Ask for another code in {resendIn}s
                     </Text>
