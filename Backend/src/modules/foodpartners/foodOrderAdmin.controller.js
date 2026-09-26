@@ -355,6 +355,9 @@ const queueRow = (order, { restaurantName = '', now = Date.now() } = {}) => {
     grandTotal: money(order.grandTotal),
     paymentMode: order.paymentMode,
     paymentStatus: order.paymentStatus,
+    /* How a cash-on-delivery order was actually paid at the door: 'cash',
+       'upi_qr', or '' until the rider has delivered it. */
+    collectionMethod: (order.collection && order.collection.method) || '',
     refund: {
       state: record ? 'settled' : (owed ? 'owed' : 'none'),
       channel: record ? record.channel : '',
@@ -583,7 +586,7 @@ const listOrders = async (req, res, next) => {
            already-settled order as still owed. */
         .select('orderNumber placedAt createdAt status dispatch delivery fulfilment restaurantId '
           + 'restaurant customerName customerPhone grandTotal paymentMode paymentStatus '
-          + 'razorpay statusHistory')
+          + 'razorpay statusHistory collection.method')
         .sort(sort)
         .skip((page - 1) * limit)
         .limit(limit)
@@ -795,6 +798,15 @@ const detailOf = (order, { restaurant = null, now = Date.now() } = {}) => {
       razorpayPaymentId: rp.paymentId || '',
       amountPaise: rp.amountPaise || 0,
       paidAt: rp.paidAt || null,
+      /* The doorstep half of a cash-on-delivery order: cash into the rider's
+         hand, or UPI on the rider's QR (whose payment id is `razorpayPaymentId`
+         above). Named key by key, for the same reason as `refund` below. */
+      collection: {
+        method: (order.collection && order.collection.method) || '',
+        amountPaise: (order.collection && order.collection.amountPaise) || 0,
+        collectedAt: (order.collection && order.collection.collectedAt) || null,
+        collectedBy: (order.collection && order.collection.collectedBy) || '',
+      },
       refundable: owed.owed && !record,
       refundBlockedReason: record
         ? `Already refunded — ${record.reference || 'reference not recorded'}.`

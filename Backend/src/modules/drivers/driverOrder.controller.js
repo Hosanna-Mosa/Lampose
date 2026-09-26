@@ -45,6 +45,10 @@ const Driver = require('./driver.model');
 const dispatch = require('./foodDispatch.service');
 const realtime = require('../../infrastructure/realtime/realtime');
 const notifier = require('./dispatch.notifier');
+const collection = require('./doorstepCollection.service');
+const { cashLedgerFor } = require('./cashInHand.service');
+const config = require('../../config/env');
+const razorpay = require('../../infrastructure/razorpay/razorpay');
 
 const { ALLOWED_RIDER_TRANSITIONS, riderView, restaurantSnapshot } = FoodOrder;
 
@@ -266,6 +270,92 @@ const getActiveOrder = async (req, res, next) => {
  * because "forbidden" alone leaves the app with nothing to show a rider who
  * has just tapped a button that did nothing.
  */
+/*
+ * How the rider says the door was settled, on a cash-on-delivery order.
+ *
+ *   `upi`   — the diner paid on the QR. Accepted only once Razorpay says so.
+ *   `cash`  — cash in hand. The open QR, if any, is closed and checked first:
+ *             a diner who already paid on it has paid, and cash is refused.
+ *
+ * Absent is refused: the rider has to say. The one exception is
+ * `DOORSTEP_COLLECTION_OPTIONAL=true` (see `config.doorstep`), for a rollout
+ * in which rider apps from before the payment screen are still in the field
+ * — those send nothing, and while it is on "nothing" is recorded as cash,
+ * which is what "delivered" meant on a COD order before this existed. The QR
+ * check still runs either way.
+ *
+ * @returns {Promise<{ order: object, cash: boolean, refusal?: { code, message } }>}
+ */
+const COLLECTION_WORDS = ['cash', 'upi'];
+
+const settleAtDoor = async (order, said) => {
+  const unsaid = said == null || said === '';
+  if (unsaid && !config.doorstep.collectionOptional) {
+    return {
+      order,
+      cash: false,
+      refusal: {
+        code: 'COLLECTION_REQUIRED',
+        message: 'Say how the customer paid — cash or UPI. Update the Lampose Rider app if you do not see the choice.',
+      },
+    };
+  }
+  const how = unsaid ? 'cash' : String(said).trim().toLowerCase();
+  if (!COLLECTION_WORDS.includes(how)) {
+    return {
+      order,
+      cash: false,
+      refusal: { code: 'COLLECTION_INVALID', message: 'Say whether the customer paid in cash or by UPI.' },
+    };
+  }
+
+  try {
+    return await settleHow(order, how);
+  } catch (error) {
+    /* Razorpay unreachable. Cash cannot be accepted while an open QR might
+       still be paid, and UPI cannot be confirmed — so neither, said plainly. */
+    console.error(`[rider] ${order.orderNumber} doorstep check failed: ${error.message}`);
+    return {
+      order,
+      cash: false,
+      refusal: {
+        code: 'PAYMENT_CHECK_FAILED',
+        message: 'We could not check the UPI payment just now. Try again in a moment.',
+      },
+    };
+  }
+};
+
+const settleHow = async (order, how) => {
+  if (how === 'upi') {
+    const now = await collection.reconcileQr(order);
+    if (collection.owesAtDoor(now)) {
+      return {
+        order: now,
+        cash: false,
+        refusal: {
+          code: 'PAYMENT_PENDING',
+          message: 'The UPI payment has not come through yet. Wait for "Paid" on the QR screen, or take cash.',
+        },
+      };
+    }
+    return { order: now, cash: false };
+  }
+
+  const now = await collection.closeQr(order);
+  if (!collection.owesAtDoor(now)) {
+    return {
+      order: now,
+      cash: false,
+      refusal: {
+        code: 'ALREADY_PAID_BY_UPI',
+        message: 'The customer has already paid by UPI. Do not take cash — choose UPI and deliver.',
+      },
+    };
+  }
+  return { order: now, cash: true };
+};
+
 const setOrderStatus = async (req, res, next) => {
   try {
     if (!isUp()) return dbDown(res);
@@ -274,7 +364,7 @@ const setOrderStatus = async (req, res, next) => {
     const wanted = String((req.body || {}).status || '').trim();
     const code = String((req.body || {}).code || '').trim();
 
-    const order = await FoodOrder.findOne({ orderNumber, 'delivery.driverId': req.driver.driverId });
+    let order = await FoodOrder.findOne({ orderNumber, 'delivery.driverId': req.driver.driverId });
     if (!order) return notFound(res);
 
     const allowed = ALLOWED_RIDER_TRANSITIONS[order.status] || [];
@@ -312,6 +402,17 @@ const setOrderStatus = async (req, res, next) => {
       );
     }
 
+    /* The money, for a cash-on-delivery order — see `doorstepCollection`.
+       Checked before anything is changed, so a refusal leaves the order
+       exactly as it was. */
+    let paidInCash = false;
+    if (wanted === 'delivered' && collection.owesAtDoor(order)) {
+      const settled = await settleAtDoor(order, (req.body || {}).collection);
+      if (settled.refusal) return fail(res, 409, settled.refusal.code, settled.refusal.message);
+      order = settled.order;
+      paidInCash = settled.cash;
+    }
+
     const now = new Date();
     order.status = wanted;
     order.statusHistory.push({ status: wanted, at: now, by: 'rider' });
@@ -323,11 +424,8 @@ const setOrderStatus = async (req, res, next) => {
     if (wanted === 'delivered') {
       order.delivery.deliveredAt = now;
       /* Cash collected at the door is the moment the order is paid. An online
-         order is already `paid` and is left alone — overwriting it here would
-         move `razorpay.paidAt` to the doorstep. */
-      if (order.paymentMode === 'cod' && order.paymentStatus === 'pending') {
-        order.paymentStatus = 'paid';
-      }
+         order, or one paid on the QR, is already `paid` and is left alone. */
+      if (paidInCash) collection.applyCash(order, req.driver.driverId, now);
     }
 
     await order.save();
@@ -351,6 +449,107 @@ const setOrderStatus = async (req, res, next) => {
       success: true,
       data: riderView(order, { revealed: true, restaurant: await kitchenFor(order) }),
     });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/* ── POST /orders/:orderNumber/collect/upi ─────────────────────────────────
+   ── GET  /orders/:orderNumber/collect ───────────────────────────────────── */
+
+/*
+ * The UPI QR at the door, and whether it has been paid.
+ *
+ * Only for the order this rider is carrying, once it is picked up, and only
+ * while it is still cash-on-delivery and unpaid. A second POST while a QR is
+ * open returns that same QR rather than minting another — see
+ * `doorstepCollection` on why there is only ever one.
+ */
+const doorstepOrder = async (req, res) => {
+  const order = await FoodOrder.findOne({
+    orderNumber: numberOf(req), 'delivery.driverId': req.driver.driverId,
+  });
+  if (!order) {
+    notFound(res);
+    return null;
+  }
+  if (order.status !== 'picked_up') {
+    fail(res, 409, 'NOT_AT_DOOR', 'Payment is collected at the door, after the food is picked up.');
+    return null;
+  }
+  return order;
+};
+
+const collectionBody = (order) => ({
+  success: true,
+  data: {
+    paymentStatus: order.paymentStatus,
+    collectAmount: collection.owesAtDoor(order) ? order.grandTotal : 0,
+    collection: riderView(order, { revealed: true }).collection,
+  },
+});
+
+const startUpiCollection = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+    if (!razorpay.isConfigured()) {
+      return fail(res, 503, 'PAYMENTS_NOT_CONFIGURED', 'UPI is not available right now. Please take cash.');
+    }
+
+    const order = await doorstepOrder(req, res);
+    if (!order) return undefined;
+
+    if (!collection.owesAtDoor(order)) return res.json(collectionBody(order));
+
+    const { order: after } = await collection.openQrFor(order);
+    return res.json(collectionBody(after));
+  } catch (error) {
+    if (error.code === 'RAZORPAY_QR_FAILED') {
+      console.error(`[rider] QR for ${numberOf(req)} failed: ${error.message}`);
+      return fail(res, 502, 'QR_FAILED', 'We could not make a UPI QR just now. Try again, or take cash.');
+    }
+    return next(error);
+  }
+};
+
+/* The app asks every few seconds while the QR is on screen; the webhook is
+   what normally answers first. Razorpay is asked at most this often per order
+   so a screen left open does not become a stream of API calls. */
+const RECHECK_MS = 5000;
+const lastRecheck = new Map();
+
+const getCollection = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+
+    let order = await doorstepOrder(req, res);
+    if (!order) return undefined;
+
+    const key = order.orderNumber;
+    const due = Date.now() - (lastRecheck.get(key) || 0) >= RECHECK_MS;
+    if (due && collection.owesAtDoor(order) && order.collection?.qr?.id && razorpay.isConfigured()) {
+      lastRecheck.set(key, Date.now());
+      order = await collection.reconcileQr(order).catch((error) => {
+        console.error(`[rider] QR recheck for ${key} failed: ${error.message}`);
+        return order;
+      });
+    }
+    if (!collection.owesAtDoor(order)) lastRecheck.delete(key);
+
+    return res.json(collectionBody(order));
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/* ── GET /me/cash ─────────────────────────────────────────────────────────*/
+
+/* The cash this rider is holding from cash-on-delivery orders, and the recent
+   entries on both sides — the same ledger the console reads. */
+const getMyCash = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+    return res.json({ success: true, data: await cashLedgerFor(req.driver.driverId, { limit: 10 }) });
   } catch (error) {
     return next(error);
   }
@@ -448,6 +647,9 @@ module.exports = {
   declineOrder,
   getActiveOrder,
   setOrderStatus,
+  startUpiCollection,
+  getCollection,
+  getMyCash,
   releaseOrder,
   listMyOrders,
 };

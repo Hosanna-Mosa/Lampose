@@ -27,6 +27,8 @@
 import { api, unwrapList } from '../apiCaller';
 import type {
   ApiResponse,
+  DriverCashDepositMethod,
+  DriverCashLedger,
   DriverDetail,
   DriverDocument,
   DriverDocumentKind,
@@ -93,6 +95,7 @@ const normalizeRow = (raw: any): DriverRow => {
   const documents = normalizeDocuments(raw?.documents);
 
   return {
+    cashInHandPaise: num(raw?.cashInHandPaise),
     driverId: str(raw?.driverId),
     name: str(raw?.name),
     phone: str(raw?.phone),
@@ -153,6 +156,30 @@ const normalizeRow = (raw: any): DriverRow => {
   };
 };
 
+const DEPOSIT_METHODS: DriverCashDepositMethod[] = ['cash', 'bank', 'upi'];
+
+/** The rider's cash ledger, zeroed rather than missing against an older server. */
+const normalizeCash = (raw: any): DriverCashLedger => ({
+  collectedPaise: num(raw?.collectedPaise),
+  depositedPaise: num(raw?.depositedPaise),
+  inHandPaise: num(raw?.inHandPaise),
+  cashOrders: num(raw?.cashOrders),
+  collections: (Array.isArray(raw?.collections) ? raw.collections : []).map((c: any) => ({
+    orderNumber: str(c?.orderNumber),
+    amountPaise: num(c?.amountPaise),
+    at: c?.at ?? null,
+  })),
+  deposits: (Array.isArray(raw?.deposits) ? raw.deposits : []).map((d: any) => ({
+    id: str(d?.id),
+    amountPaise: num(d?.amountPaise),
+    method: DEPOSIT_METHODS.includes(d?.method) ? d.method : 'cash',
+    reference: str(d?.reference),
+    note: str(d?.note),
+    recordedBy: str(d?.recordedBy),
+    at: d?.at ?? null,
+  })),
+});
+
 export const driverAdminService = {
   /** The queue and the roster. `status: 'all'` or omitted returns everybody. */
   async getDrivers(params?: {
@@ -194,10 +221,26 @@ export const driverAdminService = {
           earnings: num(payload?.lifetime?.earnings),
         },
         recentDeliveries: Array.isArray(payload?.recentDeliveries)
-          ? payload.recentDeliveries
+          ? payload.recentDeliveries.map((d: any) => ({ ...d, collectionMethod: str(d?.collectionMethod) }))
           : [],
+        cash: normalizeCash(payload?.cash),
       },
     };
+  },
+
+  /**
+   * Record cash a rider has handed over. `amount` is in rupees, as counted.
+   * The server refuses more than the rider is holding and answers with the
+   * rider's ledger as it now stands.
+   */
+  async recordCashDeposit(
+    driverId: string,
+    body: { amount: number; method: DriverCashDepositMethod; reference?: string; note?: string },
+  ): Promise<ApiResponse<DriverCashLedger | null>> {
+    const res = await api.post<any>(`${BASE}/${driverId}/cash-deposits`, body);
+    return res.success && res.data?.data
+      ? { ...res, data: normalizeCash(res.data.data) }
+      : { ...res, data: null };
   },
 
   /**

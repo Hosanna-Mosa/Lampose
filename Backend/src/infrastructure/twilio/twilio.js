@@ -1242,8 +1242,34 @@ async function sendOrderPlaced({
   });
 }
 
+/**
+ * A rider's onboarding document was refused — which one, and why.
+ *
+ * Sent beside the push and the in-app alert (`driverAccount.notifier.js`),
+ * because a rider waiting on approval is not in the app, and the reason is the
+ * administrator's own sentence. The definition — and why the body reads the
+ * way it does — is in `driverDocumentTemplate.js`; the three variables below
+ * are its contract.
+ */
+async function sendDriverDocumentRejected({ riderPhone, riderName, documentLabel, reason }) {
+  const name = oneLine(riderName, 60) || 'there';
+  const doc = oneLine(documentLabel, 60) || 'document';
+  const why = oneLine(reason, 300) || 'The photo could not be verified.';
+  return sendContentOrText({
+    to: riderPhone,
+    contentSid: process.env.TWILIO_DRIVER_DOCUMENT_CONTENT_SID,
+    variables: { 1: name, 2: doc, 3: why },
+    fallbackBody:
+      `Hi ${name}, we checked the ${doc} you uploaded and could not verify it.\n\n`
+      + `Reason: ${why}\n\n`
+      + 'Please open the Lampose Rider app, go to Documents and upload a clear photo of it. '
+      + 'We will review it again as soon as it arrives.',
+  });
+}
+
 module.exports = {
   _useClientForTests,
+  sendDriverDocumentRejected,
   sendOwnerText,
   sendVerificationMessage,
   sendConfirmationMessage,

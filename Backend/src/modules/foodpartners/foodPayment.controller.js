@@ -518,6 +518,18 @@ async function handleFoodOrderWebhook({ orderNumber, paymentId, amountPaise }) {
   }
   if (order.paymentStatus === 'paid') return true;
 
+  /* A cash-on-delivery order is never confirmed here: `confirmPayment` tells
+     the kitchen about a NEW order. Money on one arrives through the rider's
+     doorstep QR and is settled by that flow, which the webhook routes to by
+     the QR's `purpose` note. Anything else is logged for a human. */
+  if (order.paymentMode !== 'online') {
+    console.warn(
+      `${BADGE} [Webhook] payment ${paymentId} for cash-on-delivery order ${order.orderNumber} `
+      + 'did not come through a doorstep QR. NOT applied — check it in the dashboard.',
+    );
+    return true;
+  }
+
   const expected = Math.round(order.grandTotal * 100);
   if (Number.isFinite(amountPaise) && amountPaise < expected) {
     /* Logged loudly rather than accepted. Somebody has genuinely paid money

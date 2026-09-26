@@ -13,6 +13,7 @@ import type { BadgeTone } from '../../common/atoms/Badge';
 import { formatDateTime, rupees } from '../../../lib/format';
 import type {
   FoodOrderPaymentMode,
+  FoodCollectionMethod,
   FoodOrderPaymentStatus,
   FoodOrderStatus,
 } from '../../../api/types';
@@ -43,6 +44,22 @@ export const PAYMENT_MODE_LABEL: Record<FoodOrderPaymentMode, string> = {
   online: 'Online',
   cod: 'Cash on delivery',
 };
+
+/** How a cash-on-delivery order was actually paid at the door. */
+export const COLLECTION_LABEL: Record<FoodCollectionMethod, string> = {
+  '': '',
+  cash: 'Cash at door',
+  upi_qr: 'UPI at door',
+};
+
+/**
+ * The payment line under a row's badge: the checkout choice, and for a COD
+ * order that has been delivered, how the door was actually paid.
+ */
+export const paymentModeLine = (mode: FoodOrderPaymentMode, collection: FoodCollectionMethod): string =>
+  (mode === 'cod' && collection
+    ? `${PAYMENT_MODE_LABEL.cod} · ${COLLECTION_LABEL[collection]}`
+    : PAYMENT_MODE_LABEL[mode]);
 
 /** A dash, not a nought, when the figure was never written. */
 export const money = (value: number | null | undefined): string =>

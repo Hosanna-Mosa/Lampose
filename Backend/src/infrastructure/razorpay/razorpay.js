@@ -295,6 +295,97 @@ const createPaymentLink = async ({
   return json;
 };
 
+/* ── UPI QR codes — a rider collecting at the door ──────────────────────────
+ *
+ * A cash-on-delivery diner who would rather pay by UPI scans a QR on the
+ * rider's phone. One QR per attempt: single use, fixed to the order total,
+ * closing on its own, and carrying the order number in `notes` so the
+ * `qr_code.credited` webhook can find the order without a lookup table.
+ */
+const QR_CODES_URL = 'https://api.razorpay.com/v1/payments/qr_codes';
+
+const notConfiguredError = () => {
+  const error = new Error('Payments are not configured on this server.');
+  error.code = 'RAZORPAY_NOT_CONFIGURED';
+  return error;
+};
+
+const qrError = async (response, fallback) => {
+  const json = await response.json().catch(() => ({}));
+  const error = new Error(json?.error?.description || `${fallback} (${response.status}).`);
+  error.code = 'RAZORPAY_QR_FAILED';
+  error.status = response.status;
+  return error;
+};
+
+/**
+ * Create a single-use, fixed-amount UPI QR.
+ *
+ * @param {{ amountPaise: number, name: string, description?: string,
+ *           closeBy: number, notes?: object }} input `closeBy` is unix seconds
+ * @returns {Promise<{ id: string, image_url: string, close_by: number, status: string }>}
+ */
+const createQrCode = async ({
+  amountPaise, name, description, closeBy, notes = {},
+}) => {
+  if (!isConfigured()) throw notConfiguredError();
+
+  const response = await fetch(QR_CODES_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
+    body: JSON.stringify({
+      type: 'upi_qr',
+      name: String(name || 'Lampose').slice(0, 64),
+      usage: 'single_use',
+      fixed_amount: true,
+      payment_amount: amountPaise,
+      description: String(description || '').slice(0, 255) || undefined,
+      close_by: Math.floor(closeBy),
+      notes,
+    }),
+  });
+  if (!response.ok) throw await qrError(response, 'Razorpay refused the QR code');
+  return response.json();
+};
+
+/**
+ * Close a QR so nothing more can be paid on it.
+ *
+ * A QR that is already closed — paid, expired, or closed by an earlier call —
+ * is the outcome asked for, so Razorpay's refusal to close it again is not
+ * treated as a failure.
+ */
+const closeQrCode = async (qrCodeId) => {
+  if (!isConfigured()) throw notConfiguredError();
+
+  const response = await fetch(`${QR_CODES_URL}/${encodeURIComponent(qrCodeId)}/close`, {
+    method: 'POST',
+    headers: { Authorization: authHeader() },
+  });
+  if (response.ok) return response.json();
+
+  const error = await qrError(response, 'Razorpay would not close the QR code');
+  if (response.status === 400 && /closed/i.test(error.message)) return { id: qrCodeId, status: 'closed' };
+  throw error;
+};
+
+/**
+ * The payments made on one QR, newest first. The webhook is the fast path;
+ * this is how a missed or late webhook is caught up.
+ *
+ * @returns {Promise<Array<{ id: string, amount: number, status: string }>>}
+ */
+const fetchQrPayments = async (qrCodeId) => {
+  if (!isConfigured()) throw notConfiguredError();
+
+  const response = await fetch(`${QR_CODES_URL}/${encodeURIComponent(qrCodeId)}/payments`, {
+    headers: { Authorization: authHeader() },
+  });
+  if (!response.ok) throw await qrError(response, 'Razorpay would not list the QR payments');
+  const json = await response.json();
+  return Array.isArray(json?.items) ? json.items : [];
+};
+
 /* ══════════════════════════════════════════════════════════════════════════
    RazorpayX — the OUT half. Money leaving, to a Stay Partner owner.
 
@@ -525,6 +616,7 @@ const verifyPayoutWebhook = ({ rawBody, signature }) => {
 
 module.exports = {
   isConfigured, createOrder, refundPayment, createPaymentLink, verifySignature, verifyWebhook,
+  createQrCode, closeQrCode, fetchQrPayments,
   isPayoutConfigured, createContact, createFundAccount, createPayout,
   fetchPayout, verifyPayoutWebhook,
 };

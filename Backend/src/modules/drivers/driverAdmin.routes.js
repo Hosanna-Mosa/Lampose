@@ -30,7 +30,7 @@ const express = require('express');
 const verifyAdminToken = require('../analytics/verifyAdminToken.middleware');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const {
-  listDrivers, getDriver, decideDriver, decideDocument,
+  listDrivers, getDriver, decideDriver, decideDocument, recordCashDeposit,
 } = require('./driverAdmin.controller');
 
 const router = express.Router();
@@ -58,5 +58,10 @@ router.get('/:driverId', getDriver);
    the same operator doing the same job, one at two levels of consequence. */
 router.patch('/:driverId/documents/:kind', requireDriverApprover, decideDocument);
 router.patch('/:driverId/decision', requireDriverApprover, decideDriver);
+
+/* Cash a rider hands back from cash-on-delivery orders. Its own capability,
+   held by the same roles today, because taking money in is a different act
+   from deciding who may ride — see `cashInHand.service.js`. */
+router.post('/:driverId/cash-deposits', can('riders.cash'), recordCashDeposit);
 
 module.exports = router;

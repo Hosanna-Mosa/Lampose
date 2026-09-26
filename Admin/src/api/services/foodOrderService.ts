@@ -62,6 +62,7 @@ import type {
   FoodOrderLine,
   FoodOrderPage,
   FoodOrderPaymentStatus,
+  FoodCollectionMethod,
   FoodOrderQuery,
   FoodOrderRiderBrief,
   FoodOrderRow,
@@ -142,6 +143,9 @@ const iso = (value: unknown): string | null => (
 const oneOf = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T => (
   allowed.includes(value as T) ? (value as T) : fallback
 );
+
+const COLLECTION_METHODS: readonly FoodCollectionMethod[] = ['', 'cash', 'upi_qr'];
+const collectionMethodOf = (value: unknown): FoodCollectionMethod => oneOf(value, COLLECTION_METHODS, '');
 
 /**
  * The server's refusal code, or '' when what came back was not one of them.
@@ -233,6 +237,7 @@ const normalizeRow = (raw: unknown): FoodOrderRow => {
     grandTotal: num(row.grandTotal),
     paymentMode: row.paymentMode === 'online' ? 'online' : 'cod',
     paymentStatus: oneOf(row.paymentStatus, FOOD_PAYMENT_STATUSES, 'pending'),
+    collectionMethod: collectionMethodOf(row.collectionMethod),
     refund: normalizeRefund(row.refund),
     rider: normalizeRiderBrief(row.rider),
     flags: normalizeFlags(row.flags),
@@ -345,6 +350,12 @@ const normalizeDetail = (raw: unknown): FoodOrderDetail => {
       razorpayPaymentId: str(payment.razorpayPaymentId),
       amountPaise: num(payment.amountPaise),
       paidAt: iso(payment.paidAt),
+      collection: {
+        method: collectionMethodOf(obj(payment.collection).method),
+        amountPaise: num(obj(payment.collection).amountPaise),
+        collectedAt: iso(obj(payment.collection).collectedAt),
+        collectedBy: str(obj(payment.collection).collectedBy),
+      },
       /* The server decides this, and the page never second-guesses it. */
       refundable: payment.refundable === true,
       refundBlockedReason: str(payment.refundBlockedReason),

@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { formatOnline } from "@/app/(tabs)/index";
 import { Btn, Icon, Notice, Seg, Sheet, Toast, TopBar } from "@/components/ui";
 import { PERIODS_LIST, type PeriodData } from "@/constants/lampose";
+import { useCashInHand } from "@/hooks/useCashInHand";
 import { useSheet } from "@/hooks/useSheet";
 import { useDriverStore } from "@/store/driverStore";
 import { useFlowStore } from "@/store/flowStore";
@@ -19,6 +20,7 @@ export default function EarningsScreen() {
   const loaded = useDriverStore((s) => s.earningsLoaded);
   const error = useDriverStore((s) => s.earningsError);
   const fetchEarnings = useDriverStore((s) => s.fetchEarnings);
+  const cash = useCashInHand();
 
   useEffect(() => {
     fetchEarnings().catch(() => {});
@@ -110,6 +112,17 @@ export default function EarningsScreen() {
             glyph="alert"
             title="These may be out of date"
             body={error}
+          />
+        )}
+
+        {/* Cash from cash-on-delivery orders is Lampose's money, not earnings.
+            Shown apart from them, and only while there is some to hand over. */}
+        {!!cash && cash.inHandPaise > 0 && (
+          <Notice
+            tone="warning"
+            glyph="rupee"
+            title={`Cash in hand · ₹${(cash.inHandPaise / 100).toLocaleString("en-IN")}`}
+            body={`Collected at doors on ${cash.cashOrders} cash order${cash.cashOrders === 1 ? "" : "s"}. Hand it over to Lampose — it is not part of your earnings.`}
           />
         )}
 

@@ -11,11 +11,12 @@ import { MartianMono_500Medium } from "@expo-google-fonts/martian-mono/500Medium
 import { MartianMono_600SemiBold } from "@expo-google-fonts/martian-mono/600SemiBold";
 import { MartianMono_700Bold } from "@expo-google-fonts/martian-mono/700Bold";
 import { useFonts } from "expo-font";
-import { Stack } from "expo-router";
+import * as Notifications from "expo-notifications";
+import { router, Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 /* Imported for the side effect as well as the call: the module sets Expo's
@@ -86,6 +87,7 @@ export default function RootLayout() {
     never a side effect of something else changing the token.
   */
   const [sessionExpired, setSessionExpired] = useState(false);
+  const handledTap = useRef<string | null>(null);
 
   const signedIn = !!token;
   /*
@@ -142,6 +144,38 @@ export default function RootLayout() {
   useEffect(() => {
     if (hydrated && typeReady) SplashScreen.hideAsync().catch(() => {});
   }, [hydrated, typeReady]);
+
+  /*
+    Tapping a notification takes the rider to what it was about.
+
+    Only the "document needs a new photo" alert routes anywhere today: its
+    whole point is to get the rider to the Documents screen, and landing them
+    on Home and leaving them to find it is how a rider reads the alert, shrugs
+    and forgets. Offer alerts are left alone — the offer pump already puts an
+    open offer on screen the moment the app is in front.
+
+    Both paths: a tap while the app is running, and the tap that launched it
+    from closed, which only `getLastNotificationResponseAsync` can see. Waits
+    for the session and the fonts so the navigator exists to push onto.
+  */
+  useEffect(() => {
+    if (!hydrated || !typeReady || !signedIn) return;
+
+    const route = (response: Notifications.NotificationResponse | null) => {
+      if (!response) return;
+      /* The launching tap is reported again every time this effect re-runs;
+         one tap is one navigation. */
+      const id = response.notification.request.identifier;
+      if (handledTap.current === id) return;
+      handledTap.current = id;
+      const data = response.notification.request.content.data as { kind?: string } | undefined;
+      if (data?.kind === "driver_document") router.push("/documents");
+    };
+
+    Notifications.getLastNotificationResponseAsync().then(route).catch(() => {});
+    const sub = Notifications.addNotificationResponseReceivedListener(route);
+    return () => sub.remove();
+  }, [hydrated, typeReady, signedIn]);
 
   /*
     Registered once, for the life of the app, exactly like the offer pump

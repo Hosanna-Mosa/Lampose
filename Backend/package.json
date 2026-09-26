@@ -41,6 +41,7 @@
     "twilio:order-template": "node scripts/create-food-order-template.js",
     "twilio:delivery-template": "node scripts/create-delivery-request-template.js",
     "twilio:restaurant-template": "node scripts/create-restaurant-approved-template.js",
+    "twilio:driver-document-template": "node scripts/create-driver-document-template.js",
     "verify:order-whatsapp": "node scripts/verify-food-order-whatsapp.js",
     "seed:food-menu": "node scripts/seed-food-menu.js",
     "seed:food-restaurants": "node scripts/seed-food-restaurants.js",

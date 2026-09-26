@@ -15,7 +15,7 @@ import { formatDateTime, relativeTime } from '../../../../lib/format';
 import type {
   FoodOrderRow,
 } from '../../../../api/types';
-import { PAYMENT_META, PAYMENT_MODE_LABEL, STATUS_META, dash, elapsed, money } from '../../utils';
+import { PAYMENT_META, STATUS_META, dash, elapsed, money, paymentModeLine } from '../../utils';
 import { Box } from '../../../common/atoms/Box';
 import { Inline } from '../../../common/atoms/Inline';
 import { Text } from '../../../common/atoms/Text';
@@ -88,7 +88,9 @@ export const QueueRow: React.FC<{ row: FoodOrderRow; onOpen: () => void }> = ({ 
       <Badge tone={PAYMENT_META[row.paymentStatus].tone}>
         {PAYMENT_META[row.paymentStatus].label}
       </Badge>
-      <Text className="text-label text-ink-3 mt-0.5">{PAYMENT_MODE_LABEL[row.paymentMode]}</Text>
+      <Text className="text-label text-ink-3 mt-0.5">
+        {paymentModeLine(row.paymentMode, row.collectionMethod)}
+      </Text>
     </Td>
     <Td>
       <Inline className="text-label text-ink-2" title={formatDateTime(row.placedAt)}>

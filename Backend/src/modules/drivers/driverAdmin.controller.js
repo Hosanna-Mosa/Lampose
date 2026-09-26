@@ -38,7 +38,9 @@
 const mongoose = require('mongoose');
 
 const Driver = require('./driver.model');
+const DriverCashDeposit = require('./driverCashDeposit.model');
 const FoodOrder = require('../foodpartners/foodOrder.model');
+const { cashInHandFor, cashLedgerFor } = require('./cashInHand.service');
 const accountNotifier = require('./driverAccount.notifier');
 
 const {
@@ -189,7 +191,13 @@ const listDrivers = async (req, res, next) => {
 
     const counts = grouped.reduce((acc, row) => ({ ...acc, [row._id]: row.n }), {});
 
-    let data = rows.map(queueRow);
+    /* Cash each rider on this page is holding — two aggregations for the whole
+       page, not one per row. */
+    const cash = await cashInHandFor(rows.map((row) => row.driverId));
+    let data = rows.map((row) => ({
+      ...queueRow(row),
+      cashInHandPaise: (cash.get(row.driverId) || { inHandPaise: 0 }).inHandPaise,
+    }));
 
     /* Filtered AFTER `queueRow`, not in the Mongo query, and only ever over
        the page already fetched. `documents` is a normalised five-row list
@@ -239,10 +247,11 @@ const getDriver = async (req, res, next) => {
        see `driver.model.js`: a counter and a ledger that disagree is the worst
        bug this product could have, and the only way they cannot disagree is
        for there to be one of them. */
-    const [recent, tally] = await Promise.all([
+    const [recent, tally, cash] = await Promise.all([
       FoodOrder.find({ 'delivery.driverId': driver.driverId })
         .select('orderNumber status restaurantId placedAt grandTotal paymentMode'
-          + ' delivery.earnings delivery.assignedAt delivery.pickedUpAt delivery.deliveredAt')
+          + ' delivery.earnings delivery.assignedAt delivery.pickedUpAt delivery.deliveredAt'
+          + ' collection.method')
         .sort({ placedAt: -1 })
         .limit(20)
         .lean(),
@@ -256,6 +265,7 @@ const getDriver = async (req, res, next) => {
           },
         },
       ]),
+      cashLedgerFor(driver.driverId),
     ]);
 
     const byStatus = tally.reduce((acc, row) => ({ ...acc, [row._id]: row }), {});
@@ -273,6 +283,9 @@ const getDriver = async (req, res, next) => {
           /* What Lampose has paid them, from the ledger. */
           earnings: Math.round(delivered.earnings || 0),
         },
+        /* Cash collected at doors, what has been handed over, and the rest. */
+        cash,
+        cashInHandPaise: cash.inHandPaise,
         recentDeliveries: recent.map((order) => ({
           orderNumber: order.orderNumber,
           status: order.status,
@@ -288,6 +301,8 @@ const getDriver = async (req, res, next) => {
           earnings: order.delivery?.earnings || 0,
           orderTotal: order.grandTotal || 0,
           paymentMode: order.paymentMode || '',
+          /* How a COD order was actually paid at the door: 'cash', 'upi_qr' or ''. */
+          collectionMethod: order.collection?.method || '',
         })),
       },
     });
@@ -511,6 +526,65 @@ const decideDriver = async (req, res, next) => {
   }
 };
 
+// @route   POST /api/v1/admin/drivers/:driverId/cash-deposits
+// @desc    Record cash a rider has handed over
+// @access  Admin console (`riders.cash`)
+/**
+ * The rider hands over the cash they collected at doors, and the administrator
+ * who received it says so here.
+ *
+ * Refused above what the rider is actually holding: a hand-over bigger than
+ * the cash collected is either a typo or money that belongs to some other
+ * ledger, and either way it would drive the balance below zero where nobody
+ * would believe it. The amount is in rupees, as the operator counts it.
+ */
+const recordCashDeposit = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+
+    const driverId = String(req.params.driverId || '').trim();
+    const driver = await Driver.findOne({ driverId }).select('driverId name').lean();
+    if (!driver) return fail(res, 404, 'NOT_FOUND', 'We could not find that rider.');
+
+    const body = req.body || {};
+    const rupees = Number(body.amount);
+    const amountPaise = Math.round(rupees * 100);
+    if (!Number.isFinite(rupees) || amountPaise < 1 || Math.abs(rupees * 100 - amountPaise) > 1e-6) {
+      return fail(res, 400, 'INVALID_AMOUNT', 'Enter the amount received in rupees, e.g. 1619 or 1619.50.');
+    }
+
+    const method = String(body.method || 'cash').trim();
+    if (!DriverCashDeposit.DEPOSIT_METHODS.includes(method)) {
+      return fail(res, 400, 'INVALID_METHOD', `"method" must be one of: ${DriverCashDeposit.DEPOSIT_METHODS.join(', ')}.`);
+    }
+
+    const { inHandPaise } = (await cashInHandFor([driverId])).get(driverId);
+    if (amountPaise > inHandPaise) {
+      return fail(
+        res, 409, 'MORE_THAN_IN_HAND',
+        `${driver.name || driverId} is holding ₹${(inHandPaise / 100).toFixed(2)}. `
+        + 'A hand-over cannot be more than that.',
+      );
+    }
+
+    const recordedBy = req.admin?.name || req.admin?.email || 'admin';
+    await DriverCashDeposit.create({
+      driverId,
+      amountPaise,
+      method,
+      reference: String(body.reference || '').trim().slice(0, 120),
+      note: String(body.note || '').trim().slice(0, 500),
+      recordedBy,
+    });
+
+    console.log(`${BADGE} ₹${(amountPaise / 100).toFixed(2)} cash from ${driverId} (${method}) · by ${recordedBy}`);
+    return res.status(201).json({ success: true, data: await cashLedgerFor(driverId) });
+  } catch (error) {
+    console.error(`${BADGE} recording cash failed:`, error.message);
+    return next(error);
+  }
+};
+
 module.exports = {
-  listDrivers, getDriver, decideDriver, decideDocument,
+  listDrivers, getDriver, decideDriver, decideDocument, recordCashDeposit,
 };

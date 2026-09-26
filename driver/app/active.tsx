@@ -1,8 +1,17 @@
 import { router } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
-import { Linking, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import React, { memo, useCallback, useEffect, useRef, useState } from "react";
+import {
+  Keyboard,
+  KeyboardAvoidingView,
+  Linking,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Btn, Chip, IconBtn, MapPanel, Notice, Sheet, StepBars, Text, Toast, TopBar } from "@/components/ui";
+import { CollectPayment, collectReady, type CollectState } from "@/components/CollectPayment";
 import { STAGE_HINTS, STAGES } from "@/constants/lampose";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
 import { useSheet } from "@/hooks/useSheet";
@@ -49,12 +58,75 @@ export default function ActiveOrderScreen() {
   const job = useDriverStore((s) => s.currentJob);
   const busy = useDriverStore((s) => s.busy);
   const advanceJob = useDriverStore((s) => s.advanceJob);
+  const openUpiQr = useDriverStore((s) => s.openUpiQr);
+  const checkCollection = useDriverStore((s) => s.checkCollection);
   const fetchActiveJob = useDriverStore((s) => s.fetchActiveJob);
   const pushLocation = useDriverStore((s) => s.pushLocation);
   const jobEndedNote = useDriverStore((s) => s.jobEndedNote);
   const clearJobEndedNote = useDriverStore((s) => s.clearJobEndedNote);
 
-  const [code, setCode] = useState("");
+  const scrollRef = useRef<ScrollView>(null);
+
+  /*
+   * True while the rider is typing a hand-over code, and the map is taken off
+   * the screen for exactly that long.
+   *
+   * On Android the Google map redraws continuously on this screen — the pulse
+   * marker is a JS-driven loop with `tracksViewChanges`, the camera re-fits on
+   * every GPS fix and the rider marker turns with the compass — and those
+   * native redraws pull focus off the code field: the keypad opens and closes
+   * again before a digit can be typed. The rider is standing at the counter or
+   * the door at this point, so the map is not what they need, and it comes
+   * back the moment the field loses focus.
+   */
+  const [typing, setTyping] = useState(false);
+
+  /* Cash or UPI at the door, and the "I have the cash" tick. Reset for each
+     order: a tick left over from the last door is money nobody counted. */
+  const [collect, setCollect] = useState<CollectState>({ method: null, cashConfirmed: false });
+  const jobNumber = job?.orderNumber;
+  useEffect(() => {
+    setCollect({ method: null, cashConfirmed: false });
+  }, [jobNumber]);
+
+  /* The order total, kept once seen: `collectAmount` drops to 0 the moment
+     the diner pays, and "Paid by UPI · ₹0" would read as nothing received. */
+  const totalRef = useRef<{ order?: string; amount: number }>({ amount: 0 });
+  if (job && job.collectAmount > 0) totalRef.current = { order: job.orderNumber, amount: job.collectAmount };
+  const collectTotal =
+    job && totalRef.current.order === job.orderNumber ? totalRef.current.amount : job?.collectAmount ?? 0;
+
+  /* A cash-on-delivery order at the door — the payment card shows, and
+     Delivered waits for it. */
+  const collecting = !!job && job.paymentMode === "cod" && job.status === "picked_up";
+  const paidByUpi = !!job && job.paymentStatus === "paid" && job.collection?.method === "upi_qr";
+  const payReady = !collecting || collectReady(collect, paidByUpi).ready;
+
+  /* The code field sits under the map, the stops and the item list, so the
+     keypad opening covers it and the button beneath it. Bring both into view
+     once the keyboard has taken its space. Stable, so `CodeEntry` below never
+     re-renders because of them. */
+  const onCodeFocus = useCallback(() => {
+    setTyping(true);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250);
+  }, []);
+
+  /* And again once the keypad has actually finished opening — on Android its
+     height is only known then, and scrolling earlier lands the field exactly
+     where the keys are about to be. */
+  useEffect(() => {
+    if (!typing) return;
+    const sub = Keyboard.addListener("keyboardDidShow", () => {
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    });
+    return () => sub.remove();
+  }, [typing]);
+  const onCodeBlur = useCallback(() => setTyping(false), []);
+
+  /* `CodeEntry` is handed a submit function that never changes identity and
+     always calls the latest `onAdvance` — see the note on `CodeEntry`. */
+  const advanceRef = useRef<(code: string) => Promise<boolean>>(async () => false);
+  const submitCode = useCallback((code: string) => advanceRef.current(code), []);
 
   const stage = selectStage(job);
   /* The two legs: to the restaurant, then to the customer. */
@@ -163,12 +235,12 @@ export default function ActiveOrderScreen() {
     compares the code, because a client-side check would need the delivery PIN
     inside the app, which is exactly the thing that must not be true about it.
   */
-  const onAdvance = async () => {
+  const onAdvance = async (code: string): Promise<boolean> => {
     const wanted = stage >= 3 ? "delivered" : "picked_up";
 
     if (wanted === "picked_up" && !readyToCollect) {
       say("The kitchen has not marked this order ready yet.");
-      return;
+      return false;
     }
     if (code.length !== 4) {
       say(
@@ -176,26 +248,52 @@ export default function ActiveOrderScreen() {
           ? "Ask the restaurant for the 4-digit pickup code."
           : "Ask the customer for their 4-digit PIN.",
       );
-      return;
+      return false;
     }
 
+    /* The money first, on a cash-on-delivery order — see `CollectPayment`. */
+    const pay = wanted === "delivered" && collecting ? collectReady(collect, paidByUpi) : null;
+    if (pay && !pay.ready) {
+      say(
+        collect.method === "cash"
+          ? `Tick the box once you have ₹${collectTotal} in cash.`
+          : collect.method === "upi"
+            ? "Wait for the QR to show Paid before delivering."
+            : `Collect ₹${collectTotal} first — choose Cash or UPI.`,
+      );
+      return false;
+    }
+
+    Keyboard.dismiss();
     try {
       if (wanted === "delivered") leaving.current = true;
-      await advanceJob(wanted, code);
-      setCode("");
+      await advanceJob(wanted, code, pay?.send);
       if (wanted === "delivered") router.replace("/complete");
+      return true;
     } catch (err) {
       /* Released again: the hand-over was refused, the job is still in hand,
          and a guard left standing would suppress the redirect the rider needs
          if the order really does go away later. */
       leaving.current = false;
-      const payload = (err as { payload?: { message?: string } } | null)?.payload;
+      const payload = (err as { payload?: { message?: string; code?: string } } | null)?.payload;
       say(payload?.message || (err as Error)?.message || "That did not go through.");
+      /* The server found a UPI payment the screen had not shown yet. Read it,
+         so the card flips to "Paid by UPI" instead of still offering cash. */
+      if (payload?.code === "ALREADY_PAID_BY_UPI" || payload?.code === "PAYMENT_PENDING") {
+        checkCollection().catch(() => {});
+      }
+      return false;
     }
   };
+  advanceRef.current = onAdvance;
 
   return (
-    <View style={styles.root}>
+    /* `padding` on Android too. Expo SDK 54 draws the app edge-to-edge, and
+       under edge-to-edge the manifest's `adjustResize` no longer shrinks the
+       window for the keypad — so without this the screen keeps its full
+       height, the keys sit on top of the code field and the button, and there
+       is nothing left to scroll them up into. */
+    <KeyboardAvoidingView style={styles.root} behavior="padding">
       <TopBar
         back="Home"
         onBack={() => router.replace("/")}
@@ -204,21 +302,31 @@ export default function ActiveOrderScreen() {
         onAction={() => router.push("/support")}
       />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: space[6] }}>
+      {/* `handled`: without it the first tap on the hand-over button while the
+          keypad is open only closes the keypad, and the rider at the counter
+          sees a button that does nothing. */}
+      <ScrollView
+        ref={scrollRef}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingBottom: space[6] }}
+      >
         {/* Real coordinates, not a placeholder: the rider's own GPS against
             the two ends of the order. The distance under it is measured from
             those, so it keeps up as they ride rather than freezing at whatever
             the dispatcher computed when it made the offer. */}
-        <MapPanel
-          height={travelling ? 252 : 168}
-          kicker={toRestaurant ? "To restaurant" : "To customer"}
-          target={toRestaurant ? "Restaurant" : "Customer"}
-          me={location ? [location.lng, location.lat] : null}
-          pickup={job.pickup.location}
-          drop={job.drop.location}
-          heading={heading}
-          pickedUp={pickedUp}
-        />
+        {!typing && (
+          <MapPanel
+            height={travelling ? 252 : 168}
+            kicker={toRestaurant ? "To restaurant" : "To customer"}
+            target={toRestaurant ? "Restaurant" : "Customer"}
+            me={location ? [location.lng, location.lat] : null}
+            pickup={job.pickup.location}
+            drop={job.drop.location}
+            heading={heading}
+            pickedUp={pickedUp}
+          />
+        )}
 
         <View style={styles.body}>
           {/* ── Where we are ─────────────────────────────────────────── */}
@@ -354,43 +462,31 @@ export default function ActiveOrderScreen() {
             />
           )}
 
-          {/* ── The hand-over code ───────────────────────────────────── */}
-          {(readyToCollect || pickedUp) && stage < 4 && (
-            <View style={styles.codeCard}>
-              <Text variant="eyebrow" color="tertiary">
-                {pickedUp ? "Customer's 4-digit PIN" : "Restaurant's 4-digit code"}
-              </Text>
-              <Text variant="caption" color="secondary" style={{ marginTop: space[1] }}>
-                {pickedUp
-                  ? "Ask the customer to read out the PIN in their app."
-                  : "Ask at the counter. It is on the kitchen's order screen."}
-              </Text>
-              <TextInput
-                style={styles.codeInput}
-                value={code}
-                onChangeText={(v) => setCode(v.replace(/\D/g, "").slice(0, 4))}
-                keyboardType="number-pad"
-                maxLength={4}
-                placeholder="••••"
-                placeholderTextColor={colors.textTertiary}
-              />
-            </View>
+          {/* ── The money, on a cash-on-delivery order ──────────────── */}
+          {collecting && (
+            <CollectPayment
+              amount={collectTotal}
+              paid={job.paymentStatus === "paid"}
+              collection={job.collection}
+              state={collect}
+              onChange={setCollect}
+              openUpiQr={openUpiQr}
+              checkCollection={checkCollection}
+            />
           )}
 
-          <Btn
-            label={
-              busy
-                ? "One moment…"
-                : pickedUp
-                  ? "Delivered · enter the PIN"
-                  : readyToCollect
-                    ? "Collected · enter the code"
-                    : "Waiting for the kitchen"
-            }
-            large
-            glyph="check"
-            disabled={busy || (!pickedUp && !readyToCollect)}
-            onPress={onAdvance}
+          {/* ── The hand-over code ───────────────────────────────────── */}
+          {/* Keyed on the leg so the pickup code never carries over into the
+              delivery PIN field. */}
+          <CodeEntry
+            key={pickedUp ? "drop" : "pickup"}
+            pickedUp={pickedUp}
+            open={(readyToCollect || pickedUp) && stage < 4}
+            payReady={payReady}
+            busy={busy}
+            onSubmit={submitCode}
+            onFocus={onCodeFocus}
+            onBlur={onCodeBlur}
           />
 
           <View style={styles.secondaryRow}>
@@ -417,9 +513,104 @@ export default function ActiveOrderScreen() {
 
       <Toast message={toast} top={insets.top + space[2]} />
       <Sheet {...sheet} />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
+
+/**
+ * The hand-over code field and the button that sends it.
+ *
+ * Its own memoised component, holding its own digits, for one reason: the
+ * screen above re-renders several times a second — the compass moves
+ * `heading` on every tick, GPS moves `location` — and while the code field
+ * lived inline it was re-rendered with every one of them. On Android (new
+ * architecture) a controlled input re-rendered that often while it is taking
+ * focus drops the focus again: the keypad flashes up and away and not one
+ * digit can be typed, at the counter or at the door. Every prop here is a
+ * primitive or a stable callback, so a compass tick no longer reaches it.
+ */
+const CodeEntry = memo(function CodeEntry({
+  pickedUp,
+  open,
+  payReady,
+  busy,
+  onSubmit,
+  onFocus,
+  onBlur,
+}: {
+  pickedUp: boolean;
+  /** Whether a code can be taken yet — false while the kitchen is cooking. */
+  open: boolean;
+  /** False while a cash-on-delivery order has not been collected for. */
+  payReady: boolean;
+  busy: boolean;
+  onSubmit: (code: string) => Promise<boolean>;
+  onFocus: () => void;
+  onBlur: () => void;
+}) {
+  const [code, setCode] = useState("");
+
+  /* A number pad has no Done key on iOS. Four digits is a complete code, so
+     the keypad gets out of the way on its own and the button is reachable. */
+  const onChange = (v: string) => {
+    const next = v.replace(/\D/g, "").slice(0, 4);
+    setCode(next);
+    if (next.length === 4) Keyboard.dismiss();
+  };
+
+  const submit = async () => {
+    if (await onSubmit(code)) setCode("");
+  };
+
+  return (
+    <>
+      {open && (
+        <View style={styles.codeCard}>
+          <Text variant="eyebrow" color="tertiary">
+            {pickedUp ? "Customer's 4-digit PIN" : "Restaurant's 4-digit code"}
+          </Text>
+          <Text variant="caption" color="secondary" style={{ marginTop: space[1] }}>
+            {pickedUp
+              ? "Ask the customer to read out the PIN in their app."
+              : "Ask at the counter. It is on the kitchen's order screen."}
+          </Text>
+          <TextInput
+            style={styles.codeInput}
+            value={code}
+            onChangeText={onChange}
+            onFocus={onFocus}
+            onBlur={onBlur}
+            keyboardType="number-pad"
+            returnKeyType="done"
+            placeholder="••••"
+            placeholderTextColor={colors.textTertiary}
+          />
+        </View>
+      )}
+
+      <Btn
+        label={
+          busy
+            ? "One moment…"
+            : pickedUp && !payReady
+              ? "Collect the payment first"
+              : pickedUp
+                ? "Delivered · enter the PIN"
+                : open
+                  ? "Collected · enter the code"
+                  : "Waiting for the kitchen"
+        }
+        large
+        glyph="check"
+        /* Not disabled while the payment is outstanding: a tap says what is
+           missing, where a greyed-out button would leave a rider guessing. */
+        variant={pickedUp && !payReady ? "ghost" : undefined}
+        disabled={busy || !open}
+        onPress={submit}
+      />
+    </>
+  );
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
