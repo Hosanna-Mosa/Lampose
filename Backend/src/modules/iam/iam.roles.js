@@ -67,6 +67,11 @@ const CAPABILITIES = Object.freeze({
   'money.release': { roles: SUPER, label: 'release, pay out or refund money' },
   'food.refund': { roles: ADMINS, label: 'refund a food order' },
   'food.complete': { roles: ADMINS, label: 'mark a website food order delivered' },
+  /* The same operators who put a rider on the road take their cash back in. */
+  'riders.cash': {
+    roles: ['Super Admin', 'Admin', 'Food Admin'],
+    label: 'record cash a rider has handed over',
+  },
 
   /* ── Queues ──────────────────────────────────────────────────────────── */
   'food.decide': { roles: ['Super Admin', 'Admin', 'Food Admin'], label: 'approve or refuse a restaurant' },

@@ -154,7 +154,8 @@ import { RefundPanel } from '../components/food-orders/organisms/RefundPanel';
 import { MoneyRow } from '../components/food-orders/molecules/MoneyRow';
 import { PhoneLink } from '../components/food-orders/atoms/PhoneLink';
 import {
-  STATUS_META, PAYMENT_META, PAYMENT_MODE_LABEL, money, dash, when, elapsed,
+  STATUS_META, PAYMENT_META, PAYMENT_MODE_LABEL, COLLECTION_LABEL, paymentModeLine,
+  money, dash, when, elapsed,
   NEW_ATTEMPT, canRecordByHand,
 } from '../components/food-orders/utils';
 import type { RefundAttempt } from '../components/food-orders/utils';
@@ -1076,7 +1077,8 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                 {STATUS_META[open.status].label}
               </Badge>
               <Badge tone={PAYMENT_META[open.payment.status].tone}>
-                {PAYMENT_META[open.payment.status].label} · {PAYMENT_MODE_LABEL[open.payment.mode]}
+                {PAYMENT_META[open.payment.status].label} ·{' '}
+                {paymentModeLine(open.payment.mode, open.payment.collection.method)}
               </Badge>
               {open.fulfilment === 'delivery' && !open.deliveryMethod && (
                 <Badge tone={DISPATCH_META[open.dispatch.state].tone}>
@@ -1302,6 +1304,34 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                   <DataRow label="Paid at" value={when(open.payment.paidAt)} />
                   <DataRow label="Razorpay order" value={dash(open.payment.razorpayOrderId)} mono />
                   <DataRow label="Razorpay payment" value={dash(open.payment.razorpayPaymentId)} mono />
+                </>
+              )}
+
+              {/* The doorstep half of a cash-on-delivery order: cash into the
+                  rider's hand, or UPI on the rider's QR. Empty until delivered. */}
+              {open.payment.mode === 'cod' && (
+                <>
+                  <DataRow
+                    label="Collected at the door"
+                    value={open.payment.collection.method ? COLLECTION_LABEL[open.payment.collection.method] : '—'}
+                  />
+                  {!!open.payment.collection.method && (
+                    <>
+                      <DataRow
+                        label="Amount collected"
+                        value={
+                          <Inline className="tabular">
+                            {rupeesFromPaise(open.payment.collection.amountPaise)}
+                          </Inline>
+                        }
+                      />
+                      <DataRow label="Collected at" value={when(open.payment.collection.collectedAt)} />
+                      <DataRow label="Collected by rider" value={dash(open.payment.collection.collectedBy)} mono />
+                    </>
+                  )}
+                  {open.payment.collection.method === 'upi_qr' && (
+                    <DataRow label="Razorpay payment" value={dash(open.payment.razorpayPaymentId)} mono />
+                  )}
                 </>
               )}
 

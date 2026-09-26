@@ -72,6 +72,7 @@ import { Section } from '../components/common/molecules/Section';
 import { DocumentTally } from '../components/drivers/molecules/DocumentTally';
 import { DutyCell } from '../components/drivers/molecules/DutyCell';
 import { DocumentPanel } from '../components/drivers/organisms/DocumentPanel';
+import { CashPanel } from '../components/drivers/organisms/CashPanel';
 import { day, ago } from '../components/drivers/utils';
 import { Box } from '../components/common/atoms/Box';
 import { Inline } from '../components/common/atoms/Inline';
@@ -198,7 +199,9 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
     }
     setToast({
       tone: 'good',
-      message: verdict === 'verified' ? 'Document verified.' : 'Sent back to the rider.',
+      message: verdict === 'verified'
+        ? 'Document verified.'
+        : 'Sent back. The rider is told on WhatsApp, by notification and in the app.',
     });
     setDocNotes((prev) => ({ ...prev, [kind]: '' }));
     detail.reload();
@@ -306,7 +309,7 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
 
       <Card>
         {queue.loading ? (
-          <TableSkeleton cols={7} />
+          <TableSkeleton cols={8} />
         ) : queue.error ? (
           <ErrorState message={queue.error} onRetry={queue.reload} />
         ) : rows.length === 0 ? (
@@ -328,6 +331,7 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
                 <Th>Documents</Th>
                 <Th>Duty</Th>
                 <Th>Status</Th>
+                <Th className="text-right">Cash in hand</Th>
                 <Th>Applied</Th>
                 <Th />
               </Tr>
@@ -353,6 +357,14 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
                   </Td>
                   <Td>
                     <Badge tone={STATUS_TONE[row.status]}>{STATUS_LABEL[row.status]}</Badge>
+                  </Td>
+                  <Td
+                    className={cx(
+                      'text-right tabular',
+                      row.cashInHandPaise > 0 ? 'font-medium text-warn' : 'text-ink-3'
+                    )}
+                  >
+                    {row.cashInHandPaise > 0 ? money(row.cashInHandPaise / 100) : '—'}
                   </Td>
                   <Td className="text-label text-ink-3">{day(row.createdAt)}</Td>
                   <Td className="text-right">
@@ -555,6 +567,17 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
               <DataRow label="UPI" value={dash(open.payout.upiId)} mono />
             </Section>
 
+            <CashPanel
+              driverId={open.driverId}
+              cash={open.cash}
+              canRecord={canDecide}
+              onRecorded={() => {
+                detail.reload();
+                queue.reload();
+              }}
+              onToast={setToast}
+            />
+
             <Section title="What they have carried">
               <DataRow label="Orders assigned" value={String(open.lifetime.assigned)} />
               <DataRow label="Delivered" value={String(open.lifetime.delivered)} />
@@ -572,7 +595,14 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
                           <PlainTd className="py-1.5 pr-3 font-mono tabular text-ink">
                             {order.orderNumber}
                           </PlainTd>
-                          <PlainTd className="py-1.5 pr-3 text-ink-3">{order.status}</PlainTd>
+                          <PlainTd className="py-1.5 pr-3 text-ink-3">
+                            {order.status}
+                            {order.collectionMethod === 'cash'
+                              ? ' · cash'
+                              : order.collectionMethod === 'upi_qr'
+                                ? ' · UPI'
+                                : ''}
+                          </PlainTd>
                           <PlainTd className="py-1.5 pr-3 text-ink-3 whitespace-nowrap">
                             {day(order.deliveredAt || order.placedAt)}
                           </PlainTd>

@@ -61,6 +61,23 @@ export type DispatchState = "idle" | "searching" | "assigned" | "unassigned";
 
 export type OrderLine = { productName: string; variantName?: string; quantity: number };
 
+/** How the rider says the door was settled — sent with "delivered". */
+export type CollectionMethod = "cash" | "upi";
+
+export type DoorCollection = {
+  method: "" | "cash" | "upi_qr";
+  collectedAt: string | null;
+  /** The open QR, or null once it is paid, closed or expired. */
+  qr: { id: string; imageUrl: string; amountPaise: number; expiresAt: string } | null;
+};
+
+/** What the collect endpoints answer. */
+type CollectionState = {
+  paymentStatus: Job["paymentStatus"];
+  collectAmount: number;
+  collection: DoorCollection | null;
+};
+
 export type Job = {
   orderNumber: string;
   restaurantId: string;
@@ -82,6 +99,11 @@ export type Job = {
   paymentStatus: "pending" | "paid" | "refunded" | "failed";
   /** What to take at the door. Zero on a prepaid order — do not ask for money. */
   collectAmount: number;
+  /**
+   * How a cash-on-delivery order was settled at the door, and the UPI QR still
+   * open for it if there is one. Optional because an older server sends none.
+   */
+  collection?: DoorCollection | null;
   earnings: number;
   itemCount: number;
   lines: OrderLine[];
@@ -584,7 +606,15 @@ type DriverState = {
 
   fetchActiveJob: () => Promise<void>;
   clearJobEndedNote: () => void;
-  advanceJob: (status: "picked_up" | "delivered", code: string) => Promise<void>;
+  advanceJob: (
+    status: "picked_up" | "delivered",
+    code: string,
+    collection?: CollectionMethod,
+  ) => Promise<void>;
+  /** Show the diner a UPI QR for the order total — the open one if any. */
+  openUpiQr: () => Promise<void>;
+  /** Has the QR been paid? Asked while it is on screen. */
+  checkCollection: () => Promise<void>;
   releaseJob: (reason?: string) => Promise<void>;
 
   fetchEarnings: () => Promise<void>;
@@ -1181,7 +1211,7 @@ export const useDriverStore = create<DriverState>()(
        * comparison would need the code in the app, which is exactly the thing
        * that must not be true for the delivery PIN.
        */
-      advanceJob: async (status, code) => {
+      advanceJob: async (status, code, collection) => {
         const { token, currentJob } = get();
         if (!currentJob) return;
 
@@ -1189,7 +1219,7 @@ export const useDriverStore = create<DriverState>()(
         try {
           const res = await api<Envelope<Job>>(
             `${BASE}/orders/${currentJob.orderNumber}/status`,
-            { method: "PATCH", body: { status, code }, token },
+            { method: "PATCH", body: { status, code, ...(collection ? { collection } : {}) }, token },
           );
           const job = res?.data ?? { ...currentJob, status };
           supersedeJobReads();
@@ -1216,6 +1246,33 @@ export const useDriverStore = create<DriverState>()(
         } finally {
           set({ busy: false });
         }
+      },
+
+      /**
+       * The doorstep QR, and whether it has been paid.
+       *
+       * Both merge the answer into the job in hand rather than replacing it:
+       * they speak only for the money, and the rest of the job is whatever
+       * the last full read said. Dropped if the job changed while asking.
+       */
+      openUpiQr: async () => {
+        const { token, currentJob } = get();
+        if (!currentJob) return;
+        const res = await api<Envelope<CollectionState>>(
+          `${BASE}/orders/${currentJob.orderNumber}/collect/upi`,
+          { method: "POST", token },
+        );
+        mergeCollection(currentJob.orderNumber, res?.data);
+      },
+
+      checkCollection: async () => {
+        const { token, currentJob } = get();
+        if (!currentJob) return;
+        const res = await api<Envelope<CollectionState>>(
+          `${BASE}/orders/${currentJob.orderNumber}/collect`,
+          { token },
+        );
+        mergeCollection(currentJob.orderNumber, res?.data);
       },
 
       releaseJob: async (reason) => {
@@ -1441,12 +1498,30 @@ export function startOfferPump(): () => void {
       supersedeJobReads();
       store.setState({ currentJob: { ...job, status: payload.status } });
     }
+    /* The same event is sent the moment a diner pays on the doorstep QR, with
+       the status unchanged. It does not carry the money, so ask — this is what
+       flips the QR screen to "Paid" without waiting for the next poll. */
+    if (job.status === "picked_up" && job.paymentMode === "cod" && job.paymentStatus !== "paid") {
+      store.getState().checkCollection().catch(() => {});
+    }
+  };
+
+  /* An administrator decided something about this ACCOUNT — a document sent
+     back for a new photo, a document verified, the application approved or
+     suspended. The server pushes it too, but a rider with the app open sees
+     it here: the profile is read again, and every screen that draws from it
+     (the Home banner, Documents, onboarding's checklist) updates at once
+     rather than on the next pull to refresh. */
+  const onAccountChanged = () => {
+    store.getState().refreshProfile().catch(() => {});
   };
 
   socketService.on("delivery_offer", onOffer);
   socketService.on("delivery_offer_closed", onOfferClosed);
   socketService.on("delivery_cancelled", onCancelled);
   socketService.on("dispatch_update", onDispatchUpdate);
+  socketService.on("document_decision", onAccountChanged);
+  socketService.on("account_decision", onAccountChanged);
 
   const timer = setInterval(() => {
     store.getState().pollOffer().catch(() => {});
@@ -1481,6 +1556,8 @@ export function startOfferPump(): () => void {
     socketService.off("delivery_offer_closed", onOfferClosed);
     socketService.off("delivery_cancelled", onCancelled);
     socketService.off("dispatch_update", onDispatchUpdate);
+    socketService.off("document_decision", onAccountChanged);
+    socketService.off("account_decision", onAccountChanged);
   };
 }
 
@@ -1518,6 +1595,25 @@ export const selectStage = (job: Job | null): number => {
       return 1;
   }
 };
+
+/** Write a collect endpoint's answer onto the job it was asked about. */
+function mergeCollection(orderNumber: string, data: CollectionState | undefined) {
+  if (!data) return;
+  const job = useDriverStore.getState().currentJob;
+  if (!job || job.orderNumber !== orderNumber) return;
+  useDriverStore.setState({
+    currentJob: {
+      ...job,
+      paymentStatus: data.paymentStatus,
+      collectAmount: data.collectAmount,
+      collection: data.collection,
+    },
+  });
+}
+
+/** A cash-on-delivery order the rider still has to collect for. */
+export const owesAtDoor = (job: Job | null): boolean =>
+  !!job && job.paymentMode === "cod" && job.paymentStatus !== "paid";
 
 /** True once the kitchen says the food is cooked and waiting. */
 export const canCollect = (job: Job | null): boolean => job?.status === "ready";

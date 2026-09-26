@@ -46,6 +46,7 @@
    ══════════════════════════════════════════════════════════════════════════ */
 const { sendPush, pushReady, pushConfigProblem } = require('../../infrastructure/push/push');
 const realtime = require('../../infrastructure/realtime/realtime');
+const twilio = require('../../infrastructure/twilio/twilio');
 const Driver = require('./driver.model');
 const { JOB_CHANNEL } = require('./dispatch.notifier');
 
@@ -201,6 +202,27 @@ async function notifyDriverOfDecision(driver, { previous = '', reason = '' } = {
  * unread. A refusal is different: it is the one message that asks them to do
  * something, and it names which photograph.
  */
+/** The WhatsApp half of a refused document. Logs its outcome, never throws. */
+async function whatsappDocumentRejected(driver, label, reason) {
+  const phone = driver.phone || '';
+  if (!phone) return;
+  try {
+    const out = await twilio.sendDriverDocumentRejected({
+      riderPhone: phone,
+      riderName: driver.name || '',
+      documentLabel: label,
+      reason: reason || 'Please send a clearer photograph of this document.',
+    });
+    if (out && out.success) {
+      console.log(`${BADGE} [document-rejected] WhatsApp → ${twilio.maskPhone(twilio.toE164(phone) || phone)} · ${out.messageSid}`);
+    } else {
+      console.warn(`${BADGE} [document-rejected] WhatsApp not sent: ${(out && out.error) || 'unknown'}`);
+    }
+  } catch (error) {
+    console.warn(`${BADGE} [document-rejected] WhatsApp failed: ${error.message}`);
+  }
+}
+
 async function notifyDriverOfDocumentDecision(driver, kind, { status, reason = '' } = {}) {
   const label = DOCUMENT_LABELS[kind] || 'document';
   const said = String(reason || '').trim();
@@ -221,6 +243,12 @@ async function notifyDriverOfDocumentDecision(driver, kind, { status, reason = '
     }
     return { attempted: 0, sent: 0, failed: 0, reason: 'verified documents are not pushed' };
   }
+
+  /* WhatsApp as well, beside the push rather than instead of it: a rider
+     waiting on approval is usually not in the app, and may have silenced it.
+     Never awaited into the push — one channel failing must not cost the
+     other — and never thrown, for the reason in the header. */
+  whatsappDocumentRejected(driver, label, said).catch(() => {});
 
   return announce(
     driver.driverId,

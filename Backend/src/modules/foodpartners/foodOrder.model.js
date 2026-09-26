@@ -180,6 +180,8 @@ const partnerMovesFor = (order) => {
 
 const PAYMENT_MODES = ['online', 'cod'];
 const PAYMENT_STATUSES = ['pending', 'paid', 'refunded', 'failed'];
+/* How a cash-on-delivery order was settled at the door — see `collection`. */
+const COLLECTION_METHODS = ['', 'cash', 'upi_qr'];
 
 /**
  * How the money got back, once it has.
@@ -565,6 +567,33 @@ const foodOrderSchema = new mongoose.Schema(
       refundNote: { type: String, default: '' },
     },
 
+    /*
+     * ── How a cash-on-delivery order was actually paid at the door ────────
+     *
+     * `paymentMode` is what the diner chose at checkout and stays `cod`.
+     * This is what happened on the doorstep: cash into the rider's hand, or
+     * UPI on a Razorpay QR the rider showed. Empty until the rider says, and
+     * always empty on a prepaid order.
+     *
+     * `qr` is the most recent QR shown for this order. Only one is ever open:
+     * a new one is minted only after the old one is closed, so a diner cannot
+     * pay twice by scanning two codes.
+     */
+    collection: {
+      method: { type: String, enum: COLLECTION_METHODS, default: '' },
+      amountPaise: { type: Number, default: 0, min: 0 },
+      collectedAt: { type: Date, default: null },
+      collectedBy: { type: String, default: '' },
+      qr: {
+        id: { type: String, default: '' },
+        imageUrl: { type: String, default: '' },
+        amountPaise: { type: Number, default: 0, min: 0 },
+        expiresAt: { type: Date, default: null },
+        createdAt: { type: Date, default: null },
+        closedAt: { type: Date, default: null },
+      },
+    },
+
     status: { type: String, enum: ORDER_STATUSES, default: 'placed', index: true },
     statusHistory: { type: [statusEventSchema], default: [] },
 
@@ -778,6 +807,8 @@ foodOrderSchema.index({ placedAt: -1 });
    `placedAt` trails so the queue's oldest-first sort comes off the index rather
    than out of a blocking sort. */
 foodOrderSchema.index({ paymentStatus: 1, paymentMode: 1, status: 1, placedAt: 1 });
+/* A rider's cash in hand is summed off this — see `drivers/cashInHand.service.js`. */
+foodOrderSchema.index({ 'collection.collectedBy': 1, 'collection.method': 1, 'collection.collectedAt': -1 });
 
 /* "Open far too long", and the count of what is open at all. `status` alone is
    already indexed above, and this is that index plus the range the stuck filter
@@ -948,6 +979,23 @@ const refundRecordOf = (order) => {
  * they do not. Both routes end in the same three keys, and neither invents a
  * name or a number it does not have.
  */
+/** True while a QR can still be paid: minted, not closed, not past its time. */
+const qrIsOpen = (qr, now = Date.now()) => Boolean(
+  qr && qr.id && !qr.closedAt && qr.expiresAt && new Date(qr.expiresAt).getTime() > now,
+);
+
+const riderCollection = (doc) => {
+  const collection = doc.collection || {};
+  const qr = collection.qr || {};
+  return {
+    method: collection.method || '',
+    collectedAt: collection.collectedAt || null,
+    qr: doc.paymentStatus !== 'paid' && qrIsOpen(qr)
+      ? { id: qr.id, imageUrl: qr.imageUrl, amountPaise: qr.amountPaise, expiresAt: qr.expiresAt }
+      : null,
+  };
+};
+
 const riderView = (order, { revealed = false, distanceMeters = null, restaurant = null } = {}) => {
   if (!order) return null;
   const doc = typeof order.toObject === 'function' ? order.toObject() : order;
@@ -975,6 +1023,10 @@ const riderView = (order, { revealed = false, distanceMeters = null, restaurant 
        Two different jobs, and a rider who reads "₹0 to collect" on a prepaid
        order does not ask a diner for money they have already sent. */
     collectAmount: doc.paymentMode === 'cod' && doc.paymentStatus !== 'paid' ? doc.grandTotal : 0,
+    /* How the door was settled, and the QR still open for it if there is one.
+       An expired or closed QR is not sent — the app would draw a code that can
+       no longer be paid. Only after accepting, like the rest of the drop. */
+    collection: revealed ? riderCollection(doc) : null,
     earnings: delivery.earnings || 0,
     itemCount: (doc.lines || []).reduce((n, line) => n + (line.quantity || 0), 0),
     lines: (doc.lines || []).map((line) => ({
@@ -1280,6 +1332,7 @@ module.exports.chosenRider = chosenRider;
 module.exports.partnerMovesFor = partnerMovesFor;
 module.exports.PAYMENT_MODES = PAYMENT_MODES;
 module.exports.PAYMENT_STATUSES = PAYMENT_STATUSES;
+module.exports.COLLECTION_METHODS = COLLECTION_METHODS;
 module.exports.REFUND_CHANNELS = REFUND_CHANNELS;
 module.exports.DISPATCH_STATES = DISPATCH_STATES;
 /* The refund ledger's three readers. Exported together because they are one
@@ -1293,5 +1346,6 @@ module.exports.makeOrderNumber = makeOrderNumber;
 module.exports.makeHandoverCode = makeHandoverCode;
 module.exports.restaurantSnapshot = restaurantSnapshot;
 module.exports.riderView = riderView;
+module.exports.qrIsOpen = qrIsOpen;
 module.exports.customerView = customerView;
 module.exports.partnerView = partnerView;

@@ -268,9 +268,45 @@ const razorpayWebhook = async (req, res) => {
     return handlePayoutEvent({ event, payload, eventId, ack });
   }
 
-  if (!['payment_link.paid', 'payment.captured'].includes(event)) {
+  if (!['payment_link.paid', 'payment.captured', 'qr_code.credited'].includes(event)) {
     return ack(`ignored event "${event}"`);
   }
+
+  /*
+   * ── A rider's doorstep UPI QR ──────────────────────────────────────────
+   *
+   * A cash-on-delivery order paid by scanning the rider's QR. Told apart by
+   * the `purpose` note the QR was minted with, and handled BEFORE the food
+   * branch below: that branch confirms an ONLINE order, which also tells the
+   * kitchen about a new order — the wrong thing to do for food already at the
+   * customer's door. See `drivers/doorstepCollection.service.js`.
+   *
+   * `qr_code.credited` carries the QR (with its notes) beside the payment.
+   * Whether the matching `payment.captured` carries the QR's notes as well is
+   * Razorpay's business; if it does, the settle is idempotent and the second
+   * one is a no-op.
+   */
+  const qrEntity = payload.qr_code?.entity || {};
+  const doorstep = [qrEntity.notes, paymentEntity.notes]
+    .find((notes) => notes && notes.purpose === 'doorstep_collection');
+  if (doorstep && doorstep.foodOrderNumber) {
+    const orderNumber = String(doorstep.foodOrderNumber).trim().toUpperCase();
+    try {
+      // eslint-disable-next-line global-require
+      const { settleByQr } = require('../drivers/doorstepCollection.service');
+      const out = await settleByQr(orderNumber, {
+        paymentId: paymentEntity.id || null,
+        amountPaise: Number(paymentEntity.amount ?? qrEntity.payment_amount),
+      });
+      return ack(`doorstep ${orderNumber}: ${out.settled ? 'paid' : out.reason}`);
+    } catch (error) {
+      /* Acknowledged anyway, for the reason the food branch gives. The
+         rider's status poll asks Razorpay directly and settles it from there. */
+      console.error(`[razorpay-webhook] doorstep ${orderNumber} failed: ${error.message}`);
+      return ack(`doorstep ${orderNumber} failed`);
+    }
+  }
+  if (event === 'qr_code.credited') return ack('qr code without a doorstep order');
 
   /*
    * A food order's payment arrives through the SAME webhook, and is told apart

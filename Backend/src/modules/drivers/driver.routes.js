@@ -72,7 +72,7 @@ const {
 } = require('./driverUpload.controller');
 const {
   getMyOffer, acceptOrder, declineOrder, getActiveOrder,
-  setOrderStatus, releaseOrder, listMyOrders,
+  setOrderStatus, startUpiCollection, getCollection, getMyCash, releaseOrder, listMyOrders,
 } = require('./driverOrder.controller');
 const { AUDIENCES } = require('../accountDeletion/accountDeletion.audiences');
 const {
@@ -200,6 +200,8 @@ router.patch(
 );
 
 router.get('/me/earnings', working, getEarnings);
+/* Cash from cash-on-delivery orders not yet handed back to Lampose. */
+router.get('/me/cash', working, getMyCash);
 
 /* ── Orders ──────────────────────────────────────────────────────────────── */
 
@@ -222,5 +224,23 @@ router.post('/orders/:orderNumber/accept', working, acceptOrder);
 router.post('/orders/:orderNumber/decline', working, declineOrder);
 router.post('/orders/:orderNumber/release', working, releaseOrder);
 router.patch('/orders/:orderNumber/status', working, setOrderStatus);
+
+/* Collecting a cash-on-delivery order at the door — see
+   `doorstepCollection.service.js`. Each QR is a Razorpay API call, so minting
+   is limited well below what a rider at one door could need; the status read
+   is polled by the QR screen every few seconds and throttles its own
+   Razorpay checks, so its ceiling only has to stop a client with no timer. */
+router.post(
+  '/orders/:orderNumber/collect/upi',
+  ...working,
+  byDriver('driver-collect-qr', 15 * 60 * 1000, 20),
+  startUpiCollection,
+);
+router.get(
+  '/orders/:orderNumber/collect',
+  ...working,
+  byDriver('driver-collect-poll', 60 * 1000, 60),
+  getCollection,
+);
 
 module.exports = router;

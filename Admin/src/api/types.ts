@@ -796,6 +796,8 @@ export interface DriverPayout {
 }
 
 export interface DriverRow {
+  /** Cash from cash-on-delivery orders not yet handed back, in paise. */
+  cashInHandPaise: number;
   driverId: string;
   name: string;
   phone: string;
@@ -849,12 +851,39 @@ export interface DriverDelivery {
   earnings: number;
   orderTotal: number;
   paymentMode: string;
+  /** How a COD order was paid at the door: 'cash', 'upi_qr' or ''. */
+  collectionMethod: string;
+}
+
+export type DriverCashDepositMethod = 'cash' | 'bank' | 'upi';
+
+/**
+ * The cash a rider holds from cash-on-delivery orders. Derived on the server
+ * every time — cash collected at doors minus what was handed over — never a
+ * stored balance.
+ */
+export interface DriverCashLedger {
+  collectedPaise: number;
+  depositedPaise: number;
+  inHandPaise: number;
+  cashOrders: number;
+  collections: { orderNumber: string; amountPaise: number; at: string | null }[];
+  deposits: {
+    id: string;
+    amountPaise: number;
+    method: DriverCashDepositMethod;
+    reference: string;
+    note: string;
+    recordedBy: string;
+    at: string | null;
+  }[];
 }
 
 export interface DriverDetail extends DriverRow {
   /** From the order ledger, not a counter on the rider. */
   lifetime: { assigned: number; delivered: number; cancelled: number; earnings: number };
   recentDeliveries: DriverDelivery[];
+  cash: DriverCashLedger;
 }
 
 export interface DriverQueueCounts {
@@ -971,6 +1000,8 @@ export interface FoodOrderRow {
   grandTotal: number;
   paymentMode: FoodOrderPaymentMode;
   paymentStatus: FoodOrderPaymentStatus;
+  /** How a cash-on-delivery order was paid at the door; '' until delivered. */
+  collectionMethod: FoodCollectionMethod;
   refund: FoodRefundRecord;
   rider: FoodOrderRiderBrief | null;
   flags: FoodOrderFlags;
@@ -1079,14 +1110,31 @@ export interface FoodRefundFailure {
   at: string | null;
 }
 
+/**
+ * How a cash-on-delivery order was actually paid at the door: cash into the
+ * rider's hand, or UPI on the rider's Razorpay QR. '' until it is delivered,
+ * and always '' on a prepaid order.
+ */
+export type FoodCollectionMethod = '' | 'cash' | 'upi_qr';
+
+export interface FoodOrderCollection {
+  method: FoodCollectionMethod;
+  amountPaise: number;
+  collectedAt: string | null;
+  /** The rider's driverId. */
+  collectedBy: string;
+}
+
 export interface FoodOrderPayment {
   mode: FoodOrderPaymentMode;
   status: FoodOrderPaymentStatus;
   razorpayOrderId: string;
+  /** On a cash-on-delivery order paid by UPI at the door, the QR payment. */
   razorpayPaymentId: string;
   /** What the gateway recorded taking, in paise. */
   amountPaise: number;
   paidAt: string | null;
+  collection: FoodOrderCollection;
   /** The refund button's enabled state. Decided by the server, not the page. */
   refundable: boolean;
   /** The sentence to show when `refundable` is false. Shown verbatim. */

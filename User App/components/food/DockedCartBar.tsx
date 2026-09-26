@@ -1,14 +1,6 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, {
-  SlideInDown,
-  SlideOutDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withSequence,
-  withSpring,
-} from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 
 import { Icon, Text } from '@/components/ui';
@@ -28,7 +20,10 @@ export type DockedCartBarProps = {
 };
 
 /**
- * Animated DockedCartBar with spring slide-in, count pulse and haptics.
+ * The cart bar docked at the bottom of a menu.
+ *
+ * Deliberately still: no slide-in when the first item is added and no pulse
+ * when the count changes. It simply appears and updates.
  */
 export function DockedCartBar({
   count,
@@ -41,18 +36,6 @@ export function DockedCartBar({
 }: DockedCartBarProps) {
   const { colors, space, layout, radius } = useTheme();
   const insets = useSafeAreaInsets();
-  const pulseScale = useSharedValue(1);
-
-  useEffect(() => {
-    pulseScale.value = withSequence(
-      withSpring(1.2, { damping: 8, stiffness: 320 }),
-      withSpring(1.0, { damping: 12, stiffness: 220 })
-    );
-  }, [count, total, pulseScale]);
-
-  const animatedBadgeStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pulseScale.value }],
-  }));
 
   const measure = (event: LayoutChangeEvent) => onMeasure?.(event.nativeEvent.layout.height);
 
@@ -64,9 +47,7 @@ export function DockedCartBar({
   };
 
   return (
-    <Animated.View
-      entering={SlideInDown.springify().damping(16)}
-      exiting={SlideOutDown.duration(200)}
+    <View
       onLayout={measure}
       style={{
         paddingHorizontal: layout.gutter,
@@ -95,11 +76,9 @@ export function DockedCartBar({
         ]}
       >
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Animated.View style={animatedBadgeStyle}>
-            <Text variant="priceMd" style={{ color: colors.onGraphite, fontWeight: '700' }}>
-              {count} {count === 1 ? 'item' : 'items'} · {formatRupees(total)}
-            </Text>
-          </Animated.View>
+          <Text variant="priceMd" style={{ color: colors.onGraphite, fontWeight: '700' }}>
+            {count} {count === 1 ? 'item' : 'items'} · {formatRupees(total)}
+          </Text>
           <Text variant="caption" style={{ color: colors.onGraphiteMuted, marginTop: 2 }} numberOfLines={1}>
             {context}
           </Text>
@@ -121,7 +100,7 @@ export function DockedCartBar({
           <Icon name="arrowRight" size={16} color={colors.graphite} />
         </View>
       </Pressable>
-    </Animated.View>
+    </View>
   );
 }
 

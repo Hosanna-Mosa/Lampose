@@ -181,7 +181,8 @@ export default function HomeScreen() {
 
   const blocked = !!profile && !profile.canGoOnline;
   const blockedReason = profile?.blockedReason ?? "";
-  const hasRejectedDocument = !!profile?.documents?.some((doc) => doc.status === "rejected");
+  const rejectedDocuments = (profile?.documents ?? []).filter((doc) => doc.status === "rejected");
+  const hasRejectedDocument = rejectedDocuments.length > 0;
 
   const locationFault: { tone: ToneName; title: string; body: string; settings?: boolean } | null =
     permissionDenied
@@ -568,6 +569,30 @@ export default function HomeScreen() {
             { backgroundColor: dutyCardBg, borderColor: dutyCardBorder },
           ]}
         >
+          {/* A document sent back by the approver — which one, and the
+              approver's own reason, the same sentence the rider got on
+              WhatsApp. First on the card because it is the one thing here the
+              rider can fix themselves, right now. */}
+          {hasRejectedDocument && (
+            <View style={{ marginBottom: space[3], gap: space[2] }}>
+              {rejectedDocuments.map((doc) => (
+                <Notice
+                  key={doc.kind}
+                  tone="danger"
+                  glyph="documents"
+                  title={`${doc.label} needs a new photo`}
+                  body={doc.reason || "Please upload a clearer photo of it."}
+                />
+              ))}
+              <Btn
+                label="Upload again"
+                variant="accent"
+                glyph="documents"
+                onPress={() => router.push("/documents")}
+              />
+            </View>
+          )}
+
           {blocked && !online && (
             <Notice
               tone="warning"
@@ -645,16 +670,6 @@ export default function HomeScreen() {
           <RNText style={styles.dutySubtext}>
             {online ? "Tap to stop receiving requests" : "Tap to start receiving requests"}
           </RNText>
-
-          {blocked && !online && hasRejectedDocument && (
-            <Btn
-              label="Retake your documents"
-              variant="quiet"
-              glyph="documents"
-              onPress={() => router.push("/documents")}
-              style={{ marginTop: space[2] }}
-            />
-          )}
 
           {/* Every OTHER reason `blocked` is true — a still-incomplete
               application, not a rejected document, which already has its own

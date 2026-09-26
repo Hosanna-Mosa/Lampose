@@ -163,6 +163,19 @@ const config = {
      Absent keys are not fatal. Nothing here exits the process — the payment
      routes answer a named 503 and every other flow carries on, which is the
      same rule Mongo, SMS and Twilio follow. */
+  /* Collecting a cash-on-delivery order at the door — see
+     `drivers/doorstepCollection.service.js`.
+
+     A rider marking a COD order delivered must say whether they took cash or
+     the diner paid on the UPI QR. Rider apps from before that screen existed
+     say neither; `DOORSTEP_COLLECTION_OPTIONAL=true` lets them through (the
+     answer is recorded as cash) for as long as some riders are still on one.
+     OFF by default: once every rider has updated, unset it and a delivery
+     that does not say how it was paid is refused. */
+  doorstep: {
+    collectionOptional: String(process.env.DOORSTEP_COLLECTION_OPTIONAL || '').trim() === 'true',
+  },
+
   razorpay: {
     keyId: String(process.env.RAZORPAY_KEY_ID || '').trim(),
     /* Never leaves the server: it signs orders and verifies callbacks. */
