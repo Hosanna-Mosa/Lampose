@@ -614,18 +614,19 @@ function validateStep3(form) {
     errs.aadhaarPhone = 'Enter a real 10-digit mobile number starting 6, 7, 8 or 9';
   }
 
+  /* Every field in this step is OPTIONAL — a restaurant can be onboarded with
+     none of its papers to hand, and the verification queue asks for them
+     afterwards. What is typed is still checked, and the backend checks the
+     same shapes. */
   const fssai = onlyDigits(form.fssaiNumber);
-  if (!fssai) errs.fssaiNumber = 'Enter the FSSAI licence number';
-  else if (fssai.length !== FSSAI_DIGITS) {
+  if (fssai && fssai.length !== FSSAI_DIGITS) {
     errs.fssaiNumber = `An FSSAI number is ${FSSAI_DIGITS} digits — you have typed ${fssai.length}`;
   }
 
   /* The backend refuses a licence that has already expired, so it is refused
      here rather than at the end of the form. */
   const expiry = text(form.fssaiExpiry);
-  if (!expiry) {
-    errs.fssaiExpiry = 'Enter the FSSAI expiry date';
-  } else {
+  if (expiry) {
     const when = new Date(`${expiry}T00:00:00`);
     if (Number.isNaN(when.getTime())) {
       errs.fssaiExpiry = 'Enter the expiry date as it reads on the licence';
@@ -649,9 +650,8 @@ function validateStep3(form) {
    *
    * FoSCoS looks a licence up by company name, licence number, state AND
    * district together. A verifier holding three of those four cannot run the
-   * check at all — they can only guess, or ring the restaurant back — so both
-   * are required here even though the backend, which has to keep accepting
-   * the Food-Partner app's own signup, asks for neither.
+   * check at all — they can only guess, or ring the restaurant back. They are
+   * still optional, like the rest of this step: only what is typed is checked.
    *
    * The state is checked against the list the dropdown is built from rather
    * than merely for being non-empty. That catches the one case a dropdown
@@ -664,7 +664,7 @@ function validateStep3(form) {
      other name on this form is. */
   const company = text(form.fssaiCompanyName);
   if (!company) {
-    errs.fssaiCompanyName = 'Enter the company name as it reads on the licence';
+    // Optional — nothing to check.
   } else if (company.length < 3) {
     errs.fssaiCompanyName = 'Give the full company name from the certificate';
   } else if (!hasLetters(company)) {
@@ -672,9 +672,7 @@ function validateStep3(form) {
   }
 
   const stateName = text(form.state);
-  if (!stateName) {
-    errs.state = 'Pick the state on the licence — FoSCoS cannot look it up without one';
-  } else if (!INDIAN_STATES.includes(stateName)) {
+  if (stateName && !INDIAN_STATES.includes(stateName)) {
     errs.state = 'Pick a state from the list';
   }
 
@@ -682,17 +680,14 @@ function validateStep3(form) {
      placeholder. See INDIAN_STATES for why this is not a dropdown. */
   const district = text(form.district);
   if (!district) {
-    errs.district = 'Enter the district exactly as it reads on the licence';
+    // Optional — nothing to check.
   } else if (district.length < 3) {
     errs.district = 'Give the full district name as FoSCoS spells it, e.g. Greater Hyderabad Municipal Corporation';
   } else if (!hasLetters(district)) {
     errs.district = 'A district name needs letters, not only numbers';
   }
 
-  /* Optional for the same reason the PAN scan is, and for the same reason
-     the NUMBER and the EXPIRY above it are not: the backend refuses an
-     application with no FSSAI number or an expired licence, so those two are
-     the ones that have to be right here. */
+  /* Optional for the same reason the PAN scan is. */
   const fssaiProblem = fileProblem(form.fssaiFile, 'FSSAI scan');
   if (fssaiProblem) errs.fssaiFile = fssaiProblem;
 
