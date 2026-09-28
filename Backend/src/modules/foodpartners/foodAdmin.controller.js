@@ -286,7 +286,10 @@ const issueCredentials = async (restaurant, password) => {
        owner reads back the address we will actually send people to — and sees
        it now, while a wrong one is still cheap to correct. */
     address: addressLine(restaurant.address),
-    consoleUrl: consoleUrl(),
+    /* `?as=restaurant` opens the console on the owner's sign-in alone, with
+       the staff door hidden — see `LoginPage.tsx`. Added here and not to
+       `RESTAURANT_CONSOLE_URL`, which the order alert shares. */
+    consoleUrl: `${consoleUrl()}/?as=restaurant`,
   });
 
   /* The numbers and the outcomes, never the password. A credential in a log

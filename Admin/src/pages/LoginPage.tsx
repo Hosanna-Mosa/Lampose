@@ -114,11 +114,25 @@ const ORDER: SessionKind[] = ['admin', 'restaurant'];
  * is one tap from their own door.
  */
 const firstDoor = (): SessionKind =>
-  new URLSearchParams(window.location.search).get('order') ? 'restaurant' : 'admin';
+  restaurantOnly() || new URLSearchParams(window.location.search).get('order')
+    ? 'restaurant'
+    : 'admin';
+
+/**
+ * `?as=restaurant` — the link in the "your restaurant is approved" WhatsApp.
+ *
+ * Unlike `?order=`, it HIDES the staff door rather than just not opening on
+ * it: an owner reading "Lampose Admin" beside their own sign-in, on their
+ * first visit, does not know which one is theirs. Staff never receive this
+ * link, and the bare address still shows both doors.
+ */
+const restaurantOnly = (): boolean =>
+  new URLSearchParams(window.location.search).get('as') === 'restaurant';
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
   const { login, loginAsRestaurant } = useAuth();
   const [role, setRole] = useState<SessionKind>(firstDoor);
+  const [ownerOnly] = useState(restaurantOnly);
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -166,7 +180,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
 
       {/* The picker. A radio group rather than a dropdown: there are two
           choices, they are the first decision on the screen, and both should
-          be readable without opening anything. */}
+          be readable without opening anything. Absent on the owner-only link,
+          where there is no choice to make. */}
+      {!ownerOnly && (
       <Box
         role="radiogroup"
         aria-label="Sign in as"
@@ -196,6 +212,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
           );
         })}
       </Box>
+      )}
 
       <Form onSubmit={handleSubmit} className="mt-5 space-y-4" autoComplete="off">
         {error && (
