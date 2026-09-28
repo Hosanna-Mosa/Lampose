@@ -11,6 +11,7 @@
      POST /auth/start    a number in, a code out by SMS
      POST /auth/verify   the code back, a session out
      POST /auth/resend   another code, on the server's clock
+     POST /auth/login    email + password — the store reviewer only
      GET  /me            who this token belongs to, and whether they may work
      PATCH /me           name, dob, city, photo, vehicle, payout
      GET  /me/documents  the five-row checklist and each one's verdict
@@ -44,6 +45,7 @@
    done per position (matching, geofencing, trip distance) is deliberately not
    done here.
    ══════════════════════════════════════════════════════════════════════════ */
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 
 const config = require('../../config/env');
@@ -344,6 +346,77 @@ const verifyAuth = async (req, res, next) => {
       return fail(res, 503, 'AUTH_NOT_CONFIGURED', 'Sign-in is unavailable right now.');
     }
 
+    return res.json({ success: true, data: { token, driver: selfView(driver) } });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/* ── POST /auth/login ─────────────────────────────────────────────────────*/
+
+/* Hashed first so both sides are the same length, which `timingSafeEqual`
+   requires — and so the comparison's timing says nothing about either. */
+const sameSecret = (a, b) => crypto.timingSafeEqual(
+  crypto.createHash('sha256').update(String(a)).digest(),
+  crypto.createHash('sha256').update(String(b)).digest(),
+);
+
+/**
+ * Email and password — the store reviewer's door, and only theirs.
+ *
+ * Riders have no password: a real rider signs in by phone, always. The one
+ * credential this route knows is `REVIEW_DRIVER_EMAIL` +
+ * `REVIEW_DRIVER_PASSWORD` from the server's environment, and the one account
+ * it opens is the review rider, DR-REVIEW01 — the same row the review phone
+ * reaches, approved, and never offered an order (driverMatch.service.js).
+ *
+ * Every refusal is the same 401, whether the pair is wrong or the route is
+ * switched off, so it cannot be used to learn whether a review account
+ * exists on this deployment.
+ */
+const passwordLogin = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+
+    const body = req.body || {};
+    const email = String(body.email || '').trim().toLowerCase();
+    const password = String(body.password || '');
+    if (!email || !password) {
+      return fail(res, 400, 'MISSING_CREDENTIALS', 'Please enter your email and password.');
+    }
+
+    const creds = config.auth.reviewDriver;
+    /* Both compared, always — no early exit on the email, which would time
+       the difference between a known address and a wrong password. */
+    const emailOk = Boolean(creds) && sameSecret(email, creds.email);
+    const passwordOk = Boolean(creds) && sameSecret(password, creds.password);
+    if (!emailOk || !passwordOk) {
+      return fail(res, 401, 'INVALID_CREDENTIALS', 'That email or password is not right.');
+    }
+
+    /* Created or repaired right here if the hourly keeper has not run yet —
+       the same thing `startAuth` does for the review number. */
+    const { ensureDriver, DRIVER_ID } = require('../reviewAccounts/reviewAccounts.service');
+    const ensured = await ensureDriver();
+    if (!['created', 'kept'].includes(ensured)) {
+      /* 'off' — REVIEW_LOGIN_PHONE is unset — or 'conflict' — a real rider
+         holds the review number. Either way there is no account to open. */
+      console.error(`[drivers] review login refused: review rider is ${ensured}`);
+      return fail(res, 503, 'REVIEW_ACCOUNT_UNAVAILABLE', 'Sign-in is unavailable right now.');
+    }
+
+    const driver = await Driver.findOne({ driverId: DRIVER_ID });
+    if (!driver) return fail(res, 503, 'REVIEW_ACCOUNT_UNAVAILABLE', 'Sign-in is unavailable right now.');
+
+    driver.lastLoginAt = new Date();
+    await driver.save();
+
+    const token = signDriverToken(driver);
+    if (!token) {
+      return fail(res, 503, 'AUTH_NOT_CONFIGURED', 'Sign-in is unavailable right now.');
+    }
+
+    console.log('🧪 [Review Login] rider signed in with email and password');
     return res.json({ success: true, data: { token, driver: selfView(driver) } });
   } catch (error) {
     return next(error);
@@ -879,6 +952,7 @@ module.exports = {
   startAuth,
   resendAuth,
   verifyAuth,
+  passwordLogin,
   getMe,
   getMyStanding,
   updateMe,

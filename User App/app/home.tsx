@@ -138,10 +138,9 @@ const FOOD_TAB_IDS = {
   /* In the map but never in the bar — see `FoodTab`. Kept so `activeId` can
      still be derived from `foodTab` without a special case; it simply matches
      no tab, and the bar shows nothing selected while Search is open, which is
-     honest: none of the three places in the bar is where you are. */
+     honest: none of the places in the bar is where you are. */
   search: 'food:search',
   orders: 'food:orders',
-  dinein: 'food:dinein',
 } as const;
 
 
@@ -634,19 +633,12 @@ export default function Home() {
   }, [tab, foodTab, showBar]);
 
   /*
-   * Home, Orders, Dine In, and the way out.
+   * Home, Orders, and the way out.
    *
-   * Search used to sit second and is gone from the bar — it is the one screen
-   * here with a door of its own on Home, the search field across the top of
-   * the feed, so it was the cheapest of the four to demote when Dine In needed
-   * a slot. Orders moved up into the space rather than Dine In taking it: an
-   * order in flight is the most time-critical thing this module holds, and the
-   * tab that carries the live dot belongs nearer the thumb than a browsing
-   * screen does.
-   *
-   * `walk` for Dine In rather than a plate or a table glyph. The decision it
-   * serves is "can I get there", and the whole screen is ordered by minutes on
-   * foot — the footprints say that where a table would only repeat the label.
+   * Search is not in the bar — it is the one screen here with a door of its
+   * own on Home, the search field across the top of the feed. Orders sits
+   * second: an order in flight is the most time-critical thing this module
+   * holds, and the tab that carries the live dot belongs near the thumb.
    */
   const FOOD_TABS = useMemo<readonly TabItem[]>(
     () => [
@@ -654,7 +646,6 @@ export default function Home() {
       // The dot, not a count: there is only ever one order in flight, so a
       // number would always read "1" and say nothing the dot does not.
       { id: FOOD_TAB_IDS.orders, label: 'Orders', icon: 'agreement', dot: liveOrder !== null },
-      { id: FOOD_TAB_IDS.dinein, label: 'Dine In', icon: 'walk' },
       FOOD_EXIT,
     ],
     [liveOrder],

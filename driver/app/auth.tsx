@@ -48,6 +48,7 @@ export default function AuthScreen() {
   const startSignIn = useDriverStore((s) => s.startSignIn);
   const resendCode = useDriverStore((s) => s.resendCode);
   const verifyCode = useDriverStore((s) => s.verifyCode);
+  const signInWithPassword = useDriverStore((s) => s.signInWithPassword);
   const otpSending = useDriverStore((s) => s.otpSending);
 
   /* The one toast that reaches this screen is "Your account has been deleted",
@@ -78,6 +79,14 @@ export default function AuthScreen() {
       ? "Indian mobile numbers must start with 6, 7, 8, or 9."
       : undefined
     : undefined;
+
+  // Email & password (the store reviewer's sign-in — riders use their phone)
+  const [mode, setMode] = useState<"phone" | "email">("phone");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [focusedField, setFocusedField] = useState<"email" | "password" | null>(null);
+  const passwordInputRef = useRef<TextInput>(null);
+  const credentialsReady = email.trim().length > 0 && password.length > 0;
 
   // OTP Step State
   const [code, setCode] = useState("");
@@ -180,6 +189,45 @@ export default function AuthScreen() {
       setTimeout(() => otpBoxRefs.current[0]?.focus(), 400);
     } catch (err) {
       setError(readError(err, "We could not send a verification code to that number."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const switchMode = (next: "phone" | "email") => {
+    if (busy) return;
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    setError("");
+    setTouched(false);
+    setPassword("");
+    setMode(next);
+  };
+
+  const submitPassword = async () => {
+    if (!credentialsReady || busy) return;
+
+    Keyboard.dismiss();
+    setError("");
+    setBusy(true);
+
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+
+    try {
+      const profile = await signInWithPassword(email, password);
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch {}
+      router.replace(profile.hasCompletedOnboarding ? "/(tabs)" : "/onboarding");
+    } catch (err) {
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      } catch {}
+      setError(readError(err, "That email or password is not right."));
+      setPassword("");
     } finally {
       setBusy(false);
     }
@@ -390,40 +438,109 @@ export default function AuthScreen() {
 
                 {/* Form Area */}
                 <View style={styles.formArea}>
-                  <Pressable
-                    onPress={() => phoneInputRef.current?.focus()}
-                    style={[
-                      styles.phoneInputContainer,
-                      isFocused && styles.phoneInputFocused,
-                      Boolean(numberError) && styles.phoneInputError,
-                    ]}
-                  >
-                    <Icon name="phone" size={18} color="#0A5A41" />
-                    <Text style={styles.countryCodeText}>+91</Text>
-                    <View style={styles.divider} />
-                    <TextInput
-                      ref={phoneInputRef}
-                      value={digits}
-                      onChangeText={handlePhoneChange}
-                      onFocus={() => setIsFocused(true)}
-                      onBlur={() => {
-                        setIsFocused(false);
-                        setTouched(true);
-                      }}
-                      placeholder="Enter mobile number"
-                      placeholderTextColor="#94A3B8"
-                      keyboardType="number-pad"
-                      textContentType="telephoneNumber"
-                      autoComplete="tel"
-                      maxLength={10}
-                      style={[styles.phoneInput, digits.length === 0 && styles.phoneInputEmpty]}
-                      selectionColor="#0A5A41"
-                      returnKeyType="done"
-                      onSubmitEditing={() => numberValid && submitPhone()}
-                    />
-                  </Pressable>
+                  {mode === "email" ? (
+                    <>
+                      <View
+                        style={[
+                          styles.phoneInputContainer,
+                          focusedField === "email" && styles.phoneInputFocused,
+                        ]}
+                      >
+                        <Icon name="message" size={18} color="#0A5A41" />
+                        <View style={styles.divider} />
+                        <TextInput
+                          value={email}
+                          onChangeText={(v) => {
+                            setEmail(v);
+                            setError("");
+                          }}
+                          onFocus={() => setFocusedField("email")}
+                          onBlur={() => setFocusedField(null)}
+                          placeholder="Email address"
+                          placeholderTextColor="#94A3B8"
+                          keyboardType="email-address"
+                          textContentType="emailAddress"
+                          autoComplete="email"
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          style={[styles.phoneInput, styles.phoneInputEmpty]}
+                          selectionColor="#0A5A41"
+                          returnKeyType="next"
+                          onSubmitEditing={() => passwordInputRef.current?.focus()}
+                          accessibilityLabel="Email address"
+                        />
+                      </View>
+                      <View
+                        style={[
+                          styles.phoneInputContainer,
+                          styles.stackedInput,
+                          focusedField === "password" && styles.phoneInputFocused,
+                        ]}
+                      >
+                        <Icon name="lock" size={18} color="#0A5A41" />
+                        <View style={styles.divider} />
+                        <TextInput
+                          ref={passwordInputRef}
+                          value={password}
+                          onChangeText={(v) => {
+                            setPassword(v);
+                            setError("");
+                          }}
+                          onFocus={() => setFocusedField("password")}
+                          onBlur={() => setFocusedField(null)}
+                          placeholder="Password"
+                          placeholderTextColor="#94A3B8"
+                          secureTextEntry
+                          textContentType="password"
+                          autoComplete="password"
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          style={[styles.phoneInput, styles.phoneInputEmpty]}
+                          selectionColor="#0A5A41"
+                          returnKeyType="done"
+                          onSubmitEditing={submitPassword}
+                          accessibilityLabel="Password"
+                        />
+                      </View>
+                    </>
+                  ) : (
+                    <>
+                      <Pressable
+                        onPress={() => phoneInputRef.current?.focus()}
+                        style={[
+                          styles.phoneInputContainer,
+                          isFocused && styles.phoneInputFocused,
+                          Boolean(numberError) && styles.phoneInputError,
+                        ]}
+                      >
+                        <Icon name="phone" size={18} color="#0A5A41" />
+                        <Text style={styles.countryCodeText}>+91</Text>
+                        <View style={styles.divider} />
+                        <TextInput
+                          ref={phoneInputRef}
+                          value={digits}
+                          onChangeText={handlePhoneChange}
+                          onFocus={() => setIsFocused(true)}
+                          onBlur={() => {
+                            setIsFocused(false);
+                            setTouched(true);
+                          }}
+                          placeholder="Enter mobile number"
+                          placeholderTextColor="#94A3B8"
+                          keyboardType="number-pad"
+                          textContentType="telephoneNumber"
+                          autoComplete="tel"
+                          maxLength={10}
+                          style={[styles.phoneInput, digits.length === 0 && styles.phoneInputEmpty]}
+                          selectionColor="#0A5A41"
+                          returnKeyType="done"
+                          onSubmitEditing={() => numberValid && submitPhone()}
+                        />
+                      </Pressable>
 
-                  {numberError ? <Text style={styles.errorText}>{numberError}</Text> : null}
+                      {numberError ? <Text style={styles.errorText}>{numberError}</Text> : null}
+                    </>
+                  )}
 
                   {!!error && (
                     <View style={{ marginTop: 12, width: "100%" }}>
@@ -434,12 +551,12 @@ export default function AuthScreen() {
                   {/* Gradient Primary Button */}
                   <Animated.View style={[buttonAnimatedStyle, styles.primaryButtonWrap]}>
                     <Pressable
-                      onPress={submitPhone}
-                      disabled={!numberValid || busy || otpSending}
+                      onPress={mode === "email" ? submitPassword : submitPhone}
+                      disabled={mode === "email" ? !credentialsReady || busy : !numberValid || busy || otpSending}
                       style={({ pressed }) => [
                         styles.primaryButtonPress,
                         pressed && !busy ? { opacity: 0.92 } : null,
-                        (!numberValid || busy) && { opacity: 0.65 },
+                        ((mode === "email" ? !credentialsReady : !numberValid) || busy) && { opacity: 0.65 },
                       ]}
                       accessibilityRole="button"
                     >
@@ -453,13 +570,26 @@ export default function AuthScreen() {
                           <ActivityIndicator size="small" color="#FFFFFF" />
                         ) : (
                           <View style={styles.primaryButtonRow}>
-                            <Text style={styles.primaryButtonText}>Send OTP Code</Text>
+                            <Text style={styles.primaryButtonText}>
+                              {mode === "email" ? "Sign In" : "Send OTP Code"}
+                            </Text>
                             <Icon name="arrowRight" size={20} color="#FFFFFF" />
                           </View>
                         )}
                       </LinearGradient>
                     </Pressable>
                   </Animated.View>
+
+                  <Pressable
+                    onPress={() => switchMode(mode === "email" ? "phone" : "email")}
+                    disabled={busy}
+                    style={styles.modeSwitch}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.actionBtnText}>
+                      {mode === "email" ? "Use mobile number instead" : "Log in with email and password"}
+                    </Text>
+                  </Pressable>
 
                   {/* Terms & Conditions */}
                   <Text style={styles.termsText}>
@@ -744,6 +874,14 @@ const styles = StyleSheet.create({
   },
   phoneInputEmpty: {
     fontSize: 15,
+  },
+  stackedInput: {
+    marginTop: 12,
+  },
+  modeSwitch: {
+    marginTop: 14,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
   },
   errorText: {
     color: "#EF4444",

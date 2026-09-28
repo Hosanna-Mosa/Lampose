@@ -63,7 +63,7 @@ const { rateLimit } = require('../../shared/middleware/rateLimit');
 const { requireAuthConfig, requireLamposeDb } = require('../../shared/middleware/requireDb');
 
 const {
-  startAuth, resendAuth, verifyAuth,
+  startAuth, resendAuth, verifyAuth, passwordLogin,
   getMe, getMyStanding, updateMe, submitDocument, getMyDocuments,
   setDuty, updateLocation, getEarnings,
 } = require('./driver.controller');
@@ -123,6 +123,17 @@ router.post(
   requireLamposeDb,
   requireAuthConfig,
   verifyAuth,
+);
+
+/* The store reviewer's email-and-password sign-in (see `passwordLogin`). No
+   SMS is involved, so only the IP ceiling applies — tight, because a password
+   guess is all this route is ever asked for by anybody else. */
+router.post(
+  '/auth/login',
+  byIp('driver-password-login-ip', 15 * 60 * 1000, 10),
+  requireLamposeDb,
+  requireAuthConfig,
+  passwordLogin,
 );
 
 /* ── Public: "delete my account", from the website ───────────────────────── *

@@ -18,9 +18,8 @@ export {
 } from './FavouriteHeart';
 /* `Fulfilment.tsx` exported a Deliver / Pick up toggle and the room-target row
    that went with it. Pickup is no longer offered — the order endpoint refuses
-   one — and nothing in this app ever rendered either: see the note in
-   `FoodDineIn.tsx`. The file is deleted rather than left as a control nobody
-   may use. */
+   one — and nothing in this app ever rendered either. The file is deleted
+   rather than left as a control nobody may use. */
 export { DockedCartBar, type DockedCartBarProps } from './DockedCartBar';
 export { BillBreakdown, ReceiptLine, type BillLine, type BillBreakdownProps } from './BillBreakdown';
 export { ActiveOrderCard, FoodStatusChip, FoodTimeline, timelineIndex } from './FoodStatus';
@@ -57,9 +56,5 @@ export { RestaurantListCard, type RestaurantListCardProps } from './RestaurantLi
 export { FoodHome } from './FoodHome';
 export { FoodSearch, SUGGESTIONS } from './FoodSearch';
 export { FoodOrders } from './FoodOrders';
-/* Dine In — kitchens open now, nearest first. Not a filtered Home; see its
-   own doc comment for the errand it serves and where it deliberately
-   stops short of claiming a table. */
-export { FoodDineIn } from './FoodDineIn';
 export { FoodModule } from './FoodModule';
 export { FoodComingSoon } from './FoodComingSoon';

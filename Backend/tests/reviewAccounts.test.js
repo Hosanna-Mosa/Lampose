@@ -20,6 +20,8 @@ process.env.REVIEW_PARTNER_EMAIL = 'review.stay@example.com';
 process.env.REVIEW_PARTNER_PASSWORD = 'stay-review-pass-1';
 process.env.REVIEW_RESTAURANT_EMAIL = 'review.kitchen@example.com';
 process.env.REVIEW_RESTAURANT_PASSWORD = 'kitchen-review-pass-1';
+process.env.REVIEW_DRIVER_EMAIL = 'review.rider@example.com';
+process.env.REVIEW_DRIVER_PASSWORD = 'rider-review-pass-1';
 
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -120,6 +122,37 @@ describe('the review rider', () => {
     assert.equal((await riderSignIn()).status, 200);
   });
 
+  const riderPasswordLogin = (overrides = {}) => call('POST', '/api/v2/drivers/auth/login', {
+    email: process.env.REVIEW_DRIVER_EMAIL, password: process.env.REVIEW_DRIVER_PASSWORD, ...overrides,
+  });
+
+  it('signs in with the email and password to the same review rider', async () => {
+    await ensureReviewAccounts();
+    const loggedIn = await riderPasswordLogin({ email: ' Review.Rider@Example.com ' });
+    assert.equal(loggedIn.status, 200, JSON.stringify(loggedIn.body));
+    const rider = loggedIn.body.data.driver;
+    assert.equal(rider.driverId, 'DR-REVIEW01');
+    assert.equal(rider.email, process.env.REVIEW_DRIVER_EMAIL);
+    assert.equal(rider.canGoOnline, true);
+    assert.ok(loggedIn.body.data.token);
+  });
+
+  it('refuses a wrong password or email with the same answer', async () => {
+    const wrongPassword = await riderPasswordLogin({ password: 'not-the-password' });
+    const wrongEmail = await riderPasswordLogin({ email: 'someone@example.com' });
+    assert.equal(wrongPassword.status, 401);
+    assert.equal(wrongEmail.status, 401);
+    assert.equal(wrongPassword.body.code, wrongEmail.body.code);
+    assert.equal((await riderPasswordLogin({ password: '' })).status, 400);
+  });
+
+  it('is created by the email sign-in too if the keeper has not run yet', async () => {
+    await Driver.deleteMany({ phone: '+919998887456' });
+    const loggedIn = await riderPasswordLogin();
+    assert.equal(loggedIn.status, 200, JSON.stringify(loggedIn.body));
+    assert.equal(loggedIn.body.data.driver.driverId, 'DR-REVIEW01');
+  });
+
   it('is created by the sign-in itself if the keeper has not run yet', async () => {
     await Driver.deleteMany({ phone: '+919998887456' });
     const verified = await riderSignIn();
@@ -165,8 +198,11 @@ describe('the review rider', () => {
     await Driver.deleteMany({ phone: '+919998887456' });
     await Driver.create({ driverId: 'DR-REALREV', phone: '+919998887456', name: 'Real Rider' });
     assert.equal((await ensureReviewAccounts()).rider, 'conflict');
+    /* The email door must not open the real rider's account either. */
+    assert.equal((await riderPasswordLogin()).status, 503);
     const real = await Driver.findOne({ driverId: 'DR-REALREV' }).lean();
     assert.equal(real.status, 'pending');
+    assert.equal(real.email, '');
     await Driver.deleteMany({ phone: '+919998887456' });
     await ensureReviewAccounts();
   });

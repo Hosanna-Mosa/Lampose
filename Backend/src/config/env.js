@@ -493,6 +493,11 @@ const config = {
      */
     reviewPartner: reviewCredential('REVIEW_PARTNER_EMAIL', 'REVIEW_PARTNER_PASSWORD'),
     reviewRestaurant: reviewCredential('REVIEW_RESTAURANT_EMAIL', 'REVIEW_RESTAURANT_PASSWORD'),
+    /* The rider app's email-and-password door. Riders have no password, so
+       this pair is the ONLY credential `POST /api/v2/drivers/auth/login`
+       accepts, and it signs in the review rider (DR-REVIEW01) — which is kept
+       by the review phone above, so this is off without REVIEW_LOGIN_PHONE. */
+    reviewDriver: reviewCredential('REVIEW_DRIVER_EMAIL', 'REVIEW_DRIVER_PASSWORD'),
     adminSecretKey,
     /*
      * Guards the v2 routes that only ever run behind the leads panel's login

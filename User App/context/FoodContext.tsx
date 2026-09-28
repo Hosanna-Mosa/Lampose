@@ -108,14 +108,12 @@ export type AddResult = 'added' | 'conflict';
 /**
  * The module's screens.
  *
- * `search` is in this union but NOT in the bottom bar. It stopped being a tab
- * when Dine In took the slot: a bar of four is the most this design carries,
- * and search was the one of the four that already had a door on Home — the
- * field across the top of the feed is where a search actually starts. Being
- * off the bar changed where it is reached FROM, not what it is, so it stays a
- * module screen rather than becoming a pushed route.
+ * `search` is in this union but NOT in the bottom bar. It already has a door
+ * on Home — the field across the top of the feed is where a search actually
+ * starts. Being off the bar changes where it is reached FROM, not what it is,
+ * so it stays a module screen rather than becoming a pushed route.
  */
-export type FoodTab = 'home' | 'search' | 'orders' | 'dinein';
+export type FoodTab = 'home' | 'search' | 'orders';
 
 export type FoodContextValue = {
   /** Home / Search / Orders — the bottom bar's three stay-side-shaped tabs. */
@@ -362,8 +360,8 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   const [kitchenId, setKitchenId] = useState<string | null>(null);
   const [rawLines, setRawLines] = useState<CartLine[]>([]);
   /* Always 'delivery'. Collection is no longer offered anywhere and the order
-     endpoint refuses one; nothing in this app ever set it to anything else
-     (see `FoodDineIn.tsx`). A constant rather than state, so it cannot become
+     endpoint refuses one; nothing in this app ever set it to anything else.
+     A constant rather than state, so it cannot become
      something the server will refuse. */
   const fulfilment: Fulfilment = 'delivery';
   /*

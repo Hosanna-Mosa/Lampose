@@ -12,8 +12,12 @@
                    the ordinary email-and-password login
      Food-Partner  REVIEW_RESTAURANT_EMAIL + REVIEW_RESTAURANT_PASSWORD
                    the ordinary email-or-phone-and-password login
-     Rider app     REVIEW_LOGIN_PHONE + REVIEW_LOGIN_OTP again — the rider
-                   sign-in is phone-only (driver.controller.js#issueOtp)
+     Rider app     REVIEW_LOGIN_PHONE + REVIEW_LOGIN_OTP again, on the phone
+                   sign-in (driver.controller.js#issueOtp) — or
+                   REVIEW_DRIVER_EMAIL + REVIEW_DRIVER_PASSWORD on the
+                   "email and password" link (driver.controller.js#passwordLogin).
+                   Riders have no passwords, so that pair is checked against
+                   the environment and only ever opens DR-REVIEW01.
 
    ## "Usable at all times"
 
@@ -313,6 +317,9 @@ const ensureDriver = async () => {
     statusReason: '',
     hasCompletedOnboarding: true,
     onboardingStep: 'done',
+    /* The address the email-and-password door signs in, shown on the
+       reviewer's profile so the two sign-ins visibly reach one account. */
+    ...(config.auth.reviewDriver ? { email: config.auth.reviewDriver.email } : {}),
   };
 
   const found = holders[0];
