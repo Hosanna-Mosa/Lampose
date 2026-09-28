@@ -113,8 +113,8 @@ export function DocumentsLegalStep({ form, set, errors = {}, touch = () => {} })
       <Box className="rst-step-head">
         <Text className="rst-step-title">Documents &amp; Legal Verification</Text>
         <Text className="rst-step-sub">
-          The FSSAI number is needed. PAN, Aadhaar, the scans and the bank
-          details are optional and can follow later.
+          Everything on this step is optional — any detail the owner does not
+          have to hand can be added later.
         </Text>
       </Box>
 
@@ -202,7 +202,7 @@ export function DocumentsLegalStep({ form, set, errors = {}, touch = () => {} })
 
         <Box className="rst-card">
           <Box className="rst-grid-2" style={{ marginBottom: '14px' }}>
-            <Field label="FSSAI License Number" required htmlFor="rst-fssai" error={errors.fssaiNumber}>
+            <Field label="FSSAI License Number" optional htmlFor="rst-fssai" error={errors.fssaiNumber}>
               <Input
                 id="rst-fssai"
                 className={`rst-input${errors.fssaiNumber ? ' is-bad' : ''}`}
@@ -218,7 +218,7 @@ export function DocumentsLegalStep({ form, set, errors = {}, touch = () => {} })
               />
             </Field>
 
-            <Field label="FSSAI Expiry Date" required htmlFor="rst-fssai-expiry" error={errors.fssaiExpiry}>
+            <Field label="FSSAI Expiry Date" optional htmlFor="rst-fssai-expiry" error={errors.fssaiExpiry}>
               <Input
                 id="rst-fssai-expiry"
                 className={`rst-input${errors.fssaiExpiry ? ' is-bad' : ''}`}
@@ -262,7 +262,7 @@ export function DocumentsLegalStep({ form, set, errors = {}, touch = () => {} })
 
             <Field
               label="Company Name on the Licence"
-              required
+              optional
               htmlFor="rst-fssai-company"
               error={errors.fssaiCompanyName}
             >
@@ -278,7 +278,7 @@ export function DocumentsLegalStep({ form, set, errors = {}, touch = () => {} })
             </Field>
 
             <Box className="rst-grid-2">
-              <Field label="State on the Licence" required htmlFor="rst-state" error={errors.state}>
+              <Field label="State on the Licence" optional htmlFor="rst-state" error={errors.state}>
                 <Select
                   id="rst-state"
                   className={`rst-input${errors.state ? ' is-bad' : ''}`}
@@ -293,7 +293,7 @@ export function DocumentsLegalStep({ form, set, errors = {}, touch = () => {} })
                 </Select>
               </Field>
 
-              <Field label="District on the Licence" required htmlFor="rst-district" error={errors.district}>
+              <Field label="District on the Licence" optional htmlFor="rst-district" error={errors.district}>
                 <Input
                   id="rst-district"
                   className={`rst-input${errors.district ? ' is-bad' : ''}`}
@@ -314,8 +314,9 @@ export function DocumentsLegalStep({ form, set, errors = {}, touch = () => {} })
         <SectionHead icon={<Landmark size={16} color="#45855a" />} title="Banking & Payout Details" />
 
         <Box className="rst-card">
-          {/* Said once, at the top, rather than "(Optional)" five times: the
-              rule is about the BLOCK, not about any field in it. An account
+          {/* Every box is marked "(Optional)" so none reads as required, and
+              the rule is said here once because it is about the BLOCK, not
+              about any field in it. An account
               number with no IFSC is money that cannot be sent, so the four
               boxes stand or fall together — which is exactly what the backend
               does with them. */}
@@ -330,6 +331,7 @@ export function DocumentsLegalStep({ form, set, errors = {}, touch = () => {} })
 
           <Field
             label="Account Holder Name"
+            optional
             hint="Exactly as the bank holds it. Pre-filled from the owner's name — change it if the account is in the business's name."
             htmlFor="rst-holder"
             error={errors.accountHolderName}
@@ -346,7 +348,7 @@ export function DocumentsLegalStep({ form, set, errors = {}, touch = () => {} })
           </Field>
 
           <Box className="rst-grid-2" style={{ marginBottom: '14px' }}>
-            <Field label="Bank Account Number" htmlFor="rst-acct" error={errors.bankAccount}>
+            <Field label="Bank Account Number" optional htmlFor="rst-acct" error={errors.bankAccount}>
               <Input
                 id="rst-acct"
                 className={`rst-input${errors.bankAccount ? ' is-bad' : ''}`}
@@ -369,7 +371,7 @@ export function DocumentsLegalStep({ form, set, errors = {}, touch = () => {} })
                 for every character of a number being typed correctly. While
                 what is typed is still a prefix of the account number above,
                 nothing is said. */}
-            <Field label="Re-enter Account Number" htmlFor="rst-acct2" error={errors.bankConfirm}>
+            <Field label="Re-enter Account Number" optional htmlFor="rst-acct2" error={errors.bankConfirm}>
               <Input
                 id="rst-acct2"
                 className={`rst-input${errors.bankConfirm ? ' is-bad' : ''}${accountsMatch ? ' is-good' : ''}`}
@@ -387,7 +389,7 @@ export function DocumentsLegalStep({ form, set, errors = {}, touch = () => {} })
             </Field>
           </Box>
 
-          <Field label="Account Type">
+          <Field label="Account Type" optional>
             <Box className="rst-split">
               <PlainButton
                 type="button"
@@ -408,7 +410,7 @@ export function DocumentsLegalStep({ form, set, errors = {}, touch = () => {} })
             </Box>
           </Field>
 
-          <Field label="IFSC Code" htmlFor="rst-ifsc" error={errors.ifsc}>
+          <Field label="IFSC Code" optional htmlFor="rst-ifsc" error={errors.ifsc}>
             <Input
               id="rst-ifsc"
               className={`rst-input${errors.ifsc ? ' is-bad' : ''}`}

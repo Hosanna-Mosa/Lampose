@@ -999,13 +999,14 @@ const validateApplication = (sanitised = {}) => {
 
   /* ── Documents & legal ────────────────────────────────────────────────── */
 
+  /* The FSSAI number and expiry are OPTIONAL, like every other document
+     field: an application may arrive with no papers, and the verification
+     queue asks for them before approval. Only what was sent is checked. */
   const fssaiDigits = String(restaurant.fssaiLicenseNumber || '').replace(/\D/g, '');
-  if (fssaiDigits.length !== FSSAI_DIGITS) {
+  if (fssaiDigits && fssaiDigits.length !== FSSAI_DIGITS) {
     problems.push(`a ${FSSAI_DIGITS}-digit FSSAI number`);
   }
-  if (!restaurant.fssaiExpiry) {
-    problems.push('the FSSAI expiry date');
-  } else if (restaurant.fssaiExpiry.getTime() < Date.now()) {
+  if (restaurant.fssaiExpiry && restaurant.fssaiExpiry.getTime() < Date.now()) {
     problems.push('an FSSAI licence that has not already expired');
   }
 

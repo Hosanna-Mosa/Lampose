@@ -430,10 +430,12 @@ const foodRestaurantSchema = new mongoose.Schema(
        every open of the Restaurant Listing screen. */
     cuisineTypes: { type: [String], default: [], index: true },
 
-    /* Required because a kitchen may not legally sell food without one. The
-       number is stored here for search and printing; the scan of it is a
-       `verificationDocuments` entry of kind `fssai`. */
-    fssaiLicenseNumber: { type: String, required: true, trim: true },
+    /* Optional at application time — a restaurant can be onboarded before
+       its papers are collected, and the verification team asks for the
+       licence before approval. The number is stored here for search and
+       printing; the scan of it is a `verificationDocuments` entry of kind
+       `fssai`. */
+    fssaiLicenseNumber: { type: String, default: '', trim: true },
     /* The name the LICENCE is held in, which is not always `restaurantName`.
        A licence is issued to the registered entity — "Bhargavi Foods Pvt Ltd"
        against a board reading "Bhargavi Home Foods" — and the FoSCoS lookup
