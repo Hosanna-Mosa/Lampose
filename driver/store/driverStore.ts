@@ -558,6 +558,12 @@ type DriverState = {
   startSignIn: (phone: string) => Promise<void>;
   resendCode: () => Promise<void>;
   verifyCode: (code: string, name?: string) => Promise<DriverProfile>;
+  /**
+   * Email and password — the store reviewer's sign-in. Riders have no
+   * password; the server accepts only the review credential from its own
+   * environment, so the app carries none.
+   */
+  signInWithPassword: (email: string, password: string) => Promise<DriverProfile>;
   refreshProfile: () => Promise<boolean>;
   updateProfile: (patch: ProfilePatch) => Promise<DriverProfile>;
   /**
@@ -631,6 +637,31 @@ type DriverState = {
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 
+type SignInResult = { token: string; driver: DriverProfile };
+
+/* What every successful sign-in does, whichever door it came through. */
+function beginSession(
+  set: (partial: Partial<DriverState>) => void,
+  get: () => DriverState,
+  res: Envelope<SignInResult> | null | undefined,
+): DriverProfile {
+  const data = res?.data;
+  if (!data?.token) throw new ApiError(res?.message || "Sign-in failed.", 500);
+
+  set({
+    token: data.token,
+    profile: data.driver,
+    otpPhone: null,
+    isOnline: !!data.driver.isOnline,
+  });
+  socketService.connect(data.driver.driverId, data.token);
+  get().registerForOffers().catch(() => {});
+  // A rider who was mid-delivery when the app was killed lands straight
+  // back on the job rather than on an empty home screen.
+  get().fetchActiveJob().catch(() => {});
+  return data.driver;
+}
+
 export const useDriverStore = create<DriverState>()(
   persist(
     (set, get) => ({
@@ -696,25 +727,19 @@ export const useDriverStore = create<DriverState>()(
         const phone = get().otpPhone;
         if (!phone) throw new ApiError("Enter your number first.", 400);
 
-        const res = await api<Envelope<{ token: string; driver: DriverProfile }>>(
+        const res = await api<Envelope<SignInResult>>(
           `${BASE}/auth/verify`,
           { method: "POST", body: { phone, code, ...(name ? { name } : null) } },
         );
-        const data = res?.data;
-        if (!data?.token) throw new ApiError(res?.message || "Sign-in failed.", 500);
+        return beginSession(set, get, res);
+      },
 
-        set({
-          token: data.token,
-          profile: data.driver,
-          otpPhone: null,
-          isOnline: !!data.driver.isOnline,
+      signInWithPassword: async (email, password) => {
+        const res = await api<Envelope<SignInResult>>(`${BASE}/auth/login`, {
+          method: "POST",
+          body: { email: email.trim(), password },
         });
-        socketService.connect(data.driver.driverId, data.token);
-        get().registerForOffers().catch(() => {});
-        // A rider who was mid-delivery when the app was killed lands straight
-        // back on the job rather than on an empty home screen.
-        get().fetchActiveJob().catch(() => {});
-        return data.driver;
+        return beginSession(set, get, res);
       },
 
       refreshProfile: async () => {

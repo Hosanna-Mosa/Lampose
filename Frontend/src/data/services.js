@@ -64,7 +64,6 @@ export const PANELS = {
       { icon: 'food', h: 'One meal at a time', p: 'No subscription needed. Browse today’s mess menu, add a plate, pay online or at the door.' },
       { icon: 'stay', h: 'Home kitchens', p: 'Tiffins and regional cooking from people cooking out of their own homes near your stay.' },
       { icon: 'orders', h: 'Restaurants', p: 'Full menus with live order status, from a ₹60 tiffin to a full biryani at eleven at night.' },
-      { icon: 'users', h: 'Dine-in booking', p: 'Reserve a table, show the code on arrival, and use dine-in-only offers while you are there.' },
       { icon: 'tag', h: 'Offers that apply themselves', p: 'First-order discounts, festival offers and referral credit come off at checkout without a code.' },
     ],
     flowLabel: 'From cart to door',

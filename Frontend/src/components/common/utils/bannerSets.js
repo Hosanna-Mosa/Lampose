@@ -28,7 +28,7 @@ export const BANNER_SETS = {
     {
       eyebrow: 'Food ordering', art: 'phone', tint: 'amber',
       lines: ['Mess, home kitchens', 'and restaurants.'],
-      points: ['Monthly plans', 'Single meals', 'Dine-in offers'],
+      points: ['Monthly plans', 'Single meals', 'Restaurants'],
     },
     {
       eyebrow: 'Delivery', art: 'scooter', tint: 'grey',

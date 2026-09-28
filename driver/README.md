@@ -138,6 +138,7 @@ carry `typ: "driver"`:
 | `POST`  | `/api/v2/drivers/auth/start`               | A number in, a code out by SMS |
 | `POST`  | `/api/v2/drivers/auth/resend`              | Another code                   |
 | `POST`  | `/api/v2/drivers/auth/verify`              | The code back, a session out   |
+| `POST`  | `/api/v2/drivers/auth/login`               | Email + password — store reviewer only (`REVIEW_DRIVER_*` on the server) |
 | `GET`   | `/api/v2/drivers/me`                       | Profile, documents, approval, duty |
 | `PATCH` | `/api/v2/drivers/me`                       | Name, dob, city, vehicle, payout |
 | `GET`   | `/api/v2/drivers/me/documents`             | The five-row checklist and its verdicts |

@@ -11,7 +11,6 @@ import { usePendingRequest } from '@/context/PendingRequestContext';
 import { CartSwitchSheet } from './CartSwitchSheet';
 import { foodHref } from './routes';
 import { DockedCartBar } from './DockedCartBar';
-import { FoodDineIn } from './FoodDineIn';
 import { FoodHome } from './FoodHome';
 import { FoodOrders } from './FoodOrders';
 import { FoodSearch } from './FoodSearch';
@@ -20,22 +19,21 @@ import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 /**
  * The Food module, inside the Food tab.
  *
- * Four screens now: Home, Orders, Dine In and Search. Food settings,
- * favourites and the order detail are all pushes, so the module never grows a
- * navigation layer of its own.
+ * Three screens: Home, Orders and Search. Food settings, favourites and the
+ * order detail are all pushes, so the module never grows a navigation layer of
+ * its own.
  *
  * They do NOT get a control of their own at the top of the screen. While Food
- * is open the app's one bottom bar becomes the food bar — Home, Orders, Dine
- * In, and the raised Explore disc back to the stay side — so the module is
- * navigated exactly the way the rest of the app is, with the thumb.
+ * is open the app's one bottom bar becomes the food bar — Home, Orders, and
+ * the raised Explore disc back to the stay side — so the module is navigated
+ * exactly the way the rest of the app is, with the thumb.
  *
  * ## Search is a screen that is not a tab
  *
- * The bar carries three destinations and the disc, and Dine In took the slot
- * Search had. That is a change of DOOR, not of status: search is still one of
- * this module's screens, still mounted here, and still reached in one tap from
- * the field across the top of Home — which is where somebody who wants to
- * search is already looking.
+ * The bar carries two destinations and the disc. Search is still one of this
+ * module's screens, still mounted here, and reached in one tap from the field
+ * across the top of Home — which is where somebody who wants to search is
+ * already looking.
  *
  * The consequence that has to be paid for explicitly is the way OUT. Every
  * other screen here is a tab, so the bar is its own escape; Search is not, so
@@ -135,8 +133,6 @@ function FoodModuleImpl({ onBannerUnderHeader }: FoodModuleProps) {
           />
         ) : foodTab === 'search' ? (
           <FoodSearch onBack={() => setFoodTab('home')} />
-        ) : foodTab === 'dinein' ? (
-          <FoodDineIn onHome={() => setFoodTab('home')} />
         ) : (
           <FoodOrders onHome={() => setFoodTab('home')} />
         )}

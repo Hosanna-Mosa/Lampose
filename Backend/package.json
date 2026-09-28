@@ -32,8 +32,8 @@
     "fix:owner-email-index": "node scripts/fix-owner-email-index.js",
     "smoke": "node scripts/smoke-test.js",
     "verify": "node scripts/verify-frontends.js",
-    "test": "NODE_ENV=test node --test \"tests/**/*.test.js\"",
-    "test:watch": "NODE_ENV=test node --test --watch \"tests/**/*.test.js\"",
+    "test": "cross-env NODE_ENV=test node --test \"tests/**/*.test.js\"",
+    "test:watch": "cross-env NODE_ENV=test node --test --watch \"tests/**/*.test.js\"",
     "browsers": "playwright install --with-deps chromium",
     "migrate:categories": "node scripts/migrate-categories.js",
     "verify:food-partner": "node scripts/verify-food-partner.js",
@@ -83,6 +83,7 @@
     "twilio": "^6.1.0"
   },
   "devDependencies": {
+    "cross-env": "^10.1.0",
     "mongodb-memory-server": "^11.2.0"
   }
 }

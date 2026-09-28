@@ -35,11 +35,11 @@ type PriceBand = 'any' | 'under80' | 'under150';
  * ## Why this one screen carries a back control
  *
  * Every other screen in this module is a tab, so the bottom bar is its own way
- * out — tapping any of the three is both "leave here" and "go there", and a
- * back arrow would be a fourth way to do what the bar already does.
+ * out — tapping any of them is both "leave here" and "go there", and a back
+ * arrow would be another way to do what the bar already does.
  *
- * Search is not a tab any more. It lost its slot to Dine In and is reached
- * from the field across the top of Home instead, which means the bar has
+ * Search is not a tab. It is reached from the field across the top of Home
+ * instead, which means the bar has
  * nothing highlighted while it is open and nothing in it says "back". Without
  * the arrow the only exit is the raised Explore disc, which does not go back
  * to Food's Home — it leaves the module entirely.
