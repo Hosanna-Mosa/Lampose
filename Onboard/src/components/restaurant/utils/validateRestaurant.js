@@ -535,13 +535,15 @@ const fileProblem = (file, what) => {
 function validateStep3(form) {
   const errs = {};
 
-  /* PAN is optional to the backend by field spec but mandatory here: it is
-     one of the two documents this console exists to collect, and the scan is
-     filed against the number. */
+  /* PAN is OPTIONAL, as it is to the backend: an owner without the card to
+     hand should not stop an otherwise complete onboarding, and the
+     verification queue can ask for it afterwards. What IS enforced is that
+     anything typed is a real PAN. */
   const pan = text(form.panNumber).toUpperCase();
-  if (!pan) errs.panNumber = 'Enter the PAN number';
-  else if (pan.length !== 10) errs.panNumber = `A PAN is 10 characters — you have typed ${pan.length}`;
-  else if (!PAN_RE.test(pan)) errs.panNumber = 'A PAN reads five letters, four digits, one letter, e.g. ABCDE1234F';
+  if (pan) {
+    if (pan.length !== 10) errs.panNumber = `A PAN is 10 characters — you have typed ${pan.length}`;
+    else if (!PAN_RE.test(pan)) errs.panNumber = 'A PAN reads five letters, four digits, one letter, e.g. ABCDE1234F';
+  }
 
   /*
    * The scan is OPTIONAL — the NUMBER is not.
@@ -588,10 +590,13 @@ function validateStep3(form) {
    * occasional real number typed correctly, and a partner who cannot be
    * onboarded at all is a worse failure than one the verification queue
    * catches beside the scan.
+   *
+   * Both are OPTIONAL, matching the backend, which checks them for shape and
+   * never for presence. Only what is typed is checked.
    */
   const aadhaar = onlyDigits(form.aadhaarNumber);
   if (!aadhaar) {
-    errs.aadhaarNumber = 'Enter the 12-digit Aadhaar number';
+    // Optional — nothing to check.
   } else if (aadhaar.length !== AADHAAR_DIGITS) {
     errs.aadhaarNumber = `An Aadhaar number is ${AADHAAR_DIGITS} digits — you have typed ${aadhaar.length}`;
   } else if (/^(\d)\1{11}$/.test(aadhaar)) {
@@ -602,7 +607,7 @@ function validateStep3(form) {
 
   const aadhaarPhone = onlyDigits(form.aadhaarPhone);
   if (!aadhaarPhone) {
-    errs.aadhaarPhone = 'Enter the mobile number registered against this Aadhaar';
+    // Optional — nothing to check.
   } else if (aadhaarPhone.length !== 10) {
     errs.aadhaarPhone = `Enter all 10 digits — you have typed ${aadhaarPhone.length}`;
   } else if (!isIndianMobile(aadhaarPhone)) {

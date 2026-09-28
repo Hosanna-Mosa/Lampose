@@ -55,7 +55,7 @@ const bankSummary = (form) => {
 /* The Aadhaar and its registered mobile, as typed. */
 const aadhaarSummary = (form) => {
   const digits = String(form.aadhaarNumber || '').replace(/\D/g, '');
-  if (!digits) return 'NO AADHAAR GIVEN';
+  if (!digits) return 'No Aadhaar given';
 
   const phone = String(form.aadhaarPhone || '').replace(/\D/g, '');
   return `Aadhaar ...${digits.slice(-4)}${phone ? ` · mobile ${phone}` : ''}`;

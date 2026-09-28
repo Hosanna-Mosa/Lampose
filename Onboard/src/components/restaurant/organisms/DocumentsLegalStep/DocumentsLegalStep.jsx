@@ -56,7 +56,7 @@ function AadhaarDetails({ form, set, errors, touch }) {
         <Field
           label="Aadhaar Number"
           hint="The owner's Aadhaar, as printed on the card."
-          required
+          optional
           htmlFor="rst-aadhaar"
           error={errors.aadhaarNumber}
         >
@@ -78,7 +78,7 @@ function AadhaarDetails({ form, set, errors, touch }) {
         <Field
           label="Aadhaar Registered Mobile Number"
           hint="The number this Aadhaar is registered against."
-          required
+          optional
           htmlFor="rst-aadhaar-phone"
           error={errors.aadhaarPhone}
         >
@@ -113,8 +113,8 @@ export function DocumentsLegalStep({ form, set, errors = {}, touch = () => {} })
       <Box className="rst-step-head">
         <Text className="rst-step-title">Documents &amp; Legal Verification</Text>
         <Text className="rst-step-sub">
-          The PAN, Aadhaar and FSSAI numbers are needed. The scans and the bank
-          details can follow later.
+          The FSSAI number is needed. PAN, Aadhaar, the scans and the bank
+          details are optional and can follow later.
         </Text>
       </Box>
 
@@ -123,7 +123,7 @@ export function DocumentsLegalStep({ form, set, errors = {}, touch = () => {} })
         <SectionHead icon={<BadgeCheck size={16} color="#45855a" />} title="Tax & Identity Verification" />
 
         <Box className="rst-card">
-          <Field label="PAN Card Details" required htmlFor="rst-pan" error={errors.panNumber}>
+          <Field label="PAN Card Details" optional htmlFor="rst-pan" error={errors.panNumber}>
             <Input
               id="rst-pan"
               className={`rst-input${errors.panNumber ? ' is-bad' : ''}`}
