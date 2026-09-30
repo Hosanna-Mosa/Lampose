@@ -11,6 +11,7 @@ import {
   DeliveryMap,
   DietMark,
   FoodEmptyState,
+  FoodMenuSkeleton,
   FoodNotice,
   FoodStatusChip,
   FoodTimeline,
@@ -79,6 +80,10 @@ export default function OrderScreen() {
   const [paying, setPaying] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  /* Whether this screen has asked the server for the order at least once.
+     Until it has, a missing order is one still loading — a deep link from a
+     push lands before the list is read — not one that does not exist. */
+  const [lookedUp, setLookedUp] = useState(false);
 
   const order = orders.find((entry) => entry.id === id);
 
@@ -249,7 +254,7 @@ export default function OrderScreen() {
     /* One immediately: a student arriving back from the checkout WebView needs
        to know whether the payment landed, and eight seconds of "not paid" is
        long enough to make them try to pay twice. */
-    refresh.current(id);
+    void refresh.current(id).finally(() => setLookedUp(true));
     const timer = setInterval(() => refresh.current(id), interval);
     return () => clearInterval(timer);
   }, [shouldPoll, id, interval]);
@@ -294,8 +299,12 @@ export default function OrderScreen() {
   */
   /* From the order's own timeline, not the clock: a receipt that says
      "9:47 pm" because that is when it rendered lies to anybody reopening it. */
+  /* The step that ENDS this order: "Delivered" for a delivery, "Picked up"
+     for a pickup. Matching either used to find a delivery's "Picked up" first
+     — it comes earlier in the list — so the receipt gave the time the rider
+     left the kitchen as the time the food arrived. */
   const deliveredAtLabel = order?.timeline?.find(
-    (step) => step.label === 'Delivered' || step.label === 'Picked up',
+    (step) => step.label === (order.fulfilment === 'pickup' ? 'Picked up' : 'Delivered'),
   )?.at;
 
   const justArrived = useMemo(() => {
@@ -306,6 +315,16 @@ export default function OrderScreen() {
     const age = Date.now() - new Date(at).getTime();
     return Number.isFinite(age) && age >= 0 && age < 10 * 60 * 1000;
   }, [finished, order?.rider?.deliveredAt]);
+
+  if (!order && !lookedUp && id) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <StandardHeader title="Order" onBack={() => router.back()} />
+        <FoodMenuSkeleton />
+      </View>
+    );
+  }
 
   if (!order) {
     return (

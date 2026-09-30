@@ -14,7 +14,6 @@ import { DockedCartBar } from './DockedCartBar';
 import { FoodHome } from './FoodHome';
 import { FoodOrders } from './FoodOrders';
 import { FoodSearch } from './FoodSearch';
-import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 
 /**
  * The Food module, inside the Food tab.
@@ -52,7 +51,6 @@ export type FoodModuleProps = {
 };
 
 function FoodModuleImpl({ onBannerUnderHeader }: FoodModuleProps) {
-  const { findKitchen } = useFoodCatalogue();
   const router = useRouter();
   const {
     count,
@@ -61,7 +59,7 @@ function FoodModuleImpl({ onBannerUnderHeader }: FoodModuleProps) {
     setFoodTab,
     address,
     fulfilment,
-    kitchenId,
+    cartKitchen,
     pendingAdd,
     confirmSwitch,
     cancelSwitch,
@@ -103,7 +101,7 @@ function FoodModuleImpl({ onBannerUnderHeader }: FoodModuleProps) {
     return () => clearInterval(timer);
   }, []);
 
-  const kitchen = kitchenId ? findKitchen(kitchenId) : undefined;
+  const kitchen = cartKitchen ?? undefined;
 
   /*
    * The docked cart bar claims the bottom edge while it is up, so the floating

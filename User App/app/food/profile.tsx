@@ -5,7 +5,7 @@
    the SAME header icon, but while Food is open that icon now opens this
    screen instead — see the header wiring in `home.tsx` for why the swap is
    on the icon and not a fourth bottom tab. Everything below is genuinely
-   food-scoped: preferences and favourites already existed as pushes from
+   food-scoped: favourites already existed as pushes from
    Food Home with nowhere gathering them, and delivery addresses / the
    service-area check moved here FROM the stay Profile's "Your stuff" group
    because both are about where food goes, not about a stay.
@@ -34,15 +34,13 @@ export default function FoodProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, status, signOut } = useAuth();
-  const { preferences, favouriteDishList, favouriteKitchenList, favouritesLoading, refreshFavourites } = useFood();
+  const { favouriteDishList, favouriteKitchenList, favouritesLoading, refreshFavourites } = useFood();
   /* The same query the stay Profile's address row reads, so the two rows
      cannot disagree about how many addresses are in the book. Gated the same
      way — a guest browsing Food has no account to fetch addresses for. */
   const { count: addressCount, isPending: addressesLoading } = useAddresses(status === 'signedIn');
 
   const favouriteCount = favouriteDishList.length + favouriteKitchenList.length;
-  const dietLabel =
-    preferences.diet === 'veg' ? 'Veg' : preferences.diet === 'egg' ? 'Veg and egg' : 'Everything';
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
@@ -76,11 +74,6 @@ export default function FoodProfileScreen() {
         </View>
 
         <ProfileGroup title="Food">
-          <ProfileRow
-            label="Food preferences"
-            value={`${dietLabel} · ${preferences.spice} spice`}
-            onPress={() => router.push(foodHref.preferences)}
-          />
           <ProfileRow
             label="Favourites"
             value={String(favouriteCount)}

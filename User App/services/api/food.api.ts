@@ -39,6 +39,12 @@ export type KitchenQuery = {
   search?: string | null;
   openNow?: boolean;
   limit?: number;
+  /**
+   * Which kind of partner. Food and meat shops share the restaurants
+   * collection, and without this the server lists both — see
+   * `foodDiscovery.controller.js`, which reads `?partnerType=food|meat`.
+   */
+  partnerType?: 'food' | 'meat' | null;
 };
 
 type KitchenListResponse = { success?: boolean; data?: BackendKitchen[] };
@@ -61,6 +67,7 @@ const clean = (query: KitchenQuery): Record<string, string> => {
   if (query.search?.trim()) out.search = query.search.trim();
   if (query.openNow) out.openNow = 'true';
   if (query.limit) out.limit = String(query.limit);
+  if (query.partnerType) out.partnerType = query.partnerType;
   return out;
 };
 

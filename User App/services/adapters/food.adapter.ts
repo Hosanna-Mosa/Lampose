@@ -365,6 +365,10 @@ export function toKitchen(raw: BackendKitchen, sections: readonly string[] = [])
 const VARIANT_PREFIX = 'v:';
 const ADDON_PREFIX = 'a:';
 
+/** Whether an option is a PORTION (a variant) rather than an add-on. A dish
+ *  takes at most one portion — the server prices it by replacing the base. */
+export const isPortionOption = (id: string): boolean => id.startsWith(VARIANT_PREFIX);
+
 /**
  * A cart line's chosen option ids, back into what the order endpoint wants.
  *

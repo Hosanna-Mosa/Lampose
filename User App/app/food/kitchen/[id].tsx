@@ -1,8 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { contactNumberOf, metaLine, walkLabel } from '@/services/adapters/food.adapter';
+import { metaLine, walkLabel } from '@/services/adapters/food.adapter';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Animated, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Icon, SearchField, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
@@ -21,6 +21,9 @@ import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { Diet, Dish } from '@/types/food';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
+import { DishSheet } from '@/components/food/DishDetail';
+import { ApiError } from '@/services/api/client';
+import { useKitchen } from '@/services/hooks/useFood';
 
 /**
  * A kitchen, with its menu.
@@ -136,8 +139,13 @@ export default function KitchenScreen() {
   /* State, unlike `stickyY`: the interpolation below is built from it. Set on
      layout, so it changes when the identity block above does, not on scroll. */
   const [barY, setBarY] = useState(0);
-  const [callFailed, setCallFailed] = useState(false);
   const [query, setQuery] = useState('');
+  /*
+   * The dish opened as a sheet over the menu. The id outlives `sheetOpen` so
+   * the sheet still has its dish to draw while it closes.
+   */
+  const [sheetDishId, setSheetDishId] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
   /*
    * The menu's own diet filter, and it is a real one — `Diet` is
    * `veg | egg | nonveg` on every dish, so all three chips filter something
@@ -157,14 +165,36 @@ export default function KitchenScreen() {
     );
   const term = query.trim().toLowerCase();
 
-  const kitchen = id ? findKitchen(id) : undefined;
+  /*
+   * The feed is scoped to where the student is, so a kitchen opened from an
+   * old order, a favourite or a link can be one the feed never listed. It is
+   * then asked for by id — the same query and cache entry the catalogue's own
+   * menu fan-out uses — rather than reported as gone. Only asked when the
+   * feed does not have it, so a listed kitchen costs nothing extra.
+   */
+  const listed = id ? findKitchen(id) : undefined;
+  const detail = useKitchen(!listed && !loading ? id : null);
+  const kitchen = listed ?? detail.data?.kitchen;
+  /* A 404 is the server saying the kitchen is gone, which is the "not on
+     LAMPOSE" screen below; anything else is the connection. */
+  const detailError =
+    detail.error && !(detail.error instanceof ApiError && detail.error.status === 404)
+      ? (detail.error as Error).message
+      : null;
 
   const open = kitchen ? kitchenOpen(kitchen) : false;
 
   /* `menuFor` is rebuilt whenever dishes arrive, so it belongs in here beside
      the kitchen: without it this menu is whatever had loaded on the render the
-     screen opened on. */
-  const menu = useMemo(() => (kitchen ? menuFor(kitchen) : []), [menuFor, kitchen]);
+     screen opened on. A kitchen from the fallback brings its own dishes. */
+  const detailDishes = detail.data?.dishes;
+  const menu = useMemo(() => {
+    if (!kitchen) return [];
+    if (listed) return menuFor(kitchen);
+    return [...(detailDishes ?? [])].sort(
+      (a, b) => kitchen.sections.indexOf(a.section) - kitchen.sections.indexOf(b.section),
+    );
+  }, [menuFor, kitchen, listed, detailDishes]);
   const visible = useMemo(
     () =>
       menu.filter((dish) => {
@@ -201,18 +231,21 @@ export default function KitchenScreen() {
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <StandardHeader title="Kitchen" onBack={() => router.back()} />
-        {loading || loadingMenus ? (
+        {loading || loadingMenus || detail.isLoading ? (
           <FoodMenuSkeleton />
-        ) : error ? (
+        ) : error || detailError ? (
           <FoodEmptyState
             tone="problem"
             title="Could not open this kitchen"
             body="The menu did not answer. The kitchen is probably fine — this is usually the connection."
             primaryLabel="Try again"
-            onPrimary={refetch}
+            onPrimary={() => {
+              refetch();
+              if (detailError) void detail.refetch();
+            }}
             secondaryLabel="Back to food"
             onSecondary={() => router.back()}
-            footnote={error}
+            footnote={error ?? detailError ?? undefined}
           />
         ) : (
           <FoodEmptyState
@@ -226,24 +259,7 @@ export default function KitchenScreen() {
     );
   }
 
-  /*
-   * The number the header's phone button dials.
-   *
-   * `contactNumber` is the customer-facing number the restaurant gave us — the
-   * detail response keeps it apart from the owner's private line for exactly
-   * this — and it travels on that response only. A kitchen opened before its
-   * detail landed, or one that never filled the field in, therefore has no
-   * number, and then the header shows NO button: an icon that dials nothing is
-   * read as the app failing rather than as the kitchen having no line.
-   */
-  const phone = contactNumberOf(kitchen);
-  const call = () => {
-    if (!phone) return;
-    /* A stored number is punctuated for reading — "+91 98765 43210" — and a
-       `tel:` URI is not, so everything but the digits and a leading plus goes
-       before it reaches the dialler. */
-    Linking.openURL(`tel:${phone.replace(/[^\d+]/g, '')}`).catch(() => setCallFailed(true));
-  };
+  const sheetDish = sheetDishId ? menu.find((dish) => dish.id === sheetDishId) : undefined;
 
   const setDishQty = (dish: Dish, next: number) => {
     const existing = lines.find((line) => line.dishId === dish.id);
@@ -251,7 +267,7 @@ export default function KitchenScreen() {
       setQty(existing.key, next);
       return;
     }
-    if (next > 0) add(dish, { spice: preferences.spice });
+    if (next > 0) add(dish, { spice: preferences.spice, kitchen });
   };
 
   /*
@@ -291,15 +307,8 @@ export default function KitchenScreen() {
 
       {/* No title, deliberately. The kitchen is named in the identity block
           at the top of the content, in display type — carrying it up here as
-          well printed the name twice on one screen, once truncated. The bar
-          keeps the back arrow and the call action, which are the two things
-          that have to stay reachable. */}
-      <StandardHeader
-        title=""
-        onBack={() => router.back()}
-        actionIcon={phone ? 'phone' : undefined}
-        onAction={phone ? call : undefined}
-      />
+          well printed the name twice on one screen, once truncated. */}
+      <StandardHeader title="" onBack={() => router.back()} />
 
       <View style={{ flex: 1 }}>
       <Animated.ScrollView
@@ -370,17 +379,6 @@ export default function KitchenScreen() {
               </View>
             ) : null}
           </View>
-
-          {/* A device with no dialler — a tablet, an emulator — still has a
-              student holding a question. The number goes on screen so it can
-              be read out or copied by hand. */}
-          {callFailed && phone ? (
-            <FoodNotice
-              tone="problem"
-              title="This device cannot place calls"
-              body={`${kitchen.name} answers on ${phone}.`}
-            />
-          ) : null}
 
           {address ? (
             <View style={styles.metaRow}>
@@ -519,7 +517,10 @@ export default function KitchenScreen() {
                           dish={dish}
                           qty={qtyOf(dish.id)}
                           onQtyChange={(next) => setDishQty(dish, next)}
-                          onPress={() => router.push(foodHref.dish(dish.id))}
+                          onPress={() => {
+                            setSheetDishId(dish.id);
+                            setSheetOpen(true);
+                          }}
                           disabled={!open}
                           reason={!open ? 'Closed' : undefined}
                           favouritable
@@ -574,6 +575,17 @@ export default function KitchenScreen() {
             onPress={() => router.push(foodHref.cart)}
           />
         </View>
+      ) : null}
+
+      {sheetDish ? (
+        <DishSheet
+          key={sheetDish.id}
+          dish={sheetDish}
+          kitchen={kitchen}
+          open={open}
+          visible={sheetOpen}
+          onClose={() => setSheetOpen(false)}
+        />
       ) : null}
     </View>
   );

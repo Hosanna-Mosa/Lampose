@@ -108,7 +108,9 @@ export function BottomSheet({ visible, onClose, title, children, footer }: Botto
               </View>
             </View>
 
-            <View style={{ paddingHorizontal: space[4] }}>{children}</View>
+            {/* `flexShrink` so content taller than the 90% cap scrolls inside
+                the sheet instead of pushing the footer off the bottom. */}
+            <View style={{ paddingHorizontal: space[4], flexShrink: 1 }}>{children}</View>
 
             {footer ? (
               <View
