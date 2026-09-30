@@ -29,7 +29,7 @@ import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
  * have to hunt for what the delivery fee is.
  */
 export default function CartScreen() {
-  const { findKitchen, kitchenOpen } = useFoodCatalogue();
+  const { kitchenOpen } = useFoodCatalogue();
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   /* Nothing on a handset that reports a real inset; the shortfall on one
@@ -40,7 +40,7 @@ export default function CartScreen() {
     lines,
     setQty,
     clear,
-    kitchenId,
+    cartKitchen,
     itemTotal,
     deliveryFee,
     packagingCharge,
@@ -54,7 +54,7 @@ export default function CartScreen() {
 
   const [confirmingClear, setConfirmingClear] = useState(false);
 
-  const kitchen = kitchenId ? findKitchen(kitchenId) : undefined;
+  const kitchen = cartKitchen;
 
   if (count === 0 || !kitchen) {
     return (
@@ -118,9 +118,14 @@ export default function CartScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ padding: layout.gutter, paddingBottom: space[8] * 2, gap: space[3] }}
       >
-        <Text variant="caption" color="tertiary">
-          {kitchen.cuisine} · {kitchen.walkMinutes} min walk
-        </Text>
+        {/* Cuisine only. This used to add "· N min walk", which read "0 min
+            walk" whenever no location was shared — and walking time says
+            nothing about an order that is always delivered. */}
+        {kitchen.cuisine ? (
+          <Text variant="caption" color="tertiary">
+            {kitchen.cuisine}
+          </Text>
+        ) : null}
 
         {/* The lines */}
         <View

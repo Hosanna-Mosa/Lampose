@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -6,14 +6,15 @@ import {
   useWindowDimensions,
   type LayoutChangeEvent,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
   cancelAnimation,
-  useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
   withSequence,
+  withDecay,
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
@@ -104,11 +105,56 @@ export function CuisineRail({
   const { space, layout } = useTheme();
   const { width: viewport } = useWindowDimensions();
   const reduceMotion = useReduceMotion();
-  const scrollX = useSharedValue(0);
+  /*
+   * The row's sideways offset: 0 at rest, negative as it is pushed left.
+   * `minX` is how far left it may go — the content's width past the screen.
+   */
+  const offsetX = useSharedValue(0);
+  const startX = useSharedValue(0);
+  const minX = useSharedValue(0);
 
-  const onScroll = useAnimatedScrollHandler((event) => {
-    scrollX.value = event.contentOffset.x;
-  });
+  const onContentLayout = (event: LayoutChangeEvent) => {
+    minX.value = Math.min(0, viewport - event.nativeEvent.layout.width);
+    if (offsetX.value < minX.value) offsetX.value = minX.value;
+  };
+
+  /*
+   * A pan, not a ScrollView — and this is what finally stops the shake.
+   *
+   * With a native ScrollView the platform moves the tiles SIDEWAYS on its own
+   * clock, and the arc moves them UP from a scroll event that arrives a frame
+   * later. Every frame the two disagreed, and the tiles bobbed. Neither a
+   * faster event rate nor pixel-snapping closes a one-frame gap.
+   *
+   * Here one shared value drives both: the row's `translateX` and every
+   * tile's place on the arc are computed from `offsetX` in the SAME frame,
+   * on the UI thread, so there is nothing left to fall out of step.
+   * `withDecay` supplies the fling a ScrollView would have had.
+   *
+   * `failOffsetY` hands a mostly-vertical swipe back to the page, and
+   * `activeOffsetX` leaves a tap on a chip as a tap.
+   */
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-8, 8])
+        .failOffsetY([-12, 12])
+        .onBegin(() => {
+          cancelAnimation(offsetX);
+        })
+        .onStart(() => {
+          startX.value = offsetX.value;
+        })
+        .onUpdate((event) => {
+          offsetX.value = Math.max(minX.value, Math.min(0, startX.value + event.translationX));
+        })
+        .onEnd((event) => {
+          offsetX.value = withDecay({ velocity: event.velocityX, clamp: [minX.value, 0] });
+        }),
+    [offsetX, startX, minX],
+  );
+
+  const rowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: offsetX.value }] }));
   /* A cuisine the rail has cut still has to be reachable while it is the
      ACTIVE filter, or picking "Shawarma" from the sheet would drop it off
      the rail and leave the feed filtered by something invisible. */
@@ -122,71 +168,36 @@ export function CuisineRail({
   }, [cuisines, active]);
 
   return (
-    /*
-     * A horizontal scroll container, which this was missing entirely.
-     *
-     * The row was a plain `View` with `flexDirection: 'row'` and no scroll
-     * container around it — every chip past screen width still rendered,
-     * it was just unreachable, because a `View` overflowing its parent has
-     * no gesture that gets you to the rest of it. With a coupon tile, "All"
-     * and up to ten cuisine chips at ~76pt each, that overflow started well
-     * before the tenth chip on any phone; adding the "See all" tile past
-     * all of them was what turned a subtle gap into a control nobody could
-     * reach at all.
-     *
-     * `Animated.ScrollView` rather than the plain one only so the offset is
-     * readable from the UI thread — the tiles ride an arc off it. The
-     * SCROLLING itself is untouched: same gesture, same physics, same
-     * momentum. See `ArcTile`.
-     */
-    <Animated.ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      onScroll={onScroll}
-      /*
-       * Every frame, not every 16ms — and this is the shake.
-       *
-       * A tile's horizontal position is moved by the platform's own scroller
-       * on every frame it draws. Its vertical position is moved by us, from
-       * the offset that arrives in a scroll event. At `16` those events are
-       * capped near 60 a second, so on a 90Hz or 120Hz phone the arc is only
-       * told where the row is on every second or third frame — the tiles
-       * arrive at the right height a frame late, catch up, and fall behind
-       * again. That is the bob: not irregular motion, a vertical position
-       * quantised to a slower clock than the horizontal one it belongs to.
-       *
-       * `1` means "every frame the scroller produces", which is exactly what
-       * the two need to share. It is affordable here only because `onScroll`
-       * is a worklet: the handler runs on the UI thread and never wakes the
-       * JS thread, so more events cost a few arithmetic operations rather
-       * than a bridge crossing each. This is the documented pacing for a
-       * Reanimated scroll handler; the `16` it replaces is the figure you
-       * want when a JS callback is on the other end.
-       */
-      scrollEventThrottle={1}
-      contentContainerStyle={[
-        styles.row,
-        {
-          gap: space[2],
-          paddingHorizontal: layout.gutter,
-          /* Room for the rise. Tiles only travel UPWARD from the centre of
-             the arc, so the padding is all at the top — and it has to be
-             there or the highest tiles are clipped by the row's own bounds. */
-          paddingTop: ARC_RISE + space[1],
-        },
-      ]}
-    >
+    <GestureDetector gesture={pan}>
+      {/* A row so the content inside keeps its own full width rather than
+          being squeezed to the screen's; clipped so nothing draws past it. */}
+      <View style={styles.viewport}>
+        <Animated.View
+          onLayout={onContentLayout}
+          style={[
+            styles.row,
+            {
+              gap: space[2],
+              paddingHorizontal: layout.gutter,
+              /* Room for the rise. Tiles only travel UPWARD from the centre of
+                 the arc, so the padding is all at the top — and it has to be
+                 there or the highest tiles are clipped by the row's bounds. */
+              paddingTop: ARC_RISE + space[1],
+            },
+            rowStyle,
+          ]}
+        >
       {/* The one tile that animates on its own — see `ArcTile.rasterize`. */}
-      <ArcTile scrollX={scrollX} viewport={viewport} flat={reduceMotion} rasterize={false}>
+      <ArcTile offsetX={offsetX} viewport={viewport} flat={reduceMotion} rasterize={false}>
         <CheapTile active={cheapActive} onPress={onToggleCheap} />
       </ArcTile>
 
-      <ArcTile scrollX={scrollX} viewport={viewport} flat={reduceMotion}>
+      <ArcTile offsetX={offsetX} viewport={viewport} flat={reduceMotion}>
         <RailChip label="All" photo={allPhoto} active={active === null} onPress={() => onChange(null)} />
       </ArcTile>
 
       {shown.map((cuisine) => (
-        <ArcTile key={cuisine.name} scrollX={scrollX} viewport={viewport} flat={reduceMotion}>
+        <ArcTile key={cuisine.name} offsetX={offsetX} viewport={viewport} flat={reduceMotion}>
           <RailChip
             label={cuisine.name}
             photo={cuisine.photo}
@@ -196,10 +207,12 @@ export function CuisineRail({
         </ArcTile>
       ))}
 
-      <ArcTile scrollX={scrollX} viewport={viewport} flat={reduceMotion}>
+      <ArcTile offsetX={offsetX} viewport={viewport} flat={reduceMotion}>
         <SeeAllChip onPress={onSeeAll} />
       </ArcTile>
-    </Animated.ScrollView>
+        </Animated.View>
+      </View>
+    </GestureDetector>
   );
 }
 
@@ -223,13 +236,13 @@ export function CuisineRail({
  * rather than flinching.
  */
 function ArcTile({
-  scrollX,
+  offsetX,
   viewport,
   flat,
   rasterize = true,
   children,
 }: {
-  scrollX: SharedValue<number>;
+  offsetX: SharedValue<number>;
   viewport: number;
   /** Reduce-motion: the arc is decoration, so it simply does not happen. */
   flat: boolean;
@@ -265,7 +278,7 @@ function ArcTile({
        frames, and the frame where the shape changes is a visible snap.
        Same properties every frame, always. */
     const measured = !flat && centre.value !== 0;
-    const offset = centre.value - scrollX.value - viewport / 2;
+    const offset = centre.value + offsetX.value - viewport / 2;
     const raw = measured ? offset / (viewport / 2) : 0;
     const t = Math.max(-1, Math.min(1, raw));
 
@@ -550,6 +563,7 @@ function RailChip({
 }
 
 const styles = StyleSheet.create({
+  viewport: { flexDirection: 'row', overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'flex-start' },
   /* Sized to the photo discs beside it, so the amber tile sits on the rail's
      baseline rather than inventing its own. */

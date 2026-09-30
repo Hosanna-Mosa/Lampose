@@ -38,13 +38,13 @@ function joinList(items: readonly string[]): string {
  * written.
  */
 export function FoodOrders({ onHome }: { onHome: () => void }) {
-  const { findDish, findKitchen } = useFoodCatalogue();
+  const { findDish } = useFoodCatalogue();
   const { colors, space, layout, radius } = useTheme();
   /* The bar floats over this screen and gets out of the way while it is read
      down — see `BottomBarContext`. */
   const { onScroll: barScroll, height: barHeight } = useBottomBar();
   const router = useRouter();
-  const { orders, liveOrder, address, add, clear, kitchenId: cartKitchenId, count } = useFood();
+  const { orders, liveOrder, address, add, clear, kitchenId: cartKitchenId, cartKitchen, count } = useFood();
 
   const history = useMemo(() => orders.filter((order) => order.id !== liveOrder?.id), [orders, liveOrder]);
   const recent = history.filter((order) => order.monthLabel === 'This month');
@@ -85,7 +85,7 @@ export function FoodOrders({ onHome }: { onHome: () => void }) {
 
     const displaced =
       cartKitchenId && cartKitchenId !== order.kitchenId && count > 0
-        ? (findKitchen(cartKitchenId)?.name ?? 'another kitchen')
+        ? (cartKitchen?.name ?? 'another kitchen')
         : null;
 
     clear();

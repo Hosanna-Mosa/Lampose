@@ -28,6 +28,7 @@ export const queryKeys = {
     search?: string | null;
     openNow?: boolean;
     limit?: number;
+    partnerType?: string | null;
   }) =>
     [
       'food',
@@ -39,6 +40,7 @@ export const queryKeys = {
       query.search?.trim() || null,
       query.openNow ?? false,
       query.limit ?? null,
+      query.partnerType ?? null,
     ] as const,
   foodKitchen: (restaurantId: string) => ['food', 'kitchen', restaurantId] as const,
   foodDish: (productId: string) => ['food', 'dish', productId] as const,

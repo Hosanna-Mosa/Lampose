@@ -1,53 +1,52 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import React from 'react';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Checkbox, Icon, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
-import { AddControl, DietMark, FoodEmptyState, FoodNotice, FoodPhoto, RatingPill, FavouriteHeart } from '@/components/food';
-import { useFood } from '@/context/FoodContext';
+import { FoodEmptyState, FoodMenuSkeleton } from '@/components/food';
+import { DishCommitBar, DishDetailContent, useDishChoices } from '@/components/food/DishDetail';
 import { useTheme } from '@/context/ThemeContext';
-import type { SpiceLevel } from '@/types/food';
-import { SPICE_LABEL } from '@/types/food';
-import { formatRupees } from '@/utils/money';
+import type { Dish, Kitchen } from '@/types/food';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
+import { useDish } from '@/services/hooks/useFood';
 import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
 
-const SPICES: readonly SpiceLevel[] = ['mild', 'medium', 'hot'];
-
 /**
- * One dish, and the three choices that come with it.
- *
- * Portion, add-ons and spice, in that order, because that is the order they
- * change the price: portion is the dish, add-ons are additions, spice is free.
- * The CTA carries the running total including everything chosen — a student who
- * ticks ₹15 of curd and then sees "Add to cart" with no number has been given
- * a surprise to discover on the next screen.
- *
- * Allergens flagged in preferences are WARNED about here, never hidden. The
- * data comes from small kitchens and is not good enough to hide food over; a
- * student who is told "you flagged peanut, this has peanut" can decide, and one
- * whose dish silently vanished cannot.
+ * One dish, as a page of its own — reached from the home rails, search and
+ * links. A kitchen's menu opens the same content as a sheet instead; both are
+ * `components/food/DishDetail.tsx`, which explains the choices on it.
  */
 export default function DishScreen() {
   const { findDish, findKitchen, kitchenOpen, loading, loadingMenus, refetch } = useFoodCatalogue();
-  const { colors, space, layout, radius, mode } = useTheme();
+  const { colors, mode } = useTheme();
   const insets = useSafeAreaInsets();
-  /* Nothing on a handset that reports a real inset; the shortfall on one
-     that reports none, so the action clears the navigation bar. */
-  const actionInset = useBottomEdgeInset();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { add, qtyOf, preferences } = useFood();
 
-  const dish = id ? findDish(id) : undefined;
-  const kitchen = dish ? findKitchen(dish.kitchenId) : undefined;
+  /*
+   * The feed is scoped to where the student is, so a dish opened from an old
+   * order, a favourite or a link can belong to a kitchen it never listed. It
+   * is then asked for by id, which answers with the dish AND its kitchen.
+   * Only asked when the catalogue cannot answer, so a listed dish costs
+   * nothing extra.
+   */
+  const listedDish = id ? findDish(id) : undefined;
+  const listedKitchen = listedDish ? findKitchen(listedDish.kitchenId) : undefined;
+  const fallback = useDish(!listedKitchen && !loading && !loadingMenus ? id : null);
+  const dish = listedKitchen ? listedDish : fallback.data?.dish;
+  const kitchen = listedKitchen ?? fallback.data?.kitchen;
 
-  const [addOnIds, setAddOnIds] = useState<readonly string[]>([]);
-  const [spice, setSpice] = useState<SpiceLevel>(preferences.spice);
-  const [qty, setLocalQty] = useState(1);
+  if ((!dish || !kitchen) && (loading || loadingMenus || fallback.isLoading)) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <StandardHeader title="Dish" onBack={() => router.back()} />
+        <FoodMenuSkeleton />
+      </View>
+    );
+  }
 
   if (!dish || !kitchen) {
     return (
@@ -64,25 +63,37 @@ export default function DishScreen() {
     );
   }
 
-  const open = kitchenOpen(kitchen);
-  const orderable = open && !dish.soldOut;
-
-  const addOns = dish.addOns ?? [];
-  const addOnTotal = addOns
-    .filter((addOn) => addOnIds.includes(addOn.id))
-    .reduce((sum, addOn) => sum + addOn.price, 0);
-  const unitPrice = dish.price + addOnTotal;
-
-  const flagged = preferences.allergens.filter((allergen) =>
-    `${dish.name} ${dish.description}`.toLowerCase().includes(allergen.split(',')[0].toLowerCase()),
+  return (
+    <DishPage
+      dish={dish}
+      kitchen={kitchen}
+      open={kitchenOpen(kitchen)}
+      refreshing={loading || loadingMenus}
+      onRefresh={refetch}
+    />
   );
+}
 
-  const inCart = qtyOf(dish.id);
-
-  const commit = () => {
-    add(dish, { qty, addOnIds, spice });
-    router.back();
-  };
+/** The loaded page. Its own component so the choices hook only ever runs with a dish. */
+function DishPage({
+  dish,
+  kitchen,
+  open,
+  refreshing,
+  onRefresh,
+}: {
+  dish: Dish;
+  kitchen: Kitchen;
+  open: boolean;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  const { colors, space, layout, mode } = useTheme();
+  /* Nothing on a handset that reports a real inset; the shortfall on one
+     that reports none, so the action clears the navigation bar. */
+  const actionInset = useBottomEdgeInset();
+  const router = useRouter();
+  const choices = useDishChoices(dish, kitchen, open);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -92,187 +103,11 @@ export default function DishScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ padding: layout.gutter, paddingBottom: space[8] * 2, gap: space[4] }}
-        refreshControl={
-          <RefreshControl refreshing={loading || loadingMenus} onRefresh={refetch} tintColor={colors.brand} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand} />}
       >
-        <FoodPhoto height={160} radius={radius.card} uri={dish.photo} label="photo coming from the kitchen" />
-
-        <View style={{ gap: space[2] }}>
-          <View style={styles.titleRow}>
-            <DietMark diet={dish.diet} size={16} />
-            <Text variant="display2" style={{ flex: 1 }}>
-              {dish.name}
-            </Text>
-            {/* Bigger here than on a row: this is the screen somebody arrives
-                at having decided they are interested, and it is the likeliest
-                place a favourite is actually made. */}
-            <FavouriteHeart kind="dish" id={dish.id} label={dish.name} size={24} />
-          </View>
-
-          <Text variant="body" color="secondary">
-            {dish.description}
-          </Text>
-
-          <View style={styles.metaRow}>
-            {dish.serves ? (
-              <Text variant="caption" color="tertiary">
-                {dish.serves}
-              </Text>
-            ) : null}
-            {dish.rating ? <RatingPill rating={dish.rating} count={dish.ratingCount} showCount /> : null}
-          </View>
-
-          <Text variant="priceHero" style={{ marginTop: space[1] }}>
-            {formatRupees(dish.price)}
-          </Text>
-        </View>
-
-        {/* Availability, before any choice is offered */}
-        {dish.soldOut ? (
-          <FoodNotice
-            tone="deadline"
-            title="Sold out"
-            body="The kitchen has run out. Check back later."
-          />
-        ) : !open ? (
-          <FoodNotice
-            tone="info"
-            title="Kitchen closed right now"
-            body="Set your choices now — the cart holds them until the kitchen reopens."
-          />
-        ) : null}
-
-        {/* Allergens: warned about, never hidden */}
-        {flagged.length ? (
-          <FoodNotice
-            tone="deadline"
-            title={`You flagged ${flagged.join(' and ').toLowerCase()}`}
-            body="Allergen data comes from the kitchen and is not complete. Call them if it matters — the number is in the header."
-          />
-        ) : null}
-
-        {/* Add-ons */}
-        {addOns.length ? (
-          <View style={{ gap: space[2] }}>
-            <Text variant="eyebrow" color="tertiary">
-              Add-ons
-            </Text>
-            <View
-              style={[
-                styles.group,
-                { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, paddingHorizontal: space[3] },
-              ]}
-            >
-              {addOns.map((addOn, index) => (
-                <View
-                  key={addOn.id}
-                  style={[
-                    styles.addOnRow,
-                    {
-                      paddingVertical: space[2],
-                      borderBottomWidth: index === addOns.length - 1 ? 0 : StyleSheet.hairlineWidth,
-                      borderBottomColor: colors.borderSubtle,
-                    },
-                  ]}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Checkbox
-                      label={addOn.label}
-                      checked={addOnIds.includes(addOn.id)}
-                      onChange={(checked) =>
-                        setAddOnIds(
-                          checked ? [...addOnIds, addOn.id] : addOnIds.filter((entry) => entry !== addOn.id),
-                        )
-                      }
-                    />
-                  </View>
-                  <Text variant="priceSm" color="secondary">
-                    {formatRupees(addOn.price)}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        ) : null}
-
-        {/* Spice */}
-        {!dish.spiceFixed ? (
-          <View style={{ gap: space[2] }}>
-            <Text variant="eyebrow" color="tertiary">
-              Spice level
-            </Text>
-            <View style={[styles.spiceRow, { gap: space[2] }]}>
-              {SPICES.map((level) => {
-                const active = spice === level;
-                return (
-                  <Pressable
-                    key={level}
-                    onPress={() => setSpice(level)}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: active }}
-                    style={[
-                      styles.spiceChip,
-                      {
-                        borderRadius: radius.button,
-                        backgroundColor: active ? colors.graphite : colors.surface,
-                        borderColor: active ? colors.graphite : colors.border,
-                      },
-                    ]}
-                  >
-                    <Text
-                      variant="title3"
-                      style={{ color: active ? colors.onGraphite : colors.textSecondary }}
-                    >
-                      {SPICE_LABEL[level]}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <Text variant="caption" color="tertiary">
-              This goes to the kitchen with the order. Some dishes cannot be changed.
-            </Text>
-          </View>
-        ) : null}
-
-        {/* What other students said */}
-        {dish.rating ? (
-          <View style={{ gap: space[2] }}>
-            <Text variant="eyebrow" color="tertiary">
-              What students say
-            </Text>
-            <View
-              style={[
-                styles.group,
-                { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, padding: space[3], gap: space[3] },
-              ]}
-            >
-              <Review
-                name="Rahul K."
-                stars={5}
-                when="2 days ago"
-                body="Sambar is properly spicy and the refill actually happens. Cheaper than my mess."
-              />
-              <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.borderSubtle }} />
-              <Review
-                name="Sneha M."
-                stars={4}
-                when="last week"
-                body="Portion is right for one. Ask for less rice if you are picking up."
-              />
-            </View>
-          </View>
-        ) : null}
-
-        {inCart > 0 ? (
-          <Text variant="caption" color="tertiary">
-            {inCart} already in your cart. Adding here does not replace it.
-          </Text>
-        ) : null}
+        <DishDetailContent dish={dish} open={open} choices={choices} />
       </ScrollView>
 
-      {/* The committing bar. It carries the number, always. */}
       <View
         style={[
           styles.cta,
@@ -282,79 +117,15 @@ export default function DishScreen() {
             paddingHorizontal: layout.gutter,
             paddingTop: space[3],
             paddingBottom: space[6] + actionInset,
-            gap: space[3],
           },
         ]}
       >
-        <AddControl
-          value={qty}
-          onChange={(next) => setLocalQty(Math.max(1, next))}
-          size="lg"
-          disabled={!orderable}
-          reason={dish.soldOut ? 'Sold out' : 'Kitchen closed'}
-          accessibilityLabel={dish.name}
-        />
-
-        <Pressable
-          onPress={orderable ? commit : undefined}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !orderable }}
-          accessibilityLabel={`Add to cart, ${formatRupees(unitPrice * qty)}`}
-          style={({ pressed }) => [
-            styles.ctaButton,
-            {
-              borderRadius: radius.button,
-              backgroundColor: orderable ? (pressed ? colors.graphiteRaised : colors.graphite) : colors.surfaceSunken,
-            },
-          ]}
-        >
-          <Text variant="title2" style={{ color: orderable ? colors.onGraphite : colors.textTertiary }}>
-            {orderable ? `Add to cart · ${formatRupees(unitPrice * qty)}` : 'Not cooking right now'}
-          </Text>
-        </Pressable>
+        <DishCommitBar dish={dish} choices={choices} onCommitted={() => router.back()} />
       </View>
-
-    </View>
-  );
-}
-
-function Review({ name, stars, when, body }: { name: string; stars: number; when: string; body: string }) {
-  const { colors, space } = useTheme();
-  return (
-    <View style={{ gap: space[1] }}>
-      <View style={styles.reviewHead}>
-        <Text variant="title3">{name}</Text>
-        <View style={styles.stars}>
-          {Array.from({ length: stars }).map((_, index) => (
-            <Icon key={index} name="star" size={16} color={colors.warning.base} />
-          ))}
-        </View>
-        <Text variant="numMeta" color="tertiary">
-          {when}
-        </Text>
-      </View>
-      <Text variant="caption" color="secondary">
-        {body}
-      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
-  group: { borderWidth: StyleSheet.hairlineWidth },
-  addOnRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  spiceRow: { flexDirection: 'row' },
-  spiceChip: {
-    flex: 1,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  cta: { flexDirection: 'row', alignItems: 'center', borderTopWidth: StyleSheet.hairlineWidth },
-  ctaButton: { flex: 1, minHeight: 52, alignItems: 'center', justifyContent: 'center' },
-  reviewHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  stars: { flexDirection: 'row', gap: 1 },
+  cta: { borderTopWidth: StyleSheet.hairlineWidth },
 });

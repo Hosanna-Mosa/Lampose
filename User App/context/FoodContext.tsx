@@ -3,7 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 import {
-  deliveryFeeFor, gstRateOf, packagingChargeOf, platformFeeOf, splitOptions,
+  deliveryFeeFor, gstRateOf, isPortionOption, packagingChargeOf, platformFeeOf, splitOptions,
 } from '@/services/adapters/food.adapter';
 import {
   cancelFoodOrder,
@@ -78,6 +78,14 @@ export type CartLine = {
   qty: number;
   addOnIds: readonly string[];
   spice: SpiceLevel;
+  /**
+   * The dish as it was when added. The live catalogue row is preferred when
+   * there is one (so a price change or a sell-out reaches the cart); this is
+   * what stands in when the catalogue has no row — a dish from a kitchen the
+   * location-scoped feed does not list, opened from an old order or a link.
+   * Without it such a line was silently dropped and the cart read empty.
+   */
+  snapshot: Dish;
 };
 
 export type DetailedLine = CartLine & {
@@ -94,6 +102,8 @@ export type PendingAdd = {
   qty: number;
   addOnIds: readonly string[];
   spice: SpiceLevel;
+  /** The dish's kitchen, when the caller has it — see `cartKitchen`. */
+  kitchen?: Kitchen;
 };
 
 export type AddResult = 'added' | 'conflict';
@@ -122,6 +132,12 @@ export type FoodContextValue = {
 
   /* — cart — */
   kitchenId: string | null;
+  /**
+   * The cart's kitchen: the catalogue's row when it has one, else the copy
+   * taken when a dish was added from a kitchen the feed does not list. Read
+   * this rather than `findKitchen(kitchenId)`, which is empty in that case.
+   */
+  cartKitchen: Kitchen | null;
   lines: readonly DetailedLine[];
   count: number;
   itemTotal: number;
@@ -172,7 +188,10 @@ export type FoodContextValue = {
   /** Re-read the book — the picker calls this on returning from the editor. */
   refreshAddresses: () => Promise<void>;
 
-  add: (dish: Dish, options?: { qty?: number; addOnIds?: readonly string[]; spice?: SpiceLevel }) => AddResult;
+  add: (
+    dish: Dish,
+    options?: { qty?: number; addOnIds?: readonly string[]; spice?: SpiceLevel; kitchen?: Kitchen },
+  ) => AddResult;
   setQty: (key: string, qty: number) => void;
   clear: () => void;
   /** Total quantity of a dish in the cart, whatever options were chosen. */
@@ -359,6 +378,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   const [foodTab, setFoodTab] = useState<FoodTab>('home');
   const [kitchenId, setKitchenId] = useState<string | null>(null);
   const [rawLines, setRawLines] = useState<CartLine[]>([]);
+  const [kitchenSnapshot, setKitchenSnapshot] = useState<Kitchen | null>(null);
   /* Always 'delivery'. Collection is no longer offered anywhere and the order
      endpoint refuses one; nothing in this app ever set it to anything else.
      A constant rather than state, so it cannot become
@@ -400,9 +420,13 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   const lines: DetailedLine[] = useMemo(
     () =>
       rawLines.flatMap((line) => {
-        const dish = findDish(line.dishId);
-        if (!dish) return [];
-        const addOns = (dish.addOns ?? []).filter((addOn) => line.addOnIds.includes(addOn.id));
+        const dish = findDish(line.dishId) ?? line.snapshot;
+        const picked = (dish.addOns ?? []).filter((addOn) => line.addOnIds.includes(addOn.id));
+        /* At most one portion counts, the same one `splitOptions` sends — the
+           server prices a single variant, so a second one here would quote a
+           total the order will not be charged. */
+        const portion = picked.find((option) => isPortionOption(option.id));
+        const addOns = picked.filter((option) => !isPortionOption(option.id) || option === portion);
         const unitPrice = dish.price + addOns.reduce((sum, addOn) => sum + addOn.price, 0);
         const parts = addOns.map((addOn) => addOn.label);
         if (!dish.spiceFixed && line.spice !== 'medium') parts.push(`${line.spice} spice`);
@@ -416,13 +440,15 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
           },
         ];
       }),
-    [rawLines],
+    [rawLines, findDish],
   );
 
   const itemTotal = useMemo(() => lines.reduce((sum, line) => sum + line.lineTotal, 0), [lines]);
   const count = useMemo(() => lines.reduce((sum, line) => sum + line.qty, 0), [lines]);
 
-  const kitchen = kitchenId ? findKitchen(kitchenId) : undefined;
+  const kitchen = kitchenId
+    ? findKitchen(kitchenId) ?? (kitchenSnapshot?.id === kitchenId ? kitchenSnapshot : undefined)
+    : undefined;
 
   /*
     ── The real address book ────────────────────────────────────────────────
@@ -568,6 +594,9 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
 
   const commitAdd = useCallback((dish: Dish, next: PendingAdd) => {
     setKitchenId(dish.kitchenId);
+    setKitchenSnapshot((current) =>
+      next.kitchen?.id === dish.kitchenId ? next.kitchen : current?.id === dish.kitchenId ? current : null,
+    );
     setRawLines((current) => {
       const key = lineKey(next.dish.id, next.addOnIds, next.spice);
       const existing = current.find((line) => line.key === key);
@@ -576,7 +605,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
       }
       return [
         ...current,
-        { key, dishId: next.dish.id, qty: next.qty, addOnIds: next.addOnIds, spice: next.spice },
+        { key, dishId: next.dish.id, qty: next.qty, addOnIds: next.addOnIds, spice: next.spice, snapshot: next.dish },
       ];
     });
   }, []);
@@ -588,6 +617,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
         qty: options?.qty ?? 1,
         addOnIds: options?.addOnIds ?? [],
         spice: options?.spice ?? preferences.spice,
+        ...(options?.kitchen ? { kitchen: options.kitchen } : null),
       };
 
       if (kitchenId && kitchenId !== dish.kitchenId && rawLines.length > 0) {
@@ -623,6 +653,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   const clear = useCallback(() => {
     setRawLines([]);
     setKitchenId(null);
+    setKitchenSnapshot(null);
   }, []);
 
   const qtyOf = useCallback(
@@ -967,7 +998,25 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       qty: line.quantity,
       price: line.lineTotal,
       diet: line.isVeg === 'non-veg' ? 'nonveg' : line.isVeg === 'egg' ? 'egg' : 'veg',
-      ...(line.note ? { note: line.note } : null),
+      ...(() => {
+        /* The app's note is every option, as the cart printed it — the
+           receipt shows it and a reorder rebuilds the line from it. The
+           server's note no longer repeats the portion (it is `variantName`),
+           so the portion and add-ons are read back from their fields.
+           Deduplicated, because the note repeats the add-ons, and an order
+           placed before that change repeats the portion too. */
+        const parts = [line.variantName, ...(line.addOns ?? []).map((addOn) => addOn.name), ...(line.note ?? '').split(',')]
+          .map((part) => (part ?? '').trim())
+          .filter(Boolean);
+        const seen = new Set<string>();
+        const unique = parts.filter((part) => {
+          const k = part.toLowerCase();
+          if (seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        });
+        return unique.length ? { note: unique.join(', ') } : null;
+      })(),
     })),
     itemTotal: row.itemsTotal,
     deliveryFee: row.deliveryFee,
@@ -1052,11 +1101,49 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
   };
 }
 
+  /*
+   * The online order this cart is waiting to pay for, and the cart it was
+   * placed FROM.
+   *
+   * An online order is written before the money moves, and the cart is kept
+   * so a student who backs out of the UPI screen still has it. Two things
+   * used to go wrong from there: every retry of "Pay" wrote ANOTHER held order
+   * (a column of "Payment not completed" in Orders), and once the payment did
+   * land nothing emptied the cart — it sat there full, one tap from paying
+   * for the same dinner twice.
+   *
+   * The signature is what makes "the same cart" checkable: the kitchen, the
+   * address and every line with its quantity. Change any of them and the held
+   * order no longer describes what is being bought, so a new one is placed.
+   */
+  const [held, setHeld] = useState<{ id: string; signature: string } | null>(null);
+  const cartSignature = useMemo(
+    () => JSON.stringify([kitchenId, addressId, rawLines.map((line) => [line.key, line.qty])]),
+    [kitchenId, addressId, rawLines],
+  );
+
   const placeOrder = useCallback(
     async (now: Date = new Date(), mode: 'online' | 'cod' = 'cod') => {
       if (!kitchenId) throw new Error('There is no kitchen selected.');
 
-      const orderKitchen = findKitchen(kitchenId);
+      /* A retry of the same cart reopens the payment on the order already
+         written rather than writing another; `startPayment` mints a fresh
+         checkout link against the same Razorpay order. Not once the order has
+         been paid, cancelled or refused — then it is over and a new one is
+         right. */
+      if (mode === 'online' && held && held.signature === cartSignature) {
+        const existing = orders.find((entry) => entry.id === held.id);
+        if (
+          existing &&
+          existing.paymentLabel === 'Payment not completed' &&
+          existing.status !== 'cancelled' &&
+          existing.status !== 'rejected'
+        ) {
+          return { order: existing, nextStep: 'payment' as const };
+        }
+      }
+
+      const orderKitchen = kitchen;
       const isPickup = fulfilment === 'pickup';
 
       /*
@@ -1104,7 +1191,18 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
             quantity: line.qty,
             ...(variantName ? { variantName } : null),
             ...(addOnNames.length ? { addOns: addOnNames } : null),
-            ...(line.note ? { note: line.note } : null),
+            /* The note is the kitchen's ONLY view of add-ons and spice — the
+               Food-Partner order screens print `variantName` beside the dish
+               but never read `addOns` — so both stay in it. The portion does
+               not: it is already on the ticket as the variant, and repeating
+               it here printed it twice. */
+            ...(() => {
+              const note = [
+                ...addOnNames,
+                ...(!line.dish.spiceFixed && line.spice !== 'medium' ? [`${line.spice} spice`] : []),
+              ].join(', ');
+              return note ? { note } : null;
+            })(),
           };
         }),
       });
@@ -1115,10 +1213,47 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
          not yet paid, and clearing the cart before the money lands would leave
          a student who backs out of the UPI screen with nothing to go back to. */
       if (nextStep === 'track') clear();
+      setHeld(nextStep === 'track' ? null : { id: order.id, signature: cartSignature });
       return { order, nextStep };
     },
-    [kitchenId, fulfilment, lines, address, findKitchen, clear],
+    [kitchenId, kitchen, fulfilment, lines, address, clear, held, cartSignature, orders],
   );
+
+  /*
+   * The held order's payment landing is what empties the cart — the online
+   * twin of the cash path's `clear()` above. Only while the cart is still the
+   * one that was paid for: anything added since belongs to a new order and is
+   * left alone. A held order that was cancelled or refused just stops being
+   * held; the cart stays, because nothing was bought.
+   */
+  useEffect(() => {
+    if (!held) return;
+    const order = orders.find((entry) => entry.id === held.id);
+    if (!order) return;
+    if (order.paymentLabel === 'Paid online') {
+      if (held.signature === cartSignature) clear();
+      setHeld(null);
+    } else if (order.status === 'cancelled' || order.status === 'rejected') {
+      setHeld(null);
+    }
+  }, [held, orders, cartSignature, clear]);
+
+  /*
+   * Signing OUT empties the cart, the chosen address and any held order —
+   * the next account on this phone must not inherit somebody else's dinner.
+   * Only on that transition: a guest who builds a cart and then signs in to
+   * pay keeps it, which is the flow `payment.tsx` relies on.
+   */
+  const wasSignedIn = useRef(signedIn);
+  useEffect(() => {
+    if (wasSignedIn.current && !signedIn) {
+      clear();
+      setAddressId('');
+      setHeld(null);
+      setPendingAdd(null);
+    }
+    wasSignedIn.current = signedIn;
+  }, [signedIn, clear]);
 
   /**
    * Re-read one order, and fold it back into the list.
@@ -1440,6 +1575,7 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       foodTab,
       setFoodTab,
       kitchenId,
+      cartKitchen: kitchen ?? null,
       lines,
       count,
       itemTotal,
@@ -1488,6 +1624,7 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
     [
       foodTab,
       kitchenId,
+      kitchen,
       lines,
       count,
       itemTotal,

@@ -379,6 +379,13 @@ export function FoodHome({
     return vegFiltered.filter((dish) => kitchenIds.has(dish.kitchenId));
   }, [dishesFor, preferences.vegOnly, kitchens]);
 
+  /* The hero's slides, shared with the waiting screen's promo — see
+     `buildPromoSlides`. Only the destination of a tap differs between the
+     two, so only that is passed in. Above the early returns below: a hook
+     after them runs only once the feed has loaded, and the render that goes
+     from skeleton to feed would call one more hook than the one before it. */
+  const promoSlides = useMemo(() => buildPromoSlides(onSearch), [onSearch]);
+
   /*
    * Choosing a mode, and switching it off, both go through the same steps in
    * the same order: the preference is set FIRST, the transition animation
@@ -466,11 +473,6 @@ export function FoodHome({
 
   const openKitchen = (id: string) => router.push(foodHref.kitchen(id));
   const openDish = (id: string) => router.push(foodHref.dish(id));
-
-  /* The hero's slides, shared with the waiting screen's promo — see
-     `buildPromoSlides`. Only the destination of a tap differs between the
-     two, so only that is passed in. */
-  const promoSlides = useMemo(() => buildPromoSlides(onSearch), [onSearch]);
 
   return (
     <>

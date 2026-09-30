@@ -41,6 +41,7 @@
 import { useQueries } from '@tanstack/react-query';
 import React, { createContext, useCallback, useContext, useMemo } from 'react';
 
+import { useAppState } from '@/context/AppStateContext';
 import { fetchKitchen } from '@/services/api/food.api';
 import { openNowOf } from '@/services/adapters/food.adapter';
 import { useKitchens } from '@/services/hooks/useFood';
@@ -78,7 +79,22 @@ const CatalogueContext = createContext<FoodCatalogue | null>(null);
 const MENU_FANOUT_CAP = 25;
 
 export function FoodCatalogueProvider({ children }: { children: React.ReactNode }) {
-  const feed = useKitchens({ limit: 50 });
+  /*
+   * Scoped the way the stays feed is (`app/home.tsx`): by the fix behind
+   * "Use my current location" when the student gave one, and not by place at
+   * all otherwise. A named locality carries no coordinates, and inventing a
+   * centre for it would be a guess presented as a distance. `partnerType` is
+   * always sent — without it the server lists meat shops in this feed too.
+   */
+  const { locality } = useAppState();
+  const near = locality?.near ?? null;
+  const feed = useKitchens({
+    limit: 50,
+    partnerType: 'food',
+    lat: near?.lat ?? null,
+    lng: near?.lng ?? null,
+    radiusKm: near?.radiusKm ?? null,
+  });
 
   const feedKitchens = useMemo<readonly Kitchen[]>(() => feed.data ?? [], [feed.data]);
 

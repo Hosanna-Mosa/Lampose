@@ -11,7 +11,6 @@ import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import { formatRupees } from '@/utils/money';
-import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
 import { useAuth } from '@/context/AuthContext';
 
@@ -42,7 +41,6 @@ const ONLINE: readonly Method[] = [
  * is how people come to feel tricked, and this is a student's food budget.
  */
 export default function PaymentScreen() {
-  const { findKitchen } = useFoodCatalogue();
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   /* Nothing on a handset that reports a real inset; the shortfall on one
@@ -51,7 +49,7 @@ export default function PaymentScreen() {
   const router = useRouter();
   const { requireSignIn } = useAuth();
   const {
-    kitchenId,
+    cartKitchen: kitchen,
     count,
     itemTotal,
     deliveryFee,
@@ -74,7 +72,6 @@ export default function PaymentScreen() {
   const [state, setState] = useState<'idle' | 'paying' | 'failed'>('idle');
   const [error, setError] = useState<string | null>(null);
 
-  const kitchen = kitchenId ? findKitchen(kitchenId) : undefined;
 
   if (!kitchen || count === 0) {
     return (
@@ -158,8 +155,8 @@ export default function PaymentScreen() {
 
       /* The order exists and is held. Opening the gateway is a second request,
          and a failure HERE is not a failed order — it is an order waiting to be
-         paid for, which the tracking screen can resume. So the student is sent
-         there either way and told what happened. */
+         paid for. Tapping Pay again with the same cart reopens THIS order
+         rather than writing another (see `held` in `FoodContext`). */
       const intent = await startPayment(order.id);
       if (!intent.checkoutToken) {
         setError('Online payment is not available right now. Please choose cash instead.');
