@@ -49,6 +49,7 @@ const { rateLimit } = require('../../shared/middleware/rateLimit');
 const { requireLamposeDb, requireAuthConfig } = require('../../shared/middleware/requireDb');
 const { tagFoodPartnerRequest } = require('./foodPartner.log');
 const { requireRestaurantAdmin } = require('./restaurantAdmin.middleware');
+const { forbidStaff } = require('./staffAccess');
 const {
   login, checkPasswordSetup, completePasswordSetup, changePassword, summary, analytics, earnings,
   listPayoutAccounts, addPayoutAccount, activatePayoutAccount, removePayoutAccount,
@@ -118,6 +119,9 @@ router.post('/set-password', setupByIp, requireLamposeDb, requireAuthConfig, com
 /* ── Everything below needs a Restaurant Admin session ───────────────────── */
 
 const session = [requireLamposeDb, requireAuthConfig, requireRestaurantAdmin];
+/* A Lampose staff session (staffAccess.js) may not touch bank details or the
+   owner's password. */
+const noStaff = forbidStaff();
 
 /* The shop itself. */
 router.get('/summary', session, summary);
@@ -158,9 +162,9 @@ router.post('/payouts/request', session, payoutRequestLimit, requestPayout);
    header records that letting an owner do this at all was a decision, what
    it costs, and what stands in place of the protection it removed. */
 router.get('/payout-accounts', session, listPayoutAccounts);
-router.post('/payout-accounts', session, addPayoutAccount);
-router.patch('/payout-accounts/:accountId/activate', session, activatePayoutAccount);
-router.delete('/payout-accounts/:accountId', session, removePayoutAccount);
+router.post('/payout-accounts', session, noStaff, addPayoutAccount);
+router.patch('/payout-accounts/:accountId/activate', session, noStaff, activatePayoutAccount);
+router.delete('/payout-accounts/:accountId', session, noStaff, removePayoutAccount);
 
 /* ── The shop record ─────────────────────────────────────────────────── */
 router.get('/me', session, getMe);
@@ -186,7 +190,7 @@ const passwordChangeLimit = rateLimit({
   keyOf: (req) => (req.restaurantAdmin && req.restaurantAdmin.restaurantId) || req.ip,
 });
 
-router.post('/me/password', session, passwordChangeLimit, changePassword);
+router.post('/me/password', session, noStaff, passwordChangeLimit, changePassword);
 
 /* The orders. `setOrderStatus` is the one that carries the consequences —
    see the file header and the controller's. */

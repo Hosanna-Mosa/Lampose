@@ -70,6 +70,7 @@ const v1ScraperLeadAdminRoutes = require('../src/modules/scraper/scraperLead.adm
 const v1ProductAdminRoutes = require('../src/modules/properties/product.routes');
 const v1MessagingRoutes = require('../src/modules/messaging/messaging.routes');
 const v1FoodAdminRoutes = require('../src/modules/foodpartners/foodAdmin.routes');
+const v1FoodStaffAccessRoutes = require('../src/modules/foodpartners/foodStaffAccessAdmin.routes');
 const v1FoodOrderAdminRoutes = require('../src/modules/foodpartners/foodOrderAdmin.routes');
 /* The restaurant OWNER's own door into the console. A THIRD admin router in
    the food module, and the only one whose caller is not Lampose staff — see
@@ -162,6 +163,7 @@ const V1_GROUPS = [
      in that token. Neither of the staff routers above can be reached with it
      and it cannot reach them. */
   ['/admin/food-payouts', v1FoodPayoutAdminRoutes, 'restaurant payout requests: the queue, and marking one paid'],
+  ['/admin/food-staff-access', v1FoodStaffAccessRoutes, 'Lampose staff sign-ins to restaurant accounts, and what each one changed (read-only)'],
   ['/restaurant-admin', v1RestaurantAdminRoutes, 'the restaurant owner’s console: their own orders, their own menu'],
   ['/order-link', v1OrderLinkRoutes, 'the link in the restaurant’s new-order WhatsApp: view and move ONE order, no sign-in'],
   /* The rider queue, and the other half of the rule that makes "approved" mean

@@ -80,6 +80,7 @@ const jwt = require('jsonwebtoken');
 
 const config = require('../../config/env');
 const FoodRestaurant = require('./foodRestaurant.model');
+const { trackStaffRequest } = require('./staffAccess');
 
 /* The claim that separates this audience from the other four. Changing it
    invalidates every session issued before the change — which is the correct
@@ -132,10 +133,12 @@ const PHONE_TOKEN_TTL = '30m';
  * named 503 the controller can answer with, rather than a 500 thrown from
  * inside jsonwebtoken about `secretOrPrivateKey`.
  */
-const signFoodPartnerToken = (restaurant, { expiresIn } = {}) => {
+/* `claims` carries the staff-session marker from `staffAccess.staffTokenOptions`
+   and nothing else; `sub` and `typ` are always set here and cannot be overridden. */
+const signFoodPartnerToken = (restaurant, { expiresIn, claims } = {}) => {
   if (!config.auth.configured) return null;
   return jwt.sign(
-    { sub: restaurant.restaurantId, typ: TOKEN_TYPE, phone: restaurant.ownerPhone },
+    { ...(claims || {}), sub: restaurant.restaurantId, typ: TOKEN_TYPE, phone: restaurant.ownerPhone },
     config.auth.jwtSecret,
     /* Caller-chosen life, defaulting to the app's. A partner dashboard opened
        in a browser should pass `config.auth.webJwtExpiresIn`, for the reason
@@ -272,6 +275,8 @@ async function requireFoodPartner(req, res, next) {
     }
 
     req.foodPartner = restaurant;
+    /* A Lampose staff session: marked on the request and its writes logged. */
+    trackStaffRequest(req, res, decoded, restaurant, 'app');
     return next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {

@@ -1,0 +1,1 @@
+export { MenuFilterBar } from './MenuFilterBar';

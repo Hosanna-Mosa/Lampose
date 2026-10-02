@@ -107,6 +107,7 @@ const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
 
 const { deletionField } = require('../accountDeletion/accountDeletion.schema');
+const config = require('../../config/env');
 
 /* The cuisines the website's onboarding form offers — kept in step with
    `Frontend/src/data/partner.js` CUISINE_OPTIONS, which is what a partner is
@@ -366,8 +367,17 @@ const foodRestaurantSchema = new mongoose.Schema(
        route choosing between two accounts, and it would choose wrong half the
        time. This is the OWNER's number — the one that proved an OTP and the one
        Lampose rings about a payout. It is not the number printed in the app;
-       see `contactNumber`. */
-    ownerPhone: { type: String, required: true, unique: true, index: true, trim: true },
+       see `contactNumber`.
+
+       Not unique while FOOD_ALLOW_DUPLICATE_OWNER_PHONE is on (testing only) —
+       see `config.food` and `scripts/fix-owner-phone-index.js`. */
+    ownerPhone: {
+      type: String,
+      required: true,
+      unique: !config.food.allowDuplicateOwnerPhone,
+      index: true,
+      trim: true,
+    },
 
     /* Derived from `ownerPhone` in the pre-validate hook below, never set by
        hand at a call site. Stored rather than computed on read because it is

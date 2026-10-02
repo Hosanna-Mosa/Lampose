@@ -139,6 +139,17 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    /* Sign-ins to restaurant accounts with the Lampose staff password, and
+       what each one changed. Its own group so a Food Admin — who works the
+       Food queues — does not see it; the backend gates it to the same two
+       roles (`food.staff_access.read`). */
+    heading: 'Security',
+    roles: ['Super Admin', 'Admin'],
+    items: [
+      { id: 'food-staff-access', label: 'Staff Access', icon: ShieldCheck },
+    ],
+  },
+  {
     /* Support spans all three apps AND the stay side, which is why it is its
        own group rather than a row under Food. The roles are the ones that can
        actually answer; anybody else who reaches the page can still read it,

@@ -252,3 +252,4 @@ const requestLogger = (req, res, next) => {
 module.exports = requestLogger;
 module.exports.requestLogger = requestLogger;
 module.exports.redact = redact;
+module.exports.SECRET_KEY = SECRET_KEY;
