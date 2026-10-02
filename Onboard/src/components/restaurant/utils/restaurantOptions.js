@@ -225,6 +225,8 @@ export const INITIAL_RESTAURANT_STATE = {
      restaurant and a dish's `photoFile` becomes its `productImage`. */
   logoFile: null,
   menuItems: [],
+  /* The Excel sheet the sheet-imported dishes came from: `{ name }` or null. */
+  menuSheet: null,
 
   /* Step 3 — tax and identity.
      Two scans are collected, the PAN card and the FSSAI certificate. The GST

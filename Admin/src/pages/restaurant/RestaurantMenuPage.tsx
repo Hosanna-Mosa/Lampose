@@ -67,6 +67,8 @@ import { Table, Td, Th, Tr } from '../../components/common/atoms/Table';
 import { Text } from '../../components/common/atoms/Text';
 import { Textarea } from '../../components/common/atoms/Textarea';
 import { EmptyState } from '../../components/common/molecules/EmptyState';
+import { MenuFilterBar } from '../../components/common/molecules/MenuFilterBar';
+import { Pagination } from '../../components/common/molecules/Pagination';
 import { ErrorState } from '../../components/common/molecules/ErrorState';
 import { Field } from '../../components/common/molecules/Field';
 import { PageHeader } from '../../components/common/molecules/PageHeader';
@@ -82,6 +84,7 @@ import type {
   SpiceLevel,
 } from '../../api/services/restaurantAdminService';
 import { useFetch } from '../../lib/useFetch';
+import { PAGE_SIZES, hasActiveFilters, useMenuView } from '../../lib/menuFilter';
 import { rupees } from '../../lib/format';
 
 interface RestaurantMenuPageProps {
@@ -187,26 +190,21 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search }
   const [deleting, setDeleting] = useState(false);
   const [flipping, setFlipping] = useState<string | null>(null);
 
-  const items = menu.data?.items ?? [];
+  /* Memoised on `menu.data`: `?? []` is a new array on every render, which
+     would reset the page and re-run the filters on every keystroke. */
+  const items = useMemo(() => menu.data?.items ?? [], [menu.data]);
   const unavailable = menu.data?.unavailable ?? 0;
 
-  /* From `menu.data`, not from the `items` array above: `?? []` is a new
-     array on every render, which would re-run this on every keystroke. */
-  const rows = useMemo(() => {
-    const all = menu.data?.items ?? [];
-    const needle = search.trim().toLowerCase();
-    if (!needle) return all;
-    return all.filter((item) =>
-      [item.productName, item.category, item.description, ...(item.tags ?? [])]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(needle))
-    );
-  }, [menu.data, search]);
+  /* Header search + the filter row + paging, shared with the staff drawer —
+     see `lib/menuFilter.ts`. */
+  const view = useMenuView(items, search, 20);
+  const rows = view.pageItems;
+  const filtering = Boolean(search.trim() || view.filters.search.trim()) || hasActiveFilters(view.filters);
 
-  /* Grouped by section, in the order the server returns — `category`,
-     `displayOrder`, `createdAt`, which is the model's stated read order and
-     the same order the diner's menu is drawn in. Re-sorting here would show
-     an owner a different menu from the one their customers see. */
+  /* The current PAGE, grouped by section, in the order the server returns —
+     `category`, `displayOrder`, `createdAt`, which is the model's stated read
+     order and the same order the diner's menu is drawn in. Re-sorting here
+     would show an owner a different menu from the one their customers see. */
   const sections = useMemo(() => {
     const map = new Map<string, MenuItem[]>();
     rows.forEach((item) => {
@@ -331,12 +329,22 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search }
 
       {/* A quiet line rather than a banner: it is useful to know at a glance
           and it is not a problem to be dismissed. */}
-      {unavailable > 0 && !search.trim() && (
+      {unavailable > 0 && !filtering && (
         <Box className="flex items-center gap-2 text-label text-ink-3">
           <AlertCircle className="size-3.5 text-warn shrink-0" strokeWidth={2} />
           {unavailable} dish{unavailable === 1 ? ' is' : 'es are'} switched off and not being shown
           to customers.
         </Box>
+      )}
+
+      {items.length > 0 && (
+        <MenuFilterBar
+          filters={view.filters}
+          onChange={view.setFilters}
+          onReset={view.resetFilters}
+          categories={view.categories}
+          withSearch
+        />
       )}
 
       <Card>
@@ -358,14 +366,14 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search }
                 <PlainTd colSpan={5}>
                   <EmptyState
                     icon={BookOpenText}
-                    title={search.trim() ? 'Nothing matches that' : 'No dishes yet'}
+                    title={filtering ? 'Nothing matches that' : 'No dishes yet'}
                     description={
-                      search.trim()
-                        ? 'Clear the filter in the header to see the whole menu.'
+                      filtering
+                        ? 'Change or clear the filters to see the whole menu.'
                         : 'Add your first dish — customers see it as soon as your restaurant is approved and open.'
                     }
                     action={
-                      search.trim() ? undefined : (
+                      filtering ? undefined : (
                         <Button variant="primary" icon={Plus} onClick={openCreate}>
                           Add a dish
                         </Button>
@@ -384,6 +392,7 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search }
                     >
                       <Text className="text-micro uppercase text-ink-3">
                         {section} · {dishes.length}
+                        {view.pageCount > 1 ? ' on this page' : ''}
                       </Text>
                     </PlainTd>
                   </PlainTr>
@@ -483,6 +492,17 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search }
           </TableBody>
         </Table>
       </Card>
+
+      <Pagination
+        page={view.page}
+        pageCount={view.pageCount}
+        pageSize={view.pageSize}
+        total={view.filtered.length}
+        onPage={view.setPage}
+        onPageSize={view.setPageSize}
+        pageSizes={PAGE_SIZES}
+        noun={view.filtered.length === 1 ? 'dish' : 'dishes'}
+      />
 
       {/* ── Add / edit ─────────────────────────────────────────────────── */}
       <Modal

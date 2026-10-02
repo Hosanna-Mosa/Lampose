@@ -1354,6 +1354,102 @@ textarea.rst-input { resize: vertical; min-height: 78px; }
 .rst-btn-link:hover { color: var(--lampose-green-dark); }
 .rst-btn-link:disabled { opacity: 0.45; cursor: not-allowed; }
 
+/* Template download, sheet upload and bulk photos — wraps on a phone. */
+.rst-menu-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 2px 0 10px;
+}
+.rst-menu-bulk .rst-btn-link.is-busy { opacity: 0.6; cursor: progress; }
+
+/* The uploaded sheet, standing in for the dishes it added. */
+.rst-sheet-card {
+  border: 1px solid var(--lampose-green-border);
+  background: var(--lampose-green-light);
+  border-radius: 12px;
+  padding: 12px 14px 6px;
+  margin-bottom: 10px;
+}
+.rst-sheet-head { display: flex; align-items: flex-start; gap: 10px; }
+.rst-sheet-meta { min-width: 0; }
+.rst-sheet-name { font-weight: 700; font-size: 0.88rem; overflow-wrap: anywhere; }
+.rst-sheet-actions { display: flex; flex-wrap: wrap; gap: 0 12px; margin-top: 4px; }
+.rst-sheet-actions .rst-btn-link.is-busy { opacity: 0.6; cursor: progress; }
+/* One sheet dish on one line. */
+.rst-dish-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 6px 4px 6px 8px;
+  border-bottom: 1px solid var(--border-light);
+}
+.rst-dish-row:first-of-type { border-top: 1px solid var(--border-light); }
+.rst-dish-row-photo {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border-light);
+  background: var(--bg-card-secondary);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: pointer;
+}
+.rst-dish-row-photo:hover { color: var(--lampose-green); border-color: var(--lampose-green); }
+.rst-dish-row-photo.has-photo { border-style: solid; }
+.rst-dish-row-photo img { width: 100%; height: 100%; object-fit: cover; }
+.rst-veg-mark {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid #2f8f4e;
+  border-radius: 2px;
+  position: relative;
+}
+.rst-veg-mark::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: #2f8f4e;
+}
+.rst-veg-mark.is-egg { border-color: #d97706; }
+.rst-veg-mark.is-egg::after { background: #d97706; }
+.rst-veg-mark.is-non-veg { border-color: #b91c1c; }
+.rst-veg-mark.is-non-veg::after { background: #b91c1c; }
+.rst-dish-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 700;
+  font-size: 0.86rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rst-dish-row-cat {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 30%;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rst-dish-row-price { flex-shrink: 0; font-size: 0.84rem; font-weight: 700; white-space: nowrap; }
+.rst-dish-row-price s { color: var(--text-muted); font-weight: 500; margin-right: 2px; }
+/* A phone keeps name, price and the buttons; the category is in the edit card. */
+@media (max-width: 480px) {
+  .rst-dish-row-cat { display: none; }
+}
+.rst-btn-link.rst-btn-danger { color: #b91c1c; }
+.rst-btn-link.rst-btn-danger:hover { color: #991b1b; }
+
 /* -- The item sheet -------------------------------------------------------- */
 
 /* A dialog on a phone is a bottom sheet: it opens where the thumb already is

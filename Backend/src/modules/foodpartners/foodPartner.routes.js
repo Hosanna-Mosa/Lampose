@@ -75,6 +75,7 @@ const {
 const { protect: requireStaff } = require('../../shared/middleware/authMiddleware');
 const { tagFoodPartnerRequest } = require('./foodPartner.log');
 const { makeInAppDeletionRouter } = require('../accountDeletion/accountDeletion.routes');
+const { forbidStaff } = require('./staffAccess');
 
 const router = express.Router();
 
@@ -198,7 +199,9 @@ const session = [requireLamposeDb, requireAuthConfig, requireFoodPartner];
 
 /* Asking to delete the kitchen's account from inside the app — status,
    request, cancel. The public half is lampose.com/delete-account. */
-router.use('/me/account-deletion', makeInAppDeletionRouter('restaurant', 'foodPartner', session));
+/* A Lampose staff session (staffAccess.js) may read the deletion status but
+   never request or cancel a deletion. */
+router.use('/me/account-deletion', makeInAppDeletionRouter('restaurant', 'foodPartner', [...session, forbidStaff({ writesOnly: true })]));
 
 /* ── Payouts: what this kitchen is owed, and asking to be paid ───────────
    Reuses `foodPayout.service.js`, the same service the staff queue and the

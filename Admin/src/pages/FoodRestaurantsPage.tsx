@@ -38,6 +38,9 @@ import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
 import { Textarea } from '../components/common/atoms/Textarea';
 import { DataRow } from '../components/common/molecules/DataRow';
 import { EmptyState } from '../components/common/molecules/EmptyState';
+import { MenuFilterBar } from '../components/common/molecules/MenuFilterBar';
+import { Pagination } from '../components/common/molecules/Pagination';
+import { useMenuView } from '../lib/menuFilter';
 import { ErrorState } from '../components/common/molecules/ErrorState';
 import { Field } from '../components/common/molecules/Field';
 import { PageHeader } from '../components/common/molecules/PageHeader';
@@ -50,6 +53,7 @@ import { foodAdminService } from '../api/services/foodAdminService';
 import { useAuth } from '../context/AuthContext';
 import { useFetch } from '../lib/useFetch';
 import type {
+  FoodProductRow,
   FoodRestaurantDetail,
   FoodRestaurantRow,
   FoodVerificationStatus,
@@ -112,6 +116,90 @@ const when = (iso: string | null | undefined): string =>
  * the district a verifier can open this portal and still not run the check.
  */
 const FSSAI_PORTAL_URL = 'https://foscos.fssai.gov.in/';
+
+/**
+ * The submitted menu inside the drawer: search, the shared filter row and
+ * pages of 10, so a 200-dish application does not become one endless list.
+ * Its own component so the filters and the page reset with each restaurant.
+ */
+function DrawerMenu({ menu }: { menu: { category: string; items: FoodProductRow[] }[] }) {
+  const dishes = useMemo(
+    () => menu.flatMap((group) => group.items.map((item) => ({ ...item, category: item.category || group.category }))),
+    [menu]
+  );
+  const view = useMenuView(dishes, '', 10);
+
+  const groups = useMemo(() => {
+    const map = new Map<string, FoodProductRow[]>();
+    view.pageItems.forEach((item) => {
+      const key = item.category || 'Uncategorised';
+      const list = map.get(key);
+      if (list) list.push(item);
+      else map.set(key, [item]);
+    });
+    return [...map.entries()];
+  }, [view.pageItems]);
+
+  if (dishes.length === 0) {
+    return <Text className="text-body text-ink-3">No menu was submitted with this application.</Text>;
+  }
+
+  return (
+    <Box className="space-y-3">
+      <MenuFilterBar
+        filters={view.filters}
+        onChange={view.setFilters}
+        onReset={view.resetFilters}
+        categories={view.categories}
+        withSearch
+      />
+      {groups.length === 0 ? (
+        <Text className="text-body text-ink-3">No dishes match these filters.</Text>
+      ) : (
+        groups.map(([category, items]) => (
+          <Box key={category}>
+            <Text className="text-micro uppercase text-ink-3 mb-1">
+              {category} · {items.length}
+            </Text>
+            <List className="space-y-1 list-none m-0 p-0">
+              {items.map((item) => (
+                <ListItem
+                  key={item.productId}
+                  className="flex items-center gap-2 py-1 border-b border-line last:border-0"
+                >
+                  <Inline
+                    className={cx(
+                      'size-2.5 rounded-[2px] border shrink-0',
+                      item.isVeg === 'veg' ? 'border-good' : item.isVeg === 'egg' ? 'border-warn' : 'border-crit'
+                    )}
+                  />
+                  <Inline className="text-body text-ink flex-1 truncate">{item.productName}</Inline>
+                  {!item.isAvailable && <Inline className="text-label text-warn">Sold out</Inline>}
+                  {!!item.tags?.length && (
+                    <Inline className="text-label text-ink-3">{item.tags.join(' · ')}</Inline>
+                  )}
+                  <Inline className="text-body tabular text-ink-2">
+                    {money(item.discountedPrice || item.price)}
+                  </Inline>
+                </ListItem>
+              ))}
+            </List>
+          </Box>
+        ))
+      )}
+      <Pagination
+        page={view.page}
+        pageCount={view.pageCount}
+        pageSize={view.pageSize}
+        total={view.filtered.length}
+        onPage={view.setPage}
+        onPageSize={view.setPageSize}
+        pageSizes={[10, 20, 50]}
+        noun={view.filtered.length === 1 ? 'dish' : 'dishes'}
+      />
+    </Box>
+  );
+}
 
 export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search }) => {
   const { user } = useAuth();
@@ -606,41 +694,7 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
             </Section>
 
             <Section title={`Menu — ${open.menuItemCount} item${open.menuItemCount === 1 ? '' : 's'}`}>
-              {open.menu.length === 0 ? (
-                <Text className="text-body text-ink-3">No menu was submitted with this application.</Text>
-              ) : (
-                <Box className="space-y-3">
-                  {open.menu.map((group) => (
-                    <Box key={group.category}>
-                      <Text className="text-micro uppercase text-ink-3 mb-1">
-                        {group.category} · {group.items.length}
-                      </Text>
-                      <List className="space-y-1 list-none m-0 p-0">
-                        {group.items.map((item) => (
-                          <ListItem
-                            key={item.productId}
-                            className="flex items-center gap-2 py-1 border-b border-line last:border-0"
-                          >
-                            <Inline
-                              className={cx(
-                                'size-2.5 rounded-[2px] border shrink-0',
-                                item.isVeg === 'veg' ? 'border-good' : 'border-crit'
-                              )}
-                            />
-                            <Inline className="text-body text-ink flex-1 truncate">{item.productName}</Inline>
-                            {!!item.tags?.length && (
-                              <Inline className="text-label text-ink-3">{item.tags.join(' · ')}</Inline>
-                            )}
-                            <Inline className="text-body tabular text-ink-2">
-                              {money(item.discountedPrice || item.price)}
-                            </Inline>
-                          </ListItem>
-                        ))}
-                      </List>
-                    </Box>
-                  ))}
-                </Box>
-              )}
+              <DrawerMenu menu={open.menu} />
             </Section>
 
             <Section title="Contract">
