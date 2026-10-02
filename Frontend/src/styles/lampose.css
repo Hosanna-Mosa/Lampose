@@ -12196,3 +12196,146 @@ footer {
   .da-page { padding: 7.5rem 2rem 4.5rem; }
   .da-card { padding: 1.75rem; }
 }
+
+/* ══ Food dock ═══════════════════════════════════════════════════════════
+   Phones only: Order Food under the thumb (see FoodDock.jsx). An extended
+   FAB — the labelled pill collapses to a round icon while the page is
+   scrolled down, and slides away entirely while the footer is in view.
+   Sits just under the hamburger sheet (399), so an open menu covers it. */
+.food-dock {
+  display: none;
+}
+@media (max-width: 900px) {
+  .food-dock {
+    position: fixed;
+    right: 1rem;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem);
+    z-index: 398;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.7rem;
+    max-width: calc(100vw - 2rem);
+    height: 3.5rem;
+    padding: 0 1.15rem 0 0.45rem;
+    border-radius: 100px;
+    background: var(--forest);
+    color: #f8f6f1;
+    text-decoration: none;
+    box-shadow: 0 12px 28px rgba(16, 19, 18, 0.28), 0 2px 6px rgba(16, 19, 18, 0.18);
+    cursor: none;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      padding 0.35s cubic-bezier(.2, .8, .2, 1),
+      gap 0.35s cubic-bezier(.2, .8, .2, 1),
+      transform 0.4s cubic-bezier(.2, .8, .2, 1),
+      opacity 0.3s;
+    animation: food-dock-in 0.6s cubic-bezier(.2, .8, .2, 1) 0.8s backwards;
+  }
+  .food-dock:active {
+    transform: scale(0.96);
+  }
+
+  /* The icon sits in an amber disc — the one warm colour on a near-black
+     pill, which is what makes it read as "food" from across the screen. */
+  .food-dock__ico-wrap {
+    position: relative;
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 2.6rem;
+    height: 2.6rem;
+    border-radius: 50%;
+    background: var(--amber-l);
+    color: var(--forest);
+  }
+  .food-dock__ico-wrap::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 2px solid var(--amber-l);
+    animation: food-dock-ping 2.6s ease-out 1.6s infinite;
+  }
+  .food-dock__ico {
+    width: 1.35rem;
+    height: 1.35rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .food-dock__badge {
+    position: absolute;
+    top: -0.2rem;
+    right: -0.2rem;
+    min-width: 1.15rem;
+    height: 1.15rem;
+    padding: 0 0.25rem;
+    border-radius: 100px;
+    background: var(--green-m);
+    color: #fff;
+    font: 700 0.65rem/1.15rem var(--font-body);
+    text-align: center;
+    box-shadow: 0 0 0 2px var(--forest);
+  }
+
+  .food-dock__text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    max-width: 14rem;
+    transition: max-width 0.35s cubic-bezier(.2, .8, .2, 1), opacity 0.25s;
+  }
+  .food-dock__kicker {
+    font: 500 0.66rem var(--font-body);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--amber-l);
+  }
+  .food-dock__label {
+    font: 600 0.95rem var(--font-head);
+    letter-spacing: -0.01em;
+  }
+  .food-dock__arrow {
+    font-size: 1rem;
+    overflow: hidden;
+    max-width: 1rem;
+    transition: max-width 0.35s cubic-bezier(.2, .8, .2, 1), opacity 0.25s;
+  }
+
+  /* Scrolling down: just the disc, out of the reader's way. */
+  .food-dock--compact {
+    gap: 0;
+    padding: 0 0.45rem;
+  }
+  .food-dock--compact .food-dock__text,
+  .food-dock--compact .food-dock__arrow {
+    max-width: 0;
+    opacity: 0;
+  }
+
+  /* The footer is in view: step off the screen rather than cover its links. */
+  .food-dock--away {
+    transform: translateY(calc(100% + 2rem));
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+@keyframes food-dock-in {
+  from { transform: translateY(calc(100% + 2rem)); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes food-dock-ping {
+  0% { transform: scale(1); opacity: 0.7; }
+  70%, 100% { transform: scale(1.6); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .food-dock,
+  .food-dock__ico-wrap::after {
+    animation: none;
+  }
+}
