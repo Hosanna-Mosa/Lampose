@@ -17,11 +17,9 @@ import {
   addressVisible, findBooking, fromRealBooking, longDateLabel, type BookingSummary,
 } from '@/data/bookings';
 import {
-  devForceCheckIn, useBooking, useListing, useStayRequest,
+  useBooking, useListing, useStayRequest,
 } from '@/services';
 
-/* DEVELOPMENT ONLY — remove with the dev check-in button below. */
-import { useDevBypass } from '@/hooks/useAppEnv';
 import { formatRupees } from '@/utils/money';
 import { useDepositMark } from '@/components/ui/DepositMark';
 
@@ -260,55 +258,6 @@ export default function BookingDetail() {
       : undefined;
 
   /*
-   * DEVELOPMENT ONLY — force both halves of the move-in.
-   *
-   * Two things gate a real check-in and both are correct: the owner has to go
-   * first, and their own button does not unlock until the check-in DATE. That
-   * makes everything downstream of moving in — and in particular the hotel
-   * settlement becoming releasable, which is what the admin Monitor's Withdraw
-   * button waits on — impossible to reach before the day arrives.
-   *
-   * Drawn only on a build that OPTED IN with `EXPO_PUBLIC_DEV_BYPASS=true`,
-   * and it still 404s unless the SERVER has `DEV_ALLOW_FORCE_CHECKIN` on — so
-   * the button says what to switch on rather than vanishing, the same shape as
-   * the payment bypass on the confirmation screen.
-   *
-   * Not `usePreviewControls`: that is on in an internal preview APK, which
-   * points at the production API like any other build, and this stamps a real
-   * move-in — the thing a hotel settlement becoming releasable waits on.
-   *
-   * Delete this, `devForceCheckIn` and the route it calls once the flow no
-   * longer needs walking through by hand.
-   */
-  const devBypassAllowed = useDevBypass();
-  const [forcing, setForcing] = useState(false);
-  /* Its own, since the move-in card no longer has an error line to borrow:
-     nothing on the student's side of a move-in can fail any more. */
-  const [forceError, setForceError] = useState<string | null>(null);
-
-  const forceCheckIn = async () => {
-    if (!realBookingId || forcing) return;
-    setForcing(true);
-    setForceError(null);
-    try {
-      await devForceCheckIn(realBookingId);
-      /* Read back rather than assumed — the booking is the server's, and this
-         has just changed both halves of it. */
-      await real.refetch();
-    } catch (error) {
-      const failure = error as { status?: number; displayMessage?: string };
-      setForceError(
-        failure?.status === 404
-          ? 'The server does not allow this. Set DEV_ALLOW_FORCE_CHECKIN="true" in Backend/.env '
-            + '(NODE_ENV must not be production) and restart it.'
-          : failure?.displayMessage ?? 'We could not force the check-in.',
-      );
-    } finally {
-      setForcing(false);
-    }
-  };
-
-  /*
    * The screen reads three fetches — the booking, its property, and (on the
    * legacy `bkg-` path only) the stay request behind it. None of the hooks
    * expose a shared `isFetching`, so the refresh gesture tracks its own flag
@@ -512,26 +461,6 @@ export default function BookingDetail() {
                 moment they enter it, your stay starts — there is nothing to confirm here.
               </Text>
             </View>
-
-            {devBypassAllowed ? (
-              <>
-                <Button
-                  label={forcing ? 'Checking in…' : '🛠 DEV: force check-in (both sides)'}
-                  onPress={() => { void forceCheckIn(); }}
-                  variant="secondary"
-                  disabled={forcing}
-                  fullWidth
-                />
-                {forceError ? (
-                  <Text variant="caption" style={{ color: colors.danger.ink }}>
-                    {forceError}
-                  </Text>
-                ) : null}
-                <Text variant="numMeta" color="tertiary" style={styles.centred}>
-                  Development bypass — marks the owner and you as checked in
-                </Text>
-              </>
-            ) : null}
           </View>
         ) : moveIn?.complete ? (
           <View
