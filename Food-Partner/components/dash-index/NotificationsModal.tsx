@@ -3,19 +3,12 @@
    Reads real live notifications from backend API (support tickets, live order events & restaurant status).
    Zero dummy / static data.
    ══════════════════════════════════════════════════════════════════════════ */
+import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ActivityIndicator, StyleSheet, TouchableOpacity, View } from "react-native";
 
-import { Icon, Text } from "@/components/common";
+import { Badge, BottomSheet, EmptyState, InfoNote, Txt } from "@/components/ui";
 import { rupees } from "@/lib/money";
 import { getMe, listMyOrders, type ServerOrder, type ServerRestaurant } from "@/services/foodPartner";
 import {
@@ -24,6 +17,7 @@ import {
   type SupportTicket,
 } from "@/services/support";
 import { usePartnerStore } from "@/store/partnerStore";
+import { font, line, ms, radius, size, ui } from "@/theme/ui";
 
 export type DynamicNotification = {
   id: string;
@@ -42,8 +36,15 @@ type Props = {
   onReadCountChange?: (count: number) => void;
 };
 
+/** A glyph and tile colour per kind, so the kind is never carried by colour alone. */
+const KIND: Record<DynamicNotification["type"], { icon: keyof typeof Ionicons.glyphMap; fg: string; bg: string }> = {
+  order: { icon: "receipt", fg: ui.brandInk, bg: ui.brandSkin },
+  payout: { icon: "wallet", fg: ui.success, bg: ui.successSkin },
+  status: { icon: "checkmark-circle", fg: ui.success, bg: ui.successSkin },
+  system: { icon: "chatbubbles", fg: ui.info, bg: ui.infoSkin },
+};
+
 export function NotificationsModal({ visible, onDismiss, onReadCountChange }: Props) {
-  const insets = useSafeAreaInsets();
   const session = usePartnerStore((s) => s.session);
 
   const [items, setItems] = useState<DynamicNotification[]>([]);
@@ -200,238 +201,91 @@ export function NotificationsModal({ visible, onDismiss, onReadCountChange }: Pr
     }
   };
 
-  const renderIcon = (type: DynamicNotification["type"]) => {
-    switch (type) {
-      case "order":
-        return <Icon name="utensils" size={18} color="#059669" />;
-      case "payout":
-        return <Icon name="wallet" size={18} color="#10B981" />;
-      case "status":
-        return <Icon name="check" size={18} color="#047857" strokeWidth={2.5} />;
-      default:
-        return <Icon name="bell" size={18} color="#0284C7" />;
-    }
-  };
-
   const unreadCount = items.filter((n) => !n.read).length;
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
-      <Pressable style={styles.scrim} onPress={onDismiss}>
-        <Pressable
-          style={[styles.panel, { paddingBottom: Math.max(insets.bottom, 20) }]}
-          onPress={(e) => e.stopPropagation()}
-        >
-          {/* Grabber */}
-          <View style={styles.grabber} />
+    <BottomSheet
+      visible={visible}
+      onClose={onDismiss}
+      title="Notifications"
+      closeButton
+      titleRight={
+        unreadCount > 0 ? (
+          <TouchableOpacity onPress={markAllRead} hitSlop={8} accessibilityRole="button">
+            <Txt style={styles.markRead}>Mark all read</Txt>
+          </TouchableOpacity>
+        ) : null
+      }
+    >
+      {unreadCount > 0 && <Badge label={`${unreadCount} new`} tone="error" dot />}
 
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.headerTitleRow}>
-              <Icon name="bell" size={20} color="#111827" />
-              <Text style={styles.headerTitle}>Notifications</Text>
-              {unreadCount > 0 && (
-                <View style={styles.badgePill}>
-                  <Text style={styles.badgePillText}>{unreadCount} new</Text>
+      {!!error && <InfoNote tone="danger" text={error} />}
+
+      {loading ? (
+        <View style={styles.loading}>
+          <ActivityIndicator size="small" color={ui.brand} />
+          <Txt style={styles.loadingText}>Fetching live notifications...</Txt>
+        </View>
+      ) : items.length === 0 ? (
+        <EmptyState
+          compact
+          icon="notifications-outline"
+          title="No Notifications"
+          subtitle="Your kitchen has no new alerts or notifications."
+        />
+      ) : (
+        items.map((item) => {
+          const kind = KIND[item.type];
+          return (
+            <TouchableOpacity
+              key={item.id}
+              style={[styles.item, !item.read && styles.itemUnread]}
+              onPress={() => openItem(item)}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel={`${item.title}${item.read ? "" : ", unread"}`}
+            >
+              <View style={[styles.iconTile, { backgroundColor: kind.bg }]}>
+                <Ionicons name={kind.icon} size={ms(18)} color={kind.fg} />
+              </View>
+              <View style={styles.itemTexts}>
+                <View style={styles.itemTitleRow}>
+                  <Txt style={styles.itemTitle} numberOfLines={2}>
+                    {item.title}
+                  </Txt>
+                  {!item.read && <View style={styles.unreadDot} />}
                 </View>
-              )}
-            </View>
-
-            <View style={styles.headerActions}>
-              {unreadCount > 0 && (
-                <Pressable onPress={markAllRead}>
-                  <Text style={styles.markReadText}>Mark all read</Text>
-                </Pressable>
-              )}
-              <Pressable onPress={onDismiss} hitSlop={8}>
-                <Icon name="close" size={20} color="#6B7280" />
-              </Pressable>
-            </View>
-          </View>
-
-          {/* List */}
-          <ScrollView contentContainerStyle={styles.listContainer} showsVerticalScrollIndicator={false}>
-            {loading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="small" color="#059669" />
-                <Text style={styles.loadingText}>Fetching live notifications...</Text>
+                <Txt style={styles.itemMessage}>{item.message}</Txt>
+                {!!item.timestamp && <Txt style={styles.itemTime}>{item.timestamp}</Txt>}
               </View>
-            ) : items.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <Icon name="bell" size={32} color="#9CA3AF" />
-                <Text style={styles.emptyTitle}>No Notifications</Text>
-                <Text style={styles.emptySub}>Your kitchen has no new alerts or notifications.</Text>
-              </View>
-            ) : (
-              items.map((item) => (
-                <Pressable
-                  key={item.id}
-                  style={[styles.itemCard, !item.read && styles.itemCardUnread]}
-                  onPress={() => openItem(item)}
-                >
-                  <View style={styles.iconCircle}>{renderIcon(item.type)}</View>
-
-                  <View style={styles.itemContent}>
-                    <View style={styles.itemTitleRow}>
-                      <Text style={styles.itemTitle}>{item.title}</Text>
-                      {!item.read && <View style={styles.unreadDot} />}
-                    </View>
-                    <Text style={styles.itemMessage}>{item.message}</Text>
-                    <Text style={styles.itemTime}>{item.timestamp}</Text>
-                  </View>
-                </Pressable>
-              ))
-            )}
-          </ScrollView>
-        </Pressable>
-      </Pressable>
-    </Modal>
+            </TouchableOpacity>
+          );
+        })
+      )}
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  scrim: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "flex-end",
-  },
-  panel: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    maxHeight: "80%",
-  },
-  grabber: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#E5E7EB",
-    alignSelf: "center",
-    marginBottom: 12,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  headerTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#111827",
-  },
-  badgePill: {
-    backgroundColor: "#FEF2F2",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
-  badgePillText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#EF4444",
-  },
-  headerActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  markReadText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#059669",
-  },
-  listContainer: {
-    paddingVertical: 14,
-    gap: 12,
-  },
-  loadingContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 30,
-    gap: 8,
-  },
-  loadingText: {
-    fontSize: 13,
-    color: "#6B7280",
-  },
-  itemCard: {
+  markRead: { fontFamily: font.body.semibold, fontSize: size.medium, color: ui.brandInk },
+  loading: { alignItems: "center", justifyContent: "center", paddingVertical: 30, gap: 8 },
+  loadingText: { fontFamily: font.body.medium, fontSize: size.small, color: ui.sec },
+  item: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: ui.surface,
     padding: 14,
-    borderRadius: 16,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: "#F3F4F6",
+    borderColor: ui.border,
   },
-  itemCardUnread: {
-    backgroundColor: "#ECFDF5",
-    borderColor: "#A7F3D0",
-  },
-  iconCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  itemContent: {
-    flex: 1,
-    gap: 2,
-  },
-  itemTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  itemTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  unreadDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#10B981",
-  },
-  itemMessage: {
-    fontSize: 13,
-    color: "#4B5563",
-    lineHeight: 18,
-  },
-  itemTime: {
-    fontSize: 11,
-    fontWeight: "500",
-    color: "#9CA3AF",
-    marginTop: 4,
-  },
-  emptyContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 40,
-    gap: 8,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#374151",
-  },
-  emptySub: {
-    fontSize: 13,
-    color: "#9CA3AF",
-  },
+  itemUnread: { backgroundColor: ui.brandSkin, borderColor: ui.brand },
+  iconTile: { width: ms(40), height: ms(40), borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  itemTexts: { flex: 1, minWidth: 0, gap: 2 },
+  itemTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  itemTitle: { flex: 1, fontFamily: font.body.semibold, fontSize: size.medium, lineHeight: line.medium, color: ui.text },
+  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: ui.brand },
+  itemMessage: { fontFamily: font.body.regular, fontSize: size.small, lineHeight: line.small, color: ui.sec },
+  itemTime: { fontFamily: font.body.medium, fontSize: size.small, color: ui.muted, marginTop: 4 },
 });

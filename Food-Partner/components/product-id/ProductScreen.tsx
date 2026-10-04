@@ -2,23 +2,19 @@
    Add or edit one dish, against the real menu.
 
    `/product/new` creates; `/product/<productId>` edits the row loaded from
-   `GET /me/products`. It renders the SAME `ProductForm` the onboarding step
-   uses, so there is one definition of what a dish is rather than two that
-   drift the first time a field is added.
+   `GET /me/products`. The editor is `DishEditor` — the same fields and rules
+   as the onboarding step's `ProductForm`, drawn in the dashboard's layout.
 
    Every field the schema stores is editable here, images included. A delete
-   is behind a confirm sheet: it is permanent, and the row it removes is one
+   is behind a confirmation: it is permanent, and the row it removes is one
    diners may be looking at.
    ══════════════════════════════════════════════════════════════════════════ */
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  StyleSheet,
-} from "react-native";
+import { ActivityIndicator, StyleSheet } from "react-native";
 
-import { Box, Note, Scroller } from "@/components/common";
-import { ProductForm, emptyItem } from "@/components/common";
-import { ConfirmSheet, Text, TopBar } from "@/components/common";
+import { emptyItem } from "@/components/common";
+import { AlertDialog, Header, InfoNote, ScreenShell } from "@/components/ui";
 import { MENU_CATEGORY_SUGGESTIONS } from "@/constants/partner";
 import { uid } from "@/lib/uid";
 import {
@@ -31,7 +27,8 @@ import {
 } from "@/services/foodPartner";
 import { uploadMany, uploadOne } from "@/services/uploads";
 import { usePartnerStore, type MenuItem, type SpiceLevel } from "@/store/partnerStore";
-import { colors, layout, space } from "@/theme";
+import { ui } from "@/theme/ui";
+import { DishEditor } from "./DishEditor";
 
 /** A stored row, back into the shape the shared editor works in. */
 const toMenuItem = (p: ServerProduct): MenuItem => ({
@@ -163,46 +160,45 @@ export function ProductScreen() {
   );
 
   return (
-    <Box style={{ flex: 1, backgroundColor: colors.bg }}>
-      <TopBar back="the menu" title={title} />
+    <ScreenShell
+      keyboardAvoiding
+      header={<Header title={title} onBack={() => router.back()} backLabel="Back to the menu" />}
+      scroll
+      contentStyle={styles.body}
+    >
+      {!!error && <InfoNote tone="danger" text={error} />}
+      {!!uploading && <InfoNote tone="info" icon="cloud-upload-outline" text={uploading} />}
 
-      <Scroller contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-        {!!error && <Note tone="bad">{error}</Note>}
-        {!!uploading && <Note tone="info">{uploading}</Note>}
+      {loading ? (
+        <ActivityIndicator size="large" color={ui.brand} style={styles.loader} />
+      ) : item ? (
+        <DishEditor
+          item={item}
+          categories={categories}
+          onSave={save}
+          busy={!!uploading}
+          onCancel={() => router.back()}
+          onDelete={isNew ? undefined : () => setConfirmDelete(true)}
+        />
+      ) : null}
 
-        {loading ? (
-          <Text variant="body" color="tertiary">
-            Loading…
-          </Text>
-        ) : item ? (
-          <ProductForm
-            item={item}
-            categories={categories}
-            onSave={save}
-            busy={!!uploading}
-            onCancel={() => router.back()}
-            onDelete={isNew ? undefined : () => setConfirmDelete(true)}
-          />
-        ) : null}
-      </Scroller>
-
-      <ConfirmSheet
+      <AlertDialog
         visible={confirmDelete}
+        tone="danger"
+        kicker="Cannot be undone"
+        title={`Delete ${item?.productName || "this dish"}?`}
+        message="It is removed from your menu immediately, including for anybody looking at it right now."
         onDismiss={() => setConfirmDelete(false)}
-        onPrimary={remove}
-        spec={{
-          kicker: "Cannot be undone",
-          tone: "danger",
-          title: `Delete ${item?.productName || "this dish"}?`,
-          body: "It is removed from your menu immediately, including for anybody looking at it right now.",
-          primary: "Delete it",
-          secondary: "Keep it",
-        }}
+        actions={[
+          { text: "Delete it", style: "destructive", onPress: remove },
+          { text: "Keep it", style: "cancel", onPress: () => setConfirmDelete(false) },
+        ]}
       />
-    </Box>
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { padding: layout.gutter, gap: space[4], paddingBottom: space[10] },
+  body: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 40, gap: 20 },
+  loader: { marginTop: 40 },
 });

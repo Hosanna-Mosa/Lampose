@@ -12,28 +12,42 @@
    its reference — which is why a `pending` row can sit for a while and a
    `paid` one always carries a reference to check.
    ══════════════════════════════════════════════════════════════════════════ */
-import { useFocusEffect } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
 import { StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
-  Box, Btn, Card, Chip, Icon, Note, Refresher, Scroller, Text, TopBar,
-} from "@/components/common";
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Header,
+  InfoNote,
+  ScreenShell,
+  SectionHeader,
+  Txt,
+  fadeInDown,
+  staggerListItem,
+} from "@/components/ui";
 import { rupees } from "@/lib/money";
 import { whenWords } from "@/lib/when";
 import {
   listMyPayouts, requestPayout, type PayoutBalance, type PayoutRequestRow,
 } from "@/services/foodPartner";
 import { usePartnerStore } from "@/store/partnerStore";
-import { colors, layout, space, type ToneName } from "@/theme";
+import { font, line, radius, size, ui, type UiTone } from "@/theme/ui";
 
-const STATUS_WORD: Record<string, { label: string; tone: ToneName }> = {
-  pending: { label: "Waiting on Lampose", tone: "warning" },
-  paid: { label: "Paid", tone: "success" },
-  rejected: { label: "Refused", tone: "danger" },
+const STATUS_WORD: Record<string, { label: string; tone: UiTone; icon: keyof typeof Ionicons.glyphMap }> = {
+  pending: { label: "Waiting on Lampose", tone: "warning", icon: "hourglass-outline" },
+  paid: { label: "Paid", tone: "success", icon: "checkmark-circle-outline" },
+  rejected: { label: "Refused", tone: "error", icon: "close-circle-outline" },
 };
 
 export function PayoutsScreen() {
+  const insets = useSafeAreaInsets();
   const session = usePartnerStore((s) => s.session);
 
   const [balance, setBalance] = useState<PayoutBalance | null>(null);
@@ -89,112 +103,170 @@ export function PayoutsScreen() {
   const canRequest = !!balance && balance.available >= minimum;
 
   return (
-    <Box style={styles.root}>
-      <TopBar back="Profile" title="Payouts &amp; earnings" />
+    <ScreenShell
+      header={<Header title="Payouts & earnings" onBack={() => router.back()} backLabel="Back to Profile" />}
+      scroll
+      refreshing={loading}
+      onRefresh={load}
+      contentStyle={[styles.body, { paddingBottom: insets.bottom + 32 }]}
+    >
+      {!!error && <InfoNote tone="danger" text={error} />}
 
-      <Scroller
-        contentContainerStyle={styles.body}
-        refreshControl={<Refresher refreshing={loading} onRefresh={load} />}
-        showsVerticalScrollIndicator={false}
-      >
-        {!!error && <Note tone="bad">{error}</Note>}
-
-        <Card style={styles.balanceCard}>
-          <Text variant="label" color="tertiary">
-            Available to request
-          </Text>
-          <Text variant="display1" style={{ marginTop: space[1] }}>
+      {/* ── What can be requested ──────────────────────────────────────── */}
+      <Animated.View entering={fadeInDown(0)}>
+        <Card bordered elevationLevel="none" style={styles.balanceCard}>
+          <Txt style={styles.balanceLabel}>Available to request</Txt>
+          <Txt style={styles.balanceValue} accessibilityRole="header">
             {rupees(balance?.available ?? 0)}
-          </Text>
-          <Text variant="caption" color="tertiary" style={{ marginTop: space[1] }}>
+          </Txt>
+          <Txt style={styles.caption}>
             {balance?.availableOrders
               ? `From ${balance.availableOrders} delivered order${balance.availableOrders === 1 ? "" : "s"}`
               : "Nothing delivered yet is unclaimed"}
-          </Text>
+          </Txt>
 
-          {!!balance?.pending && (
-            <Text variant="caption" color="tertiary" style={{ marginTop: space[2] }}>
-              {rupees(balance.pending)} already requested, waiting on Lampose (
-              {balance.pendingRequests} request{balance.pendingRequests === 1 ? "" : "s"}).
-            </Text>
-          )}
-          {!!balance?.inProgress && (
-            <Text variant="caption" color="tertiary" style={{ marginTop: 2 }}>
-              {rupees(balance.inProgress)} still cooking or on the way — not requestable yet.
-            </Text>
-          )}
-          {!!balance?.collectedByYou && (
-            <Text variant="caption" color="tertiary" style={{ marginTop: 2 }}>
-              {rupees(balance.collectedByYou)} collected by you at the counter — Lampose never held it.
-            </Text>
+          {(!!balance?.pending || !!balance?.inProgress || !!balance?.collectedByYou) && (
+            <View style={styles.breakdown}>
+              {!!balance?.pending && (
+                <BreakdownLine
+                  icon="time-outline"
+                  text={`${rupees(balance.pending)} already requested, waiting on Lampose (${balance.pendingRequests} request${balance.pendingRequests === 1 ? "" : "s"}).`}
+                />
+              )}
+              {!!balance?.inProgress && (
+                <BreakdownLine
+                  icon="flame-outline"
+                  text={`${rupees(balance.inProgress)} still cooking or on the way — not requestable yet.`}
+                />
+              )}
+              {!!balance?.collectedByYou && (
+                <BreakdownLine
+                  icon="cash-outline"
+                  text={`${rupees(balance.collectedByYou)} collected by you at the counter — Lampose never held it.`}
+                />
+              )}
+            </View>
           )}
 
-          {!!requestError && <Note tone="bad">{requestError}</Note>}
-          {!!requestNote && <Note tone="ok">{requestNote}</Note>}
+          {!!requestError && <InfoNote tone="danger" text={requestError} />}
+          {!!requestNote && <InfoNote tone="success" text={requestNote} />}
 
-          <Btn
-            label={requesting ? "Requesting…" : "Request payout"}
+          <Button
+            title={requesting ? "Requesting…" : "Request payout"}
             onPress={handleRequest}
             disabled={!canRequest || requesting}
             loading={requesting}
-            style={{ marginTop: space[3] }}
+            fullWidth
+            style={styles.requestButton}
           />
           {!canRequest && !loading && (
-            <Text variant="caption" color="tertiary" style={{ marginTop: space[2], textAlign: "center" }}>
+            <Txt style={styles.blocker}>
               {balance && balance.available > 0
                 ? `Payouts start at ${rupees(minimum)}.`
                 : "Nothing to request yet."}
-            </Text>
+            </Txt>
           )}
         </Card>
+      </Animated.View>
 
-        <Text variant="title2" style={{ marginTop: space[2] }}>
-          History
-        </Text>
+      {/* ── History ────────────────────────────────────────────────────── */}
+      <View style={styles.section}>
+        <SectionHeader title="History" />
 
         {!loading && history.length === 0 && (
-          <Card style={styles.empty}>
-            <Icon name="wallet" size={26} color={colors.textTertiary} />
-            <Text variant="body" color="tertiary" style={{ textAlign: "center" }}>
-              No payout has been requested yet.
-            </Text>
+          <Card bordered elevationLevel="none" padding={0}>
+            <EmptyState compact icon="wallet-outline" title="No payouts yet" subtitle="No payout has been requested yet." />
           </Card>
         )}
 
-        {history.map((row) => {
-          const status = STATUS_WORD[row.status] ?? { label: row.status, tone: "muted" as ToneName };
-          return (
-            <Card key={row.payoutId} style={styles.row}>
-              <View style={styles.rowHead}>
-                <Text variant="title2">{rupees(row.amount)}</Text>
-                <Chip label={status.label} tone={status.tone} />
-              </View>
-              <Text variant="caption" color="tertiary">
-                {row.orderCount} order{row.orderCount === 1 ? "" : "s"} · requested {whenWords(row.requestedAt)}
-              </Text>
-              {row.status === "paid" && !!row.reference && (
-                <Text variant="caption" color="tertiary">
-                  Reference {row.reference}
-                </Text>
-              )}
-              {row.status === "rejected" && !!row.rejectionReason && (
-                <Text variant="caption" style={{ color: colors.danger.ink }}>
-                  {row.rejectionReason}
-                </Text>
-              )}
-            </Card>
-          );
-        })}
-      </Scroller>
-    </Box>
+        <View style={styles.list}>
+          {history.map((row, index) => {
+            const status = STATUS_WORD[row.status] ?? { label: row.status, tone: "neutral" as UiTone, icon: "ellipse-outline" as const };
+            return (
+              <Animated.View key={row.payoutId} entering={staggerListItem(index)}>
+                <Card bordered elevationLevel="none" style={styles.payoutCard}>
+                  <View style={styles.payoutTop}>
+                    <Txt style={styles.payoutAmount}>{rupees(row.amount)}</Txt>
+                    <Badge label={status.label} tone={status.tone} icon={status.icon} />
+                  </View>
+                  <Txt style={styles.payoutMeta}>
+                    {row.orderCount} order{row.orderCount === 1 ? "" : "s"} · requested {whenWords(row.requestedAt)}
+                  </Txt>
+                  {row.status === "paid" && !!row.reference && (
+                    <Txt style={styles.payoutReference} selectable>
+                      Reference {row.reference}
+                    </Txt>
+                  )}
+                  {row.status === "rejected" && !!row.rejectionReason && (
+                    <Txt style={styles.payoutFailed}>{row.rejectionReason}</Txt>
+                  )}
+                </Card>
+              </Animated.View>
+            );
+          })}
+        </View>
+      </View>
+    </ScreenShell>
+  );
+}
+
+function BreakdownLine({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: string }) {
+  return (
+    <View style={styles.breakdownLine}>
+      <Ionicons name={icon} size={15} color={ui.muted} style={{ marginTop: 1 }} />
+      <Txt style={styles.breakdownText}>{text}</Txt>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
-  body: { padding: layout.gutter, gap: space[3], paddingBottom: space[6] },
-  balanceCard: { padding: layout.cardPadding, gap: 2 },
-  empty: { alignItems: "center", gap: space[2], paddingVertical: space[5] },
-  row: { gap: space[1] },
-  rowHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  body: { paddingHorizontal: 16, paddingTop: 8, gap: 0 },
+  section: { marginTop: 24 },
+
+  balanceCard: { gap: 6 },
+  balanceLabel: { fontFamily: font.body.medium, fontSize: size.medium, color: ui.sec },
+  balanceValue: {
+    fontFamily: font.heading.bold,
+    fontSize: size.extraLarge,
+    lineHeight: line.extraLarge,
+    letterSpacing: -0.4,
+    color: ui.text,
+  },
+  caption: { fontFamily: font.body.medium, fontSize: size.small, lineHeight: line.small, color: ui.muted },
+  breakdown: {
+    gap: 8,
+    backgroundColor: ui.sunken,
+    borderRadius: radius.md,
+    padding: 12,
+    marginTop: 6,
+  },
+  breakdownLine: { flexDirection: "row", gap: 8 },
+  breakdownText: { flex: 1, fontFamily: font.body.medium, fontSize: size.small, lineHeight: line.small, color: ui.sec },
+  requestButton: { marginTop: 10 },
+  blocker: {
+    fontFamily: font.body.regular,
+    fontSize: size.small,
+    lineHeight: line.small,
+    color: ui.muted,
+    textAlign: "center",
+    marginTop: 6,
+  },
+
+  list: { gap: 12 },
+  payoutCard: { gap: 8 },
+  payoutTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  payoutAmount: { fontFamily: font.heading.bold, fontSize: size.large, color: ui.text },
+  payoutMeta: { fontFamily: font.body.medium, fontSize: size.small, lineHeight: line.small, color: ui.sec },
+  payoutReference: { fontFamily: font.body.semibold, fontSize: size.small, color: ui.muted, letterSpacing: 0.4 },
+  payoutFailed: {
+    fontFamily: font.body.medium,
+    fontSize: size.small,
+    lineHeight: line.small,
+    color: ui.error,
+    backgroundColor: ui.errorSkin,
+    borderRadius: radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    overflow: "hidden",
+  },
 });

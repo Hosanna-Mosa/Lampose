@@ -8,13 +8,12 @@
    ══════════════════════════════════════════════════════════════════════════ */
 import { router } from "expo-router";
 import React from "react";
-import {
-  StyleSheet,
-} from "react-native";
+import { StyleSheet } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Box, Btn, Card, Icon, Scroller, Tappable, Text, TopBar } from "@/components/common";
+import { Button, EmptyState, ListGroup, ListRow, ScreenShell, ScreenTitle, Txt } from "@/components/ui";
 import { STEPS } from "@/constants/partner";
-import { colors, layout, radius, space, touch } from "@/theme";
+import { font, size, ui } from "@/theme/ui";
 
 const ROUTES: { label: string; path: string }[] = [
   { label: "Pitch", path: "/" },
@@ -30,55 +29,45 @@ const ROUTES: { label: string; path: string }[] = [
 ];
 
 export function NotFound() {
+  const insets = useSafeAreaInsets();
   return (
-    <Box style={{ flex: 1, backgroundColor: colors.bg }}>
-      <TopBar back={null} title="Screen not found" />
+    <ScreenShell scroll contentStyle={[styles.body, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 32 }]}>
+      <ScreenTitle title="Screen not found" style={styles.title} />
 
-      <Scroller contentContainerStyle={styles.body}>
-        <Text variant="body" color="secondary">
-          {__DEV__
+      <EmptyState
+        compact
+        icon="compass-outline"
+        title="Nothing here"
+        subtitle={
+          __DEV__
             ? "That route does not exist. Every screen in the app is listed below."
-            : "That page does not exist."}
-        </Text>
+            : "That page does not exist."
+        }
+      />
 
-        <Btn label="Back to the start" onPress={() => router.replace("/")} />
+      <Button title="Back to the start" fullWidth onPress={() => router.replace("/")} />
 
-        {__DEV__ && (
-        <Card style={{ gap: space[1] }}>
-          <Text variant="eyebrow" color="tertiary">
-            All screens
-          </Text>
-          {ROUTES.map((route) => (
-            <Tappable
+      {__DEV__ && (
+        <ListGroup title="All screens">
+          {ROUTES.map((route, index) => (
+            <ListRow
               key={route.path}
-              accessibilityRole="link"
+              label={route.label}
               accessibilityLabel={route.label}
               onPress={() => router.push(route.path as never)}
-              style={styles.row}
-            >
-              <Text variant="body" style={{ flex: 1 }}>
-                {route.label}
-              </Text>
-              <Text variant="numMeta" color="tertiary">
-                {route.path}
-              </Text>
-              <Icon name="chevronRight" size={15} color={colors.textTertiary} />
-            </Tappable>
+              divider={index < ROUTES.length - 1}
+              right={<Txt style={styles.path}>{route.path}</Txt>}
+            />
           ))}
-        </Card>
-        )}
-      </Scroller>
-    </Box>
+        </ListGroup>
+      )}
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { padding: layout.gutter, gap: space[4] },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space[2],
-    minHeight: touch.min,
-    borderRadius: radius.chip,
-  },
+  body: { paddingHorizontal: 16 },
+  // The scroll content is already padded; the title must not add its own.
+  title: { paddingHorizontal: 0 },
+  path: { fontFamily: font.body.medium, fontSize: size.small, color: ui.muted },
 });

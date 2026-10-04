@@ -1,25 +1,38 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   Food Partner — Redesigned Profile Screen
+   Food Partner — Profile.
+
+   Laid out as the Adios account tab: the kitchen's card at the top, then
+   grouped sections — its details, the two editable forms, its credentials,
+   the business shortcuts — and sign-out at the foot.
    ══════════════════════════════════════════════════════════════════════════ */
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
-import {
-  Image,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  View,
-} from "react-native";
+import { StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Box, Note, Refresher, Scroller, TextField } from "@/components/common";
-import { Icon, Text } from "@/components/common";
-import { rupees } from "@/lib/money";
+import { useTabBarHeight } from "@/components/dash/organisms/TabBar";
+import {
+  AlertDialog,
+  Avatar,
+  Badge,
+  Button,
+  Card,
+  IconButton,
+  InfoNote,
+  ListGroup,
+  ListRow,
+  ScreenShell,
+  ScreenTitle,
+  TextField,
+  ToggleSwitch,
+  Txt,
+  fadeInUp,
+} from "@/components/ui";
 import { getMe, updateMe, type ServerRestaurant } from "@/services/foodPartner";
 import { listTickets } from "@/services/support";
 import { usePartnerStore } from "@/store/partnerStore";
+import { elevation, font, line, ms, radius, size, ui } from "@/theme/ui";
 
 /** The most a kitchen may charge for packaging — `FOOD_PRICING_CONFIG.maxPackagingFee` on the server. */
 const MAX_PACKAGING_FEE = 50;
@@ -27,6 +40,7 @@ const MAX_PACKAGING_FEE = 50;
 
 export function DashProfile() {
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useTabBarHeight();
   const session = usePartnerStore((s) => s.session);
   const signOut = usePartnerStore((s) => s.signOut);
 
@@ -183,644 +197,280 @@ export function DashProfile() {
   const restaurantName = me?.restaurantName || session?.restaurantName || "";
   const restaurantId = me?.restaurantId || session?.restaurantId || "";
   const avatarUrl = me?.logoImage?.url || me?.coverBannerImage?.url || "";
+  /* Stored as E.164 already ("+919…"), so no second "+91". */
+  const ownerPhone = me?.ownerPhone ? (me.ownerPhone.startsWith("+") ? me.ownerPhone : `+91 ${me.ownerPhone}`) : "—";
+  const address = [me?.address?.line1, me?.address?.city].filter(Boolean).join(", ") || "—";
 
   return (
-    <Box style={{ flex: 1, backgroundColor: "#F4F6F8" }}>
-      {/* ── TOP HEADER ────────────────────────────────────────────────── */}
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
-        <Text style={styles.headerTitle}>Restaurant Profile</Text>
-        <Pressable
-          style={styles.helpBtn}
-          onPress={() => router.push("/support")}
-        >
-          <Icon name="help" size={18} color="#059669" />
-          <Text style={styles.helpText}>Support</Text>
-          {supportUnread > 0 && <View style={styles.unreadDot} />}
-        </Pressable>
-      </View>
+    <ScreenShell
+      scroll
+      refreshing={refreshing}
+      onRefresh={pull}
+      keyboardAvoiding
+      contentStyle={[styles.content, { paddingTop: insets.top + 12, paddingBottom: tabBarHeight }]}
+    >
+      <ScreenTitle
+        title="Restaurant Profile"
+        style={styles.title}
+        right={
+          <IconButton
+            icon="headset-outline"
+            accessibilityLabel={supportUnread > 0 ? `Support, ${supportUnread} new` : "Support"}
+            dot={supportUnread > 0}
+            onPress={() => router.push("/support")}
+          />
+        }
+      />
 
-      <Scroller
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={<Refresher refreshing={refreshing} onRefresh={pull} />}
-        showsVerticalScrollIndicator={false}
-      >
-        {!!error && <Note tone="bad">{error}</Note>}
-        {!!savedNote && <Note tone="ok">{savedNote}</Note>}
+      {!!error && <InfoNote tone="danger" text={error} style={styles.note} />}
+      {!!savedNote && <InfoNote tone="success" text={savedNote} style={styles.note} />}
 
-        {/* ── HERO BANNER CARD ──────────────────────────────────────────── */}
-        <View style={styles.heroCard}>
-          <View style={styles.avatarWrapper}>
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={styles.heroAvatar} />
-            ) : (
-              <View style={[styles.heroAvatar, { alignItems: "center", justifyContent: "center", backgroundColor: "#D1FAE5" }]}>
-                <Text style={{ fontWeight: "700", fontSize: 28, color: "#047857" }}>
-                  {(restaurantName || "?").charAt(0).toUpperCase()}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          <Text style={styles.heroName}>{restaurantName}</Text>
-          <Text style={styles.heroId}>{restaurantId}</Text>
-
-          <View style={styles.verifiedRow}>
+      {/* ── The kitchen's card ─────────────────────────────────────────── */}
+      <Animated.View entering={fadeInUp(0)} style={styles.profileCard}>
+        <View style={styles.banner} />
+        <View style={styles.profileBody}>
+          <Avatar name={restaurantName || "?"} imageUri={avatarUrl} size={ms(68)} style={styles.avatar} />
+          <Txt style={styles.name} numberOfLines={2}>
+            {restaurantName}
+          </Txt>
+          {!!restaurantId && <Txt style={styles.restaurantId}>{restaurantId}</Txt>}
+          <View style={styles.badgeRow}>
             {me?.verificationStatus === "approved" && (
-              <View style={styles.verifiedPill}>
-                <Icon name="check" size={12} color="#059669" strokeWidth={2.5} />
-                <Text style={styles.verifiedPillText}>Approved Kitchen</Text>
-              </View>
+              <Badge label="Approved Kitchen" tone="success" icon="checkmark-circle" />
             )}
-            <View style={[styles.statusPill, { backgroundColor: me?.isCurrentlyOpen ? "#D1FAE5" : "#FEF3C7" }]}>
-              <Text style={[styles.statusPillText, { color: me?.isCurrentlyOpen ? "#047857" : "#D97706" }]}>
-                {me?.isCurrentlyOpen ? "Live & Taking Orders" : "Offline"}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* ── SECTION 1: RESTAURANT & OWNER INFO ────────────────────────── */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Icon name="store" size={20} color="#059669" />
-            <Text style={styles.cardTitle}>Basic Information</Text>
-          </View>
-
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Owner Name</Text>
-            <Text style={styles.infoValueBlock}>{me?.ownerName || "—"}</Text>
-          </View>
-
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Contact Phone</Text>
-            {/* Stored as E.164 already ("+919…"), so no second "+91". */}
-            <Text style={styles.infoValueBlock}>
-              {me?.ownerPhone ? (me.ownerPhone.startsWith("+") ? me.ownerPhone : `+91 ${me.ownerPhone}`) : "—"}
-            </Text>
-          </View>
-
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Email</Text>
-            <Text style={styles.infoValueBlock}>{me?.ownerEmail || "—"}</Text>
-          </View>
-
-          <View style={styles.infoItemLast}>
-            <Text style={styles.infoLabel}>Address</Text>
-            <Text style={styles.infoValueBlock}>
-              {[me?.address?.line1, me?.address?.city].filter(Boolean).join(", ") || "—"}
-            </Text>
-          </View>
-        </View>
-
-        {/* ── SECTION: RESTAURANT DETAILS (editable) ────────────────────── */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Icon name="edit" size={20} color="#059669" />
-            <Text style={styles.cardTitle}>Restaurant Details</Text>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Cuisine (comma-separated)</Text>
-            <TextField
-              value={cuisineTypesText}
-              onChangeText={setCuisineTypesText}
-              placeholder="e.g. Biryani, North Indian"
+            <Badge
+              label={me?.isCurrentlyOpen ? "Live & Taking Orders" : "Offline"}
+              tone={me?.isCurrentlyOpen ? "success" : "warning"}
+              dot
             />
           </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Customer-facing Phone</Text>
-            <TextField
-              value={contactNumber}
-              onChangeText={setContactNumber}
-              keyboardType="phone-pad"
-              placeholder="Number diners may call"
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Description</Text>
-            <TextField
-              value={description}
-              onChangeText={setDescription}
-              placeholder="What should a customer know about this kitchen?"
-              multiline
-            />
-          </View>
-
-          {!!detailsError && <Note tone="bad">{detailsError}</Note>}
-          {!!detailsNote && <Note tone="ok">{detailsNote}</Note>}
-
-          <Pressable
-            style={[styles.saveBtn, savingDetails && { opacity: 0.7 }]}
-            onPress={handleSaveDetails}
-            disabled={savingDetails}
-          >
-            <Text style={styles.saveBtnText}>{savingDetails ? "Saving Changes..." : "Save Details"}</Text>
-          </Pressable>
         </View>
+      </Animated.View>
 
-        {/* ── SECTION 2: OPERATIONAL SETTINGS ─────────────────────────── */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Icon name="clock" size={20} color="#059669" />
-            <Text style={styles.cardTitle}>Kitchen Operations</Text>
-          </View>
+      {/* ── Restaurant & owner ─────────────────────────────────────────── */}
+      <ListGroup title="Basic Information" delay={40}>
+        <ListRow icon="person-outline" label={me?.ownerName || "—"} description="Owner Name" right={null} divider />
+        <ListRow icon="call-outline" label={ownerPhone} description="Contact Phone" right={null} divider />
+        <ListRow icon="mail-outline" label={me?.ownerEmail || "—"} description="Email" right={null} divider />
+        <ListRow icon="location-outline" label={address} description="Address" right={null} />
+      </ListGroup>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Prep Time (Minutes)</Text>
-            <View style={styles.inputWrap}>
-              <TextField
-                value={prepTime}
-                onChangeText={setPrepTime}
-                keyboardType="number-pad"
-                style={styles.inputField}
-              />
-              <Text style={styles.inputUnit}>min</Text>
-            </View>
-          </View>
+      {/* ── Restaurant details (editable) ──────────────────────────────── */}
+      <ListGroup title="Restaurant Details" grouped={false} delay={80}>
+        <Card bordered elevationLevel="none" style={styles.form}>
+          <TextField
+            label="Cuisine (comma-separated)"
+            value={cuisineTypesText}
+            onChangeText={setCuisineTypesText}
+            placeholder="e.g. Biryani, North Indian"
+          />
+          <TextField
+            label="Customer-facing Phone"
+            value={contactNumber}
+            onChangeText={setContactNumber}
+            keyboardType="phone-pad"
+            placeholder="Number diners may call"
+          />
+          <TextField
+            label="Description"
+            value={description}
+            onChangeText={setDescription}
+            placeholder="What should a customer know about this kitchen?"
+            multiline
+          />
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Delivery Radius</Text>
-            <View style={styles.inputWrap}>
-              <TextField
-                value={deliveryRadius}
-                onChangeText={setDeliveryRadius}
-                keyboardType="numeric"
-                style={styles.inputField}
-              />
-              <Text style={styles.inputUnit}>km</Text>
-            </View>
-          </View>
+          {!!detailsError && <InfoNote tone="danger" text={detailsError} />}
+          {!!detailsNote && <InfoNote tone="success" text={detailsNote} />}
 
+          <Button title="Save Details" onPress={handleSaveDetails} loading={savingDetails} fullWidth />
+        </Card>
+      </ListGroup>
+
+      {/* ── Kitchen operations ─────────────────────────────────────────── */}
+      <ListGroup title="Kitchen Operations" grouped={false} delay={120}>
+        <Card bordered elevationLevel="none" style={styles.form}>
+          <TextField
+            label="Prep Time (Minutes)"
+            value={prepTime}
+            onChangeText={setPrepTime}
+            keyboardType="number-pad"
+            right={<Txt style={styles.unit}>min</Txt>}
+          />
+          <TextField
+            label="Delivery Radius"
+            value={deliveryRadius}
+            onChangeText={setDeliveryRadius}
+            keyboardType="numeric"
+            right={<Txt style={styles.unit}>km</Txt>}
+          />
           {/* Packaging fee — the kitchen's own. Delivery is priced by Lampose
               by distance, so there is no delivery fee to set here. */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Packaging fee (per order)</Text>
-            <View style={styles.inputWrap}>
-              <TextField value={packagingFee} onChangeText={setPackagingFee} keyboardType="numeric" style={styles.inputField} />
-              <Text style={styles.inputUnit}>₹</Text>
-            </View>
-            <Text style={styles.inputLabel}>
-              Billed to the diner with 18% GST and paid to you in full. Up to ₹{MAX_PACKAGING_FEE}. Delivery is
-              priced by Lampose by distance. Lampose currently charges 0% commission on food orders.
-            </Text>
-          </View>
+          <TextField
+            label="Packaging fee (per order)"
+            value={packagingFee}
+            onChangeText={setPackagingFee}
+            keyboardType="numeric"
+            prefix="₹"
+            hint={`Billed to the diner with 18% GST and paid to you in full. Up to ₹${MAX_PACKAGING_FEE}. Delivery is priced by Lampose by distance. Lampose currently charges 0% commission on food orders.`}
+          />
 
-          {/* Payment Toggles */}
-          <View style={styles.switchRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.switchTitle}>Online Payments</Text>
-              <Text style={styles.switchSub}>Accept UPI, Cards & NetBanking</Text>
-            </View>
-            <Switch
-              value={acceptsOnline}
-              onValueChange={setAcceptsOnline}
-              trackColor={{ false: "#E5E7EB", true: "#A7F3D0" }}
-              thumbColor={acceptsOnline ? "#059669" : "#9CA3AF"}
+          {/* Payment toggles */}
+          <View style={styles.switches}>
+            <ListRow
+              icon="card-outline"
+              iconColor={ui.brandInk}
+              iconBackground={ui.brandSkin}
+              label="Online Payments"
+              description="Accept UPI, Cards & NetBanking"
+              right={<ToggleSwitch value={acceptsOnline} onValueChange={setAcceptsOnline} accessibilityLabel="Online Payments" />}
+              divider
+              style={styles.switchRow}
+            />
+            <ListRow
+              icon="cash-outline"
+              iconColor={ui.warning}
+              iconBackground={ui.warningSkin}
+              label="Cash on Delivery (COD)"
+              description="Allow customers to pay cash on delivery"
+              right={<ToggleSwitch value={acceptsCod} onValueChange={setAcceptsCod} accessibilityLabel="Cash on Delivery" />}
+              style={styles.switchRow}
             />
           </View>
 
-          <View style={styles.switchRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.switchTitle}>Cash on Delivery (COD)</Text>
-              <Text style={styles.switchSub}>Allow customers to pay cash on delivery</Text>
-            </View>
-            <Switch
-              value={acceptsCod}
-              onValueChange={setAcceptsCod}
-              trackColor={{ false: "#E5E7EB", true: "#A7F3D0" }}
-              thumbColor={acceptsCod ? "#059669" : "#9CA3AF"}
-            />
-          </View>
+          <Button title="Save Settings" onPress={handleSaveOperational} loading={saving} fullWidth />
+        </Card>
+      </ListGroup>
 
-          <Pressable
-            style={[styles.saveBtn, saving && { opacity: 0.7 }]}
-            onPress={handleSaveOperational}
-            disabled={saving}
-          >
-            <Text style={styles.saveBtnText}>{saving ? "Saving Changes..." : "Save Settings"}</Text>
-          </Pressable>
-        </View>
+      {/* ── Legal & payout details ─────────────────────────────────────── */}
+      <ListGroup title="Verified Credentials & Bank" delay={160}>
+        <ListRow
+          icon="document-text-outline"
+          label="FSSAI License No."
+          right={<Txt style={styles.value}>{me?.fssaiLicenseNumber || "—"}</Txt>}
+          divider
+        />
+        <ListRow
+          icon="receipt-outline"
+          label="GSTIN Number"
+          right={<Txt style={styles.value}>{me?.gstNumber || "Not provided"}</Txt>}
+          divider
+        />
+        <ListRow
+          icon="business-outline"
+          label="Bank Account"
+          right={<Txt style={styles.value}>{me?.payout?.accountLast4 ? `•••• •••• ${me.payout.accountLast4}` : "—"}</Txt>}
+          divider
+        />
+        <ListRow
+          icon="key-outline"
+          label="IFSC Code"
+          right={<Txt style={styles.value}>{me?.payout?.ifscCode || "—"}</Txt>}
+        />
+      </ListGroup>
 
-        {/* ── SECTION 3: LEGAL & PAYOUT DETAILS ───────────────────────── */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Icon name="shieldCheck" size={20} color="#059669" />
-            <Text style={styles.cardTitle}>Verified Credentials & Bank</Text>
-          </View>
+      {/* ── Business ───────────────────────────────────────────────────── */}
+      <ListGroup title="Business" delay={200}>
+        <ListRow
+          icon="wallet-outline"
+          iconColor={ui.success}
+          iconBackground={ui.successSkin}
+          label="Payouts & Earnings"
+          description="See what you're owed and request a payout"
+          onPress={() => router.push("/payouts")}
+          divider
+        />
+        <ListRow
+          icon="help-buoy-outline"
+          iconColor={ui.brandInk}
+          iconBackground={ui.brandSkin}
+          label="Help & support"
+          description={supportUnread > 0 ? `${supportUnread} with a new reply` : "Settlements, orders, your menu or a rider"}
+          onPress={() => router.push("/support")}
+        />
+      </ListGroup>
 
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>FSSAI License No.</Text>
-            <Text style={styles.infoValue}>{me?.fssaiLicenseNumber || "—"}</Text>
-          </View>
+      {/* ── Sign out ───────────────────────────────────────────────────── */}
+      <ListGroup grouped={false} delay={240}>
+        <ListRow
+          icon="log-out-outline"
+          label="Sign Out of Partner Account"
+          destructive
+          card
+          right={null}
+          onPress={() => setConfirmOut(true)}
+        />
+      </ListGroup>
 
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>GSTIN Number</Text>
-            <Text style={styles.infoValue}>{me?.gstNumber || "Not provided"}</Text>
-          </View>
+      {/* Quieter than Sign Out, and a door rather than an action: the screen
+          behind it explains what is kept, asks, and offers the way back. */}
+      <Button
+        title="Delete account"
+        variant="link"
+        onPress={() => router.push("/delete-account")}
+        style={styles.deleteLink}
+      />
 
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Bank Account</Text>
-            <Text style={styles.infoValue}>
-              {me?.payout?.accountLast4 ? `•••• •••• ${me.payout.accountLast4}` : "—"}
-            </Text>
-          </View>
-
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>IFSC Code</Text>
-            <Text style={styles.infoValue}>{me?.payout?.ifscCode || "—"}</Text>
-          </View>
-        </View>
-
-        {/* ── PAYOUTS & EARNINGS LINK ──────────────────────────────────── */}
-        <Pressable style={styles.payoutsLinkCard} onPress={() => router.push("/payouts")}>
-          <View style={styles.payoutsLinkIcon}>
-            <Icon name="wallet" size={20} color="#059669" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.payoutsLinkTitle}>Payouts & Earnings</Text>
-            <Text style={styles.payoutsLinkSub}>See what you're owed and request a payout</Text>
-          </View>
-          <Icon name="chevronRight" size={18} color="#9CA3AF" />
-        </Pressable>
-
-        {/* ── SIGN OUT BUTTON ──────────────────────────────────────────── */}
-        <Pressable style={styles.signOutBtn} onPress={() => setConfirmOut(true)}>
-          <Icon name="logout" size={18} color="#DC2626" />
-          <Text style={styles.signOutText}>Sign Out of Partner Account</Text>
-        </Pressable>
-
-        {/* Quieter than Sign Out, and a door rather than an action: the screen
-            behind it explains what is kept, asks, and offers the way back. */}
-        <Pressable
-          style={styles.deleteBtn}
-          onPress={() => router.push("/delete-account")}
-          accessibilityRole="button"
-        >
-          <Text style={styles.deleteText}>Delete account</Text>
-        </Pressable>
-      </Scroller>
-
-      {/* SIGN OUT CONFIRMATION MODAL */}
-      {/* `onRequestClose`: without it Android's back button did nothing here. */}
-      <Modal visible={confirmOut} transparent animationType="fade" onRequestClose={() => setConfirmOut(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Sign Out?</Text>
-            <Text style={styles.modalSub}>
-              Are you sure you want to sign out of your kitchen partner account?
-            </Text>
-            <View style={styles.modalActions}>
-              <Pressable style={styles.cancelBtn} onPress={() => setConfirmOut(false)}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={styles.confirmBtn}
-                onPress={() => {
-                  setConfirmOut(false);
-                  signOut();
-                  router.replace("/signin");
-                }}
-              >
-                <Text style={styles.confirmText}>Sign Out</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </Box>
+      {/* SIGN OUT CONFIRMATION */}
+      <AlertDialog
+        visible={confirmOut}
+        tone="danger"
+        title="Sign Out?"
+        message="Are you sure you want to sign out of your kitchen partner account?"
+        onDismiss={() => setConfirmOut(false)}
+        actions={[
+          {
+            text: "Sign Out",
+            style: "destructive",
+            onPress: () => {
+              setConfirmOut(false);
+              signOut();
+              router.replace("/signin");
+            },
+          },
+          { text: "Cancel", style: "cancel", onPress: () => setConfirmOut(false) },
+        ]}
+      />
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  header: {
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 16,
-    paddingBottom: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#111827",
-  },
-  helpBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#ECFDF5",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    position: "relative",
-  },
-  helpText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#059669",
-  },
-  unreadDot: {
-    position: "absolute",
-    top: 4,
-    right: 4,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#EF4444",
-  },
-  scrollContent: {
-    padding: 16,
-    gap: 16,
-    paddingBottom: 40,
-  },
+  content: { paddingHorizontal: 16 },
+  // The scroll content is already padded; the title must not add its own.
+  title: { paddingHorizontal: 0 },
+  note: { marginBottom: 12 },
 
-  /* HERO CARD */
-  heroCard: {
-    backgroundColor: "#034527",
-    borderRadius: 20,
-    padding: 20,
-    alignItems: "center",
-    gap: 6,
-  },
-  avatarWrapper: {
-    position: "relative",
-    marginBottom: 4,
-  },
-  heroAvatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
-  },
-  heroName: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-  heroId: {
-    fontSize: 13,
-    color: "rgba(255,255,255,0.75)",
-    fontWeight: "600",
-  },
-  verifiedRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 6,
-  },
-  verifiedPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#DCFCE7",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  verifiedPillText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#059669",
-  },
-  statusPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  statusPillText: {
-    fontSize: 11,
-    fontWeight: "700",
-  },
-
-  /* SECTIONS — flat, not cards: no background fill, no shadow, no border
-     radius. A bottom divider is what tells one section from the next,
-     matching the menu screen's flat rows rather than a floating white box
-     per section. */
-  card: {
-    gap: 14,
-    paddingBottom: 18,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-  },
-  cardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-    paddingBottom: 12,
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#111827",
-  },
-  infoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  infoLabel: {
-    fontSize: 14,
-    color: "#6B7280",
-    fontWeight: "500",
-  },
-  infoValue: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  /* Stacked label-then-value item, for fields whose value can run long
-     (a cuisine list, a full address) and would otherwise crush against the
-     label in a side-by-side row. */
-  infoItem: {
-    gap: 4,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  infoItemLast: {
-    gap: 4,
-  },
-  infoValueBlock: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#111827",
-    lineHeight: 21,
-  },
-
-  /* INPUT GROUPS */
-  inputGroup: {
-    gap: 6,
-  },
-  inputLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#374151",
-  },
-  inputWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  inputField: {
-    flex: 1,
-  },
-  inputUnit: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#059669",
-    width: 32,
-  },
-
-  /* PAYMENT TOGGLES — restored after a merge kept the rows and lost these. */
-  switchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
-  },
-  switchTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  switchSub: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginTop: 2,
-  },
-
-  saveBtn: {
-    backgroundColor: "#059669",
-    borderRadius: 14,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 6,
-  },
-  saveBtnText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-
-  /* PAYOUTS LINK — a flat row, not a card. */
-  payoutsLinkCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 4,
-  },
-  payoutsLinkIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#ECFDF5",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  payoutsLinkTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  payoutsLinkSub: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginTop: 2,
-  },
-
-  /* SIGN OUT BUTTON */
-  signOutBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: "#FEF2F2",
-    borderRadius: 16,
-    paddingVertical: 14,
+  profileCard: {
+    backgroundColor: ui.surface,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: "#FEE2E2",
-    marginTop: 8,
+    borderColor: ui.border,
+    overflow: "hidden",
+    ...elevation.sm,
   },
-  signOutText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#DC2626",
+  banner: { height: 64, backgroundColor: ui.brand },
+  profileBody: { paddingHorizontal: 16, paddingBottom: 16, gap: 6, marginTop: -34 },
+  avatar: { borderWidth: 3, borderColor: ui.surface },
+  name: {
+    fontFamily: font.heading.semibold,
+    fontSize: size.large,
+    lineHeight: line.large,
+    color: ui.text,
+    marginTop: 4,
   },
+  restaurantId: { fontFamily: font.body.medium, fontSize: size.small, color: ui.sec },
+  badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
 
-  deleteBtn: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
+  form: { gap: 16 },
+  unit: { fontFamily: font.body.bold, fontSize: size.medium, color: ui.brandInk },
+  switches: {
+    borderWidth: 1,
+    borderColor: ui.border,
+    borderRadius: radius.md,
+    overflow: "hidden",
   },
-  deleteText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#6B7280",
-    textDecorationLine: "underline",
-  },
+  switchRow: { paddingHorizontal: 12 },
+  value: { fontFamily: font.body.semibold, fontSize: size.medium, color: ui.text, maxWidth: "50%", textAlign: "right" },
 
-  /* MODAL */
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 20,
-  },
-  modalCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 24,
-    width: "100%",
-    maxWidth: 340,
-    gap: 12,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#111827",
-  },
-  modalSub: {
-    fontSize: 14,
-    color: "#6B7280",
-  },
-  modalActions: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 10,
-  },
-  cancelBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: "center",
-    borderRadius: 12,
-    backgroundColor: "#F3F4F6",
-  },
-  cancelText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#374151",
-  },
-  confirmBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: "center",
-    borderRadius: 12,
-    backgroundColor: "#DC2626",
-  },
-  confirmText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
+  deleteLink: { alignSelf: "center", marginTop: 16 },
 });

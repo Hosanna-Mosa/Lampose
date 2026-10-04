@@ -19,16 +19,27 @@
    than splices. And it refetches on focus regardless, because the socket is an
    optimisation: with it down, this screen is a pull-to-refresh list and loses
    nothing but the seconds.
+
+   Laid out as the Adios case list: one card per request with a status stripe.
    ══════════════════════════════════════════════════════════════════════════ */
+import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
-import {
-  StyleSheet,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
 
-import { Box, Note, Refresher, Scroller, Tappable } from "@/components/common";
-import { Btn, Card, Chip, Icon, Text, TopBar, type IconName } from "@/components/common";
+import {
+  Badge,
+  Button,
+  Card,
+  CardSkeleton,
+  EmptyState,
+  Header,
+  InfoNote,
+  ScreenShell,
+  Txt,
+  staggerListItem,
+} from "@/components/ui";
 import { whenWords } from "@/lib/when";
 import {
   categoryWords,
@@ -39,18 +50,17 @@ import {
   type TicketStatus,
 } from "@/services/support";
 import { usePartnerStore } from "@/store/partnerStore";
-import { colors, layout, radius, space } from "@/theme";
+import { font, fromToneName, line, size, toneColors, ui } from "@/theme/ui";
 
 /** A glyph per status, so the state is never carried by colour alone. */
-const STATUS_GLYPH: Record<TicketStatus, IconName> = {
-  open: "alert",
-  awaiting_customer: "clock",
-  resolved: "check",
-  closed: "lock",
+const STATUS_GLYPH: Record<TicketStatus, keyof typeof Ionicons.glyphMap> = {
+  open: "alert-circle-outline",
+  awaiting_customer: "time-outline",
+  resolved: "checkmark-circle-outline",
+  closed: "lock-closed-outline",
 };
 
 export function SupportList() {
-  const insets = useSafeAreaInsets();
   const session = usePartnerStore((s) => s.session);
 
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
@@ -94,129 +104,113 @@ export function SupportList() {
   }, [session?.token, load]);
 
   return (
-    <Box style={styles.root}>
-      <TopBar
-        back="Profile"
-        title="Help &amp; support"
-        subtitle={
-          unread > 0
-            ? `${unread} with a new reply`
-            : tickets.length
-              ? `${tickets.length} request${tickets.length === 1 ? "" : "s"}`
-              : undefined
-        }
-      />
+    <ScreenShell
+      header={
+        <Header
+          title="Help & support"
+          backLabel="Back to Profile"
+          onBack={() => router.back()}
+          subtitle={
+            unread > 0
+              ? `${unread} with a new reply`
+              : tickets.length
+                ? `${tickets.length} request${tickets.length === 1 ? "" : "s"}`
+                : undefined
+          }
+        />
+      }
+      scroll
+      refreshing={loading}
+      onRefresh={load}
+      contentStyle={styles.body}
+      /* Pinned, and clear of the device navigation bar. The list can be long
+         and this is the reason most people arrive on this screen. */
+      footer={
+        <Button
+          title="New request"
+          fullWidth
+          icon={<Ionicons name="add" size={20} color={ui.onBrand} />}
+          onPress={() => router.push("/support/new")}
+        />
+      }
+    >
+      {!!error && <InfoNote tone="danger" text={error} />}
 
-      <Scroller
-        contentContainerStyle={styles.body}
-        refreshControl={
-          <Refresher refreshing={loading} onRefresh={load} />
-        }
-        showsVerticalScrollIndicator={false}
-      >
-        {!!error && <Note tone="bad">{error}</Note>}
+      {loading && tickets.length === 0 && !error && <CardSkeleton count={3} />}
 
-        {loading && tickets.length === 0 && !error && (
-          <Text variant="body" color="tertiary">
-            Loading your requests…
-          </Text>
-        )}
+      {!loading && !error && tickets.length === 0 && (
+        <EmptyState
+          icon="help-buoy-outline"
+          title="Nothing open"
+          subtitle="Anything about a settlement, an order, your menu or a rider — ask here and the reply comes back to this screen."
+        />
+      )}
 
-        {!loading && !error && tickets.length === 0 && (
-          <Card style={styles.empty}>
-            <Icon name="help" size={26} color={colors.textTertiary} />
-            <Text variant="title1">Nothing open</Text>
-            <Text variant="caption" color="tertiary" style={{ textAlign: "center" }}>
-              Anything about a settlement, an order, your menu or a rider — ask here and the reply
-              comes back to this screen.
-            </Text>
-          </Card>
-        )}
+      {tickets.map((ticket, index) => {
+        const words = categoryWords(ticket.category);
+        const status = STATUS_WORD[ticket.status] ?? { label: ticket.status, tone: "muted" as const };
+        const tone = fromToneName(status.tone);
+        const stripe = tone === "neutral" ? ui.borderStrong : toneColors[tone].fg;
 
-        {tickets.map((ticket) => {
-          const words = categoryWords(ticket.category);
-          const status = STATUS_WORD[ticket.status] ?? { label: ticket.status, tone: "muted" as const };
-
-          return (
-            <Tappable
-              key={ticket.reference}
-              accessibilityRole="button"
-              accessibilityLabel={`${words.label}, ${status.label}${ticket.unread ? ", new reply" : ""}`}
+        return (
+          <Animated.View key={ticket.reference} entering={staggerListItem(index)}>
+            <Card
+              bordered
+              elevationLevel="none"
+              padding={14}
               onPress={() => router.push(`/support/${ticket.reference}`)}
-              style={({ pressed }) => [
-                styles.row,
-                pressed && { backgroundColor: colors.surfaceSunken },
-              ]}
+              accessibilityLabel={`${words.label}, ${status.label}${ticket.unread ? ", new reply" : ""}`}
+              style={[styles.caseCard, { borderLeftColor: stripe }]}
             >
-              <Box style={{ flex: 1, minWidth: 0, gap: space[1] }}>
-                <Box style={styles.rowHead}>
-                  <Text variant="title2" numberOfLines={1} style={{ flex: 1 }}>
-                    {words.label}
-                  </Text>
-                  <Chip label={status.label} tone={status.tone} glyph={STATUS_GLYPH[ticket.status]} />
-                </Box>
+              <View style={styles.caseTopRow}>
+                <Txt style={[styles.caseEyebrow, { color: stripe }]} numberOfLines={1}>
+                  {words.label}
+                </Txt>
+                <Badge label={status.label} tone={tone} icon={STATUS_GLYPH[ticket.status as TicketStatus]} />
+              </View>
 
-                <Text variant="body" numberOfLines={2}>
-                  {ticket.subject || words.hint}
-                </Text>
+              <Txt style={styles.caseTitle} numberOfLines={2}>
+                {ticket.subject || words.hint}
+              </Txt>
 
-                {!!ticket.lastMessagePreview && (
-                  <Text variant="caption" color="tertiary" numberOfLines={1}>
-                    {ticket.lastMessagePreview}
-                  </Text>
-                )}
+              {!!ticket.lastMessagePreview && (
+                <Txt style={styles.preview} numberOfLines={1}>
+                  {ticket.lastMessagePreview}
+                </Txt>
+              )}
 
-                <Box style={styles.rowMeta}>
-                  <Text variant="numMeta" color="tertiary">
-                    {ticket.reference}
-                    {ticket.orderNumber ? ` · ${ticket.orderNumber}` : ""}
-                    {whenWords(ticket.lastActivityAt) ? ` · ${whenWords(ticket.lastActivityAt)}` : ""}
-                  </Text>
-                  {/* `unread` is "support said something you have not opened",
-                      never "you have not replied" — so it is worded as news
-                      rather than as a task. */}
-                  {ticket.unread ? <Chip label="New reply" tone="brand" glyph="bell" /> : null}
-                </Box>
-              </Box>
-
-              <Icon name="chevronRight" size={15} color={colors.textTertiary} />
-            </Tappable>
-          );
-        })}
-      </Scroller>
-
-      {/* Pinned, and clear of the device navigation bar. The list can be long
-          and this is the reason most people arrive on this screen. */}
-      <Box style={[styles.actions, { paddingBottom: insets.bottom + space[3] }]}>
-        <Btn label="New request" glyph="plus" onPress={() => router.push("/support/new")} />
-      </Box>
-    </Box>
+              <View style={styles.metaRow}>
+                <Txt style={styles.caseMeta} numberOfLines={1}>
+                  {ticket.reference}
+                  {ticket.orderNumber ? ` · ${ticket.orderNumber}` : ""}
+                  {whenWords(ticket.lastActivityAt) ? ` · ${whenWords(ticket.lastActivityAt)}` : ""}
+                </Txt>
+                {/* `unread` is "support said something you have not opened",
+                    never "you have not replied" — so it is worded as news
+                    rather than as a task. */}
+                {ticket.unread ? <Badge label="New reply" tone="brand" dot /> : null}
+              </View>
+            </Card>
+          </Animated.View>
+        );
+      })}
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
-  body: { padding: layout.gutter, gap: space[3], paddingBottom: space[6] },
-  empty: { alignItems: "center", gap: space[2], paddingVertical: space[6] },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space[2],
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    borderRadius: radius.card,
-    padding: space[3],
-    backgroundColor: colors.surface,
+  body: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 24, gap: 12 },
+  caseCard: { borderLeftWidth: 3, gap: 6 },
+  caseTopRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 },
+  caseEyebrow: {
+    flex: 1,
+    fontFamily: font.body.bold,
+    fontSize: size.small,
+    letterSpacing: 1,
+    textTransform: "uppercase",
   },
-  rowHead: { flexDirection: "row", alignItems: "center", gap: space[2] },
-  rowMeta: { flexDirection: "row", alignItems: "center", gap: space[2], marginTop: 2 },
-  actions: {
-    paddingHorizontal: layout.gutter,
-    paddingTop: space[3],
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.card,
-    borderTopRightRadius: radius.card,
-  },
+  caseTitle: { fontFamily: font.body.semibold, fontSize: size.medium, lineHeight: line.medium, color: ui.text },
+  preview: { fontFamily: font.body.regular, fontSize: size.small, lineHeight: line.small, color: ui.sec },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 },
+  caseMeta: { flex: 1, fontFamily: font.body.medium, fontSize: size.small, color: ui.muted },
 });
