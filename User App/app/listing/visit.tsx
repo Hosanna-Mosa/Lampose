@@ -12,6 +12,7 @@ import { findListing } from '@/data/listings';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { actions } from '@/constants/actions';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * Screen 31 — booking a visit.
@@ -29,7 +30,7 @@ import { actions } from '@/constants/actions';
  * exactly what is shared, with whom, for how long, and why. It sits above the
  * button, because consent that appears after the commitment is not consent.
  */
-export default function BookVisit() {
+function BookVisit() {
   const { colors, space, layout, mode, radius } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -115,3 +116,6 @@ const styles = StyleSheet.create({
   centred: { textAlign: 'center' },
   flex: { flex: 1 },
 });
+
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(BookVisit);

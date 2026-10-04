@@ -55,7 +55,7 @@ export default function Notifications() {
   const { colors, space, layout, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { status } = useAuth();
+  const { status, requireSignIn } = useAuth();
 
   const signedIn = status === 'signedIn';
 
@@ -69,6 +69,7 @@ export default function Notifications() {
     markAllRead,
     markOneRead,
     isMarkingRead,
+    markReadFailed,
   } = useNotifications(signedIn);
 
   /**
@@ -103,6 +104,12 @@ export default function Notifications() {
         onAction={unread > 0 && !isMarkingRead ? () => markAllRead() : undefined}
       />
 
+      {markReadFailed ? (
+        <Text variant="caption" color="danger" style={{ paddingHorizontal: layout.gutter, paddingTop: space[2] }}>
+          We could not mark these as read. Check your connection and try again.
+        </Text>
+      ) : null}
+
       <ScrollView
         contentContainerStyle={{
           flexGrow: 1,
@@ -129,7 +136,9 @@ export default function Notifications() {
             <Text variant="bodyLg" color="secondary">
               Owner replies to your visit requests land here.
             </Text>
-            <Button label="Sign in" onPress={() => router.push('/(entry)/auth')} fullWidth />
+            {/* Through `requireSignIn`, which comes back HERE after — a plain
+                push to sign-in landed on Home. */}
+            <Button label="Sign in" onPress={() => requireSignIn(() => {})} fullWidth />
           </View>
         ) : isPending ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>

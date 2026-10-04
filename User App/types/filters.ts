@@ -14,7 +14,7 @@ import type { AmenityName, Gender, Listing } from '@/types/listing';
 export type SortKey = 'recommended' | 'rentLow' | 'depositLow';
 
 export const SORT_LABEL: Record<SortKey, string> = {
-  recommended: 'Recommended',
+  recommended: 'Newest first',
   rentLow: 'Lowest rent',
   depositLow: 'Lowest deposit',
 };
@@ -284,9 +284,17 @@ export function applyQuery(listings: readonly Listing[], query: SearchQuery): re
   const matched = listings.filter((listing) => matchesQuerySpec(listing, query));
   const sorted = [...matched];
   switch (query.sort) {
-    case 'rentLow':
-      sorted.sort((a, b) => (a.rent ?? Infinity) - (b.rent ?? Infinity));
+    case 'rentLow': {
+      /* Like with like. A mixed feed sorted a ₹1,500-a-night hotel below a
+         ₹6,000-a-month PG, though thirty nights cost far more. Per-night
+         rents are compared as their 30-night equivalent. */
+      const monthly = (listing: Listing) =>
+        listing.rent == null
+          ? Infinity
+          : listing.category === 'HOTEL' || listing.perNight ? listing.rent * 30 : listing.rent;
+      sorted.sort((a, b) => monthly(a) - monthly(b));
       break;
+    }
     case 'depositLow':
       sorted.sort((a, b) => (a.deposit ?? Infinity) - (b.deposit ?? Infinity));
       break;

@@ -49,7 +49,7 @@ export default function CouponsScreen() {
       <FoodEmptyState
         glyph="rupee"
         title="Coupon codes are not live yet"
-        body="Nothing can be taken off a food order today, so there is no code to enter and none to offer. The kitchen prices what you ordered — items, its packing charge and delivery — and that total is what you pay."
+        body="Nothing can be taken off a food order today, so there is no code to enter and none to offer. You pay for the items, GST, delivery, the service fee and packaging — the same total the cart shows."
         primaryLabel="Back to your order"
         onPrimary={() => router.back()}
       />

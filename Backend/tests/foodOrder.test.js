@@ -244,19 +244,30 @@ describe('placing an order', () => {
     assert.ok(saved, 'an order row exists');
 
     /*
-     * 2 x (120 + 10 add-on) = 260 of food, + 13 GST (5%) + 2 platform fee
-     * + 20 delivery = 295.
+     * 2 x (120 + 10 add-on) = 260 of food, + 13 GST (5%)
+     * + 19 delivery (no drop pin: the first slab) + 3.42 GST (18%)
+     * + 5 service fee + 0.90 GST
+     * + 10 packaging (the kitchen's own) + 1.80 GST
+     * = 313.12. Over ₹150, so no small-order fee. See `foodPricing.js`.
      *
-     * The kitchen fixture still carries `packagingCharge: 10` and it is NOT in
-     * that sum: the charge is no longer billed, and the assertion is here to
-     * catch it coming back. See `foodCharges.util.js`.
+     * The kitchen's `deliveryFee: flat 20` is NOT what was charged: delivery
+     * is Lampose's distance slab now.
      */
     assert.equal(saved.itemsTotal, 260);
     assert.equal(saved.gst, 13);
     assert.equal(saved.gstRate, 5);
-    assert.equal(saved.platformFee, 2);
-    assert.equal(saved.packagingCharge, 0, 'the kitchen packing charge is not billed any more');
-    assert.equal(saved.grandTotal, 295);
+    assert.equal(saved.platformFee, 0, 'no platform fee — the service fee replaced it');
+    assert.equal(saved.serviceFee, 5);
+    assert.equal(saved.serviceFeeGst, 0.9);
+    assert.equal(saved.deliveryFee, 19);
+    assert.equal(saved.deliveryGst, 3.42);
+    assert.equal(saved.packagingCharge, 10);
+    assert.equal(saved.packagingGst, 1.8);
+    assert.equal(saved.smallOrderFee, 0);
+    assert.equal(saved.grandTotal, 313.12);
+    assert.equal(saved.commissionRate, 0);
+    assert.equal(saved.partnerPayout, 270, 'food + packaging, no commission');
+    assert.equal(saved.pricing.customerPayable, 313.12, 'the breakdown is stored with the order');
     assert.equal(saved.lines[0].unitPrice, 130);
     assert.equal(saved.status, 'placed');
     assert.equal(saved.paymentMode, 'cod');
@@ -280,8 +291,10 @@ describe('placing an order', () => {
     assert.equal(placed.status, 201, JSON.stringify(placed.body));
 
     const saved = await FoodOrder.findOne({ restaurantId: 'FP-TEST0001' }).lean();
-    /* 120 + 6 GST + 2 platform + 20 delivery. */
-    assert.equal(saved.grandTotal, 148);
+    /* 120 + 6 GST + 19 + 3.42 delivery + 5 + 0.90 service + 10 + 1.80
+       packaging + 10 small-order fee (under ₹150 of food). */
+    assert.equal(saved.smallOrderFee, 10);
+    assert.equal(saved.grandTotal, 176.12);
   });
 
   it('refuses a PICKUP order — collection is withdrawn — and writes nothing', async () => {
@@ -307,11 +320,10 @@ describe('placing an order', () => {
 
   it('shows the KITCHEN the food, never the diner\'s bill', async () => {
     /*
-     * ₹160 of food + 5% GST + ₹2 platform + ₹20 delivery = ₹202 for the diner,
-     * and ₹160 for the restaurant. The three charges between those two numbers
-     * are not the restaurant's to sell, collect or keep, and a partner console
-     * that printed the larger one was telling a kitchen it had sold ₹42 of
-     * somebody else's revenue.
+     * ₹130 of food is a ₹186.62 bill for the diner (GST, delivery, service
+     * and small-order fees on top) and ₹140 for the restaurant — the food plus
+     * its own packaging fee, 0% commission. The charges between those two
+     * numbers are not the restaurant's to sell, collect or keep.
      */
     await makeKitchen();
     await makeDish();
@@ -326,17 +338,55 @@ describe('placing an order', () => {
     const forKitchen = FoodOrder.partnerView(saved);
 
     assert.equal(forKitchen.itemsTotal, 130, 'the food');
-    assert.equal(forKitchen.partnerPayout, 110.5, 'and what they are paid for it');
+    assert.equal(forKitchen.partnerPayout, 140, 'and what they are paid for it');
+    assert.deepEqual(forKitchen.settlement, {
+      foodOrderValue: 130, packagingFee: 10, commissionRate: 0, commission: 0, restaurantReceives: 140,
+    });
 
-    for (const hidden of ['grandTotal', 'gst', 'gstRate', 'platformFee', 'deliveryFee', 'packagingCharge', 'discount']) {
+    for (const hidden of ['grandTotal', 'gst', 'gstRate', 'platformFee', 'deliveryFee', 'packagingCharge', 'discount',
+      'serviceFee', 'serviceFeeGst', 'deliveryGst', 'packagingGst', 'smallOrderFee', 'pricing']) {
       assert.equal(hidden in forKitchen, false, `${hidden} is not the kitchen's business`);
     }
 
     /* The DINER still sees all of it — they are the one paying it. */
     const forDiner = FoodOrder.customerView(saved);
-    assert.equal(forDiner.grandTotal, 158.5);
+    assert.equal(forDiner.grandTotal, 186.62);
     assert.equal(forDiner.gst, 6.5);
-    assert.equal(forDiner.platformFee, 2);
+    assert.equal(forDiner.serviceFee, 5);
+    assert.equal('platformFee' in forDiner, false, 'a diner never sees a "platform fee"');
+    for (const internal of ['restaurantCommission', 'restaurantPayable', 'riderPayout', 'lamposeGrossRevenue']) {
+      assert.equal(internal in forDiner.pricing, false, `${internal} is not on the diner's bill`);
+    }
+  });
+
+  it('quotes a cart with the same figures the order is then placed at', async () => {
+    await makeKitchen({ location: { type: 'Point', coordinates: [77.5946, 12.9716] } });
+    await makeDish();
+    const { token } = await makeDiner();
+    /* ~3.3 km north of the kitchen: the 3–5 km slab, ₹29. */
+    const where = { dropLat: 13.0016, dropLng: 77.5946 };
+
+    const quote = await call('POST', '/api/v2/food-partners/orders/quote', {
+      token,
+      body: { restaurantId: 'FP-TEST0001', lines: [{ productId: 'FPI-TEST0001', quantity: 2 }], ...where },
+    });
+    assert.equal(quote.status, 200, JSON.stringify(quote.body));
+    assert.equal(quote.body.data.deliveryFee, 29);
+    assert.equal(quote.body.data.distanceKnown, true);
+    /* 240 + 12 GST + 29 + 5.22 + 5 + 0.90 + 10 + 1.80 */
+    assert.equal(quote.body.data.customerPayable, 303.92);
+    for (const internal of ['restaurantCommission', 'restaurantPayable', 'riderPayout', 'lamposeGrossRevenue', 'platformFee']) {
+      assert.equal(internal in quote.body.data, false, `${internal} is not quoted to a diner`);
+    }
+
+    const placed = await call('POST', '/api/v2/food-partners/orders', {
+      token,
+      body: order({ lines: [{ productId: 'FPI-TEST0001', quantity: 2 }], ...where }),
+    });
+    assert.equal(placed.status, 201, JSON.stringify(placed.body));
+    const saved = await FoodOrder.findOne({ restaurantId: 'FP-TEST0001' }).lean();
+    assert.equal(saved.grandTotal, quote.body.data.customerPayable);
+    assert.ok(saved.pricing.riderPayout >= 25, 'rider pay comes from the dispatcher rule');
   });
 
   it('and an order that says nothing about fulfilment is a delivery', async () => {
@@ -369,7 +419,7 @@ describe('placing an order', () => {
     assert.equal(mine.body.data.orders.length, 1);
     assert.equal(mine.body.data.orders[0].reference, orderNumber);
     assert.equal(mine.body.data.orders[0].status, 'placed');
-    assert.equal(mine.body.data.orders[0].dueOnDelivery, 295);
+    assert.equal(mine.body.data.orders[0].dueOnDelivery, 313.12);
     assert.equal(mine.body.data.orders[0].paid, 0);
 
     const one = await call('GET', `/api/v2/food-web/orders/${orderNumber}`, { token });

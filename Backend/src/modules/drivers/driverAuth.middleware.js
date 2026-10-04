@@ -85,7 +85,7 @@ const TOKEN_TYPE = 'driver';
 const signDriverToken = (driver, { expiresIn } = {}) => {
   if (!config.auth.configured) return null;
   return jwt.sign(
-    { sub: driver.driverId, typ: TOKEN_TYPE, phone: driver.phone },
+    { sub: driver.driverId, typ: TOKEN_TYPE, phone: driver.phone, ver: driver.sessionVersion || 0 },
     config.auth.jwtSecret,
     { expiresIn: expiresIn || config.auth.jwtExpiresIn },
   );
@@ -138,6 +138,11 @@ const identifyDriver = async (req, res) => {
      for the records that point at it, but it is nobody's account now. */
   if (driver.deletion && driver.deletion.status === 'completed') {
     return { denial: deny(res, 'This account no longer exists.', 'ACCOUNT_GONE') };
+  }
+  /* `SESSION_REVOKED` was in the app's list and never sent: there was nothing
+     to revoke. `sessionVersion` is that thing now. */
+  if ((decoded.ver || 0) !== (driver.sessionVersion || 0)) {
+    return { denial: deny(res, 'This session was signed out. Please sign in again.', 'SESSION_REVOKED') };
   }
 
   return { driver };

@@ -476,19 +476,34 @@ const createBooking = async (req, res, next) => {
     const total = Number(body.totalAmount);
     const paid = Number(body.paidAmount);
 
-    /* Same lookup, same reasoning, as the accepted-request path in
-       stayRequest.service.js — see the note there. A walk-in is typed in by
-       the owner from their own portfolio, so the id is almost always real;
-       a failed lookup still must not block logging the guest. */
+    /*
+     * The property must be THIS owner's.
+     *
+     * The id comes from the request body, and nothing used to check it: one
+     * owner could log a walk-in against another owner's property, take a bed
+     * from its count, and leave a booking that then blocked the real owner
+     * from deleting their own listing. Ownership is the same rule the rest of
+     * Stay Partner uses — the property's `ownerMobile` is the caller's number.
+     *
+     * No property at all is still allowed (`unassigned`): an owner logging a
+     * guest before choosing where they sleep claims no bed.
+     */
     let propertyCategory = '';
-    try {
+    const propertyId = String(body.propertyId || '').trim();
+    if (propertyId) {
       const Property = require('../properties/property.model');
       const { normaliseCategory } = require('../../shared/constants/categories');
-      const propertyId = String(body.propertyId || '').trim();
-      const property = propertyId ? await Property.findById(propertyId).select('category').lean() : null;
-      propertyCategory = normaliseCategory(property && property.category) || '';
-    } catch {
-      propertyCategory = '';
+      const property = mongoose.isValidObjectId(propertyId)
+        ? await Property.findById(propertyId).select('category ownerMobile').lean()
+        : null;
+      if (!property || phoneKey(property.ownerMobile) !== key) {
+        return res.status(403).json({
+          success: false,
+          code: 'NOT_YOUR_PROPERTY',
+          message: 'You can only add guests to your own properties.',
+        });
+      }
+      propertyCategory = normaliseCategory(property.category) || '';
     }
 
     const booking = await PartnerBooking.create({
@@ -606,6 +621,19 @@ const updateBooking = async (req, res, next) => {
 
     const body = req.body || {};
 
+    /* The room type of a booking that came from a REQUEST is what claimed a
+       bed in that room type's pool. Retyping it would leave the claim in one
+       pool and the checkout releasing into another — the counts would never
+       add up again. A manual record holds no claim and stays editable. */
+    if (booking.source === 'request' && body.shareType !== undefined
+      && String(body.shareType).trim() !== booking.shareType) {
+      return res.status(409).json({
+        success: false,
+        code: 'SHARE_TYPE_LOCKED',
+        message: 'The room type of a booking made through Lampose cannot be changed here. Contact support to move the guest.',
+      });
+    }
+
     for (const field of EDITABLE_TEXT) {
       if (body[field] !== undefined) booking[field] = String(body[field]).trim();
     }
@@ -696,6 +724,30 @@ const deleteBooking = async (req, res, next) => {
     }
 
     /*
+     * Only a walk-in the owner typed in themselves.
+     *
+     * Only the app used to limit this. A direct call could hard-delete a
+     * booking that came from a student's request — paid, in-house, with a
+     * student waiting on it — and nobody was told. Those end through cancel
+     * or check-out, which tell the student and free the bed.
+     */
+    if (booking.source !== 'manual') {
+      return res.status(409).json({
+        success: false,
+        code: 'NOT_A_WALK_IN',
+        message: 'Only guests you added yourself can be deleted. Cancel or check out this booking instead.',
+      });
+    }
+    /* Money already counted into a payout request stays on record. */
+    if (booking.payoutId) {
+      return res.status(409).json({
+        success: false,
+        code: 'IN_A_PAYOUT',
+        message: 'This booking is part of a payout and cannot be deleted.',
+      });
+    }
+
+    /*
      * The photographs go with the record.
      *
      * Deleting the row and leaving the Aadhar card in Cloudinary is the worst
@@ -724,6 +776,24 @@ const deleteBooking = async (req, res, next) => {
     }
 
     await PartnerBooking.deleteOne({ _id: booking._id, partnerPhoneDigits: key });
+
+    /*
+     * The bed comes back.
+     *
+     * Saving a walk-in claimed a bed (see `createBooking`), and check-out and
+     * cancel are what normally give it back. Deleting one that was still
+     * holding it — anything not already completed or cancelled — used to
+     * leave the count one lower for good. Best effort, like the claim.
+     */
+    if (!['completed', 'cancelled'].includes(booking.status)) {
+      try {
+        const { releaseBed, shareTypeIdForBooking } = require('../inventory/inventory.service');
+        const shareTypeId = shareTypeIdForBooking(booking);
+        if (shareTypeId) await releaseBed(shareTypeId);
+      } catch (error) {
+        console.error('[add-customer] booking deleted but the bed was not released:', error.message);
+      }
+    }
 
     return res.json({
       success: true,

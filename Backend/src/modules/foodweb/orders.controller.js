@@ -43,6 +43,7 @@ const FoodOrder = require('../foodpartners/foodOrder.model');
 const { isWebDelivery } = FoodOrder;
 const { riderPosition } = require('../foodpartners/foodCustomerOrder.controller');
 const { rupees, dietOf, RIDE_MINUTES } = require('./foodWeb.shape');
+const { roundMoney } = require('../foodpartners/foodPricing'); // bills carry paise — 18% GST is rarely whole rupees
 /* The same great-circle metres the delivery-area rule measures with — one
    definition, so "1.4 km to go" and "outside the delivery area" can never be
    computed two different ways. */
@@ -189,7 +190,7 @@ const kitchenTrackOf = (doc) => {
   steps.push({
     label: doc.paymentStatus === 'paid' ? 'Order placed & paid' : 'Order placed',
     at: timeLabel(doc.placedAt),
-    note: doc.paymentStatus === 'paid' ? `${doc.paymentMode.toUpperCase()} ₹${rupees(doc.grandTotal)} verified` : '',
+    note: doc.paymentStatus === 'paid' ? `${doc.paymentMode.toUpperCase()} ₹${roundMoney(doc.grandTotal)} verified` : '',
     done: true,
   });
 
@@ -509,23 +510,26 @@ const orderCard = (doc, full = false, position = null, { viaLink = false } = {})
         .join(' · '),
     })),
 
-    itemTotal: rupees(doc.itemsTotal),
-    /* Still reported, and 0 on everything placed since it was dropped — an
-       order that WAS charged one has to keep showing why its total is what it
-       is. See `foodCharges.util.js`. */
-    packagingCharge: rupees(doc.packagingCharge),
-    gst: rupees(doc.gst),
+    itemTotal: roundMoney(doc.itemsTotal),
+    /* Every line of the launch bill (`foodPricing.js`). "Service fee" is the
+       only name the diner sees — an older order's flat fee is shown as it. */
+    packagingCharge: roundMoney(doc.packagingCharge),
+    packagingGst: roundMoney(doc.packagingGst),
+    gst: roundMoney(doc.gst),
     gstRate: rupees(doc.gstRate),
-    platformFee: rupees(doc.platformFee),
-    deliveryFee: rupees(doc.deliveryFee),
-    discount: rupees(doc.discount),
+    serviceFee: roundMoney(doc.serviceFee || doc.platformFee),
+    serviceFeeGst: roundMoney(doc.serviceFeeGst),
+    deliveryFee: roundMoney(doc.deliveryFee),
+    deliveryGst: roundMoney(doc.deliveryGst),
+    smallOrderFee: roundMoney(doc.smallOrderFee),
+    discount: roundMoney(doc.discount),
     couponCode: '',
-    grandTotal: rupees(doc.grandTotal),
+    grandTotal: roundMoney(doc.grandTotal),
     /* What has actually been PAID. It was the grand total on every order, so an
        unpaid cash-on-delivery order read "Paid 265". Zero until the payment is
        settled - the bill's total row then falls back to `dueOnDelivery`. */
-    paid: doc.paymentStatus === 'paid' ? rupees(doc.grandTotal) : 0,
-    dueOnDelivery: doc.paymentMode === 'cod' && doc.paymentStatus !== 'paid' ? rupees(doc.grandTotal) : 0,
+    paid: doc.paymentStatus === 'paid' ? roundMoney(doc.grandTotal) : 0,
+    dueOnDelivery: doc.paymentMode === 'cod' && doc.paymentStatus !== 'paid' ? roundMoney(doc.grandTotal) : 0,
     paymentLabel: `${String(doc.paymentMode || '').toUpperCase()} · ${PAYMENT_LABEL[doc.paymentStatus] || doc.paymentStatus}`,
     paymentStatus: doc.paymentStatus,
     /* Reported because 'unpaid' means two different things: a cash order owes
@@ -536,7 +540,7 @@ const orderCard = (doc, full = false, position = null, { viaLink = false } = {})
     /* What the rider must still collect at the door — 0 on a prepaid order.
        Named rather than derived on the client so the card and the rider's
        own screen cannot disagree about who owes what. */
-    collectAmount: doc.paymentMode === 'cod' && doc.paymentStatus !== 'paid' ? rupees(doc.grandTotal) : 0,
+    collectAmount: doc.paymentMode === 'cod' && doc.paymentStatus !== 'paid' ? roundMoney(doc.grandTotal) : 0,
   };
 
   if (!full) return card;
@@ -611,6 +615,7 @@ const CARD_FIELDS = [
   'orderNumber', 'restaurantId', 'restaurant', 'status', 'statusHistory',
   'fulfilment', 'placedAt', 'deliveryAddress',
   'lines', 'itemsTotal', 'packagingCharge', 'gst', 'gstRate', 'platformFee',
+  'serviceFee', 'serviceFeeGst', 'deliveryGst', 'packagingGst', 'smallOrderFee',
   'deliveryFee', 'discount', 'grandTotal',
   'paymentMode', 'paymentStatus',
   'dispatch', 'delivery', 'deliveryOtp', 'channel',

@@ -772,23 +772,40 @@ const detailOf = (order, { restaurant = null, now = Date.now() } = {}) => {
 
     money: {
       itemsTotal,
-      /* 0 on everything placed since it was dropped, and a real figure on the
-         orders that were charged one — see `foodCharges.util.js`. */
+      /* The kitchen's own packaging fee (billed again since `foodPricing.js`;
+         0 on orders from the stretch it was not). */
       packagingCharge: money(order.packagingCharge),
+      packagingGst: money(order.packagingGst),
       gst: money(order.gst),
       gstRate: Number(order.gstRate) || 0,
+      /* Legacy: orders placed before the service fee carry a platform fee. */
       platformFee: money(order.platformFee),
+      serviceFee: money(order.serviceFee),
+      serviceFeeGst: money(order.serviceFeeGst),
       deliveryFee: money(order.deliveryFee),
+      deliveryGst: money(order.deliveryGst),
+      smallOrderFee: money(order.smallOrderFee),
+      distanceKm: order.distanceKm == null ? null : Number(order.distanceKm),
       discount: money(order.discount),
       grandTotal,
       partnerPayout,
       commissionRate: Number(order.commissionRate) || 0,
-      commissionAmount: hasPayout ? money(itemsTotal - partnerPayout) : null,
+      /* From the stored breakdown when there is one: the payout now includes
+         packaging, so food − payout is no longer the commission. */
+      commissionAmount: order.pricing
+        ? money(order.pricing.restaurantCommission)
+        : hasPayout ? Math.max(0, money(itemsTotal - partnerPayout)) : null,
+      /* Delivery + service fee, GST excluded — null on older orders. */
+      lamposeGrossRevenue: order.pricing ? money(order.pricing.lamposeGrossRevenue) : null,
+      gstCollected: order.pricing ? money(order.pricing.gstCollected) : null,
       riderEarnings,
-      /* What is left once the kitchen and the rider are paid. Derived from
-         three stored figures and nothing else — no rate is applied here that
-         the order does not already carry. */
-      lamposeNet: hasPayout ? money(grandTotal - partnerPayout - riderEarnings) : null,
+      /* What is left once the kitchen and the rider are paid. On an order
+         priced by `foodPricing.js`, Lampose's revenue (delivery + service
+         fee) less the rider — GST is the government's and is reported apart,
+         never kept. Older orders: derived from the three stored figures. */
+      lamposeNet: order.pricing
+        ? money(Number(order.pricing.lamposeGrossRevenue) - riderEarnings)
+        : hasPayout ? money(grandTotal - partnerPayout - riderEarnings) : null,
     },
 
     payment: {
@@ -955,6 +972,128 @@ const markDelivered = async (req, res, next) => {
     return res.json({ success: true, data: detailOf(order.toObject(), { restaurant }) });
   } catch (error) {
     logError('admin/food-orders/:orderNumber/delivered', error);
+    return next(error);
+  }
+};
+
+/* ── POST /:orderNumber/cancel and /:orderNumber/redispatch ───────────────
+ *
+ * The way out for an order nobody else can move.
+ *
+ * Once a kitchen starts cooking, the diner cannot cancel (TOO_LATE_TO_CANCEL)
+ * and the kitchen cannot reject — so a paid order no rider would take sat
+ * `unassigned` for good, with the diner's money stuck behind it, and this
+ * console told the administrator to "cancel or reject it first" with no button
+ * that could. These are those buttons.
+ */
+
+// @route   POST /api/v1/admin/food-orders/:orderNumber/cancel
+// @desc    Cancel an order on the diner's behalf; any online payment is owed back
+// @access  Admin console (food.complete)
+const cancelOrder = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+
+    const order = await loadOrder(req);
+    if (!order) return fail(res, 404, 'NOT_FOUND', 'No order with that number.');
+    if (['delivered', 'cancelled', 'rejected'].includes(order.status)) {
+      return fail(res, 409, 'ORDER_CLOSED', `This order is already ${order.status}.`);
+    }
+
+    const who = adminName(req);
+    const reason = String((req.body || {}).reason || '').trim().slice(0, 150);
+    order.status = 'cancelled';
+    order.statusHistory.push({
+      status: 'cancelled', at: new Date(), by: 'admin',
+      note: `Cancelled by ${who}${reason ? `: ${reason}` : ''}`.slice(0, 200),
+    });
+    const strandedDriverId = order.delivery && order.delivery.driverId;
+    if (strandedDriverId) {
+      order.delivery.driverId = '';
+      order.delivery.assignedAt = null;
+    }
+    order.dispatch.state = 'idle';
+    await order.save();
+
+    /* eslint-disable global-require */
+    const dispatch = require('../drivers/foodDispatch.service');
+    const realtime = require('../../infrastructure/realtime/realtime');
+    const { markForRefund } = require('./foodPayment.controller');
+    /* eslint-enable global-require */
+
+    await dispatch.cancelDispatch(order.orderNumber, 'Cancelled by Lampose');
+    if (strandedDriverId) {
+      // eslint-disable-next-line global-require
+      const Driver = require('../drivers/driver.model');
+      await Driver.updateOne(
+        { driverId: strandedDriverId },
+        { $set: { isAvailable: true, currentOrderNumber: null } },
+      );
+      realtime.toDriver(strandedDriverId, 'delivery_cancelled', {
+        orderNumber: order.orderNumber,
+        message: 'Lampose cancelled this delivery.',
+      });
+    }
+    /* Flags the money as owed, the same as every other cancel — the refund
+       itself is still the separate, narrower Refund action. */
+    await markForRefund(order, `cancelled by Lampose (${who})`);
+    realtime.toOrderParties(order, 'dispatch_update', dispatch.dispatchUpdate(order));
+
+    console.log(`${BADGE} [Order Cancelled] ${order.orderNumber} by ${who}`);
+
+    const restaurant = await FoodRestaurant.findOne({ restaurantId: order.restaurantId })
+      .select('restaurantId restaurantName contactNumber ownerName ownerPhone')
+      .lean();
+    return res.json({ success: true, data: detailOf(order.toObject(), { restaurant }) });
+  } catch (error) {
+    logError('admin/food-orders/:orderNumber/cancel', error);
+    return next(error);
+  }
+};
+
+// @route   POST /api/v1/admin/food-orders/:orderNumber/redispatch
+// @desc    Search for a rider again, from a fresh sweep count
+// @access  Admin console (food.complete)
+const redispatchOrder = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+
+    const order = await loadOrder(req);
+    if (!order) return fail(res, 404, 'NOT_FOUND', 'No order with that number.');
+    if (!['accepted', 'preparing', 'ready'].includes(order.status)) {
+      return fail(res, 409, 'NOT_DISPATCHABLE', `A "${order.status}" order cannot be sent a rider.`);
+    }
+    if (order.delivery && order.delivery.driverId) {
+      return fail(res, 409, 'HAS_RIDER', 'This order already has a rider.');
+    }
+
+    /* A fresh budget: the automatic retries stop at `MAX_SWEEPS`, and the
+       point of a person pressing this is to start again from there. */
+    const who = adminName(req);
+    order.dispatch.attempts = 0;
+    order.dispatch.failureReason = '';
+    order.statusHistory.push({
+      status: order.status, at: new Date(), by: 'admin', note: `Rider search restarted by ${who}`.slice(0, 200),
+    });
+    await order.save();
+
+    // eslint-disable-next-line global-require
+    const dispatch = require('../drivers/foodDispatch.service');
+    const result = await dispatch.startDispatch(order.orderNumber, { reason: 'admin' });
+
+    console.log(`${BADGE} [Re-dispatch] ${order.orderNumber} by ${who} — ${result.started ? 'searching' : result.reason}`);
+
+    const fresh = await loadOrder(req);
+    const restaurant = await FoodRestaurant.findOne({ restaurantId: order.restaurantId })
+      .select('restaurantId restaurantName contactNumber ownerName ownerPhone')
+      .lean();
+    return res.json({
+      success: true,
+      message: result.started ? 'Searching for a rider.' : `No rider found yet: ${result.reason}.`,
+      data: detailOf(fresh.toObject(), { restaurant }),
+    });
+  } catch (error) {
+    logError('admin/food-orders/:orderNumber/redispatch', error);
     return next(error);
   }
 };
@@ -1430,6 +1569,8 @@ module.exports = {
   getCounts,
   getOrder,
   markDelivered,
+  cancelOrder,
+  redispatchOrder,
   issueRefund,
   recordSettledRefund,
   /* Exported so anything that later needs to ask the badge's own question asks

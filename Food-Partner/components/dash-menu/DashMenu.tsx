@@ -2,7 +2,7 @@
    Food Partner — Redesigned Menu Screen
    ══════════════════════════════════════════════════════════════════════════ */
 import { router, useFocusEffect } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Image,
   Pressable,
@@ -22,6 +22,7 @@ import {
   type ServerProduct,
 } from "@/services/foodPartner";
 import { usePartnerStore } from "@/store/partnerStore";
+import { dietColor } from "@/lib/diet";
 
 type Filter = "all" | "available" | "unavailable";
 
@@ -53,6 +54,19 @@ export function DashMenu() {
     }
   }, [session?.token]);
 
+  /* The pull's own flag. `loading` is set true only on mount, so a pull
+     started a load with the spinner already off — it vanished at once and
+     the partner could not tell whether anything had been fetched. */
+  const [refreshing, setRefreshing] = useState(false);
+  const pull = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load]);
+
   useFocusEffect(
     useCallback(() => {
       void load();
@@ -60,7 +74,9 @@ export function DashMenu() {
   );
 
   const toggle = async (product: ServerProduct) => {
-    if (!session?.token) return;
+    /* One write per dish at a time: a second flip mid-save raced the first,
+       and the rollback of whichever failed could undo the one that worked. */
+    if (!session?.token || pending[product.productId]) return;
     const next = !product.isAvailable;
 
     setProducts((list) =>
@@ -88,6 +104,13 @@ export function DashMenu() {
     });
     return ["All", ...Array.from(set)];
   }, [products]);
+
+  /* A category that no longer exists (its last dish deleted or moved) drops
+     back to All — the chip stayed selected on nothing, and the list read
+     "No dishes match" with no visible filter to clear. */
+  useEffect(() => {
+    if (selectedCategory !== "All" && !categories.includes(selectedCategory)) setSelectedCategory("All");
+  }, [categories, selectedCategory]);
 
   const filteredProducts = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -134,7 +157,7 @@ export function DashMenu() {
 
       <Scroller
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<Refresher refreshing={loading} onRefresh={load} />}
+        refreshControl={<Refresher refreshing={refreshing} onRefresh={pull} />}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -263,13 +286,13 @@ export function DashMenu() {
                       <View
                         style={[
                           styles.vegSquare,
-                          { borderColor: item.isVeg === "veg" ? "#16A34A" : "#DC2626" },
+                          { borderColor: dietColor(item.isVeg) },
                         ]}
                       >
                         <View
                           style={[
                             styles.vegCircle,
-                            { backgroundColor: item.isVeg === "veg" ? "#16A34A" : "#DC2626" },
+                            { backgroundColor: dietColor(item.isVeg) },
                           ]}
                         />
                       </View>
@@ -319,6 +342,7 @@ export function DashMenu() {
                   <Switch
                     value={item.isAvailable}
                     onValueChange={() => toggle(item)}
+                    disabled={!!pending[item.productId]}
                     trackColor={{ false: "#E5E7EB", true: "#A7F3D0" }}
                     thumbColor={item.isAvailable ? "#059669" : "#9CA3AF"}
                   />

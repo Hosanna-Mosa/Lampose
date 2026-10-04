@@ -127,6 +127,20 @@ export function NewSupportRequest() {
         >
           {!!error && <Note tone="bad">{error}</Note>}
 
+          {/* The topics did not load, so there is no form to show — and a
+              pull-to-refresh nobody knows about was the only way back. */}
+          {!!error && !loading && categories.length === 0 && !!session?.token && (
+            <Btn
+              label="Try again"
+              glyph="refresh"
+              variant="ghost"
+              onPress={() => {
+                setLoading(true);
+                void load();
+              }}
+            />
+          )}
+
           {loading && categories.length === 0 && !error && (
             <Text variant="body" color="tertiary">
               Loading the topics…
@@ -168,7 +182,7 @@ export function NewSupportRequest() {
                 <TextField
                   value={orderNumber}
                   onChangeText={(v) => setOrderNumber(v.toUpperCase().slice(0, 24))}
-                  placeholder="e.g. LMP-2481"
+                  placeholder="e.g. LO4K7Q2M"
                   autoCapitalize="characters"
                 />
               </Field>

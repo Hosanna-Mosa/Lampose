@@ -15,6 +15,7 @@ import { formatRupees } from '@/utils/money';
 import { OWNER_WINDOW_MINUTES, PAYMENT_WINDOW_MINUTES, type RequestOutcome } from '@/types/request';
 import { actions } from '@/constants/actions';
 import { usePreviewControls } from '@/hooks/useAppEnv';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * Waiting, and the three ways it ends.
@@ -33,7 +34,7 @@ import { usePreviewControls } from '@/hooks/useAppEnv';
 
 const REFERENCE = 'LAM-4192';
 
-export default function RequestWaiting() {
+function RequestWaiting() {
   const previewControls = usePreviewControls();
   const { colors, space, layout, mode, radius } = useTheme();
   const insets = useSafeAreaInsets();
@@ -81,7 +82,7 @@ export default function RequestWaiting() {
             <View style={{ gap: space[3] }}>
               <Text variant="title3">What happens next</Text>
               {[
-                `${owner} sees the request on her phone and answers.`,
+                `${owner} sees the request on their phone and answers.`,
                 'If she says yes, payment opens and you have two hours.',
                 'If she says no, or says nothing, the request ends by itself.',
               ].map((line, index) => (
@@ -303,3 +304,6 @@ const styles = StyleSheet.create({
   num: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
   disc: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
 });
+
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(RequestWaiting);

@@ -41,10 +41,11 @@
    app, so this is both what was asked for and the only thing that works.
    ══════════════════════════════════════════════════════════════════════════ */
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
+import { Alert, AppState, Platform } from "react-native";
 import * as TaskManager from "expo-task-manager";
 
+import { secureFields } from "@/services/secureStore";
 import { api, API_URL } from "@/utils/api";
 
 /** Registered with the OS under this name. Changing it orphans a task that a
@@ -55,23 +56,33 @@ export const DELIVERY_LOCATION_TASK = "lampose-delivery-location";
 const STORE_KEY = "driver-store";
 
 type PersistedShape = {
-  state?: { token?: string | null; currentJob?: unknown };
+  state?: { token?: string | null; currentJob?: unknown; isOnline?: boolean };
 };
 
-/** The rider's session, read the way a headless context has to read it. */
-async function readSession(): Promise<{ token: string | null; hasJob: boolean }> {
+/**
+ * The rider's session, read the way a headless context has to read it.
+ *
+ * Through `secureFields`, the same reader `persist` uses — not a raw
+ * AsyncStorage read. The token was moved out of the AsyncStorage blob into
+ * the keystore, so reading the blob alone found `token: null` on every real
+ * device, and the first background batch then stopped tracking for good. The
+ * keystore read works headless; this also keeps the inline legacy copy
+ * working for an install that has not migrated yet.
+ */
+async function readSession(): Promise<{ token: string | null; hasJob: boolean; isOnline: boolean }> {
   try {
-    const raw = await AsyncStorage.getItem(STORE_KEY);
-    if (!raw) return { token: null, hasJob: false };
+    const raw = await secureFields(["token"]).getItem(STORE_KEY);
+    if (!raw) return { token: null, hasJob: false, isOnline: false };
     const parsed = JSON.parse(raw) as PersistedShape;
     return {
       token: parsed?.state?.token ?? null,
       hasJob: Boolean(parsed?.state?.currentJob),
+      isOnline: Boolean(parsed?.state?.isOnline),
     };
   } catch {
     /* Unreadable or half-written storage. Treated as "no session", which stops
        tracking rather than looping on a token that cannot be produced. */
-    return { token: null, hasJob: false };
+    return { token: null, hasJob: false, isOnline: false };
   }
 }
 
@@ -87,7 +98,7 @@ TaskManager.defineTask(DELIVERY_LOCATION_TASK, async ({ data, error }) => {
   const locations = (data as { locations?: Location.LocationObject[] } | undefined)?.locations;
   if (!locations?.length) return;
 
-  const { token, hasJob } = await readSession();
+  const { token, hasJob, isOnline } = await readSession();
 
   /*
    * Signed out, or the delivery ended while a batch was in flight.
@@ -97,10 +108,20 @@ TaskManager.defineTask(DELIVERY_LOCATION_TASK, async ({ data, error }) => {
    * leave the service running with nothing to report — a notification in the
    * rider's shade and a GPS drain for a delivery that finished.
    */
-  if (!token || !hasJob) {
+  /* On duty counts too, not only carrying a job: an online rider waiting
+     with the screen off used to stop reporting, and after
+     `LOCATION_MAX_AGE_MS` the dispatcher left them out of every search while
+     their app still said "online". */
+  if (!token || !(hasJob || isOnline)) {
     await stopDeliveryTracking();
     return;
   }
+
+  /* With the app in front, the foreground watch already reports (throttled in
+     `pushLocation`). The two together ran past the server's rate limit on
+     every delivery, and the 429s that followed starved BOTH of them. This
+     service is for the screen-off time it exists for. */
+  if (AppState.currentState === "active") return;
 
   /* The newest fix only. A batch arrives when the OS has been buffering — on a
      doze wake, say — and the intermediate points describe where the rider was,
@@ -141,12 +162,82 @@ TaskManager.defineTask(DELIVERY_LOCATION_TASK, async ({ data, error }) => {
  * Returns whether background tracking is actually running, so a caller can
  * tell the difference between "tracking" and "tracking only while on screen".
  */
-export async function startDeliveryTracking(): Promise<boolean> {
+/**
+ * How often the service reports. `delivery` is the live map a diner watches;
+ * `duty` is a rider waiting for an offer, where a fix every 15 s / 50 m keeps
+ * them inside the dispatcher's freshness window at a third of the battery and
+ * well under the server's per-rider rate limit.
+ */
+export type TrackingMode = "delivery" | "duty";
+
+const MODE_OPTIONS: Record<TrackingMode, { timeInterval: number; distanceInterval: number; title: string; body: string }> = {
+  delivery: {
+    timeInterval: 5000,
+    distanceInterval: 15,
+    title: "Delivery in progress",
+    body: "Sharing your location with Lampose until you deliver.",
+  },
+  duty: {
+    timeInterval: 15000,
+    distanceInterval: 50,
+    title: "You are online",
+    body: "Sharing your location with Lampose so nearby orders can reach you.",
+  },
+};
+
+/** The mode the running service was started in, in THIS process. Null after a
+    restart, which simply means the next call restarts it once. */
+let runningMode: TrackingMode | null = null;
+
+/**
+ * Start, switch or stop the service to match where the rider is: carrying a
+ * job, on duty and waiting, or neither.
+ */
+export async function syncTracking({ online, hasJob }: { online: boolean; hasJob: boolean }): Promise<void> {
+  if (hasJob) await startDeliveryTracking("delivery");
+  else if (online) await startDeliveryTracking("duty");
+  else await stopDeliveryTracking();
+}
+
+/**
+ * The prominent disclosure Google Play requires before background location.
+ *
+ * Said in the app, in plain words, BEFORE the system prompt: what is
+ * collected (location), when (while online or delivering, even with the app
+ * closed or the screen off), and why (to send nearby orders and show the
+ * customer where their food is). The request used to go straight from
+ * Accept / Go online to the system dialog, which Play policy does not allow.
+ * Resolves true only if the rider chooses to continue.
+ */
+function discloseBackgroundLocation(): Promise<boolean> {
+  return new Promise((resolve) => {
+    Alert.alert(
+      "Location while you work",
+      "Lampose collects your location while you are online or delivering an order, "
+        + "even when the app is closed or the screen is off. It is used to send you "
+        + "nearby orders and to show customers and restaurants where their delivery is. "
+        + "It stops when you go offline.\n\n"
+        + (Platform.OS === "android"
+          ? 'On the next screen, choose "Allow all the time".'
+          : 'On the next screen, choose "Always".'),
+      [
+        { text: "Not now", style: "cancel", onPress: () => resolve(false) },
+        { text: "Continue", onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  });
+}
+
+export async function startDeliveryTracking(mode: TrackingMode = "delivery"): Promise<boolean> {
   if (!API_URL) return false;
 
   try {
     if (await Location.hasStartedLocationUpdatesAsync(DELIVERY_LOCATION_TASK)) {
-      return true;
+      if (runningMode === mode) return true;
+      /* Running in the other mode (or a mode this process never saw). The
+         options are fixed at start, so switching is a stop and a start. */
+      await Location.stopLocationUpdatesAsync(DELIVERY_LOCATION_TASK);
     }
 
     /*
@@ -164,6 +255,10 @@ export async function startDeliveryTracking(): Promise<boolean> {
 
     const background = await Location.getBackgroundPermissionsAsync();
     if (background.status !== "granted") {
+      /* Refused for good: the system will not ask again, and a disclosure
+         shown before a request that cannot happen is just a nag. */
+      if (background.canAskAgain === false) return false;
+      if (!(await discloseBackgroundLocation())) return false;
       const asked = await Location.requestBackgroundPermissionsAsync();
       if (asked.status !== "granted") {
         /*
@@ -183,8 +278,8 @@ export async function startDeliveryTracking(): Promise<boolean> {
       accuracy: Location.Accuracy.High,
       /* Matches the foreground watcher in `useDriverLocation` so the two
          cannot disagree about how often a rider appears to move. */
-      timeInterval: 5000,
-      distanceInterval: 15,
+      timeInterval: MODE_OPTIONS[mode].timeInterval,
+      distanceInterval: MODE_OPTIONS[mode].distanceInterval,
       /* Batching is what lets Android sleep the radio between fixes. Small
          enough that a doze wake still reports a current position. */
       deferredUpdatesInterval: 10000,
@@ -200,13 +295,14 @@ export async function startDeliveryTracking(): Promise<boolean> {
        * rider their location is being used.
        */
       foregroundService: {
-        notificationTitle: "Delivery in progress",
-        notificationBody: "Sharing your location with Lampose until you deliver.",
+        notificationTitle: MODE_OPTIONS[mode].title,
+        notificationBody: MODE_OPTIONS[mode].body,
         notificationColor: "#0F5F52",
         killServiceOnDestroy: false,
       },
       showsBackgroundLocationIndicator: true,
     });
+    runningMode = mode;
 
     return true;
   } catch (err) {
@@ -228,6 +324,7 @@ export async function stopDeliveryTracking(): Promise<void> {
     if (await Location.hasStartedLocationUpdatesAsync(DELIVERY_LOCATION_TASK)) {
       await Location.stopLocationUpdatesAsync(DELIVERY_LOCATION_TASK);
     }
+    runningMode = null;
   } catch {
     /* Already stopped, or the task was never registered in this process. */
   }

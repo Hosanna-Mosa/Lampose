@@ -91,6 +91,17 @@ import { backRowBase } from '@/components/common/utils/styles';
  * `Backend/src/modules/partners/customerReferral.controller.js`'s
  * `bookingId` path.
  */
+/** A unique label per listing: its name, and a number when two share one. */
+function labelsOf(list: readonly BackendListing[]): string[] {
+  const seen = new Map<string, number>();
+  return list.map((p) => {
+    const name = p.name || 'Unnamed property';
+    const n = (seen.get(name) ?? 0) + 1;
+    seen.set(name, n);
+    return n === 1 ? name : `${name} (${n})`;
+  });
+}
+
 export function AddCustomerScreen() {
   const router = useRouter();
   const c = useColors();
@@ -122,7 +133,7 @@ export function AddCustomerScreen() {
         const list = await fetchMyProperties();
         if (!active) return;
         setProperties(list);
-        if (list.length === 1) setPropertyName(list[0].name ?? null);
+        if (list.length === 1) setPropertyName(labelsOf(list)[0] ?? null);
       } catch (err) {
         if (!active) return;
         setPropertiesError(err instanceof ApiError ? err.displayMessage : 'We could not load your properties.');
@@ -133,8 +144,12 @@ export function AddCustomerScreen() {
     };
   }, []);
 
-  const propertyOptions = (properties ?? []).map((p) => p.name ?? '').filter(Boolean);
-  const selectedProperty = (properties ?? []).find((p) => p.name === propertyName);
+  /* One label per PROPERTY, not per name. Two listings called "Sunrise PG"
+     were the same option, and picking one could save the guest — and claim a
+     bed — at the other. The label is still what the owner reads; the match is
+     by position in the same list, so it is always one listing. */
+  const propertyOptions = labelsOf(properties ?? []);
+  const selectedProperty = (properties ?? [])[propertyOptions.indexOf(propertyName ?? '\u0000')];
   const propertyId = selectedProperty?.id ?? selectedProperty?._id ?? null;
   const category = selectedProperty?.category ?? null;
   /* Only a real gate when there is something to choose from — zero properties
@@ -234,7 +249,9 @@ export function AddCustomerScreen() {
   const canSave =
     name.trim().length > 0 &&
     phone.length === PHONE_LENGTH &&
-    Boolean(category) &&
+    /* An owner with no listing yet can still log a walk-in (the server files
+       it as unassigned); a category is needed only when there is a property. */
+    (Boolean(category) || (properties?.length ?? 0) === 0) &&
     Boolean(checkIn) &&
     !checkInError &&
     address.trim().length > 0 &&
@@ -243,6 +260,17 @@ export function AddCustomerScreen() {
     propertyReady &&
     sharingTypeReady &&
     !saving;
+
+  const missing = [
+    !name.trim() && "the guest's name",
+    phone.length !== PHONE_LENGTH && 'a 10-digit phone number',
+    phone.length === PHONE_LENGTH && !verified && 'the phone verified',
+    !propertyReady && 'which property',
+    !sharingTypeReady && 'the room type',
+    (!checkIn || checkInError) && 'a check-in date',
+    !address.trim() && 'their address',
+    !documentCollected && 'one document collected',
+  ].filter(Boolean) as string[];
 
   /** `YYYY-MM-DD` — date-only, so no timezone can shift a check-in by a day. */
   const isoDay = (d: Date) =>
@@ -276,7 +304,7 @@ export function AddCustomerScreen() {
         checkInDate: isoDay(checkIn),
         address: address.trim(),
         documents,
-        ...(propertyId ? { propertyId, propertyName: propertyName ?? undefined } : {}),
+        ...(propertyId ? { propertyId, propertyName: selectedProperty?.name ?? undefined } : {}),
         ...(amount.trim() ? { totalAmount: Number(amount) } : {}),
       });
       /* Offer the invite here rather than dropping straight into Customers —
@@ -390,7 +418,17 @@ export function AddCustomerScreen() {
     <Screen
       padX={22}
             contentStyle={styles.stack}
-            footer={<Button label={saving ? 'Saving…' : 'Save customer'} onPress={save} loading={saving} disabled={!canSave} />}
+            footer={
+              <>
+                {/* Why Save is off, in words — it was silently disabled. */}
+                {!canSave && !saving && missing.length ? (
+                  <Text variant="badge" color="textSecondary" style={styles.saveError}>
+                    Still needed: {missing.join(', ')}.
+                  </Text>
+                ) : null}
+                <Button label={saving ? 'Saving…' : 'Save customer'} onPress={save} loading={saving} disabled={!canSave} />
+              </>
+            }
       stickyHeader={
         <>
           <Box style={styles.backRow}>

@@ -1,5 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { bookingStatus } from '@/constants/tokens';
 import React, { useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -136,10 +137,20 @@ export default function BookingDetail() {
    */
   const isLegacyId = id?.startsWith('bkg-') ?? false;
   const listingId = isLegacyId ? (id as string).slice(4) : null;
-  const stay = useStayRequest(listingId);
+  const legacyStay = useStayRequest(listingId);
 
-  const realBookingId = isLegacyId ? (stay.request?.bookingId ?? null) : (id ?? null);
+  const realBookingId = isLegacyId ? (legacyStay.request?.bookingId ?? null) : (id ?? null);
   const real = useBooking(realBookingId);
+
+  /* The request BEHIND a real booking, read by its own id. This screen
+     passed nothing on the real path, so the visit payment, the "Paid to
+     Lampose" row and the Accepted/Paid times were always blank there. Both
+     hooks always run, so the hook order never changes between renders. */
+  const bookedStay = useStayRequest(
+    isLegacyId ? null : (real.booking?.propertyId ?? null),
+    { requestId: isLegacyId ? null : (real.booking?.requestId ?? null) },
+  );
+  const stay = isLegacyId ? legacyStay : bookedStay;
 
   const fixture = useMemo(() => (id ? findBooking(id) : undefined), [id]);
   const stored = real.booking ? fromRealBooking(real.booking) : fixture;
@@ -348,6 +359,11 @@ export default function BookingDetail() {
   }
 
   const booking: BookingSummary = stored;
+  const moveInStillAhead = (
+    real.booking
+      ? ['upcoming', 'arriving'].includes(String(real.booking.status))
+      : booking.status === 'CONFIRMED'
+  ) && !(stay.request?.payment?.required && stay.request.payment.status !== 'paid');
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -394,13 +410,9 @@ export default function BookingDetail() {
             <View style={[styles.statusChip, chipSkin.chip]}>
               <View style={[styles.statusDot, chipSkin.dot]} />
               <Text style={[styles.statusChipText, chipSkin.text]}>
-                {booking.status === 'CONFIRMED'
-                  ? 'Confirmed'
-                  : booking.status === 'ACCEPTED'
-                  ? 'Accepted'
-                  : booking.status === 'REQUESTED'
-                  ? 'Requested'
-                  : booking.status}
+                {/* The shared label table — three statuses had words here and
+                    the other ten printed raw codes like CANCELLED_BY_OWNER. */}
+                {bookingStatus[booking.status]?.label ?? booking.status}
               </Text>
             </View>
           </View>
@@ -409,6 +421,7 @@ export default function BookingDetail() {
             status={booking.status}
             steps={stamps}
             showPaid={chargesForVisit}
+            charged={stay.request?.payment?.status === 'paid'}
           />
         </View>
 
@@ -462,7 +475,16 @@ export default function BookingDetail() {
             {real.booking && real.booking.totalAmount > 0 ? (
               <>
                 <Term label="Total agreed with the owner" value={formatRupees(real.booking.totalAmount)} />
-                <Term label="Paid to the owner so far" value={formatRupees(real.booking.paidAmount)} />
+                {/* A hotel stay is paid THROUGH Lampose, not to the owner — it
+                    read "Paid to the owner so far ₹0" on a fully paid stay. */}
+                {stay.request?.payment?.purpose === 'stay_booking' && stay.request.payment.status === 'paid' ? (
+                  <Term
+                    label="Paid through Lampose"
+                    value={formatRupees((stay.request.payment.amountPaise ?? 0) / 100)}
+                  />
+                ) : (
+                  <Term label="Paid to the owner so far" value={formatRupees(real.booking.paidAmount)} />
+                )}
               </>
             ) : null}
 
@@ -493,8 +515,11 @@ export default function BookingDetail() {
           </View>
         </View>
 
-        {/* Section: Moving in */}
-        {moveIn && !moveIn.complete ? (
+        {/* Section: Moving in — only for a stay that is still ahead and paid
+            for. It showed on cancelled and completed bookings, and on ones
+            whose payment never came, telling a student to go and move in to a
+            room they no longer had (the dev force check-in with it). */}
+        {moveIn && !moveIn.complete && moveInStillAhead ? (
           <View
             /* One edge, not two. The border used to go green once the owner
                had marked the student in, because that was the moment their
@@ -572,6 +597,7 @@ export default function BookingDetail() {
         <ActionBar
           booking={booking}
           category={property.listing?.category}
+          cancellable={real.booking?.status === 'upcoming'}
           onPrimary={() => {
             if (booking.status === 'ACCEPTED' || booking.status === 'PAYMENT_PENDING') {
               /*
@@ -590,7 +616,13 @@ export default function BookingDetail() {
                * screen that holds a real Razorpay order for this request.
                */
               if (propertyId) router.push(`/confirm/${propertyId}` as never);
-            } else if (booking.status === 'CHECKED_OUT') router.push('/bookings/refund');
+            } else if (booking.status === 'CHECKED_OUT') {
+              /* With the booking's id — the refund screen opened with none and
+                 could show nobody's refund. */
+              router.push({ pathname: '/bookings/refund', params: { id: realBookingId ?? id } } as never);
+            }
+            /* "Book here again" opens THIS listing, not the home feed. */
+            else if (propertyId) router.push(`/listing/${propertyId}` as never);
             else router.push('/home');
           }}
           onSecondary={() => {
@@ -605,7 +637,9 @@ export default function BookingDetail() {
             // They are different screens because they are different amounts of
             // someone's money.
             if (booking.status === 'CHECKED_IN') {
-              router.push('/bookings/notice');
+              /* Notice is arranged with the owner, through support — the
+                 notice screen is a preview-only fixture with nothing behind it. */
+              router.push('/support/new');
               return;
             }
             router.push(
@@ -632,7 +666,7 @@ export default function BookingDetail() {
           The strip above the tab bar carries anything still unfinished, so
           nothing is lost by leaving.
         */}
-        {!hasActions(booking, property.listing?.category) ? (
+        {!hasActions(booking, property.listing?.category, real.booking?.status === 'upcoming') ? (
           <Button
             label="Done"
             variant="secondary"

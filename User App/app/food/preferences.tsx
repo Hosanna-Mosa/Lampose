@@ -6,19 +6,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Switch, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
-import { DietMark, FoodNotice, FoodSectionHeader } from '@/components/food';
+import { FoodNotice, FoodSectionHeader } from '@/components/food';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
-import type { Diet, SpiceLevel } from '@/types/food';
-import { ALLERGENS, SPICE_LABEL } from '@/types/food';
-
-const DIETS: readonly { id: Diet; label: string; consequence: string }[] = [
-  { id: 'veg', label: 'Veg', consequence: 'Feeds and search open on veg' },
-  { id: 'egg', label: 'Veg and egg', consequence: 'Egg dishes are shown, non-veg is not pre-selected' },
-  { id: 'nonveg', label: 'Everything', consequence: 'Nothing is pre-filtered' },
-];
-
-const SPICES: readonly SpiceLevel[] = ['mild', 'medium', 'hot'];
+import { ALLERGENS } from '@/types/food';
 
 /**
  * Food preferences.
@@ -52,84 +43,10 @@ export default function FoodPreferencesScreen() {
           body="Every kitchen still shows its full menu. We pre-select these on dish pages and warn you when something clashes."
         />
 
-        <View>
-          <FoodSectionHeader title="Default diet" />
-          <View
-            style={[
-              styles.group,
-              { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, paddingHorizontal: space[3] },
-            ]}
-          >
-            {DIETS.map((entry, index) => {
-              const selected = preferences.diet === entry.id;
-              return (
-                <Pressable
-                  key={entry.id}
-                  onPress={() => setPreferences({ diet: entry.id })}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={`${entry.label}. ${entry.consequence}`}
-                  style={[
-                    styles.row,
-                    {
-                      paddingVertical: space[3],
-                      gap: space[3],
-                      borderBottomWidth: index === DIETS.length - 1 ? 0 : StyleSheet.hairlineWidth,
-                      borderBottomColor: colors.borderSubtle,
-                    },
-                  ]}
-                >
-                  <DietMark diet={entry.id === 'nonveg' ? 'nonveg' : entry.id === 'egg' ? 'egg' : 'veg'} size={15} />
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text variant="title3">{entry.label}</Text>
-                    <Text variant="caption" color="tertiary" numberOfLines={2}>
-                      {entry.consequence}
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      styles.radio,
-                      { borderColor: selected ? colors.brand : colors.borderInput, borderWidth: selected ? 6 : 1.5 },
-                    ]}
-                  />
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        <View>
-          <FoodSectionHeader title="Spice level" />
-          <View style={[styles.spiceRow, { gap: space[2] }]}>
-            {SPICES.map((level) => {
-              const active = preferences.spice === level;
-              return (
-                <Pressable
-                  key={level}
-                  onPress={() => setPreferences({ spice: level })}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: active }}
-                  style={[
-                    styles.spiceChip,
-                    {
-                      borderRadius: radius.button,
-                      backgroundColor: active ? colors.graphite : colors.surface,
-                      borderColor: active ? colors.graphite : colors.border,
-                    },
-                  ]}
-                >
-                  <Text variant="title3" style={{ color: active ? colors.onGraphite : colors.textSecondary }}>
-                    {SPICE_LABEL[level]}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <Text variant="caption" color="tertiary" style={{ marginTop: space[2] }}>
-            We pass this to the kitchen with every order. Some dishes cannot be changed, and those say so.
-          </Text>
-        </View>
-
+        {/* No diet or spice defaults: neither reached anything — diet was only
+            echoed on the Home card, and every dish hides the spice picker
+            because no kitchen screen shows it. Veg-only and the allergen flags
+            below are the preferences that act. */}
         <View>
           <FoodSectionHeader title="Tell me if it contains" trailing={`${preferences.allergens.length} flagged`} />
           <View style={[styles.chipWrap, { gap: space[2] }]}>
@@ -201,24 +118,7 @@ export default function FoodPreferencesScreen() {
               />
             </View>
 
-            <View
-              style={[
-                styles.row,
-                { paddingVertical: space[3], gap: space[3], borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderSubtle },
-              ]}
-            >
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text variant="title3">Default to pickup</Text>
-                <Text variant="caption" color="tertiary">
-                  Saves the delivery fee on every meal — you collect at the counter
-                </Text>
-              </View>
-              <Switch
-                label="Default to pickup"
-                value={preferences.defaultPickup}
-                onChange={(value) => setPreferences({ defaultPickup: value })}
-              />
-            </View>
+            {/* No "Default to pickup": pickup is not offered, so it saved nothing. */}
           </View>
         </View>
       </ScrollView>

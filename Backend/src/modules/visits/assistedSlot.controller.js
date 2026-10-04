@@ -61,13 +61,12 @@ const fail = (res, status, code, message) =>
 
 /* ── Dates, as the strings the flow speaks ────────────────────────────── */
 
-/** Today where the server runs, as `YYYY-MM-DD`. Local, not `toISOString()`
-    — that converts to UTC first and hands back yesterday for most of an
-    Indian evening. */
-const todayISO = () => {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-};
+/** Today in INDIA, as `YYYY-MM-DD` — the day the student's phone shows.
+    "Where the server runs" was UTC on a cloud host, so from midnight to 5:30
+    am a slot picked for "today" on the phone was "tomorrow" here, and the
+    days the two offered disagreed. */
+// eslint-disable-next-line global-require
+const todayISO = () => require('../../shared/utils/istTime').istDateKey();
 
 const addDaysISO = (iso, days) => {
   const d = new Date(`${iso}T00:00:00Z`);
@@ -246,7 +245,11 @@ const setSlot = async (req, res, next) => {
       return fail(res, 404, 'NOT_FOUND', 'That request no longer exists.');
     }
     const doc = await VisitRequest.findById(req.params.id);
-    if (!doc) return fail(res, 404, 'NOT_FOUND', 'That request no longer exists.');
+    // eslint-disable-next-line global-require
+    const { appRowOwnedBy } = require('./visitRequest.controller');
+    /* Setting the slot messages the owner on WhatsApp — on an app request,
+       only its own signed-in customer may do that. */
+    if (!doc || !appRowOwnedBy(doc, req)) return fail(res, 404, 'NOT_FOUND', 'That request no longer exists.');
 
     if (!doc.payment?.required) {
       return fail(res, 400, 'NOT_APPLICABLE', 'This visit does not use scheduled slots.');

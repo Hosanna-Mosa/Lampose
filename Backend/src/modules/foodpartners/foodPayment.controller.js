@@ -52,6 +52,8 @@ const mongoose = require('mongoose');
 const config = require('../../config/env');
 const razorpay = require('../../infrastructure/razorpay/razorpay');
 const FoodOrder = require('./foodOrder.model');
+
+const { customerView } = FoodOrder;
 const { notifyRestaurantOfOrder, notifyCustomerOfOrder } = require('./foodOrder.notifier');
 const { BADGE, logError } = require('./foodPartner.log');
 const { returnToAppPage } = require('../../shared/utils/returnToApp');
@@ -108,16 +110,55 @@ const notConfigured = (res) => fail(
 async function confirmPayment(order, { paymentId, amountPaise }) {
   if (order.paymentStatus === 'paid') return { alreadyPaid: true, notified: false };
 
-  order.paymentStatus = 'paid';
-  order.razorpay.paymentId = String(paymentId || '');
-  if (Number.isFinite(amountPaise)) order.razorpay.amountPaise = amountPaise;
-  order.razorpay.paidAt = new Date();
-  order.statusHistory.push({
-    status: order.status, at: new Date(), by: 'system', note: 'Payment received',
-  });
-  await order.save();
+  /*
+   * One conditional write, not read-then-save.
+   *
+   * Two confirmations arriving together — the app's verify and the webhook,
+   * routinely — both used to read "unpaid", both save "paid", and both ring
+   * the kitchen. Only the write that actually flips the status goes on to
+   * notify anybody now; the other finds nothing to match and stops.
+   */
+  const now = new Date();
+  const set = {
+    paymentStatus: 'paid',
+    'razorpay.paymentId': String(paymentId || ''),
+    'razorpay.paidAt': now,
+  };
+  if (Number.isFinite(amountPaise)) set['razorpay.amountPaise'] = amountPaise;
 
-  console.log(`${BADGE} [Paid] ${order.orderNumber} · ₹${order.grandTotal} · ${paymentId}`);
+  const paid = await FoodOrder.findOneAndUpdate(
+    { _id: order._id, paymentStatus: { $ne: 'paid' } },
+    {
+      $set: set,
+      $push: { statusHistory: { status: order.status, at: now, by: 'system', note: 'Payment received' } },
+    },
+    { new: true },
+  );
+  if (!paid) return { alreadyPaid: true, notified: false };
+
+  /* The caller's copy answers the request, so it must say what was written. */
+  order.paymentStatus = paid.paymentStatus;
+  order.razorpay = paid.razorpay;
+  order.statusHistory = paid.statusHistory;
+  order.status = paid.status;
+
+  console.log(`${BADGE} [Paid] ${paid.orderNumber} · ₹${paid.grandTotal} · ${paymentId}`);
+
+  /*
+   * Money that landed on an order already closed.
+   *
+   * A diner who cancels mid-UPI and then finishes the payment used to have a
+   * cancelled order marked paid and the kitchen rung to cook it. And because
+   * `markForRefund` had already run while it was still unpaid, no refund was
+   * ever queued. Now the payment is recorded, owed straight back, and nobody
+   * is told to cook anything.
+   */
+  if (['cancelled', 'rejected'].includes(paid.status)) {
+    await markForRefund(paid, `paid after the order was ${paid.status}`);
+    order.paymentStatus = paid.paymentStatus;
+    order.statusHistory = paid.statusHistory;
+    return { alreadyPaid: false, notified: false, closed: true };
+  }
 
   /* Only NOW does the kitchen learn about it. Everything before this point was
      a diner filling a form. Dispatch does not start here any more, either —
@@ -126,7 +167,7 @@ async function confirmPayment(order, { paymentId, amountPaise }) {
      where that now happens: the kitchen accepting with a prep-time quote,
      which for an online order cannot come before this payment has verified,
      since the restaurant is not even told about an unpaid one. */
-  const placed = order.toObject();
+  const placed = paid.toObject();
   const alert = await notifyRestaurantOfOrder(placed);
   /* The diner learns it is real at the same instant the kitchen does — never
      before, because an unpaid order is invisible to both. */
@@ -155,7 +196,7 @@ const startPayment = async (req, res, next) => {
       return fail(res, 409, 'NOT_AN_ONLINE_ORDER', 'That order is being paid in cash.');
     }
     if (order.paymentStatus === 'paid') {
-      return res.json({ success: true, data: { alreadyPaid: true, order: order.toJSON() } });
+      return res.json({ success: true, data: { alreadyPaid: true, order: customerView(order) } });
     }
     if (['cancelled', 'rejected'].includes(order.status)) {
       return fail(res, 409, 'ORDER_CLOSED', 'That order is no longer open.');
@@ -242,7 +283,7 @@ const verifyPayment = async (req, res, next) => {
        app back, and a diner whose payment already landed must not be shown a
        failure for having also told us about it. */
     if (order.paymentStatus === 'paid') {
-      return res.json({ success: true, data: { order: order.toJSON(), alreadyPaid: true } });
+      return res.json({ success: true, data: { order: customerView(order), alreadyPaid: true } });
     }
 
     const razorpayOrderId = String(body.razorpayOrderId || body.razorpay_order_id || '').trim();
@@ -271,8 +312,10 @@ const verifyPayment = async (req, res, next) => {
 
     return res.json({
       success: true,
-      message: 'Payment received. Your order is with the kitchen.',
-      data: { order: order.toJSON() },
+      message: result.closed
+        ? 'Payment received, but this order was already closed. The full amount will be refunded.'
+        : 'Payment received. Your order is with the kitchen.',
+      data: { order: customerView(order) },
       notified: result.notified,
     });
   } catch (error) {
@@ -546,6 +589,83 @@ async function handleFoodOrderWebhook({ orderNumber, paymentId, amountPaise }) {
   return true;
 }
 
+/* ── Payments that never came ─────────────────────────────────────────────*/
+
+/** How long an online order waits to be paid before it is closed. */
+const UNPAID_HOLD_MS = 30 * 60 * 1000;
+
+/**
+ * A failed attempt, from the webhook (`payment.failed`).
+ *
+ * Recorded, not final: `paymentStatus: 'failed'` says the last try did not go
+ * through, and `startPayment` still accepts a retry (it refuses only a paid or
+ * closed order), whose capture then marks it paid. `failed` was in the enum
+ * and never written, so a declined card looked exactly like nobody trying.
+ */
+async function handleFoodPaymentFailed({ orderNumber, paymentId, reason }) {
+  if (!orderNumber) return false;
+  const number = String(orderNumber).trim().toUpperCase();
+  const updated = await FoodOrder.updateOne(
+    { orderNumber: number, paymentMode: 'online', paymentStatus: 'pending' },
+    {
+      $set: { paymentStatus: 'failed' },
+      $push: {
+        statusHistory: {
+          status: 'placed',
+          at: new Date(),
+          by: 'system',
+          note: `Payment ${paymentId || ''} failed: ${String(reason || 'declined')}`.slice(0, 200),
+        },
+      },
+    },
+  );
+  console.warn(`${BADGE} [Webhook] payment failed for ${number}${updated.modifiedCount ? '' : ' (no change)'}`);
+  return true;
+}
+
+/**
+ * Close online orders nobody paid for.
+ *
+ * Held unpaid they never ended: a diner who abandoned checkout left a
+ * `placed` row for ever, and a payment made days later woke it up and sent
+ * it to a kitchen that might since have closed. After `UNPAID_HOLD_MS` the
+ * order is cancelled; a payment that still arrives afterwards meets a
+ * cancelled order, which `confirmPayment` refunds rather than serving.
+ * Guarded per row, so a payment landing in the same instant wins cleanly.
+ */
+async function expireUnpaidOrders(now = new Date()) {
+  const cutoff = new Date(now.getTime() - UNPAID_HOLD_MS);
+  const stale = await FoodOrder.find({
+    paymentMode: 'online',
+    paymentStatus: { $in: ['pending', 'failed'] },
+    status: 'placed',
+    placedAt: { $lt: cutoff },
+  }).select('orderNumber').limit(100).lean();
+
+  let closed = 0;
+  for (const row of stale) {
+    // eslint-disable-next-line no-await-in-loop
+    const out = await FoodOrder.updateOne(
+      {
+        orderNumber: row.orderNumber,
+        status: 'placed',
+        paymentStatus: { $in: ['pending', 'failed'] },
+      },
+      {
+        $set: { status: 'cancelled', paymentStatus: 'failed' },
+        $push: {
+          statusHistory: {
+            status: 'cancelled', at: now, by: 'system', note: 'Not paid within 30 minutes',
+          },
+        },
+      },
+    );
+    closed += out.modifiedCount || 0;
+  }
+  if (closed) console.log(`${BADGE} closed ${closed} unpaid order(s) after 30 minutes`);
+  return closed;
+}
+
 /* ── Refunding a cancelled prepaid order ──────────────────────────────────*/
 
 /**
@@ -610,5 +730,8 @@ module.exports = {
   checkoutCallback,
   confirmPayment,
   handleFoodOrderWebhook,
+  handleFoodPaymentFailed,
+  expireUnpaidOrders,
+  UNPAID_HOLD_MS,
   markForRefund,
 };

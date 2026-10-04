@@ -305,6 +305,14 @@ const driverSchema = new mongoose.Schema(
      * because a push token is a capability, and pruned when Expo says the
      * installation is gone.
      */
+    /*
+     * Bumped to end every session at once — a password reset, "sign out
+     * everywhere", an erasure. Tokens carry it as `ver` and the guard refuses
+     * a mismatch with SESSION_REVOKED. Without it a token stayed valid for its
+     * full seven days whatever happened to the account.
+     */
+    sessionVersion: { type: Number, default: 0 },
+
     devices: {
       type: [
         {

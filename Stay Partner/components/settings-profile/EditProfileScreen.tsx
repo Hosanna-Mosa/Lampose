@@ -31,6 +31,9 @@ export function EditProfileScreen() {
   const [city, setCity] = useState(partner?.address?.city ?? '');
   const [pincode, setPincode] = useState(partner?.address?.pincode ?? '');
   const [pin, setPin] = useState<{ lat: number; lng: number } | undefined>(undefined);
+  /* Not a field on screen — kept from the address on file, or filled by
+     "Use my location". It was dropped on every save. */
+  const [region, setRegion] = useState(partner?.address?.state ?? '');
   const [locating, setLocating] = useState(false);
   const [emailTouched, setEmailTouched] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -66,9 +69,12 @@ export function EditProfileScreen() {
       setLandmark((v) => fill(v, found.fields.landmark));
       setCity((v) => fill(v, found.fields.city));
       setPincode((v) => fill(v, found.fields.pincode));
+      setRegion((v) => fill(v, found.fields.state));
       setToast({
         message: found.namedNothing
-          ? 'Pin saved, but we could not name this spot — type the address.'
+          /* "Pin set", not "saved" — nothing is stored until Save, and the
+             pin is stored only WITH a street line (see `save`). */
+          ? 'Pin set, but we could not name this spot — type the street, then Save.'
           : 'Filled from your location. Check it before saving.',
         tone: found.namedNothing ? 'error' : 'success',
       });
@@ -111,6 +117,13 @@ export function EditProfileScreen() {
       router.back();
       return;
     }
+    /* A pin travels inside the address, and an address needs its first line —
+       so a pin with no street was dropped without a word (or, with an address
+       already on file, the whole address was deleted). Say what is missing. */
+    if (pin && !line1.trim()) {
+      setToast({ message: 'Add the house or street line so the pin can be saved with it.', tone: 'error' });
+      return;
+    }
 
     setSaving(true);
     setToast(null);
@@ -125,6 +138,7 @@ export function EditProfileScreen() {
               line1: line1.trim(),
               landmark: landmark.trim(),
               city: city.trim(),
+              state: region.trim(),
               pincode: pincode.trim(),
               ...(pin ? { location: pin } : null),
             }
@@ -178,12 +192,17 @@ export function EditProfileScreen() {
               <Text style={[styles.heroName, { color: c.textPrimary }]}>
                 {name.trim() || partner?.name || 'Partner Account'}
               </Text>
-              <View style={styles.badgeRow}>
-                <View style={[styles.verifiedBadge, { backgroundColor: c.accentTint }]}>
-                  <Icon name="check-circle" size={12} color={c.accent} />
-                  <Text style={[styles.verifiedText, { color: c.accent }]}>Verified Owner</Text>
+              {/* What Lampose has actually checked: the phone number, by OTP.
+                  "Verified Owner" was shown to everyone and claimed a check
+                  of ownership nobody has made. */}
+              {partner?.phoneVerifiedAt ? (
+                <View style={styles.badgeRow}>
+                  <View style={[styles.verifiedBadge, { backgroundColor: c.accentTint }]}>
+                    <Icon name="check-circle" size={12} color={c.accent} />
+                    <Text style={[styles.verifiedText, { color: c.accent }]}>Phone verified</Text>
+                  </View>
                 </View>
-              </View>
+              ) : null}
             </View>
           </View>
         </Card>

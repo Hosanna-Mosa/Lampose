@@ -21,11 +21,12 @@ import { MartianMono_500Medium } from "@expo-google-fonts/martian-mono/500Medium
 import { MartianMono_600SemiBold } from "@expo-google-fonts/martian-mono/600SemiBold";
 import { MartianMono_700Bold } from "@expo-google-fonts/martian-mono/700Bold";
 import { useFonts } from "expo-font";
-import { Stack, router } from "expo-router";
+import { Stack, router, usePathname } from "expo-router";
+import * as Notifications from "expo-notifications";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
@@ -68,6 +69,12 @@ export default function RootLayout() {
   const sessionToken = usePartnerStore((s) => s.session?.token ?? null);
   const signOut = usePartnerStore((s) => s.signOut);
   const setStatus = usePartnerStore((s) => s.setStatus);
+  const applicationStatus = usePartnerStore((s) => s.status);
+  /* Read in the rejected handler without re-registering it on every route
+     change — see that handler. */
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
   const [fontsLoaded, fontError] = useFonts(fonts);
   const [sessionExpired, setSessionExpired] = useState(false);
 
@@ -111,7 +118,10 @@ export default function RootLayout() {
   useEffect(() => {
     setAccountRejectedHandler((verificationNote) => {
       setStatus("rejected", verificationNote);
-      router.replace("/status");
+      /* Not again from /status itself: that screen re-reads `/me` on mount,
+         which is refused with this same code, and replacing to the screen
+         already showing re-mounted it — a loop, every few seconds. */
+      if (pathnameRef.current !== "/status") router.replace("/status");
     });
     return () => setAccountRejectedHandler(null);
   }, [setStatus]);
@@ -129,10 +139,45 @@ export default function RootLayout() {
     reason: an order must be able to arrive while somebody is looking at the
     menu.
   */
+  /*
+    Tapping a notification, from anywhere — including the tap that launched
+    the app from closed. The Orders tab had the only handler, and a tab is
+    not mounted until somebody opens it, so a tap with Home on screen (or a
+    cold start) went nowhere; support replies had no handler at all.
+  */
+  const handledTap = useRef<string | null>(null);
   useEffect(() => {
     if (!hydrated || !sessionToken) return;
-    return startOrderPump(sessionToken);
+    const route = (response: Notifications.NotificationResponse | null) => {
+      if (!response) return;
+      const id = response.notification.request.identifier;
+      if (handledTap.current === id) return;
+      handledTap.current = id;
+      const data = response.notification.request.content.data as
+        | { kind?: string; reference?: string }
+        | undefined;
+      if (data?.kind === "food_order") router.push("/(dash)/orders");
+      else if ((data?.kind === "support.reply" || data?.kind === "support.status") && data.reference) {
+        router.push({ pathname: "/support/[reference]", params: { reference: data.reference } });
+      }
+    };
+    /* Routed once, then cleared — see the User App's `getInitialPush`. */
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        route(response);
+        if (response) Notifications.clearLastNotificationResponseAsync().catch(() => {});
+      })
+      .catch(() => {});
+    const sub = Notifications.addNotificationResponseReceivedListener(route);
+    return () => sub.remove();
   }, [hydrated, sessionToken]);
+
+  useEffect(() => {
+    /* Not for a rejected restaurant: every poll would be refused with
+       ACCOUNT_REJECTED, and each refusal sent the app back to /status. */
+    if (!hydrated || !sessionToken || applicationStatus === "rejected") return;
+    return startOrderPump(sessionToken);
+  }, [hydrated, sessionToken, applicationStatus]);
 
   /*
     This tablet, so the kitchen can be rung when the app is not in front.

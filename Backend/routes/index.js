@@ -95,6 +95,8 @@ const v2UserRoutes = require('../src/modules/users/user.routes');
 const v2ScraperRoutes = require('../src/modules/scraper/scraper.routes');
 const v2CustomerRoutes = require('../src/modules/customers/customer.routes');
 const v2SupportRoutes = require('../src/modules/support/ticket.routes');
+const v2DeviceForgetRoutes = require('../src/modules/notifications/deviceForget.routes');
+const v2AppVersionRoutes = require('../src/modules/notifications/appVersion.routes');
 /* The SAME module, built four times — one router per audience, each behind
    its own guard. See the header of ticket.routes.js for why this is four
    routers rather than one guard that understands four token types. */
@@ -200,6 +202,11 @@ const V2_GROUPS = [
      own lifecycle and a reader who is not the customer — the same reason
      /visit-requests is not under /customers either. */
   ['/support', v2SupportRoutes, 'mobile app support tickets and safety reports'],
+  /* A handset whose session has already died forgets its push token here —
+     the session-gated unregister refuses a dead token. See the file. */
+  ['/devices', v2DeviceForgetRoutes, 'forget a push token without a session (sign-out after expiry)'],
+  /* The oldest build each app may run — the forced-update check. */
+  ['/app-version', v2AppVersionRoutes, 'minimum supported app version, for forced updates'],
   /* Property owners, in `app_partners`. A FOURTH identity system — see
      partnerAuth.middleware.js. Their properties and their customers' visit
      requests are scoped by the phone number they proved, which is the same

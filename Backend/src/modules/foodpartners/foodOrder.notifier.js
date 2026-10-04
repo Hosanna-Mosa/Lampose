@@ -221,14 +221,11 @@ async function notifyRestaurantOfOrder(order) {
   }
 
   try {
-    if (!pushReady()) {
-      result.reason = pushConfigProblem() || 'push is not configured';
-      console.warn(`${BADGE} [Order Alert] not sent — ${result.reason}`);
-      return result;
-    }
-
     /* `devices` is `select: false` on the model, so it has to be asked for.
-       `ownerPhone` rides along for the WhatsApp below — one read, not two. */
+       `ownerPhone` rides along for the WhatsApp below — one read, not two.
+       Read BEFORE the push check: the WhatsApp does not need push, and it
+       used to be skipped whenever push was unconfigured — exactly when the
+       kitchen most needed a second channel. */
     const restaurant = await FoodRestaurant.findOne({ restaurantId: order.restaurantId })
       .select('+devices restaurantName ownerPhone')
       .lean();
@@ -248,6 +245,12 @@ async function notifyRestaurantOfOrder(order) {
     if (restaurant) {
       result.whatsapp = true;
       whatsappTheOwner(order, restaurant).catch(() => {});
+    }
+
+    if (!pushReady()) {
+      result.reason = pushConfigProblem() || 'push is not configured';
+      console.warn(`${BADGE} [Order Alert] push not sent — ${result.reason}`);
+      return result;
     }
 
     const tokens = (restaurant?.devices || []).map((d) => d.token).filter(Boolean);

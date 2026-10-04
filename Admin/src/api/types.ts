@@ -1082,14 +1082,22 @@ export interface FoodOrderLine {
  */
 export interface FoodOrderMoney {
   itemsTotal: number;
-  /** Zero since it was dropped; a real figure on the orders charged one. */
+  /** The kitchen's packaging fee and its 18% GST. */
   packagingCharge: number;
+  packagingGst: number;
   /** GST on the food, and the rate it was charged at. Zero on older orders. */
   gst: number;
   gstRate: number;
-  /** The flat platform fee. Charged on pickup too. */
+  /** Legacy: the platform fee older orders were charged. New orders: 0. */
   platformFee: number;
+  /** The service fee (replaced the platform fee) and its 18% GST. */
+  serviceFee: number;
+  serviceFeeGst: number;
   deliveryFee: number;
+  deliveryGst: number;
+  smallOrderFee: number;
+  /** Kitchen to drop, km, as the delivery slab was chosen. Null when unknown. */
+  distanceKm: number | null;
   discount: number;
   grandTotal: number;
   partnerPayout: number;
@@ -1098,6 +1106,9 @@ export interface FoodOrderMoney {
   commissionAmount: number | null;
   riderEarnings: number;
   lamposeNet: number | null;
+  /** Delivery + service fee, GST excluded. Null on orders before the breakdown. */
+  lamposeGrossRevenue: number | null;
+  gstCollected: number | null;
 }
 
 export interface FoodRefundDetail extends FoodRefundRecord {

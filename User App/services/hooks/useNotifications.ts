@@ -191,6 +191,9 @@ export function useNotifications(enabled = true) {
     markAllRead: markRead.mutate,
     markOneRead,
     isMarkingRead: markRead.isPending,
+    /* A failed "Mark all read" used to fail silently — the badge simply
+       stayed, and the tap looked broken. */
+    markReadFailed: markRead.isError,
     error: query.error as ApiError | null,
   };
 }

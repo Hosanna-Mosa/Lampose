@@ -94,7 +94,7 @@ const OCCUPYING = ['in_house', 'arriving', 'departing', 'upcoming'];
  * cannot be written. Returns what it did so the caller can log it.
  */
 const syncShareTypes = async (property) => {
-  const result = { synced: 0, created: 0, removed: 0, skipped: 0 };
+  const result = { synced: 0, created: 0, removed: 0, skipped: 0, renamed: 0 };
   if (!property || mongoose.connection.readyState !== 1) return result;
 
   try {
@@ -104,6 +104,39 @@ const syncShareTypes = async (property) => {
     const partnerPhoneDigits = phoneKey(property.ownerMobile);
     const options = sharingOptionsFor(property);
     const wanted = new Set();
+
+    /*
+     * A RENAME, carried over rather than read as delete-and-create.
+     *
+     * The id is derived from the label, so renaming "2 Sharing" to "Double
+     * room" used to delete the row and start a fresh one at zero occupied:
+     * every bed already taken became "free" again, open requests for it
+     * failed with INVENTORY_GONE, and a later checkout released nothing. When
+     * exactly one room type disappears and exactly one new one appears in the
+     * same save, that is a rename — the row (its occupancy, its pause) moves to
+     * the new name, and the bookings and open requests follow it. Several at
+     * once is ambiguous and falls back to the old behaviour.
+     */
+    const counted = options.filter((option) => option.totalBeds);
+    const existingRows = await PartnerShareType.find({ propertyId }).lean();
+    const existingIds = new Set(existingRows.map((row) => row.shareTypeId));
+    const wantedIds = new Set(counted.map((option) => shareTypeIdFor(propertyId, option.label)));
+    const fresh = counted.filter((option) => !existingIds.has(shareTypeIdFor(propertyId, option.label)));
+    const gone = existingRows.filter((row) => !wantedIds.has(row.shareTypeId));
+    if (fresh.length === 1 && gone.length === 1) {
+      const from = gone[0];
+      const to = fresh[0];
+      const newId = shareTypeIdFor(propertyId, to.label);
+      await PartnerShareType.updateOne({ _id: from._id }, { $set: { shareTypeId: newId, name: to.label } });
+      await PartnerBooking.updateMany({ propertyId, shareType: from.name }, { $set: { shareType: to.label } });
+      // eslint-disable-next-line global-require
+      const VisitRequest = require('../visits/visitRequest.model');
+      await VisitRequest.updateMany(
+        { shareTypeId: from.shareTypeId, status: { $in: ['pending_owner', 'confirmed'] } },
+        { $set: { shareTypeId: newId } },
+      );
+      result.renamed = 1;
+    }
 
     for (const option of options) {
       /* No count recorded is not zero beds — it is an unanswered question, and

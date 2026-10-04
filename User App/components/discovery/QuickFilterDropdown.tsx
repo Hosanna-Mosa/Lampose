@@ -58,6 +58,15 @@ export function QuickFilterDropdown({
     onClose();
   };
 
+  /* A multi-select tap: applied, and the list STAYS open. Closing after every
+     tick meant picking "2 Sharing" and "3 Sharing" took two trips. */
+  const toggleOption = (patch: Partial<SearchQuery>) => {
+    try {
+      Haptics.selectionAsync();
+    } catch {}
+    onApply(patch);
+  };
+
   // Build options based on which filter is active
   const { title, icon, options, clearAction } = useMemo(() => {
     if (!filterId) {
@@ -69,8 +78,11 @@ export function QuickFilterDropdown({
       const opts: OptionItem[] = [
         {
           id: 'recommended',
-          label: 'Relevance / Recommended',
-          sublabel: 'Curated places matching your vibe and search',
+          /* What the server's order actually is — newest first, nearest first
+             on a "near me" search, rooms that are open ahead of paused ones.
+             Nothing is curated, and "matching your vibe" was not true. */
+          label: 'Newest first',
+          sublabel: 'Open rooms first; nearest first when searching near you',
           selected: current === 'recommended',
           onPress: () => selectOption({ sort: 'recommended' }),
         },
@@ -131,8 +143,25 @@ export function QuickFilterDropdown({
 
     if (filterId === 'rent') {
       const current = query.rentCeiling;
-      // Generate reasonable presets based on inventory rents
-      const presets = [8000, 12000, 16000, 20000, 25000, 30000];
+      /* From the prices actually in these results — fixed ₹8k–30k steps were
+         offered for every category, per-night hotels included, so most of
+         them matched nothing (or everything). Four steps across the real
+         spread, rounded to a sensible figure, in the category's own unit. */
+      const nightly = /night/i.test(spec.rentLabel);
+      const unit = nightly ? ' a night' : ' a month';
+      const rents = inventory
+        .map((listing) => listing.rent)
+        .filter((rent): rent is number => typeof rent === 'number' && rent > 0)
+        .sort((a, b) => a - b);
+      const step = nightly ? 100 : 500;
+      const presets = rents.length
+        ? Array.from(new Set(
+          [0.25, 0.5, 0.75, 1].map((q) => {
+            const value = rents[Math.min(rents.length - 1, Math.floor(q * (rents.length - 1)))];
+            return Math.ceil(value / step) * step;
+          }),
+        ))
+        : [];
       const opts: OptionItem[] = [
         {
           id: 'any',
@@ -142,8 +171,8 @@ export function QuickFilterDropdown({
         },
         ...presets.map((preset) => ({
           id: `rent-${preset}`,
-          label: `Up to ${formatRupees(preset)}`,
-          sublabel: `Show places ${formatRupees(preset)} or less`,
+          label: `Up to ${formatRupees(preset)}${unit}`,
+          sublabel: `${rents.filter((rent) => rent <= preset).length} of ${rents.length} places`,
           selected: current === preset,
           onPress: () => selectOption({ rentCeiling: preset }),
         })),
@@ -160,10 +189,10 @@ export function QuickFilterDropdown({
       const selected = query.sharing;
       const titleLabel = spec.sharingLabel?.replace(/\?$/, '') || 'Room Sharing';
 
-      // Options from inventory facets, plus fallback standard options if inventory is sparse
-      const availableSharing = facets.sharing.length > 0
-        ? facets.sharing
-        : ['Single Occupancy', '2 Sharing', '3 Sharing', '4+ Sharing'];
+      /* Only what these results actually offer. The invented fallback list
+         offered "4+ Sharing" in areas with none, and picking it emptied the
+         feed. */
+      const availableSharing = facets.sharing;
 
       const opts: OptionItem[] = [
         {
@@ -183,7 +212,7 @@ export function QuickFilterDropdown({
               const next = isItemActive
                 ? selected.filter((s) => s !== item)
                 : [...selected, item];
-              selectOption({ sharing: next });
+              toggleOption({ sharing: next });
             },
           };
         }),
@@ -230,9 +259,7 @@ export function QuickFilterDropdown({
 
     if (filterId === 'furnishing') {
       const selected = query.furnishing;
-      const availableFurnishing = facets.furnishing.length > 0
-        ? facets.furnishing
-        : ['Fully furnished', 'Semi-furnished', 'Unfurnished'];
+      const availableFurnishing = facets.furnishing;
 
       const opts: OptionItem[] = [
         {
@@ -251,7 +278,7 @@ export function QuickFilterDropdown({
               const next = isItemActive
                 ? selected.filter((f) => f !== item)
                 : [...selected, item];
-              selectOption({ furnishing: next });
+              toggleOption({ furnishing: next });
             },
           };
         }),
@@ -265,7 +292,7 @@ export function QuickFilterDropdown({
     }
 
     return { title: '', icon: undefined, options: [], clearAction: undefined };
-  }, [filterId, query, spec, facets]);
+  }, [filterId, query, spec, facets, inventory]);
 
   if (!visible || !filterId) return null;
 

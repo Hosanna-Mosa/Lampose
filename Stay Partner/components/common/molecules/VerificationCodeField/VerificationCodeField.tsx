@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Text } from '@/components/common/atoms/Text';
 import { Button } from '@/components/common/atoms/Button';
@@ -39,6 +39,22 @@ export function VerificationCodeField({ phone, verified, onVerifiedChange }: Pro
   const [problem, setProblem] = useState<string | null>(null);
   const [length, setLength] = useState(CODE_LENGTH);
   const [resendIn, setResendIn] = useState(RESEND_AFTER);
+
+  /*
+   * A new number is a new verification. Editing the phone after verifying
+   * kept "Verified +91 <the new number>" on screen — the server caught it at
+   * save with a 409, but the screen had already told the owner it was fine.
+   * Skips the first run so a number verified before this mounted stays so.
+   */
+  const verifiedFor = useRef(phone);
+  useEffect(() => {
+    if (verifiedFor.current === phone) return;
+    verifiedFor.current = phone;
+    setSent(false);
+    setCode('');
+    if (verified) onVerifiedChange(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reacts to the number only
+  }, [phone]);
 
   useEffect(() => {
     if (!sent || verified) return;

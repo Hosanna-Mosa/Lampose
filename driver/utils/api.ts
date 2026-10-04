@@ -30,6 +30,16 @@ export function setSessionExpiredHandler(handler: (() => void) | null): void {
   onSessionExpired = handler;
 }
 
+/* A suspension that lands MID-SHIFT. Only `refreshProfile` used to look for
+   `ACCOUNT_SUSPENDED`, so a rider suspended while the app was open kept being
+   refused by every other call — going online, accepting, pushing location —
+   with a generic error each time, and never reached the screen that says why. */
+let onAccountSuspended: ((message: string) => void) | null = null;
+
+export function setAccountSuspendedHandler(handler: ((message: string) => void) | null): void {
+  onAccountSuspended = handler;
+}
+
 export class ApiError extends Error {
   status: number;
   payload: unknown;
@@ -88,6 +98,9 @@ export async function api<T = unknown>(
 
       if (token && res.status === 401 && shape?.code && SESSION_DEAD_CODES.has(shape.code)) {
         onSessionExpired?.();
+      }
+      if (token && res.status === 403 && shape?.code === "ACCOUNT_SUSPENDED") {
+        onAccountSuspended?.(message);
       }
 
       throw new ApiError(message, res.status, payload);

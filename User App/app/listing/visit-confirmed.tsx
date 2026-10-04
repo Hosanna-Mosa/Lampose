@@ -11,6 +11,7 @@ import { DirectionsButton } from '@/components/discovery';
 import { visitConfirmed } from '@/data/bookings';
 import { findListing } from '@/data/listings';
 import { useTheme } from '@/context/ThemeContext';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * Screen 32 — the visit is confirmed.
@@ -24,7 +25,7 @@ import { useTheme } from '@/context/ThemeContext';
  * the button. What they do not know is what happens when they arrive, and that
  * is the anxiety the screen can actually remove.
  */
-export default function VisitConfirmed() {
+function VisitConfirmed() {
   const { colors, space, layout, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -97,3 +98,6 @@ export default function VisitConfirmed() {
     </View>
   );
 }
+
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(VisitConfirmed);

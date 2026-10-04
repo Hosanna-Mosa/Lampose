@@ -118,13 +118,6 @@ export function unreadCount(list: AppNotification[] = NOTIFICATIONS): number {
 
 const listeners = new Set<() => void>();
 
-export function subscribeNotifications(fn: () => void): () => void {
-  listeners.add(fn);
-  return () => {
-    listeners.delete(fn);
-  };
-}
-
 function emit() {
   listeners.forEach((fn) => fn());
 }
@@ -137,13 +130,3 @@ export function markRead(id: string) {
   }
 }
 
-export function markAllRead() {
-  let changed = false;
-  NOTIFICATIONS.forEach((n) => {
-    if (!n.read) {
-      n.read = true;
-      changed = true;
-    }
-  });
-  if (changed) emit();
-}

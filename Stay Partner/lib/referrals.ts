@@ -27,12 +27,16 @@ export const POINT_VALUE_RUPEES = 1;
 /** 5 successful referrals × 100 points — the number the user asked for directly. */
 export const MIN_WITHDRAW_POINTS = 500;
 
-/** Tied to the account the way #LB-4821-style IDs already are elsewhere in the seed data. */
-export const REFERRAL_CODE = 'ANJALI4821';
-export const REFERRAL_LINK = `https://lampose.in/refer/${REFERRAL_CODE}`;
-
-export function shareMessage(): string {
-  return `Join me on LAMPOSE Stay Partner — manage bookings, pricing, and payouts for your property in one app. Use my code ${REFERRAL_CODE} when you sign up: ${REFERRAL_LINK}`;
+/**
+ * The share text for THIS owner's code, as the server issued it.
+ *
+ * Takes the code rather than reading a constant: a single hard-coded code
+ * meant every owner shared the same one, and no join could be credited to the
+ * person who actually invited it.
+ */
+export function shareMessage(code: string): string {
+  const link = `https://lampose.in/refer/${encodeURIComponent(code)}`;
+  return `Join me on LAMPOSE Stay Partner — manage bookings, pricing, and payouts for your property in one app. Use my code ${code} when you sign up: ${link}`;
 }
 
 function at(dayOffset: number): Date {
@@ -124,20 +128,9 @@ export function availablePoints(): number {
   return earnedPoints() - withdrawnPoints();
 }
 
-export function canWithdraw(): boolean {
-  return availablePoints() >= MIN_WITHDRAW_POINTS;
-}
-
 // ── Mutation ──────────────────────────────────────────────────────────────
 
 const listeners = new Set<() => void>();
-
-export function subscribeReferrals(fn: () => void): () => void {
-  listeners.add(fn);
-  return () => {
-    listeners.delete(fn);
-  };
-}
 
 let nextWithdrawalId = 100;
 

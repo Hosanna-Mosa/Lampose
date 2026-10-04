@@ -48,6 +48,9 @@ const notifier = require('./dispatch.notifier');
 const collection = require('./doorstepCollection.service');
 const { cashLedgerFor } = require('./cashInHand.service');
 const config = require('../../config/env');
+
+/** Wrong guesses allowed at one hand-over code before the order locks. */
+const MAX_HANDOVER_ATTEMPTS = 5;
 const razorpay = require('../../infrastructure/razorpay/razorpay');
 
 const { ALLOWED_RIDER_TRANSITIONS, riderView, restaurantSnapshot } = FoodOrder;
@@ -393,12 +396,48 @@ const setOrderStatus = async (req, res, next) => {
         'This order has no hand-over code. Please call Lampose support before handing anything over.',
       );
     }
+
+    /* Locked after too many wrong guesses — see `handoverAttempts` on the
+       model. Checked before the comparison, so a locked order refuses even
+       the right code: by then the right code may simply be the next guess. */
+    const which = wanted === 'picked_up' ? 'pickup' : 'delivery';
+    const tried = (order.handoverAttempts && order.handoverAttempts[which]) || 0;
+    if (tried >= MAX_HANDOVER_ATTEMPTS) {
+      return fail(
+        res, 423, 'CODE_LOCKED',
+        'Too many wrong codes on this order. Please call Lampose support to complete the hand-over.',
+      );
+    }
     if (code !== expected) {
+      /* Counted with `$inc`, not read-modify-write, so parallel guesses
+         cannot all read the same count and slip past the limit. */
+      const after = await FoodOrder.findOneAndUpdate(
+        { _id: order._id },
+        { $inc: { [`handoverAttempts.${which}`]: 1 } },
+        { new: true, projection: { handoverAttempts: 1 } },
+      ).lean();
+      const used = (after && after.handoverAttempts && after.handoverAttempts[which]) || tried + 1;
+      if (used >= MAX_HANDOVER_ATTEMPTS) {
+        await FoodOrder.updateOne(
+          { _id: order._id, 'handoverAttempts.lockedAt': null },
+          { $set: { 'handoverAttempts.lockedAt': new Date() } },
+        );
+        console.error(
+          `[driver-order] ⚠ ${order.orderNumber} locked after ${used} wrong ${which} codes `
+          + `from rider ${req.driver.driverId}. Needs a person to check the hand-over.`,
+        );
+        return fail(
+          res, 423, 'CODE_LOCKED',
+          'Too many wrong codes on this order. Please call Lampose support to complete the hand-over.',
+        );
+      }
+      const left = MAX_HANDOVER_ATTEMPTS - used;
       return fail(
         res, 409, 'CODE_INCORRECT',
-        wanted === 'picked_up'
+        (wanted === 'picked_up'
           ? 'That is not the pickup code. Ask the restaurant to read it out again.'
-          : 'That is not the delivery PIN. Ask the customer to read it out again.',
+          : 'That is not the delivery PIN. Ask the customer to read it out again.')
+          + ` ${left} ${left === 1 ? 'try' : 'tries'} left.`,
       );
     }
 

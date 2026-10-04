@@ -67,8 +67,17 @@ export type PushPayload = {
     | 'request.declined'
     | 'request.inventoryTaken'
     | 'request.expired'
-    | 'request.cancelled';
-  requestId: string;
+    | 'request.cancelled'
+    /* A hotel guest paid for their stay — see `notifyStayPaid`. */
+    | 'request.paid'
+    /* Support: a reply or a status change on one of this owner's tickets.
+       These carry `reference`, not `requestId`, and were dropped by the
+       listeners below, which only passed a payload with a request id. */
+    | 'support.reply'
+    | 'support.status';
+  requestId?: string;
+  /** Support only — the ticket's reference. */
+  reference?: string;
   listingId?: string;
   status?: string;
   expiresAt?: string | null;
@@ -128,6 +137,15 @@ async function ensureChannel(): Promise<void> {
        screen, not hidden behind "tap to reveal". */
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     sound: 'default',
+  });
+
+  /* Support replies and status changes — the backend sends them on
+     `support` (support.notifier.js), and no app used to create it. */
+  await Notifications.setNotificationChannelAsync('support', {
+    name: 'Support',
+    description: 'Replies from Lampose support.',
+    importance: Notifications.AndroidImportance.HIGH,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
   });
 }
 
@@ -228,12 +246,12 @@ export function addPushListeners(handlers: {
 }): () => void {
   const received = Notifications.addNotificationReceivedListener((notification) => {
     const payload = notification.request.content.data as PushPayload | undefined;
-    if (payload?.requestId) handlers.onReceived?.(payload);
+    if (payload?.requestId || payload?.reference) handlers.onReceived?.(payload);
   });
 
   const tapped = Notifications.addNotificationResponseReceivedListener((response) => {
     const payload = response.notification.request.content.data as PushPayload | undefined;
-    if (payload?.requestId) handlers.onTapped?.(payload);
+    if (payload?.requestId || payload?.reference) handlers.onTapped?.(payload);
   });
 
   return () => {
@@ -253,8 +271,12 @@ export function addPushListeners(handlers: {
 export async function getInitialPush(): Promise<PushPayload | null> {
   try {
     const response = await Notifications.getLastNotificationResponseAsync();
+    /* Consumed, so it is routed ONCE. The OS keeps the last tapped
+       notification until it is cleared, and every later cold start re-opened
+       the same old screen — a request answered days ago, on every launch. */
+    Notifications.clearLastNotificationResponseAsync().catch(() => {});
     const payload = response?.notification.request.content.data as PushPayload | undefined;
-    return payload?.requestId ? payload : null;
+    return payload?.requestId || payload?.reference ? payload : null;
   } catch {
     return null;
   }

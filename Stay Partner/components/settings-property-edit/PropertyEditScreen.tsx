@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Picture, Tappable } from '@/components/common';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -132,6 +132,8 @@ export function PropertyEditScreen() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
+  /* The category and details as loaded — see the category picker. */
+  const loaded = useRef<{ category: FormState['category']; details: FormState['categoryDetails'] } | null>(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone: 'error' | 'success' } | null>(null);
   /* Free beds per room type. Loaded beside the form and saved on their own
@@ -148,7 +150,9 @@ export function PropertyEditScreen() {
     setLoadError(null);
     try {
       const property = await fetchMyProperty(id);
-      setForm(toFormState(property));
+      const next = toFormState(property);
+      loaded.current = { category: next.category, details: next.categoryDetails };
+      setForm(next);
       fetchPropertyInventory(id).then(setInventory).catch(() => setInventory(undefined));
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.displayMessage : 'We could not load this property.');
@@ -161,8 +165,17 @@ export function PropertyEditScreen() {
     load();
   }, [load]);
 
+  /* The price students see must be a real one. ₹0 was accepted, and a ₹0
+     listing reads as free — or broken. Short stays price by the day, long by
+     the month, "both" needs both. */
+  const needsDaily = form?.stayType !== 'Long Stay';
+  const needsMonthly = form?.stayType !== 'Short Stay';
+  const priceMissing =
+    (needsDaily && !(Number(form?.dailyPrice) > 0)) || (needsMonthly && !(Number(form?.monthlyPrice) > 0));
+
   const canSave =
     Boolean(form) &&
+    !priceMissing &&
     Boolean(form?.name.trim()) &&
     Boolean(form?.place.trim()) &&
     Boolean(form?.ownerName.trim()) &&
@@ -225,7 +238,18 @@ export function PropertyEditScreen() {
       background="bg"
       footer={
         form ? (
-          <Button label={saving ? 'Saving…' : 'Save changes'} onPress={submit} loading={saving} disabled={!canSave} />
+          <>
+            {priceMissing ? (
+              <Text variant="badge" color="textSecondary" style={{ marginBottom: 8 }}>
+                {needsDaily && needsMonthly
+                  ? 'Set both a daily and a monthly price above ₹0.'
+                  : needsDaily
+                    ? 'Set a daily price above ₹0.'
+                    : 'Set a monthly price above ₹0.'}
+              </Text>
+            ) : null}
+            <Button label={saving ? 'Saving…' : 'Save changes'} onPress={submit} loading={saving} disabled={!canSave} />
+          </>
         ) : undefined
       }
     >
@@ -265,7 +289,14 @@ export function PropertyEditScreen() {
               options={CATEGORIES}
               format={(c) => CATEGORY_LABEL[c]}
               value={form.category}
-              onChange={(category) => setForm((f) => f && { ...f, category })}
+              /* The details belong to a category — a hotel's room list is
+                 meaningless on a PG. A new category starts empty; going back
+                 to the one this listing had restores what was loaded. */
+              onChange={(category) => setForm((f) => f && {
+                ...f,
+                category,
+                categoryDetails: category === loaded.current?.category ? loaded.current.details : {},
+              })}
             />
             <Box style={styles.field} />
             <Input
@@ -379,7 +410,10 @@ export function PropertyEditScreen() {
 
           <Section title="Amenities">
             <ChipRow>
-              {ALL_AMENITIES.map((amenity) => (
+              {/* Plus anything already on the listing that is not in the
+                  standard list — onboarding wrote free text, and those were
+                  invisible here and impossible to remove. */}
+              {[...ALL_AMENITIES, ...form.amenities.filter((a) => !ALL_AMENITIES.includes(a))].map((amenity) => (
                 <Chip
                   key={amenity}
                   label={amenity}

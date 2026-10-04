@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import { liveOrderHeadline } from '@/types/food';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
@@ -547,11 +548,7 @@ export function FoodHome({
         <View style={{ paddingHorizontal: layout.gutter }}>
           <ActiveOrderCard
             order={liveOrder}
-            headline={
-              liveOrder.fulfilment === 'pickup'
-                ? 'Waiting at the counter'
-                : address ? `Arriving at ${address.title}` : 'Arriving soon'
-            }
+            headline={liveOrderHeadline(liveOrder.status, liveOrder.fulfilment, address?.title)}
             detail={`${liveOrder.kitchenName} · ${liveOrder.lines.map((line) => line.name).join(', ')}`}
             actionLabel="Track order"
             onPress={() => router.push(foodHref.order(liveOrder.id))}
@@ -758,8 +755,7 @@ export function FoodHome({
           <View style={{ flex: 1 }}>
             <Text variant="title3">Food preferences</Text>
             <Text variant="caption" color="tertiary" numberOfLines={1}>
-              {preferences.diet === 'veg' ? 'Veg' : preferences.diet === 'egg' ? 'Veg and egg' : 'Everything'} ·{' '}
-              {preferences.spice} spice · {preferences.allergens.length} flagged
+              {preferences.vegOnly ? 'Veg only' : 'Everything'} · {preferences.allergens.length} flagged
             </Text>
           </View>
           <Icon name="chevronRight" size={16} color={colors.textTertiary} />
@@ -774,7 +770,7 @@ export function FoodHome({
         production build never reaches this screen at all.
       */}
       <Text variant="numMeta" color="tertiary" style={{ paddingHorizontal: layout.gutter }}>
-        Ready times are the kitchen&apos;s estimate · dev build, mock catalogue (EXPO_PUBLIC_FOOD_MODE)
+        Ready times are the kitchen&apos;s estimate
       </Text>
 
     </ScrollView>

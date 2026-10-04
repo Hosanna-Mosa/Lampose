@@ -129,6 +129,10 @@ export async function uploadApplicationImages(
   data: OnboardingData,
   token?: string | null,
   onProgress?: (p: UploadProgress) => void,
+  /* Called after EACH upload with the form as it now stands, so the caller
+     can keep the links. Without it a submit that failed part-way — or was
+     refused after the uploads — started every upload again on retry. */
+  onUploaded?: (partial: OnboardingData) => void,
 ): Promise<OnboardingData> {
   /* Counted up front so the progress line can say "3 of 11" rather than
      counting up to a total nobody knows. */
@@ -197,6 +201,7 @@ export async function uploadApplicationImages(
   for (let i = 0; i < total; i += 1) {
     onProgress?.({ done: i, total, label: jobs[i].label });
     await jobs[i].run();
+    onUploaded?.({ ...next, menuCategories: categories, menuRows: rows });
   }
   onProgress?.({ done: total, total, label: "" });
 

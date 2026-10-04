@@ -135,7 +135,7 @@ const getMyPropertyById = async (req, res, next) => {
     const property = await findOwnedProperty(req.partner, req.params.id);
     if (!property) return notFound(res);
 
-    return res.json({ success: true, data: formatListing(property) });
+    return res.json({ success: true, data: { ...formatListing(property), ownerMobile: property.ownerMobile || '' } });
   } catch (error) {
     return next(error);
   }
@@ -216,6 +216,12 @@ const applyEditableFields = (property, body, partner) => {
     const result = requiredNumber(body[field], label);
     if (result.error) return result.error;
     property[field] = result.value;
+  }
+  /* The headline rent is what the feed prints. A daily or monthly figure may
+     be 0 when that stay length is not offered, but the rent itself may not —
+     a ₹0 listing reads as free, or as broken. */
+  if (body.rent !== undefined && !(property.rent > 0)) {
+    return 'Rent must be more than ₹0.';
   }
 
   if (body.address !== undefined) property.address = String(body.address).trim();
@@ -302,7 +308,7 @@ const updateMyProperty = async (req, res, next) => {
       console.warn('   ⚠️  [Property Edit] Could not write the audit log:', auditError.message);
     }
 
-    return res.json({ success: true, message: 'Property updated.', data: formatListing(property) });
+    return res.json({ success: true, message: 'Property updated.', data: { ...formatListing(property), ownerMobile: property.ownerMobile || '' } });
   } catch (err) {
     if (err.name === 'ValidationError') {
       const messages = Object.values(err.errors).map((e) => e.message);
@@ -463,9 +469,13 @@ const removeMyProperty = async (req, res, next) => {
     const { PartnerBooking } = require('./partnerDomains.model');
     const VisitRequest = require('../visits/visitRequest.model');
 
+    /* Every status that still holds a bed — `OCCUPYING`, the inventory's own
+       list. `arriving` and `departing` were missing, so a listing with a guest
+       due today, or leaving today, could be deleted out from under them. */
+    const { OCCUPYING } = require('../inventory/inventory.service');
     const activeGuests = await PartnerBooking.countDocuments({
       propertyId,
-      status: { $in: ['in_house', 'upcoming'] },
+      status: { $in: OCCUPYING },
     });
     if (activeGuests > 0) {
       return res.status(409).json({

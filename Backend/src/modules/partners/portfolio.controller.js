@@ -36,7 +36,7 @@ const mongoose = require('mongoose');
 const Partner = require('./partner.model');
 const Property = require('../properties/property.model');
 const VisitRequest = require('../visits/visitRequest.model');
-const { formatListing } = require('../listings/listing.formatter');
+const { formatListing, cityOf } = require('../listings/listing.formatter');
 const {
   StayRequestError, acceptAndBook, decline, settleIfExpired,
 } = require('../visits/stayRequest.service');
@@ -77,7 +77,10 @@ const ownedProperties = async (partner) => {
   const key = partner.phoneDigits || phoneKey(partner.phone);
   if (!key) return [];
 
-  const all = await Property.find({}).lean();
+  /* Not the ones the owner removed. `removeMyProperty` only soft-deletes
+     (`status: 'removed'`), and reading every row brought a deleted listing
+     straight back on the next refresh — even as the header's property name. */
+  const all = await Property.find({ status: { $ne: 'removed' } }).lean();
   return all.filter((property) => phoneKey(property.ownerMobile) === key);
 };
 
@@ -131,6 +134,9 @@ const getMyProperties = async (req, res, next) => {
         const flags = byProperty.get(String(property._id));
         return {
           ...formatListing(property),
+          /* The owner's own number, for their own edit form. `formatListing`
+             leaves it out because the public feed must never carry it. */
+          ownerMobile: property.ownerMobile || '',
           /* True when ANY room type is still taking bookings — the same rule
              `getSummary` uses for the dashboard switch, so the two cannot
              disagree about one property. */
@@ -147,8 +153,21 @@ const getMyProperties = async (req, res, next) => {
   }
 };
 
-/** The owner's half of a visit request. See the note at the top of the file. */
+/**
+ * The owner's half of a visit request. See the note at the top of the file.
+ *
+ * Built ON the model's own `toOwner()` — the app channel's serialiser — so
+ * both channels carry the same fields. This one used to stand alone and lacked
+ * `sharing`, `expiresAt`, `entryPin`, `channel`, `seenAt` and `decidedAt`, so
+ * a website request showed "—" in every one of those places on the request
+ * screen. `toOwner` only reads fields off `this`, so it runs on a lean row.
+ */
 const toOwnerJSON = (request) => ({
+  ...VisitRequest.schema.methods.toOwner.call(request),
+  ...webOwnerFields(request),
+});
+
+const webOwnerFields = (request) => ({
   id: String(request._id),
   status: request.status,
   listingId: request.listingId,
@@ -221,6 +240,21 @@ const toOwnerJSON = (request) => ({
  * were left out, which reads as a bug. It shows as cancelled and
  * non-actionable instead, which is the truth.
  */
+/**
+ * Every spelling of this owner's number that gets written — so the LIST
+ * finds the rows the detail screen (which compares `phoneKey`) accepts. Two
+ * exact strings (`+91…` and the bare ten) missed a row saved with a space,
+ * a `0` or a bare `91` prefix: it opened fine from a notification but was
+ * missing from the list.
+ */
+const ownerMobileMatching = (key) => {
+  /* An `$in` of the spellings actually written, not a suffix regex: this runs
+     on the owner app's poll every few seconds, and a regex cannot use the
+     `ownerMobile` index — every poll would scan the collection. */
+  const d = String(key).replace(/\D/g, '');
+  return { $in: [`+91${d}`, d, `91${d}`, `0${d}`, `+91 ${d}`, `+91-${d}`] };
+};
+
 const VISIBLE_TO_OWNER = ['pending_owner', 'confirmed', 'declined', 'expired', 'cancelled'];
 
 // @route   GET /api/v2/partners/requests
@@ -241,7 +275,7 @@ const getMyRequests = async (req, res, next) => {
      * because the index is worth using and costs nothing to be generous with.
      */
     const requests = await VisitRequest.find({
-      ownerMobile: { $in: [`+91${key}`, key] },
+      ownerMobile: ownerMobileMatching(key),
       status: { $in: VISIBLE_TO_OWNER },
     })
       .sort({ createdAt: -1 })
@@ -371,7 +405,7 @@ const getSummary = async (req, res, next) => {
 
     const requests = key
       ? await VisitRequest.find({
-        ownerMobile: { $in: [`+91${key}`, key] },
+        ownerMobile: ownerMobileMatching(key),
         status: { $in: VISIBLE_TO_OWNER },
       }).select('status createdAt').lean()
       : [];
@@ -417,14 +451,14 @@ const getSummary = async (req, res, next) => {
      */
     const payouts = key ? await PartnerPayout.find({ partnerPhoneDigits: key }).lean() : [];
 
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
+    /* India's midnight, not the server's — see `shared/utils/istTime.js`. */
+    const { istStartOfDay, istStartOfDaysAgo } = require('../../shared/utils/istTime');
+    const startOfToday = istStartOfDay();
 
     /* Seven days back from midnight today, not "every completed payout ever",
        which is what the old filter actually summed while being labelled
        "this week". */
-    const startOfWeek = new Date(startOfToday);
-    startOfWeek.setDate(startOfWeek.getDate() - 6);
+    const startOfWeek = istStartOfDaysAgo(6);
 
     const completed = payouts.filter((p) => p.status === 'completed' && p.payoutDate);
 
@@ -454,7 +488,12 @@ const getSummary = async (req, res, next) => {
       : [];
     const { PartnerShareType } = require('./partnerDomains.model');
     const hasActiveShareType = key ? Boolean(await PartnerShareType.exists({ partnerPhoneDigits: key, isAvailable: true })) : false;
-    const isAvailable = Boolean(partner.acceptingBookings || hasActiveShareType);
+    const hasShareTypes = key ? Boolean(await PartnerShareType.exists({ partnerPhoneDigits: key })) : false;
+    /* What students actually see. With room types on file, that is whether
+       any is open — the flag alone said "available" over a portfolio where
+       every room was paused. Only an owner with no room types yet falls back
+       to the flag, since there is nothing else to read. */
+    const isAvailable = hasShareTypes ? hasActiveShareType : Boolean(partner.acceptingBookings);
 
     return res.json({
       success: true,
@@ -465,6 +504,10 @@ const getSummary = async (req, res, next) => {
            needs to say so — inventing one sends them looking for a listing
            that was never theirs. */
         propertyName: owned[0]?.name ?? null,
+        /* The same property's city, read the way the listings read it. The
+           header printed "Rajahmundry, AP" for every owner because this was
+           never sent. Null when unknown — never a stand-in. */
+        city: owned[0] ? (cityOf(owned[0].place) || null) : null,
         requests: {
           total: requests.length,
           awaitingYou: counted('pending_owner'),

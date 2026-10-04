@@ -327,13 +327,17 @@ const normalizeDetail = (raw: unknown): FoodOrderDetail => {
 
     money: {
       itemsTotal: num(money.itemsTotal),
-      /* Zero on everything placed since it was dropped, a real figure on the
-         orders that were charged one. GST and the platform fee replaced it. */
       packagingCharge: num(money.packagingCharge),
+      packagingGst: num(money.packagingGst),
       gst: num(money.gst),
       gstRate: num(money.gstRate),
       platformFee: num(money.platformFee),
+      serviceFee: num(money.serviceFee),
+      serviceFeeGst: num(money.serviceFeeGst),
       deliveryFee: num(money.deliveryFee),
+      deliveryGst: num(money.deliveryGst),
+      smallOrderFee: num(money.smallOrderFee),
+      distanceKm: maybeNum(money.distanceKm),
       discount: num(money.discount),
       grandTotal: num(money.grandTotal),
       partnerPayout: num(money.partnerPayout),
@@ -341,6 +345,8 @@ const normalizeDetail = (raw: unknown): FoodOrderDetail => {
       commissionAmount: maybeNum(money.commissionAmount),
       riderEarnings: num(money.riderEarnings),
       lamposeNet: maybeNum(money.lamposeNet),
+      lamposeGrossRevenue: maybeNum(money.lamposeGrossRevenue),
+      gstCollected: maybeNum(money.gstCollected),
     },
 
     payment: {
@@ -614,6 +620,29 @@ export const foodOrderService = {
       `${BASE}/${encodeURIComponent(orderNumber)}/delivered`,
       note ? { note } : {},
     );
+    const data = obj(obj(res.data).data);
+    if (!res.success || !str(data.orderNumber)) return { ...res, data: null };
+    return { ...res, data: normalizeDetail(data) };
+  },
+
+  /**
+   * Cancel an order nobody else can — the diner cannot once cooking starts and
+   * the kitchen cannot reject. Frees any rider, closes open offers, and flags an
+   * online payment as owed back (the refund itself is still Refund).
+   */
+  async cancel(orderNumber: string, reason?: string): Promise<ApiResponse<FoodOrderDetail | null>> {
+    const res = await api.post<unknown>(
+      `${BASE}/${encodeURIComponent(orderNumber)}/cancel`,
+      reason ? { reason } : {},
+    );
+    const data = obj(obj(res.data).data);
+    if (!res.success || !str(data.orderNumber)) return { ...res, data: null };
+    return { ...res, data: normalizeDetail(data) };
+  },
+
+  /** Search for a rider again, with a fresh retry budget. */
+  async redispatch(orderNumber: string): Promise<ApiResponse<FoodOrderDetail | null>> {
+    const res = await api.post<unknown>(`${BASE}/${encodeURIComponent(orderNumber)}/redispatch`, {});
     const data = obj(obj(res.data).data);
     if (!res.success || !str(data.orderNumber)) return { ...res, data: null };
     return { ...res, data: normalizeDetail(data) };

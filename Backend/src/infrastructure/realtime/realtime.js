@@ -148,11 +148,18 @@ const SUPPORT_ROOM = 'support';
  * about in detail — an unauthenticated socket is simply disconnected, and the
  * app reconnects with a fresh token when its session refreshes.
  */
-/* Which collection holds a token type's session version. Only the two
-   stay-side identities carry one today; the other two pass through. */
+/* Which collection holds a token type's session version. All four app
+   identities carry one now: the rider and the kitchen gained `sessionVersion`
+   (a password reset, a sign-out or an erasure bumps it), but the socket kept
+   accepting their old tokens — a reset kitchen's stolen token still heard
+   every order arrive. A rider's suspension is NOT refused here (no `blocked`
+   status on either model): the HTTP guards do that, and the suspended screen
+   still needs its support thread live. */
 const SESSION_MODEL = {
   customer: () => [require('../../modules/customers/customer.model'), 'customerId'],
   partner: () => [require('../../modules/partners/partner.model'), 'partnerId'],
+  driver: () => [require('../../modules/drivers/driver.model'), 'driverId'],
+  foodpartner: () => [require('../../modules/foodpartners/foodRestaurant.model'), 'restaurantId'],
 };
 
 const sessionStillValid = async (claims) => {
@@ -180,7 +187,7 @@ const identify = async (token) => {
 
   const kind = KIND_OF_TYPE[claims.typ];
   if (kind && claims.sub) {
-    /* The two stay-side identities carry a session version (see
+    /* Every app identity carries a session version (see
        iam/session.controller.js). One indexed read at the handshake — not per
        event — so that "sign out everywhere" also closes the live line. */
     if (!(await sessionStillValid(claims))) return null;
@@ -487,16 +494,20 @@ const toOrder = (orderNumber, event, data) => emit(rooms.order(orderNumber), eve
  *
  * The order room only holds sockets that asked to watch it. A diner who has
  * closed the tracking screen is still in `customer:<id>` and still needs to
- * know their rider arrived, so both are sent — socket.io de-duplicates a
- * socket that is in more than one of the rooms, so nobody gets it twice.
+ * know their rider arrived, so every room is addressed — in ONE emit.
+ * socket.io de-duplicates a socket across the rooms of a single
+ * `io.to([...])` call, but not across separate emits: this used to send one
+ * per room, so a diner on the tracking screen (in both `order:` and
+ * `customer:`) got every event twice.
  */
 const toOrderParties = (order, event, data) => {
   if (!order) return;
-  toOrder(order.orderNumber, event, data);
-  if (order.customerId) toCustomer(order.customerId, event, data);
-  if (order.restaurantId) toRestaurant(order.restaurantId, event, data);
+  const targets = [rooms.order(order.orderNumber)];
+  if (order.customerId) targets.push(rooms.customer(order.customerId));
+  if (order.restaurantId) targets.push(rooms.restaurant(order.restaurantId));
   const driverId = order.delivery && order.delivery.driverId;
-  if (driverId) toDriver(driverId, event, data);
+  if (driverId) targets.push(rooms.driver(driverId));
+  emit(targets, event, data);
 };
 
 module.exports = {

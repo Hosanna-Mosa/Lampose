@@ -11,6 +11,7 @@ import {
   TextField,
 } from "@/components/common";
 import { Btn, ChoiceChip, Icon, Text } from "@/components/common";
+import { INDIAN_STATES } from "@/constants/partner";
 import { usePartnerStore } from "@/store/partnerStore";
 import { colors, radius, space, touch } from "@/theme";
 
@@ -37,16 +38,25 @@ export function LocationRow() {
         lng: pos.coords.longitude.toFixed(6),
       };
 
-      /* Fill what the device knows so the partner corrects rather than types.
-         A reverse geocode that fails is not a failure of the step. */
+      /* Fill what the device knows — but only the boxes still EMPTY. It used
+         to overwrite what the partner had typed (the repo's rule everywhere
+         else is fill-empty-only), and a geocoder's street name replaced the
+         shop name they had just entered. The region is mapped onto the state
+         list, or left for them to pick, since the dropdown only accepts those. */
       try {
         const [place] = await Location.reverseGeocodeAsync(pos.coords);
         if (place) {
-          if (place.name || place.street) next.addressLine1 = [place.name, place.street].filter(Boolean).join(", ");
-          if (place.district) next.addressLine2 = place.district;
-          if (place.city || place.subregion) next.city = place.city || place.subregion || "";
-          if (place.region) next.state = place.region;
-          if (place.postalCode) next.pincode = place.postalCode.replace(/\D/g, "").slice(0, 6);
+          const empty = (v: string | undefined) => !String(v ?? "").trim();
+          if (empty(data.addressLine1) && (place.name || place.street)) {
+            next.addressLine1 = [place.name, place.street].filter(Boolean).join(", ");
+          }
+          if (empty(data.addressLine2) && place.district) next.addressLine2 = place.district;
+          if (empty(data.city) && (place.city || place.subregion)) next.city = place.city || place.subregion || "";
+          if (empty(data.state) && place.region) {
+            const match = INDIAN_STATES.find((st) => st.toLowerCase() === String(place.region).trim().toLowerCase());
+            if (match) next.state = match;
+          }
+          if (empty(data.pincode) && place.postalCode) next.pincode = place.postalCode.replace(/\D/g, "").slice(0, 6);
         }
       } catch {
         /* Coordinates alone are still a usable result. */

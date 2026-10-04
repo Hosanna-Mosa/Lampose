@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 
 import { SplashSequence } from '@/components/auth';
 import { useAuth } from '@/context/AuthContext';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * Screen 01 — Splash.
@@ -12,7 +13,7 @@ import { useAuth } from '@/context/AuthContext';
  * check fails we do not block: the app opens as a guest and the offline banner
  * explains itself. Browsing does not require auth, and it never will.
  */
-export default function SplashScreen() {
+function SplashScreen() {
   const router = useRouter();
   const { status } = useAuth();
   const [checked, setChecked] = useState(false);
@@ -32,3 +33,6 @@ export default function SplashScreen() {
     </>
   );
 }
+
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(SplashScreen);

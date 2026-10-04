@@ -6,14 +6,10 @@
    grey alone is about a 1.6:1 difference and reads as "nothing is selected" in
    daylight, which is the condition a kitchen actually uses this in.
    ══════════════════════════════════════════════════════════════════════════ */
-import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { Tabs } from "expo-router";
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Icon, Text, type IconName } from "@/components/common";
-import { colors, layout, radius, space, touch } from "@/theme";
+import { colors } from "@/theme";
 import { TabBar } from "@/components/dash/organisms/TabBar";
 import { TABS } from "@/components/dash/utils/shared";
 
@@ -30,6 +26,3 @@ export default function DashLayout() {
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-});

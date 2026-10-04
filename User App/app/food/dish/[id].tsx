@@ -5,7 +5,8 @@ import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StandardHeader } from '@/components/shell';
-import { FoodEmptyState, FoodMenuSkeleton } from '@/components/food';
+import { CartSwitchSheet, FoodEmptyState, FoodMenuSkeleton } from '@/components/food';
+import { useFood } from '@/context/FoodContext';
 import { DishCommitBar, DishDetailContent, useDishChoices } from '@/components/food/DishDetail';
 import { useTheme } from '@/context/ThemeContext';
 import type { Dish, Kitchen } from '@/types/food';
@@ -94,6 +95,9 @@ function DishPage({
   const actionInset = useBottomEdgeInset();
   const router = useRouter();
   const choices = useDishChoices(dish, kitchen, open);
+  /* The "start a new cart?" prompt, here too — it was only mounted on Home,
+     so adding a dish from a second kitchen on this screen did nothing at all. */
+  const { pendingAdd, confirmSwitch, cancelSwitch, cartKitchen, lines, itemTotal } = useFood();
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -122,6 +126,18 @@ function DishPage({
       >
         <DishCommitBar dish={dish} choices={choices} onCommitted={() => router.back()} />
       </View>
+
+      <CartSwitchSheet
+        pending={pendingAdd}
+        currentKitchenName={cartKitchen?.name}
+        lineCount={lines.length}
+        lineTotal={itemTotal}
+        onConfirm={() => {
+          confirmSwitch();
+          router.back();
+        }}
+        onCancel={cancelSwitch}
+      />
     </View>
   );
 }

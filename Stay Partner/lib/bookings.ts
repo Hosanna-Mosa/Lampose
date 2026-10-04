@@ -115,6 +115,9 @@ export type Booking = {
   movedInByOwnerAt?: Date;
   movedInByStudentAt?: Date;
   checkOutBy?: string;
+  /** The listing this stay is at — for anything filed about it. */
+  propertyId?: string;
+  propertyName?: string;
 };
 
 export const BOOKINGS: Booking[] = [
@@ -243,10 +246,6 @@ export const PAST: Booking[] = [
 
 const ALL = [...BOOKINGS, ...PAST];
 
-export const UPCOMING = BOOKINGS;
-export const HISTORY = PAST;
-/** Current and past together — for anywhere a ticket or dispute needs to link any stay. */
-export const ALL_BOOKINGS = ALL;
 
 /**
  * Whether the guest's money moved through Lampose on this booking.
@@ -411,6 +410,11 @@ export function toBooking(raw: any, fallbackId?: string): Booking {
     requiresCode: Boolean(raw?.hasEntryPin),
     movedInByOwnerAt: raw?.movedInByOwnerAt ? new Date(raw.movedInByOwnerAt) : undefined,
     movedInByStudentAt: raw?.movedInByStudentAt ? new Date(raw.movedInByStudentAt) : undefined,
-    checkOutBy: '11:00 AM',
+    /* Not set: no listing records a checkout time, and "11:00 AM" was
+       printed on every real stay as if the owner had chosen it. The active
+       stay screen shows the date alone when this is absent. */
+    checkOutBy: undefined,
+    propertyId: raw?.propertyId ? String(raw.propertyId) : undefined,
+    propertyName: raw?.propertyName || undefined,
   };
 }

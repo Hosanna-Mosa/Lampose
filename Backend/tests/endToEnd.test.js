@@ -287,7 +287,8 @@ describe('end to end · both apps closed', () => {
     assert.equal(swept.expired, 1);
     await settleFor('request.expired');
 
-    assert.deepEqual(kindsIn(), ['request.expired']);
+    /* The student, then the owner who missed it — both are told now. */
+    assert.deepEqual(kindsIn(), ['request.expired', 'request.expired']);
     assert.deepEqual(outbox[0].tokens, ['ExponentPushToken[priya]']);
 
     /* And when the student finally opens the app. */

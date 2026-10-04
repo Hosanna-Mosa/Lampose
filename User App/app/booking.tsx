@@ -37,6 +37,7 @@ import {
   visitRequested,
 } from '@/data/bookings';
 import type { RefundStageId } from '@/types/booking';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * Batch 4 — booking preview.
@@ -108,7 +109,7 @@ function Panel({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function BookingPreview() {
+function BookingPreview() {
   const { colors, space, layout, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -343,3 +344,6 @@ export default function BookingPreview() {
 const styles = StyleSheet.create({
   wrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
 });
+
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(BookingPreview);

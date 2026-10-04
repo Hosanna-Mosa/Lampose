@@ -1,6 +1,6 @@
 import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { Btn, Chip, Icon, Notice, Seg, Text, TopBar } from "@/components/ui";
 import { ORDERS_TABS } from "@/constants/lampose";
 import { restaurantLabel, useDriverStore, type OrderStatus } from "@/store/driverStore";
@@ -74,6 +74,17 @@ export default function OrdersScreen() {
     fetchHistory().catch(() => {});
   }, [fetchHistory]);
 
+  /* Pull to refresh — the list was read once on mount and only then, so an
+     order cancelled or finished elsewhere stayed as it was until a restart. */
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = () => {
+    setRefreshing(true);
+    setLoadMoreError("");
+    fetchHistory()
+      .catch(() => {})
+      .finally(() => setRefreshing(false));
+  };
+
   const loadMore = () => {
     setLoadMoreError("");
     fetchHistory({ more: true }).catch((err) => {
@@ -116,7 +127,11 @@ export default function OrdersScreen() {
         <Seg options={ORDERS_TABS} value={ordersTab} onChange={setOrdersTab} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.brand} colors={[colors.brand]} />}
+      >
         {/* The first load, before anything has answered either way — a blank
             screen here reads identically to "you have never delivered
             anything", which is the wrong message for a rider mid-fetch. */}

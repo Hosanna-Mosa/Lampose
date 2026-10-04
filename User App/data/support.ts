@@ -41,7 +41,9 @@ import type { ReportReason, TicketCategory } from '@/types/support';
  * worse than no promise at all.
  */
 export const SUPPORT_HOURS_NOTE =
-  'Most tickets get a first reply within 4 hours, 9 am to 9 pm.';
+  /* No "within 4 hours": nothing measures it, and an unkept number is worse
+     than none. When we answer, the reply arrives here. */
+  'We reply here in the app, 9 am to 9 pm, and you will get a notification when we do.';
 
 /**
  * The six categories, by the ids the server validates against.
@@ -101,7 +103,7 @@ export const REPORT_EMERGENCY_NOTE =
   'If you are in immediate danger, call 100 first. This is not an emergency line.';
 
 export const REPORT_WEIGHT_NOTE =
-  'A report goes to our safety team, not to the owner. She is not told you filed it until we have looked into it. We may suspend the listing while we investigate.';
+  'A report goes to our safety team, not to the owner. They are not told you filed it until we have looked into it. We may suspend the listing while we investigate.';
 
 export const REPORT_DETAIL_HINT =
   'Dates, amounts and exact words matter here — this may be used in a dispute.';

@@ -86,7 +86,11 @@ export function RestaurantListCard({
      the kitchen has neither, which `metaLine` then drops rather than printing
      "0 mins". */
   const minutes = kitchen.prepMinutes + kitchen.deliveryMinutes;
-  const timeLabel = minutes > 0 ? `${minutes} mins` : null;
+  /* "Ready in" while travel time is unknown: a bare "25 mins" read as the
+     delivery time, and it is only the kitchen's cooking time. */
+  const timeLabel = minutes > 0
+    ? (kitchen.deliveryMinutes > 0 ? `${minutes} mins` : `Ready in ${minutes} mins`)
+    : null;
 
   return (
     <Animated.View

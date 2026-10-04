@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet } from 'react-native';
 import { BareInput, Box, Refresher, Scroller, Tappable } from '@/components/common';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
+import { ApiError } from '@/services/api/client';
 import { Screen, Text, IconButton, Icon, Badge, Divider, EmptyState } from '@/components/common';
 import { useSupportActions, useSupportTicket } from '@/services/hooks/useSupport';
 import type { SupportMessage, SupportTicketStatus } from '@/services/api/support.api';
@@ -39,7 +40,10 @@ export function TicketThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const reference = id ?? '';
 
-  const { data: thread, isLoading, isError, isRefetching, refetch } = useSupportTicket(reference);
+  const { data: thread, isLoading, isError, error, isRefetching, refetch } = useSupportTicket(reference);
+  /* A reply that did not send is SAID. The text was quietly put back in the
+     box, which looked exactly like a send that had not happened yet. */
+  const [sendError, setSendError] = useState<string | null>(null);
   const { reply, markRead } = useSupportActions();
   const queryClient = useQueryClient();
 
@@ -79,6 +83,22 @@ export function TicketThreadScreen() {
     );
   }
 
+  /* Only a 404 is "not found". A dropped connection said the same thing, and
+     an owner was told their ticket did not exist. */
+  if (isError && !(error instanceof ApiError && error.status === 404)) {
+    return (
+      <Screen scroll={false} padX={20} background="bg">
+        <EmptyState
+          icon="alert-circle"
+          title="We could not load this ticket"
+          body={error instanceof ApiError ? error.displayMessage : 'Check your connection and try again.'}
+          actionLabel="Try again"
+          onAction={() => { void refetch(); }}
+        />
+      </Screen>
+    );
+  }
+
   if (isError || !thread) {
     return (
       <Screen scroll={false} padX={20} background="bg">
@@ -102,11 +122,13 @@ export function TicketThreadScreen() {
     const body = draft.trim();
     if (!body) return;
     setDraft('');
+    setSendError(null);
     try {
       await reply.mutateAsync({ reference, body });
       requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
-    } catch {
+    } catch (err) {
       setDraft(body);
+      setSendError(err instanceof ApiError ? err.displayMessage : 'Your message did not send. Try again.');
     }
   };
 
@@ -117,6 +139,11 @@ export function TicketThreadScreen() {
       contentStyle={styles.fill}
       footer={
         <Box style={styles.composer}>
+          {sendError ? (
+            <Text variant="caption" color="error">
+              {sendError}
+            </Text>
+          ) : null}
           <Box style={[styles.inputPill, { borderColor: c.border }]}>
             <BareInput
               value={draft}

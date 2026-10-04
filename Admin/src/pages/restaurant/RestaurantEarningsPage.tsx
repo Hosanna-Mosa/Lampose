@@ -167,18 +167,24 @@ export const RestaurantEarningsPage: React.FC = () => {
   const downloadCsv = () => {
     if (!data?.ledger.length) return;
     const head = [
-      'Order', 'Date', 'Items', 'Delivery fee', 'Packaging', 'GST', 'Platform fee',
+      'Order', 'Date', 'Items', 'GST', 'Delivery fee', 'Delivery GST', 'Service fee', 'Service fee GST',
+      'Packaging', 'Packaging GST', 'Small order fee', 'Platform fee (legacy)',
       'Diner paid', 'Commission', 'You earned', 'Rate %', 'Paid by', 'Fulfilment',
     ];
     const lines = data.ledger.map((row) => [
       row.orderNumber,
       formatDate(row.placedAt),
       row.itemsTotal,
-      row.deliveryFee,
-      row.packagingCharge,
-      /* Listed so a row adds up to what the diner paid. Neither reaches the
-         payout, which is worked out from the item total alone. */
+      /* Listed so a row adds up to what the diner paid. Of these only the
+         packaging fee reaches the kitchen's payout. */
       row.gst ?? 0,
+      row.deliveryFee,
+      row.deliveryGst ?? 0,
+      row.serviceFee ?? 0,
+      row.serviceFeeGst ?? 0,
+      row.packagingCharge,
+      row.packagingGst ?? 0,
+      row.smallOrderFee ?? 0,
       row.platformFee ?? 0,
       row.grandTotal,
       row.commission,

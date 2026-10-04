@@ -57,7 +57,40 @@ const say = (...args) => { if (!config.isTest) console.log(...args); };
  * account turns "did the push work" into a question nobody can answer from
  * the numbers.
  */
+/* Student news the request-derived inbox cannot show — see
+   `customers/customerNotification.model.js`. Request kinds (`request.*`) are
+   left out: those rows are already derived from the request itself. */
+const STUDENT_INBOX_KINDS = new Set([
+  'booking.cancelled', 'booking.checkedIn', 'booking.checkedOut',
+  'refund.paid', 'coupon.earned', 'visit.paid', 'visit.scheduled',
+]);
+
+const studentInboxRow = async (customerId, message) => {
+  const data = message.data || {};
+  if (!customerId || !STUDENT_INBOX_KINDS.has(data.kind)) return;
+  try {
+    // eslint-disable-next-line global-require
+    const CustomerNotification = require('../customers/customerNotification.model');
+    await CustomerNotification.create({
+      customerId: String(customerId),
+      kind: data.kind,
+      title: message.title,
+      body: message.body || '',
+      requestId: data.requestId ? String(data.requestId) : null,
+      bookingId: data.bookingId ? String(data.bookingId) : null,
+      listingId: data.listingId ? String(data.listingId) : null,
+    });
+  } catch (error) {
+    console.error('[notify] student inbox row failed:', error.message);
+  }
+};
+
 const pushTo = async (Model, accountQuery, message) => {
+  /* Written first, device or not — the inbox is where news waits for a
+     student whose phone never showed the banner. */
+  if (Model === Customer() && accountQuery && accountQuery.customerId) {
+    await studentInboxRow(accountQuery.customerId, message);
+  }
   try {
     const account = await Model.findOne(accountQuery).select('devices').lean();
     const tokens = (account && account.devices ? account.devices : []).map((d) => d.token);
@@ -198,7 +231,7 @@ const notifyOwnerOfNewRequest = async (request) => {
      never off a push their own foregrounded app would not have shown them. */
   emitLive('partner', await partnerIdFor(key), 'stay_request_new', payloadFor(request, 'request.created'));
 
-  return pushTo(Partner(), { phoneDigits: key }, {
+  const result = await pushTo(Partner(), { phoneDigits: key }, {
     title: 'New stay request',
     /* The room type and the deadline are in the body because an owner
        deciding from the lock screen should not have to open the app to know
@@ -206,6 +239,30 @@ const notifyOwnerOfNewRequest = async (request) => {
     body: `${who}${room} — ${minutes} minutes to answer`,
     data: payloadFor(request, 'request.created'),
   });
+
+  /*
+   * An owner with no handset registered — never opened the app, refused
+   * notifications, reinstalled — was reached by nothing, and every request
+   * to them expired unseen. WhatsApp then: the approved template when
+   * `TWILIO_STAY_REQUEST_OWNER_SID` is configured (it can open a cold
+   * conversation), plain text otherwise (only lands inside a live session).
+   * Not awaited by the student's request, and never thrown into it.
+   */
+  if (result && result.reason === 'NO_DEVICES' && request.ownerMobile) {
+    // eslint-disable-next-line global-require
+    const { sendContentOrText } = require('../../infrastructure/twilio/twilio');
+    sendContentOrText({
+      to: request.ownerMobile,
+      contentSid: process.env.TWILIO_STAY_REQUEST_OWNER_SID || '',
+      variables: { 1: who, 2: `${request.propertyName}${room}`, 3: String(minutes) },
+      fallbackBody: `New stay request on Lampose: ${who} asked about ${request.propertyName}${room}. `
+        + `You have ${minutes} minutes — open the Lampose Partner app to accept or decline.`,
+    })
+      .then((sent) => say(`[notify] no app device for owner ${key} — WhatsApp ${sent && sent.success ? 'sent' : 'failed'}`))
+      .catch(() => {});
+    return { ...result, whatsapp: true };
+  }
+  return result;
 };
 
 /** The owner said yes. */
@@ -257,7 +314,10 @@ const notifyStudentDeclined = async (request) => {
     title: taken ? 'That room was just taken' : 'Your request was declined',
     body: taken
       ? `The last bed at ${request.propertyName} went while you were waiting. Nothing was charged.`
-      : `${request.propertyName} cannot take you right now. You can try another property.`,
+      : request.declineNote
+        /* The owner's note, in their words — it was written for the guest. */
+        ? `${request.propertyName}: "${String(request.declineNote).slice(0, 140)}"`
+        : `${request.propertyName} cannot take you right now. You can try another property.`,
     data: payloadFor(request, taken ? 'request.inventoryTaken' : 'request.declined'),
   });
 };
@@ -446,6 +506,41 @@ const notifyStudentExpired = async (request) => {
   });
 };
 
+/**
+ * The payment window closed with nothing paid.
+ *
+ * Both sides: the student's request has ended and they may ask again, and the
+ * owner's bed is free again — they were holding it for somebody who is not
+ * coming, and a room they think is taken is a room they do not offer.
+ */
+const notifyPaymentLapsed = async (request) => {
+  say(`[notify] payment lapsed → ${request.customerId} + owner (${request.propertyName})`);
+  emitLive('customer', request.customerId, 'stay_request_updated', payloadFor(request, 'request.expired'));
+  const student = pushTo(Customer(), { customerId: request.customerId }, {
+    title: 'Your booking was released',
+    body: `The time to pay for ${request.propertyName} ran out, so the room was let go. Nothing was charged — you can ask again.`,
+    data: payloadFor(request, 'request.expired'),
+  });
+
+  const key = ownerKeyOf(request);
+  let owner = Promise.resolve({ sent: 0 });
+  if (key) {
+    const who = (request.customer && request.customer.name) || 'The student';
+    await ownerInboxRow(key, {
+      title: 'Booking released',
+      message: `${who} did not pay for ${request.propertyName} in time. The bed is free again.`,
+      category: 'booking',
+      requestId: String(request._id),
+    });
+    owner = pushTo(Partner(), { phoneDigits: key }, {
+      title: 'Booking released',
+      body: `${who} did not pay in time. The bed is free again.`,
+      data: payloadFor(request, 'request.expired'),
+    });
+  }
+  return Promise.all([student, owner]);
+};
+
 /** The student pulled it back. The owner must stop expecting them. */
 const notifyOwnerOfWithdrawal = async (request) => {
   const key = ownerKeyOf(request);
@@ -515,9 +610,34 @@ const notifyOwnerOfBookingCancelledByStudent = async (booking) => {
  * batch half-arrives. The worker is on a five-second tick with nothing
  * waiting on it, so there is no reason to hurry.
  */
+/**
+ * The owner missed one. Nothing told them — the request just vanished from
+ * their list — so an owner who was on a bike never learnt the window is
+ * minutes long, and kept missing them.
+ */
+const notifyOwnerOfExpiry = async (request) => {
+  const key = ownerKeyOf(request);
+  if (!key) return { sent: 0 };
+  const who = (request.customer && request.customer.name) || 'A student';
+  const minutes = config.booking.expiryMinutes;
+  await ownerInboxRow(key, {
+    title: 'Request expired',
+    message: `${who}'s request for ${request.propertyName} was not answered within ${minutes} minutes, `
+      + 'so it closed. Keep notifications on to catch the next one in time.',
+    requestId: String(request._id),
+  });
+  emitLive('partner', await partnerIdFor(key), 'stay_request_updated', payloadFor(request, 'request.expired'));
+  return pushTo(Partner(), { phoneDigits: key }, {
+    title: 'You missed a stay request',
+    body: `${who} · ${request.propertyName} — requests close after ${minutes} minutes.`,
+    data: payloadFor(request, 'request.expired'),
+  });
+};
+
 const notifyExpired = async (requests) => {
   for (const request of requests) {
     await notifyStudentExpired(request);
+    await notifyOwnerOfExpiry(request).catch(() => {});
   }
 };
 
@@ -537,6 +657,44 @@ const notifyVisitPaid = async (request) => {
     body: `${request.propertyName} — now pick a date and time. Further visit details will come on WhatsApp.`,
     data: payloadFor(request, 'visit.paid'),
   });
+};
+
+/**
+ * A hotel stay was paid for: the booking is done, and BOTH sides hear it.
+ *
+ * `notifyVisitPaid` used to be sent for this too, which told a guest who had
+ * just paid for a room to "pick a date and time" for a visit — and the slot
+ * picker then refused them, because a stay has no visit. The owner was never
+ * told at all, so a paid guest could turn up unannounced.
+ */
+const notifyStayPaid = async (request) => {
+  say(`[notify] stay paid → ${request.customerId} + owner (${request.propertyName})`);
+
+  const student = pushTo(Customer(), { customerId: request.customerId }, {
+    title: 'Booking confirmed',
+    body: `${request.propertyName} — payment received. Your address and entry PIN are in the app.`,
+    data: payloadFor(request, 'visit.paid'),
+  });
+
+  const key = ownerKeyOf(request);
+  let owner = Promise.resolve({ sent: 0 });
+  if (key) {
+    const who = (request.customer && request.customer.name) || 'Your guest';
+    const room = request.sharing && request.sharing.label ? ` · ${request.sharing.label}` : '';
+    await ownerInboxRow(key, {
+      title: 'Guest paid',
+      message: `${who} paid for ${request.propertyName}${room}. Check them in with their entry PIN when they arrive.`,
+      category: 'booking',
+      requestId: String(request._id),
+    });
+    owner = pushTo(Partner(), { phoneDigits: key }, {
+      title: 'Guest paid',
+      body: `${who} paid for ${request.propertyName}${room}.`,
+      data: payloadFor(request, 'request.paid'),
+    });
+  }
+
+  return Promise.all([student, owner]);
 };
 
 /**
@@ -588,6 +746,7 @@ const notifyVisitSlotReminder = async (request) => {
 
 module.exports = {
   notifyVisitPaid,
+  notifyStayPaid,
   notifyVisitScheduled,
   notifyVisitSlotReminder,
   notifyOwnerOfNewRequest,
@@ -599,7 +758,9 @@ module.exports = {
   notifyStudentEarnedStayCoupon,
   notifyStudentCheckedOut,
   notifyStudentExpired,
+  notifyPaymentLapsed,
   notifyOwnerOfWithdrawal,
   notifyOwnerOfBookingCancelledByStudent,
   notifyExpired,
+  notifyOwnerOfExpiry,
 };

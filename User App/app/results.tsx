@@ -27,6 +27,7 @@ import {
   type SearchQuery,
 } from '@/types/filters';
 import { formatRupees } from '@/utils/money';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * The results list — where "See all" lands.
@@ -41,7 +42,7 @@ import { formatRupees } from '@/utils/money';
  * guessing which control emptied the list. Gender is never among them — it is
  * a hard rule, not a knob.
  */
-export default function Results() {
+function Results() {
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -311,3 +312,6 @@ const styles = StyleSheet.create({
   control: { flexDirection: 'row', alignItems: 'center', minHeight: 40 },
   suggestion: { flexDirection: 'row', alignItems: 'center' },
 });
+
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(Results);

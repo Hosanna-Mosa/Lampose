@@ -325,9 +325,17 @@ const createVisitRequest = async (req, res, next) => {
 
     /* The review owner's sample listing is never requestable — nobody should
        be put through to that number, and no student can see it anyway. */
-    if (!property || property.status === 'review') {
+    /* The same rule as an in-app request (`stayRequest.service.js`): live
+       means `active` (or no status on an older listing). Only `review` was
+       refused here, so a removed or paused listing still WhatsApp'd its
+       owner about a visit to a place no longer on offer. */
+    if (!property || (property.status && property.status !== 'active')) {
       return res.status(404).json({ success: false, code: 'NO_LISTING', message: 'That listing is no longer available.' });
     }
+
+    /* A paused or full room type is refused too — but AFTER the code, by
+       the availability check further down, so the lead is captured first
+       (see `webSession.test.js`, "a full room is refused AFTER the code"). */
 
     const ownerMobile = toE164(property.ownerMobile);
     if (!ownerMobile) {
@@ -863,6 +871,17 @@ const resendVisitOtp = async (req, res, next) => {
 
 /* ── GET /:id — what the waiting page polls ───────────────────────────────── */
 
+/**
+ * An APP request is its customer's alone. A website request has no account
+ * to check against and keeps the id-as-link behaviour its own page relies on;
+ * an app request has `customerId`, so the caller must be signed in as them.
+ * Answered as "not found" either way, so the id cannot be probed.
+ */
+const appRowOwnedBy = (doc, req) => {
+  if (doc.channel !== 'app') return true;
+  return Boolean(req.customer && doc.customerId && req.customer.customerId === doc.customerId);
+};
+
 const getVisitRequest = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
@@ -873,7 +892,7 @@ const getVisitRequest = async (req, res, next) => {
     }
 
     const doc = await VisitRequest.findById(id);
-    if (!doc) {
+    if (!doc || !appRowOwnedBy(doc, req)) {
       return res.status(404).json({ success: false, code: 'NOT_FOUND', message: 'That request no longer exists.' });
     }
 
@@ -1007,8 +1026,23 @@ const handleAvailabilityReply = async ({ from, body, buttonPayload }) => {
          short, or they will keep missing them. The duration is read from the
          same constant that sets the deadline, so the sentence cannot drift
          out of step with the actual window. */
+      /* Tell the customer, where they agreed to WhatsApp — the owner was told
+         "we have let the customer know" and nothing was sent. Their request
+         page shows the expiry either way, so a failed send costs a courtesy. */
+      if (doc.consentWhatsApp && doc.customer && doc.customer.phone) {
+        // eslint-disable-next-line global-require
+        const { sendContentOrText } = require('../../infrastructure/twilio/twilio');
+        sendContentOrText({
+          to: doc.customer.phone,
+          contentSid: '',
+          variables: {},
+          fallbackBody: `Hello ${doc.customer.name || ''}, the owner of ${what} did not answer in time, `
+            + 'so your visit request has expired. Nothing was charged — you can ask again, or look at '
+            + 'similar rooms on lampose.com.',
+        }).catch(() => {});
+      }
       return `This visit request for ${what} has expired — it was not answered within `
-        + `${OWNER_REPLY_WINDOW_MINUTES} minutes, so we have let the customer know.\n\n`
+        + `${OWNER_REPLY_WINDOW_MINUTES} minutes. The customer has been shown that it expired.\n\n`
         + 'Please watch out for the next request and reply as soon as it arrives: '
         + `requests stay open for only ${OWNER_REPLY_WINDOW_MINUTES} minutes.`;
     }
@@ -1201,6 +1235,7 @@ module.exports = {
   verifyVisitRequest,
   resendVisitOtp,
   getVisitRequest,
+  appRowOwnedBy,
   handleAvailabilityReply,
   isAvailabilityCommand,
 };

@@ -5,4 +5,8 @@
  * its default export, because with file-based routing the path IS the route --
  * moving or renaming it deletes the screen behind a green build (M5).
  */
-export { RuleEditorStubScreen as default } from '@/components/inventory-rule/RuleEditorStubScreen';
+import { RuleEditorStubScreen } from '@/components/inventory-rule/RuleEditorStubScreen';
+import { devOnly } from '@/components/dev-only/devOnly';
+
+/* Developer builds only — see `devOnly`. */
+export default devOnly(RuleEditorStubScreen);

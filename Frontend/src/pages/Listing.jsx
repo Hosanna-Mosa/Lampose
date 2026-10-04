@@ -422,10 +422,12 @@ export function Listing() {
     if (intent.stayType === 'short') {
       const amount = rates.short?.dailyPrice;
       if (!amount) return null;
+      /* A PG or hostel lets a bed by the DAY; only a hotel is nightly. */
+      const unit = nightly ? 'night' : 'day';
       return {
         amount,
-        unitLabel: '/night',
-        durationLabel: intent.duration ? plural(intent.duration, 'night') : null,
+        unitLabel: `/${unit}`,
+        durationLabel: intent.duration ? plural(intent.duration, unit) : null,
         prorated: null,
       };
     }

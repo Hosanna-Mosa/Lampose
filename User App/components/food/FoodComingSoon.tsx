@@ -48,8 +48,8 @@ export function FoodComingSoon({ onExplore }: { onExplore: () => void }) {
           Food is coming soon
         </Text>
         <Text variant="body" color="secondary" style={[styles.center, styles.measure]}>
-          Tiffin plans, mess menus and one-off meals near your stay — priced monthly, the
-          way your rent is. We are cooking; it is not ready to serve.
+          Meals from kitchens near your stay, ordered when you want them and delivered to
+          your door. We are cooking; it is not ready to serve.
         </Text>
         <Text variant="caption" color="tertiary" style={[styles.center, styles.measure]}>
           It will appear right here, behind this button, the day it opens.

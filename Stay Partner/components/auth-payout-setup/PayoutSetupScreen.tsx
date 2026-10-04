@@ -89,7 +89,7 @@ export function PayoutSetupScreen() {
          on; this handles somebody landing here directly. */
       if (!next.required) router.replace('/');
     } catch {
-      setError('We could not check your payout details. Pull to try again.');
+      setError('We could not check your payout details. Tap Try again.');
     } finally {
       setLoading(false);
     }
@@ -264,6 +264,15 @@ export function PayoutSetupScreen() {
 
         {!!error && (
           <Text variant="caption" color="errorInk" style={styles.error}>{error}</Text>
+        )}
+        {/* The message said "pull to try again" on a screen that has no
+            pull-to-refresh. A button that does it instead. */}
+        {!!error && !state && (
+          <Button
+            label="Try again"
+            variant="secondary"
+            onPress={() => { setError(''); setLoading(true); void load(); }}
+          />
         )}
 
         {/* DEVELOPMENT ONLY — see `devSkip`. Both gates: a preview build, and

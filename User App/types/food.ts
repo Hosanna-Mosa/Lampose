@@ -99,6 +99,9 @@ export type Kitchen = {
    */
   landmark: string;
   walkMinutes: number;
+  /** How this kitchen takes money. Absent on an older server = both. */
+  acceptsCod?: boolean;
+  acceptsOnline?: boolean;
   rating: number;
   ratingCount: number;
   deliveryFee: number;
@@ -163,6 +166,34 @@ export type Dish = {
  * forced for as long as it had no `rejected` — told a student they had called
  * off a dinner the restaurant had turned down.
  */
+/**
+ * The live card's headline, one rule for Home and the Orders tab. The Orders
+ * card said "The kitchen is cooking" with the rider already on the way, and
+ * Home said "Arriving at <address>" at `placed`, before a kitchen had even
+ * seen it.
+ */
+export function liveOrderHeadline(
+  status: FoodOrderStatus,
+  fulfilment: 'delivery' | 'pickup' | string,
+  addressTitle?: string | null,
+): string {
+  const pickup = fulfilment === 'pickup';
+  switch (status) {
+    case 'placed':
+    case 'pending':
+      return 'Sent to the kitchen';
+    case 'confirmed':
+    case 'preparing':
+      return 'The kitchen is cooking';
+    case 'ready':
+      return pickup ? 'Waiting at the counter' : 'Leaving the kitchen';
+    case 'onTheWay':
+      return addressTitle ? `On the way to ${addressTitle}` : 'On the way';
+    default:
+      return 'Your order';
+  }
+}
+
 export type FoodOrderStatus =
   | 'placed'
   | 'confirmed'
@@ -199,6 +230,10 @@ export type FoodOrder = {
   id: string;
   kitchenId: string;
   kitchenName: string;
+  /** Where THIS order is going, as placed — not the cart's current address. */
+  deliveryAddress?: string;
+  /** The server's `placedAt`, kept for paging older orders. */
+  placedIso?: string;
   status: FoodOrderStatus;
   fulfilment: Fulfilment;
   lines: readonly OrderLine[];
@@ -217,16 +252,18 @@ export type FoodOrder = {
   /**
    * GST on the food, and the rate it was charged at.
    *
-   * `food_orders.gst` / `.gstRate`. Real, unlike the `taxes` field below that
-   * this product once printed without charging: the server computes it in
-   * `foodCharges.util.js`, stores what each order was billed, and the receipt
-   * reads that rather than recomputing a percentage. Zero on an order placed
-   * before the change, which is exactly what it was charged.
+   * `food_orders.gst` / `.gstRate`, as the server's `foodPricing.js` billed
+   * them; the receipt reads these rather than recomputing a percentage. Zero
+   * on an order placed before GST, which is exactly what it was charged.
    */
   gst?: number;
   gstRate?: number;
-  /** The flat platform fee. Charged on pickup as well as delivery. */
-  platformFee?: number;
+  /** The rest of the bill, as stored: each fee and its 18% GST. */
+  packagingGst?: number;
+  serviceFee?: number;
+  serviceFeeGst?: number;
+  deliveryGst?: number;
+  smallOrderFee?: number;
   /**
    * Nothing on a real order sets this, and nothing should.
    *
@@ -286,14 +323,17 @@ export type FoodOrder = {
   pickupLocation?: [number, number] | null;
   /** [longitude, latitude] of the door. Absent without location access. */
   dropLocation?: [number, number] | null;
-  /** Set on cancelled orders; drives the refund block. */
+  /**
+   * A refund that has actually been SENT — from the server's
+   * `razorpay.refundId`, which is only set once the money has left. Absent
+   * while a refund is merely owed (`paymentLabel` says "Refund on the way").
+   */
   refund?: {
     amount: number;
-    destination: string;
-    expectedBy: string;
+    /** The gateway's refund id, for the diner to quote to their bank. */
     reference: string;
-    status: 'initiated' | 'sentToBank' | 'credited';
-    reason: string;
+    /** ISO time it was sent, when known. */
+    sentAt?: string;
   };
   /**
    * The order's history, one row per step.

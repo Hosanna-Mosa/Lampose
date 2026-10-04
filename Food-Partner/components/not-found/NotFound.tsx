@@ -1,9 +1,10 @@
 /* ══════════════════════════════════════════════════════════════════════════
    The catch-all — and the app's route directory.
 
-   It lists every screen with a link to it. That is deliberate rather than
-   decorative: it means no screen in this app can become impossible to reach,
-   whatever a guard or a bad link does. It is a development aid and it says so.
+   In a developer build it lists every screen with a link to it, so no screen
+   can become impossible to reach whatever a guard or a bad link does. In a
+   release build it does NOT: that list handed every kitchen a directory of the
+   app's internals, dashboard routes included, from any mistyped link.
    ══════════════════════════════════════════════════════════════════════════ */
 import { router } from "expo-router";
 import React from "react";
@@ -35,11 +36,14 @@ export function NotFound() {
 
       <Scroller contentContainerStyle={styles.body}>
         <Text variant="body" color="secondary">
-          That route does not exist. Every screen in the app is listed below.
+          {__DEV__
+            ? "That route does not exist. Every screen in the app is listed below."
+            : "That page does not exist."}
         </Text>
 
         <Btn label="Back to the start" onPress={() => router.replace("/")} />
 
+        {__DEV__ && (
         <Card style={{ gap: space[1] }}>
           <Text variant="eyebrow" color="tertiary">
             All screens
@@ -62,6 +66,7 @@ export function NotFound() {
             </Tappable>
           ))}
         </Card>
+        )}
       </Scroller>
     </Box>
   );

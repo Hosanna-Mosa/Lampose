@@ -394,6 +394,12 @@ const cancelBooking = async (req, res, next) => {
     const shareTypeId = shareTypeIdForBooking(booking);
     if (shareTypeId) await releaseBed(shareTypeId).catch(() => {});
 
+    /* And the request behind it closes, so "Pay and book" stops being
+       offered for a booking that no longer exists. */
+    await require('../visits/stayRequest.service')
+      .closeRequestForCancelledBooking(booking._id)
+      .catch((error) => console.error('[booking] cancelled but the request stayed open:', error.message));
+
     /*
      * The money comes back too — in full, whoever cancelled.
      *

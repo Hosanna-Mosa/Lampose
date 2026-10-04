@@ -192,8 +192,8 @@ export function CancelBookingScreen() {
         <Icon name="alert-circle" size={16} color={c.warningOnTint} strokeWidth={2} />
         <Text style={[styles.warningText, { color: c.warningInk }]}>
           {imminent
-            ? 'Check-in is within 48 hours. Cancelling now refunds the guest in full and may lower your response rating.'
-            : 'Owner cancellations within 48h of check-in may lower your response rating and refund the guest in full.'}
+            ? 'Check-in is within 48 hours. Cancelling now refunds anything the guest paid through Lampose, and they may have already planned their move.'
+            : 'Cancelling refunds anything the guest paid through Lampose, and the guest is told straight away.'}
         </Text>
       </Box>
 

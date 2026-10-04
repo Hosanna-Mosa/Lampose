@@ -170,24 +170,11 @@ export function StepOperations() {
         </Field>
       </Block>
 
+      {/* No minimum order or packaging charge any more: the server stopped
+          enforcing or billing either (see `foodCharges.util.js` and
+          `placeOrder`), so asking for them — and printing them as terms in
+          the contract — promised the kitchen money it would never collect. */}
       <Block glyph="rupee" title="Order charges">
-        <Field label="Minimum order value" optional>
-          <NumberField
-            value={data.minOrderValue}
-            onChangeText={(v) => set("minOrderValue", v)}
-            placeholder="0"
-            prefix="₹"
-          />
-        </Field>
-
-        <Field label="Packaging charge" optional>
-          <NumberField
-            value={data.packagingCharge}
-            onChangeText={(v) => set("packagingCharge", v)}
-            placeholder="0"
-            prefix="₹"
-          />
-        </Field>
 
         <Field label="How delivery is charged" required>
           <Seg
@@ -206,6 +193,19 @@ export function StepOperations() {
               value={data.deliveryFeeAmount}
               onChangeText={(v) => set("deliveryFeeAmount", v)}
               placeholder="30"
+              prefix="₹"
+            />
+          </Field>
+        )}
+        {data.deliveryFeeType === "distance_based" && (
+          /* The base is what a delivery costs before distance — and what is
+             charged when the diner's location is not known. Without it the
+             fee came to ₹0 on every order. */
+          <Field label="Base delivery fee" required>
+            <NumberField
+              value={data.deliveryFeeAmount}
+              onChangeText={(v) => set("deliveryFeeAmount", v)}
+              placeholder="20"
               prefix="₹"
             />
           </Field>

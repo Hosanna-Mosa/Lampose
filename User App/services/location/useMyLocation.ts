@@ -88,19 +88,29 @@ export async function locateMe(): Promise<LocatedAddress> {
     );
   }
 
+  /* Bounded: a fix request with no timeout could sit on "Locating…" for as
+     long as the GPS kept trying, with no way out but leaving the screen. */
+  const withinSeconds = <T,>(seconds: number, work: Promise<T>): Promise<T> =>
+    Promise.race([
+      work,
+      new Promise<T>((_, reject) => { setTimeout(() => reject(new Error('timeout')), seconds * 1000); }),
+    ]);
+
   let fix: Location.LocationObject;
   try {
     // Prefer High accuracy to get the true pin and neighborhood rather than a distant cell tower
-    fix = await Location.getCurrentPositionAsync({
+    fix = await withinSeconds(12, Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.High,
-    });
+    }));
   } catch {
     try {
-      fix = await Location.getCurrentPositionAsync({
+      fix = await withinSeconds(10, Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
-      });
+      }));
     } catch {
-      const lastKnown = await Location.getLastKnownPositionAsync();
+      /* A RECENT last-known fix only — an old one is wherever the phone was
+         last used, possibly another city, saved as this address's pin. */
+      const lastKnown = await Location.getLastKnownPositionAsync({ maxAge: 5 * 60 * 1000 });
       if (lastKnown) {
         fix = lastKnown;
       } else {

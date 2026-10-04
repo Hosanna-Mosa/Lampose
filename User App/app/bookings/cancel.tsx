@@ -1,7 +1,9 @@
+import { useQueryClient } from '@tanstack/react-query';
+import { useStayRequest } from '@/services';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Icon, Text, TextField } from '@/components/ui';
@@ -10,6 +12,7 @@ import { cancellationReasons } from '@/data/bookings';
 import { useTheme } from '@/context/ThemeContext';
 import { ApiError, useBooking } from '@/services';
 import { cancelBooking } from '@/services/api/bookings.api';
+import { queryKeys } from '@/services/hooks/keys';
 import { formatRupees } from '@/utils/money';
 
 /**
@@ -39,6 +42,7 @@ export default function CancelBooking() {
   const { colors, space, layout, mode, radius, touch } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { booking } = useBooking(id);
 
@@ -52,7 +56,12 @@ export default function CancelBooking() {
   const [touched, setTouched] = useState(false);
 
   const refundable = Boolean(booking?.refundable);
-  const paid = booking?.totalAmount ?? 0;
+  /* What was actually CHARGED — the payment on the request, after any
+     coupon — not the gross total. "You paid ₹4,000" on a ₹3,500 charge
+     promised a refund that would never arrive. */
+  const request = useStayRequest(booking?.propertyId ?? null, { requestId: booking?.requestId ?? null }).request;
+  const charged = request?.payment?.status === 'paid' ? (request.payment.amountPaise ?? 0) / 100 : null;
+  const paid = charged ?? booking?.totalAmount ?? 0;
 
   const bankErrors = useMemo(() => {
     const cleanAccount = accountNumber.replace(/\s/g, '');
@@ -65,7 +74,9 @@ export default function CancelBooking() {
   }, [accountName, accountNumber, ifsc]);
 
   const bankValid = !bankErrors.accountName && !bankErrors.accountNumber && !bankErrors.ifsc;
-  const canSubmit = Boolean(id) && !submitting && (!refundable || bankValid);
+  /* Not until the booking has loaded — before then `refundable` reads false,
+     and a quick tap sent a refundable cancellation with no bank details. */
+  const canSubmit = Boolean(id) && Boolean(booking) && !submitting && (!refundable || bankValid);
 
   const submit = async () => {
     if (!id) return;
@@ -76,7 +87,7 @@ export default function CancelBooking() {
     setError(null);
     try {
       const reasonLabel = cancellationReasons.find((r) => r.id === reasonId)?.label;
-      await cancelBooking(id, {
+      const updated = await cancelBooking(id, {
         reason: reasonLabel,
         bank: refundable
           ? {
@@ -86,6 +97,12 @@ export default function CancelBooking() {
           }
           : undefined,
       });
+      /* The answer IS the cancelled booking — written straight into the
+         cache, so the next screen reads the refund it opened rather than a
+         30-second-old copy that said "nothing was paid" to a paying guest. */
+      queryClient.setQueryData(queryKeys.booking(id), updated);
+      queryClient.invalidateQueries({ queryKey: queryKeys.bookings });
+      queryClient.invalidateQueries({ queryKey: ['stay-requests'] });
       router.replace({ pathname: '/bookings/cancelled', params: { id } });
     } catch (err) {
       if (err instanceof ApiError && err.code === 'NOT_CANCELLABLE') {
@@ -216,7 +233,20 @@ export default function CancelBooking() {
             fullWidth
             loading={submitting}
             disabled={!canSubmit}
-            onPress={submit}
+            /* Asked once — it cannot be undone, and the button sat right under
+               the reasons a student was still reading. */
+            onPress={() =>
+              Alert.alert(
+                'Cancel this booking?',
+                refundable
+                  ? `This cannot be undone. Your refund of ${formatRupees(paid)} goes to the account you entered.`
+                  : 'This cannot be undone.',
+                [
+                  { text: 'Keep it', style: 'cancel' },
+                  { text: 'Cancel booking', style: 'destructive', onPress: () => { void submit(); } },
+                ],
+              )
+            }
           />
           <View style={{ marginTop: space[2] }}>
             <Button label="Keep my booking" variant="ghost" fullWidth onPress={() => router.back()} />

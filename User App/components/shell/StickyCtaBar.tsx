@@ -46,6 +46,9 @@ export type StickyCtaBarProps = {
    * at 6.
    */
   multiplier?: string;
+  /** The period `rent` is quoted for, when it is not a month — the chosen
+      short-stay rate. Without it the bar printed "/month" after a day rate. */
+  ratePeriod?: 'day' | 'night';
   /** Measured, never assumed — the bar is 76pt with one button and 180 with three. */
   onMeasure?: (height: number) => void;
 };
@@ -76,6 +79,7 @@ export function StickyCtaBar({
   total = false,
   secondaryLine,
   multiplier,
+  ratePeriod,
   onMeasure,
 }: StickyCtaBarProps) {
   const { colors, space, layout, elevation, radius } = useTheme();
@@ -200,6 +204,8 @@ export function StickyCtaBar({
                 size="bar"
                 total={total}
                 secondaryLine={secondaryLine}
+                perDay={ratePeriod === 'day'}
+                perNight={ratePeriod === 'night'}
               />
               {multiplier ? <Text variant="numMeta">{multiplier}</Text> : null}
             </View>
@@ -253,6 +259,7 @@ export function StickyCtaBar({
                 depositMonths={depositMonths}
                 total={total}
                 secondaryLine={secondaryLine}
+                ratePeriod={ratePeriod}
               />
               {/* The count, kept out of the figure. It never shrinks — a
                   truncated "× 3 mont…" is worse than a tight rate beside it. */}
@@ -302,12 +309,14 @@ function PriceSlot({
   depositMonths,
   total = false,
   secondaryLine,
+  ratePeriod,
 }: {
   rent: number;
   deposit?: number;
   depositMonths?: number;
   total?: boolean;
   secondaryLine?: string;
+  ratePeriod?: 'day' | 'night';
 }) {
   const reduceMotion = useReduceMotion();
   const [shown, setShown] = useState(rent);
@@ -338,6 +347,8 @@ function PriceSlot({
         size="bar"
         total={total}
         secondaryLine={secondaryLine}
+        perDay={ratePeriod === 'day'}
+        perNight={ratePeriod === 'night'}
       />
     </Animated.View>
   );

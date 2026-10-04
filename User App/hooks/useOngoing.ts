@@ -92,7 +92,10 @@ export function useOngoing(): Ongoing {
     let blocking: OngoingItem | null = null;
 
     for (const request of query.data?.requests ?? []) {
-      const owed = Boolean(request.payment?.required) && request.payment?.status !== 'paid';
+      /* A voided or lapsed payment is not owed — offering "Payment pending"
+         for it sent a student to pay for a booking that no longer exists. */
+      const owed = Boolean(request.payment?.required)
+        && request.payment?.status !== 'paid' && request.payment?.status !== 'expired';
 
       if (request.status === 'pending_owner') {
         const item: OngoingItem = {

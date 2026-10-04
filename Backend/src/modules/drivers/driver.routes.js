@@ -65,7 +65,7 @@ const { requireAuthConfig, requireLamposeDb } = require('../../shared/middleware
 const {
   startAuth, resendAuth, verifyAuth, passwordLogin,
   getMe, getMyStanding, updateMe, submitDocument, getMyDocuments,
-  setDuty, updateLocation, getEarnings,
+  setDuty, updateLocation, getEarnings, logout,
 } = require('./driver.controller');
 const {
   uploadDriverImages, driverImageUpload, DRIVER_UPLOAD_LIMITS,
@@ -198,6 +198,8 @@ router.delete('/me/devices', session, unregisterDriverDevice);
 const working = [...session, requireApprovedDriver];
 
 router.post('/me/duty', working, setDuty);
+/* `standing`, not `working`: a suspended rider must still be able to sign out. */
+router.post('/auth/logout', standing, logout);
 
 /* AFTER the session, so the limiter can key on the rider — see the header.
    240 per 15 minutes is one every 3.75 seconds sustained: four times what the

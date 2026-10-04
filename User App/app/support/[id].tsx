@@ -23,7 +23,6 @@ import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
 import { Button, InlineAlert, Text, TextField } from '@/components/ui';
 import { StandardHeader, StateTemplate } from '@/components/shell';
 import { TicketMessageRow } from '@/components/lifecycle';
-import { errorStates } from '@/constants/copy';
 import { useTheme } from '@/context/ThemeContext';
 import { useTicket } from '@/services';
 
@@ -92,6 +91,7 @@ export default function TicketThread() {
 
   const {
     ticket,
+    detail,
     messages,
     canReply,
     isPending,
@@ -121,7 +121,10 @@ export default function TicketThread() {
    * ------------------------------------------------------------------ */
 
   /** What this device has already answered for this thread, or null. */
-  const [verdict, setVerdict] = useState<'sorted' | 'continue' | null>(null);
+  const [localVerdict, setVerdict] = useState<'sorted' | 'continue' | null>(null);
+  /* The SERVER's record wins: a confirmation made on another phone counts
+     here too. The local value only covers "continue", which is not sent. */
+  const verdict = detail?.requesterConfirmedAt ? 'sorted' : localVerdict;
   /** Null until the stored answer has been read — the prompt must not flash. */
   const [verdictLoaded, setVerdictLoaded] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -168,7 +171,7 @@ export default function TicketThread() {
   const confirmSorted = async () => {
     setConfirming(true);
     try {
-      await sendReply('Thanks — this is sorted from my side. You can close it.');
+      await sendReply({ body: 'Thanks — this is sorted from my side. You can close it.', confirmsResolved: true });
       remember('sorted');
     } catch {
       /* `sendError` renders it. The prompt stays up so it can be retried. */
@@ -217,7 +220,18 @@ export default function TicketThread() {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
-        <StateTemplate copy={errorStates.notFound()} onPrimary={() => router.replace('/support')} />
+        {/* Its own words and a way back. It borrowed the listing 404 —
+            "Search by name", "Back to Explore" — on a support thread, with no
+            header to leave by. */}
+        <StandardHeader title="Support" onBack={() => router.back()} />
+        <StateTemplate
+          copy={{
+            headline: 'This conversation is not here',
+            body: 'It may belong to another account, or the link is from an old message. Your own tickets are all in Support.',
+            primaryAction: 'Open my tickets',
+          }}
+          onPrimary={() => router.replace('/support')}
+        />
       </View>
     );
   }

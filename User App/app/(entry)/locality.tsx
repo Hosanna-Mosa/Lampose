@@ -45,8 +45,8 @@ import { ALL_LOCALITIES, matchesQuery, nearbyLocality, type Locality } from '@/t
  * It used to be `meta.guess` — the area with the most listings — captioned
  * "most likely" and never touching the device, then `findMyLocality`: one
  * foreground fix, reverse-geocoded by the platform, matched by NAME against
- * the areas the catalogue holds (still in `resolveLocality.ts`, now unused
- * here). A name match was the only option while nothing but free-text
+ * the areas the catalogue holds (`resolveLocality.ts`, since deleted). A
+ * name match was the only option while nothing but free-text
  * `place` existed to search against, and it had a real failure mode: a
  * student two streets outside a named area's drawn boundary was told
  * nothing covered them.
@@ -271,14 +271,29 @@ function LocalityPicker() {
           <Text variant="bodyLg" color="secondary">
             {error
               ? error.displayMessage
-              : 'There is nothing in the catalogue at the moment. Please check back shortly.'}
+              : 'Nothing of this kind is listed in any area yet. See every location, or look for a different kind of place.'}
           </Text>
-          <Button
-            label={isFetching ? 'Trying…' : 'Try again'}
-            onPress={() => refetch()}
-            disabled={isFetching}
-            fullWidth
-          />
+          {error ? (
+            <Button
+              label={isFetching ? 'Trying…' : 'Try again'}
+              onPress={() => refetch()}
+              disabled={isFetching}
+              fullWidth
+            />
+          ) : (
+            /* Nothing in THIS category — the catalogue is not empty. "Try
+               again" could never help, and "All locations" and "Use my
+               location" were hidden with it, so the screen had no way out. */
+            <>
+              <Button label="See all locations" onPress={() => choose(ALL_LOCALITIES)} fullWidth />
+              <Button
+                label="Pick a different kind of place"
+                variant="secondary"
+                onPress={() => router.push('/(entry)/categories')}
+                fullWidth
+              />
+            </>
+          )}
         </View>
       ) : (
         <>
@@ -287,7 +302,9 @@ function LocalityPicker() {
               value={query}
               onChangeText={setQuery}
               onClear={() => setQuery('')}
-              placeholder="Area, college or metro station"
+              /* Area names only — the search matches an area's name and its
+                 spellings; nothing maps a college or a metro station to one. */
+              placeholder="Search an area"
               autoCorrect={false}
               autoCapitalize="words"
             />
@@ -385,7 +402,9 @@ function LocalityPicker() {
             {results.length === 0 && nearest ? (
               <View style={{ gap: space[3], paddingTop: space[3] }}>
                 <Text variant="bodyLg" color="secondary">
-                  Nothing matches “{query}”. The closest area we cover is {nearest.name}.
+                  {/* "Busiest", not "closest": it is the area with the most
+                      places, and nothing here knows where "{query}" is. */}
+                  Nothing matches “{query}”. The area with the most places is {nearest.name}.
                 </Text>
                 <LocalityRow locality={nearest} onPress={() => choose(nearest)} />
               </View>

@@ -1,1 +1,1 @@
-export { BillLines } from './BillLines';
+export { BillLines, FeeRows } from './BillLines';

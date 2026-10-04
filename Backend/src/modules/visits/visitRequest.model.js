@@ -67,7 +67,14 @@ const CHANNELS = ['web', 'app'];
  * and telling them "the owner declined you" for it would be false. The app
  * says "this was taken while you were waiting" instead.
  */
-const DECISION_REASONS = ['OWNER_DECLINED', 'INVENTORY_TAKEN', 'NO_ANSWER', 'STUDENT_WITHDREW'];
+/* `BOOKING_CANCELLED` — the booking this request created was cancelled, by
+   either side, before it was paid for. `PAYMENT_LAPSED` — the owner accepted
+   and the payment window closed with nothing paid. Both used to leave the
+   request `confirmed` for good: still payable, and blocking the student. */
+const DECISION_REASONS = [
+  'OWNER_DECLINED', 'INVENTORY_TAKEN', 'NO_ANSWER', 'STUDENT_WITHDREW',
+  'BOOKING_CANCELLED', 'PAYMENT_LAPSED',
+];
 
 const visitRequestSchema = new mongoose.Schema(
   {
@@ -667,6 +674,9 @@ visitRequestSchema.methods.toPublic = function toPublic() {
        last bed went while you waited" — different sentences, different
        buttons, and only one of them worth taking personally. */
     decisionReason: this.decisionReason || null,
+    /* The owner's own words when they declined. The decline sheet asks for
+       "a note for the guest", and it was stored and shown to nobody. */
+    declineNote: this.status === 'declined' ? (this.declineNote || null) : null,
 
     cancelledAt: this.cancelledAt || null,
 

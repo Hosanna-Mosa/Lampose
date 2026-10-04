@@ -24,6 +24,7 @@ import {
   type Quote,
   type TenantDetails,
 } from '@/types/request';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * The request, in three steps.
@@ -36,7 +37,7 @@ import {
 
 const STEPS = ['Your quote', 'Your details', 'Check and send'] as const;
 
-export default function RequestFlow() {
+function RequestFlow() {
   const { colors, space, layout, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -204,7 +205,7 @@ export default function RequestFlow() {
             <View style={{ gap: space[3] }}>
               <Text variant="title3">What happens when you tap send</Text>
               {[
-                `The owner gets your request. She has ${OWNER_WINDOW_MINUTES} minutes to accept or decline.`,
+                `The owner gets your request. They have ${OWNER_WINDOW_MINUTES} minutes to accept or decline.`,
                 `If she accepts, payment opens. You then have ${PAYMENT_WINDOW_MINUTES / 60} hours to pay ${formatRupees(total)}.`,
               ].map((line, index) => (
                 <View key={line} style={[styles.step, { gap: space[3] }]}>
@@ -284,3 +285,6 @@ const styles = StyleSheet.create({
   step: { flexDirection: 'row', alignItems: 'center' },
   stepNumber: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
 });
+
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(RequestFlow);

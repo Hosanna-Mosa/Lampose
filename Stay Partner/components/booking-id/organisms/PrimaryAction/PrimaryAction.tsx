@@ -26,20 +26,20 @@ export function PrimaryAction({ booking }: { booking: Booking }) {
      * after move-in" to keep the type non-null, which put an invented date
      * on screen for a tenancy that is actually open-ended.
      *
-     * PG/Hostel and Co-living usually DO carry a real checkout date, so that
-     * particular problem does not apply here — this is withheld for the
-     * same reason none of these three has a payout figure, owner-messaging
-     * or cancel-via-app on this same screen: once confirmed, it is a direct
-     * arrangement between owner and guest, with nothing on Lampose's side
-     * for a progress screen to track or a button on it to do.
-     *
-     * Not left empty, either — a status with nothing offered reads as the
-     * screen having broken, on exactly the card an owner opens most often.
-     * Home is the honest destination: there is nowhere else on this booking
-     * for the tap to go.
+     * But the owner DOES need one thing here: to say the tenant has left.
+     * Check-out is what gives the bed back (`freeBookingBed`), and these
+     * three used to have no way to reach it — so their free-bed count only
+     * ever went down, and a property ended up shown as full to students
+     * while rooms stood empty. "Mark moved out" goes straight to the
+     * check-out sheet, skipping the progress screen and its invented date.
      */
     if (booking.category === 'BACHELOR' || booking.category === 'PG_HOSTEL' || booking.category === 'COLIVE') {
-      return <Button label="Go back to home" variant="secondary" onPress={() => router.replace('/')} />;
+      return (
+        <Button
+          label="Mark moved out"
+          onPress={() => router.push({ pathname: '/booking/checkout', params: { id: booking.id } })}
+        />
+      );
     }
 
     return (
@@ -71,7 +71,7 @@ export function PrimaryAction({ booking }: { booking: Booking }) {
   const arrivesToday = isSameDay(booking.checkIn, now);
   const arrived = arrivesToday || booking.checkIn < now;
 
-  if (arrived && (booking.status === 'confirmed' || booking.status === 'overdueArrival')) {
+  if (arrived && (booking.status === 'confirmed' || booking.status === 'arriving' || booking.status === 'overdueArrival')) {
     return (
       <Button
         label="Start check-in"

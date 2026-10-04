@@ -16,6 +16,7 @@ import {
 import { formatCountdown, secondsLeft, useStayRequests } from '@/services/hooks/useStayRequests';
 import { useOngoingBookings } from '@/services/hooks/useBookings';
 import { OngoingStrip, type OwnerOngoingItem } from '@/components/OngoingStrip';
+import { useAlert } from '@/components/common/organisms/AlertProvider';
 import { UnansweredRequestAlert } from '@/components/UnansweredRequestAlert';
 import { radius, shadow } from '@/constants/layout';
 import { type } from '@/constants/typography';
@@ -66,6 +67,7 @@ export function TodayTabScreen() {
   const [summaryData, setSummaryData] = useState<any>(null);
   const [unread, setUnread] = useState(0);
   const [available, setAvailableLocal] = useState(true);
+  const { alert } = useAlert();
 
   const [, setRevision] = useState(0);
 
@@ -334,6 +336,16 @@ export function TodayTabScreen() {
       setAvailable(false);
     } catch (err) {
       logWarn('Failed to update availability:', err);
+      /* Back as it was, and SAID. The switch used to stay "offline" while the
+         server still had every room open, so students kept sending requests
+         to an owner who believed they had stopped them. */
+      setAvailableLocal(true);
+      void alert({
+        title: 'Still taking requests',
+        message: 'We could not switch you offline. Check your connection and try again.',
+        tone: 'warning',
+        dismissLabel: 'OK',
+      });
     }
   };
 
@@ -366,8 +378,10 @@ export function TodayTabScreen() {
           </Box>
         ) : (
           <HeaderBar
-            propertyName={propertyName ?? 'Apex Luxury Girls Hostel & PG'}
-            locationLabel={summaryData?.city ? `${summaryData.city}, AP` : 'Rajahmundry, AP'}
+            /* The owner's own property and city, or an honest "none" —
+               never a sample hostel in Rajahmundry. */
+            propertyName={propertyName ?? 'No property yet'}
+            locationLabel={summaryData?.city ?? ''}
             unreadCount={unread}
             ownerName={ownerName}
             onPressProperty={() => router.push('/settings/property')}

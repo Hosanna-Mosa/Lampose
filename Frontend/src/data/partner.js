@@ -74,9 +74,9 @@ export const FAQS = [
   },
   {
     q: 'What does Lampose charge?',
-    a: 'Commission starts at 15% per delivered order and is negotiable at '
-     + 'volume. There is no listing fee and no joining fee — the full '
-     + 'commercial terms are shown to you before you sign.',
+    a: 'Lampose currently charges 0% commission on food orders. There is no '
+     + 'listing fee and no joining fee — the full commercial terms are shown '
+     + 'to you before you sign.',
   },
   {
     q: 'Can I run a mess subscription as well as single orders?',
@@ -124,8 +124,8 @@ export const MENU_TEMPLATE_FILE = '/menu_items_reference_template.xlsx';
 /* Shown on the contract step. Read from one place so the terms a partner
    signs and the terms we quote on the landing page cannot drift apart. */
 export const COMMERCIALS = [
-  { label: 'Delivery commission', value: '15% per order, negotiable for high-volume partners' },
-  { label: 'Platform fee', value: '₹3 per order, capped at ₹10 a month' },
+  { label: 'Commission', value: '0% — Lampose currently charges no commission on food orders' },
+  { label: 'Packaging fee', value: 'Set by you (up to ₹50), billed to the diner and paid to you in full' },
   { label: 'Payment cycle', value: 'Weekly settlements — every Monday, for the week before' },
   { label: 'Cancellation policy', value: 'Free up to 5 minutes. Later cancellations are charged 10% of order value.' },
   { label: 'Promotional contribution', value: 'Optional. Shared cost on discounts and free-delivery campaigns.' },

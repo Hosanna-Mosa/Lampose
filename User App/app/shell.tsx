@@ -24,6 +24,7 @@ import {
 import { emptyStates, errorStates, successCopy } from '@/constants/copy';
 import { useTheme } from '@/context/ThemeContext';
 import { actions } from '@/constants/actions';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * Batch 2 — shell preview.
@@ -41,7 +42,7 @@ const TABS: TabItem[] = [
 
 const VIEWS = ['Headers', 'CTA bar', 'States', 'Photo'] as const;
 
-export default function ShellPreview() {
+function ShellPreview() {
   const { mode, colors, space, layout } = useTheme();
   const router = useRouter();
   const heroHeight = usePhotoHeroHeight();
@@ -297,3 +298,5 @@ function Label({ text }: { text: string }) {
   );
 }
 
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(ShellPreview);

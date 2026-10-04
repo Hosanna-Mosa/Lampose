@@ -14,6 +14,7 @@ import { findListing } from '@/data/listings';
 import { formatRupees } from '@/utils/money';
 import { PAYMENT_WINDOW_MINUTES } from '@/types/request';
 import type { CostBreakdownData } from '@/types/booking';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * How to pay.
@@ -24,7 +25,7 @@ import type { CostBreakdownData } from '@/types/booking';
  * The CTA carries the amount, always. A "Continue" button on a ₹26,499 payment
  * is how people come to feel tricked.
  */
-export default function PaymentMethod() {
+function PaymentMethod() {
   const { colors, space, layout, mode, radius } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -191,3 +192,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   share: { borderWidth: StyleSheet.hairlineWidth },
 });
+
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(PaymentMethod);

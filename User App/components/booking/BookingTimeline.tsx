@@ -101,6 +101,10 @@ function progressFor(status: BookingStatus): {
 
 export type BookingTimelineProps = {
   status: BookingStatus;
+  /** Money actually moved on this booking. "Nothing was charged" is said only
+      when this is false — it was printed on every cancelled booking, paid
+      hotel stays included. */
+  charged?: boolean;
   steps?: readonly TimelineStep[];
   /**
    * Does this category take a payment through Lampose?
@@ -113,7 +117,7 @@ export type BookingTimelineProps = {
   showPaid?: boolean;
 };
 
-export function BookingTimeline({ status, steps = [], showPaid = false }: BookingTimelineProps) {
+export function BookingTimeline({ status, steps = [], showPaid = false, charged = false }: BookingTimelineProps) {
   const { colors, space } = useTheme();
   const reduceMotion = useReduceMotion();
   const order = showPaid ? PAID_ORDER : FREE_ORDER;
@@ -165,6 +169,8 @@ export function BookingTimeline({ status, steps = [], showPaid = false }: Bookin
       ? 'The request timed out before the owner answered. Nothing was charged.'
       : status === 'DISPUTED'
         ? 'Someone from LAMPOSE is looking at this. Your deposit is not released while it is open.'
+        : charged
+        ? 'Anything you paid is refunded to you. The beds you shortlisted are still there.'
         : 'Nothing was charged. The beds you shortlisted are still there.'
     : retry
       ? 'The payment did not go through, but your bed is still held. You can try again.'

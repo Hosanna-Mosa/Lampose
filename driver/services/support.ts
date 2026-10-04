@@ -87,7 +87,7 @@ type Envelope<T> = { success: boolean; data: T; unread?: number; message?: strin
 export const CATEGORY_LABEL: Record<string, { label: string; hint: string }> = {
   payout: {
     label: "A payout",
-    hint: "A weekly settlement that has not arrived, or arrived short.",
+    hint: "A payment that has not arrived, or arrived short.",
   },
   earnings: {
     label: "What a trip paid",
@@ -258,12 +258,12 @@ export function watchTicket(
 
   socketService.on("support_message", handler);
   socketService.on("support_ticket_updated", handler);
-  socketService.emit("track_ticket", { reference });
+  socketService.trackTicket(reference);
 
   return () => {
     socketService.off("support_message", handler);
     socketService.off("support_ticket_updated", handler);
-    socketService.emit("untrack_ticket", { reference });
+    socketService.untrackTicket(reference);
   };
 }
 

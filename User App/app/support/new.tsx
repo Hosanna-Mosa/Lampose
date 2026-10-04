@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -52,7 +52,12 @@ export default function NewTicket() {
   const router = useRouter();
   const { status, requireSignIn } = useAuth();
 
-  const [topic, setTopic] = useState<Topic | null>(null);
+  /* Opened from a food order's "Get help with this order": the order rides
+     along on the ticket, and the topic is the platform's (a kitchen is not an
+     owner on a thread). There was no way to say WHICH order before. */
+  const { orderNumber: orderParam } = useLocalSearchParams<{ orderNumber?: string }>();
+  const orderNumber = typeof orderParam === 'string' && orderParam.trim() ? orderParam.trim().toUpperCase() : null;
+  const [topic, setTopic] = useState<Topic | null>(orderNumber ? 'platform' : null);
   const [categoryId, setCategoryId] = useState<TicketCategoryId | null>(null);
   const [body, setBody] = useState('');
   /* Which place this is about, in the student's own words — the PLATFORM
@@ -132,7 +137,10 @@ export default function NewTicket() {
              An empty box sends nothing rather than an empty string, so the
              record says "not given" instead of "given as blank". */
           listingId: topic === 'property' ? listingId : null,
-          placeLabel: topic === 'property' ? listingLabel : (place.trim() || null),
+          placeLabel: topic === 'property'
+            ? listingLabel
+            : (place.trim() || (orderNumber ? `Food order ${orderNumber}` : null)),
+          orderNumber,
         });
         router.replace(`/support/${created.reference}` as never);
       } catch {

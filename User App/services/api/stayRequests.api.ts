@@ -86,11 +86,17 @@ export type CreateStayRequestInput = {
   signal?: AbortSignal;
 };
 
+/**
+ * Why a ₹100 coupon asked for was NOT applied, when it was not — sent beside
+ * the request, not inside it, because the request itself succeeded.
+ */
+export type CouponRefusal = 'NOT_FOUND' | 'ALREADY_USED' | 'ALREADY_HELD' | 'EXPIRED' | 'DB_DISCONNECTED' | string;
+
 export async function createStayRequest({
   signal,
   ...input
-}: CreateStayRequestInput): Promise<BackendStayRequest> {
-  const envelope = await api.post<ApiEnvelope<BackendStayRequest>>(
+}: CreateStayRequestInput): Promise<BackendStayRequest & { couponRefusal?: CouponRefusal | null }> {
+  const envelope = await api.post<ApiEnvelope<BackendStayRequest> & { couponRefusal?: CouponRefusal | null }>(
     endpoints.stayRequests,
     {
       listingId: input.listingId,
@@ -101,7 +107,9 @@ export async function createStayRequest({
     },
     { signal },
   );
-  return unwrap(envelope);
+  /* `unwrap` returns `data` only, which dropped `couponRefusal`: a student
+     whose coupon was refused paid full price with no word as to why. */
+  return { ...unwrap(envelope), couponRefusal: envelope.couponRefusal ?? null };
 }
 
 /**
@@ -157,26 +165,6 @@ export async function withdrawStayRequest(
   return unwrap(envelope);
 }
 
-/**
- * The student's half of moving in.
- *
- * Refused with `OWNER_HAS_NOT_CONFIRMED` until the owner has marked them in
- * from the Stay Partner app. That order is deliberate: the owner checks the
- * PIN and opens the door, so a student who could confirm beforehand would be
- * recording an arrival nobody let happen.
- *
- * Idempotent — a second tap keeps the first timestamp.
- */
-export async function confirmMovedIn(
-  id: string,
-  signal?: AbortSignal,
-): Promise<{ bookingId: string; movedIn: boolean }> {
-  const envelope = await apiRequest<ApiEnvelope<{ bookingId: string; movedIn: boolean }>>(
-    endpoints.stayRequestMovedIn(id),
-    { method: 'POST', signal },
-  );
-  return unwrap(envelope);
-}
 
 /* ══════════════════════════════════════════════════════════════════════════
    The ₹199 assisted visit — bachelor and co-live only.

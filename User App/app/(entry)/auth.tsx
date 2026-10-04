@@ -10,7 +10,7 @@ import {
   Text,
   TextInput,
   useWindowDimensions,
-  View,
+  View, Linking
 } from 'react-native';
 import Animated, {
   interpolate,
@@ -540,8 +540,8 @@ export default function AuthScreen() {
                 {/* Terms and Privacy Policy (Exact 2 lines) */}
                 <Text style={styles.termsText}>
                   By continuing, you agree to our{'\n'}
-                  <Text style={styles.termsLink}>Terms & Conditions</Text> and{' '}
-                  <Text style={styles.termsLink}>Privacy Policy</Text>
+                  <Text style={styles.termsLink} accessibilityRole="link" onPress={() => Linking.openURL('https://lampose.com/terms').catch(() => {})}>Terms & Conditions</Text> and{' '}
+                  <Text style={styles.termsLink} accessibilityRole="link" onPress={() => Linking.openURL('https://lampose.com/privacy').catch(() => {})}>Privacy Policy</Text>
                 </Text>
               </View>
             </Animated.View>
@@ -618,6 +618,9 @@ export default function AuthScreen() {
                   state={otpState}
                   errorMessage={codeError}
                   onComplete={submitOtp}
+                  /* Ready to type the moment the code is sent — the boxes
+                     needed a tap first, and the SMS autofill had nowhere to go. */
+                  autoFocus
                 />
                 )}
 
@@ -626,9 +629,11 @@ export default function AuthScreen() {
                     <InlineAlert
                       tone="warning"
                       title={usesPassword ? 'Sign-in locked' : 'Code locked'}
+                      /* The time it opens again — `lockedLabel` held it all along
+                         and was only ever used as a flag. */
                       body={usesPassword
-                        ? 'Too many wrong tries. Go back and enter the number again.'
-                        : 'Too many wrong tries. Ask for a new one below.'}
+                        ? `Too many wrong tries. You can try again after ${lockedLabel}, or go back and enter the number again.`
+                        : `Too many wrong tries. This code is locked until ${lockedLabel} — ask for a new one below.`}
                     />
                   </View>
                 ) : null}

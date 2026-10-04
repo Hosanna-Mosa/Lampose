@@ -111,7 +111,11 @@ export function ActiveStayScreen() {
   }
 
   const { currentDay, totalDays, ratio } = stayProgress(booking.checkIn, checkOut);
-  const departsToday = isSameDay(checkOut, new Date());
+  const now = new Date();
+  /* Today OR any day before. Only "today" used to count, so a guest who
+     overstayed even one night left the owner with "Checkout available Sep 3"
+     greyed out — on Sep 4 — and no way to free the room from here. */
+  const canCheckOut = isSameDay(checkOut, now) || checkOut < now;
 
   /* The footer button and the shortcut are the same act, so they are the same
      function. The shortcut previously called an `openCheckout` that was never
@@ -127,7 +131,7 @@ export function ActiveStayScreen() {
             refreshing={isRefetching}
             onRefresh={refetch}
             footer={
-              departsToday ? (
+              canCheckOut ? (
                 <Button
                   label="Confirm checkout"
                   onPress={openCheckout}

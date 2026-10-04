@@ -171,7 +171,8 @@ export function DishDetailContent({ dish, open, choices }: { dish: Dish; open: b
                 </View>
                 {option.price ? (
                   <Text variant="priceSm" color="secondary">
-                    +{formatRupees(option.price)}
+                    {/* A smaller portion costs LESS — said as such, not "+₹-40". */}
+                    {option.price > 0 ? '+' : '−'}{formatRupees(Math.abs(option.price))}
                   </Text>
                 ) : null}
               </View>
@@ -325,8 +326,10 @@ export function DishCommitBar({
         onPress={
           orderable
             ? () => {
-                commit();
-                onCommitted();
+                /* Only on a real add. A dish from another kitchen comes back
+                   'conflict' and waits on the switch prompt — leaving the
+                   screen then dropped it silently. */
+                if (commit() === 'added') onCommitted();
               }
             : undefined
         }

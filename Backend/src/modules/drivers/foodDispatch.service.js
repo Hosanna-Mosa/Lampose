@@ -119,6 +119,9 @@ const BADGE = '🛵 [dispatch]';
  */
 const MAX_SWEEPS = 3;
 
+/** Base wait before an `unassigned` order is searched again; doubles per attempt. */
+const UNASSIGNED_RETRY_MS = 2 * 60 * 1000;
+
 /**
  * What the rider is paid.
  *
@@ -439,8 +442,25 @@ async function startDispatch(orderNumber, { reason = 'accepted' } = {}) {
          stays on their screen for ever. The wording changes to name a person,
          because at this point a person is what it needs. */
       const why = `no rider could be found after ${MAX_SWEEPS} attempts — our team has been alerted`;
+      /* And OUT of `searching`. Only the reason was written, so an order that
+         reached the limit mid-search stayed `searching`: the diner's screen
+         kept its spinner under a sentence saying the search was over, and the
+         stalled-search backstop rebooked it every pass, for ever. `unassigned`
+         past the limit is what that backstop leaves alone — the order waits
+         for a person (Admin's Find a rider / Cancel). Open offers close. */
+      const now = new Date();
+      const closing = (order.dispatch.offers || []).filter((offer) => offer.outcome === 'offered');
+      for (const offer of closing) {
+        offer.outcome = 'timeout';
+        offer.respondedAt = now;
+      }
+      order.dispatch.state = 'unassigned';
       order.dispatch.failureReason = why;
       await order.save();
+      clearSession(number);
+      for (const offer of closing) {
+        realtime.toDriver(offer.driverId, 'delivery_offer_closed', { orderNumber: number, reason: 'timeout' });
+      }
 
       console.error(
         `${BADGE} ⚠ ${number} has used all ${MAX_SWEEPS} sweeps and still has no rider. `
@@ -493,6 +513,25 @@ async function startDispatch(orderNumber, { reason = 'accepted' } = {}) {
     if (!order.dispatch.startedAt) order.dispatch.startedAt = new Date();
     order.dispatch.failureReason = '';
     order.delivery.earnings = riderEarningsFor(order);
+
+    /*
+     * Nobody NEW — but somebody may still be holding an open offer.
+     *
+     * `alreadyAsked` excludes every rider ever offered this order, including
+     * those whose offer is still open. When the kitchen marked the food ready
+     * mid-search, that left no candidates, `failSweep` set the order to
+     * `unassigned`, and the riders still looking at a live card got
+     * OFFER_EXPIRED when they tapped it. An order with open offers is still
+     * being searched for, so it stays `searching` and keeps them.
+     */
+    const stillOpen = (order.dispatch.offers || []).filter((offer) => offer.outcome === 'offered').length;
+    if (!candidates.length && order.dispatch.state === 'searching' && stillOpen) {
+      await order.save();
+      console.log(
+        `${BADGE} ${number} no new riders (${reason}) — still waiting on ${stillOpen} open offer(s)`,
+      );
+      return { started: false, reason: 'waiting on open offers' };
+    }
 
     if (!candidates.length) {
       const duty = await dutyCount();
@@ -548,10 +587,23 @@ async function startDispatch(orderNumber, { reason = 'accepted' } = {}) {
  * than saying nothing at all.
  */
 async function failSweep(order, why) {
+  /* Any offer still open is over: the order is no longer `searching`, so
+     accepting it would be refused. Closed and SAID, so no rider is left
+     holding a card that can only fail — and their app polls for the next. */
+  const now = new Date();
+  const closing = (order.dispatch.offers || []).filter((offer) => offer.outcome === 'offered');
+  for (const offer of closing) {
+    offer.outcome = 'timeout';
+    offer.respondedAt = now;
+  }
   order.dispatch.state = 'unassigned';
   order.dispatch.failureReason = why;
   await order.save();
   clearSession(order.orderNumber);
+  for (const offer of closing) {
+    realtime.toDriver(offer.driverId, 'delivery_offer_closed', { orderNumber: order.orderNumber, reason: 'timeout' });
+    notifier.notifyDriverOfferClosed(offer.driverId, order.orderNumber, 'timeout').catch(() => {});
+  }
 
   console.warn(`${BADGE} ${order.orderNumber} unassigned — ${why}`);
 
@@ -887,6 +939,30 @@ async function currentOfferFor(driverId) {
  */
 async function sweepStalledDispatch() {
   if (mongoose.connection.readyState !== 1) return 0;
+
+  /*
+   * Orders that found nobody, tried again.
+   *
+   * `unassigned` used to be retried only by the kitchen marking the food
+   * ready, so an order that failed AFTER ready — or at ready — waited for
+   * ever: the diner could not cancel once cooking had started and the kitchen
+   * could not reject. Now each one is searched again on a backoff (two
+   * minutes after the first sweep, four after the second, ...) until
+   * `MAX_SWEEPS`, which hands it to a person — see `startDispatch` and the
+   * admin re-dispatch / cancel actions.
+   */
+  const waiting = await FoodOrder.find({
+    'dispatch.state': 'unassigned',
+    status: { $in: ['accepted', 'preparing', 'ready'] },
+    'dispatch.attempts': { $lt: MAX_SWEEPS },
+    'delivery.driverId': { $in: ['', null] },
+  }).select('orderNumber updatedAt dispatch.attempts').limit(50).lean();
+  for (const row of waiting) {
+    const backoffMs = UNASSIGNED_RETRY_MS * Math.max(1, row.dispatch.attempts || 1);
+    if (Date.now() - new Date(row.updatedAt).getTime() < backoffMs) continue;
+    // eslint-disable-next-line no-await-in-loop
+    await startDispatch(row.orderNumber, { reason: 'retry' });
+  }
 
   const stalled = await FoodOrder.find({ 'dispatch.state': 'searching' })
     .select('orderNumber promisedMinutes statusHistory').limit(50).lean();

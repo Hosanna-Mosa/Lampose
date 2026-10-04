@@ -809,6 +809,41 @@ const setDuty = async (req, res, next) => {
  * validators do not run on the sub-document, so the range check is done here
  * explicitly rather than left to the model.
  */
+// @route   POST /api/v2/drivers/auth/logout
+// @desc    Sign out on the server: off duty, this handset forgotten, and with
+//          `everywhere: true` every session ended
+// @access  Driver session (any standing — a suspended rider can still sign out)
+/*
+ * Signing out used to clear the phone only. The rider stayed `isOnline` on the
+ * server, so dispatch kept offering them jobs nobody would see; the handset
+ * kept getting their pushes; and the token stayed good for seven days. And it
+ * was allowed mid-delivery, leaving an order assigned to a rider who had gone.
+ */
+const logout = async (req, res, next) => {
+  try {
+    const { driver } = req;
+    if (driver.currentOrderNumber) {
+      return fail(
+        res, 409, 'ON_A_DELIVERY',
+        `You are still carrying ${driver.currentOrderNumber}. Finish it before signing out.`,
+      );
+    }
+    const { pushToken, everywhere } = req.body || {};
+    const update = { $set: { isOnline: false, isAvailable: false, onlineSince: null } };
+    if (everywhere === true) {
+      update.$inc = { sessionVersion: 1 };
+      update.$set.devices = [];
+    } else if (pushToken) {
+      update.$pull = { devices: { token: String(pushToken) } };
+    }
+    await Driver.updateOne({ _id: driver._id }, update);
+    console.log(`🛵 [auth] ${driver.driverId} signed out${everywhere === true ? ' everywhere' : ''}`);
+    return res.json({ success: true, data: { everywhere: everywhere === true } });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const updateLocation = async (req, res, next) => {
   try {
     const body = req.body || {};
@@ -881,11 +916,14 @@ const getEarnings = async (req, res, next) => {
     if (!isUp()) return dbDown(res);
 
     const { driverId } = req.driver;
+    /* India's day, week and month — not the server's. On a UTC server "today"
+       used to start at 05:30 IST, so a rider's evening shift was counted
+       against tomorrow. See `shared/utils/istTime.js`. */
+    const { istStartOfDay, istStartOfDaysAgo, istStartOfMonth, istDateKey } = require('../../shared/utils/istTime');
     const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const startOfWeek = new Date(startOfDay);
-    startOfWeek.setDate(startOfWeek.getDate() - 6);
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfDay = istStartOfDay(now);
+    const startOfWeek = istStartOfDaysAgo(6, now);
+    const startOfMonth = istStartOfMonth(now);
 
     const delivered = await FoodOrder.find({
       'delivery.driverId': driverId,
@@ -904,12 +942,12 @@ const getEarnings = async (req, res, next) => {
        that skips them silently redraws Monday as Tuesday. */
     const weekly = [];
     for (let back = 6; back >= 0; back -= 1) {
-      const day = new Date(startOfDay);
-      day.setDate(day.getDate() - back);
-      const nextDay = new Date(day);
-      nextDay.setDate(nextDay.getDate() + 1);
+      const day = istStartOfDaysAgo(back, now);
+      const nextDay = istStartOfDaysAgo(back - 1, now);
       weekly.push({
-        day: day.toISOString().slice(0, 10),
+        /* The Indian date, not the UTC one — IST midnight is the previous
+           day in UTC, which put every bar under yesterday's label. */
+        day: istDateKey(day),
         amount: delivered
           .filter((o) => o.delivery.deliveredAt >= day && o.delivery.deliveredAt < nextDay)
           .reduce((total, o) => total + (o.delivery.earnings || 0), 0),
@@ -959,6 +997,7 @@ module.exports = {
   submitDocument,
   getMyDocuments,
   setDuty,
+  logout,
   updateLocation,
   getEarnings,
   selfView,

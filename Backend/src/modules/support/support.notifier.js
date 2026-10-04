@@ -141,12 +141,32 @@ const preview = (text, n = 120) => {
  * not speech.
  */
 const pushReply = (ticket, message) => {
-  if (!ticket || !message || message.author !== 'support') return;
+  if (!ticket || !message) return;
+  /*
+   * The property owner answering a student's ticket about their listing.
+   * It reached the thread and nothing else — the student, who filed it, was
+   * never pushed, so an owner's answer sat unread until they happened to
+   * open the app. Same push as a support reply, named for who wrote it.
+   */
+  if (message.author === 'partner') {
+    const requester = requesterOf(ticket);
+    if (requester.kind === 'customer' && requester.id) {
+      pushTo('customer', requester.id, {
+        title: `${ticket.linkedPartnerName || 'The property owner'} replied`,
+        body: `${ticket.subject ? `${ticket.subject} · ` : ''}${preview(message.body)}`,
+        data: { kind: 'support.reply', reference: ticket.reference, ticketKind: ticket.kind },
+      }).catch(() => {});
+    }
+    return;
+  }
+  if (message.author !== 'support') return;
   const who = requesterOf(ticket);
   const data = { kind: 'support.reply', reference: ticket.reference, ticketKind: ticket.kind };
 
   pushTo(who.kind, who.id, {
-    title: `${message.authorName || 'Lampose Support'} replied`,
+    /* "Lampose Support", never the staff member's own name — the thread
+       deliberately hides it, and the push on the lock screen printed it. */
+    title: 'Lampose Support replied',
     body: `${ticket.subject ? `${ticket.subject} · ` : ''}${preview(message.body)}`,
     data,
   }).catch(() => {});

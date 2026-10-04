@@ -3,6 +3,7 @@
    Reads real live notifications from backend API (support tickets, live order events & restaurant status).
    Zero dummy / static data.
    ══════════════════════════════════════════════════════════════════════════ */
+import { router } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -27,6 +28,7 @@ import { usePartnerStore } from "@/store/partnerStore";
 export type DynamicNotification = {
   id: string;
   reference?: string;
+  orderNumber?: string;
   title: string;
   message: string;
   timestamp: string;
@@ -65,14 +67,26 @@ export function NotificationsModal({ visible, onDismiss, onReadCountChange }: Pr
       // 1. Restaurant Status Alerts
       if (restaurantRes.status === "fulfilled") {
         const rest: ServerRestaurant = restaurantRes.value;
-        if (rest.verificationStatus === "approved") {
+        /* "Live" only when it IS — approved AND active. An approved kitchen
+           that has been switched off was told it was live, under a "Just now"
+           nothing had happened at. No timestamp is shown for a standing fact. */
+        if (rest.verificationStatus === "approved" && rest.isActive !== false) {
           notifications.push({
             id: `status-${rest.restaurantId}`,
             title: "Verified & Live",
             message: `${rest.restaurantName} is verified and active for customer orders.`,
-            timestamp: "Just now",
+            timestamp: "",
             type: "status",
             read: true,
+          });
+        } else if (rest.verificationStatus === "approved") {
+          notifications.push({
+            id: `status-${rest.restaurantId}`,
+            title: "Approved — not live",
+            message: `${rest.restaurantName} is approved but switched off, so diners cannot see it. Contact Lampose support to go live.`,
+            timestamp: "",
+            type: "status",
+            read: false,
           });
         } else if (rest.verificationStatus === "rejected") {
           notifications.push({
@@ -94,6 +108,7 @@ export function NotificationsModal({ visible, onDismiss, onReadCountChange }: Pr
         orders.slice(0, 10).forEach((ord) => {
           notifications.push({
             id: `order-${ord.orderNumber}`,
+            orderNumber: ord.orderNumber,
             title: `Order #${ord.orderNumber}`,
             message: `Status: ${(ord.status || "PLACED").toUpperCase()} · ${ord.lines?.length || 1} item(s) · ${rupees(ord.itemsTotal || 0)}`,
             timestamp: (ord as any).placedAt || (ord as any).createdAt
@@ -144,8 +159,12 @@ export function NotificationsModal({ visible, onDismiss, onReadCountChange }: Pr
 
   const markAllRead = async () => {
     if (!session?.token) return;
-    setItems((list) => list.map((n) => ({ ...n, read: true })));
-    if (onReadCountChange) onReadCountChange(0);
+    /* Orders stay as the server has them — see `openItem`. */
+    setItems((list) => {
+      const next = list.map((n) => (n.type === "order" ? n : { ...n, read: true }));
+      if (onReadCountChange) onReadCountChange(next.filter((n) => !n.read).length);
+      return next;
+    });
 
     for (const item of items) {
       if (item.reference && !item.read) {
@@ -154,8 +173,21 @@ export function NotificationsModal({ visible, onDismiss, onReadCountChange }: Pr
     }
   };
 
+  /* Tapping OPENS what it is about — it used to only mark it read and stay
+     put. An order is "unread" for as long as it waits to be accepted, which
+     is the server's fact (its status), not a flag on this phone — so it is
+     not marked here: accepting it is what clears it, everywhere. */
+  const openItem = (item: DynamicNotification) => {
+    void markItemRead(item);
+    onDismiss();
+    if (item.reference) router.push(`/support/${item.reference}` as never);
+    else if (item.type === "order") {
+      router.push((item.read ? "/(dash)/orders" : "/new-order") as never);
+    }
+  };
+
   const markItemRead = async (item: DynamicNotification) => {
-    if (!session?.token || item.read) return;
+    if (!session?.token || item.read || item.type === "order") return;
     setItems((list) => {
       const updated = list.map((n) => (n.id === item.id ? { ...n, read: true } : n));
       const unreadCount = updated.filter((n) => !n.read).length;
@@ -235,7 +267,7 @@ export function NotificationsModal({ visible, onDismiss, onReadCountChange }: Pr
                 <Pressable
                   key={item.id}
                   style={[styles.itemCard, !item.read && styles.itemCardUnread]}
-                  onPress={() => markItemRead(item)}
+                  onPress={() => openItem(item)}
                 >
                   <View style={styles.iconCircle}>{renderIcon(item.type)}</View>
 

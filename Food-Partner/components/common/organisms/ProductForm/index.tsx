@@ -59,8 +59,11 @@ export function ProductForm({
   onSave,
   onCancel,
   onDelete,
+  busy = false,
 }: {
   item: MenuItem;
+  /** A save is in flight — Save is disabled so a second tap cannot write a second dish. */
+  busy?: boolean;
   /** Offered as chips so a product can be moved between categories. */
   categories: string[];
   onSave: (next: MenuItem) => void;
@@ -238,7 +241,12 @@ export function ProductForm({
       </Section>
 
       <View style={{ gap: space[2] }}>
-        <Btn label={item.productName ? "Save item" : "Add to menu"} onPress={save} disabled={!ready} />
+        <Btn
+          label={item.productName ? "Save item" : "Add to menu"}
+          onPress={save}
+          disabled={!ready || busy}
+          loading={busy}
+        />
         <View style={{ flexDirection: "row", gap: space[2] }}>
           <Btn label="Cancel" variant="ghost" onPress={onCancel} style={{ flex: 1 }} />
           {onDelete ? <Btn label="Delete" variant="danger" onPress={onDelete} style={{ flex: 1 }} /> : null}

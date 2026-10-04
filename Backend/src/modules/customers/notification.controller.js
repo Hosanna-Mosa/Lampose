@@ -28,6 +28,7 @@ const mongoose = require('mongoose');
 
 const config = require('../../config/env');
 const VisitRequest = require('../visits/visitRequest.model');
+const CustomerNotification = require('./customerNotification.model');
 
 const dbDown = (res) => res.status(503).json({
   success: false,
@@ -55,9 +56,13 @@ const alertsFor = (doc) => {
      owner has minutes. One sentence for both would be wrong for one of
      them. */
   const isApp = doc.channel === 'app';
+  /* The web window is VISIT_REPLY_WINDOW_MINUTES (five by default) — the
+     same figure `visitRequest.controller.js` sets the deadline from. This
+     said "24 hours", a window shortened to minutes long ago. */
+  const webMinutes = Math.max(1, Number(process.env.VISIT_REPLY_WINDOW_MINUTES) || 5);
   const window = isApp
     ? `${config.booking.expiryMinutes} minutes`
-    : '24 hours';
+    : `${webMinutes} minutes`;
 
   if (doc.phoneVerifiedAt) {
     alerts.push({
@@ -160,8 +165,35 @@ const getNotifications = async (req, res, next) => {
 
     const readAt = customer.notificationsReadAt ? customer.notificationsReadAt.getTime() : 0;
 
-    const notifications = requests
-      .flatMap(alertsFor)
+    /* Plus everything after the request — cancellations, check-in and out,
+       refunds, coupons, visit payments — which used to arrive only as a push. */
+    const stored = customer.customerId
+      ? await CustomerNotification.find({ customerId: String(customer.customerId) })
+        .sort({ at: -1 }).limit(100).lean()
+      : [];
+    /* The app draws one of its own seven kinds; a raw event name would
+       draw no icon at all. */
+    const APP_KIND = {
+      'booking.cancelled': 'booking',
+      'booking.checkedIn': 'booking',
+      'booking.checkedOut': 'booking',
+      'refund.paid': 'refund',
+      'coupon.earned': 'payment',
+      'visit.paid': 'visit',
+      'visit.scheduled': 'visit',
+    };
+    const storedAlerts = stored.map((row) => ({
+      id: String(row._id),
+      kind: APP_KIND[row.kind] || 'booking',
+      title: row.title,
+      body: row.body,
+      at: row.at,
+      listingId: row.listingId,
+      requestId: row.requestId,
+      bookingId: row.bookingId,
+    }));
+
+    const notifications = [...requests.flatMap(alertsFor), ...storedAlerts]
       .sort((a, b) => new Date(b.at) - new Date(a.at))
       .map((alert) => ({
         ...alert,

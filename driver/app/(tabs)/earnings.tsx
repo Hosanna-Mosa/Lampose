@@ -202,9 +202,9 @@ export default function EarningsScreen() {
             <RNText style={styles.infoTitle}>Getting paid</RNText>
           </View>
           <RNText style={styles.infoBody}>
-            These are what your delivered orders have paid. Lampose settles them weekly to the
+            These are what your delivered orders have earned. Lampose pays them into the
             account you gave when you signed up; the app itself does not move money. If a
-            settlement has not arrived, or has arrived short, raise it in Help under "Payout".
+            payment has not arrived, or has arrived short, raise it in Help under "Payout".
           </RNText>
         </View>
       </ScrollView>

@@ -25,7 +25,7 @@ export function groupIndian(value: number): string {
   const grouped = rest
     ? `${rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',')},${last3}`
     : last3;
-  return `${negative ? '-' : ''}${grouped}${fraction ? `.${fraction}` : ''}`;
+  return `${negative ? '-' : ''}${grouped}${fraction ? `.${fraction.padEnd(2, '0')}` : ''}`;
 }
 
 export function formatRupees(value: number): string {

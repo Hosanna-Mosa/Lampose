@@ -325,6 +325,8 @@ export type BackendPartnerSummary = {
    * and one the header has to say out loud rather than paper over.
    */
   propertyName: string | null;
+  /** That property's city, or null when it cannot be read. */
+  city: string | null;
 
   requests: {
     total: number;

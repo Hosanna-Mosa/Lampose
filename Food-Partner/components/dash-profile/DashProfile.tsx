@@ -21,7 +21,9 @@ import { getMe, updateMe, type ServerRestaurant } from "@/services/foodPartner";
 import { listTickets } from "@/services/support";
 import { usePartnerStore } from "@/store/partnerStore";
 
-const DEFAULT_AVATAR = "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=150&auto=format&fit=crop&q=80";
+/** The most a kitchen may charge for packaging — `FOOD_PRICING_CONFIG.maxPackagingFee` on the server. */
+const MAX_PACKAGING_FEE = 50;
+
 
 export function DashProfile() {
   const insets = useSafeAreaInsets();
@@ -39,20 +41,21 @@ export function DashProfile() {
   /* Editable operational fields */
   const [prepTime, setPrepTime] = useState("25");
   const [deliveryRadius, setDeliveryRadius] = useState("6");
-  /* A minimum order and a packaging charge used to be set here. Neither is
-     charged any more — there is no minimum, and GST plus a flat platform fee
-     replaced the packaging charge — and the server refuses both on this
-     update, so the boxes went with them. */
+  /* The packaging fee is the kitchen's own: billed to the diner (with 18%
+     GST) and paid to the kitchen in full. Delivery is no longer set here —
+     Lampose prices it by distance (`foodPricing.js`), so the old delivery-fee
+     editor would have been saving a number nothing reads. There is still no
+     minimum order: small carts pay a small-order fee instead. */
+  const [packagingFee, setPackagingFee] = useState("");
   const [acceptsOnline, setAcceptsOnline] = useState(true);
   const [acceptsCod, setAcceptsCod] = useState(true);
 
 
   /* Editable restaurant details — accepted by PATCH /me since onboarding, but
-     with no screen to reach them from after it. Business hours and the
-     delivery-fee scheme are the other two `updateMe` already accepts; they
-     need a structured editor of their own (the onboarding flow's `TimeRange`
-     step, and a type-dependent fee form) and are deliberately left for that
-     follow-up rather than a rushed version here. */
+     with no screen to reach them from after it. The delivery fee is edited
+     in Operations above. Business hours are the one `updateMe` field still
+     without an editor here — they need the onboarding flow's per-day
+     `TimeRange` step, not a text box. */
   const [description, setDescription] = useState("");
   const [cuisineTypesText, setCuisineTypesText] = useState("");
   const [contactNumber, setContactNumber] = useState("");
@@ -70,8 +73,10 @@ export function DashProfile() {
     try {
       const restaurant = await getMe(session.token);
       setMe(restaurant);
-      setPrepTime(String(restaurant.avgPreparationTime ?? 25));
-      setDeliveryRadius(String(restaurant.deliveryRadiusKm ?? 6));
+      /* The kitchen's own values, or empty — not a pre-filled 25 / 6. */
+      setPrepTime(restaurant.avgPreparationTime ? String(restaurant.avgPreparationTime) : "");
+      setDeliveryRadius(restaurant.deliveryRadiusKm ? String(restaurant.deliveryRadiusKm) : "");
+      setPackagingFee(restaurant.packagingCharge ? String(restaurant.packagingCharge) : "");
       setAcceptsOnline(restaurant.acceptsOnlinePayment ?? true);
       setAcceptsCod(restaurant.acceptsCod ?? true);
       setDescription(restaurant.description ?? "");
@@ -91,6 +96,19 @@ export function DashProfile() {
     }
   }, [session?.token]);
 
+  /* The pull's own flag. `loading` is set true only on mount, so a pull
+     started a load with the spinner already off — it vanished at once and
+     the partner could not tell whether anything had been fetched. */
+  const [refreshing, setRefreshing] = useState(false);
+  const pull = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load]);
+
   useFocusEffect(
     useCallback(() => {
       void load();
@@ -99,13 +117,32 @@ export function DashProfile() {
 
   const handleSaveOperational = async () => {
     if (!session?.token || !me) return;
+    /* Checked and SAID — an empty or mistyped box used to be quietly saved as
+       25 minutes and 6 km, numbers the kitchen never chose, and the rider
+       search radius is built from both. */
+    const prep = Number(prepTime);
+    const radius = Number(deliveryRadius);
+    if (!Number.isInteger(prep) || prep < 1 || prep > 180) {
+      setError("Enter a preparation time between 1 and 180 minutes.");
+      return;
+    }
+    if (!Number.isFinite(radius) || radius < 0.5 || radius > 30) {
+      setError("Enter a delivery radius between 0.5 and 30 km.");
+      return;
+    }
+    const packaging = packagingFee.trim() === "" ? 0 : Number(packagingFee);
+    if (!Number.isFinite(packaging) || packaging < 0 || packaging > MAX_PACKAGING_FEE) {
+      setError(`Enter a packaging fee between ₹0 and ₹${MAX_PACKAGING_FEE}.`);
+      return;
+    }
     setSaving(true);
     setError("");
     setSavedNote("");
     try {
       const updated = await updateMe(session.token, {
-        avgPreparationTime: parseInt(prepTime, 10) || 25,
-        deliveryRadiusKm: parseFloat(deliveryRadius) || 6,
+        avgPreparationTime: prep,
+        deliveryRadiusKm: radius,
+        packagingCharge: Math.round(packaging * 100) / 100,
         acceptsOnlinePayment: acceptsOnline,
         acceptsCod: acceptsCod,
       });
@@ -141,8 +178,11 @@ export function DashProfile() {
     }
   };
 
-  const restaurantName = me?.restaurantName || session?.restaurantName || "Paradise Biryani House";
-  const restaurantId = me?.restaurantId || session?.restaurantId || "FP-P5Y9DQ4B";
+  /* The kitchen's own details or nothing — see DashHome for what these used
+     to fall back to. */
+  const restaurantName = me?.restaurantName || session?.restaurantName || "";
+  const restaurantId = me?.restaurantId || session?.restaurantId || "";
+  const avatarUrl = me?.logoImage?.url || me?.coverBannerImage?.url || "";
 
   return (
     <Box style={{ flex: 1, backgroundColor: "#F4F6F8" }}>
@@ -161,7 +201,7 @@ export function DashProfile() {
 
       <Scroller
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<Refresher refreshing={loading} onRefresh={load} />}
+        refreshControl={<Refresher refreshing={refreshing} onRefresh={pull} />}
         showsVerticalScrollIndicator={false}
       >
         {!!error && <Note tone="bad">{error}</Note>}
@@ -170,20 +210,27 @@ export function DashProfile() {
         {/* ── HERO BANNER CARD ──────────────────────────────────────────── */}
         <View style={styles.heroCard}>
           <View style={styles.avatarWrapper}>
-            <Image
-              source={{ uri: me?.coverBannerImage?.url || DEFAULT_AVATAR }}
-              style={styles.heroAvatar}
-            />
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={styles.heroAvatar} />
+            ) : (
+              <View style={[styles.heroAvatar, { alignItems: "center", justifyContent: "center", backgroundColor: "#D1FAE5" }]}>
+                <Text style={{ fontWeight: "700", fontSize: 28, color: "#047857" }}>
+                  {(restaurantName || "?").charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
           </View>
 
           <Text style={styles.heroName}>{restaurantName}</Text>
           <Text style={styles.heroId}>{restaurantId}</Text>
 
           <View style={styles.verifiedRow}>
-            <View style={styles.verifiedPill}>
-              <Icon name="check" size={12} color="#059669" strokeWidth={2.5} />
-              <Text style={styles.verifiedPillText}>Approved Kitchen</Text>
-            </View>
+            {me?.verificationStatus === "approved" && (
+              <View style={styles.verifiedPill}>
+                <Icon name="check" size={12} color="#059669" strokeWidth={2.5} />
+                <Text style={styles.verifiedPillText}>Approved Kitchen</Text>
+              </View>
+            )}
             <View style={[styles.statusPill, { backgroundColor: me?.isCurrentlyOpen ? "#D1FAE5" : "#FEF3C7" }]}>
               <Text style={[styles.statusPillText, { color: me?.isCurrentlyOpen ? "#047857" : "#D97706" }]}>
                 {me?.isCurrentlyOpen ? "Live & Taking Orders" : "Offline"}
@@ -206,7 +253,10 @@ export function DashProfile() {
 
           <View style={styles.infoItem}>
             <Text style={styles.infoLabel}>Contact Phone</Text>
-            <Text style={styles.infoValueBlock}>+91 {me?.ownerPhone || "—"}</Text>
+            {/* Stored as E.164 already ("+919…"), so no second "+91". */}
+            <Text style={styles.infoValueBlock}>
+              {me?.ownerPhone ? (me.ownerPhone.startsWith("+") ? me.ownerPhone : `+91 ${me.ownerPhone}`) : "—"}
+            </Text>
           </View>
 
           <View style={styles.infoItem}>
@@ -303,6 +353,20 @@ export function DashProfile() {
             </View>
           </View>
 
+          {/* Packaging fee — the kitchen's own. Delivery is priced by Lampose
+              by distance, so there is no delivery fee to set here. */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Packaging fee (per order)</Text>
+            <View style={styles.inputWrap}>
+              <TextField value={packagingFee} onChangeText={setPackagingFee} keyboardType="numeric" style={styles.inputField} />
+              <Text style={styles.inputUnit}>₹</Text>
+            </View>
+            <Text style={styles.inputLabel}>
+              Billed to the diner with 18% GST and paid to you in full. Up to ₹{MAX_PACKAGING_FEE}. Delivery is
+              priced by Lampose by distance. Lampose currently charges 0% commission on food orders.
+            </Text>
+          </View>
+
           {/* Payment Toggles */}
           <View style={styles.switchRow}>
             <View style={{ flex: 1 }}>
@@ -353,7 +417,7 @@ export function DashProfile() {
 
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>GSTIN Number</Text>
-            <Text style={styles.infoValue}>{(me as any)?.gstNumber || (me as any)?.gstinNumber || "Verified ✓"}</Text>
+            <Text style={styles.infoValue}>{me?.gstNumber || "Not provided"}</Text>
           </View>
 
           <View style={styles.infoRow}>
@@ -399,7 +463,8 @@ export function DashProfile() {
       </Scroller>
 
       {/* SIGN OUT CONFIRMATION MODAL */}
-      <Modal visible={confirmOut} transparent animationType="fade">
+      {/* `onRequestClose`: without it Android's back button did nothing here. */}
+      <Modal visible={confirmOut} transparent animationType="fade" onRequestClose={() => setConfirmOut(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Sign Out?</Text>

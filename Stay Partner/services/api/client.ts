@@ -148,7 +148,7 @@ export class ApiError extends Error {
  * because putting it in later means revisiting every call site.
  */
 let authToken: string | null = null;
-let onSessionExpired: (() => void) | null = null;
+let onSessionExpired: ((code: string) => void) | null = null;
 
 export function setAuthToken(token: string | null): void {
   authToken = token;
@@ -158,12 +158,17 @@ export function getAuthToken(): string | null {
   return authToken;
 }
 
-export function setSessionExpiredHandler(handler: (() => void) | null): void {
+export function setSessionExpiredHandler(handler: ((code: string) => void) | null): void {
   onSessionExpired = handler;
 }
 
-/** The codes the backend's auth middleware answers 401 with. */
-const SESSION_DEAD = new Set(['TOKEN_EXPIRED', 'BAD_TOKEN', 'ACCOUNT_GONE', 'WRONG_TOKEN_TYPE']);
+/** The codes the backend's auth middleware answers 401 with. `SESSION_REVOKED`
+    is "signed out everywhere" and `PHONE_NOT_VERIFIED` an account whose proof
+    was withdrawn — both were missing, so this device kept a session the
+    server no longer honoured and every screen just failed. */
+const SESSION_DEAD = new Set([
+  'TOKEN_EXPIRED', 'BAD_TOKEN', 'ACCOUNT_GONE', 'WRONG_TOKEN_TYPE', 'SESSION_REVOKED', 'PHONE_NOT_VERIFIED',
+]);
 
 /* ------------------------------------------------------------------ *
  * Request ids
@@ -341,7 +346,12 @@ export async function apiRequest<T = unknown>(
            without one is that endpoint saying "sign in", not "your session
            died", and clearing state on it would sign out a browsing user. */
         if (response.status === 401 && bearer && SESSION_DEAD.has(String(shape.code))) {
-          onSessionExpired?.();
+          onSessionExpired?.(String(shape.code));
+        }
+        /* A paused account is a 403, not a 401 — but it ends the session just
+           the same: every request will be refused until Lampose lifts it. */
+        if (response.status === 403 && bearer && shape.code === 'ACCOUNT_BLOCKED') {
+          onSessionExpired?.('ACCOUNT_BLOCKED');
         }
 
         throw new ApiError(message, {

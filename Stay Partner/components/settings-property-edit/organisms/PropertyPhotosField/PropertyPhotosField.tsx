@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Alert } from 'react-native';
 import { Box, Picture, Tappable } from '@/components/common';
 import * as ImagePicker from 'expo-image-picker';
 import { Text, Icon, FieldError } from '@/components/common';
@@ -52,7 +53,29 @@ export function PropertyPhotosField({
     }
   };
 
-  const remove = (url: string) => onChange(images.filter((u) => u !== url));
+  /* Asked first — one stray tap on the small × lost a photo with no undo.
+     (Removed from the listing on Save; nothing changes until then.) */
+  const remove = (url: string) =>
+    Alert.alert('Remove this photo?', 'It comes off the listing when you save.', [
+      { text: 'Keep it', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: () => onChange(images.filter((u) => u !== url)) },
+    ]);
+
+  /* The first photo is the cover students see in the feed, and the only way
+     to change it was to delete every photo in front of it. */
+  const makeCover = (index: number) => {
+    if (index === 0) return;
+    const next = [...images];
+    const [chosen] = next.splice(index, 1);
+    onChange([chosen, ...next]);
+  };
+
+  const photoActions = (url: string, index: number) =>
+    Alert.alert('Photo', undefined, [
+      ...(index > 0 ? [{ text: 'Make this the cover', onPress: () => makeCover(index) }] : []),
+      { text: 'Remove', style: 'destructive' as const, onPress: () => remove(url) },
+      { text: 'Cancel', style: 'cancel' as const },
+    ]);
 
   return (
     <Box>
@@ -60,7 +83,13 @@ export function PropertyPhotosField({
         <Box style={styles.photoGrid}>
           {images.map((url, index) => (
             <Box key={`${url}-${index}`} style={[styles.photoThumbWrap, { borderColor: c.borderCard }]}>
-              <Picture source={{ uri: url }} style={styles.photoThumb} resizeMode="cover" />
+              <Tappable
+                onPress={() => photoActions(url, index)}
+                accessibilityRole="button"
+                accessibilityLabel={index === 0 ? 'Cover photo — options' : 'Photo — options, including make cover'}
+              >
+                <Picture source={{ uri: url }} style={styles.photoThumb} resizeMode="cover" />
+              </Tappable>
               {index === 0 ? (
                 <Box style={[styles.coverBadge, { backgroundColor: c.accent }]}>
                   <Text variant="badge" color="white">

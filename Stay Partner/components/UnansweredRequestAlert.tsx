@@ -70,8 +70,11 @@ export function UnansweredRequestAlert({
 
   /* Unopened only, soonest first. `seenAt` is the server's record that this
      owner has actually looked — see the header. */
+  /* App requests only, as `IncomingRequestAlert` does. A website or WhatsApp
+     request is answered on WhatsApp and has no app countdown, so it showed
+     here as "NEW REQUEST" over an empty timer. */
   const unopened = requests
-    .filter((r) => r.status === 'pending_owner' && !r.seenAt)
+    .filter((r) => r.status === 'pending_owner' && r.channel === 'app' && !r.seenAt)
     .sort((a, b) => secondsLeft(a, clockOffsetMs) - secondsLeft(b, clockOffsetMs));
 
   const request = unopened[0];
