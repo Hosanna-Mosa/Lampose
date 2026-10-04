@@ -12,20 +12,28 @@
    asked before deletion became immediate may still carry a pending request;
    that is the only case the old "Cancel request" is offered for.
    ══════════════════════════════════════════════════════════════════════════ */
+import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useState } from "react";
-import { Alert, Linking, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Alert, Linking, StyleSheet, View } from "react-native";
 import { router } from "expo-router";
 
 import {
-  Box, Btn, Card, ConfirmSheet, Field, Notice, Scroller, Text, TextField, TopBar,
-} from "@/components/common";
-import type { SheetSpec } from "@/components/common";
+  AlertDialog,
+  Button,
+  Card,
+  Header,
+  InfoNote,
+  ScreenShell,
+  SectionHeader,
+  TextField,
+  Txt,
+} from "@/components/ui";
 import {
   cancelDeletion, fetchDeletion, longDate, requestDeletion, type DeletionState,
 } from "@/services/accountDeletion";
 import { ApiError } from "@/services/api";
 import { usePartnerStore } from "@/store/partnerStore";
-import { layout, space } from "@/theme";
+import { font, line, size, ui } from "@/theme/ui";
 
 const WHAT_GOES = [
   "The owner profile — name, email and mobile number",
@@ -34,9 +42,8 @@ const WHAT_GOES = [
   "Bank and payout details",
 ];
 
-const CONFIRM: SheetSpec = {
+const CONFIRM = {
   kicker: "Delete account",
-  tone: "danger",
   title: "Delete your kitchen's account?",
   body:
     "This deletes your account immediately and cannot be undone. Your kitchen and its menu come off " +
@@ -124,92 +131,109 @@ export function DeleteAccountScreen() {
   const support = state?.supportEmail || "contact@lampose.com";
 
   return (
-    <Box style={styles.root}>
-      <TopBar back="Profile" title="Delete account" />
-
-      <Scroller
-        contentContainerStyle={styles.body}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        {loading ? (
-          <Text variant="body" color="tertiary">Checking your account…</Text>
-        ) : (
-          <>
-            {requested && (
-              <>
-                <Notice
-                  tone="warning"
-                  title="An earlier deletion request is pending"
-                  body={`You asked to delete this account${state?.requestedAt ? ` on ${longDate(state.requestedAt)}` : ""}. You can withdraw that request, or delete the account now below.`}
-                />
-                <Btn label="Cancel request" variant="ink" loading={busy} onPress={undo} />
-              </>
-            )}
-
-            <Text variant="body" color="secondary">
-              Deleting your Lampose Partner account happens immediately and cannot be undone. Your
-              kitchen and its menu come off Lampose. Orders already placed stay as they are, but can
-              no longer be managed from this account.
-            </Text>
-
-            <View style={{ gap: space[2] }}>
-              <Text variant="label" color="tertiary">What is deleted</Text>
-              <Card>
-                {WHAT_GOES.map((line) => (
-                  <Text key={line} variant="body" style={styles.bullet}>
-                    {`•  ${line}`}
-                  </Text>
-                ))}
-              </Card>
-              <Text variant="caption" color="tertiary">
-                Orders, payments and a copy of your account details are kept for legal and
-                accounting records.
-              </Text>
-            </View>
-
-            <Field label="Why are you leaving?" optional hint="It does not affect the deletion.">
-              <TextField
-                value={reason}
-                onChangeText={setReason}
-                placeholder="Anything you would like us to know"
-                maxLength={500}
-                multiline
+    <ScreenShell
+      keyboardAvoiding
+      header={<Header title="Delete account" onBack={() => router.back()} backLabel="Back to Profile" />}
+      scroll
+      contentStyle={styles.body}
+    >
+      {loading ? (
+        <View style={styles.loading}>
+          <ActivityIndicator size="large" color={ui.brand} />
+          <Txt style={styles.muted}>Checking your account…</Txt>
+        </View>
+      ) : (
+        <>
+          {requested && (
+            <>
+              <InfoNote
+                tone="warning"
+                lead="An earlier deletion request is pending."
+                text={`You asked to delete this account${state?.requestedAt ? ` on ${longDate(state.requestedAt)}` : ""}. You can withdraw that request, or delete the account now below.`}
               />
-            </Field>
+              <Button title="Cancel request" variant="secondary" loading={busy} fullWidth onPress={undo} />
+            </>
+          )}
 
-            <Btn
-              label="Delete my account now"
-              variant="danger"
-              glyph="alert"
-              loading={busy}
-              onPress={() => setAsking(true)}
-            />
-          </>
-        )}
+          <Txt style={styles.lead}>
+            Deleting your Lampose Partner account happens immediately and cannot be undone. Your
+            kitchen and its menu come off Lampose. Orders already placed stay as they are, but can
+            no longer be managed from this account.
+          </Txt>
 
-        {!!problem && <Notice tone="danger" title="That did not work" body={problem} />}
+          <View>
+            <SectionHeader title="What is deleted" />
+            <Card bordered elevationLevel="none" style={styles.list}>
+              {WHAT_GOES.map((item) => (
+                <View key={item} style={styles.bulletRow}>
+                  <Ionicons name="close-circle" size={18} color={ui.error} />
+                  <Txt style={styles.bulletText}>{item}</Txt>
+                </View>
+              ))}
+            </Card>
+            <Txt style={[styles.muted, styles.kept]}>
+              Orders, payments and a copy of your account details are kept for legal and
+              accounting records.
+            </Txt>
+          </View>
 
-        <Text variant="caption" color="tertiary">
-          Need help? Write to{" "}
-          <Text
-            variant="caption"
-            color="brand"
-            onPress={() => Linking.openURL(`mailto:${support}`).catch(() => {})}
-          >
-            {support}
-          </Text>
-          .
-        </Text>
-      </Scroller>
+          <TextField
+            label="Why are you leaving?"
+            optional
+            hint="It does not affect the deletion."
+            value={reason}
+            onChangeText={setReason}
+            placeholder="Anything you would like us to know"
+            maxLength={500}
+            multiline
+            autoCapitalize="sentences"
+          />
 
-      <ConfirmSheet spec={CONFIRM} visible={asking} onPrimary={submit} onDismiss={() => setAsking(false)} />
-    </Box>
+          <Button
+            title="Delete my account now"
+            variant="danger"
+            fullWidth
+            icon={<Ionicons name="alert-circle-outline" size={20} color={ui.white} />}
+            loading={busy}
+            onPress={() => setAsking(true)}
+          />
+        </>
+      )}
+
+      {!!problem && <InfoNote tone="danger" lead="That did not work." text={problem} />}
+
+      <Txt style={styles.muted}>
+        Need help? Write to{" "}
+        <Txt style={styles.link} onPress={() => Linking.openURL(`mailto:${support}`).catch(() => {})}>
+          {support}
+        </Txt>
+        .
+      </Txt>
+
+      <AlertDialog
+        visible={asking}
+        tone="danger"
+        kicker={CONFIRM.kicker}
+        title={CONFIRM.title}
+        message={CONFIRM.body}
+        onDismiss={() => setAsking(false)}
+        actions={[
+          { text: CONFIRM.primary, style: "destructive", onPress: submit },
+          { text: CONFIRM.secondary, style: "cancel", onPress: () => setAsking(false) },
+        ]}
+      />
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  body: { paddingHorizontal: layout.gutter, paddingTop: space[2], paddingBottom: space[8], gap: space[4] },
-  bullet: { paddingVertical: space[1] },
+  body: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 40, gap: 18 },
+  loading: { alignItems: "center", gap: 12, paddingVertical: 40 },
+  lead: { fontFamily: font.body.regular, fontSize: size.medium, lineHeight: line.medium, color: ui.sec },
+  list: { gap: 12 },
+  bulletRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  bulletText: { flex: 1, fontFamily: font.body.medium, fontSize: size.medium, lineHeight: line.medium, color: ui.text },
+  kept: { marginTop: 10 },
+  muted: { fontFamily: font.body.regular, fontSize: size.small, lineHeight: line.small, color: ui.muted },
+  link: { fontFamily: font.body.semibold, color: ui.brandInk },
 });

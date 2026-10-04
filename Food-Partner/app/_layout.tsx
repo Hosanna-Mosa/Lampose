@@ -12,6 +12,15 @@ import { Archivo_400Regular } from "@expo-google-fonts/archivo/400Regular";
 import { Archivo_500Medium } from "@expo-google-fonts/archivo/500Medium";
 import { Archivo_600SemiBold } from "@expo-google-fonts/archivo/600SemiBold";
 import { Archivo_700Bold } from "@expo-google-fonts/archivo/700Bold";
+import { FamiljenGrotesk_400Regular } from "@expo-google-fonts/familjen-grotesk/400Regular";
+import { FamiljenGrotesk_500Medium } from "@expo-google-fonts/familjen-grotesk/500Medium";
+import { FamiljenGrotesk_600SemiBold } from "@expo-google-fonts/familjen-grotesk/600SemiBold";
+import { FamiljenGrotesk_700Bold } from "@expo-google-fonts/familjen-grotesk/700Bold";
+import { Figtree_400Regular } from "@expo-google-fonts/figtree/400Regular";
+import { Figtree_500Medium } from "@expo-google-fonts/figtree/500Medium";
+import { Figtree_600SemiBold } from "@expo-google-fonts/figtree/600SemiBold";
+import { Figtree_700Bold } from "@expo-google-fonts/figtree/700Bold";
+import { Ionicons } from "@expo/vector-icons";
 import { InstrumentSans_400Regular } from "@expo-google-fonts/instrument-sans/400Regular";
 import { InstrumentSans_500Medium } from "@expo-google-fonts/instrument-sans/500Medium";
 import { InstrumentSans_600SemiBold } from "@expo-google-fonts/instrument-sans/600SemiBold";
@@ -60,6 +69,18 @@ const fonts = {
   MartianMono_500Medium,
   MartianMono_600SemiBold,
   MartianMono_700Bold,
+  /* The signed-in screens (dashboard, orders, menu, profile, support,
+     payouts) are drawn in the Adios partner app's type pair and icon set —
+     see `theme/ui.ts`. Sign-in and onboarding keep the three faces above. */
+  FamiljenGrotesk_400Regular,
+  FamiljenGrotesk_500Medium,
+  FamiljenGrotesk_600SemiBold,
+  FamiljenGrotesk_700Bold,
+  Figtree_400Regular,
+  Figtree_500Medium,
+  Figtree_600SemiBold,
+  Figtree_700Bold,
+  ...Ionicons.font,
 };
 
 SplashScreen.preventAutoHideAsync().catch(() => {});

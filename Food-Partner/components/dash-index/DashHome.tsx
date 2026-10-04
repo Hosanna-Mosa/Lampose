@@ -1,18 +1,36 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   Food Partner Dashboard Home — Redesigned layout matching reference UI.
+   Food Partner — Home.
+
+   Laid out as the Adios partner dashboard: the kitchen's own header, the
+   notes that need a tap, the "taking orders" card, the figures two by two and
+   the shortcuts a kitchen opens most. Everything on it is read from the
+   server; nothing is a sample.
    ══════════════════════════════════════════════════════════════════════════ */
+import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
-import {
-  Image,
-  Pressable,
-  StyleSheet,
-  View,
-} from "react-native";
+import { StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Box, Note, Refresher, Scroller, Tappable } from "@/components/common";
-import { Icon, Text } from "@/components/common";
+import { useTabBarHeight } from "@/components/dash/organisms/TabBar";
+import {
+  ActionTile,
+  Avatar,
+  Badge,
+  Card,
+  IconButton,
+  InfoNote,
+  ListRow,
+  ScreenShell,
+  SectionHeader,
+  SegmentedControl,
+  StatCard,
+  Txt,
+  fadeInDown,
+  fadeInUp,
+  staggerListItem,
+} from "@/components/ui";
 import {
   getMe,
   listMyOrders,
@@ -24,12 +42,18 @@ import {
 } from "@/services/foodPartner";
 import { listTickets } from "@/services/support";
 import { usePartnerStore } from "@/store/partnerStore";
+import { font, line, ms, radius, size, ui } from "@/theme/ui";
 import { NotificationsModal } from "./NotificationsModal";
 
-// Default biryani avatar image URL matching reference screenshot
+const OPEN_STATES = [
+  { key: "auto", label: "Schedule" },
+  { key: "open", label: "Open now" },
+  { key: "closed", label: "Closed" },
+] as const;
 
 export function DashHome() {
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useTabBarHeight();
   const session = usePartnerStore((s) => s.session);
   const syncFromServer = usePartnerStore((s) => s.syncFromServer);
 
@@ -180,513 +204,265 @@ export function DashHome() {
     ? "Diners cannot see your restaurant until it is approved."
     : openNow
       ? "Your restaurant is live and visible to customers"
-      : "You are closed right now, so diners cannot order."; 
+      : "You are closed right now, so diners cannot order.";
 
   return (
-    <Box style={{ flex: 1, backgroundColor: "#F4F6F8" }}>
-      {/* ── TOP HEADER ────────────────────────────────────────────────── */}
-      <View style={[styles.headerContainer, { paddingTop: Math.max(insets.top, 12) }]}>
-        <View style={styles.headerLeft}>
-          {logoUrl ? (
-            <Image source={{ uri: logoUrl }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, { alignItems: "center", justifyContent: "center", backgroundColor: "#D1FAE5" }]}>
-              <Text style={{ fontWeight: "700", color: "#047857" }}>{(restaurantName || "?").charAt(0).toUpperCase()}</Text>
-            </View>
+    <ScreenShell
+      scroll
+      refreshing={refreshing}
+      onRefresh={pull}
+      contentStyle={[styles.content, { paddingTop: insets.top + 12, paddingBottom: tabBarHeight }]}
+    >
+      {/* ── The kitchen ──────────────────────────────────────────────────── */}
+      <Animated.View entering={fadeInDown(0)} style={styles.header}>
+        <Avatar name={restaurantName || "?"} imageUri={logoUrl} size={ms(52)} />
+        <View style={styles.headerTexts}>
+          {!!restaurantId && (
+            <Txt style={styles.restaurantId} numberOfLines={1}>
+              {restaurantId}
+            </Txt>
           )}
-          <View style={styles.headerInfo}>
-            <Text style={styles.headerTitle} numberOfLines={1}>
-              {restaurantName}
-            </Text>
-            <View style={styles.subRow}>
-              <Text style={styles.headerSub}>{restaurantId}</Text>
-              {approved && (
-                <View style={styles.verifiedBadge}>
-                  <Icon name="check" size={12} color="#059669" strokeWidth={2.5} />
-                  <Text style={styles.verifiedText}>Verified Partner</Text>
-                </View>
-              )}
-            </View>
+          <Txt style={styles.outletName} numberOfLines={1}>
+            {restaurantName}
+          </Txt>
+          <View style={styles.badgeRow}>
+            {approved && <Badge label="Verified Partner" tone="success" icon="checkmark-circle" />}
           </View>
         </View>
+        <IconButton
+          icon="notifications-outline"
+          accessibilityLabel={unreadNotifications > 0 ? `Notifications, ${unreadNotifications} new` : "Notifications"}
+          dot={unreadNotifications > 0}
+          onPress={() => setShowNotificationsModal(true)}
+        />
+      </Animated.View>
 
-        <View style={styles.headerRight}>
-          <Pressable style={styles.iconCircleButton} onPress={() => setShowNotificationsModal(true)}>
-            <Icon name="bell" size={20} color="#374151" />
-            {unreadNotifications > 0 && <View style={styles.redBadgeDot} />}
-          </Pressable>
-        </View>
-      </View>
+      {/* ── What needs a tap ─────────────────────────────────────────────── */}
+      {!!error && <InfoNote tone="danger" text={error} style={styles.banner} />}
 
-      <Scroller
-        contentContainerStyle={styles.scrollBody}
-        refreshControl={<Refresher refreshing={refreshing} onRefresh={pull} />}
-        showsVerticalScrollIndicator={false}
-      >
-        {!!error && <Note tone="bad">{error}</Note>}
+      {!!me && !hasPin && (
+        <Animated.View entering={fadeInUp(20)} style={styles.banner}>
+          <ListRow
+            card
+            icon="location-outline"
+            iconColor={ui.error}
+            iconBackground={ui.errorSkin}
+            label={pinning ? "Saving your pin..." : "No map pin yet"}
+            description="Your restaurant has no map pin, so no rider can be sent for your orders. Stand at the restaurant and tap here to drop it."
+            descriptionLines={4}
+            onPress={dropPin}
+            disabled={pinning}
+          />
+        </Animated.View>
+      )}
 
-        {!!me && !hasPin && (
-          <Tappable accessibilityRole="button" onPress={dropPin} disabled={pinning}>
-            <Note tone="bad">
-              {pinning
-                ? "Saving your pin..."
-                : "Your restaurant has no map pin, so no rider can be sent for your orders. Stand at the restaurant and tap here to drop it."}
-            </Note>
-          </Tappable>
-        )}
+      {me?.verificationStatus !== "approved" && !!me && (
+        <Animated.View entering={fadeInUp(30)} style={styles.banner}>
+          <ListRow
+            card
+            icon="hourglass-outline"
+            iconColor={ui.warning}
+            iconBackground={ui.warningSkin}
+            label="Not approved yet"
+            description="This restaurant is not approved yet, so it is not shown to diners. Tap to see where the application has got to."
+            descriptionLines={4}
+            onPress={() => router.push("/status")}
+          />
+        </Animated.View>
+      )}
 
-        {me?.verificationStatus !== "approved" && !!me && (
-          <Tappable accessibilityRole="button" onPress={() => router.push("/status")}>
-            <Note tone="warn">
-              This restaurant is not approved yet, so it is not shown to diners. Tap to see where the
-              application has got to.
-            </Note>
-          </Tappable>
-        )}
-
-        {/* ── HERO RESTAURANT STATUS CARD ────────────────────────────────── */}
-        <View style={styles.heroCard}>
-          <View style={styles.heroHeader}>
-            <Text style={styles.heroSubHeader}>RESTAURANT STATUS</Text>
-            <Pressable
-              style={styles.openNowDropdown}
+      {/* ── Taking orders ────────────────────────────────────────────────── */}
+      <Animated.View entering={fadeInUp(40)} style={styles.banner}>
+        <Card bordered elevationLevel="sm" style={styles.statusCard}>
+          <View style={styles.statusTop}>
+            <View style={[styles.statusIcon, { backgroundColor: openNow ? ui.successSkin : ui.sunken }]}>
+              <Ionicons name={openNow ? "storefront" : "storefront-outline"} size={ms(18)} color={openNow ? ui.success : ui.sec} />
+            </View>
+            <View style={styles.statusTexts}>
+              <Txt style={styles.eyebrow}>Restaurant status</Txt>
+              <Txt style={styles.heroTitle}>{heroTitle}</Txt>
+              <Txt style={styles.heroDescription}>{heroDescription}</Txt>
+            </View>
+            <Badge
+              label={openNow ? "Open now" : "Closed"}
+              tone={openNow ? "success" : "neutral"}
+              icon={openNow ? "checkmark" : "time-outline"}
               onPress={() => changeOpenState(me?.openState === "open" ? "closed" : "open")}
-              accessibilityRole="button"
               accessibilityLabel={openNow ? "Open now. Tap to close" : "Closed. Tap to open"}
-            >
-              <Icon name={openNow ? "check" : "clock"} size={14} color="#047857" strokeWidth={2.5} />
-              <Text style={styles.dropdownText}>{openNow ? "OPEN NOW" : "CLOSED"}</Text>
-            </Pressable>
+            />
           </View>
 
-          <Text style={styles.heroTitle}>{heroTitle}</Text>
-          <Text style={styles.heroDescription}>{heroDescription}</Text>
+          {/* The way back to the opening hours. Without it, one manual Open
+              or Closed pinned the kitchen to that choice for good. */}
+          <SegmentedControl
+            segments={OPEN_STATES}
+            value={onSchedule ? "auto" : me?.openState}
+            onChange={(next) => changeOpenState(next)}
+          />
 
-          {/* Segment Selector Row */}
-          <View style={styles.segmentWrapper}>
-            <View style={styles.segmentContainer}>
-              {/* The way back to the opening hours. Without it, one manual
-                  Open or Closed pinned the kitchen to that choice for good. */}
-              <Pressable
-                style={[styles.segBtn, onSchedule && styles.segBtnActive]}
-                onPress={() => changeOpenState("auto")}
-              >
-                <Text style={[styles.segText, onSchedule && styles.segTextActive]}>Schedule</Text>
-              </Pressable>
-
-              <Pressable
-                style={[styles.segBtn, me?.openState === "open" && styles.segBtnActive]}
-                onPress={() => changeOpenState("open")}
-              >
-                <Text style={[styles.segText, me?.openState === "open" && styles.segTextActive]}>
-                  Open now
-                </Text>
-              </Pressable>
-
-              <Pressable
-                style={[styles.segBtn, me?.openState === "closed" && styles.segBtnActive]}
-                onPress={() => changeOpenState("closed")}
-              >
-                <Text style={[styles.segText, me?.openState === "closed" && styles.segTextActive]}>
-                  Closed
-                </Text>
-              </Pressable>
-            </View>
-
-            {/* The kitchen's own logo, or nothing — never a stock photo. */}
-            {logoUrl ? (
-              <View style={styles.illustrationWrap}>
-                <Image source={{ uri: logoUrl }} style={styles.foodIllustration} />
-              </View>
-            ) : null}
-          </View>
-
-          {/* Bottom Info Strip */}
-          <View style={styles.heroFooterStrip}>
-            <Icon name="clock" size={18} color="#059669" strokeWidth={2} />
+          <View style={styles.strip}>
+            <Ionicons name="time-outline" size={18} color={ui.brandInk} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.stripTitle}>
+              <Txt style={styles.stripTitle}>
                 {saving
                   ? "Saving changes..."
                   : onSchedule
                     ? "Following your opening hours."
                     : `Set to ${me?.openState === "open" ? "open" : "closed"} by hand.`}
-              </Text>
-              <Text style={styles.stripSubtitle}>
+              </Txt>
+              <Txt style={styles.stripSubtitle}>
                 {onSchedule
                   ? "Open and Closed override it until you choose Schedule again."
                   : "Choose Schedule to follow your opening hours again."}
-              </Text>
+              </Txt>
             </View>
           </View>
+        </Card>
+      </Animated.View>
+
+      {/* ── Today at a glance ────────────────────────────────────────────── */}
+      <View style={styles.statsGrid}>
+        <Animated.View entering={staggerListItem(0)} style={styles.row}>
+          <StatCard
+            icon="restaurant-outline"
+            tone="brand"
+            label="On the menu"
+            value={String(products.length)}
+            onPress={() => router.push("/(dash)/menu")}
+          />
+          <StatCard
+            icon="alert-circle-outline"
+            tone="error"
+            toneValue={unavailable > 0}
+            label="Out of stock"
+            value={String(unavailable)}
+            onPress={() => router.push("/(dash)/menu")}
+          />
+        </Animated.View>
+        {/* Prep time and delivery radius open Profile, where both are edited. */}
+        <Animated.View entering={staggerListItem(1)} style={styles.row}>
+          <StatCard
+            icon="time-outline"
+            tone="info"
+            label="Prep time"
+            value={typeof me?.avgPreparationTime === "number" ? `${me.avgPreparationTime} min` : "Not set"}
+            onPress={() => router.push("/(dash)/profile")}
+          />
+          <StatCard
+            icon="bicycle-outline"
+            tone="warning"
+            label="Delivers"
+            value={typeof me?.deliveryRadiusKm === "number" ? `${me.deliveryRadiusKm} km` : "Not set"}
+            onPress={() => router.push("/(dash)/profile")}
+          />
+        </Animated.View>
+        {/* No chevron: there is no ratings screen to open. */}
+        <Animated.View entering={staggerListItem(2)} style={styles.row}>
+          <StatCard
+            icon="star-outline"
+            tone="success"
+            label="Rating"
+            value={me?.ratingCount ? `${me.ratingAvg?.toFixed(1)} ★` : "No ratings yet"}
+          />
+        </Animated.View>
+      </View>
+
+      {/* ── Shortcuts ────────────────────────────────────────────────────── */}
+      <Animated.View entering={fadeInUp(120)} style={styles.section}>
+        <SectionHeader title="Quick actions" />
+        <View style={styles.row}>
+          <ActionTile icon="receipt" label="Orders" onPress={() => router.navigate("/(dash)/orders")} />
+          <ActionTile
+            icon="restaurant"
+            label="Menu"
+            color={ui.warning}
+            background={ui.warningSkin}
+            onPress={() => router.navigate("/(dash)/menu")}
+          />
         </View>
-
-        <View style={styles.metricsGrid}>
-          {/* Tile 1: On the menu */}
-          <Pressable style={[styles.metricCard, { backgroundColor: "#F0FDF4" }]} onPress={() => router.push("/(dash)/menu")}>
-            <View style={styles.metricCardHeader}>
-              <View style={[styles.metricIconCircle, { backgroundColor: "#DCFCE7" }]}>
-                <Icon name="utensils" size={18} color="#16A34A" />
-              </View>
-              <Text style={styles.metricValue}>{products.length}</Text>
-              <View style={{ marginLeft: "auto" }}>
-                <Icon name="chevronRight" size={16} color="#9CA3AF" />
-              </View>
-            </View>
-            <Text style={styles.metricLabel}>On the menu</Text>
-          </Pressable>
-
-          {/* Tile 2: Out of stock */}
-          <Pressable style={[styles.metricCard, { backgroundColor: "#FEF2F2" }]} onPress={() => router.push("/(dash)/menu")}>
-            <View style={styles.metricCardHeader}>
-              <View style={[styles.metricIconCircle, { backgroundColor: "#FEE2E2" }]}>
-                <Icon name="alert" size={18} color="#DC2626" />
-              </View>
-              <Text style={[styles.metricValue, { color: "#DC2626" }]}>{unavailable}</Text>
-              <View style={{ marginLeft: "auto" }}>
-                <Icon name="chevronRight" size={16} color="#9CA3AF" />
-              </View>
-            </View>
-            <Text style={styles.metricLabel}>Out of stock</Text>
-          </Pressable>
-
-          {/* Tile 3: Prep time — and 4 — open Profile, where both are edited.
-              They drew chevrons and did nothing when pressed. */}
-          <Pressable style={[styles.metricCard, { backgroundColor: "#F0F9FF" }]} onPress={() => router.push("/(dash)/profile")}>
-            <View style={styles.metricCardHeader}>
-              <View style={[styles.metricIconCircle, { backgroundColor: "#E0F2FE" }]}>
-                <Icon name="clock" size={18} color="#0284C7" />
-              </View>
-              <Text style={styles.metricValue}>{typeof me?.avgPreparationTime === "number" ? `${me.avgPreparationTime} min` : "Not set"}</Text>
-              <View style={{ marginLeft: "auto" }}>
-                <Icon name="chevronRight" size={16} color="#9CA3AF" />
-              </View>
-            </View>
-            <Text style={styles.metricLabel}>Prep time</Text>
-          </Pressable>
-
-          {/* Tile 4: Delivers */}
-          <Pressable style={[styles.metricCard, { backgroundColor: "#FFFBEB" }]} onPress={() => router.push("/(dash)/profile")}>
-            <View style={styles.metricCardHeader}>
-              <View style={[styles.metricIconCircle, { backgroundColor: "#FEF3C7" }]}>
-                <Icon name="truck" size={18} color="#D97706" />
-              </View>
-              <Text style={styles.metricValue}>{typeof me?.deliveryRadiusKm === "number" ? `${me.deliveryRadiusKm} km` : "Not set"}</Text>
-              <View style={{ marginLeft: "auto" }}>
-                <Icon name="chevronRight" size={16} color="#9CA3AF" />
-              </View>
-            </View>
-            <Text style={styles.metricLabel}>Delivers</Text>
-          </Pressable>
-
-          {/* Tile 6: Rating */}
-          <View style={[styles.metricCard, { backgroundColor: "#ECFDF5" }]}>
-            <View style={styles.metricCardHeader}>
-              <View style={[styles.metricIconCircle, { backgroundColor: "#D1FAE5" }]}>
-                <Icon name="star" size={18} color="#059669" />
-              </View>
-              <Text style={[styles.metricValue, { fontSize: 16 }]}>
-                {me?.ratingCount ? `${me.ratingAvg?.toFixed(1)} ★` : "No ratings yet"}
-              </Text>
-              {/* No chevron: there is no ratings screen to open. */}
-            </View>
-            <Text style={styles.metricLabel}>Rating</Text>
-          </View>
+        <View style={[styles.row, styles.rowGap]}>
+          <ActionTile
+            icon="wallet"
+            label="Payouts"
+            color={ui.success}
+            background={ui.successSkin}
+            onPress={() => router.push("/payouts")}
+          />
+          <ActionTile
+            icon="chatbubbles"
+            label="Help & support"
+            color={ui.info}
+            background={ui.infoSkin}
+            onPress={() => router.push("/support")}
+          />
         </View>
-      </Scroller>
+      </Animated.View>
 
       <NotificationsModal
         visible={showNotificationsModal}
         onDismiss={() => setShowNotificationsModal(false)}
         onReadCountChange={setUnreadNotifications}
       />
-    </Box>
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  headerContainer: {
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 16,
-    paddingBottom: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  headerLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    flex: 1,
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    borderWidth: 1.5,
-    borderColor: "#E5E7EB",
-  },
-  headerInfo: {
-    flex: 1,
-    gap: 2,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  subRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  headerSub: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#6B7280",
-  },
-  verifiedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#ECFDF5",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-  },
-  verifiedText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#047857",
-  },
-  headerRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  iconCircleButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F3F4F6",
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-  },
-  redBadgeDot: {
-    position: "absolute",
-    top: 9,
-    right: 10,
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: "#EF4444",
-  },
-  scrollBody: {
-    padding: 16,
-    gap: 18,
-    paddingBottom: 40,
-  },
+  content: { paddingHorizontal: 16 },
+  section: { marginTop: 24 },
+  banner: { marginTop: 16 },
 
-  /* HERO CARD STYLING */
-  heroCard: {
-    backgroundColor: "#034527",
-    borderRadius: 20,
-    padding: 18,
-    gap: 12,
+  header: { flexDirection: "row", alignItems: "center", gap: 12, paddingTop: 8, paddingBottom: 4 },
+  headerTexts: { flex: 1, minWidth: 0 },
+  restaurantId: { fontFamily: font.body.medium, fontSize: size.medium, color: ui.sec },
+  outletName: {
+    fontFamily: font.heading.bold,
+    fontSize: size.extraLarge,
+    lineHeight: line.extraLarge,
+    letterSpacing: -0.4,
+    color: ui.text,
+    marginTop: 2,
   },
-  heroHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  heroSubHeader: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "rgba(255,255,255,0.7)",
-    letterSpacing: 0.8,
-  },
-  openNowDropdown: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#D1FAE5",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  dropdownText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#047857",
+  badgeRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 8 },
+
+  statusCard: { gap: 14 },
+  statusTop: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  statusIcon: { width: ms(40), height: ms(40), borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  statusTexts: { flex: 1, minWidth: 0 },
+  eyebrow: {
+    fontFamily: font.body.bold,
+    fontSize: size.small,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: ui.muted,
   },
   heroTitle: {
-    fontSize: 26,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-  heroDescription: {
-    fontSize: 13,
-    color: "rgba(255,255,255,0.8)",
-    marginTop: -4,
-  },
-
-  segmentWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 6,
-  },
-  segmentContainer: {
-    flexDirection: "row",
-    backgroundColor: "rgba(0,0,0,0.25)",
-    borderRadius: 14,
-    padding: 4,
-    gap: 4,
-    flex: 1,
-    marginRight: 12,
-  },
-  segBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 10,
-  },
-  segBtnActive: {
-    backgroundColor: "#10B981",
-  },
-  segText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#D1D5DB",
-  },
-  segTextActive: {
-    color: "#FFFFFF",
-    fontWeight: "700",
-  },
-  illustrationWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    overflow: "hidden",
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.2)",
-  },
-  foodIllustration: {
-    width: "100%",
-    height: "100%",
-  },
-
-  heroFooterStrip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    backgroundColor: "#E6F4EA",
-    borderRadius: 14,
-    padding: 12,
+    fontFamily: font.heading.bold,
+    fontSize: size.extraLarge,
+    lineHeight: line.extraLarge,
+    letterSpacing: -0.4,
+    color: ui.text,
     marginTop: 4,
   },
-  stripTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#065F46",
+  heroDescription: {
+    fontFamily: font.body.medium,
+    fontSize: size.small,
+    lineHeight: line.small,
+    color: ui.sec,
+    marginTop: 2,
   },
-  stripSubtitle: {
-    fontSize: 11,
-    color: "#047857",
-  },
-
-  /* SECTION HEADERS */
-  sectionHeader: {
+  strip: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  viewDetailsBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  viewDetailsText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#059669",
-  },
-
-  /* METRICS GRID */
-  metricsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
     gap: 12,
+    backgroundColor: ui.brandSkin,
+    borderRadius: radius.md,
+    padding: 12,
   },
-  metricCard: {
-    width: "48%",
-    borderRadius: 16,
-    padding: 14,
-    gap: 8,
-  },
-  metricCardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  metricIconCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  metricValue: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#111827",
-  },
-  metricLabel: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#4B5563",
-  },
+  stripTitle: { fontFamily: font.body.bold, fontSize: size.small, lineHeight: line.small, color: ui.brandInk },
+  stripSubtitle: { fontFamily: font.body.medium, fontSize: size.small, lineHeight: line.small, color: ui.sec },
 
-  /* ACTION GRID */
-  actionGrid: {
-    flexDirection: "row",
-    gap: 12,
-    paddingVertical: 4,
-  },
-  actionCard: {
-    backgroundColor: "#FFFFFF",
-    width: 86,
-    height: 90,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  actionIconBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  actionText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#374151",
-    textAlign: "center",
-  },
+  statsGrid: { gap: 12, marginTop: 20 },
+  row: { flexDirection: "row", gap: 12 },
+  rowGap: { marginTop: 12 },
 });

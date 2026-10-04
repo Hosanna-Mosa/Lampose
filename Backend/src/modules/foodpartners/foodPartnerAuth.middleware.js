@@ -138,8 +138,13 @@ const PHONE_TOKEN_TTL = '30m';
 const signFoodPartnerToken = (restaurant, { expiresIn, claims } = {}) => {
   if (!config.auth.configured) return null;
   return jwt.sign(
-    { sub: restaurant.restaurantId, typ: TOKEN_TYPE, phone: restaurant.ownerPhone, ver: restaurant.sessionVersion || 0 },
-    { ...(claims || {}), sub: restaurant.restaurantId, typ: TOKEN_TYPE, phone: restaurant.ownerPhone },
+    {
+      ...(claims || {}),
+      sub: restaurant.restaurantId,
+      typ: TOKEN_TYPE,
+      phone: restaurant.ownerPhone,
+      ver: restaurant.sessionVersion || 0,
+    },
     config.auth.jwtSecret,
     /* Caller-chosen life, defaulting to the app's. A partner dashboard opened
        in a browser should pass `config.auth.webJwtExpiresIn`, for the reason

@@ -768,8 +768,12 @@ const submitApplication = async (req, res, next) => {
       : [{ phoneKey: phoneKey(fields.ownerPhone) }];
     if (fields.ownerEmail) identities.unshift({ ownerEmail: fields.ownerEmail });
 
-    const clash = await FoodRestaurant.findOne({ $or: identities })
-      .select('ownerEmail phoneKey restaurantId verificationStatus');
+    /* `$or: []` is an error in Mongo, so with the phone arm dropped and no
+       email there is nothing to look up. */
+    const clash = identities.length
+      ? await FoodRestaurant.findOne({ $or: identities })
+        .select('ownerEmail phoneKey restaurantId verificationStatus')
+      : null;
 
     /*
      * Applying AGAIN after a rejection. The rejected account still holds the
@@ -791,9 +795,6 @@ const submitApplication = async (req, res, next) => {
         return reapply(req, res, { clash, fields, rawProducts, password, dropped });
       }
     }
-    const clash = identities.length
-      ? await FoodRestaurant.findOne({ $or: identities }).select('ownerEmail phoneKey restaurantId')
-      : null;
 
     if (clash) {
       const isEmail = Boolean(fields.ownerEmail) && clash.ownerEmail === fields.ownerEmail;
