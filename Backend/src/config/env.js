@@ -482,7 +482,7 @@ const config = {
      * sign-in on lampose.com and the session a visit request opens off its
      * own one-time code.
      */
-    webJwtExpiresIn: process.env.WEB_JWT_EXPIRES_IN || process.env.JWT_EXPIRES_IN || '7d',
+    webJwtExpiresIn: process.env.WEB_JWT_EXPIRES_IN || '1d',
     /* The admin console's session. Brought in line with every other identity
        in this process — one token lifetime, one number to reason about —
        rather than the desk/pocket distinction this used to encode. A stolen

@@ -70,7 +70,8 @@ export function BookingRow({ booking, onPress }: BookingRowProps) {
             + {formatRupees(booking.deposit ?? 0)} deposit
           </Text>
         </View>
-      ) : booking.totalAmount != null ? (
+      /* A booking with no money in it shows no money — not "₹0". */
+      ) : booking.totalAmount ? (
         <View style={[styles.money, { gap: space[3] }]}>
           <Text variant="priceSm">{formatRupees(booking.totalAmount)}</Text>
           {booking.paidAmount ? (

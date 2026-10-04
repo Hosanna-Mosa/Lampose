@@ -29,13 +29,16 @@ export function ReferAndEarnScreen() {
   const [refInfo, setRefInfo] = useState<any>(null);
   const [invites, setInvites] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const loadReferrals = async () => {
     try {
       const data = await fetchReferralsApi();
       setRefInfo(data);
+      setLoadFailed(false);
     } catch (err) {
       logWarn('Failed to fetch referrals:', err);
+      setLoadFailed(true);
     }
     try {
       setInvites(await fetchInvitesApi());
@@ -57,7 +60,9 @@ export function ReferAndEarnScreen() {
     }
   };
 
-  const referralCode = refInfo?.code || 'PAR-9600';
+  /* The server's code or nothing — never a stand-in. A placeholder here is a
+     code another owner may hold, and a share of it credits them. */
+  const referralCode: string = refInfo?.code || '';
   const available = typeof refInfo?.points === 'number' ? refInfo.points : 0;
 
   /* Every point on this screen comes from `history` — an invite only lands
@@ -99,7 +104,8 @@ export function ReferAndEarnScreen() {
   const progress = Math.min(1, available / MIN_WITHDRAW_POINTS);
 
   const share = () => {
-    Share.share({ message: shareMessage() }).catch(() => {});
+    if (!referralCode) return;
+    Share.share({ message: shareMessage(referralCode) }).catch(() => {});
   };
 
   return (
@@ -161,11 +167,17 @@ export function ReferAndEarnScreen() {
           <Text variant="badge" color="textTertiary">
             Your owner referral code
           </Text>
-          <Text variant="cardTitle" tabular style={styles.code}>
-            {referralCode}
-          </Text>
+          {referralCode ? (
+            <Text variant="cardTitle" tabular style={styles.code}>
+              {referralCode}
+            </Text>
+          ) : (
+            <Text variant="bodySm" color="textSecondary" style={styles.code}>
+              {loadFailed ? 'Could not load your code. Pull down to try again.' : 'Loading your code…'}
+            </Text>
+          )}
         </Box>
-        <Button label="Share invite" onPress={share} variant="secondary" icon="send" />
+        <Button label="Share invite" onPress={share} variant="secondary" icon="send" disabled={!referralCode} />
       </Box>
 
       {/* ── How it works ────────────────────────────────────────────────── */}

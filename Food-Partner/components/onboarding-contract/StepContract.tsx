@@ -38,6 +38,7 @@ export function StepContract() {
   const finishSubmit = usePartnerStore((s) => s.finishSubmit);
   const fillSample = usePartnerStore((s) => s.fillSample);
   const phoneProof = usePartnerStore((s) => s.phoneProof);
+  const patch = usePartnerStore((s) => s.patch);
 
   const [progress, setProgress] = useState("");
 
@@ -50,9 +51,25 @@ export function StepContract() {
       /* Uploading a restaurant's photographs is the slowest thing this app
          does. A submit button that sits still for forty seconds reads as
          broken, so the count is shown as it goes. */
-      const result = await submitApplication(data, phoneProof, ({ done, total, label }) => {
-        setProgress(total && done < total ? `Uploading ${done + 1} of ${total} — ${label}` : "");
-      });
+      const result = await submitApplication(
+        data,
+        phoneProof,
+        ({ done, total, label }) => {
+          setProgress(total && done < total ? `Uploading ${done + 1} of ${total} — ${label}` : "");
+        },
+        /* Each uploaded file's link goes back into the draft as it lands, so
+           a retry skips what is already uploaded. */
+        (partial) => patch({
+          logoImage: partial.logoImage,
+          coverBannerImage: partial.coverBannerImage,
+          panFile: partial.panFile,
+          gstFile: partial.gstFile,
+          fssaiFile: partial.fssaiFile,
+          chequeFile: partial.chequeFile,
+          menuCategories: partial.menuCategories,
+          menuRows: partial.menuRows,
+        }),
+      );
       finishSubmit(result);
       router.replace("/submitted");
     } catch (err) {

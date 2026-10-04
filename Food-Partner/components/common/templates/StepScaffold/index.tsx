@@ -92,7 +92,9 @@ export function StepScaffold({
             </Text>
           )}
 
-          {!!onSample && (
+          {/* Developer builds only. In production this filled fake PAN and bank
+              details marked as verified, and a phone marked as OTP-checked. */}
+          {__DEV__ && !!onSample && (
             <Pressable accessibilityRole="button" onPress={onSample} style={styles.sampleBtn}>
               <Icon name="sparkle" size={15} color={colors.brandInk} />
               <Text variant="title3" color="brand">

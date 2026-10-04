@@ -1,8 +1,9 @@
 import { useRouter } from 'expo-router';
+import { announceFoodOrdersChanged } from '@/services/push/foodRefresh';
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { addPushListeners, getInitialPush, isBookingPush, isFoodPush, type PushPayload } from './push';
+import { addPushListeners, getInitialPush, isBookingPush, isFoodPush, isSupportPush, type PushPayload } from './push';
 
 /**
  * What happens when a notification arrives, and when one is tapped.
@@ -50,6 +51,36 @@ export function usePushRouting() {
         return;
       }
 
+      /* Support: the thread itself. These used to fall through to the
+         request screen with no id, which drew nothing useful. */
+      if (isSupportPush(payload)) {
+        router.push({ pathname: '/support/[id]', params: { id: payload.reference } } as never);
+        return;
+      }
+
+      /* A refund sent: the refund screen for that booking, not the request
+         screen with an empty id. */
+      if (payload.kind === 'refund.paid' && payload.bookingId) {
+        router.push(`/bookings/refund?id=${payload.bookingId}` as never);
+        return;
+      }
+
+      /* A coupon earned has no screen of its own; it is spent from the
+         request flow, so home is where the next request starts. */
+      if (payload.kind === 'coupon.earned') {
+        router.push('/home' as never);
+        return;
+      }
+
+      /* "Pick your visit slot" — the slot picker, not the confirm screen. */
+      if (payload.kind === 'visit.slot_reminder' && payload.requestId) {
+        router.push({
+          pathname: '/visit/slot',
+          params: { requestId: payload.requestId, id: payload.listingId ?? '' },
+        } as never);
+        return;
+      }
+
       /* The booking half — a check-in, a check-out or a cancellation the
          OWNER just made. Not the request screen: the request has been
          terminal since it was accepted, and none of these three change it.
@@ -80,10 +111,17 @@ export function usePushRouting() {
          the server now says, which is the rule everywhere: the backend is the
          status, never the notification payload.
 
-         A food order needs nothing here: the tracking screen polls itself
-         every eight seconds while an order is live, so it has already redrawn
-         by the time this fires. */
-      if (isFoodPush(payload)) return;
+         A food order's tracking screen polls itself while it is open — but the
+         order card pinned to Home does not, and stayed stale. So the orders
+         are read again (see `foodRefresh.ts`). */
+      if (isFoodPush(payload)) {
+        announceFoodOrdersChanged();
+        return;
+      }
+      if (isSupportPush(payload)) {
+        queryClient.invalidateQueries({ queryKey: ['tickets'] });
+        return;
+      }
       if (isBookingPush(payload)) {
         queryClient.invalidateQueries({ queryKey: ['bookings'] });
         if (payload.bookingId) queryClient.invalidateQueries({ queryKey: ['bookings', payload.bookingId] });

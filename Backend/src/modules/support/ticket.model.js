@@ -327,6 +327,11 @@ const ticketSchema = new mongoose.Schema(
      */
     customerReadAt: { type: Date, default: null },
 
+    /* When the requester said "yes, this is sorted". Kept on the ticket so
+       every device the student uses knows the question was answered — the
+       app stored it per phone, and asked again on the next one. */
+    requesterConfirmedAt: { type: Date, default: null },
+
     /* Sort key for the list. Denormalised off `messages` because sorting on
        the last element of a subdocument array is not something Mongo will use
        an index for. */
@@ -533,6 +538,7 @@ ticketSchema.methods.toPublicDetail = function toPublicDetail(opts) {
   return {
     ...this.toPublicSummary(opts),
     evidenceRequired: this.evidenceRequired,
+    requesterConfirmedAt: this.requesterConfirmedAt || null,
     messages: this.messages.map((message) => ({
       id: String(message._id),
       author: message.author,

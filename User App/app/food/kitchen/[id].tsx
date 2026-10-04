@@ -262,9 +262,16 @@ export default function KitchenScreen() {
   const sheetDish = sheetDishId ? menu.find((dish) => dish.id === sheetDishId) : undefined;
 
   const setDishQty = (dish: Dish, next: number) => {
-    const existing = lines.find((line) => line.dishId === dish.id);
-    if (existing) {
-      setQty(existing.key, next);
+    /* The row shows the TOTAL across this dish's lines (one per set of
+       add-ons), so the stepper's `next` is a total too. It used to be written
+       onto the first line as-is: two lines of 1 showed "2", a tap on + set the
+       first line to 3, and the cart jumped to 4. Applied as a step to the
+       newest line instead. */
+    const dishLines = lines.filter((line) => line.dishId === dish.id);
+    if (dishLines.length) {
+      const target = dishLines[dishLines.length - 1];
+      const delta = next - dishLines.reduce((sum, line) => sum + line.qty, 0);
+      setQty(target.key, target.qty + delta);
       return;
     }
     if (next > 0) add(dish, { spice: preferences.spice, kitchen });
@@ -372,7 +379,9 @@ export default function KitchenScreen() {
                   style={{ flex: 1, color: open ? colors.brandInk : colors.textSecondary }}
                 >
                   {metaLine(
-                    `${kitchen.prepMinutes + kitchen.deliveryMinutes} mins`,
+                    kitchen.deliveryMinutes > 0
+                      ? `${kitchen.prepMinutes + kitchen.deliveryMinutes} mins`
+                      : `Ready in ${kitchen.prepMinutes} mins`,
                     open ? 'Open now' : 'Closed now',
                   )}
                 </Text>
@@ -462,12 +471,31 @@ export default function KitchenScreen() {
               onPrimary={() => setQuery('')}
             />
           ) : (
-            <FoodEmptyState
-              title="Nothing veg on this menu today"
-              body={`${kitchen.name} cooks ${menu.length} dishes, none of them veg. Turning veg-only off shows all of them.`}
-              primaryLabel="Show everything"
-              onPrimary={() => setPreferences({ vegOnly: false })}
-            />
+            /* Only "nothing veg" when that is the reason. An empty menu, or a
+               diet filter, said "Nothing veg" too — wrongly blaming veg-only
+               for a menu that had simply not loaded. */
+            preferences.vegOnly && menu.length > 0 ? (
+              <FoodEmptyState
+                title="Nothing veg on this menu today"
+                body={`${kitchen.name} cooks ${menu.length} dishes, none of them veg. Turning veg-only off shows all of them.`}
+                primaryLabel="Show everything"
+                onPrimary={() => setPreferences({ vegOnly: false })}
+              />
+            ) : diets.length && menu.length > 0 ? (
+              <FoodEmptyState
+                title="Nothing matches these filters"
+                body="Clear the filters to see the whole menu."
+                primaryLabel="Clear filters"
+                onPrimary={() => setDiets([])}
+              />
+            ) : (
+              <FoodEmptyState
+                title="No dishes to show right now"
+                body={`${kitchen.name}'s menu could not be shown. Pull down to try again.`}
+                primaryLabel="Back"
+                onPrimary={() => router.back()}
+              />
+            )
           )
         ) : (
           sections

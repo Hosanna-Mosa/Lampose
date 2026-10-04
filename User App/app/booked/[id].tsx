@@ -189,7 +189,8 @@ export default function Booked() {
         'Your room',
       ownerName: listing.ownerName,
       rent: listing.rent ?? 0,
-      moveInLabel: joinDate ? prettyDate(joinDate) : undefined,
+      /* Never the fixture's own "5 September 2026": a date nobody chose. */
+      moveInLabel: joinDate ? prettyDate(joinDate) : 'your move-in date',
     });
   }, [real.booking, listing, sharingId, joinDate]);
 
@@ -229,10 +230,19 @@ export default function Booked() {
    * `openInGoogleMaps` falls back to searching the address text, which is
    * right for an address somebody could also read out over a phone.
    */
-  const realAddress = stay.request?.address?.trim() || null;
-  const shownAddress = realAddress ?? booking.address;
-  const shownLandmark = realAddress ? undefined : booking.landmark;
-  const shownCoords = realAddress ? undefined : booking.coords;
+  /*
+   * Only ever a REAL address: the server's on the request, or the one on the
+   * real booking. The fixture `confirmedBookingFor` mints is a Hyderabad
+   * street with its own pin — it was shown while loading, and for good if
+   * the booking fetch failed, and "Open in Google Maps" sent a student to it.
+   * With no real address this section is simply not drawn.
+   */
+  const realAddress = stay.request?.address?.trim()
+    || (real.booking ? booking.address?.trim() : '')
+    || null;
+  const shownAddress = realAddress ?? undefined;
+  const shownLandmark = undefined;
+  const shownCoords = undefined;
 
   const showAddress = addressVisible(booking.status) && Boolean(shownAddress);
 
@@ -423,9 +433,21 @@ export default function Booked() {
                         {' × '}{formatRupees(stayRate)}
                       </Text>
                       <Text variant="priceSm" color="tertiary">
-                        {formatRupees(paidRupees)}
+                        {/* The product of the line, not the net paid — "3 × ₹1,200
+                            = ₹3,500" did not add up whenever a coupon applied. */}
+                        {formatRupees(stayNights * stayRate)}
                       </Text>
                     </View>
+                    {stayNights * stayRate > paidRupees && paidRupees > 0 ? (
+                      <View style={styles.payRow}>
+                        <Text variant="caption" color="tertiary" style={styles.flex}>
+                          Coupon
+                        </Text>
+                        <Text variant="priceSm" color="tertiary">
+                          −{formatRupees(stayNights * stayRate - paidRupees)}
+                        </Text>
+                      </View>
+                    ) : null}
                   </>
                 ) : null
               ) : null}

@@ -157,10 +157,39 @@ const ERASERS = {
       ])
       : [{}, {}, {}];
 
+    /*
+     * The owner's listings come down with them.
+     *
+     * They used to stay live, still carrying the owner's own number: an app
+     * request to them failed (the owner no longer exists to accept it), and a
+     * web request still went to that number on WhatsApp — a deleted owner
+     * being contacted through Lampose. Removed the way the owner's own
+     * "Delete this listing" removes one (soft, `status: 'removed'`), with the
+     * number scrubbed, and every room type paused.
+     */
+    let propertiesRemoved = 0;
+    if (digits) {
+      const Property = require('../properties/property.model');
+      const { PartnerShareType } = require('../partners/partnerDomains.model');
+      const { phoneKey } = require('../partners/partner.model');
+      const theirs = (await Property.find({ status: { $ne: 'removed' } }).select('_id ownerMobile').lean())
+        .filter((property) => phoneKey(property.ownerMobile) === digits)
+        .map((property) => property._id);
+      if (theirs.length) {
+        const removed = await Property.updateMany(
+          { _id: { $in: theirs } },
+          { $set: { status: 'removed', removedAt: now, ownerMobile: '' } },
+        );
+        propertiesRemoved = removed.modifiedCount || 0;
+      }
+      await PartnerShareType.updateMany({ partnerPhoneDigits: digits }, { $set: { isAvailable: false } });
+    }
+
     return {
       paymentMethods: methods.deletedCount || 0,
       staff: staff.deletedCount || 0,
       notifications: notices.deletedCount || 0,
+      propertiesRemoved,
       supportThreads: await scrubSupport('partner', doc.partnerId),
     };
   },
@@ -190,6 +219,7 @@ const ERASERS = {
         openState: 'closed',
         deletion: completedDeletion(request, now),
       },
+      $inc: { sessionVersion: 1 },
       $unset: {
         ownerEmail: '', passwordHash: '', passwordSetup: '', aadhaar: '', payout: '',
         address: '', location: '', logoImage: '', coverBannerImage: '',
@@ -227,6 +257,7 @@ const ERASERS = {
         lastLoginAt: null,
         deletion: completedDeletion(request, now),
       },
+      $inc: { sessionVersion: 1 },
       $unset: { address: '', vehicle: '', payout: '', currentLocation: '', otp: '' },
     });
     return { supportThreads: await scrubSupport('driver', doc.driverId) };

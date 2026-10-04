@@ -802,6 +802,7 @@ export const money = {
   perBedSuffix: '/bed',
   perBedSuffixLong: '/bed/month',
   perNightSuffix: '/night',
+  perDaySuffix: '/day',
   estimatePrefix: '≈',
   estimateWeight: 500 as const,
   depositUnderline: { width: 2, style: 'dotted' as const, offset: 2 },

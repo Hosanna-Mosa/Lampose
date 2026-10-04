@@ -9,6 +9,7 @@
 import { router } from "expo-router";
 import React, { useState } from "react";
 import {
+  Alert,
   StyleSheet,
 } from "react-native";
 
@@ -20,6 +21,7 @@ import { missingFor } from "@/lib/gates";
 import { readMenuSheet } from "@/lib/menuSheet";
 import { usePartnerStore, type MenuItem } from "@/store/partnerStore";
 import { colors, radius, space, touch } from "@/theme";
+import { dietColor } from "@/lib/diet";
 
 type Editing = { categoryId: string; item: MenuItem; isNew: boolean } | null;
 
@@ -40,6 +42,9 @@ export function StepMenu() {
 
   const missing = missingFor(3, data, COPY);
   const categoryNames = data.menuCategories.map((c) => c.name);
+  /* Two categories with one name are one category to a diner, and moving a
+     dish between them (by name) could not tell them apart. */
+  const nameTaken = categoryNames.some((n) => n.trim().toLowerCase() === newName.trim().toLowerCase());
   const items = data.menuCategories.flatMap((c) => c.items);
   const noPhoto = items.filter((i) => !i.productImage).length;
 
@@ -153,8 +158,12 @@ export function StepMenu() {
 
           {data.menuRows.length > 0 && (
             <Note tone="info">
-              Once you submit, our onboarding team checks the sheet and the photos, confirms the prices
-              with you, and sets the menu up within 24 hours.
+              {/* What is actually sent: every row read from the sheet, as a dish,
+                  with its photo — not the file itself. The copy said the team
+                  "checks the sheet", which nobody could, as it never left the phone. */}
+              Once you submit, the {data.menuRows.length} dish{data.menuRows.length === 1 ? "" : "es"} read
+              from your sheet go to our onboarding team with their photos. They confirm the prices with
+              you and set the menu up within 24 hours.
             </Note>
           )}
         </Block>
@@ -191,7 +200,22 @@ export function StepMenu() {
                   <IconBtn
                     glyph="trash"
                     accessibilityLabel={`Remove ${category.name}`}
-                    onPress={() => removeCategory(category.id)}
+                    onPress={() => {
+                      /* Its dishes go with it, so a category with any is
+                         asked about first — one stray tap lost them all. */
+                      if (!category.items.length) {
+                        removeCategory(category.id);
+                        return;
+                      }
+                      Alert.alert(
+                        `Remove ${category.name}?`,
+                        `Its ${category.items.length} item${category.items.length === 1 ? "" : "s"} will be removed too.`,
+                        [
+                          { text: "Keep it", style: "cancel" },
+                          { text: "Remove", style: "destructive", onPress: () => removeCategory(category.id) },
+                        ],
+                      );
+                    }}
                   />
                 </Box>
 
@@ -203,11 +227,11 @@ export function StepMenu() {
                     onPress={() => setEditing({ categoryId: category.id, item, isNew: false })}
                     style={styles.itemRow}
                   >
-                    <Box style={[styles.veg, { borderColor: item.isVeg === "veg" ? colors.success.base : colors.danger.base }]}>
+                    <Box style={[styles.veg, { borderColor: dietColor(item.isVeg) }]}>
                       <Box
                         style={[
                           styles.vegDot,
-                          { backgroundColor: item.isVeg === "veg" ? colors.success.base : colors.danger.base },
+                          { backgroundColor: dietColor(item.isVeg) },
                         ]}
                       />
                     </Box>
@@ -257,7 +281,7 @@ export function StepMenu() {
         footer={
           <Btn
             label="Add category"
-            disabled={!newName.trim()}
+            disabled={!newName.trim() || nameTaken}
             onPress={() => {
               addCategory(newName.trim());
               setNewName("");
@@ -266,7 +290,11 @@ export function StepMenu() {
           />
         }
       >
-        <Field label="Category name" required>
+        <Field
+          label="Category name"
+          required
+          hint={nameTaken ? "You already have a category with this name." : undefined}
+        >
           <TextField value={newName} onChangeText={setNewName} placeholder="e.g. Starters" />
         </Field>
         <Box style={styles.chipWrap}>

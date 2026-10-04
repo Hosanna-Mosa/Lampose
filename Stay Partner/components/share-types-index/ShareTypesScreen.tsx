@@ -15,6 +15,7 @@ import { radius } from '@/constants/layout';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 import { logWarn } from '@/lib/log';
+import { ApiError } from '@/services/api/client';
 import { backRowBase, boldLabel } from '@/components/common/utils/styles';
 
 /*
@@ -44,6 +45,13 @@ export function ShareTypesScreen() {
      screen for good if the request failed. */
   const [shareTypesList, setShareTypesList] = useState<any[]>([]);
   const [draft, setDraft] = useState<Record<string, boolean>>({});
+  /* A failed load and a failed save are SAID. Both used to go to `logWarn`
+     only: a failed load looked exactly like "no room types", and a failed
+     save went back to the previous screen as if it had worked. */
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   /*
    * Which kind of building, for finding one row among many.
@@ -75,14 +83,22 @@ export function ShareTypesScreen() {
   );
 
   const loadShareTypes = async () => {
+    setLoadError(null);
     try {
       const data = await fetchShareTypesApi();
-      if (Array.isArray(data) && data.length === 0) setShareTypes([]);
+      if (Array.isArray(data) && data.length === 0) {
+        setShareTypes([]);
+        setShareTypesList([]);
+      }
       if (Array.isArray(data) && data.length > 0) {
         const mapped = data.map((st: any) => ({
           id: st.shareTypeId || st.id || st._id,
           label: st.name || 'Room',
-          pricePerBed: `₹${(st.monthlyPrice || 8000).toLocaleString('en-IN')}`,
+          /* The real price or "not set" — never a stand-in ₹8,000. And not
+             "per bed" on a hotel room, which is let whole. */
+          pricePerBed: st.monthlyPrice
+            ? `₹${Number(st.monthlyPrice).toLocaleString('en-IN')}${String(st.category || '') === 'HOTEL' ? '' : ' per bed'}`
+            : 'Price not set',
           available: Boolean(st.isAvailable),
           /* Which building this room type belongs to. Both empty on a row
              whose property has since been deleted — still the owner's to
@@ -96,8 +112,10 @@ export function ShareTypesScreen() {
            both read, so they stop disagreeing with this screen. */
         setShareTypes(mapped);
       }
+      setLoaded(true);
     } catch (err) {
       logWarn('Failed to fetch share types:', err);
+      setLoadError(err instanceof ApiError ? err.displayMessage : 'We could not load your room types.');
     }
   };
 
@@ -125,9 +143,24 @@ export function ShareTypesScreen() {
    * paused here stops being requestable in the app.
    */
   const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    setSaveError(null);
     try {
       const changed = shareTypesList.filter((t) => draft[t.id] !== t.available);
-      await Promise.all(changed.map((t) => setShareTypeAvailability(t.id, draft[t.id])));
+      /* Every row, and every failure counted: `Promise.all` stopped at the
+         first refusal and hid how many of the others had already saved. */
+      const results = await Promise.allSettled(changed.map((t) => setShareTypeAvailability(t.id, draft[t.id])));
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      if (failed) {
+        setSaveError(
+          failed === changed.length
+            ? 'Nothing was saved. Check your connection and try again.'
+            : `${failed} of ${changed.length} changes did not save. Try again.`,
+        );
+        await loadShareTypes();
+        return;
+      }
       saveShareTypes(draft);
 
       /* Sync overall partner online availability:
@@ -136,17 +169,25 @@ export function ShareTypesScreen() {
       const anyAvailable = Object.values(draft).some(Boolean);
       await toggleShareTypesAvailabilityApi(anyAvailable);
       setAvailable(anyAvailable);
+      router.back();
     } catch (err) {
       logWarn('Failed to save share types availability:', err);
+      setSaveError(err instanceof ApiError ? err.displayMessage : 'That did not save. Try again.');
+    } finally {
+      setSaving(false);
     }
-    router.back();
   };
 
   return (
     <Screen
       contentStyle={styles.stack}
             footer={
-              <Button label={confirming ? 'Confirm & go online' : 'Save'} onPress={save} disabled={!canSubmit} />
+              <Button
+                label={confirming ? 'Confirm & go online' : 'Save'}
+                onPress={save}
+                loading={saving}
+                disabled={!canSubmit || saving}
+              />
             }
       stickyHeader={
         <>
@@ -189,6 +230,30 @@ export function ShareTypesScreen() {
         </Box>
       ) : null}
 
+      {loadError ? (
+        <EmptyState
+          icon="alert-circle"
+          title="We could not load your room types"
+          body={loadError}
+          actionLabel="Try again"
+          onAction={() => { void loadShareTypes(); }}
+        />
+      ) : null}
+
+      {loaded && !loadError && !shareTypesList.length ? (
+        <EmptyState
+          icon="bed"
+          title="No room types yet"
+          body="Add the sharing types and their bed counts in your property's details, and they will appear here."
+        />
+      ) : null}
+
+      {saveError ? (
+        <Text variant="bodySm" color="error">
+          {saveError}
+        </Text>
+      ) : null}
+
       {shareTypesList.length && !shown.length ? (
         <EmptyState
           icon="bed"
@@ -210,7 +275,7 @@ export function ShareTypesScreen() {
                   {/* The building, where it is known. Two rows both called
                       "1 BHK" are only telling apart by which property they
                       are in — the price alone is a guess. */}
-                  {t.pricePerBed} per bed{t.propertyName ? ` · ${t.propertyName}` : ''}
+                  {t.pricePerBed}{t.propertyName ? ` · ${t.propertyName}` : ''}
                 </Text>
               </Box>
               <Switch

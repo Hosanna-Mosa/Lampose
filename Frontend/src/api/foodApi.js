@@ -212,6 +212,16 @@ const ORDERS = '/v2/food-partners/orders';
 export const placeFoodOrder = (order) => apiClient.post(ORDERS, order);
 
 /**
+ * The bill for a cart, priced by the server's one calculator — what the
+ * cart and checkout show before anyone pays. Writes nothing.
+ *
+ * @param {{restaurantId: string, lines: object[], dropLat?: number, dropLng?: number}} cart
+ */
+export const quoteFoodOrder = (cart) => apiClient
+  .post(`${ORDERS}/quote`, cart)
+  .then((res) => res.data);
+
+/**
  * Open the gateway for an order that is waiting to be paid.
  *
  * Mints (or re-uses) the Razorpay order for the amount THIS server computed —

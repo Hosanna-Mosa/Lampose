@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { getSecret, setSecret, deleteSecret } from '../services/secureStore';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -12,6 +13,7 @@ import {
   resendAuthCode,
   setAuthToken,
   setSessionExpiredHandler,
+  setAccountPausedHandler,
   startAuth,
   updateMe,
   verifyAuth,
@@ -192,6 +194,8 @@ type AuthContextValue = {
    * is what shows the "Logout" alert this flag exists for.
    */
   sessionExpired: boolean;
+  /** The server answered ACCOUNT_BLOCKED on a signed-in request. */
+  accountPaused: boolean;
   /** Clears the dead session and sends the student to the sign-in screen. */
   acknowledgeSessionExpired: () => Promise<void>;
 };
@@ -217,6 +221,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS);
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [accountPaused, setAccountPaused] = useState(false);
+  useEffect(() => {
+    setAccountPausedHandler(() => setAccountPaused(true));
+    return () => setAccountPausedHandler(null);
+  }, []);
 
   const config = useMemo<AppConfig>(
     () => ({ serverTimeOffsetMs: 0, otpLength }),
@@ -234,6 +243,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * handset to deregister.
    */
   const pushToken = useRef<string | null>(null);
+  const queryClient = useQueryClient();
 
   /**
    * Put this handset on the account's list.
@@ -300,7 +310,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await Promise.all([
         AsyncStorage.removeItem(SESSION_KEY),
         deleteSecret(TOKEN_KEY),
+        /* Which notifications this account had read — not the next one's. */
+        AsyncStorage.removeItem('@lampose/notifications-read'),
       ]);
+      /*
+       * Every cached answer goes too. The query keys are not scoped to an
+       * account, so on a shared phone the next person to sign in was shown
+       * the previous one's bookings, addresses, tickets and coupon until each
+       * screen happened to refetch.
+       */
+      queryClient.clear();
       return;
     }
     setUser(session.user);
@@ -319,7 +338,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
        dialog, and blocking the sign-in transition behind it would leave
        somebody looking at a spinner under a system prompt. */
     attachDevice().catch(() => {});
-  }, [attachDevice]);
+  }, [attachDevice, queryClient]);
 
   /* ── Restore, then revalidate ──────────────────────────────────────────
      The stored copy paints the first frame; the server decides whether the
@@ -371,6 +390,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
            client's session handler below covers that case. */
         if (error instanceof ApiError && error.isNetwork) return;
         if (error instanceof ApiError && error.status >= 500) return;
+        /* Paused is not signed out: the session is kept so the student can
+           still reach support (which accepts it), and the client's paused
+           handler has already flagged it for `SessionExpiredWatcher` to say. */
+        if (error instanceof ApiError && error.code === 'ACCOUNT_BLOCKED') return;
         await persist(null);
         setStatus('guest');
       }
@@ -423,6 +446,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!(error instanceof ApiError)) return 'offline';
     if (error.isNetwork) return 'offline';
     if (error.status === 429) return 'rateLimited';
+    if (error.code === 'ACCOUNT_BLOCKED') return 'accountPaused';
+    if (error.code === 'BAD_PHONE' || error.code === 'VALIDATION_ERROR') return 'badNumber';
+    if (error.code === 'DB_DISCONNECTED' || (error.status >= 500 && error.code !== 'OTP_SEND_FAILED')) return 'server';
+    /* Only a real gateway refusal is the SMS provider's. */
     return 'smsProvider';
   }, []);
 
@@ -465,6 +492,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (error.code === 'RESEND_TOO_SOON') {
             if (typeof payload?.retryAfter === 'number') setResendIn(payload.retryAfter);
             setPendingPhone(phone);
+            /* THIS number, masked — the screen kept whichever number was
+               masked last, which after a change of number named the wrong
+               phone over the code boxes. */
+            const digits = phone.replace(/\D/g, '').slice(-10);
+            const masked = (payload as { data?: { phoneMasked?: string } } | null)?.data?.phoneMasked;
+            setPendingPhoneMasked(masked || (digits.length === 10 ? `+91 ••••• •${digits.slice(-4)}` : null));
             setStatus('awaitingCode');
             return 'pending';
           }
@@ -510,8 +543,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
      sign-in so a reinstall does not ask again. A ref because it is written by
      a different provider and only ever read at the moment of the call. */
   const categoryRef = useRef<string | null>(null);
+  /* A status ref, so the callback stays stable for the provider that calls it. */
+  const statusRef = useRef(status);
+  statusRef.current = status;
   const syncCategory = useCallback((category: string) => {
     categoryRef.current = category;
+    /* Already signed in — save it now. It only ever went to the server at the
+       NEXT sign-in, and first-run order is sign-in THEN category, so a new
+       account was created with `category: null` and kept it. Best effort: a
+       failure leaves the ref to be sent at the next sign-in, as before. */
+    if (statusRef.current === 'signedIn') {
+      updateMe({ category }).catch(() => {});
+    }
   }, []);
 
   const verifyCode = useCallback(
@@ -653,6 +696,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const continueAsGuest = useCallback(() => {
+    /* Skipping sign-in drops what was waiting on it. Kept, it fired at the
+       NEXT sign-in — maybe days later — replaying a stale action and
+       calling `router.back()` out of wherever they then were. */
+    pendingIntentRef.current = null;
     setStatus('guest');
   }, []);
 
@@ -682,6 +729,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       resumePendingIntent,
       continueAsGuest,
       sessionExpired,
+      accountPaused,
       acknowledgeSessionExpired,
     }),
     [
@@ -709,6 +757,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       syncCategory,
       signOut,
       sessionExpired,
+      accountPaused,
       acknowledgeSessionExpired,
     ],
   );
@@ -790,9 +839,27 @@ export function useAuth(): AuthContextValue {
  * the student out.
  */
 export function SessionExpiredWatcher() {
-  const { sessionExpired, acknowledgeSessionExpired } = useAuth();
+  const { sessionExpired, acknowledgeSessionExpired, accountPaused } = useAuth();
   const { alert } = useAlert();
   const showing = useRef(false);
+  const pausedShown = useRef(false);
+
+  /* A paused account: said once per run, with the way out — support, which
+     still takes this session. Every refused request re-raises the flag, so
+     the ref is what keeps it to one alert. */
+  useEffect(() => {
+    if (!accountPaused || pausedShown.current) return;
+    pausedShown.current = true;
+    (async () => {
+      await alert({
+        title: 'Account paused',
+        message: 'Lampose has paused this account, so bookings and orders are unavailable. You can still write to support.',
+        tone: 'warning',
+        dismissLabel: 'Contact support',
+      });
+      router.push('/support' as never);
+    })();
+  }, [accountPaused, alert]);
 
   useEffect(() => {
     if (!sessionExpired || showing.current) return;

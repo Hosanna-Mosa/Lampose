@@ -88,6 +88,9 @@ export default function ListingDetail() {
      wrong on a short screen. */
   const heroHeight = usePhotoHeroHeight();
   const router = useRouter();
+  /* A listing opened from a shared link has no history — `router.back()` did
+     nothing, and the student was stuck on the page. Home, then. */
+  const goBack = () => (router.canGoBack() ? router.back() : router.replace('/home'));
   const { id } = useLocalSearchParams<{ id: string }>();
   const { locality } = useAppState();
   const { status, user, completeProfile, requireSignIn } = useAuth();
@@ -267,7 +270,7 @@ export default function ListingDetail() {
         <StateTemplate
           copy={errorStates.notFound()}
           onPrimary={() => router.replace('/home')}
-          onSecondary={() => router.back()}
+          onSecondary={() => goBack()}
         />
       </View>
     );
@@ -288,7 +291,7 @@ export default function ListingDetail() {
             disabled={isFetching}
             fullWidth
           />
-          <Button label="Back to places" variant="ghost" onPress={() => router.back()} fullWidth />
+          <Button label="Back to places" variant="ghost" onPress={() => goBack()} fullWidth />
         </View>
       </View>
     );
@@ -365,8 +368,14 @@ export default function ListingDetail() {
      category), so the note under the selector must not call them monthly. */
   /* A bachelor room and a house / co-living unit are let whole, so their
      prices are not per person — only a PG or hostel bed is. */
-  const pricedPerPerson = listing.category !== 'BACHELOR' && listing.category !== 'COLIVE';
-  const priceBasisNote = listing.perNight
+  const pricedPerPerson = listing.category !== 'BACHELOR' && listing.category !== 'COLIVE'
+    && listing.category !== 'HOTEL';
+  /* A hotel prices a ROOM by the night — never "per person, per month", and
+     not per person at all. */
+  const nightly = listing.category === 'HOTEL' || listing.perNight;
+  const priceBasisNote = listing.category === 'HOTEL'
+    ? 'Every price is per room, per night.'
+    : nightly
     ? 'Every price is per person, per night.'
     : pricedPerPerson
       ? 'Every price is per person, per month.'
@@ -598,7 +607,7 @@ export default function ListingDetail() {
       <PhotoHeader
         title={listing.name}
         scrollY={scrollY}
-        onBack={() => router.back()}
+        onBack={() => goBack()}
         onAction={() => listing && requireSignIn(() => toggleSaved(listing.id))}
         actionIcon="heart"
         actionActive={saved}
@@ -738,19 +747,32 @@ export default function ListingDetail() {
                   variant="priceHero"
                   style={{ color: colors.brand, fontSize: 28, lineHeight: 34, marginTop: 2 }}
                 >
-                  {shownRent ? formatRupees(shownRent) : '₹—'}
-                  <Text variant="body" color="secondary" style={{ fontWeight: '500' }}>
-                    {(totals ? totals.rate.id === 'DAILY' : listing.perNight) ? ' / night' : ' / month'}
-                  </Text>
+                  {/* Words, not "₹—", when there is no figure — and no unit
+                      after a price that is not there. */}
+                  {shownRent ? formatRupees(shownRent) : 'Price on request'}
+                  {shownRent ? (
+                    <Text variant="body" color="secondary" style={{ fontWeight: '500' }}>
+                      {/* A PG's short stay is by the DAY; only a hotel is nightly. */}
+                      {(totals ? totals.rate.id === 'DAILY' : nightly)
+                        ? (isHotel ? ' / night' : ' / day')
+                        : ' / month'}
+                    </Text>
+                  ) : null}
                 </Text>
               </View>
 
-              <View style={[styles.zeroBrokeragePill, { backgroundColor: colors.brand }]}>
-                <Icon name="check" size={12} color="#FFFFFF" />
-                <Text variant="caption" style={{ color: '#FFFFFF', fontWeight: '700', marginLeft: 4 }}>
-                  Zero Brokerage
-                </Text>
-              </View>
+              {/* "Zero Brokerage" was printed on every listing, including those
+                  where a visit is paid for through Lampose — technically not a
+                  brokerage, but a student reading "zero" and then being asked
+                  for ₹199 feels misled. Said only where nothing is charged. */}
+              {listing.visitToken?.required ? null : (
+                <View style={[styles.zeroBrokeragePill, { backgroundColor: colors.brand }]}>
+                  <Icon name="check" size={12} color="#FFFFFF" />
+                  <Text variant="caption" style={{ color: '#FFFFFF', fontWeight: '700', marginLeft: 4 }}>
+                    Zero Brokerage
+                  </Text>
+                </View>
+              )}
             </View>
 
             <View
@@ -860,6 +882,7 @@ export default function ListingDetail() {
                 options={listing.sharingOptions}
                 value={hotelIntent}
                 onChange={setHotelIntent}
+                joinWindow={listing.joinWindow}
               />
             </View>
           ) : byStay ? (
@@ -1025,6 +1048,13 @@ export default function ListingDetail() {
           // length in makes two listings at the same rate look different
           // because one was viewed at 3 months and the other at 6.
           rent={totals ? totals.perUnit : (shownRent ?? undefined)}
+          /* The chosen rate's own period. A PG's ₹500 day rate was printed
+             "₹500 /month × 3 days" — the bar always said month. */
+          ratePeriod={
+            totals
+              ? totals.rate.id === 'DAILY' ? (isHotel ? 'night' : 'day') : undefined
+              : nightly ? 'night' : undefined
+          }
           multiplier={
             totals && intent.units !== null
               ? `× ${intent.units} ${totals.rate.unit}${intent.units === 1 ? '' : 's'}`

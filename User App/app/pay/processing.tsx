@@ -20,6 +20,7 @@ import {
 } from '@/types/payment';
 import { usePreviewControls } from '@/hooks/useAppEnv';
 import { useActionBarInset } from '@/hooks/useActionBarInset';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * Leaving, returning, waiting, and the three ways it fails.
@@ -36,7 +37,7 @@ import { useActionBarInset } from '@/hooks/useActionBarInset';
  * There is no back button anywhere in here. Navigating backwards out of a
  * payment mid-flight is how someone ends up paying twice.
  */
-export default function PaymentProcessing() {
+function PaymentProcessing() {
   const previewControls = usePreviewControls();
   const { colors, space, layout, mode, radius } = useTheme();
   const insets = useSafeAreaInsets();
@@ -297,3 +298,6 @@ const styles = StyleSheet.create({
   wrap: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
   fieldRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
 });
+
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(PaymentProcessing);

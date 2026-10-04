@@ -39,7 +39,7 @@
 const mongoose = require('mongoose');
 
 const config = require('../../config/env');
-const { expireDue } = require('./stayRequest.service');
+const { expireDue, expireLapsedPayments } = require('./stayRequest.service');
 
 let timer = null;
 /* One tick at a time. A tick that overruns its interval — a slow database, a
@@ -107,7 +107,23 @@ const tick = async () => {
       }
     }
 
-    return { skipped: false, expired: expired.length };
+    /* The second clock: an accepted request nobody paid for. See
+       `expireLapsedPayments`. Its own try, so a failure here never undoes
+       or hides the expiries recorded above. */
+    let lapsed = [];
+    try {
+      lapsed = await expireLapsedPayments();
+      if (lapsed.length) {
+        const notifier = require('../notifications/stayRequest.notifier');
+        await Promise.all(lapsed.map(({ request }) => notifier.notifyPaymentLapsed(request)
+          .catch((error) => console.error('[expiry] lapse recorded but notifying failed:', error.message))));
+      }
+    } catch (error) {
+      stats.errors += 1;
+      console.error('[expiry] lapsed-payment pass failed:', error.message);
+    }
+
+    return { skipped: false, expired: expired.length, lapsed: lapsed.length };
   } catch (error) {
     stats.errors += 1;
     console.error('[expiry] tick failed:', error.message);

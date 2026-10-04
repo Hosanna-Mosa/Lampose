@@ -9,6 +9,7 @@ import { StandardHeader } from '@/components/shell';
 import { DepositEstimate, NoticeDatePicker } from '@/components/lifecycle';
 import { noticeTerms } from '@/data/bookings';
 import { useTheme } from '@/context/ThemeContext';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * Screen 52 — giving notice.
@@ -22,7 +23,12 @@ import { useTheme } from '@/context/ThemeContext';
  * The costly option is not disabled. Leaving early is a legitimate choice; it
  * just may not be a silent one. See `NoticeDatePicker`.
  */
-export default function GiveNotice() {
+/* Preview builds only. It runs on fixture terms (`noticeTerms`) and its
+   button submits to nothing — there is no notice endpoint — and as a file
+   under `app/` it was a live deep link in production. */
+export default previewOnly(GiveNotice);
+
+function GiveNotice() {
   const { colors, space, layout, mode, radius } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();

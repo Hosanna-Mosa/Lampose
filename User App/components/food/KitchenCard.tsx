@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { metaLine, walkLabel } from '@/services/adapters/food.adapter';
+import { deliveryLabel, metaLine, walkLabel } from '@/services/adapters/food.adapter';
 
 import { Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
@@ -100,19 +100,12 @@ export function KitchenCard({
             right now, so they print either way — a closed kitchen is still
             worth comparing against an open one on price. */}
         <View style={[styles.feeRow, { gap: space[2], marginTop: space[1] }]}>
-          <View
-            style={[
-              styles.feeChip,
-              { backgroundColor: colors.brandTint, borderRadius: radius.chip, paddingHorizontal: space[2] - 2 },
-            ]}
-          >
-            <Text variant="numMeta" style={{ color: colors.brandInk }}>
-              Free pickup
-            </Text>
-          </View>
+          {/* No "Free pickup" chip: pickup is not offered (the server refuses
+              it), and the chip advertised it on every card. */}
           <Text variant="numMeta" color="tertiary" numberOfLines={1} style={{ flex: 1 }}>
-            {kitchen.deliveryFee === 0 ? 'Free delivery' : `${formatRupees(kitchen.deliveryFee)} delivery`} · min{' '}
-            {formatRupees(kitchen.minOrder)}
+            {/* No "min ₹0" — there is no minimum order any more. */}
+            {deliveryLabel(kitchen)}
+            {kitchen.minOrder > 0 ? ` · min ${formatRupees(kitchen.minOrder)}` : ''}
           </Text>
         </View>
       </View>

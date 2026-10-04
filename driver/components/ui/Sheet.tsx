@@ -108,11 +108,21 @@ export function Sheet({
  * Near-black rather than the page ground, because it sits over content and has
  * to be legible against whatever happens to be behind it.
  */
+/* The tick is for things that WORKED. It sat beside "This phone cannot
+   place calls" and "Location permission denied" too, which reads as the
+   opposite of what the words say. Callers pass a sentence only, so the
+   sentence picks: failure wording first, then clear successes, else a
+   neutral mark. */
+const TOAST_FAILED = /(could not|cannot|can't|not able|unable|denied|failed|error|do not have|has not|still carrying|finish (the|your|it)|sign in again|no maps)/i;
+const TOAST_DONE = /(saved|sent|deleted|updated|accepted|declined|given back|support has it|you are now|centered|switched)/i;
+
 export function Toast({ message, top }: { message: string | null; top: number }) {
   if (!message) return null;
+  const failed = TOAST_FAILED.test(message);
+  const glyph = failed ? "alert" : TOAST_DONE.test(message) ? "check" : "info";
   return (
     <View pointerEvents="none" style={[styles.toast, { top }]}>
-      <Icon name="check" size={16} color={colors.brandOnDark} />
+      <Icon name={glyph} size={16} color={failed ? "#fca5a5" : colors.brandOnDark} />
       <Text variant="bodyStrong" color="onGraphite" style={{ flex: 1 }}>
         {message}
       </Text>

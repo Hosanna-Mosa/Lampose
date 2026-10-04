@@ -215,6 +215,14 @@ export default function HomeScreen() {
   const toggleDuty = async () => {
     const targetOnline = !online;
 
+    /* Carrying an order: the server refuses going offline (ON_A_DELIVERY), so
+       say so straight away instead of playing "Going Offline… rest well" over
+       a refusal the rider never got to read. */
+    if (!targetOnline && useDriverStore.getState().currentJob) {
+      say("Finish the delivery you are carrying before going offline.");
+      return;
+    }
+
     // Show full-screen overlay transition
     setTransitionOverlay({ visible: true, targetOnline });
     fullScreenOpacity.setValue(0);
@@ -267,6 +275,7 @@ export default function HomeScreen() {
       }),
     ]).start();
 
+    let failed = false;
     try {
       await setOnline(targetOnline);
       const note = useDriverStore.getState().dutyNote;
@@ -276,10 +285,16 @@ export default function HomeScreen() {
         say(targetOnline ? "You are now online! Looking for nearby orders 🚀" : "You are now offline.");
       }
     } catch (err) {
+      /* Refused: the overlay goes NOW, so the reason is on screen rather than
+         expiring underneath a 2.4-second animation that says it worked. */
+      failed = true;
+      radarLoop.stop();
+      fullScreenOpacity.setValue(0);
+      setTransitionOverlay((prev) => ({ ...prev, visible: false }));
       const payload = (err as { payload?: { message?: string } } | null)?.payload;
       say(payload?.message || (err as Error)?.message || "We could not change your status.");
     } finally {
-      setTimeout(() => {
+      if (!failed) setTimeout(() => {
         Animated.timing(fullScreenOpacity, {
           toValue: 0,
           duration: 400,
@@ -392,7 +407,7 @@ export default function HomeScreen() {
         ]}
       >
         <View style={styles.headerLeft}>
-          <Avatar name={driverName} size={42} />
+          <Avatar name={driverName} size={42} photoUrl={profile?.profilePhotoUrl} />
           <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
             <View style={styles.nameRow}>
               <RNText style={styles.driverNameText} numberOfLines={1}>
@@ -413,14 +428,10 @@ export default function HomeScreen() {
 
         {/* Top Right Actions */}
         <View style={styles.headerRight}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Notifications"
-            onPress={() => say("No new notifications")}
-            style={styles.iconCircleBtn}
-          >
-            <Icon name="bell" size={18} color="#1f2937" />
-          </Pressable>
+          {/* No bell: there is no notifications list in this app, and the
+              button only ever said "No new notifications", even with alerts
+              waiting in the phone's tray. Offers and job updates arrive as
+              pushes and on this screen. */}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Settings"
@@ -678,7 +689,10 @@ export default function HomeScreen() {
               exactly where they left off — see `app/onboarding.tsx`'s own
               step-by-step save. Without this, a rider who backgrounded the
               app mid-application had a sentence and nowhere to act on it. */}
-          {blocked && !online && !hasRejectedDocument && (
+          {/* Only while the application really is unfinished. An approved-
+              but-blocked rider (a stale location, say) or one waiting on
+              review was sent back into a form they had already completed. */}
+          {blocked && !online && !hasRejectedDocument && !profile?.hasCompletedOnboarding && (
             <Btn
               label="Finish your profile"
               variant="quiet"
@@ -743,7 +757,7 @@ export default function HomeScreen() {
                 Get Help
               </RNText>
               <RNText style={styles.quickSubtext} numberOfLines={1}>
-                24x7 support
+                Chat with Lampose support
               </RNText>
             </View>
             <Icon name="chevronRight" size={16} color="#9ca3af" />

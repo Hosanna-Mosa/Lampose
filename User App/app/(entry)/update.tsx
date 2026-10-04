@@ -1,6 +1,9 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
+import { Linking } from 'react-native';
+
+import { updateStoreUrl } from '@/services/appVersion';
 
 import { BlockingScreen } from '@/components/auth';
 import { useTheme } from '@/context/ThemeContext';
@@ -28,8 +31,11 @@ export default function ForceUpdateScreen() {
         headline="Update LAMPOSE to keep booking"
         body="Payments and owner replies changed in this version. The one you have cannot show them correctly, so we have stopped it rather than risk a wrong price."
         actionLabel="Update from Play Store"
-        onAction={() => {}}
-        footnote="About 18 MB. Your saved places and bookings stay where they are."
+        /* It did nothing. Now the store page this server named (or the Play
+           listing). */
+        onAction={() => { Linking.openURL(updateStoreUrl()).catch(() => {}); }}
+        /* No download size: nobody measured one, and "18 MB" was a guess. */
+        footnote="Your saved places and bookings stay where they are."
         // Dev only. In a real build this screen renders above the navigator
         // with no way past it — a blocking screen with an escape hatch is not
         // a blocking screen. The exit exists so the preview is navigable.

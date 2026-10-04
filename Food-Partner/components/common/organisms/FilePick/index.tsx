@@ -54,7 +54,7 @@ export function FilePick({
       if (kind === "image") {
         const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (!permission.granted) {
-          setError("Photo access was declined. You can use a sample instead.");
+          setError(__DEV__ ? "Photo access was declined. You can use a sample instead." : "Photo access was declined. Allow it in Settings to choose a file.");
           return;
         }
         const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
@@ -78,7 +78,7 @@ export function FilePick({
       onChange({ name: a.name, uri: a.uri, size: a.size ?? undefined, mimeType: a.mimeType ?? undefined });
     } catch {
       // A picker that fails must not take the step down with it.
-      setError("That did not work. Try again, or use a sample.");
+      setError(__DEV__ ? "That did not work. Try again, or use a sample." : "That did not work. Please try again.");
     }
   };
 
@@ -118,16 +118,20 @@ export function FilePick({
           <Icon name="upload" size={14} color={colors.textPrimary} />
           <Text variant="title3">Choose a file</Text>
         </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => onChange(sampleFor(label, kind))}
-          style={styles.dropBtn}
-        >
-          <Icon name="sparkle" size={14} color={colors.brandInk} />
-          <Text variant="title3" color="brand">
-            Use a sample
-          </Text>
-        </Pressable>
+        {/* Developer builds only — a 1×1 image here was accepted as a real
+            FSSAI licence, PAN card or cancelled cheque. */}
+        {__DEV__ && (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => onChange(sampleFor(label, kind))}
+            style={styles.dropBtn}
+          >
+            <Icon name="sparkle" size={14} color={colors.brandInk} />
+            <Text variant="title3" color="brand">
+              Use a sample
+            </Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );

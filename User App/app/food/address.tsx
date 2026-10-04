@@ -59,7 +59,7 @@ export default function ChooseAddressScreen() {
   const insets = useSafeAreaInsets();
   const actionInset = useBottomEdgeInset();
   const router = useRouter();
-  const { status } = useAuth();
+  const { status, requireSignIn } = useAuth();
   const { address, addressChoices, setAddressId, toPay, count, refreshAddresses } = useFood();
 
   const signedIn = status === 'signedIn';
@@ -199,7 +199,7 @@ export default function ChooseAddressScreen() {
           sentence is the thing somebody taps four times.
         */}
         {!signedIn ? (
-          <Button label="Sign in" fullWidth onPress={() => router.push('/(entry)/auth')} />
+          <Button label="Sign in" fullWidth onPress={() => requireSignIn(() => {})} />
         ) : empty ? (
           <Button label="Add an address" fullWidth onPress={() => router.push('/addresses/edit')} />
         ) : (

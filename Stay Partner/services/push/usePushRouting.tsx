@@ -38,6 +38,11 @@ export function usePushRouting() {
          screen renders every ending — accepted, declined, taken, expired. So
          there is one destination rather than a branch per `kind`, and the
          server's status decides what is drawn. */
+      if (payload.reference && payload.kind?.startsWith('support.')) {
+        router.push({ pathname: '/support/ticket', params: { id: payload.reference } } as never);
+        return;
+      }
+      if (!payload.requestId) return;
       router.push({
         pathname: '/requests/[id]',
         params: { id: payload.requestId },

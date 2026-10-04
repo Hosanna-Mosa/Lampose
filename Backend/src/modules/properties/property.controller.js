@@ -118,7 +118,8 @@ const createProperty = async (req, res, next) => {
        is derived rather than stored as zero. */
     const monthlyPrice = number(body.monthlyPrice);
     const dailyPrice = number(body.dailyPrice);
-    const rent = number(body.rent) || monthlyPrice || dailyPrice || 0;
+    const rawRent = number(body.rent);
+    const rent = monthlyPrice > 0 ? (rawRent >= monthlyPrice ? rawRent : monthlyPrice) : (rawRent > 0 ? rawRent : dailyPrice);
 
     if (rent <= 0) {
       const message = 'Provide a rent, a monthly price or a daily price greater than zero.';

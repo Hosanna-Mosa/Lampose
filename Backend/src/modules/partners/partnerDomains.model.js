@@ -203,6 +203,13 @@ const partnerBookingSchema = new mongoose.Schema(
        (a `failed` payout releases its bookings back — see `processPayout`). */
     payoutId: { type: String, default: null, index: true },
 
+    /* Wrong entry codes typed at check-in, and the lock they earn. The app
+       used to invent both — a 3-minute code "expiry" and a "locked for 15
+       minutes" message — while the server would take any number of guesses
+       at a 6-digit code. See `checkInBooking`. */
+    checkInAttempts: { type: Number, default: 0, min: 0 },
+    checkInLockedUntil: { type: Date, default: null },
+
     /**
      * Identity, collected only on the manual path.
      *
@@ -285,6 +292,11 @@ const partnerPayoutSchema = new mongoose.Schema(
        An owner's payout can be part commission-owed and part hotel money, and
        the two are counted differently — see `payout.service.js`. */
     settlementCount: { type: Number, default: 0 },
+
+    /* Referral points this payout cashed out, when that is what it is — set
+       by `requestReferralPayout`, and given back by `rejectPayout`. Zero for
+       an ordinary earnings payout. */
+    referralPoints: { type: Number, default: 0, min: 0 },
 
     /* Paid by a person making a bank transfer rather than by RazorpayX. The
        normal case while `PAYOUTS_MANUAL` is on. */
@@ -508,6 +520,10 @@ const partnerShareTypeSchema = new mongoose.Schema(
        CREATED, deliberately not when one is accepted — pausing a room type
        stops new askers, it does not strand a request mid-decision. */
     isAvailable: { type: Boolean, default: true },
+    /* Paused by the dashboard's partner-wide switch rather than one by one.
+       Switching back on restores exactly these — and leaves a room type the
+       owner paused on its own exactly as they left it. */
+    pausedByMaster: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

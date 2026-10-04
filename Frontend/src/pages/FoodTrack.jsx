@@ -7,6 +7,7 @@ import { Icon } from '../components/common/atoms/Icon/Icon';
 import { DietMark } from '../components/food/atoms/DietMark';
 import { PhotoTile } from '../components/food/atoms/PhotoTile';
 import { TrackRail } from '../components/food/molecules/TrackRail';
+import { FeeRows } from '../components/food/molecules/BillLines';
 import { ActiveOrder } from '../components/food/organisms/ActiveOrder';
 import { useFoodCatalogue } from '../food/FoodCatalogue';
 import { useAuth } from '../auth/AuthProvider';
@@ -564,26 +565,8 @@ export function FoodTrack() {
               <Box className="fd-rule" />
 
               <Box className="fd-bill__row"><Inline>Item total</Inline><Inline className="fd-bill__val">{rupees(order.itemTotal)}</Inline></Box>
-              {/* Only on an order that was charged one, before GST and the
-                  platform fee replaced it. */}
-              {order.packagingCharge > 0 && (
-                <Box className="fd-bill__row"><Inline>Packing</Inline><Inline className="fd-bill__val">{rupees(order.packagingCharge)}</Inline></Box>
-              )}
-              {order.gst > 0 && (
-                <Box className="fd-bill__row">
-                  <Inline>GST{order.gstRate ? ` (${order.gstRate}%)` : ''}</Inline>
-                  <Inline className="fd-bill__val">{rupees(order.gst)}</Inline>
-                </Box>
-              )}
-              {order.platformFee > 0 && (
-                <Box className="fd-bill__row"><Inline>Platform fee</Inline><Inline className="fd-bill__val">{rupees(order.platformFee)}</Inline></Box>
-              )}
-              {order.fulfilment === 'delivery' && (
-                <Box className="fd-bill__row">
-                  <Inline>Delivery</Inline>
-                  <Inline className="fd-bill__val">{order.deliveryFee ? rupees(order.deliveryFee) : 'Free'}</Inline>
-                </Box>
-              )}
+              {/* Every fee as stored on the order, named as the cart named it. */}
+              <FeeRows bill={order} fulfilment={order.fulfilment} />
               {order.discount > 0 && (
                 <Box className="fd-bill__row fd-bill__row--save">
                   <Inline>{order.couponCode}</Inline>

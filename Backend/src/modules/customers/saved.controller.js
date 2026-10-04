@@ -47,17 +47,38 @@ const getSaved = async (req, res, next) => {
     const properties = await Property.find({ _id: { $in: ids } }).lean();
     const byId = new Map(properties.map((p) => [String(p._id), p]));
 
-    const data = entries
-      .map((entry) => {
-        const property = byId.get(entry.listingId);
-        if (!property) return null;
-        return {
-          listing: formatListing(property),
-          rentWhenSaved: entry.rentWhenSaved,
-          savedAt: entry.savedAt,
+    /*
+     * The same live availability the feed shows — this used to send the bare
+     * listing, so a saved row never knew a room was full or paused, and a
+     * listing the owner had REMOVED kept a working Request button. The review
+     * sample is never shown; a removed or paused one is shown as such (the
+     * student saved it, so it vanishing would read as a bug), with nothing
+     * requestable on it.
+     */
+    // eslint-disable-next-line global-require
+    const { withAvailability } = require('../listings/listing.controller');
+    const kept = entries
+      .map((entry) => ({ entry, property: byId.get(entry.listingId) }))
+      .filter(({ property }) => property && property.status !== 'review');
+    const listed = await withAvailability(kept.map(({ property }) => formatListing(property)));
+
+    const data = kept.map(({ entry, property }, i) => {
+      const live = !property.status || property.status === 'active';
+      const listing = live
+        ? listed[i]
+        : {
+          ...listed[i],
+          requestable: false,
+          sharingOptions: (listed[i].sharingOptions || []).map((option) => ({
+            ...option, requestable: false, reason: 'LISTING_UNAVAILABLE',
+          })),
         };
-      })
-      .filter(Boolean);
+      return {
+        listing: { ...listing, listingStatus: live ? 'active' : property.status },
+        rentWhenSaved: entry.rentWhenSaved,
+        savedAt: entry.savedAt,
+      };
+    });
 
     return res.json({ success: true, count: data.length, data });
   } catch (error) {

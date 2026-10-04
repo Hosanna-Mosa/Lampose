@@ -59,9 +59,10 @@ export const emptyStates = {
     body:
       params.otherCategoryCount > 0
         ? `There are ${params.otherCategoryCount} other places here of a different kind — switch at the top of the screen to see them. Or try another area.`
-        : 'We have not listed anything here yet. Try a nearby area, and we will tell you when something opens.',
+        /* No "we will tell you" — there is no alert behind it, and the button
+           that offered one did nothing at all. */
+        : 'We have not listed anything here yet. Try a nearby area.',
     primaryAction: 'Search another area',
-    secondaryAction: 'Tell me when one opens',
   }),
 
   noSearchResults: (params: {
@@ -91,7 +92,7 @@ export const emptyStates = {
   /** Explains the payoff of saving, not the mechanic of tapping a bookmark. */
   noSaved: (): StateCopy => ({
     headline: 'Nothing shortlisted',
-    body: 'Tap the bookmark on any listing and it stays here with its rent and deposit, so you can compare side by side instead of scrolling back.',
+    body: 'Tap the heart on any listing and it stays here with its rent and deposit, so you can compare side by side instead of scrolling back.',
     primaryAction: 'Find places to compare',
   }),
 

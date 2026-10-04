@@ -1,15 +1,20 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, AppState } from 'react-native';
+import { FOOD_MODE } from '@/constants/env';
+import { onFoodOrdersChanged } from '@/services/push/foodRefresh';
 
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
-import {
-  deliveryFeeFor, gstRateOf, isPortionOption, packagingChargeOf, platformFeeOf, splitOptions,
-} from '@/services/adapters/food.adapter';
+import { isPortionOption, packagingChargeOf, splitOptions } from '@/services/adapters/food.adapter';
+import { previewFoodBill, type FoodBillFigures } from '@/lib/foodPricing';
 import {
   cancelFoodOrder,
   fetchFoodOrder,
   fetchMyFoodOrders,
+  FOOD_ORDERS_PAGE,
   placeFoodOrder,
+  quoteFoodOrder,
+  type PlaceOrderLine,
   startFoodPayment,
   type PaymentIntent,
   type ServerFoodOrder,
@@ -52,11 +57,12 @@ import { addressLine, addressTitle, fetchAddresses, type SavedAddress } from '@/
  *
  * ## The bill shows the SERVER'S arithmetic, and only that
  *
- * `foodCustomerOrder.controller.js` prices every order from `food_products`
- * and `food_restaurants` and adds exactly three things: the item total, the
- * restaurant's packaging charge and the delivery fee. There is no tax and
- * there is no discount — the place-order request carries no coupon field and
- * the controller writes `discount: 0` on every row it creates.
+ * `foodCustomerOrder.controller.js` prices every order through
+ * `foodPricing.js`: the item total, GST, a delivery fee by distance slab, the
+ * service fee, the kitchen's packaging fee and a small-order fee, each with
+ * its GST. The cart shows the server's quote for exactly this cart (see
+ * `bill`). There is no discount: the place-order request carries no coupon
+ * field and the controller writes `discount: 0` on every row it creates.
  *
  * This file used to add 5% of the item total as "Taxes and charges" and to
  * start every session with `STUDENT20` already applied, neither of which the
@@ -152,23 +158,21 @@ export type FoodContextValue = {
    * come from that same response — so null is the empty cart's answer.
    */
   packagingCharge: number | null;
-  /** GST on the food, and the rate it is charged at. */
+  /** GST on the food, and the rate it is charged at (percent). */
   gst: number;
   gstRate: number;
-  /** The flat platform fee. Charged on pickup as well. */
-  platformFee: number;
   deliveryFee: number;
   /**
-   * Items + GST + the platform fee + delivery, which is the whole of it.
+   * The whole bill, line by line — see `lib/foodPricing.ts`.
    *
-   * The same terms `foodCustomerOrder.controller.js` adds up, in the same
-   * order, from the same rows — which is the only thing that matters about
-   * this figure. There WAS a tax line here once that the server did not
-   * charge, so the Pay button quoted a number that never appeared on an order;
-   * the tax is real now, it comes from the kitchen shape rather than from a
-   * percentage typed into this file, and the packing charge it replaced is
-   * zero on everything placed since.
+   * The SERVER's quote (`/orders/quote`) once it has arrived for exactly this
+   * cart and address; until then a preview from the device's copy of the same
+   * rules, with delivery at the first slab because the distance is the
+   * server's to measure. `billSource` says which.
    */
+  bill: FoodBillFigures;
+  billSource: 'preview' | 'server';
+  /** What the Pay button charges: `bill.customerPayable`. */
   toPay: number;
   fulfilment: Fulfilment;
   /**
@@ -213,6 +217,12 @@ export type FoodContextValue = {
    * reason to believe the list has moved on can ask.
    */
   refreshOrders: () => Promise<void>;
+  /** Where the order list stands — so "no orders yet" is said only when true. */
+  ordersState: 'loading' | 'ready' | 'error';
+  /** True while the last page came back full — there may be older orders. */
+  moreOrders: boolean;
+  /** Appends the next fifty older orders. */
+  loadOlderOrders: () => Promise<void>;
   /** The one order still in flight, if any. Drives the pinned card. */
   liveOrder: FoodOrder | null;
   /**
@@ -233,6 +243,11 @@ export type FoodContextValue = {
    *   picks the mode from the method the student chose.
    */
   placeOrder: (now?: Date, mode?: 'online' | 'cod') => Promise<{ order: FoodOrder; nextStep: 'track' | 'payment' }>;
+  /**
+   * The held online order `orderId` has been paid — empty the cart it was
+   * built from. Safe to call for any order and any number of times.
+   */
+  settlePaidOrder: (orderId: string) => void;
   /**
    * Re-read one order from the server.
    *
@@ -299,8 +314,16 @@ export type FoodContextValue = {
   /** Hearted, but their kitchen is not listed right now. */
   favouritesUnavailable: number;
   favouritesLoading: boolean;
+  /** The favourites could not be read — not the same as having none. */
+  favouritesError: Error | null;
   refreshFavourites: () => void;
 };
+
+/* The most of one line the server takes (`MAX_QTY` in
+   foodCustomerOrder.controller.js). Past it the server silently cut the line
+   to 20 while the cart showed and quoted 25 — the bill and the bag disagreed.
+   Capped here, the cart never holds more than will be cooked. */
+export const MAX_LINE_QTY = 20;
 
 const FoodContext = createContext<FoodContextValue | null>(null);
 
@@ -370,6 +393,29 @@ function lineKey(dishId: string, addOnIds: readonly string[], spice: SpiceLevel)
 /* ------------------------------------------------------------------ *
  * Provider
  * ------------------------------------------------------------------ */
+
+/**
+ * WHAT was ordered, never how much it costs — the lines placing and quoting
+ * both send. Every figure comes back from the server, which prices from the
+ * menu rows; see `foodOrders.api.ts`.
+ */
+function orderLinesOf(lines: readonly DetailedLine[]): PlaceOrderLine[] {
+  return lines.map((line) => {
+    const { variantName, addOnNames } = splitOptions(line.dish, line.addOnIds);
+    /* The note carries only what the ticket shows nowhere else. The
+       Food-Partner screens print `addOns` themselves (`addOnsLabel`) and the
+       portion as the variant, so add-ons repeated in the note printed twice
+       on every ticket. */
+    const note = !line.dish.spiceFixed && line.spice !== 'medium' ? `${line.spice} spice` : '';
+    return {
+      productId: line.dish.id,
+      quantity: line.qty,
+      ...(variantName ? { variantName } : null),
+      ...(addOnNames.length ? { addOns: addOnNames } : null),
+      ...(note ? { note } : null),
+    };
+  });
+}
 
 export function FoodProvider({ children }: { children: React.ReactNode }) {
   /* The catalogue is the data source; this context is the cart and the
@@ -546,49 +592,67 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   );
 
   /*
-    ── The delivery fee, decided in ONE place ───────────────────────────────
+    ── The bill ─────────────────────────────────────────────────────────────
 
-    `deliveryFeeFor` is that place, and it is the mirror of the rule in
-    `foodCustomerOrder.controller.js`: a `free_above` kitchen charges nothing
-    once the items reach its threshold, every other scheme charges its flat
-    amount, and the per-kilometre rate a `distance_based` partner configures is
-    never applied by that endpoint and so is never applied here.
+    Priced by the server, previewed here. `foodPricing.js` on the server is
+    the one calculator: delivery by distance slab, GST on the food, the service
+    fee, the kitchen's packaging fee and a small-order fee, each with its GST.
 
-    This line used to read `address?.deliveryFee ?? kitchen?.deliveryFee`,
-    which was wrong twice over. The address's own fee is fixture data — no
-    saved address the server sends carries one, and the checkout prices
-    delivery from the RESTAURANT — and the kitchen's flat amount ignores the
-    waiver, so the kitchen screen said "Free" on a ₹250 basket while the cart
-    two taps later charged ₹19 for the same order.
+    The preview below runs the device's copy of those rules the moment the
+    cart changes, so the bill is never blank. The QUOTE replaces it as soon as
+    the server answers for this exact cart and address — the server measures
+    the distance, so the delivery line can move from the first slab to the
+    right one. The order itself is priced again when it is placed, whatever
+    either of these said.
 
-    Pickup is free, always and visibly. It is the module's one real saving and
-    it only reads as one if the fee line goes to zero rather than disappearing.
-  */
-  const deliveryFee = fulfilment === 'pickup' || !kitchen ? 0 : deliveryFeeFor(kitchen, itemTotal);
-
-  /*
-    The kitchen's packing charge is NO LONGER CHARGED — the server reports 0 for
-    every kitchen, and GST plus a flat platform fee took its place. It is still
-    read here, and still null while the kitchen's own row has not arrived,
-    because an order placed before the change carries a real figure and its
-    receipt has to keep adding up; see `packagingChargeOf`.
+    The kitchen's packaging fee is null until its own row has arrived; the
+    preview counts it as 0 and the footnote on the cart says so.
   */
   const packagingCharge = kitchen ? packagingChargeOf(kitchen) ?? null : null;
 
-  /*
-    GST on the food, and the flat platform fee. Both come from the kitchen
-    shape rather than from two numbers typed here: `foodCharges.util.js` on the
-    server decides them, and a preview that adds up differently from the charge
-    is the difference a diner notices on the receipt and not before.
+  const preview = useMemo(
+    () => previewFoodBill({ foodSubtotal: itemTotal, packagingFee: packagingCharge ?? 0 }),
+    [itemTotal, packagingCharge],
+  );
 
-    Charged on pickup as well — the platform's part is taking the order and
-    handling the money, which does not depend on who carries the food.
-  */
-  const gstRate = kitchen ? gstRateOf(kitchen) : 0;
-  const gst = kitchen && itemTotal > 0 ? Math.round(((itemTotal * gstRate) / 100) * 100) / 100 : 0;
-  const platformFee = kitchen && itemTotal > 0 ? platformFeeOf(kitchen) : 0;
+  /* What the server needs to price this cart — and the key a quote is
+     matched against, so an answer for an older cart is never shown. */
+  const requestLines = useMemo(() => orderLinesOf(lines), [lines]);
+  const dropLat = address?.lat;
+  const dropLng = address?.lng;
+  const quoteKey = kitchenId && requestLines.length
+    ? JSON.stringify([kitchenId, requestLines, dropLat ?? null, dropLng ?? null])
+    : '';
+  const [quote, setQuote] = useState<{ key: string; bill: FoodBillFigures } | null>(null);
 
-  const toPay = itemTotal + (packagingCharge ?? 0) + gst + platformFee + deliveryFee;
+  useEffect(() => {
+    if (!quoteKey || !kitchenId || !signedIn) return undefined;
+    let live = true;
+    /* A short pause, so tapping + five times asks once. */
+    const timer = setTimeout(() => {
+      quoteFoodOrder({
+        restaurantId: kitchenId,
+        lines: requestLines,
+        ...(dropLat === undefined || dropLng === undefined ? null : { dropLat, dropLng }),
+      })
+        .then((bill) => { if (live) setQuote({ key: quoteKey, bill }); })
+        /* No quote is not an error a diner needs to see: the preview stands
+           and the order is priced by the server either way. */
+        .catch(() => undefined);
+    }, 350);
+    return () => { live = false; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quoteKey, signedIn]);
+
+  const fromServer = !!quote && quote.key === quoteKey;
+  const bill: FoodBillFigures = itemTotal > 0 && kitchen
+    ? (fromServer ? quote.bill : preview)
+    : previewFoodBill({ foodSubtotal: 0 });
+
+  const deliveryFee = itemTotal > 0 && kitchen ? bill.deliveryFee : 0;
+  const gstRate = Math.round(bill.foodGstRate * 100);
+  const gst = itemTotal > 0 && kitchen ? bill.foodGst : 0;
+  const toPay = itemTotal > 0 && kitchen ? bill.customerPayable : 0;
 
   /* — cart actions — */
 
@@ -601,11 +665,11 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
       const key = lineKey(next.dish.id, next.addOnIds, next.spice);
       const existing = current.find((line) => line.key === key);
       if (existing) {
-        return current.map((line) => (line.key === key ? { ...line, qty: line.qty + next.qty } : line));
+        return current.map((line) => (line.key === key ? { ...line, qty: Math.min(MAX_LINE_QTY, line.qty + next.qty) } : line));
       }
       return [
         ...current,
-        { key, dishId: next.dish.id, qty: next.qty, addOnIds: next.addOnIds, spice: next.spice, snapshot: next.dish },
+        { key, dishId: next.dish.id, qty: Math.min(MAX_LINE_QTY, next.qty), addOnIds: next.addOnIds, spice: next.spice, snapshot: next.dish },
       ];
     });
   }, []);
@@ -645,7 +709,8 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
 
   const setQty = useCallback((key: string, qty: number) => {
     setRawLines((current) => {
-      const next = qty <= 0 ? current.filter((line) => line.key !== key) : current.map((line) => (line.key === key ? { ...line, qty } : line));
+      const capped = Math.min(MAX_LINE_QTY, qty);
+      const next = qty <= 0 ? current.filter((line) => line.key !== key) : current.map((line) => (line.key === key ? { ...line, qty: capped } : line));
       return next;
     });
   }, []);
@@ -796,6 +861,36 @@ function buildTimeline(
         label: TIMELINE_STEP.refused,
         ...(refusedAt ? { at: refusedAt } : null),
         ...(row.rejectionReason ? { note: row.rejectionReason } : null),
+        done: true,
+      },
+    ];
+  }
+
+  /*
+   * A CANCELLED order stops where it stopped, the same way.
+   *
+   * There was no branch for it: the full list was drawn with the first step
+   * nobody would ever reach marked "Waiting for this" — on an order the diner
+   * cancelled, or one closed because it was never paid. The steps that DID
+   * happen stay, then the cancellation, with the recorded reason as its note
+   * ("Not paid within 30 minutes", the diner's own reason, and so on).
+   */
+  if (row.status === 'cancelled') {
+    const cancelEvent = history.find((h) => h.status === 'cancelled');
+    const reached = [
+      step(TIMELINE_STEP.preparing, 'accepted', 'preparing'),
+      step(isPickup ? 'Ready at the counter' : 'Ready', 'ready'),
+      step('Picked up', 'picked_up'),
+    ].filter((s) => s.done);
+    const cancelledAt = firstAt('cancelled');
+    const note = (cancelEvent as { note?: string } | undefined)?.note;
+    return [
+      { label: 'Order placed', at: firstAt('placed') ?? placedFallback, done: true },
+      ...reached,
+      {
+        label: 'Cancelled',
+        ...(cancelledAt ? { at: cancelledAt } : null),
+        ...(note ? { note } : null),
         done: true,
       },
     ];
@@ -991,6 +1086,8 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
     kitchenId: row.restaurantId,
     kitchenName,
     status: appStatus(row.status, isPickup),
+    deliveryAddress: row.deliveryAddress || undefined,
+    placedIso: row.placedAt || undefined,
     fulfilment: isPickup ? 'pickup' : 'delivery',
     lines: (row.lines ?? []).map((line) => ({
       dishId: line.productId,
@@ -1034,7 +1131,11 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
     packagingCharge: row.packagingCharge,
     gst: row.gst,
     gstRate: row.gstRate,
-    platformFee: row.platformFee,
+    serviceFee: row.serviceFee,
+    serviceFeeGst: row.serviceFeeGst,
+    deliveryGst: row.deliveryGst,
+    packagingGst: row.packagingGst,
+    smallOrderFee: row.smallOrderFee,
     discount: row.discount ?? 0,
     paid: row.grandTotal,
     placedLabel: placedLabelFor(placed, now),
@@ -1068,8 +1169,23 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
         : row.paymentStatus === 'paid'
           ? 'Paid online'
           : row.paymentStatus === 'refunded'
-            ? 'Refund on the way'
+            /* `refunded` alone means OWED. A refund id means it was SENT —
+               the diner used to see "on the way" forever, even after. */
+            ? (row.razorpay?.refundId ? 'Refunded' : 'Refund on the way')
             : 'Payment not completed',
+    ...(row.razorpay?.refundId
+      ? {
+        refund: {
+          /* The gateway's own figure; the order total when a hand-settled
+             refund did not record one. */
+          amount: row.razorpay.refundAmountPaise
+            ? row.razorpay.refundAmountPaise / 100
+            : row.grandTotal,
+          reference: row.razorpay.refundId,
+          ...(row.razorpay.refundedAt ? { sentAt: row.razorpay.refundedAt } : null),
+        },
+      }
+      : null),
     ...(row.deliveryOtp ? { deliveryOtp: row.deliveryOtp } : null),
     ...(row.dispatch
       ? {
@@ -1184,27 +1300,7 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
         ...(isPickup || address?.lat === undefined || address?.lng === undefined
           ? null
           : { dropLat: address.lat, dropLng: address.lng }),
-        lines: lines.map((line) => {
-          const { variantName, addOnNames } = splitOptions(line.dish, line.addOnIds);
-          return {
-            productId: line.dish.id,
-            quantity: line.qty,
-            ...(variantName ? { variantName } : null),
-            ...(addOnNames.length ? { addOns: addOnNames } : null),
-            /* The note is the kitchen's ONLY view of add-ons and spice — the
-               Food-Partner order screens print `variantName` beside the dish
-               but never read `addOns` — so both stay in it. The portion does
-               not: it is already on the ticket as the variant, and repeating
-               it here printed it twice. */
-            ...(() => {
-              const note = [
-                ...addOnNames,
-                ...(!line.dish.spiceFixed && line.spice !== 'medium' ? [`${line.spice} spice`] : []),
-              ].join(', ');
-              return note ? { note } : null;
-            })(),
-          };
-        }),
+        lines: requestLines,
       });
 
       const order = toAppOrder(placed, placed.restaurant?.name || orderKitchen?.name || UNNAMED_KITCHEN, now);
@@ -1216,8 +1312,24 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       setHeld(nextStep === 'track' ? null : { id: order.id, signature: cartSignature });
       return { order, nextStep };
     },
-    [kitchenId, kitchen, fulfilment, lines, address, clear, held, cartSignature, orders],
+    [kitchenId, kitchen, fulfilment, lines, requestLines, address, clear, held, cartSignature, orders],
   );
+
+  /*
+   * The online half of emptying the cart.
+   *
+   * A cash order clears it at placement; an online one is held, and its cart
+   * was never cleared at all — so after paying, Back led to the payment
+   * screen with the same food in it, and Pay ordered it twice. Cleared here
+   * once the held order is known to be paid, and only if the cart is still
+   * the one that order was made from (`held.signature`), so a cart the
+   * student has since changed is left alone.
+   */
+  const settlePaidOrder = useCallback((orderId: string) => {
+    if (!held || held.id !== orderId) return;
+    if (held.signature === cartSignature) clear();
+    setHeld(null);
+  }, [held, cartSignature, clear]);
 
   /*
    * The held order's payment landing is what empties the cart — the online
@@ -1307,13 +1419,18 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
    * Signed out is not an error. A guest browsing the menu has no orders, and
    * an empty list is the correct answer rather than a failure to report.
    */
+  const [ordersState, setOrdersState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [moreOrders, setMoreOrders] = useState(false);
   const refreshOrders = useCallback(async () => {
     if (!signedIn) {
       setOrders([]);
+      setOrdersState('ready');
       return;
     }
     try {
       const rows = await fetchMyFoodOrders();
+      setOrdersState('ready');
+      setMoreOrders(rows.length >= FOOD_ORDERS_PAGE);
       const now = new Date();
       const fresh = rows.map((row) => toAppOrder(row, row.restaurant?.name || findKitchen(row.restaurantId)?.name || UNNAMED_KITCHEN, now));
       setOrders((current) => {
@@ -1327,9 +1444,24 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       });
     } catch {
       /* A list we could not load is not an empty list. What is already held
-         stands, rather than one bad request wiping a live order off Home. */
+         stands, rather than one bad request wiping a live order off Home —
+         and the state says so, so the Orders tab does not claim "no orders". */
+      setOrdersState('error');
     }
   }, [signedIn, findKitchen]);
+
+  const loadOlderOrders = useCallback(async () => {
+    const oldest = [...orders].reverse().find((order) => order.placedIso)?.placedIso;
+    if (!oldest) return;
+    const rows = await fetchMyFoodOrders(oldest);
+    const now = new Date();
+    const older = rows.map((row) => toAppOrder(row, row.restaurant?.name || findKitchen(row.restaurantId)?.name || UNNAMED_KITCHEN, now));
+    setOrders((current) => {
+      const known = new Set(current.map((order) => order.id));
+      return [...current, ...older.filter((order) => !known.has(order.id))];
+    });
+    setMoreOrders(rows.length >= FOOD_ORDERS_PAGE);
+  }, [orders, findKitchen]);
 
   /* Held in a ref for the same reason the tracking screen holds its refresh in
      one: `refreshOrders` is rebuilt whenever the catalogue finishes loading,
@@ -1343,6 +1475,22 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
      account's dinner must not still be pinned to Home. */
   useEffect(() => {
     void readOrders.current();
+  }, [signedIn]);
+
+  /* And whenever the app comes back to the front, or a food push lands with
+     it open. Nothing re-read the list otherwise, so an order that moved while
+     the phone was in a pocket stayed pinned to Home in its old state. */
+  useEffect(() => {
+    /* Not where food is hidden (a production build) — see FoodCatalogueContext. */
+    if (!signedIn || FOOD_MODE !== 'dev') return undefined;
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') void readOrders.current();
+    });
+    const off = onFoodOrdersChanged(() => { void readOrders.current(); });
+    return () => {
+      sub.remove();
+      off();
+    };
   }, [signedIn]);
 
   /*
@@ -1413,13 +1561,16 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
   const cancelOrder = useCallback(async (id: string, reason: string) => {
     const row = await cancelFoodOrder(id, reason);
     if (!row) return;
+    /* The WHOLE returned row, through the same mapping every read uses. Only
+       the status was patched before, so the payment label stayed "Paid" over a
+       refund-owed order, and the timeline and money lines kept their pre-cancel
+       state until something else happened to re-read it. */
     setOrders((current) =>
       current.map((entry) =>
         entry.id === id
           ? {
-            ...entry,
-            status: appStatus(row.status, entry.fulfilment === 'pickup'),
-            paymentLabel: entry.paymentLabel,
+            ...toAppOrder(row, row.restaurant?.name || entry.kitchenName, new Date()),
+            placedLabel: entry.placedLabel,
           }
           : entry,
       ),
@@ -1512,6 +1663,14 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
 
   /* Straight through to the hook, which is optimistic and rolls back on a
      failure — see `useFoodFavourites` for why the tap must not wait. */
+  /* A heart that failed to save springs back (see `useFoodFavourites`) — and
+     that was all: no word of why, so it read as the tap not registering. The
+     server's own sentence ("You can keep up to 200 dishes") is said once. */
+  const favouriteError = favourites.saveError?.message ?? null;
+  useEffect(() => {
+    if (favouriteError) Alert.alert('That did not save', favouriteError);
+  }, [favouriteError]);
+
   const toggleFavouriteDish = favourites.toggleDish;
   const toggleFavouriteKitchen = favourites.toggleKitchen;
 
@@ -1524,6 +1683,7 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
 
   const [seenCounts, setSeenCounts] = useState<Record<string, number>>({});
 
+  const [noWatermark, setNoWatermark] = useState(false);
   /* Read once, on launch. There is no write-back effect mirroring this one —
      unlike preferences, nothing here is ever set except by
      `markFoodNotificationsSeen`, which writes to disk itself the moment it
@@ -1533,7 +1693,13 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
     let active = true;
     AsyncStorage.getItem(FOOD_NOTIFS_SEEN_KEY)
       .then((stored) => {
-        if (!active || !stored) return;
+        if (!active) return;
+        if (!stored) {
+          /* A fresh install (or a first launch with this feature). See the
+             baseline effect below. */
+          setNoWatermark(true);
+          return;
+        }
         const parsed = JSON.parse(stored) as unknown;
         if (parsed && typeof parsed === 'object') {
           setSeenCounts(parsed as Record<string, number>);
@@ -1548,6 +1714,29 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       active = false;
     };
   }, []);
+
+  /*
+   * The baseline on a fresh install.
+   *
+   * With no watermark, every step of every past order counted as unread, so
+   * a reinstall lit the bell with a dozen "new" alerts for dinners long
+   * eaten. The first time orders arrive with no watermark on disk, FINISHED
+   * orders are marked seen as they stand; a live one still counts, because
+   * its next step is genuinely news.
+   */
+  useEffect(() => {
+    if (!noWatermark || !orders.length) return;
+    setNoWatermark(false);
+    setSeenCounts((current) => {
+      const next = { ...current };
+      for (const order of orders) {
+        const finished = ['delivered', 'pickedUp', 'cancelled', 'rejected', 'refunded', 'failed'].includes(order.status);
+        if (finished && next[order.id] === undefined) next[order.id] = doneStepCount(order);
+      }
+      void AsyncStorage.setItem(FOOD_NOTIFS_SEEN_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, [orders, noWatermark]);
 
   const foodUnread = useMemo(
     () =>
@@ -1582,8 +1771,9 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       packagingCharge,
       gst,
       gstRate,
-      platformFee,
       deliveryFee,
+      bill,
+      billSource: fromServer ? 'server' : 'preview',
       toPay,
       fulfilment,
       address,
@@ -1600,8 +1790,12 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       cancelSwitch,
       orders,
       refreshOrders,
+      ordersState,
+      moreOrders,
+      loadOlderOrders,
       liveOrder,
       placeOrder,
+      settlePaidOrder,
       refreshOrder,
       startPayment,
       cancelOrder,
@@ -1619,6 +1813,7 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       favouriteKitchenList: favourites.kitchens,
       favouritesUnavailable: favourites.unavailable,
       favouritesLoading: favourites.loading,
+      favouritesError: favourites.error,
       refreshFavourites: favourites.refetch,
     }),
     [
@@ -1631,8 +1826,9 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       packagingCharge,
       gst,
       gstRate,
-      platformFee,
       deliveryFee,
+      bill,
+      fromServer,
       toPay,
       fulfilment,
       address,
@@ -1647,8 +1843,12 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       cancelSwitch,
       orders,
       refreshOrders,
+      ordersState,
+      moreOrders,
+      loadOlderOrders,
       liveOrder,
       placeOrder,
+      settlePaidOrder,
       refreshOrder,
       startPayment,
       cancelOrder,

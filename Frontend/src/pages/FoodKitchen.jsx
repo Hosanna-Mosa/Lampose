@@ -437,8 +437,8 @@ export function FoodKitchen() {
                     </Box>
                   )}
                   <Text className="fd-note">
-                    GST and a ₹{bill.platformFee || 2} platform fee are added at checkout, and delivery
-                    if it is coming to you. There is no minimum order.
+                    GST, delivery (from ₹19, by distance), a ₹5 service fee and the kitchen's
+                    packaging fee are added at checkout. Orders under ₹150 carry a ₹10 small order fee.
                   </Text>
                   <Link to="/food/cart" className="fd-btn fd-btn--dark fd-btn--full">
                     Go to cart · {rupees(bill.itemTotal - bill.discount)}

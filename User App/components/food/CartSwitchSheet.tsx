@@ -58,7 +58,7 @@ export function CartSwitchSheet({
     >
       <View style={{ gap: space[3] }}>
         <Text variant="body" color="secondary">
-          One kitchen per order keeps the food hot and the pickup at a single counter. Clearing removes{' '}
+          One kitchen per order keeps the food hot and one rider on one trip. Clearing removes{' '}
           {lineCount} {lineCount === 1 ? 'item' : 'items'} worth {formatRupees(lineTotal)}, along with the
           choices you set on them.
         </Text>

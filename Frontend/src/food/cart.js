@@ -6,10 +6,11 @@
    packing plus delivery minus the coupon" is how two of them end up
    disagreeing by ten rupees on the one screen a student actually reads.
 
-   There is NO tax line, deliberately: a Lampose food order is items, packing
-   and delivery and nothing else, so a bill that printed a tax row would be
-   naming a levy nobody collects.
+   The rules themselves live in `pricing.js` (a mirror of the server's
+   `foodPricing.js`); the server's quote replaces the preview when it lands.
    ══════════════════════════════════════════════════════════════════════════ */
+
+import { previewFoodBill } from './pricing';
 
 /**
  * Does a kitchen's minimum order STOP an order, or only say so?
@@ -88,49 +89,43 @@ export function offersFor({ itemTotal, kitchenId, fulfilment }, coupons = []) {
  * The bill. `kitchen` may be null (an empty cart), which zeroes the fees
  * rather than throwing — an empty cart is a normal state, not an error.
  */
-export function totals({ lines = [], kitchen = null, coupon = null, fulfilment = 'delivery' }) {
+export function totals({ lines = [], kitchen = null, coupon = null, fulfilment = 'delivery', quote = null }) {
   const itemTotal = itemTotalOf(lines);
-  const delivering = fulfilment === 'delivery';
-
-  /*
-   * GST and the platform fee, from the kitchen card rather than from two
-   * numbers typed here.
-   *
-   * `foodCharges.util.js` on the server is where 5% and ₹2 are decided, and it
-   * puts both on every kitchen shape precisely so this preview cannot drift
-   * from the charge. The fallbacks are what an older cached card carries — a
-   * tab left open across a deploy — and they are the same figures rather than
-   * zero, because a preview that quietly drops the tax is the version a diner
-   * notices on the receipt.
-   */
-  const gstRate = Number(kitchen?.gstRate ?? 5);
-  const gst = lines.length ? round2((itemTotal * gstRate) / 100) : 0;
-  const platformFee = lines.length ? Number(kitchen?.platformFee ?? 2) : 0;
-
-  /* The flat fee, unless the kitchen delivers free above a threshold and this
-     cart has reached it - the same test, on the same figure (the ITEM total),
-     that the order endpoint runs. The total shown here has to be the total the
-     server will charge; a difference of a delivery fee is the sort of thing a
-     diner notices on the receipt and not before. */
-  const freeAbove = Number(kitchen?.freeDeliveryAbove || 0);
-  const feeWaived = freeAbove > 0 && itemTotal >= freeAbove;
-  const deliveryFee = lines.length && delivering && !feeWaived ? Number(kitchen?.deliveryFee || 0) : 0;
 
   const blocked = coupon
     ? couponBlockedReason(coupon, { itemTotal, kitchenId: kitchen?.id, fulfilment })
     : 'No coupon';
   const discount = blocked ? 0 : Number(coupon.discount);
 
-  const toPay = round2(Math.max(0, itemTotal + gst + platformFee + deliveryFee - discount));
+  /*
+   * The server's quote when it has answered for THIS cart (the provider only
+   * passes a matching one), else the preview: delivery at the first slab until
+   * the server has measured the distance. The coupon is the website's own
+   * offer and is applied on top of either.
+   */
+  const figures = lines.length && kitchen
+    ? (quote || previewFoodBill({ foodSubtotal: itemTotal, packagingFee: kitchen.packagingCharge || 0 }))
+    : previewFoodBill({ foodSubtotal: 0 });
+  const empty = !lines.length || !kitchen;
+  const gross = empty ? 0 : round2(figures.customerPayable + figures.discount);
 
   return {
     itemTotal,
-    gst,
-    gstRate,
-    platformFee,
-    deliveryFee,
+    gst: empty ? 0 : figures.foodGst,
+    gstRate: Math.round(figures.foodGstRate * 100),
+    deliveryFee: empty ? 0 : figures.deliveryFee,
+    deliveryGst: empty ? 0 : figures.deliveryGst,
+    distanceKm: figures.distanceKnown ? figures.distanceKm : null,
+    serviceFee: empty ? 0 : figures.serviceFee,
+    serviceFeeGst: empty ? 0 : figures.serviceFeeGst,
+    packagingCharge: empty ? 0 : figures.packagingFee,
+    packagingGst: empty ? 0 : figures.packagingGst,
+    smallOrderFee: empty ? 0 : figures.smallOrderFee,
+    smallOrderThreshold: figures.smallOrderThreshold,
+    grossTotal: gross,
     discount,
-    toPay,
+    toPay: round2(Math.max(0, gross - discount)),
+    priced: quote ? 'server' : 'preview',
     count: countOf(lines),
     /* Set when a coupon is held but cannot run, so the cart can say why
        instead of silently charging full price. */

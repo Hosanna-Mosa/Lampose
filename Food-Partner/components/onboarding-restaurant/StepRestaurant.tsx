@@ -6,9 +6,9 @@
    customer-facing contact number and the full postal address the field spec
    asks for.
 
-   The OTP is three states in one field. SMS is not wired to this flow yet, so
-   the error names the demo code — a partner walking the form must not be
-   stopped by a code that can never arrive.
+   The OTP is three states in one field — send, type, verified. The code is a
+   real SMS (`startPhoneOtp` / `verifyPhoneOtp`), and the proof it earns is
+   what lets the application be submitted.
    ══════════════════════════════════════════════════════════════════════════ */
 import { inputLikeRow } from "@/components/common/utils/sharedStyles";
 import { router } from "expo-router";

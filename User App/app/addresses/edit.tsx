@@ -374,31 +374,38 @@ export default function EditAddressScreen() {
 
             <TextField
               label="Name it"
+              /* The server's own limits (shared/utils/address.js) — past them
+                 it cut the text silently, so a long address saved half. */
               value={label}
+              maxLength={40}
               onChangeText={setLabel}
               placeholder="Home, Block C, Mum's place"
             />
             <TextField
               label="Address line 1"
               value={line1}
+              maxLength={120}
               onChangeText={setLine1}
               placeholder="Block C, Room 214"
             />
             <TextField
               label="Address line 2"
               value={line2}
+              maxLength={120}
               onChangeText={setLine2}
               placeholder="Building, street"
             />
             <TextField
               label="Landmark"
               value={landmark}
+              maxLength={80}
               onChangeText={setLandmark}
               placeholder="Opposite the mess"
             />
             <TextField
               label="City"
               value={city}
+              maxLength={60}
               onChangeText={setCity}
               placeholder="Rajahmundry"
             />
@@ -413,6 +420,7 @@ export default function EditAddressScreen() {
             <TextField
               label="Delivery instructions"
               value={instructions}
+              maxLength={200}
               onChangeText={setInstructions}
               placeholder="Ring the bell twice, door left of the stairs"
             />

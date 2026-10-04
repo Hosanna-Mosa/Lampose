@@ -71,6 +71,11 @@ const toLatLng = ([lng, lat]: LngLat) => ({ latitude: lat, longitude: lng });
    way; only how often the route line gets RECOMPUTED is throttled. */
 const ROUTE_MIN_INTERVAL_MS = 20000;
 const ROUTE_MIN_MOVE_METRES = 60;
+/* Each arm's floor, as in the rider app's MapPanel: the time arm still needs
+   some movement (a parked rider costs no route call), the distance arm still
+   needs a few seconds between calls. */
+const ROUTE_TIME_ARM_MIN_MOVE_METRES = 15;
+const ROUTE_MOVE_ARM_MIN_INTERVAL_MS = 5000;
 
 /** Returns `point`, but only once it has moved far enough AND enough time
     has passed since the last value this returned — otherwise it keeps
@@ -88,7 +93,14 @@ function useThrottledRoutePoint(point: LngLat | null | undefined): LngLat | null
     return point;
   }
   const now = Date.now();
-  if (now - prev.at >= ROUTE_MIN_INTERVAL_MS && metresBetween(prev.p, point) >= ROUTE_MIN_MOVE_METRES) {
+  const elapsed = now - prev.at;
+  const moved = metresBetween(prev.p, point);
+  /* EITHER, as the comment says — it was AND, so a fast-moving rider's route
+     line lagged behind them. */
+  if (
+    (elapsed >= ROUTE_MIN_INTERVAL_MS && moved >= ROUTE_TIME_ARM_MIN_MOVE_METRES)
+    || (moved >= ROUTE_MIN_MOVE_METRES && elapsed >= ROUTE_MOVE_ARM_MIN_INTERVAL_MS)
+  ) {
     stable.current = { at: now, p: point };
     return point;
   }

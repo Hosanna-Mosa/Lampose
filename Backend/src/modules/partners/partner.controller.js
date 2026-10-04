@@ -46,6 +46,15 @@ const {
   generateOtp, newSalt, hashOtp, verifyOtp,
 } = require('../visits/otp.util');
 
+/** Another owner already signs in with this email. */
+const emailTakenByAnother = (email, selfId) => Partner.exists({ email, _id: { $ne: selfId } });
+
+const emailInUse = (res) => res.status(409).json({
+  success: false,
+  code: 'EMAIL_IN_USE',
+  message: 'That email is already used by another Lampose account.',
+});
+
 const OTP_LENGTH = 6;
 
 /* How long a code stays locked after too many wrong tries. On the CODE, not on
@@ -148,6 +157,8 @@ const startAuth = async (req, res, next) => {
       partner = await Partner.create({
         partnerId: `prt_${crypto.randomBytes(9).toString('hex')}`,
         phone,
+        /* Unproven until the code comes back — see the TTL on the model. */
+        pendingSince: new Date(),
       });
     }
 
@@ -176,6 +187,9 @@ const startAuth = async (req, res, next) => {
 
     /* A new send is a new session's worth of tries. */
     partner.otp.resends = 0;
+    /* Still unproven, so its day starts again — a TTL sweep must not delete
+       the row under somebody who is typing the code right now. */
+    if (!partner.phoneVerifiedAt) partner.pendingSince = new Date();
     const sent = await issueOtp(partner);
 
     if (!sent.success) {
@@ -335,6 +349,7 @@ const verifyAuth = async (req, res, next) => {
     };
 
     if (!partner.phoneVerifiedAt) partner.phoneVerifiedAt = new Date();
+    partner.pendingSince = null;
     partner.lastLoginAt = new Date();
 
     /*
@@ -358,6 +373,7 @@ const verifyAuth = async (req, res, next) => {
           success: false, code: 'BAD_EMAIL', message: 'Please enter a valid email address.',
         });
       }
+      if (cleaned && await emailTakenByAnother(cleaned, partner._id)) return emailInUse(res);
       partner.email = cleaned;
     }
 
@@ -454,7 +470,11 @@ const loginWithPassword = async (req, res, next) => {
     /* The one read in this module that asks for the hash back. It is
        `select: false` everywhere else, and `toPublic()` is a whitelist that
        cannot carry it out regardless. */
-    const partner = await Partner.findOne({ email }).select('+passwordHash');
+    /* The row that HAS a password, if more than one carries this email —
+       which the unique index now prevents, but rows written before it may
+       still share one. Picking an arbitrary row locked the real owner out. */
+    const candidates = await Partner.find({ email }).select('+passwordHash').limit(5);
+    const partner = candidates.find((p) => p.passwordHash) || candidates[0] || null;
 
     const ok = partner ? await partner.verifyPassword(password) : false;
     if (!ok) {
@@ -581,10 +601,26 @@ const updateMe = async (req, res, next) => {
     }
 
     if (typeof referralCode === 'string' && referralCode.trim() && !partner.referredByPartner) {
+      /*
+       * A code that does not work is said, not swallowed. This used to answer
+       * 200 whatever happened, so an owner who mistyped their friend's code
+       * believed they had been referred — and the friend was never credited.
+       * Refused before anything is saved, so they can fix it or clear it.
+       */
+      let outcome = null;
       try {
-        await redeemOwnerReferralCode(referralCode, partner);
+        outcome = await redeemOwnerReferralCode(referralCode, partner);
       } catch (refErr) {
         console.warn('[partner.controller] owner referral redemption failed:', refErr.message);
+      }
+      if (outcome && (outcome.status === 'invalid' || outcome.status === 'self_referral')) {
+        return res.status(400).json({
+          success: false,
+          code: outcome.status === 'invalid' ? 'INVALID_REFERRAL_CODE' : 'OWN_REFERRAL_CODE',
+          message: outcome.status === 'invalid'
+            ? 'That referral code does not exist. Check it, or leave the box empty.'
+            : 'That is your own referral code. Leave the box empty, or use a code from another owner.',
+        });
       }
     }
 
@@ -595,6 +631,7 @@ const updateMe = async (req, res, next) => {
           success: false, code: 'BAD_EMAIL', message: 'Please enter a valid email address.',
         });
       }
+      if (cleaned && await emailTakenByAnother(cleaned, partner._id)) return emailInUse(res);
       partner.email = cleaned;
     }
 

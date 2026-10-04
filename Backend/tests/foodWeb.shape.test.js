@@ -305,16 +305,22 @@ describe('the address row, as the order needs it', () => {
   });
 });
 
-describe('free delivery above a threshold', () => {
+describe('delivery is priced by distance, not by the kitchen', () => {
   const base = {
     restaurantId: 'FP-TEST0001', restaurantName: 'Test Kitchen', cuisineTypes: [],
     openState: 'open', openingHours: [], minOrderValue: 0,
   };
 
-  it('carries the threshold only for a kitchen that has that rule', () => {
-    assert.equal(shape.kitchenCard({ ...base, deliveryFee: { type: 'free_above', amount: 30, freeAboveValue: 299 } }).freeDeliveryAbove, 299);
-    assert.equal(shape.kitchenCard({ ...base, deliveryFee: { type: 'flat', amount: 30 } }).freeDeliveryAbove, 0);
-    assert.equal(shape.kitchenCard({ ...base, deliveryFee: { type: 'free_above', amount: 30 } }).freeDeliveryAbove, 0);
-    assert.equal(shape.kitchenCard(base).freeDeliveryAbove, 0);
+  it('no kitchen rule waives or sets the fee: every card says "from" the first slab', () => {
+    for (const deliveryFee of [
+      { type: 'free_above', amount: 30, freeAboveValue: 299 },
+      { type: 'flat', amount: 30 },
+      undefined,
+    ]) {
+      const card = shape.kitchenCard({ ...base, deliveryFee });
+      assert.equal(card.freeDeliveryAbove, 0);
+      assert.equal(card.deliveryFee, 19);
+      assert.equal(card.deliveryByDistance, true);
+    }
   });
 });

@@ -59,11 +59,22 @@ function priceSpoken(option: SharingOption, perPerson: boolean): string {
     : `${formatRupees(option.pricePerPerson)} ${perPerson ? 'per person ' : ''}per month`;
 }
 
-/** "3 beds free", or nothing at all when occupancy was never recorded. */
+/* What the adapter actually sets — `availableBeds`, `requestable`,
+   `unavailableReason` (`listing.adapter.ts`). This read `bedsLeft`, which
+   nothing sets, so a full room type was never greyed out and could even be
+   pre-selected. Same rule as `StayIntentSelector`. */
+const bedsFree = (option: SharingOption): number | undefined => option.availableBeds ?? option.bedsLeft;
+export const cannotRequest = (option: SharingOption): boolean =>
+  option.requestable === false || bedsFree(option) === 0;
+
+/** "3 beds free", or why it cannot be asked for, or nothing when unrecorded. */
 function bedsLine(option: SharingOption): string | null {
-  if (option.bedsLeft === undefined) return null;
-  if (option.bedsLeft === 0) return 'none free';
-  return `${option.bedsLeft} ${option.bedsLeft === 1 ? 'bed' : 'beds'} free`;
+  if (option.unavailableReason === 'OWNER_PAUSED') return 'paused by the owner';
+  const free = bedsFree(option);
+  if (free === 0 || option.unavailableReason === 'NO_BEDS_FREE') return 'none free';
+  if (option.unavailableReason === 'NO_INVENTORY_RECORDED') return 'availability not set yet';
+  if (free === undefined) return null;
+  return `${free} ${free === 1 ? 'bed' : 'beds'} free`;
 }
 
 export type SharingTypeSelectorProps = {
@@ -233,7 +244,7 @@ function SharingRow({
   const { colors } = useTheme();
   /* Strictly zero. `undefined` is "never recorded", and treating that as sold
      out would grey out every row of every listing the live API returns. */
-  const soldOut = option.bedsLeft === 0;
+  const soldOut = cannotRequest(option);
   const beds = bedsLine(option);
 
   /* The sub-line disappears when there is neither a bed count nor a deposit to

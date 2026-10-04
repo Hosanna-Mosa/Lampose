@@ -9,6 +9,7 @@ import { useColors } from '@/hooks/useColors';
 
 import { fetchPaymentMethodsApi } from '@/services/api/domain.api';
 import { logWarn } from '@/lib/log';
+import { ApiError } from '@/services/api/client';
 import { MethodRow } from '@/components/earnings-methods/organisms/MethodRow/MethodRow';
 import { styles } from '@/components/earnings-methods/styles';
 
@@ -16,9 +17,13 @@ export function PayoutMethodsScreen() {
   const router = useRouter();
   const [methods, setMethods] = useState<PayoutMethod[]>([]);
   const [loaded, setLoaded] = useState(false);
+  /* A failed load is not "no payout method" — that told an owner with a bank
+     account on file that they had none. */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadMethods = useCallback(async () => {
+    setLoadError(null);
     try {
       const items = await fetchPaymentMethodsApi();
       /* One mapper, in `lib/payouts.ts`, because three screens read this list
@@ -26,6 +31,7 @@ export function PayoutMethodsScreen() {
       setMethods((items || []).map(toPayoutMethod));
     } catch (err) {
       logWarn('Failed to load payment methods:', err);
+      setLoadError(err instanceof ApiError ? err.displayMessage : 'We could not load your payout methods.');
     } finally {
       setLoaded(true);
     }
@@ -84,13 +90,21 @@ export function PayoutMethodsScreen() {
           <MethodRow
             key={m.id}
             method={m}
-            onPress={
-              m.isDefault
-                ? undefined
-                : () => router.push(`/earnings/method-actions?id=${m.id}`)
-            }
+            /* The default too. It could not be opened, so it could never be
+               removed — and the server already promotes another account when
+               the default goes; "Make default" is disabled on it there. */
+            onPress={() => router.push(`/earnings/method-actions?id=${m.id}`)}
           />
         ))
+      ) : loadError ? (
+        <EmptyState
+          icon="alert-circle"
+          title="We could not load your payout methods"
+          body={loadError}
+          actionLabel="Try again"
+          onAction={() => { void loadMethods(); }}
+          style={styles.empty}
+        />
       ) : loaded ? (
         // Without a method there is nowhere for money to go, so this says so.
         <EmptyState

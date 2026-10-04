@@ -201,9 +201,6 @@ export type FoodKitchen = Kitchen & {
    */
   packagingCharge?: number;
 
-  /** Platform-wide, carried per kitchen — see `gstRateOf`. */
-  gstRate?: number;
-  platformFee?: number;
 };
 
 /** The server's open/closed answer, or undefined when none travelled. */
@@ -217,24 +214,6 @@ export function contactNumberOf(kitchen: FoodKitchen): string | undefined {
 }
 
 /**
- * GST and the platform fee, as the server reports them on every kitchen.
- *
- * Neither is the kitchen's: `foodCharges.util.js` on the server decides both
- * and they are the same for every restaurant. They ride on the kitchen shape
- * because the CART is what needs them, and the fallbacks below are what a
- * kitchen fetched before this change carries — the same figures rather than
- * zero, because a preview that quietly drops the tax is the version a diner
- * finds out about on the receipt.
- */
-export function gstRateOf(kitchen: FoodKitchen): number {
-  return typeof kitchen.gstRate === 'number' ? kitchen.gstRate : 5;
-}
-
-export function platformFeeOf(kitchen: FoodKitchen): number {
-  return typeof kitchen.platformFee === 'number' ? kitchen.platformFee : 2;
-}
-
-/**
  * The packing charge this kitchen will add, or undefined when nobody has said.
  *
  * Undefined is a real answer and must not be flattened to zero by whatever
@@ -245,21 +224,6 @@ export function platformFeeOf(kitchen: FoodKitchen): number {
  */
 export function packagingChargeOf(kitchen: FoodKitchen): number | undefined {
   return typeof kitchen.packagingCharge === 'number' ? kitchen.packagingCharge : undefined;
-}
-
-/**
- * What the checkout will actually charge to deliver this basket.
- *
- * The mirror of `foodCustomerOrder.controller.js`, and deliberately the only
- * copy of that rule on the device: the fee is waived outright once the items
- * reach a `free_above` threshold, and no other scheme carries a condition. A
- * per-kilometre rate is configured by the partner and never charged by that
- * endpoint, so it is not applied here either — a screen that multiplied it out
- * would be quoting money nobody collects.
- */
-export function deliveryFeeFor(kitchen: FoodKitchen, itemsTotal: number): number {
-  const freeAbove = kitchen.deliveryRule?.freeAbove;
-  return freeAbove && itemsTotal >= freeAbove ? 0 : kitchen.deliveryFee;
 }
 
 /**
@@ -282,10 +246,11 @@ export function freeDeliveryAbove(kitchen: FoodKitchen): string | null {
  * room. Nothing here mentions kilometres: see `DeliveryRule`.
  */
 export function deliveryLabel(kitchen: FoodKitchen): string {
+  /* Delivery is priced by distance at checkout (`foodPricing.js`), so a card
+     can only promise where it starts — the first slab, which the server
+     reports as `deliveryFee`. */
   if (kitchen.deliveryFee === 0) return 'Free delivery';
-  const waiver = freeDeliveryAbove(kitchen);
-  const flat = `${formatRupees(kitchen.deliveryFee)} delivery`;
-  return waiver ? `${flat}, ${waiver.toLowerCase()}` : flat;
+  return `Delivery from ${formatRupees(kitchen.deliveryFee)}`;
 }
 
 /**
@@ -323,6 +288,11 @@ export function toKitchen(raw: BackendKitchen, sections: readonly string[] = [])
     /* Zero rather than absent: `Kitchen.walkMinutes` is required, and the
        card treats 0 as "we do not know" and prints nothing. */
     walkMinutes: walkMinutesFrom(raw.distanceKm) ?? 0,
+    /* Read at checkout — they were dropped here, so a cash-only kitchen was
+       offered UPI and an online-only one was offered cash. Only an explicit
+       `false` turns a method off. */
+    acceptsCod: raw.acceptsCod !== false,
+    acceptsOnline: raw.acceptsOnlinePayment !== false,
     rating,
     ratingCount,
     /* What the checkout charges when no waiver applies. The rule beside it is
@@ -425,7 +395,11 @@ export function toDish(raw: BackendDish, kitchenId: string): Dish {
      REPLACING the price and an add-on as adding to it. `splitOptions` below is
      the only thing allowed to read it. */
   const portions = (raw.variants ?? [])
-    .filter((v) => v?.name && (num(v.price) ?? 0) > base)
+    /* Every named portion with a price — CHEAPER ones too. A half plate below
+       the full price was dropped here (only dearer portions survived), so a
+       dish sold as half/full could only ever be ordered full. The difference
+       may be negative; the server prices the variant outright either way. */
+    .filter((v) => v?.name && (num(v.price) ?? 0) > 0 && (num(v.price) ?? 0) !== base)
     .map((v, i) => ({
       id: `${VARIANT_PREFIX}${raw.productId}-${i}`,
       label: String(v.name),

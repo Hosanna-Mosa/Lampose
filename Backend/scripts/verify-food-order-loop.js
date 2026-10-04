@@ -131,7 +131,8 @@ const check = (name, ok, extra = '') => results.push([ok, name, extra]);
     /* A client that sends its own totals must not be believed. */
     const cheeky = await call('POST', '/api/v2/food-partners/orders', {
       restaurantId: restaurant.restaurantId,
-      fulfilment: 'pickup',
+      fulfilment: 'delivery',
+      deliveryAddress: 'Room 214, Sunrise PG, MVP Colony',
       paymentMode: 'cod',
       lines: [{ productId: menu[0].productId, quantity: 1, unitPrice: 1, lineTotal: 1 }],
       itemsTotal: 1, grandTotal: 1, partnerPayout: 1,
@@ -142,7 +143,10 @@ const check = (name, ok, extra = '') => results.push([ok, name, extra]);
       `stored ₹${cheekyRow?.grandTotal}`);
 
     const bogus = await call('POST', '/api/v2/food-partners/orders', {
-      restaurantId: restaurant.restaurantId, fulfilment: 'pickup', paymentMode: 'cod',
+      restaurantId: restaurant.restaurantId,
+      fulfilment: 'delivery',
+      deliveryAddress: 'Room 214, Sunrise PG, MVP Colony',
+      paymentMode: 'cod',
       lines: [{ productId: 'FPI-NOTREAL0', quantity: 1 }],
     }, dinerToken);
     check('a dish not on the menu is refused, not dropped', bogus.status === 409, `status ${bogus.status}`);

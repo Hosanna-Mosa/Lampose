@@ -36,6 +36,7 @@ import {
   unpricedListing,
   vasaviBachelor,
 } from '@/data/listings';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * Batch 3 — discovery preview.
@@ -91,7 +92,7 @@ function Panel({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function DiscoveryPreview() {
+function DiscoveryPreview() {
   const { colors, space, layout, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -386,3 +387,6 @@ export default function DiscoveryPreview() {
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
 });
+
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(DiscoveryPreview);

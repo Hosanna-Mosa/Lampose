@@ -680,7 +680,7 @@ const earnings = async (req, res, next) => {
       FoodOrder.find(match)
         .sort({ placedAt: -1 })
         .limit(LEDGER_LIMIT)
-        .select('orderNumber placedAt itemsTotal deliveryFee packagingCharge gst platformFee grandTotal partnerPayout commissionRate paymentMode paymentStatus fulfilment')
+        .select('orderNumber placedAt itemsTotal deliveryFee deliveryGst packagingCharge packagingGst gst platformFee serviceFee serviceFeeGst smallOrderFee grandTotal partnerPayout commissionRate pricing.restaurantCommission paymentMode paymentStatus fulfilment')
         .lean(),
 
       FoodOrder.aggregate([
@@ -707,6 +707,12 @@ const earnings = async (req, res, next) => {
             items: { $sum: '$itemsTotal' },
             gross: { $sum: '$grandTotal' },
             earnings: { $sum: '$partnerPayout' },
+            /* Packaging paid TO the kitchen — on orders priced by
+               `foodPricing.js` (they carry `pricing`) the payout includes it;
+               on older ones it did not. */
+            paidPackaging: {
+              $sum: { $cond: [{ $ne: [{ $ifNull: ['$pricing', null] }, null] }, '$packagingCharge', 0] },
+            },
           },
         },
       ]),
@@ -714,13 +720,12 @@ const earnings = async (req, res, next) => {
 
     const sum = totals[0] || { orders: 0, items: 0, gross: 0, earnings: 0 };
 
-    /* Commission is charged on the ITEMS, not on the bill — the delivery fee
-       and the packaging charge are not the kitchen's revenue and are not
-       commissioned (see `foodCustomerOrder.controller.js`, which computes
-       `partnerPayout` from `itemsTotal`). Derived from the two STORED figures
-       rather than recomputed from a rate, because a renegotiated rate must
-       not rewrite what an old order actually settled at. */
-    const commission = Math.max(0, (sum.items || 0) - (sum.earnings || 0));
+    /* Commission is charged on the ITEMS, not on the bill (0% at launch —
+       `foodPricing.js`). Derived from STORED figures rather than recomputed
+       from a rate, because a renegotiated rate must not rewrite what an old
+       order actually settled at. The packaging the kitchen was paid is added
+       back first, or it would read as negative commission. */
+    const commission = Math.max(0, (sum.items || 0) + (sum.paidPackaging || 0) - (sum.earnings || 0));
 
     const bucket = (paidBy) => split
       .filter((row) => row._id.paidBy === paidBy)
@@ -757,16 +762,24 @@ const earnings = async (req, res, next) => {
           placedAt: row.placedAt,
           itemsTotal: row.itemsTotal,
           deliveryFee: row.deliveryFee,
-          /* None of these three is the restaurant's money — the payout is
-             worked out from `itemsTotal` alone. They are listed so a ledger
-             row adds up to the total the diner actually paid. */
+          /* Listed so a ledger row adds up to the total the diner actually
+             paid. Of these only the packaging fee reaches the kitchen (on
+             orders priced since `foodPricing.js`). `platformFee` is legacy:
+             older orders carry it, newer ones a service fee. */
+          deliveryGst: row.deliveryGst || 0,
           packagingCharge: row.packagingCharge,
+          packagingGst: row.packagingGst || 0,
           gst: row.gst || 0,
           platformFee: row.platformFee || 0,
+          serviceFee: row.serviceFee || 0,
+          serviceFeeGst: row.serviceFeeGst || 0,
+          smallOrderFee: row.smallOrderFee || 0,
           grandTotal: row.grandTotal,
           partnerPayout: row.partnerPayout,
           commissionRate: row.commissionRate,
-          commission: Math.max(0, (row.itemsTotal || 0) - (row.partnerPayout || 0)),
+          commission: row.pricing
+            ? Number(row.pricing.restaurantCommission) || 0
+            : Math.max(0, (row.itemsTotal || 0) - (row.partnerPayout || 0)),
           paidBy: row.paymentMode === 'cod' ? 'cash' : 'online',
           fulfilment: row.fulfilment || 'delivery',
         })),

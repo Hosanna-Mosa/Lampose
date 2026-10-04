@@ -24,7 +24,7 @@
    ══════════════════════════════════════════════════════════════════════════ */
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -45,7 +45,7 @@ export default function FoodNotificationsScreen() {
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { orders, liveOrder, markFoodNotificationsSeen, refreshOrders } = useFood();
+  const { orders, liveOrder, markFoodNotificationsSeen, refreshOrders, ordersState } = useFood();
 
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(() => {
@@ -59,14 +59,23 @@ export default function FoodNotificationsScreen() {
      mount, against whatever `orders` holds at that moment; a status that
      changes while the diner is already looking at it is still visible on
      screen, just not separately flagged. */
+  /* Once — but once the orders are actually here. Run on mount, it marked an
+     empty list seen while the list was still loading, so the steps that
+     arrived a moment later were never cleared from the bell. */
+  const markedSeen = useRef(false);
   useEffect(() => {
+    if (markedSeen.current || ordersState === 'loading') return;
+    markedSeen.current = true;
     markFoodNotificationsSeen();
-    // Deliberately once — see above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [ordersState]);
 
   const recentlyFinished = useMemo(
-    () => orders.filter((order) => order.id !== liveOrder?.id && order.monthLabel === 'This month'),
+    /* FINISHED ones — "recently finished" listed an unpaid order, and a
+       second order still cooking, under the heading. */
+    () => orders.filter((order) => order.id !== liveOrder?.id
+      && order.monthLabel === 'This month'
+      && ['delivered', 'pickedUp', 'cancelled', 'rejected', 'refunded'].includes(order.status)),
     [orders, liveOrder],
   );
 

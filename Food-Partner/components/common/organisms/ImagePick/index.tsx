@@ -120,7 +120,7 @@ export function ImagePick({
                 <Icon name="image" size={14} color={colors.textPrimary} />
                 <Text variant="title3">Choose</Text>
               </Pressable>
-              {allowSample && (
+              {__DEV__ && allowSample && (
                 <Pressable
                   accessibilityRole="button"
                   onPress={() =>

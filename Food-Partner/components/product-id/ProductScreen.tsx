@@ -11,7 +11,7 @@
    diners may be looking at.
    ══════════════════════════════════════════════════════════════════════════ */
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   StyleSheet,
 } from "react-native";
@@ -112,8 +112,12 @@ export function ProductScreen() {
     void load();
   }, [load]);
 
+  /* One write per tap: `uploading` is state and lands a render late, so a
+     double tap reached `createProduct` twice and made two dishes. */
+  const saving = useRef(false);
   const save = async (next: MenuItem) => {
-    if (!session?.token) return;
+    if (!session?.token || saving.current) return;
+    saving.current = true;
     setError("");
     try {
       /* The photograph goes to Cloudinary before the dish is written, so the
@@ -138,6 +142,7 @@ export function ProductScreen() {
       setError((err as Error)?.message || "That did not save.");
     } finally {
       setUploading("");
+      saving.current = false;
     }
   };
 
@@ -174,6 +179,7 @@ export function ProductScreen() {
             item={item}
             categories={categories}
             onSave={save}
+            busy={!!uploading}
             onCancel={() => router.back()}
             onDelete={isNew ? undefined : () => setConfirmDelete(true)}
           />

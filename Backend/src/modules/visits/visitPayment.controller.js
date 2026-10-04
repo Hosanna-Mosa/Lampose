@@ -322,11 +322,14 @@ const markVisitPaid = async (doc, paymentId) => {
   }
 
   if (doc.channel === 'app') {
-    /* An app request is answered in the app: the push says "pick your slot"
-       and the picker is a screen, not a chat. */
+    /* An app request is answered in the app: for a visit the push says "pick
+       your slot" and the picker is a screen, not a chat. */
     try {
       const notifier = require('../notifications/stayRequest.notifier');
-      notifier.notifyVisitPaid(doc).catch((e) => console.error('[visit-pay] push failed:', e.message));
+      /* By what was paid for: a hotel stay is finished by this payment and has
+         no visit slot to pick — see `notifyStayPaid`. */
+      const send = purposeOf(doc) === STAY_PURPOSE ? notifier.notifyStayPaid : notifier.notifyVisitPaid;
+      send(doc).catch((e) => console.error('[visit-pay] push failed:', e.message));
     } catch (error) {
       console.error('[visit-pay] notifier unavailable:', error.message);
     }
@@ -812,6 +815,9 @@ const recordPaymentFailure = async (req, res, next) => {
        error status here would surface in the checkout as a failed fetch and
        tell the customer about a problem that is not theirs. */
     if (!doc || !doc.payment?.required) return res.status(204).end();
+    /* Once paid there is no failure to record. This used to overwrite the
+       PAID payment's id with whatever an unauthenticated caller sent. */
+    if (doc.payment.status === 'paid') return res.status(204).end();
 
     const trim = (value) => String(value || '').slice(0, 200);
     const detail = [

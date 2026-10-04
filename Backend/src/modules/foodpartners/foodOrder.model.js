@@ -452,13 +452,9 @@ const foodOrderSchema = new mongoose.Schema(
     itemsTotal: { type: Number, default: 0, min: 0 },
 
     /*
-     * The restaurant's own packaging charge — NO LONGER CHARGED.
-     *
-     * Kept because orders placed before it was dropped carry a real figure
-     * here and their receipts have to keep adding up. Nothing writes it any
-     * more; `foodCharges.util.js` replaced it with GST and a platform fee.
-     * Removing the column would silently reduce the total of every historical
-     * order that had one.
+     * The restaurant's own packaging fee, as billed — capped and taxed by
+     * `foodPricing.js` (18% GST, in `packagingGst`). Orders from the stretch
+     * when it was not billed carry 0.
      */
     packagingCharge: { type: Number, default: 0, min: 0 },
 
@@ -473,8 +469,26 @@ const foodOrderSchema = new mongoose.Schema(
     gst: { type: Number, default: 0, min: 0 },
     gstRate: { type: Number, default: 0, min: 0 },
 
-    /** The flat platform fee. Charged on pickup as well as delivery. */
+    /** LEGACY — the old flat fee. Read only for orders placed before the
+        service fee replaced it; new orders write 0. Never shown by this name. */
     platformFee: { type: Number, default: 0, min: 0 },
+
+    /* The launch bill — see `foodPricing.js`, which fills every one. */
+    serviceFee: { type: Number, default: 0, min: 0 },
+    serviceFeeGst: { type: Number, default: 0, min: 0 },
+    deliveryGst: { type: Number, default: 0, min: 0 },
+    packagingGst: { type: Number, default: 0, min: 0 },
+    smallOrderFee: { type: Number, default: 0, min: 0 },
+    /** Kitchen → drop, straight line, km. Null when either pin was missing. */
+    distanceKm: { type: Number, default: null },
+
+    /*
+     * The whole breakdown as it was charged — customer lines, the restaurant's
+     * settlement (commission 0% at launch), the rider's pay and Lampose's
+     * gross revenue. Frozen at placement: a later change of pricing rule
+     * must never rewrite what a historical order cost.
+     */
+    pricing: { type: mongoose.Schema.Types.Mixed, default: null },
 
     deliveryFee: { type: Number, default: 0, min: 0 },
     discount: { type: Number, default: 0, min: 0 },
@@ -504,7 +518,9 @@ const foodOrderSchema = new mongoose.Schema(
      * kitchen's balance with nothing to show for it.
      */
     payoutId: { type: String, default: null, index: true },
-    commissionRate: { type: Number, default: 15, min: 0, max: 100 },
+    /* 0 at launch — see `foodPricing.js`. Stored per order so a later rate
+       never re-prices an old one. */
+    commissionRate: { type: Number, default: 0, min: 0, max: 100 },
 
     paymentMode: { type: String, enum: PAYMENT_MODES, default: 'cod' },
     paymentStatus: { type: String, enum: PAYMENT_STATUSES, default: 'pending' },
@@ -713,6 +729,19 @@ const foodOrderSchema = new mongoose.Schema(
      */
     pickupCode: { type: String, default: '' },
     deliveryOtp: { type: String, default: '' },
+    /*
+     * Wrong guesses at each code, and when the order was locked for them.
+     *
+     * Four digits is 10,000 options — fine for two people comparing a number,
+     * not for a rider who can simply try them all. After
+     * `MAX_HANDOVER_ATTEMPTS` (driverOrder.controller.js) the code stops being
+     * accepted and the hand-over needs Lampose support.
+     */
+    handoverAttempts: {
+      pickup: { type: Number, default: 0, min: 0 },
+      delivery: { type: Number, default: 0, min: 0 },
+      lockedAt: { type: Date, default: null },
+    },
 
     /** Minutes the kitchen quoted when it accepted. */
     promisedMinutes: { type: Number, default: 0, min: 0 },
@@ -1060,7 +1089,13 @@ const riderView = (order, { revealed = false, distanceMeters = null, restaurant 
     /* Only after accepting. See above. */
     customerName: revealed ? (doc.customerName || '') : '',
     customerPhone: revealed ? (doc.customerPhone || '') : '',
-    pickupCode: revealed ? (doc.pickupCode || '') : '',
+    /*
+     * No `pickupCode`, accepted or not.
+     *
+     * It is the number the KITCHEN reads out at the pass, and the rider typing
+     * it back is the only proof they were standing there. Sent to the rider's
+     * own app, it proved nothing: "picked up" could be marked from anywhere.
+     */
     placedAt: doc.placedAt,
     promisedMinutes: doc.promisedMinutes || 0,
   };
@@ -1125,11 +1160,34 @@ const customerView = (order, live = null) => {
   delete doc.commissionRate;
   delete doc.pickupCode;
   delete doc.__v;
+  /* "Platform fee" is never a customer-facing name. An order from before the
+     service fee replaced it shows its old flat fee AS the service fee — the
+     same charge, under the one name the diner is ever shown. */
+  if (!doc.serviceFee && doc.platformFee) doc.serviceFee = doc.platformFee;
+  delete doc.platformFee;
+  /* The bill lines only — rider pay, commission and Lampose's revenue are
+     settlement figures, not the diner's. */
+  if (doc.pricing) {
+    const p = doc.pricing;
+    doc.pricing = {
+      foodSubtotal: p.foodSubtotal, foodGstRate: p.foodGstRate, foodGst: p.foodGst,
+      foodGstIncluded: p.foodGstIncluded, distanceKm: p.distanceKm,
+      deliveryFee: p.deliveryFee, deliveryGst: p.deliveryGst,
+      serviceFee: p.serviceFee, serviceFeeGst: p.serviceFeeGst,
+      packagingFee: p.packagingFee, packagingGst: p.packagingGst,
+      smallOrderFee: p.smallOrderFee, discount: p.discount, customerPayable: p.customerPayable,
+    };
+  }
 
   /* The desk's number and the message's outcome are the restaurant's and ours:
      a diner is told a driver is assigned, not who at which phone was asked. */
   const delivery = { ...(doc.delivery || {}) };
   delete delivery.request;
+  /* A rider's personal number is the diner's for the delivery, not for ever.
+     Once the order is over it stops being sent — the app kept a Call button
+     to a stranger's phone on every past order. */
+  const finished = ['delivered', 'cancelled', 'rejected'].includes(doc.status);
+  if (finished) delivery.driverPhone = '';
 
   /* An order whose restaurant arranged the driver reads as `assigned` here even
      though no rider account is behind it: that is the word the apps draw the
@@ -1271,12 +1329,36 @@ const partnerView = (order) => {
   delete doc.deliveryFee;
   delete doc.packagingCharge;
   delete doc.discount;
+  /* The diner's other charges and the full breakdown are not the kitchen's
+     either — the settlement below is what it is owed. */
+  delete doc.serviceFee;
+  delete doc.serviceFeeGst;
+  delete doc.deliveryGst;
+  delete doc.packagingGst;
+  delete doc.smallOrderFee;
+  const snapshot = doc.pricing || null;
+  delete doc.pricing;
 
   const delivery = doc.delivery || {};
   const request = delivery.request || {};
 
   return {
     ...doc,
+    /*
+     * What the kitchen is owed, in its own words. 0% commission at launch:
+     * the food (before GST) plus its own packaging fee, nothing taken off.
+     * Older orders, from before the breakdown existed, read the fields they
+     * stored.
+     */
+    settlement: {
+      foodOrderValue: snapshot
+        ? Math.round((snapshot.foodSubtotal - (snapshot.foodGstIncluded ? snapshot.foodGst : 0)) * 100) / 100
+        : doc.itemsTotal,
+      packagingFee: snapshot ? snapshot.packagingFee : 0,
+      commissionRate: snapshot ? snapshot.restaurantCommissionRate * 100 : (doc.commissionRate || 0),
+      commission: snapshot ? snapshot.restaurantCommission : Math.max(0, (doc.itemsTotal || 0) - (doc.partnerPayout || 0)),
+      restaurantReceives: snapshot ? snapshot.restaurantPayable : doc.partnerPayout,
+    },
     dispatch: {
       state: (doc.dispatch && doc.dispatch.state) || 'idle',
       candidateCount: (doc.dispatch && doc.dispatch.candidateCount) || 0,

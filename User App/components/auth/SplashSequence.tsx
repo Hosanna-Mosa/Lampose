@@ -78,17 +78,23 @@ export function SplashSequence({ onFinish, waiting = false }: SplashSequenceProp
 
   useEffect(() => {
     if (waiting) return;
+    /* Both timers are cleared on unmount — the inner one used to survive it,
+       and called `onFinish` (a navigation) on a splash that had already gone. */
+    let finishTimer: ReturnType<typeof setTimeout> | null = null;
     const timer = setTimeout(
       () => {
         if (!reduceMotion) {
           lockup.value = withTiming(1.04, { duration: EXIT_DURATION, easing: easing.exit });
         }
         fade.value = withTiming(0, { duration: EXIT_DURATION, easing: easing.exit });
-        setTimeout(() => onFinish?.(), EXIT_DURATION);
+        finishTimer = setTimeout(() => onFinish?.(), EXIT_DURATION);
       },
       Math.max(0, EXIT_AT),
     );
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      if (finishTimer) clearTimeout(finishTimer);
+    };
   }, [waiting, reduceMotion, lockup, fade, onFinish]);
 
   const dotStyle = useAnimatedStyle(() => ({

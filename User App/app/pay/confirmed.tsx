@@ -17,6 +17,7 @@ import { formatRupees } from '@/utils/money';
 import { useDepositMark } from '@/components/ui/DepositMark';
 import { findBooking } from '@/data/bookings';
 import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * "It's yours."
@@ -48,7 +49,7 @@ import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
  * light mode and near-black in dark — the opposite of every other screen — and
  * every string added here had to remember to opt into it.
  */
-export default function PaymentConfirmed() {
+function PaymentConfirmed() {
   const { colors, space, layout, mode, radius } = useTheme();
   const insets = useSafeAreaInsets();
   /* Nothing on a handset that reports a real inset; the shortfall on one
@@ -232,3 +233,6 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
   flex: { flex: 1 },
 });
+
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(PaymentConfirmed);

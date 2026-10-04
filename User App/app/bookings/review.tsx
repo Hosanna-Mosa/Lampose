@@ -112,7 +112,12 @@ export default function RateStayScreen() {
               onChangeText={setComment}
               multiline
               placeholder="The room, the owner, what surprised you…"
+              /* The server keeps 1,000 characters and refuses an empty one. */
+              maxLength={1000}
             />
+            {!comment.trim() ? (
+              <Text variant="caption" color="tertiary">A few words are needed to post your review.</Text>
+            ) : null}
 
             {error ? (
               <Text variant="caption" color="danger">
@@ -124,7 +129,9 @@ export default function RateStayScreen() {
               label="Submit review"
               variant="primary"
               fullWidth
-              disabled={rating < 1 || submitting}
+              /* A comment is required too — the server answered 400 to a
+                 stars-only review, after the tap. */
+              disabled={rating < 1 || !comment.trim() || submitting}
               loading={submitting}
               onPress={submit}
             />

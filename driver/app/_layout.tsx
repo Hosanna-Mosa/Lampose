@@ -168,11 +168,48 @@ export default function RootLayout() {
       const id = response.notification.request.identifier;
       if (handledTap.current === id) return;
       handledTap.current = id;
-      const data = response.notification.request.content.data as { kind?: string } | undefined;
-      if (data?.kind === "driver_document") router.push("/documents");
+      const data = response.notification.request.content.data as
+        | { kind?: string; orderNumber?: string; reference?: string }
+        | undefined;
+      const store = useDriverStore.getState();
+      switch (data?.kind) {
+        case "driver_document":
+          router.push("/documents");
+          break;
+        /* Approved, suspended or reinstated. The profile is what every gate in
+           this layout reads, so it is re-read first; home is then whatever
+           that standing allows. */
+        case "driver_account":
+          store.refreshProfile().catch(() => {});
+          router.replace("/");
+          break;
+        /* An update on the delivery they are carrying. */
+        case "food_order":
+          if (store.currentJob && store.currentJob.orderNumber === data.orderNumber) router.push("/active");
+          break;
+        /* An offer: ask for it now rather than on the next poll tick — the
+           offer pump then puts it on screen. */
+        case "delivery_offer":
+          store.pollOffer().catch(() => {});
+          break;
+        case "support.reply":
+        case "support.status":
+          router.push(data.reference
+            ? { pathname: "/ticket", params: { reference: data.reference } }
+            : "/support");
+          break;
+        default:
+          break;
+      }
     };
 
-    Notifications.getLastNotificationResponseAsync().then(route).catch(() => {});
+    /* Routed once, then cleared — see the User App's `getInitialPush`. */
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        route(response);
+        if (response) Notifications.clearLastNotificationResponseAsync().catch(() => {});
+      })
+      .catch(() => {});
     const sub = Notifications.addNotificationResponseReceivedListener(route);
     return () => sub.remove();
   }, [hydrated, typeReady, signedIn]);

@@ -5,4 +5,8 @@
  * its default export, because with file-based routing the path IS the route --
  * moving or renaming it deletes the screen behind a green build (M5).
  */
-export { DeleteRuleSheetScreen as default } from '@/components/inventory-delete-rule/DeleteRuleSheetScreen';
+import { DeleteRuleSheetScreen } from '@/components/inventory-delete-rule/DeleteRuleSheetScreen';
+import { devOnly } from '@/components/dev-only/devOnly';
+
+/* Developer builds only — see `devOnly`. */
+export default devOnly(DeleteRuleSheetScreen);

@@ -19,6 +19,7 @@ import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import { formatRupees } from '@/utils/money';
+import { foodBillLines } from '@/components/food/foodBill';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
 
@@ -42,11 +43,9 @@ export default function CartScreen() {
     clear,
     cartKitchen,
     itemTotal,
-    deliveryFee,
     packagingCharge,
-    gst,
-    gstRate,
-    platformFee,
+    bill: figures,
+    billSource,
     toPay,
     address,
     count,
@@ -77,31 +76,32 @@ export default function CartScreen() {
      under one. The notice that used to stand here went with it. */
 
   /*
-    The bill, and nothing but the bill.
-
-    Three terms, because the server adds three things: the items, the kitchen's
-    packing charge and the delivery fee. The 5% "Taxes and charges" row that
-    used to sit here was this app's own invention — no tax is computed, charged
-    or remitted anywhere in the order flow — and the coupon line under it came
-    off a total the server never discounted.
-
-    Packaging prints only when there is some: a ₹0 row teaches a student to
-    skim the one block on the screen that must not be skimmed. It is also the
-    line that disappears while the kitchen's own row is still loading, which is
-    why the footnote below says so rather than letting a short total pass for a
-    complete one.
+    The bill, and nothing but the bill — every line from `foodBillLines`, in
+    the order the payment screen and the receipt print them too. The figures
+    are the server's quote once it has arrived (see `billSource`), and the
+    order is priced by the server again when it is placed.
   */
-  const bill: BillLine[] = [
-    { id: 'items', label: `Item total · ${count} ${count === 1 ? 'item' : 'items'}`, amount: itemTotal },
-    /* Zero on every kitchen now — GST and the platform fee replaced it — and
-       still listed because an order placed before that carries a real one. */
-    ...(packagingCharge ? [{ id: 'packaging', label: 'Packaging by the kitchen', amount: packagingCharge }] : []),
-    ...(gst ? [{ id: 'gst', label: `GST${gstRate ? ` (${gstRate}%)` : ''}`, amount: gst }] : []),
-    ...(platformFee ? [{ id: 'platform', label: 'Platform fee', amount: platformFee }] : []),
-    /* Every order is delivered — collection is no longer offered, so there is
-       no counter line to print instead of this one. */
-    { id: 'delivery', label: address ? `Delivery to ${address.title}` : 'Delivery', amount: deliveryFee },
-  ];
+  const bill: BillLine[] = foodBillLines({
+    itemCount: count,
+    itemTotal,
+    foodGst: figures.foodGst,
+    foodGstRate: Math.round(figures.foodGstRate * 100),
+    foodGstIncluded: figures.foodGstIncluded,
+    deliveryFee: figures.deliveryFee,
+    deliveryGst: figures.deliveryGst,
+    deliveryLabel: figures.distanceKnown && figures.distanceKm !== null
+      ? `Delivery fee | ${figures.distanceKm.toFixed(1)} km`
+      : 'Delivery fee',
+    serviceFee: figures.serviceFee,
+    serviceFeeGst: figures.serviceFeeGst,
+    packagingFee: figures.packagingFee,
+    packagingGst: figures.packagingGst,
+    smallOrderFee: figures.smallOrderFee,
+    discount: figures.discount,
+  });
+  const smallOrderHint = figures.smallOrderFee > 0
+    ? ` Add ${formatRupees(Math.max(0, figures.smallOrderThreshold - itemTotal))} more to skip the small order fee.`
+    : '';
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -252,10 +252,12 @@ export default function CartScreen() {
                arrived, so the total below is short by an amount nobody has
                told us yet. Said out loud rather than papered over with a zero. */
             packagingCharge === null
-              ? 'This kitchen has not sent its packing charge yet, so the total is not final. The order is priced by the kitchen when you place it.'
-              : address
-                ? `Delivered to ${address.title}. The rider is assigned once the kitchen plates it.`
-                : 'Choose where this is going next. The rider is assigned once the kitchen plates it.'
+              ? 'This kitchen has not sent its packaging fee yet, so the total is not final. The order is priced when you place it.'
+              : billSource === 'preview'
+                ? `Delivery is priced by distance once the address is confirmed.${smallOrderHint}`
+                : address
+                  ? `Delivered to ${address.title}.${smallOrderHint}`
+                  : `Choose where this is going next.${smallOrderHint}`
           }
         />
 
@@ -316,6 +318,9 @@ export default function CartScreen() {
         <Button
           label={`Choose address · ${formatRupees(toPay)}`}
           fullWidth
+          /* The notice above already says it is closed; the button stayed
+             live and walked a closed kitchen's cart all the way to payment. */
+          disabled={!kitchenOpen(kitchen)}
           onPress={() => router.push(foodHref.address)}
         />
       </View>

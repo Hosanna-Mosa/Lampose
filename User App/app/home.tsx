@@ -151,7 +151,7 @@ export default function Home() {
   const { user, status, signOut, requireSignIn } = useAuth();
   const { confirm } = useAlert();
   const { coupon } = useMyCoupon(status === 'signedIn');
-  const { locality, category, setCategory } = useAppState();
+  const { locality, category, setCategory, setLocality } = useAppState();
   /*
    * "All locations" is an area answer that means "do not scope this".
    *
@@ -344,6 +344,10 @@ export default function Home() {
   const { listings: cityListings } = useListings({
     category,
     city: scopedCity,
+    /* The same search as the narrow feed. Without it, a search for one
+       place's name offered "See all 40 in Bangalore" — the whole city, not
+       the matches — and the count promised places the search would hide. */
+    search: debouncedSearch || null,
     /* Nothing to widen TO when the feed is already everywhere, and no CITY
        to widen to in the first place on a radius search — "see the whole
        city" is a question about a named area, and a radius search never
@@ -710,7 +714,7 @@ export default function Home() {
       case 'depositLow':
         return 'Deposit: Low to High';
       default:
-        return 'Relevance';
+        return 'Newest';
     }
   }, [query.sort]);
 
@@ -962,7 +966,6 @@ export default function Home() {
                     otherCategoryCount,
                   })}
                   onPrimary={() => router.push('/(entry)/locality')}
-                  onSecondary={() => {}}
                 />
               ) : (
                 relaxed && nearby ? (
@@ -976,7 +979,9 @@ export default function Home() {
                       nearbyLocality: nearby.name,
                     })}
                     onPrimary={() => setQuery({ ...query, rentCeiling: relaxed.ceiling })}
-                    onSecondary={() => router.push('/(entry)/locality')}
+                    /* "Search <area> instead" SWITCHES to it — it opened the
+                       area picker, which the button never said it would. */
+                    onSecondary={() => { void setLocality(nearby); }}
                   />
                 ) : (
                   <View style={{ paddingHorizontal: layout.gutter, gap: space[3] }}>
@@ -1081,6 +1086,9 @@ export default function Home() {
               See `DraggableMapPill`. */}
           {total > 0 && !feedLoading ? (
             <DraggableMapPill
+              /* Named for what it does. It said "Map" and opened the area
+                 picker — there is no map view to open. */
+              label="Change area"
               onPress={() => router.push('/(entry)/locality')}
               bottomInset={barHeight + space[3]}
             />
@@ -1345,17 +1353,51 @@ export default function Home() {
           }}
           onScroll={barScroll}
           scrollEventThrottle={16}
+          /* Pull to refresh — the tab had none, and a booking the owner just
+             confirmed stayed hidden until the cache aged out. */
+          refreshControl={
+            status === 'signedIn' ? (
+              <RefreshControl
+                refreshing={bookingsQuery.refreshing}
+                onRefresh={() => { void bookingsQuery.refetch(); }}
+                tintColor={colors.brand}
+              />
+            ) : undefined
+          }
         >
           <BookingSegments value={segment} onChange={setSegment} />
           {(() => {
+            /* A guest has no bookings to show — and was told "no bookings",
+               which reads as a fact about the account rather than a sign-in
+               away. Same prompt the Saved tab uses. */
+            if (status !== 'signedIn') {
+              return (
+                <StateTemplate
+                  copy={emptyStates.signInRequired({ what: 'your bookings' })}
+                  onPrimary={() => requireSignIn(() => {})}
+                />
+              );
+            }
+            /* A failed load is not "no bookings". */
+            if (bookingsQuery.error && !bookingsQuery.loading && realBookings.length === 0) {
+              return (
+                <StateTemplate
+                  copy={{
+                    headline: "We couldn't load your bookings",
+                    body: 'Check your connection, then try again. Nothing has changed with your bookings.',
+                    primaryAction: 'Try again',
+                  }}
+                  onPrimary={() => { void bookingsQuery.refetch(); }}
+                />
+              );
+            }
             /*
-             * A confirmed request has no `PartnerBooking` row yet by
-             * definition — `fromRealBooking` never produces a `requests`
-             * segment, and the tab has nowhere else to read one from. See
-             * `request/waiting.tsx` for where a request in flight is
-             * actually tracked; a unified list here is a real gap this does
-             * not close. Shown as the ordinary empty state rather than
-             * hidden, so the segment is not simply dead.
+             * Requests come from the stay-requests list (`useOngoing`, the
+             * same server query the strip reads), not from bookings: a
+             * request waiting on an owner, or accepted with the payment still
+             * owed, has no booking a student can open yet. This segment used
+             * to return nothing at all, so those were in no tab anywhere.
+             * Real bookings that map to this segment are listed under them.
              */
             if (bookingsQuery.loading && segment !== 'requests') {
               return (
@@ -1365,11 +1407,12 @@ export default function Home() {
               );
             }
 
-            const shown = segment === 'requests'
-              ? []
-              : realBookings.filter((booking) => segmentOf(booking.status) === segment);
+            const shown = realBookings.filter((booking) => segmentOf(booking.status) === segment);
+            const requestRows = segment === 'requests'
+              ? ongoing.filter((item) => item.key.startsWith('listing-'))
+              : [];
 
-            if (shown.length === 0) {
+            if (shown.length === 0 && requestRows.length === 0) {
               return (
                 <StateTemplate
                   copy={emptyStates.noBookings({
@@ -1380,13 +1423,36 @@ export default function Home() {
                 />
               );
             }
-            return shown.map((booking) => (
-              <BookingRow
-                key={booking.id}
-                booking={booking}
-                onPress={() => router.push(`/bookings/${booking.realId ?? booking.id}` as never)}
-              />
-            ));
+            return (
+              <>
+                {requestRows.map((item) => (
+                  <Pressable
+                    key={item.key}
+                    accessibilityRole="button"
+                    onPress={() => router.push(`/confirm/${item.key.slice('listing-'.length)}` as never)}
+                    style={({ pressed }) => ({
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                      borderWidth: StyleSheet.hairlineWidth,
+                      borderRadius: radius.card,
+                      padding: space[4],
+                      gap: space[1],
+                      opacity: pressed ? 0.85 : 1,
+                    })}
+                  >
+                    <Text variant="bodyStrong" numberOfLines={1}>{item.title}</Text>
+                    <Text variant="caption" color="secondary">{item.status}</Text>
+                  </Pressable>
+                ))}
+                {shown.map((booking) => (
+                  <BookingRow
+                    key={booking.id}
+                    booking={booking}
+                    onPress={() => router.push(`/bookings/${booking.realId ?? booking.id}` as never)}
+                  />
+                ))}
+              </>
+            );
           })()}
 
         </ScrollView>

@@ -70,6 +70,10 @@ export type RentDisplayProps = {
   perBed?: boolean;
   /** A nightly rate. Dormitories only, and the monthly line comes with it. */
   perNight?: boolean;
+  /** A DAILY rate — a PG or hostel's short stay. Not "night": a PG bed is let
+      by the day, and "/month" (the default) was printed after a ₹500 day
+      rate, which is the bug this exists for. */
+  perDay?: boolean;
   /**
    * The line under the price for a dormitory: "₹7,500/month · min 3 nights".
    * A nightly rate is never the whole story, and the monthly equivalent is
@@ -112,6 +116,7 @@ export function RentDisplay({
   sharedTag,
   perBed = false,
   perNight = false,
+  perDay = false,
   secondaryLine,
   freshness,
   struck = false,
@@ -128,6 +133,8 @@ export function RentDisplay({
     ? ''
     : perNight
     ? money.perNightSuffix
+    : perDay
+    ? money.perDaySuffix
     : perBed
       ? short
         ? money.perBedSuffix
@@ -139,7 +146,7 @@ export function RentDisplay({
   const readable =
     rent === null
       ? 'Price on request. The owner has not set a rent.'
-      : `${formatRupees(rent)} ${total ? 'in total' : perNight ? 'per night' : perBed ? 'per bed per month' : 'per month'}${
+      : `${formatRupees(rent)} ${total ? 'in total' : perNight ? 'per night' : perDay ? 'per day' : perBed ? 'per bed per month' : 'per month'}${
           deposit === undefined
             ? ''
             : deposit === 0

@@ -119,6 +119,15 @@ export async function loginWithPassword(
   return unwrap(envelope);
 }
 
+/**
+ * End this session on the server too, and forget this handset's push token.
+ * Signing out used to clear the phone only — the token stayed valid for its
+ * full seven days. Best effort: the caller signs out locally either way.
+ */
+export async function logout(pushToken?: string | null): Promise<void> {
+  await api.post(endpoints.partnerAuthLogout, pushToken ? { pushToken } : {});
+}
+
 /** Who this token belongs to. The session's own validity check on boot. */
 export async function fetchMe(signal?: AbortSignal): Promise<BackendPartner> {
   const envelope = await api.get<ApiEnvelope<BackendPartner>>(endpoints.partnerMe, { signal });

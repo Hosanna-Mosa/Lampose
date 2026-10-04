@@ -317,6 +317,9 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
   /* "Mark delivered": one press asks, a second press does it. */
   const [deliverStep, setDeliverStep] = useState<'idle' | 'asking' | 'sending'>('idle');
   const [deliverNote, setDeliverNote] = useState('');
+  /* Cancel / re-dispatch for a stuck order: cancel asks first, like delivered. */
+  const [stuckStep, setStuckStep] = useState<'idle' | 'asking' | 'sending'>('idle');
+  const [cancelReason, setCancelReason] = useState('');
   const [toast, setToast] = useState<ToastState | null>(null);
 
   /*
@@ -438,6 +441,8 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
     setSettleNote('');
     setDeliverStep('idle');
     setDeliverNote('');
+    setStuckStep('idle');
+    setCancelReason('');
   };
 
   const openOrder = (orderNumber: string) => {
@@ -498,6 +503,44 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
        not be as this panel last saw it, so look again rather than guess. */
     setToast({ tone: 'crit', message: res.message || 'That could not be saved. Reload the order and look.' });
     if (showing) setDeliverStep('idle');
+    detail.reload();
+    refreshAll();
+  };
+
+  /* ── A stuck order: cancel it, or look for a rider again ─────────── */
+
+  const stuckRef = useRef<string | null>(null);
+
+  const runStuckAction = async (action: 'cancel' | 'redispatch') => {
+    if (!open || stuckRef.current) return;
+    const orderNumber = open.orderNumber;
+    stuckRef.current = orderNumber;
+    setStuckStep('sending');
+
+    const res = action === 'cancel'
+      ? await foodOrderService.cancel(orderNumber, cancelReason.trim() || undefined)
+      : await foodOrderService.redispatch(orderNumber);
+    stuckRef.current = null;
+    const showing = openNumberRef.current === orderNumber;
+
+    if (res.success && res.data) {
+      if (showing) {
+        setPatched(res.data);
+        setStuckStep('idle');
+        setCancelReason('');
+      }
+      setToast({
+        tone: 'good',
+        message: action === 'cancel'
+          ? `${orderNumber} is cancelled.${res.data.payment.mode === 'online' ? ' Its payment is now owed back.' : ''}`
+          : res.message || `Looking for a rider for ${orderNumber}.`,
+      });
+      refreshAll();
+      return;
+    }
+
+    setToast({ tone: 'crit', message: res.message || 'That could not be saved. Reload the order and look.' });
+    if (showing) setStuckStep('idle');
     detail.reload();
     refreshAll();
   };
@@ -1179,6 +1222,58 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
               </Section>
             )}
 
+            {/* The way out of a stuck order. Once cooking starts the diner
+                cannot cancel and the kitchen cannot reject, so without these a
+                paid order that no rider takes had nowhere to go. */}
+            {canComplete && !['delivered', 'cancelled', 'rejected'].includes(open.status) && (
+              <Section title="Stuck order">
+                {stuckStep === 'asking' ? (
+                  <Box className="space-y-3">
+                    <Field label="Why (optional)" hint="Kept in the order's history, beside your name.">
+                      <Input value={cancelReason} maxLength={150} onChange={(e) => setCancelReason(e.target.value)} />
+                    </Field>
+                    <Box className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="danger" onClick={() => void runStuckAction('cancel')}>
+                        Yes, cancel this order
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setStuckStep('idle')}>
+                        Keep it
+                      </Button>
+                    </Box>
+                    <Text className="text-label text-ink-3">
+                      The kitchen, the diner and any rider are told.
+                      {open.payment.mode === 'online' ? ' The payment is marked as owed back; send it with Refund.' : ''}
+                    </Text>
+                  </Box>
+                ) : (
+                  <Box className="flex flex-wrap gap-2">
+                    {open.fulfilment === 'delivery' && open.deliveryMethod !== 'self' && !open.rider
+                      && ['accepted', 'preparing', 'ready'].includes(open.status)
+                      && (open.dispatch.state === 'unassigned' || open.dispatch.state === 'idle') && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={RefreshCw}
+                        loading={stuckStep === 'sending'}
+                        disabled={stuckStep === 'sending'}
+                        onClick={() => void runStuckAction('redispatch')}
+                      >
+                        Find a rider again
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={stuckStep === 'sending'}
+                      onClick={() => setStuckStep('asking')}
+                    >
+                      Cancel order
+                    </Button>
+                  </Box>
+                )}
+              </Section>
+            )}
+
             {/* Who to ring comes first. Somebody opening this page is usually
                 already on the phone to one of these three. */}
             <Section title="Who to ring">
@@ -1249,17 +1344,23 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                 <Box>
                   <Text className="text-label text-ink-3 mb-1">What the diner paid</Text>
                   <MoneyRow label="Items" value={open.money.itemsTotal} />
-                  {/* Only on an order charged one, before GST and the platform
-                      fee replaced it. */}
-                  {open.money.packagingCharge > 0 && (
-                    <MoneyRow label="Packaging" value={open.money.packagingCharge} />
-                  )}
                   <MoneyRow
                     label={open.money.gstRate ? `GST (${open.money.gstRate}%)` : 'GST'}
                     value={open.money.gst}
                   />
-                  <MoneyRow label="Platform fee" value={open.money.platformFee} />
-                  <MoneyRow label="Delivery" value={open.money.deliveryFee} />
+                  <MoneyRow
+                    label={open.money.distanceKm != null ? `Delivery fee · ${open.money.distanceKm} km` : 'Delivery fee'}
+                    value={open.money.deliveryFee}
+                  />
+                  {open.money.deliveryGst > 0 && <MoneyRow label="Delivery GST (18%)" value={open.money.deliveryGst} />}
+                  {/* An older order's platform fee is shown under the name it
+                      was charged under; new orders carry a service fee. */}
+                  {open.money.platformFee > 0 && <MoneyRow label="Platform fee (legacy)" value={open.money.platformFee} />}
+                  {open.money.serviceFee > 0 && <MoneyRow label="Service fee" value={open.money.serviceFee} />}
+                  {open.money.serviceFeeGst > 0 && <MoneyRow label="Service fee GST (18%)" value={open.money.serviceFeeGst} />}
+                  {open.money.packagingCharge > 0 && <MoneyRow label="Packaging fee" value={open.money.packagingCharge} />}
+                  {open.money.packagingGst > 0 && <MoneyRow label="Packaging GST (18%)" value={open.money.packagingGst} />}
+                  {open.money.smallOrderFee > 0 && <MoneyRow label="Small order fee" value={open.money.smallOrderFee} />}
                   {open.money.discount > 0 && (
                     <MoneyRow label="Discount" value={-open.money.discount} />
                   )}
@@ -1280,6 +1381,12 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
                     value={open.money.commissionAmount}
                   />
                   <MoneyRow label="Rider earns" value={open.money.riderEarnings} />
+                  {open.money.gstCollected != null && (
+                    <MoneyRow label="GST collected (payable)" value={open.money.gstCollected} />
+                  )}
+                  {open.money.lamposeGrossRevenue != null && (
+                    <MoneyRow label="Lampose revenue (delivery + service)" value={open.money.lamposeGrossRevenue} />
+                  )}
                   <MoneyRow label="Lampose keeps" value={open.money.lamposeNet} strong />
                 </Box>
               </Box>

@@ -206,6 +206,12 @@ const setOrderStatus = async (req, res, next) => {
        nobody else. */
     if (next_ === 'picked_up') foodDelivery.markPickedUp(order);
 
+    /* Saved ONLY if the status is still what was read. A kitchen accept and
+       a diner cancel landing together used to be last-write-wins: an order
+       could end up `accepted` with a cancellation in its own history, and
+       dispatch would then send a rider for it. */
+    const readStatus = order.status;
+    order.$where = { status: readStatus };
     order.status = next_;
     if (next_ === 'rejected') {
       order.rejectionReason = String((req.body || {}).reason || '').trim().slice(0, 300);
@@ -250,7 +256,19 @@ const setOrderStatus = async (req, res, next) => {
       if (row) order.restaurant = restaurantSnapshot(row);
     }
 
-    await order.save();
+    try {
+      await order.save();
+    } catch (error) {
+      /* Either name means "it changed underneath": a save that also pushes
+         to an array is version-checked and fails as a VersionError. */
+      if (error && (error.name === 'DocumentNotFoundError' || error.name === 'VersionError')) {
+        return fail(
+          res, 409, 'ORDER_CHANGED',
+          'This order changed a moment ago — the diner may have cancelled it. Refresh to see where it stands.',
+        );
+      }
+      throw error;
+    }
 
     /* ── What the move means to the rest of the flow ───────────────────────
        Required late so this module does not take a load-time dependency on the
@@ -375,6 +393,8 @@ const setOrderStatus = async (req, res, next) => {
     if (next_ === 'picked_up' || next_ === 'delivered') {
       notifier.notifyCustomerOfHandover(shown, next_).catch(() => {});
     }
+    /* A counter pickup's diner is told the food is waiting. */
+    if (next_ === 'ready') notifier.notifyCustomerOfPickupReady(shown).catch(() => {});
 
     return res.json({
       success: true,

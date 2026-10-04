@@ -63,7 +63,9 @@ export function FoodSearch({ onBack }: { onBack?: () => void }) {
   const [query, setQuery] = useState('');
   const [price, setPrice] = useState<PriceBand>('any');
   const [nearbyOnly, setNearbyOnly] = useState(false);
-  const [recent, setRecent] = useState<readonly string[]>(['biryani', 'filter coffee']);
+  /* Starts EMPTY — the user's own searches only. "biryani" and "filter coffee"
+     were seeded in as if this person had searched them. */
+  const [recent, setRecent] = useState<readonly string[]>([]);
 
   const areaLabel = locality?.name ?? 'your area';
   const term = query.trim().toLowerCase();
@@ -127,9 +129,16 @@ export function FoodSearch({ onBack }: { onBack?: () => void }) {
   const rowFiltersActive = price !== 'any' || (haveDistances && nearbyOnly);
 
   const setDishQty = (dish: Dish, next: number) => {
-    const existing = lines.find((line) => line.dishId === dish.id);
-    if (existing) {
-      setQty(existing.key, next);
+    /* The row shows the TOTAL across this dish's lines (one per set of
+       add-ons), so the stepper's `next` is a total too. It used to be written
+       onto the first line as-is: two lines of 1 showed "2", a tap on + set the
+       first line to 3, and the cart jumped to 4. Applied as a step to the
+       newest line instead. */
+    const dishLines = lines.filter((line) => line.dishId === dish.id);
+    if (dishLines.length) {
+      const target = dishLines[dishLines.length - 1];
+      const delta = next - dishLines.reduce((sum, line) => sum + line.qty, 0);
+      setQty(target.key, target.qty + delta);
       return;
     }
     /* The disabled control is the first guard and this is the second. A row
@@ -220,18 +229,20 @@ export function FoodSearch({ onBack }: { onBack?: () => void }) {
         <FoodEmptyState
           glyph="search"
           title={term ? `Nothing matches “${query.trim()}” near ${areaLabel}` : 'Nothing matches those filters'}
+          /* No promise to pass the request on: "Request X" only reset the
+             filters, and there is nowhere it could be sent. The honest moves
+             are to search for something else or widen what is shown. */
           body={
             term
-              ? 'No kitchen around your PG cooks this. Tell us what you want and we take it to the kitchens signing up nearby.'
+              ? 'No kitchen near you cooks this right now. Try another dish, or clear the search to see everything.'
               : 'Loosen the price filter to see what is near you.'
           }
-          primaryLabel={term ? `Request ${query.trim()}` : 'Clear filters'}
+          primaryLabel={term ? 'Clear the search' : 'Clear filters'}
           onPrimary={() => {
+            if (term) setQuery('');
             setPrice('any');
             setNearbyOnly(false);
           }}
-          secondaryLabel={term ? 'Clear the search' : undefined}
-          onSecondary={term ? () => setQuery('') : undefined}
         />
       ) : (
         <>
@@ -311,7 +322,9 @@ export function FoodSearch({ onBack }: { onBack?: () => void }) {
       {!term ? (
         <View style={{ paddingHorizontal: layout.gutter, gap: space[3], marginTop: space[2] }}>
           <View>
-            <FoodSectionHeader title="Students near you search" />
+            {/* "Try" — these are fixed suggestions, not a measure of what anybody
+                near you searched, which is what the old heading claimed. */}
+            <FoodSectionHeader title="Try searching for" />
             <View style={[styles.chipWrap, { gap: space[2] }]}>
               {SUGGESTIONS.map((suggestion) => (
                 <Chip key={suggestion} label={suggestion} onPress={() => setQuery(suggestion)} />

@@ -166,6 +166,17 @@ const WORKING = ["placed", "accepted", "preparing", "ready"];
 let lastWorking: number | null = null;
 let stopped = true;
 
+/*
+ * The `placed` orders already rung for, BY NUMBER — what the poll compares
+ * against now. Comparing counts missed an order whenever another left
+ * `placed` in the same window (one accepted, one new: the count stands still
+ * and nothing rang), and the very first reading never rang at all, so an
+ * order placed in the first ~20 s with the socket down was silent.
+ */
+const seenPlaced = new Set<string>();
+let polledOnce = false;
+let pumpStartedAt = 0;
+
 /** Run a set of listeners without letting one failure stop the rest. */
 const fire = (set: Set<Listener>) => {
   set.forEach((listener) => {
@@ -187,7 +198,10 @@ const fire = (set: Set<Listener>) => {
  * surfacing over a queue that is about to refresh anyway.
  */
 const announce = (orderNumber?: string) => {
-  if (orderNumber) arrivedOrderNumber = orderNumber;
+  if (orderNumber) {
+    arrivedOrderNumber = orderNumber;
+    seenPlaced.add(orderNumber);
+  }
 
   /*
    * The announced order is COUNTED here, and that is what makes the header's
@@ -219,6 +233,18 @@ const announce = (orderNumber?: string) => {
  * Deliberately not fired when the count falls: an order accepted on another
  * handset is a change, not an arrival.
  */
+/**
+ * A new-order PUSH that arrived with the app open. The pump rings for it (or
+ * already has, from the socket) and the push stays silent — the two used to
+ * chime for the same ticket, a beat apart. Returns false when the pump is not
+ * running, so the push keeps its own sound then.
+ */
+export function ringForPushedOrder(orderNumber: string | undefined): boolean {
+  if (stopped) return false;
+  if (orderNumber && !seenPlaced.has(orderNumber)) announce(orderNumber);
+  return true;
+}
+
 export function onNewOrder(listener: Listener): () => void {
   arrivals.add(listener);
   return () => {
@@ -282,6 +308,7 @@ export function startOrderPump(token: string): () => void {
   expired = false;
   lastPlaced = null;
   lastWorking = null;
+  pumpStartedAt = Date.now();
 
   connectOrderSocket(token);
   const offSocket = onOrderPlaced((order) => {
@@ -337,7 +364,18 @@ export function startOrderPump(token: string): () => void {
          where `lastPlaced` is still null — is only a change: a kitchen opening
          the app to two orders placed overnight must not be handed a sheet for
          news it already has. */
-      if (lastPlaced !== null && waiting > lastPlaced) announce();
+      /* New = a number not rung for. On the first reading, only orders
+         placed since the app opened (with one poll's grace) count as new —
+         the overnight queue is still news the kitchen already has. */
+      const fresh = page.data.filter((o) =>
+        polledOnce
+          ? !seenPlaced.has(o.orderNumber)
+          : !seenPlaced.has(o.orderNumber) && Date.parse(o.placedAt) >= pumpStartedAt - POLL_MS,
+      );
+      for (const o of page.data) seenPlaced.add(o.orderNumber);
+      polledOnce = true;
+
+      if (fresh.length) announce(fresh[0].orderNumber);
       else if (lastPlaced !== waiting || (lastWorking !== null && lastWorking !== working)) {
         fire(changes);
       }
@@ -361,6 +399,8 @@ export function startOrderPump(token: string): () => void {
     disconnectOrderSocket();
     lastPlaced = null;
     lastWorking = null;
+    seenPlaced.clear();
+    polledOnce = false;
     arrivedOrderNumber = null;
     takenAway = [];
     acknowledged.clear();

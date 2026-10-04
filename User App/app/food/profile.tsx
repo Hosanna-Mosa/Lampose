@@ -70,7 +70,12 @@ export default function FoodProfileScreen() {
               {user?.phone}
             </Text>
           </View>
-          <Button label="Edit" size="sm" variant="secondary" onPress={() => router.push('/profile/edit')} />
+          {/* A guest has no profile to edit — offered sign-in instead of Edit. */}
+          {status === 'signedIn' ? (
+            <Button label="Edit" size="sm" variant="secondary" onPress={() => router.push('/profile/edit')} />
+          ) : (
+            <Button label="Sign in" size="sm" variant="secondary" onPress={() => router.push('/(entry)/auth')} />
+          )}
         </View>
 
         <ProfileGroup title="Food">
@@ -104,24 +109,32 @@ export default function FoodProfileScreen() {
           <ProfileGroup title="Account">
             <AppearanceRow />
             <ProfileRow label="Help & support" onPress={() => router.push('/support')} />
-            <ProfileRow
-              label="Log out"
-              onPress={async () => {
-                await signOut();
-                router.replace('/');
-              }}
-            />
-            <ProfileRow
-              label="Delete account"
-              destructive
-              last
-              onPress={() => router.push('/profile/delete-account')}
-            />
+            {/* Log out and Delete only with an account to act on — a guest saw
+                both, and tapping them did nothing anybody could see. */}
+            {status === 'signedIn' ? (
+              <>
+                <ProfileRow
+                  label="Log out"
+                  onPress={async () => {
+                    await signOut();
+                    router.replace('/');
+                  }}
+                />
+                <ProfileRow
+                  label="Delete account"
+                  destructive
+                  last
+                  onPress={() => router.push('/profile/delete-account')}
+                />
+              </>
+            ) : null}
           </ProfileGroup>
-          <Text variant="caption" color="tertiary">
-            Deleting is immediate and cannot be undone. Bookings, orders, payments and a copy of
-            your account details are kept for legal and accounting records.
-          </Text>
+          {status === 'signedIn' ? (
+            <Text variant="caption" color="tertiary">
+              Deleting is immediate and cannot be undone. Bookings, orders, payments and a copy of
+              your account details are kept for legal and accounting records.
+            </Text>
+          ) : null}
         </View>
       </ScrollView>
     </View>

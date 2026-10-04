@@ -448,7 +448,9 @@ export function PricingAmenitiesStep({ formData, onChange, errors = {} }) {
                     value={formData.dailyPrice || ''}
                     onChange={(e) => {
                       onChange(e);
-                      onChange({ target: { name: 'rent', value: e.target.value } });
+                      if (!formData.monthlyPrice) {
+                        onChange({ target: { name: 'rent', value: e.target.value } });
+                      }
                     }}
                     className="form-input"
                     style={{ borderColor: errorBorder(errors.dailyPrice) }}

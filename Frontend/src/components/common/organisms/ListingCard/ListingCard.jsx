@@ -106,7 +106,6 @@ export function ListingCard({ item, index = 0, view = 'grid' }) {
   };
 
   const cover = images[shot];
-  const tel = String(item.ownerMobile || '').replace(/[^\d+]/g, '');
 
   return (
     <Article

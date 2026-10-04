@@ -38,7 +38,7 @@ import { useAuth } from '@/context/AuthContext';
  * you cannot refer to is one you cannot ask about.
  */
 export default function MovedInScreen() {
-  const { colors, space, layout, radius } = useTheme();
+  const { colors, space, layout, radius, mode } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { status } = useAuth();
@@ -61,7 +61,18 @@ export default function MovedInScreen() {
    * `stayCoupon.controller.js#toPublic` and match on it here — not to guess
    * from timestamps.
    */
-  const earned = coupons.find((coupon) => coupon.spendable) ?? coupons[0] ?? null;
+  /* THIS booking's coupon, now that the server says which booking earned
+     each one — and only while it can still be spent. The fallback took the
+     newest spendable, or failing that `coupons[0]`, which could be another
+     stay's reward or one already used or expired. An older server that sends
+     no `bookingId` keeps the newest-spendable rule. */
+  const matched = coupons.find((coupon) => coupon.bookingId && coupon.bookingId === id);
+  const serverKnowsBookings = coupons.some((coupon) => coupon.bookingId);
+  const earned = matched
+    ? (matched.spendable ? matched : null)
+    : serverKnowsBookings
+      ? null
+      : coupons.find((coupon) => coupon.spendable) ?? null;
 
   useEffect(() => {
     try {
@@ -71,7 +82,8 @@ export default function MovedInScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <StatusBar style="dark" />
+      {/* Follows the theme — forced dark, it was black-on-black in dark mode. */}
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
 
       <ScrollView
         contentContainerStyle={{

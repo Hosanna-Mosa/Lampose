@@ -46,11 +46,13 @@ export default function PaymentCheckout() {
    * because the browser sends no Authorization header, so the link itself has
    * to be the proof.
    */
-  const { requestId, foodToken, orderNumber, returnTo } = useLocalSearchParams<{
+  const { requestId, foodToken, orderNumber, returnTo, from } = useLocalSearchParams<{
     requestId?: string;
     foodToken?: string;
     orderNumber?: string;
     returnTo?: string;
+    /** 'order' when opened from the order's own screen — see the success path. */
+    from?: string;
   }>();
 
   const [failed, setFailed] = useState(false);
@@ -70,7 +72,17 @@ export default function PaymentCheckout() {
       tracking screen re-reads the order from the server on open.
     */
     if (foodToken && orderNumber) {
-      router.replace(`/food/order/${encodeURIComponent(String(orderNumber))}` as never);
+      const orderRoute = { pathname: '/food/order/[id]', params: { id: String(orderNumber), placed: '1' } };
+      /* Resumed FROM the order's own screen: go back to that one (with
+         `placed`, so its "Payment successful" banner shows) — replacing
+         stacked a second order screen on top of the first. */
+      if (from === 'order') {
+        router.dismissTo(orderRoute as never);
+        return;
+      }
+      /* With `placed`, so Back from the order goes home rather than to the
+         payment screen this order came from. */
+      router.replace(orderRoute as never);
       return;
     }
 
@@ -78,7 +90,7 @@ export default function PaymentCheckout() {
        it re-checks the payment with the server when it regains focus. */
     if (router.canGoBack()) router.back();
     else router.replace((returnTo as never) ?? ('/home' as never));
-  }, [router, returnTo, foodToken, orderNumber]);
+  }, [router, returnTo, foodToken, orderNumber, from]);
 
   /* Built here rather than passed in, so this screen can only ever open our
      own API with our own redirect. */
@@ -113,7 +125,9 @@ export default function PaymentCheckout() {
     };
   }, [url, attempt, leave]);
 
-  const heading = foodToken ? 'Pay for your order' : 'Pay for your visit';
+  /* Not "your visit" for a stay request: a hotel pays for the STAY here, and
+     this screen cannot tell the two apart from its params. */
+  const heading = foodToken ? 'Pay for your order' : 'Complete your payment';
 
   if (!url) {
     return (

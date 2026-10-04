@@ -50,19 +50,30 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useColorScheme();
   const [preference, setPreferenceState] = useState<ThemePreference>('system');
   const [reduceMotion, setReduceMotion] = useState(false);
+  /* The stored choice is read before anything draws — a dark-mode user saw
+     the light theme flash on every launch while it loaded. */
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let active = true;
 
-    AsyncStorage.getItem(PREFERENCE_KEY).then((stored) => {
-      if (active && (stored === 'light' || stored === 'dark' || stored === 'system')) {
-        setPreferenceState(stored);
-      }
-    });
+    AsyncStorage.getItem(PREFERENCE_KEY)
+      .then((stored) => {
+        if (active && (stored === 'light' || stored === 'dark' || stored === 'system')) {
+          setPreferenceState(stored);
+        }
+      })
+      /* Unreadable storage is "follow the system", not an unhandled rejection. */
+      .catch(() => {})
+      .finally(() => {
+        if (active) setLoaded(true);
+      });
 
-    AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
-      if (active) setReduceMotion(enabled);
-    });
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((enabled) => {
+        if (active) setReduceMotion(enabled);
+      })
+      .catch(() => {});
 
     const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
 
@@ -74,7 +85,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const setPreference = useCallback((next: ThemePreference) => {
     setPreferenceState(next);
-    AsyncStorage.setItem(PREFERENCE_KEY, next);
+    /* The choice stands for this session even if it cannot be saved. */
+    AsyncStorage.setItem(PREFERENCE_KEY, next).catch(() => {});
   }, []);
 
   const mode: ThemeMode =
@@ -98,7 +110,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     [mode, reduceMotion, preference, setPreference],
   );
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  /* Nothing drawn until the stored theme is known — milliseconds, under the
+     splash, and no flash of the wrong one. */
+  return <ThemeContext.Provider value={value}>{loaded ? children : null}</ThemeContext.Provider>;
 }
 
 /**

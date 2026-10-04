@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { StyleSheet } from 'react-native';
 import { Box, Spinner } from '@/components/common';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -139,9 +139,15 @@ export function RequestsInboxScreen() {
    * Still not on every poll: a request that lands while the owner is on
    * another tab has to keep its badge until they come and look.
    */
+  /* Read through a ref: the empty-deps callback below captured the FIRST
+     render's `unread` for good, so after the first visit it was always the
+     same number — 0, usually — and the server was never told again. */
+  const unreadRef = useRef(unread);
+  unreadRef.current = unread;
+
   useFocusEffect(
     useCallback(() => {
-      if (unread > 0) markRequestsRead().catch(() => {});
+      if (unreadRef.current > 0) markRequestsRead().catch(() => {});
       queryClient.invalidateQueries({ queryKey: queryKeys.requests });
       // eslint-disable-next-line react-hooks/exhaustive-deps -- `unread` is read, not depended on: re-running per count change would fire this mid-poll
     }, []),

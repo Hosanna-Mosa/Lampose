@@ -268,6 +268,23 @@ const razorpayWebhook = async (req, res) => {
     return handlePayoutEvent({ event, payload, eventId, ack });
   }
 
+  /* A food order's failed attempt — recorded so a declined card is not
+     indistinguishable from nobody trying. See `handleFoodPaymentFailed`. */
+  if (event === 'payment.failed' && paymentEntity.notes?.foodOrderNumber) {
+    try {
+      // eslint-disable-next-line global-require
+      const { handleFoodPaymentFailed } = require('../foodpartners/foodPayment.controller');
+      await handleFoodPaymentFailed({
+        orderNumber: paymentEntity.notes.foodOrderNumber,
+        paymentId: paymentEntity.id || null,
+        reason: paymentEntity.error_description || paymentEntity.error_reason || '',
+      });
+    } catch (error) {
+      console.error(`[razorpay-webhook] food payment.failed: ${error.message}`);
+    }
+    return ack(`food payment failed ${paymentEntity.notes.foodOrderNumber}`);
+  }
+
   if (!['payment_link.paid', 'payment.captured', 'qr_code.credited'].includes(event)) {
     return ack(`ignored event "${event}"`);
   }

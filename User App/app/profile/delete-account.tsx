@@ -210,6 +210,11 @@ export default function DeleteAccountScreen() {
         )}
 
         {problem ? <InlineAlert tone="error" title="That did not work" body={problem} /> : null}
+        {/* A failed load had no way to try again short of leaving the screen —
+            and without it the in-flight orders warning above is missing. */}
+        {problem && !state && !loading ? (
+          <Button label="Try again" variant="secondary" fullWidth onPress={() => { void load(); }} />
+        ) : null}
 
         <Text variant="caption" color="tertiary">
           Need help? Write to{' '}

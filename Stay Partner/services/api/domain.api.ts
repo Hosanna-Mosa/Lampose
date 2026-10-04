@@ -224,8 +224,11 @@ export async function fetchReferralsApi(signal?: AbortSignal) {
   return unwrap(res);
 }
 
-export async function withdrawReferralApi() {
-  const res = await api.post<ApiEnvelope<any>>(endpoints.partnerReferralsWithdraw);
+export async function withdrawReferralApi(paymentMethodId?: string) {
+  const res = await api.post<ApiEnvelope<any>>(
+    endpoints.partnerReferralsWithdraw,
+    paymentMethodId ? { paymentMethodId } : undefined,
+  );
   return unwrap(res);
 }
 

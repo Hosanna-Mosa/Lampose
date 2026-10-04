@@ -536,6 +536,10 @@ const foodRestaurantSchema = new mongoose.Schema(
 
     deliveryRadiusKm: { type: Number, default: 0, min: 0 },
     minOrderValue: { type: Number, default: 0, min: 0 },
+    /* Whether this kitchen's menu prices already INCLUDE 5% GST. When they
+       do, the GST is extracted (price × 5/105) rather than added on top —
+       see `foodPricing.js`. Every kitchen today prices before GST. */
+    pricesIncludeGst: { type: Boolean, default: false },
     packagingCharge: { type: Number, default: 0, min: 0 },
 
     /*
@@ -631,6 +635,14 @@ const foodRestaurantSchema = new mongoose.Schema(
      * every launch, so appending would grow this without limit and send one
      * order six copies of the same alert.
      */
+    /*
+     * Bumped to end every session at once — a password reset, "sign out
+     * everywhere", an erasure. Tokens carry it as `ver` and the guard refuses
+     * a mismatch with SESSION_REVOKED. Without it a token stayed valid for its
+     * full seven days whatever happened to the account.
+     */
+    sessionVersion: { type: Number, default: 0 },
+
     devices: {
       type: [{
         token: { type: String, required: true, trim: true },

@@ -371,8 +371,14 @@ export interface EarningsRow {
   itemsTotal: number;
   deliveryFee: number;
   packagingCharge: number;
+  packagingGst?: number;
   gst?: number;
+  /** Legacy — older orders only. */
   platformFee?: number;
+  serviceFee?: number;
+  serviceFeeGst?: number;
+  deliveryGst?: number;
+  smallOrderFee?: number;
   grandTotal: number;
   partnerPayout: number;
   commissionRate: number;

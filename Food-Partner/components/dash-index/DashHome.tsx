@@ -6,7 +6,6 @@ import React, { useCallback, useState } from "react";
 import {
   Image,
   Pressable,
-  ScrollView,
   StyleSheet,
   View,
 } from "react-native";
@@ -14,22 +13,20 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Box, Note, Refresher, Scroller, Tappable } from "@/components/common";
 import { Icon, Text } from "@/components/common";
-import { OPEN_STATES, OPEN_STATE_LABELS } from "@/constants/partner";
-import { rupees } from "@/lib/money";
 import {
   getMe,
+  listMyOrders,
   listMyProducts,
   setAvailability,
+  setMissingLocation,
   type ServerProduct,
   type ServerRestaurant,
 } from "@/services/foodPartner";
 import { listTickets } from "@/services/support";
 import { usePartnerStore } from "@/store/partnerStore";
-import { colors, layout, radius, space, touch } from "@/theme";
 import { NotificationsModal } from "./NotificationsModal";
 
 // Default biryani avatar image URL matching reference screenshot
-const DEFAULT_AVATAR = "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=150&auto=format&fit=crop&q=80";
 
 export function DashHome() {
   const insets = useSafeAreaInsets();
@@ -38,10 +35,9 @@ export function DashHome() {
 
   const [me, setMe] = useState<ServerRestaurant | null>(null);
   const [products, setProducts] = useState<ServerProduct[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
 
@@ -66,9 +62,19 @@ export function DashHome() {
         verificationNote: restaurant.verificationNote,
       });
 
+      /* The SAME count the list shows: unread support replies, orders still
+         waiting to be accepted, and a status that needs action. The bell
+         counted tickets alone, so it said 0 over a list showing three. */
       try {
-        const { unread } = await listTickets(session.token);
-        setUnreadNotifications(unread);
+        const [tickets, waiting] = await Promise.all([
+          listTickets(session.token),
+          listMyOrders(session.token, "placed"),
+        ]);
+        const needsAction = restaurant.verificationStatus === "rejected"
+          || (restaurant.verificationStatus === "approved" && restaurant.isActive === false);
+        setUnreadNotifications(
+          (tickets.unread || 0) + Math.min(waiting.data.length, 10) + (needsAction ? 1 : 0),
+        );
       } catch (e) {
         setUnreadNotifications(0);
       }
@@ -78,6 +84,19 @@ export function DashHome() {
       setLoading(false);
     }
   }, [session?.token, syncFromServer]);
+
+  /* The pull's own flag. `loading` is set true only on mount, so a pull
+     started a load with the spinner already off — it vanished at once and
+     the partner could not tell whether anything had been fetched. */
+  const [refreshing, setRefreshing] = useState(false);
+  const pull = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load]);
 
   useFocusEffect(
     useCallback(() => {
@@ -92,7 +111,20 @@ export function DashHome() {
     setSaving(true);
     try {
       const updated = await setAvailability(session.token, next);
-      setMe(updated);
+      /* Merged, not replaced: this endpoint answers with three fields
+         (`openState`, `isCurrentlyOpen`, `restaurantId`), and swapping the
+         whole restaurant for them blanked the name, approval, prep time and
+         radius until the next reload — an approved kitchen read "not
+         approved yet". Only the two fields this call can change are taken. */
+      setMe((current) =>
+        current
+          ? {
+              ...current,
+              openState: updated?.openState ?? next,
+              isCurrentlyOpen: updated?.isCurrentlyOpen ?? current.isCurrentlyOpen,
+            }
+          : current,
+      );
     } catch (err) {
       setMe({ ...me, openState: previous });
       setError((err as Error)?.message || "That did not save.");
@@ -101,27 +133,79 @@ export function DashHome() {
     }
   };
 
+  /*
+   * No map pin, no riders: dispatch searches from this point, and a kitchen
+   * without one sat "unassigned" on every order. The pin used to be optional
+   * at onboarding with no way to add it later, so this is that way.
+   */
+  const [pinning, setPinning] = useState(false);
+  const hasPin = !!me?.location?.coordinates?.length;
+  const dropPin = async () => {
+    if (!session?.token || pinning) return;
+    setPinning(true);
+    setError("");
+    try {
+      const Location = await import("expo-location");
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted) {
+        setError("Location access was declined. Allow it in Settings, then stand at the restaurant and try again.");
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({});
+      const location = await setMissingLocation(session.token, pos.coords.latitude, pos.coords.longitude);
+      setMe((current) =>
+        current
+          ? { ...current, location: location ?? { type: "Point", coordinates: [pos.coords.longitude, pos.coords.latitude] } }
+          : current,
+      );
+    } catch (err) {
+      setError((err as Error)?.message || "We could not save the pin. Try again.");
+    } finally {
+      setPinning(false);
+    }
+  };
+
   const unavailable = products.filter((p) => !p.isAvailable).length;
+  const onSchedule = !me?.openState || me.openState === "auto";
   const openNow = me?.isCurrentlyOpen;
-  const restaurantName = me?.restaurantName || session?.restaurantName || "Paradise Biryani House";
-  const restaurantId = me?.restaurantId || session?.restaurantId || "FP-P5Y9DQ4B";
+  /* This kitchen's own name, id and logo — or nothing while they load. Every
+     kitchen used to be shown "Paradise Biryani House", a sample id, a stock
+     photo and a "Verified Partner" badge, approved or not. */
+  const restaurantName = me?.restaurantName || session?.restaurantName || "";
+  const restaurantId = me?.restaurantId || session?.restaurantId || "";
+  const logoUrl = me?.logoImage?.url || "";
+  const approved = me?.verificationStatus === "approved";
+  const heroTitle = !approved ? "Not live yet" : openNow ? "Taking orders" : "Not taking orders";
+  const heroDescription = !approved
+    ? "Diners cannot see your restaurant until it is approved."
+    : openNow
+      ? "Your restaurant is live and visible to customers"
+      : "You are closed right now, so diners cannot order."; 
 
   return (
     <Box style={{ flex: 1, backgroundColor: "#F4F6F8" }}>
       {/* ── TOP HEADER ────────────────────────────────────────────────── */}
       <View style={[styles.headerContainer, { paddingTop: Math.max(insets.top, 12) }]}>
         <View style={styles.headerLeft}>
-          <Image source={{ uri: (me as any)?.coverImageUrl || DEFAULT_AVATAR }} style={styles.avatar} />
+          {logoUrl ? (
+            <Image source={{ uri: logoUrl }} style={styles.avatar} />
+          ) : (
+            <View style={[styles.avatar, { alignItems: "center", justifyContent: "center", backgroundColor: "#D1FAE5" }]}>
+              <Text style={{ fontWeight: "700", color: "#047857" }}>{(restaurantName || "?").charAt(0).toUpperCase()}</Text>
+            </View>
+          )}
           <View style={styles.headerInfo}>
             <Text style={styles.headerTitle} numberOfLines={1}>
               {restaurantName}
             </Text>
             <View style={styles.subRow}>
               <Text style={styles.headerSub}>{restaurantId}</Text>
-              <View style={styles.verifiedBadge}>
-                <Icon name="check" size={12} color="#059669" strokeWidth={2.5} />
-                <Text style={styles.verifiedText}>Verified Partner</Text>
-              </View>
+              {approved && (
+                <View style={styles.verifiedBadge}>
+                  <Icon name="check" size={12} color="#059669" strokeWidth={2.5} />
+                  <Text style={styles.verifiedText}>Verified Partner</Text>
+                </View>
+              )}
             </View>
           </View>
         </View>
@@ -136,10 +220,20 @@ export function DashHome() {
 
       <Scroller
         contentContainerStyle={styles.scrollBody}
-        refreshControl={<Refresher refreshing={loading} onRefresh={load} />}
+        refreshControl={<Refresher refreshing={refreshing} onRefresh={pull} />}
         showsVerticalScrollIndicator={false}
       >
         {!!error && <Note tone="bad">{error}</Note>}
+
+        {!!me && !hasPin && (
+          <Tappable accessibilityRole="button" onPress={dropPin} disabled={pinning}>
+            <Note tone="bad">
+              {pinning
+                ? "Saving your pin..."
+                : "Your restaurant has no map pin, so no rider can be sent for your orders. Stand at the restaurant and tap here to drop it."}
+            </Note>
+          </Tappable>
+        )}
 
         {me?.verificationStatus !== "approved" && !!me && (
           <Tappable accessibilityRole="button" onPress={() => router.push("/status")}>
@@ -157,29 +251,34 @@ export function DashHome() {
             <Pressable
               style={styles.openNowDropdown}
               onPress={() => changeOpenState(me?.openState === "open" ? "closed" : "open")}
+              accessibilityRole="button"
+              accessibilityLabel={openNow ? "Open now. Tap to close" : "Closed. Tap to open"}
             >
               <Icon name={openNow ? "check" : "clock"} size={14} color="#047857" strokeWidth={2.5} />
               <Text style={styles.dropdownText}>{openNow ? "OPEN NOW" : "CLOSED"}</Text>
-              <Icon name="chevronDown" size={14} color="#047857" />
             </Pressable>
           </View>
 
-          <Text style={styles.heroTitle}>Taking orders</Text>
-          <Text style={styles.heroDescription}>Your restaurant is live and visible to customers</Text>
+          <Text style={styles.heroTitle}>{heroTitle}</Text>
+          <Text style={styles.heroDescription}>{heroDescription}</Text>
 
           {/* Segment Selector Row */}
           <View style={styles.segmentWrapper}>
             <View style={styles.segmentContainer}>
+              {/* The way back to the opening hours. Without it, one manual
+                  Open or Closed pinned the kitchen to that choice for good. */}
               <Pressable
-                style={[styles.segBtn, (me?.openState === "open" || me?.openState === undefined || me?.openState === "auto") && styles.segBtnActive]}
+                style={[styles.segBtn, onSchedule && styles.segBtnActive]}
+                onPress={() => changeOpenState("auto")}
+              >
+                <Text style={[styles.segText, onSchedule && styles.segTextActive]}>Schedule</Text>
+              </Pressable>
+
+              <Pressable
+                style={[styles.segBtn, me?.openState === "open" && styles.segBtnActive]}
                 onPress={() => changeOpenState("open")}
               >
-                <Text
-                  style={[
-                    styles.segText,
-                    (me?.openState === "open" || me?.openState === undefined || me?.openState === "auto") && styles.segTextActive,
-                  ]}
-                >
+                <Text style={[styles.segText, me?.openState === "open" && styles.segTextActive]}>
                   Open now
                 </Text>
               </Pressable>
@@ -194,12 +293,12 @@ export function DashHome() {
               </Pressable>
             </View>
 
-            <View style={styles.illustrationWrap}>
-              <Image
-                source={{ uri: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=120&auto=format&fit=crop&q=80" }}
-                style={styles.foodIllustration}
-              />
-            </View>
+            {/* The kitchen's own logo, or nothing — never a stock photo. */}
+            {logoUrl ? (
+              <View style={styles.illustrationWrap}>
+                <Image source={{ uri: logoUrl }} style={styles.foodIllustration} />
+              </View>
+            ) : null}
           </View>
 
           {/* Bottom Info Strip */}
@@ -207,9 +306,17 @@ export function DashHome() {
             <Icon name="clock" size={18} color="#059669" strokeWidth={2} />
             <View style={{ flex: 1 }}>
               <Text style={styles.stripTitle}>
-                {saving ? "Saving changes..." : "Schedule follows your opening hours."}
+                {saving
+                  ? "Saving changes..."
+                  : onSchedule
+                    ? "Following your opening hours."
+                    : `Set to ${me?.openState === "open" ? "open" : "closed"} by hand.`}
               </Text>
-              <Text style={styles.stripSubtitle}>A manual choice beats it until you set it back.</Text>
+              <Text style={styles.stripSubtitle}>
+                {onSchedule
+                  ? "Open and Closed override it until you choose Schedule again."
+                  : "Choose Schedule to follow your opening hours again."}
+              </Text>
             </View>
           </View>
         </View>
@@ -243,50 +350,34 @@ export function DashHome() {
             <Text style={styles.metricLabel}>Out of stock</Text>
           </Pressable>
 
-          {/* Tile 3: Prep time */}
-          <View style={[styles.metricCard, { backgroundColor: "#F0F9FF" }]}>
+          {/* Tile 3: Prep time — and 4 — open Profile, where both are edited.
+              They drew chevrons and did nothing when pressed. */}
+          <Pressable style={[styles.metricCard, { backgroundColor: "#F0F9FF" }]} onPress={() => router.push("/(dash)/profile")}>
             <View style={styles.metricCardHeader}>
               <View style={[styles.metricIconCircle, { backgroundColor: "#E0F2FE" }]}>
                 <Icon name="clock" size={18} color="#0284C7" />
               </View>
-              <Text style={styles.metricValue}>{me?.avgPreparationTime ?? 25} min</Text>
+              <Text style={styles.metricValue}>{typeof me?.avgPreparationTime === "number" ? `${me.avgPreparationTime} min` : "Not set"}</Text>
               <View style={{ marginLeft: "auto" }}>
                 <Icon name="chevronRight" size={16} color="#9CA3AF" />
               </View>
             </View>
             <Text style={styles.metricLabel}>Prep time</Text>
-          </View>
+          </Pressable>
 
           {/* Tile 4: Delivers */}
-          <View style={[styles.metricCard, { backgroundColor: "#FFFBEB" }]}>
+          <Pressable style={[styles.metricCard, { backgroundColor: "#FFFBEB" }]} onPress={() => router.push("/(dash)/profile")}>
             <View style={styles.metricCardHeader}>
               <View style={[styles.metricIconCircle, { backgroundColor: "#FEF3C7" }]}>
                 <Icon name="truck" size={18} color="#D97706" />
               </View>
-              <Text style={styles.metricValue}>{me?.deliveryRadiusKm ?? 6} km</Text>
+              <Text style={styles.metricValue}>{typeof me?.deliveryRadiusKm === "number" ? `${me.deliveryRadiusKm} km` : "Not set"}</Text>
               <View style={{ marginLeft: "auto" }}>
                 <Icon name="chevronRight" size={16} color="#9CA3AF" />
               </View>
             </View>
             <Text style={styles.metricLabel}>Delivers</Text>
-          </View>
-
-          {/* Tile 5: what the kitchen usually takes to cook, which is the
-              figure it actually controls. It replaced a "Min order" tile: there
-              is no minimum order any more, and the tile was reporting ₹150 to
-              every kitchen that had never set one. */}
-          <View style={[styles.metricCard, { backgroundColor: "#F5F3FF" }]}>
-            <View style={styles.metricCardHeader}>
-              <View style={[styles.metricIconCircle, { backgroundColor: "#EDE9FE" }]}>
-                <Icon name="clock" size={18} color="#7C3AED" />
-              </View>
-              <Text style={styles.metricValue}>{me?.avgPreparationTime ?? 0} min</Text>
-              <View style={{ marginLeft: "auto" }}>
-                <Icon name="chevronRight" size={16} color="#9CA3AF" />
-              </View>
-            </View>
-            <Text style={styles.metricLabel}>Usual prep time</Text>
-          </View>
+          </Pressable>
 
           {/* Tile 6: Rating */}
           <View style={[styles.metricCard, { backgroundColor: "#ECFDF5" }]}>
@@ -297,9 +388,7 @@ export function DashHome() {
               <Text style={[styles.metricValue, { fontSize: 16 }]}>
                 {me?.ratingCount ? `${me.ratingAvg?.toFixed(1)} ★` : "No ratings yet"}
               </Text>
-              <View style={{ marginLeft: "auto" }}>
-                <Icon name="chevronRight" size={16} color="#9CA3AF" />
-              </View>
+              {/* No chevron: there is no ratings screen to open. */}
             </View>
             <Text style={styles.metricLabel}>Rating</Text>
           </View>

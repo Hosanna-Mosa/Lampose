@@ -41,6 +41,7 @@ export default function FavouritesScreen() {
     favouriteKitchenList,
     favouritesUnavailable,
     favouritesLoading,
+    favouritesError,
     refreshFavourites,
     qtyOf,
     add,
@@ -72,9 +73,16 @@ export default function FavouritesScreen() {
   }).length;
 
   const setDishQty = (dish: Dish, next: number) => {
-    const existing = lines.find((line) => line.dishId === dish.id);
-    if (existing) {
-      setQty(existing.key, next);
+    /* The row shows the TOTAL across this dish's lines (one per set of
+       add-ons), so the stepper's `next` is a total too. It used to be written
+       onto the first line as-is: two lines of 1 showed "2", a tap on + set the
+       first line to 3, and the cart jumped to 4. Applied as a step to the
+       newest line instead. */
+    const dishLines = lines.filter((line) => line.dishId === dish.id);
+    if (dishLines.length) {
+      const target = dishLines[dishLines.length - 1];
+      const delta = next - dishLines.reduce((sum, line) => sum + line.qty, 0);
+      setQty(target.key, target.qty + delta);
       return;
     }
     if (next > 0) add(dish, { spice: preferences.spice });
@@ -91,6 +99,24 @@ export default function FavouritesScreen() {
         <View style={{ padding: layout.gutter }}>
           <Text variant="body" color="tertiary">Loading your favourites…</Text>
         </View>
+      </View>
+    );
+  }
+
+  /* A failed read is not "nothing saved" — that told a student who had saved
+     a dozen dishes that they had lost them. */
+  if (favouritesError && !dishes.length && !kitchens.length) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <StandardHeader title="Favourites" onBack={() => router.back()} />
+        <FoodEmptyState
+          glyph="heart"
+          title="We couldn't load your favourites"
+          body="They are still saved. Check your connection and try again."
+          primaryLabel="Try again"
+          onPrimary={() => refreshFavourites()}
+        />
       </View>
     );
   }

@@ -36,6 +36,7 @@ import {
 import { StandardHeader } from '@/components/shell';
 import { useTheme } from '@/context/ThemeContext';
 import { actions } from '@/constants/actions';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * Batch 1 — primitives preview.
@@ -78,7 +79,7 @@ function Section({ title, note, children }: { title: string; note?: string; chil
   );
 }
 
-export default function PrimitivesPreview() {
+function PrimitivesPreview() {
   const { colors, space, layout } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -387,3 +388,6 @@ const styles = StyleSheet.create({
   wrap: { flexDirection: 'row', flexWrap: 'wrap' },
   flex: { flex: 1 },
 });
+
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(PrimitivesPreview);

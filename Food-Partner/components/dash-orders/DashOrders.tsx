@@ -34,21 +34,35 @@ import {
 
 import { Box, Note, Refresher, Scroller, Tappable, TextField } from "@/components/common";
 import { Btn, Card, Chip, ChoiceChip, Icon, ModalSheet, Rule, Seg, Text, TopBar } from "@/components/common";
-import { rupees } from "@/lib/money";
+import { addOnsLabel, rupees } from "@/lib/money";
 import { cancelledOrders, clearCancelledOrders, onQueueChanged } from "@/services/orderPump";
 import { getMe, listMyOrders, setOrderStatus, type ServerOrder } from "@/services/foodPartner";
 import { usePartnerStore } from "@/store/partnerStore";
 import { colors, layout, space, type ToneName } from "@/theme";
 
-const TABS = ["live", "placed", "delivered", "all"] as const;
+const TABS = ["live", "placed", "delivered", "cancelled", "all"] as const;
 type Tab = (typeof TABS)[number];
 
 /** What each tab asks the server for. "live" is the working set. */
 const QUERY: Record<Tab, string | undefined> = {
   live: "placed,accepted,preparing,ready",
   placed: "placed",
-  delivered: "delivered",
+  /* Out of the kitchen: on the road or delivered. `picked_up`, `rejected`
+     and `cancelled` were in no tab but All, so an order a rider had just
+     collected vanished from every working view. */
+  delivered: "picked_up,delivered",
+  cancelled: "rejected,cancelled",
   all: undefined,
+};
+
+/** Each tab's empty state, in its own words — "nothing has been placed with
+    this restaurant yet" was said on every tab, even with orders in another. */
+const EMPTY_COPY: Record<Tab, string> = {
+  live: "Nothing is being prepared right now. Accepted orders show here until a rider collects them.",
+  placed: "No new orders are waiting for you to accept.",
+  delivered: "Orders appear here once a rider has collected them.",
+  cancelled: "No rejected or cancelled orders.",
+  all: "Orders placed by diners appear here as they come in. Nothing has been placed with this restaurant yet.",
 };
 
 const STATUS_TONE: Record<string, ToneName> = {
@@ -220,6 +234,19 @@ export function DashOrders() {
     }
   }, [session?.token, tab]);
 
+  /* The pull's own flag. `loading` is set true only on mount, so a pull
+     started a load with the spinner already off — it vanished at once and
+     the partner could not tell whether anything had been fetched. */
+  const [refreshing, setRefreshing] = useState(false);
+  const pull = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load]);
+
   useFocusEffect(
     useCallback(() => {
       setCancelled(cancelledOrders());
@@ -378,7 +405,7 @@ export function DashOrders() {
 
       <Scroller
         contentContainerStyle={styles.body}
-        refreshControl={<Refresher refreshing={loading} onRefresh={load} />}
+        refreshControl={<Refresher refreshing={refreshing} onRefresh={pull} />}
         showsVerticalScrollIndicator={false}
       >
         {!!error && <Note tone="bad">{error}</Note>}
@@ -415,7 +442,7 @@ export function DashOrders() {
           options={TABS}
           value={tab}
           onChange={setTab}
-          labels={{ live: "In the kitchen", placed: "New", delivered: "Done", all: "All" }}
+          labels={{ live: "Kitchen", placed: "New", delivered: "Done", cancelled: "Cancelled", all: "All" }}
         />
 
         {!loading && orders.length === 0 && (
@@ -423,8 +450,7 @@ export function DashOrders() {
             <Icon name="doc" size={26} color={colors.textTertiary} />
             <Text variant="title1">No orders here</Text>
             <Text variant="caption" color="tertiary" style={{ textAlign: "center" }}>
-              Orders placed by diners appear here as they come in. Nothing has been placed with this
-              restaurant yet.
+              {EMPTY_COPY[tab]}
             </Text>
           </Card>
         )}
@@ -462,10 +488,24 @@ export function DashOrders() {
                   <Text variant="priceSm" color="tertiary">
                     {line.quantity}×
                   </Text>
-                  <Text variant="body" style={{ flex: 1 }} numberOfLines={1}>
-                    {line.productName}
-                    {line.variantName ? ` · ${line.variantName}` : ""}
-                  </Text>
+                  <Box style={{ flex: 1 }}>
+                    <Text variant="body" numberOfLines={1}>
+                      {line.productName}
+                      {line.variantName ? ` · ${line.variantName}` : ""}
+                    </Text>
+                    {/* Add-ons and the diner's note are part of what to cook —
+                        without them the dish goes out wrong. */}
+                    {!!addOnsLabel(line.addOns) && (
+                      <Text variant="caption" color="secondary">
+                        {addOnsLabel(line.addOns)}
+                      </Text>
+                    )}
+                    {!!line.note && (
+                      <Text variant="caption" color="secondary">
+                        Note: {line.note}
+                      </Text>
+                    )}
+                  </Box>
                   <Text variant="priceSm">{rupees(line.lineTotal)}</Text>
                 </Box>
               ))}
@@ -496,7 +536,7 @@ export function DashOrders() {
                   </Text>
                   {paying ? (
                     <Text variant="priceMd" color="brand">
-                      {rupees(order.partnerPayout)}
+                      {rupees(order.settlement?.restaurantReceives ?? order.partnerPayout)}
                     </Text>
                   ) : (
                     <Text variant="priceMd" color="tertiary">
@@ -505,6 +545,14 @@ export function DashOrders() {
                   )}
                 </Box>
               </Box>
+
+              {paying && order.settlement ? (
+                <Text variant="caption" color="tertiary">
+                  {`Food ${rupees(order.settlement.foodOrderValue)}`}
+                  {order.settlement.packagingFee ? ` + packaging ${rupees(order.settlement.packagingFee)}` : ""}
+                  {` · Commission ${rupees(order.settlement.commission)} (${order.settlement.commissionRate}%)`}
+                </Text>
+              ) : null}
 
               {!!order.deliveryAddress && (
                 <Text variant="caption" color="tertiary" numberOfLines={2}>

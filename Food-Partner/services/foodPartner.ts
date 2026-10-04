@@ -91,8 +91,7 @@ export const buildApplicationPayload = (d: OnboardingData) => ({
   openState: d.openState,
   avgPreparationTime: d.avgPreparationTime,
   deliveryRadiusKm: d.deliveryRadiusKm,
-  minOrderValue: num(d.minOrderValue) ?? 0,
-  packagingCharge: num(d.packagingCharge) ?? 0,
+  /* Not sent: neither is enforced or billed any more — see StepOperations. */
   deliveryFee: {
     type: d.deliveryFeeType,
     amount: num(d.deliveryFeeAmount) ?? 0,
@@ -134,7 +133,9 @@ const productsFrom = (d: OnboardingData) => {
       productName: row.itemName,
       category: row.category || "Menu",
       description: row.description,
-      price: num(row.price) ?? 0,
+      /* `null`, not 0, for a row with no price: the server refuses an
+         unpriced dish by name, whereas 0 slipped through as a free one. */
+      price: num(row.price),
       isVeg: /non/i.test(row.itemType) ? "non-veg" : /egg/i.test(row.itemType) ? "egg" : "veg",
       tags: row.isBestseller ? ["Bestseller"] : [],
       productImage: image(row.image),
@@ -148,7 +149,7 @@ const productsFrom = (d: OnboardingData) => {
       productName: item.productName,
       category: category.name,
       description: item.description,
-      price: num(item.price) ?? 0,
+      price: num(item.price),
       discountedPrice: num(item.discountedPrice),
       isVeg: item.isVeg,
       isAvailable: item.isAvailable,
@@ -205,6 +206,8 @@ export type ServerRestaurant = {
   logoImage?: ServerImage;
   coverBannerImage?: ServerImage;
   address?: Record<string, string>;
+  /** GeoJSON — `[longitude, latitude]`. Absent until a pin is dropped. */
+  location?: { type?: "Point"; coordinates?: [number, number] };
   contactNumber?: string;
   openingHours?: { day: string; openTime: string; closeTime: string }[];
   openState?: "auto" | "open" | "closed";
@@ -240,6 +243,8 @@ export type ServerOrder = {
     unitPrice: number;
     lineTotal: number;
     isVeg?: string;
+    /** Extras the diner chose — what the kitchen has to add to the dish. */
+    addOns?: { name: string; price?: number }[];
     note?: string;
   }[];
   /** The FOOD — a kitchen's own total, and what its commission comes off. */
@@ -256,6 +261,18 @@ export type ServerOrder = {
   deliveryFee?: number;
   grandTotal?: number;
   partnerPayout: number;
+  /**
+   * What this kitchen is owed, in its own terms — from `partnerView`. 0%
+   * commission at launch: the food (before GST) plus the kitchen's own
+   * packaging fee. Optional so an older server's answer still types.
+   */
+  settlement?: {
+    foodOrderValue: number;
+    packagingFee: number;
+    commissionRate: number;
+    commission: number;
+    restaurantReceives: number;
+  };
   paymentMode: "online" | "cod";
   paymentStatus: string;
   status: string;
@@ -334,8 +351,9 @@ export const submitApplication = async (
   data: OnboardingData,
   verificationToken?: string | null,
   onProgress?: (p: UploadProgress) => void,
+  onUploaded?: (partial: OnboardingData) => void,
 ): Promise<SubmitResult> => {
-  const withImages = await uploadApplicationImages(data, verificationToken, onProgress);
+  const withImages = await uploadApplicationImages(data, verificationToken, onProgress, onUploaded);
   const payload = buildApplicationPayload(withImages);
   const res = await api<Envelope<SubmitResult> & SubmitResult>(`${BASE}/applications`, {
     method: "POST",
@@ -401,6 +419,16 @@ const unwrapRestaurant = (data: unknown): ServerRestaurant => {
 export const updateMe = async (token: string, patch: Record<string, unknown>) => {
   const res = await api<Envelope<unknown>>(`${BASE}/me`, { method: "PATCH", token, body: patch });
   return unwrapRestaurant(res.data);
+};
+
+/** Drop the map pin. The server allows this once, and only if there is none. */
+export const setMissingLocation = async (token: string, lat: number, lng: number) => {
+  const res = await api<Envelope<{ location: ServerRestaurant["location"] }>>(`${BASE}/me/location`, {
+    method: "PUT",
+    token,
+    body: { lat, lng },
+  });
+  return res.data?.location;
 };
 
 export const setAvailability = async (token: string, openState: "auto" | "open" | "closed") => {
@@ -550,6 +578,22 @@ export const registerDevice = (token: string, platform: string, session: string)
     token: session,
     body: { token, platform },
   });
+
+/**
+ * End this session on the server and forget this handset's push token.
+ * Signing out used to unregister the device only; the token stayed valid.
+ */
+export const logoutSession = (session: string, pushToken?: string | null) =>
+  api<Envelope<unknown>>(`${BASE}/auth/logout`, {
+    method: "POST",
+    token: session,
+    body: pushToken ? { pushToken } : {},
+  });
+
+/** Take a push token off every account without a session — for a sign-out
+    whose session has already died, when `logoutSession` is refused. */
+export const forgetDevice = (pushToken: string) =>
+  api<Envelope<unknown>>(`/api/v2/devices/forget`, { method: "POST", body: { token: pushToken } });
 
 export const unregisterDevice = (token: string, session: string) =>
   api<Envelope<unknown>>(`${BASE}/me/devices`, {

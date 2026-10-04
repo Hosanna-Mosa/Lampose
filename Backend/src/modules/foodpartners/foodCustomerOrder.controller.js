@@ -53,7 +53,7 @@ const FoodRestaurant = require('./foodRestaurant.model');
 const { notifyRestaurantOfOrder, notifyCustomerOfOrder } = require('./foodOrder.notifier');
 const foodDelivery = require('./foodDelivery.service');
 const { markForRefund } = require('./foodPayment.controller');
-const { chargesFor } = require('./foodCharges.util');
+const { calculateOrderPricing, calculateDeliveryFee, FOOD_PRICING_CONFIG } = require('./foodPricing');
 const { BADGE, logError, startTimer } = require('./foodPartner.log');
 
 const {
@@ -63,8 +63,28 @@ const { isOpenNow } = FoodRestaurant;
 
 const MAX_LINES = 40;
 const MAX_QTY = 20;
-/** Matches the commercial terms the partner signs — see `constants/partner`. */
-const COMMISSION_RATE = 15;
+/** Launch: 0% — nothing is deducted from a kitchen. From `foodPricing.js`. */
+const COMMISSION_RATE = FOOD_PRICING_CONFIG.restaurantCommissionRate * 100;
+
+/**
+ * Create the order, drawing a new number on the rare collision.
+ *
+ * Six random characters are a large space but not an infinite one, and the
+ * unique index turned a clash into a 500 on a diner's checkout. Retried a
+ * few times; any OTHER error is thrown as it was.
+ */
+const createWithFreshNumber = async (fields) => {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      return await FoodOrder.create({ ...fields, orderNumber: makeOrderNumber() });
+    } catch (error) {
+      const clash = error && error.code === 11000 && /orderNumber/.test(String(error.message));
+      if (!clash || attempt === 3) throw error;
+    }
+  }
+  return null;
+};
 
 const fail = (res, status, code, message) => res.status(status).json({
   success: false, code, message, error: message,
@@ -77,6 +97,126 @@ const dbDown = (res) => fail(
 const isUp = () => mongoose.connection.readyState === 1;
 
 const money = (value) => Math.max(0, Math.round((Number(value) || 0) * 100) / 100);
+
+/* ── Shared by placing and quoting ─────────────────────────────────────── */
+
+/**
+ * Every requested dish read back from the menu and priced from its own row —
+ * never from the request. `{ error }` names the first line that cannot be
+ * ordered. Placing and quoting both run this, so a quote cannot price a cart
+ * differently from the order it becomes.
+ */
+const priceLines = async (restaurantId, rawLines) => {
+  const wanted = rawLines
+    .map((line) => String(line?.productId || '').trim().toUpperCase())
+    .filter(Boolean);
+
+  if (wanted.length !== rawLines.length) {
+    return { error: { status: 400, code: 'BAD_INPUT', message: 'Every line needs a productId.' } };
+  }
+
+  const products = await FoodProduct.find({ restaurantId, productId: { $in: wanted } }).lean();
+  const byId = new Map(products.map((p) => [p.productId, p]));
+
+  const lines = [];
+  let itemsTotal = 0;
+
+  for (const raw of rawLines) {
+    const productId = String(raw.productId).trim().toUpperCase();
+    const product = byId.get(productId);
+
+    /* Refused, not skipped — see the header. */
+    if (!product) {
+      return { error: { status: 409, code: 'DISH_UNAVAILABLE', message: 'A dish in your order is no longer on the menu. Please review your cart.' } };
+    }
+    if (product.isAvailable === false) {
+      return { error: { status: 409, code: 'DISH_SOLD_OUT', message: `${product.productName} has just sold out.` } };
+    }
+
+    const quantity = Math.min(MAX_QTY, Math.max(1, Math.floor(Number(raw.quantity) || 1)));
+
+    /* A variant REPLACES the base price; an add-on adds to it. Both are
+       matched by name against the stored row, so a name the kitchen does not
+       offer contributes nothing rather than whatever the client claimed. */
+    const variantName = String(raw.variantName || '').trim();
+    const variant = variantName
+      ? (product.variants || []).find((v) => v.name === variantName)
+      : null;
+    if (variantName && !variant) {
+      return { error: { status: 409, code: 'VARIANT_UNAVAILABLE', message: `${product.productName} is not offered as "${variantName}".` } };
+    }
+
+    const wantedAddOns = Array.isArray(raw.addOns) ? raw.addOns.map((a) => String(a?.name ?? a).trim()) : [];
+    const addOns = wantedAddOns
+      .map((name) => (product.addOns || []).find((a) => a.name === name))
+      .filter(Boolean)
+      .map((a) => ({ name: a.name, price: money(a.price) }));
+
+    const base = variant
+      ? money(variant.price)
+      : money(product.discountedPrice && product.discountedPrice > 0 ? product.discountedPrice : product.price);
+
+    const unitPrice = money(base + addOns.reduce((sum, a) => sum + a.price, 0));
+    const lineTotal = money(unitPrice * quantity);
+    itemsTotal += lineTotal;
+
+    lines.push({
+      productId: product.productId,
+      productName: product.productName,
+      variantName: variant ? variant.name : '',
+      addOns,
+      quantity,
+      unitPrice,
+      lineTotal,
+      isVeg: product.isVeg || 'veg',
+      note: String(raw.note || '').trim().slice(0, 200),
+    });
+  }
+
+  itemsTotal = money(itemsTotal);
+  return { lines, itemsTotal };
+};
+
+/**
+ * The bill for a priced cart — through `foodPricing.js`, the one calculator.
+ *
+ * Distance is straight-line from the kitchen's pin to the drop pin (there is
+ * no road-distance service in this system; it reads a little short of the
+ * road). Without either pin it is unknown, and the first slab is charged.
+ * Rider pay is worked out by the dispatcher's own rule and passed through.
+ */
+const pricingFor = (restaurant, itemsTotal, dropLocation) => {
+  const pin = restaurant.location && Array.isArray(restaurant.location.coordinates)
+    ? restaurant.location.coordinates
+    : null;
+  let distanceKm = null;
+  if (pin && dropLocation) {
+    const { haversineMeters } = require('../foodweb/deliveryReach.util');
+    const [pLng, pLat] = pin;
+    const [dLng, dLat] = dropLocation.coordinates;
+    distanceKm = Math.round(haversineMeters(pLat, pLng, dLat, dLng) / 10) / 100;
+  }
+  const { riderEarningsFor } = require('../drivers/foodDispatch.service');
+  const riderPayout = riderEarningsFor({ deliveryFee: calculateDeliveryFee(distanceKm) });
+  return calculateOrderPricing({
+    foodSubtotal: itemsTotal,
+    distanceKm,
+    packagingFee: restaurant.packagingCharge || 0,
+    discount: 0,
+    taxMode: restaurant.pricesIncludeGst ? 'inclusive' : 'exclusive',
+    riderPayout,
+  });
+};
+
+/** A drop point from the request, or undefined. `[lng, lat]`, MongoDB's order. */
+const dropLocationOf = (body) => {
+  const dropLat = Number(body.dropLat ?? body.deliveryLat);
+  const dropLng = Number(body.dropLng ?? body.deliveryLng);
+  return Number.isFinite(dropLat) && Number.isFinite(dropLng)
+    && Math.abs(dropLat) <= 90 && Math.abs(dropLng) <= 180
+    ? { type: 'Point', coordinates: [dropLng, dropLat] }
+    : undefined;
+};
 
 /* ── Placing one ───────────────────────────────────────────────────────── */
 
@@ -106,6 +246,17 @@ const placeOrder = async (req, res, next) => {
       isActive: true,
     }).lean();
 
+    /* The store-review account orders only from the review kitchen — the
+       same rule, and the same reason, as its stay requests: its fixed sign-in
+       code is shared, and an order from it rang a real kitchen. */
+    const reviewAccounts = require('../reviewAccounts/reviewAccounts.service');
+    if (reviewAccounts.isReviewAccount('customer', req.customer) && restaurantId !== reviewAccounts.RESTAURANT_ID) {
+      return fail(
+        res, 403, 'REVIEW_ACCOUNT_SANDBOX',
+        'This is a test account. It can only order from the Lampose review kitchen.',
+      );
+    }
+
     if (!restaurant) {
       return fail(res, 404, 'RESTAURANT_UNAVAILABLE', 'That restaurant is not taking orders.');
     }
@@ -114,73 +265,9 @@ const placeOrder = async (req, res, next) => {
     }
 
     /* ── Read every dish back, and price from the row not the request ──── */
-    const wanted = rawLines
-      .map((line) => String(line?.productId || '').trim().toUpperCase())
-      .filter(Boolean);
-
-    if (wanted.length !== rawLines.length) {
-      return fail(res, 400, 'BAD_INPUT', 'Every line needs a productId.');
-    }
-
-    const products = await FoodProduct.find({ restaurantId, productId: { $in: wanted } }).lean();
-    const byId = new Map(products.map((p) => [p.productId, p]));
-
-    const lines = [];
-    let itemsTotal = 0;
-
-    for (const raw of rawLines) {
-      const productId = String(raw.productId).trim().toUpperCase();
-      const product = byId.get(productId);
-
-      /* Refused, not skipped — see the header. */
-      if (!product) {
-        return fail(res, 409, 'DISH_UNAVAILABLE', 'A dish in your order is no longer on the menu. Please review your cart.');
-      }
-      if (product.isAvailable === false) {
-        return fail(res, 409, 'DISH_SOLD_OUT', `${product.productName} has just sold out.`);
-      }
-
-      const quantity = Math.min(MAX_QTY, Math.max(1, Math.floor(Number(raw.quantity) || 1)));
-
-      /* A variant REPLACES the base price; an add-on adds to it. Both are
-         matched by name against the stored row, so a name the kitchen does not
-         offer contributes nothing rather than whatever the client claimed. */
-      const variantName = String(raw.variantName || '').trim();
-      const variant = variantName
-        ? (product.variants || []).find((v) => v.name === variantName)
-        : null;
-      if (variantName && !variant) {
-        return fail(res, 409, 'VARIANT_UNAVAILABLE', `${product.productName} is not offered as "${variantName}".`);
-      }
-
-      const wantedAddOns = Array.isArray(raw.addOns) ? raw.addOns.map((a) => String(a?.name ?? a).trim()) : [];
-      const addOns = wantedAddOns
-        .map((name) => (product.addOns || []).find((a) => a.name === name))
-        .filter(Boolean)
-        .map((a) => ({ name: a.name, price: money(a.price) }));
-
-      const base = variant
-        ? money(variant.price)
-        : money(product.discountedPrice && product.discountedPrice > 0 ? product.discountedPrice : product.price);
-
-      const unitPrice = money(base + addOns.reduce((sum, a) => sum + a.price, 0));
-      const lineTotal = money(unitPrice * quantity);
-      itemsTotal += lineTotal;
-
-      lines.push({
-        productId: product.productId,
-        productName: product.productName,
-        variantName: variant ? variant.name : '',
-        addOns,
-        quantity,
-        unitPrice,
-        lineTotal,
-        isVeg: product.isVeg || 'veg',
-        note: String(raw.note || '').trim().slice(0, 200),
-      });
-    }
-
-    itemsTotal = money(itemsTotal);
+    const priced = await priceLines(restaurantId, rawLines);
+    if (priced.error) return fail(res, priced.error.status, priced.error.code, priced.error.message);
+    const { lines, itemsTotal } = priced;
 
     /* ── Charges, also from the restaurant's own row ────────────────────── */
     const paymentMode = PAYMENT_MODES.includes(body.paymentMode) ? body.paymentMode : 'cod';
@@ -228,24 +315,6 @@ const placeOrder = async (req, res, next) => {
      * its dishes for one.
      */
 
-    /* GST and the platform fee, from the one file that defines them. The
-       restaurant's own packaging charge is no longer billed — see
-       `foodCharges.util.js`, which says why the column stays. */
-    const { gst, gstRate, platformFee } = chargesFor(itemsTotal);
-
-    /* Pickup pays no delivery. Otherwise the rule the partner configured
-       decides, and a per-kilometre rate falls back to its base because nothing
-       has measured a distance for this order yet. */
-    const fee = restaurant.deliveryFee || {};
-    let deliveryFee = 0;
-    if (fee.type === 'free_above' && money(fee.freeAboveValue) > 0 && itemsTotal >= money(fee.freeAboveValue)) {
-      deliveryFee = 0;
-    } else {
-      deliveryFee = money(fee.amount);
-    }
-
-    const grandTotal = money(itemsTotal + gst + platformFee + deliveryFee);
-    const partnerPayout = money(itemsTotal * (1 - COMMISSION_RATE / 100));
 
     /* ── Where the two ends of the ride are ─────────────────────────────
        Snapshotted onto the order rather than joined at dispatch time, so a
@@ -257,19 +326,47 @@ const placeOrder = async (req, res, next) => {
       ? { type: 'Point', coordinates: restaurant.location.coordinates }
       : undefined;
 
-    const dropLat = Number(body.dropLat ?? body.deliveryLat);
-    const dropLng = Number(body.dropLng ?? body.deliveryLng);
-    const dropLocation = Number.isFinite(dropLat) && Number.isFinite(dropLng)
-      && Math.abs(dropLat) <= 90 && Math.abs(dropLng) <= 180
-      /* [LONGITUDE, LATITUDE] — MongoDB's order, and the named inputs above
-         are the only defence against the swap. See `foodOrder.model.js`. */
-      ? { type: 'Point', coordinates: [dropLng, dropLat] }
-      : undefined;
+    /* [LONGITUDE, LATITUDE] — MongoDB's order; see `dropLocationOf`. */
+    const dropLocation = dropLocationOf(body);
+
+    /*
+     * Inside the kitchen's delivery radius — the same rule the website uses
+     * (`kitchenReaches`). The address screen promised a range check and none
+     * was made, so an order from across town went to a kitchen that had said
+     * it delivers within 3 km. Only checked when the diner shared a drop
+     * point; without one there is nothing to measure.
+     */
+    if (dropLocation) {
+      const { kitchenReaches } = require('../foodweb/deliveryReach.util');
+      const [dLng, dLat] = dropLocation.coordinates;
+      if (!kitchenReaches(restaurant, dLat, dLng)) {
+        return fail(
+          res, 422, 'OUT_OF_RANGE',
+          `${restaurant.restaurantName || 'This kitchen'} does not deliver that far. `
+          + `It delivers within ${restaurant.deliveryRadiusKm} km — choose a nearer address or another kitchen.`,
+        );
+      }
+    }
+
+    /*
+     * The bill — every figure from `foodPricing.js`, recomputed here whatever
+     * a client sent. Delivery is a Lampose slab by distance now (the kitchen's
+     * own delivery-fee settings no longer price an order), the service fee
+     * replaces the old platform fee, the kitchen's packaging fee is billed
+     * again with its GST, and commission is 0% at launch.
+     */
+    const pricing = pricingFor(restaurant, itemsTotal, dropLocation);
+    const grandTotal = pricing.customerPayable;
+
+    /* Every order is a delivery, so it needs somewhere to go. An empty
+       address was stored as '' and a rider was dispatched to nowhere. */
+    if (!String(body.deliveryAddress || '').trim()) {
+      return fail(res, 400, 'ADDRESS_REQUIRED', 'Choose a delivery address for this order.');
+    }
 
     /* ── Write it ───────────────────────────────────────────────────────── */
     const now = new Date();
-    const order = await FoodOrder.create({
-      orderNumber: makeOrderNumber(),
+    const order = await createWithFreshNumber({
       restaurantId,
       customerId: req.customer?.customerId || '',
       customerName: String(body.customerName || req.customer?.name || '').trim(),
@@ -292,14 +389,25 @@ const placeOrder = async (req, res, next) => {
       restaurant: restaurantSnapshot(restaurant),
       lines,
       itemsTotal,
-      gst,
-      gstRate,
-      platformFee,
-      deliveryFee,
-      discount: 0,
+      /* The flat fields every existing reader uses, filled from the one
+         breakdown — and the breakdown itself, frozen as `pricing`, so a later
+         change of rule cannot rewrite what this order charged. */
+      gst: pricing.foodGstIncluded ? 0 : pricing.foodGst,
+      gstRate: pricing.foodGstRate * 100,
+      platformFee: 0,
+      serviceFee: pricing.serviceFee,
+      serviceFeeGst: pricing.serviceFeeGst,
+      deliveryFee: pricing.deliveryFee,
+      deliveryGst: pricing.deliveryGst,
+      packagingCharge: pricing.packagingFee,
+      packagingGst: pricing.packagingGst,
+      smallOrderFee: pricing.smallOrderFee,
+      distanceKm: pricing.distanceKm,
+      discount: pricing.discount,
       grandTotal,
-      partnerPayout,
+      partnerPayout: pricing.restaurantPayable,
       commissionRate: COMMISSION_RATE,
+      pricing,
       paymentMode,
       /* Cash is owed at the door; an online order is only `paid` once a
          verified signature says so. Marking it paid here would put money in a
@@ -373,6 +481,62 @@ const placeOrder = async (req, res, next) => {
   }
 };
 
+/* ── Quoting one ───────────────────────────────────────────────────────── */
+
+// @route   POST /api/v2/food-partners/orders/quote
+// @desc    The bill for a cart, from the server — what the apps show before Pay
+// @access  Customer session
+const quoteOrder = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+    const body = req.body || {};
+    const restaurantId = String(body.restaurantId || '').trim().toUpperCase();
+    const rawLines = Array.isArray(body.lines) ? body.lines : [];
+    if (!restaurantId) return fail(res, 400, 'BAD_INPUT', 'Which restaurant is this order for?');
+    if (!rawLines.length) return fail(res, 400, 'EMPTY_ORDER', 'There is nothing in this order.');
+    if (rawLines.length > MAX_LINES) {
+      return fail(res, 400, 'TOO_MANY_LINES', `An order can hold at most ${MAX_LINES} different dishes.`);
+    }
+
+    const restaurant = await FoodRestaurant.findOne({
+      restaurantId, verificationStatus: 'approved', isActive: true,
+    }).lean();
+    if (!restaurant) return fail(res, 404, 'RESTAURANT_UNAVAILABLE', 'That restaurant is not taking orders.');
+
+    const priced = await priceLines(restaurantId, rawLines);
+    if (priced.error) return fail(res, priced.error.status, priced.error.code, priced.error.message);
+
+    const pricing = pricingFor(restaurant, priced.itemsTotal, dropLocationOf(body));
+    return res.json({ success: true, data: customerPricing(pricing) });
+  } catch (error) {
+    logError('quoting an order', error);
+    return next(error);
+  }
+};
+
+/**
+ * The diner's half of a breakdown. Rider pay, commission and Lampose's
+ * revenue are settlement figures, not bill lines, and are left out.
+ */
+const customerPricing = (pricing) => ({
+  foodSubtotal: pricing.foodSubtotal,
+  foodGstRate: pricing.foodGstRate,
+  foodGst: pricing.foodGst,
+  foodGstIncluded: pricing.foodGstIncluded,
+  distanceKm: pricing.distanceKm,
+  distanceKnown: pricing.distanceKnown,
+  deliveryFee: pricing.deliveryFee,
+  deliveryGst: pricing.deliveryGst,
+  serviceFee: pricing.serviceFee,
+  serviceFeeGst: pricing.serviceFeeGst,
+  packagingFee: pricing.packagingFee,
+  packagingGst: pricing.packagingGst,
+  smallOrderFee: pricing.smallOrderFee,
+  smallOrderThreshold: FOOD_PRICING_CONFIG.smallOrderThreshold,
+  discount: pricing.discount,
+  customerPayable: pricing.customerPayable,
+});
+
 /* ── Reading your own ──────────────────────────────────────────────────── */
 
 /**
@@ -438,7 +602,12 @@ const listMyOrders = async (req, res, next) => {
   try {
     if (!isUp()) return dbDown(res);
 
-    const orders = await FoodOrder.find({ customerId: req.customer.customerId })
+    /* Paged by `?before=<placedAt>`: the list stopped at fifty with nothing
+       past it, so a regular's older orders and receipts were unreachable. */
+    const query = { customerId: req.customer.customerId };
+    const before = new Date(String((req.query || {}).before || ''));
+    if (!Number.isNaN(before.getTime())) query.placedAt = { $lt: before };
+    const orders = await FoodOrder.find(query)
       .sort({ placedAt: -1 })
       .limit(50)
       .lean();
@@ -491,41 +660,67 @@ const cancelMyOrder = async (req, res, next) => {
   try {
     if (!isUp()) return dbDown(res);
 
-    const order = await FoodOrder.findOne({
+    const query = {
       customerId: req.customer.customerId,
       orderNumber: String(req.params.orderNumber || '').trim().toUpperCase(),
-    });
-
-    if (!order) return fail(res, 404, 'NOT_FOUND', 'We could not find that order.');
-
-    /* Only before the food is being cooked. Past that the ingredients are
-       committed and cancelling is a conversation with the restaurant, not a
-       button — the commercial terms the partner signed say the same.
-
-       Note that a rider already being assigned does NOT block this: the food
-       has not been cooked, so nothing has been wasted, and the rider is simply
-       freed below. It is the KITCHEN's state that decides, not the rider's. */
-    if (!['placed', 'accepted'].includes(order.status)) {
-      return fail(
-        res, 409, 'TOO_LATE_TO_CANCEL',
-        'The kitchen has already started this order. Call the restaurant if something is wrong.',
-      );
-    }
-
+    };
     const reason = String((req.body || {}).reason || '').trim().slice(0, 200);
-    order.status = 'cancelled';
-    order.statusHistory.push({
-      status: 'cancelled', at: new Date(), by: 'customer', note: reason,
-    });
 
-    /* The rider comes off before the save, so one write covers both. */
-    const strandedDriverId = order.delivery && order.delivery.driverId;
-    if (strandedDriverId) {
-      order.delivery.driverId = '';
-      order.delivery.assignedAt = null;
+    /*
+     * Conditional on what was read — the status AND the rider — and tried
+     * again on a fresh read when something moved underneath. A kitchen accept
+     * or a rider accept landing in the same instant used to be overwritten
+     * (last write wins): the rider stayed attached to a cancelled order, or
+     * the order came back `accepted` with a cancellation in its history.
+     */
+    let order = null;
+    let strandedDriverId = '';
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      order = await FoodOrder.findOne(query);
+      if (!order) return fail(res, 404, 'NOT_FOUND', 'We could not find that order.');
+
+      /* Only before the food is being cooked. Past that the ingredients are
+         committed and cancelling is a conversation with the restaurant, not a
+         button — the commercial terms the partner signed say the same.
+
+         Note that a rider already being assigned does NOT block this: the food
+         has not been cooked, so nothing has been wasted, and the rider is simply
+         freed below. It is the KITCHEN's state that decides, not the rider's. */
+      if (!['placed', 'accepted'].includes(order.status)) {
+        return fail(
+          res, 409, 'TOO_LATE_TO_CANCEL',
+          'The kitchen has already started this order. Call the restaurant if something is wrong.',
+        );
+      }
+
+      const readDriver = (order.delivery && order.delivery.driverId) || '';
+      order.$where = {
+        status: order.status,
+        'delivery.driverId': readDriver || { $in: ['', null] },
+      };
+      order.status = 'cancelled';
+      order.statusHistory.push({
+        status: 'cancelled', at: new Date(), by: 'customer', note: reason,
+      });
+
+      /* The rider comes off before the save, so one write covers both. */
+      strandedDriverId = readDriver;
+      if (strandedDriverId) {
+        order.delivery.driverId = '';
+        order.delivery.assignedAt = null;
+      }
+      order.dispatch.state = 'idle';
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await order.save();
+        break;
+      } catch (error) {
+        const moved = error && (error.name === 'DocumentNotFoundError' || error.name === 'VersionError');
+        if (!moved || attempt === 2) throw error;
+        /* Moved underneath — read it again and decide again. */
+      }
     }
-    order.dispatch.state = 'idle';
-    await order.save();
 
     /* ── Everything the cancellation has to unwind ────────────────────── */
 
@@ -639,6 +834,7 @@ const confirmMyDelivery = async (req, res, next) => {
 };
 
 module.exports = {
+  quoteOrder,
   placeOrder, listMyOrders, getMyOrder, cancelMyOrder, confirmMyDelivery,
 };
 

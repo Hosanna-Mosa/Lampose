@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { Box, Spinner } from '@/components/common';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -31,9 +31,10 @@ import { backRowBase, boldBody, centred } from '@/components/common/utils/styles
  * here: six boxes, and a comparison that actually compares.
  */
 const CODE_LENGTH = 6;
-const MAX_ATTEMPTS = 10;
-/** How long the guest's code stays valid once this screen is open. */
-const CODE_TTL_MS = 180_000;
+/* The SERVER's limit (`checkInBooking`): five wrong codes lock this booking's
+   check-in for 15 minutes. There is no code "expiry" — the entry PIN is good
+   for the booking; the 3-minute timer here was invented and reset on reopen. */
+const MAX_ATTEMPTS = 5;
 
 type Forced = 'expired' | 'lockout';
 
@@ -71,13 +72,8 @@ export function CheckInScreen() {
   const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS);
   const [wrong, setWrong] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const openedAt = useRef(Date.now()).current;
-  const [now, setNow] = useState(openedAt);
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
+  /* Set by the server's 423 — the only lock there is. */
+  const [lockMessage, setLockMessage] = useState<string | null>(null);
 
   if (isPending && !booking) {
     return (
@@ -104,8 +100,8 @@ export function CheckInScreen() {
   }
 
   const firstName = booking.guest.split(' ')[0];
-  const lockedOut = forced === 'lockout' || attemptsLeft <= 0;
-  const expired = forced === 'expired' || now - openedAt > CODE_TTL_MS;
+  const lockedOut = forced === 'lockout' || Boolean(lockMessage);
+  const expired = forced === 'expired';
   const complete = code.length === CODE_LENGTH;
 
   /*
@@ -135,12 +131,16 @@ export function CheckInScreen() {
         router.replace({ pathname: '/booking/checked-in', params: { id: booking.id } });
       },
       onError: (err) => {
+        if (err instanceof ApiError && err.code === 'CHECKIN_LOCKED') {
+          setLockMessage(err.displayMessage);
+          return;
+        }
         if (err instanceof ApiError && err.code === 'BAD_PIN') {
-          const left = attemptsLeft - 1;
-          setAttemptsLeft(left);
+          /* The server's count, not a local guess that reset on reopen. */
+          const fromServer = Number((err.payload as { attemptsLeft?: number } | null)?.attemptsLeft);
+          setAttemptsLeft(Number.isFinite(fromServer) ? fromServer : Math.max(0, attemptsLeft - 1));
           setWrong(true);
           setCode('');
-          if (left <= 0) setToast('Too many attempts. Code entry is locked for 15 minutes.');
           return;
         }
         setToast(
@@ -231,8 +231,8 @@ export function CheckInScreen() {
             Too many attempts
           </Text>
           <Text variant="badge" color="textSecondary" center style={styles.lockBody2}>
-            For security, code entry is locked for 15 minutes. You can still check the guest in
-            manually from support.
+            {lockMessage ?? 'For security, code entry is locked for 15 minutes.'} Ask the guest to read
+            the code from their Lampose app again, then try once the lock ends.
           </Text>
         </Box>
       </Screen>

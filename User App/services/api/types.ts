@@ -129,8 +129,6 @@ export type BackendListing = {
   dailyPrice: number | null;
   deposit: number | null;
   ownerName: string;
-  /** Present in the payload; the app never dials it directly. */
-  ownerMobile: string;
   address: string;
   description: string;
   /** Free text, one string per amenity. Not a controlled vocabulary. */
@@ -216,6 +214,8 @@ export type BackendListingMeta = {
     /** Every kind of place in the area, which is NOT what one tab shows. */
     listingCount: number;
     medianRent: number | null;
+    /** The same median, per kind of place. Absent from an older server. */
+    medianRentByCategory?: Record<string, number | null>;
     /** The breakdown, so a per-tab empty state can count the other kinds. */
     categories: CategoryCounts;
   }[];
@@ -310,6 +310,8 @@ export type BackendStayCoupon = {
   expiresAt: string;
   usedAt: string | null;
   earnedAt: string;
+  /** The booking whose move-in earned it. Absent from an older server. */
+  bookingId?: string | null;
 };
 
 /**
@@ -401,6 +403,8 @@ export type BackendTicket = {
 /** The thread. Everything the list row has, plus the messages. */
 export type BackendTicketDetail = BackendTicket & {
   evidenceRequired: boolean;
+  /** When the requester confirmed it was sorted — on any device. */
+  requesterConfirmedAt?: string | null;
   messages: BackendTicketMessage[];
 };
 
@@ -452,7 +456,11 @@ export type StayDecisionReason =
   | 'OWNER_DECLINED'
   | 'INVENTORY_TAKEN'
   | 'NO_ANSWER'
-  | 'STUDENT_WITHDREW';
+  | 'STUDENT_WITHDREW'
+  /* The booking was cancelled before anything was paid. */
+  | 'BOOKING_CANCELLED'
+  /* The owner accepted; the payment window closed with nothing paid. */
+  | 'PAYMENT_LAPSED';
 
 export type BackendStayRequest = {
   /**
@@ -539,6 +547,8 @@ export type BackendStayRequest = {
   decidedAt: string | null;
   cancelledAt: string | null;
   decisionReason: StayDecisionReason | null;
+  /** The owner's note when they declined — written for the student. */
+  declineNote?: string | null;
 
   sharing: { label: string | null; price: number | null } | null;
   shareTypeId: string | null;

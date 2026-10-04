@@ -40,7 +40,9 @@ export default function TabsLayout() {
   /* Fall back to what is actually pending. `unread` goes to zero the moment
      the inbox is opened, and a request still counting down after that is
      still somebody waiting — the dot has to outlast the badge. */
-  const waiting = unread || groups.pending.length;
+  /* The fallback counts what is counting DOWN — app requests. A website
+     lead waiting on a WhatsApp reply is not one this tab can answer. */
+  const waiting = unread || groups.pending.filter((r) => r.channel === 'app').length;
 
   const tab = (name: IconName) =>
     ({ color, focused }: { color: string; focused: boolean }) => (

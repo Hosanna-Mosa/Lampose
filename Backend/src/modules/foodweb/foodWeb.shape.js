@@ -315,7 +315,7 @@ const RIDE_MINUTES = 18;
 
 /* The platform's own charges, from the file that defines them. Required here
    rather than restated so a rate change is one edit. */
-const { GST_RATE, PLATFORM_FEE } = require('../foodpartners/foodCharges.util');
+const { FOOD_PRICING_CONFIG } = require('../foodpartners/foodPricing');
 
 /** "25–30 min", built from prep + travel. Both halves are the kitchen's own. */
 const deliveryWindowLabel = (prepMinutes, deliveryMinutes) => {
@@ -372,42 +372,37 @@ const kitchenCard = (doc, extras = {}) => {
     costForOne: rupees(extras.costForOne),
     rating: Number(doc.ratingAvg) || 0,
     ratingCount: rupees(doc.ratingCount),
-    deliveryFee: rupees(doc.deliveryFee && doc.deliveryFee.amount != null ? doc.deliveryFee.amount : doc.deliveryFee),
+    /* Delivery is a Lampose distance slab (`foodPricing.js`), the same for
+       every kitchen — not the kitchen's own setting, and never free by order
+       value. A card cannot know the distance, so this is the starting price
+       ("from ₹19"); the checkout shows the exact one from the quote. */
+    deliveryFee: FOOD_PRICING_CONFIG.deliverySlabs[0].fee,
+    deliveryByDistance: true,
+    freeDeliveryAbove: 0,
     /*
-     * "Free delivery above Rs X" - the ONE other rule the order endpoint applies
-     * to the fee (`foodCustomerOrder.controller.js`: `type === 'free_above'` and
-     * an item total at or over `freeAboveValue`). Without it the website quotes
-     * the flat fee on an order the server then charges nothing for, and the
-     * total on the checkout page is not the total on the order. 0 means the
-     * kitchen has no such rule.
+     * No minimum order (a small-order fee under ₹150 replaced it), and the
+     * kitchen's own packaging fee, billed again under the launch pricing.
+     * Both kept by name: the website's cart reads them.
      */
-    freeDeliveryAbove: doc.deliveryFee && doc.deliveryFee.type === 'free_above'
-      ? rupees(doc.deliveryFee.freeAboveValue)
-      : 0,
-    /*
-     * Both are ZERO now, and both stay in the shape.
-     *
-     * A kitchen has no minimum order any more and its packaging charge is no
-     * longer billed — `foodCharges.util.js` says why. They are reported as 0
-     * rather than dropped because the website's cart reads both by name and a
-     * missing key would read as `undefined` in an arithmetic line; zero is the
-     * honest figure and it falls out of every sum on its own.
-     */
-    packagingCharge: 0,
+    /* The kitchen's own packaging fee, billed again under the launch
+       pricing (`foodPricing.js`), capped like the server caps it. */
+    packagingCharge: Math.min(Number(doc.packagingCharge) || 0, FOOD_PRICING_CONFIG.maxPackagingFee),
     minOrder: 0,
+    smallOrderThreshold: FOOD_PRICING_CONFIG.smallOrderThreshold,
+    smallOrderFee: FOOD_PRICING_CONFIG.smallOrderFee,
 
     /*
      * What the platform adds on top, carried on the kitchen card.
      *
      * Neither figure is the kitchen's — they are the same for every
-     * restaurant, and `foodCharges.util.js` is where they are decided. They
+     * restaurant, and `foodPricing.js` is where they are decided. They
      * ride on this shape because the CART is what needs them, and the kitchen
      * card is the object a cart already holds: the alternative is each client
      * hardcoding 5 and 2, which is how a cart comes to preview ₹240 for an
      * order the server charges ₹254 for.
      */
-    gstRate: GST_RATE,
-    platformFee: PLATFORM_FEE,
+    gstRate: FOOD_PRICING_CONFIG.foodGstRate * 100,
+    serviceFee: FOOD_PRICING_CONFIG.serviceFee,
     prepMinutes,
     deliveryMinutes,
     deliveryWindow: deliveryWindowLabel(prepMinutes, deliveryMinutes),

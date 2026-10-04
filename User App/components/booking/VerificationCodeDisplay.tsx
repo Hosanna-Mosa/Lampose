@@ -166,7 +166,9 @@ export function VerificationCodeDisplay({
               <Icon name="check" size={12} color={skin.checkIcon} />
             </View>
             <Text variant="caption" style={[styles.assuranceText, skin.assuranceText]}>
-              Downloaded &amp; works offline with no signal.
+              {/* Not "works offline": nothing stores this code on the phone,
+                  so with no signal it does not load. A screenshot does. */}
+              No signal at the door? Take a screenshot of this code now.
             </Text>
           </View>
         </View>

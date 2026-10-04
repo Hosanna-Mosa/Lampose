@@ -13,7 +13,15 @@ class SocketService {
   private socket: Socket | null = null;
   private pending = new Map<string, Set<Listener>>();
   private trackedOrders = new Set<string>();
+  /* Ticket rooms, re-joined on reconnect exactly as order rooms are. They
+     were joined once on open, so a reply arriving after any network blip
+     went to a room this socket was no longer in. */
+  private trackedTickets = new Set<string>();
   private driverId: string | null = null;
+  /* The token this socket was opened with. A different one (signed in
+     again) means a new socket — the old one kept authenticating as the
+     session that had ended. */
+  private token: string | null = null;
   /** Reconnection is infinite; only report the first failure of each outage. */
   private warnedOffline = false;
 
@@ -27,7 +35,9 @@ class SocketService {
       return null;
     }
     if (driverId) this.driverId = driverId;
+    if (this.socket && token && this.token && token !== this.token) this.teardown();
     if (this.socket) return this.socket;
+    this.token = token ?? null;
 
     this.socket = io(API_URL, {
       /* Not websocket-only: behind a reverse proxy that does not forward the
@@ -56,6 +66,23 @@ class SocketService {
       this.trackedOrders.forEach((orderNumber) =>
         this.socket?.emit("track_order", { orderNumber }),
       );
+      this.trackedTickets.forEach((reference) =>
+        this.socket?.emit("track_ticket", { reference }),
+      );
+    });
+
+    /* The server's word for a token it will not take, sent just before it
+       hangs up. socket.io never reconnects after a SERVER-side disconnect, so
+       this connection is finished: drop it, and the next `connect()` (the
+       store calls it on every profile read) opens a fresh one with whatever
+       token is current. It used to sit dead with offers silently not
+       arriving. */
+    this.socket.on("unauthorised", () => {
+      console.warn("[socket] the server refused this session — will reconnect on the next profile read.");
+      this.teardown();
+    });
+    this.socket.on("disconnect", (reason) => {
+      if (reason === "io server disconnect") this.teardown();
     });
 
     this.socket.on("connect_error", (err) => {
@@ -74,11 +101,19 @@ class SocketService {
     return this.socket;
   }
 
-  disconnect() {
-    this.socket?.removeAllListeners();
-    this.socket?.disconnect();
+  /** Close the socket but remember the rooms, so a new one re-joins them. */
+  private teardown() {
+    const socket = this.socket;
     this.socket = null;
+    this.token = null;
+    socket?.removeAllListeners();
+    socket?.disconnect();
+  }
+
+  disconnect() {
+    this.teardown();
     this.trackedOrders.clear();
+    this.trackedTickets.clear();
   }
 
   on(event: string, listener: Listener) {
@@ -112,6 +147,17 @@ class SocketService {
     if (!orderNumber) return;
     this.trackedOrders.add(orderNumber);
     this.emit("track_order", { orderNumber });
+  }
+
+  trackTicket(reference: string) {
+    if (!reference) return;
+    this.trackedTickets.add(reference);
+    if (this.socket?.connected) this.socket.emit("track_ticket", { reference });
+  }
+
+  untrackTicket(reference: string) {
+    this.trackedTickets.delete(reference);
+    if (this.socket?.connected) this.socket.emit("untrack_ticket", { reference });
   }
 
   untrackOrder(orderNumber: string) {

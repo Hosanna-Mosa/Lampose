@@ -245,7 +245,11 @@ export function useTicket(reference: string | undefined) {
   const ticket = useMemo(() => (detail ? toTicket(detail) : null), [detail]);
 
   const reply = useMutation({
-    mutationFn: (body: string) => replyToTicket(reference as string, body),
+    mutationFn: (input: string | { body: string; confirmsResolved?: boolean }) => (
+      typeof input === 'string'
+        ? replyToTicket(reference as string, input)
+        : replyToTicket(reference as string, input.body, undefined, { confirmsResolved: input.confirmsResolved })
+    ),
     onSuccess: (updated) => {
       /* The response IS the new thread, so it is written straight into the
          cache rather than triggering a second round trip to fetch what we

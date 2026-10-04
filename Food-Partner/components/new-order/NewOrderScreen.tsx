@@ -13,9 +13,11 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Box, Icon, Note, Scroller, Text, TopBar } from "@/components/common";
+import { addOnsLabel } from "@/lib/money";
 import { usePartnerStore } from "@/store/partnerStore";
 import { getMe, listMyOrders, setOrderStatus, type ServerOrder } from "@/services/foodPartner";
 import { acknowledgeOrder, isAcknowledged, lastArrival, onQueueChanged, setSheetOpen } from "@/services/orderPump";
+import { dietColor } from "@/lib/diet";
 
 const rupees = (n: number) => `₹${Math.round(Number(n) || 0).toLocaleString("en-IN")}`;
 
@@ -91,9 +93,15 @@ export function NewOrderScreen() {
 
   const close = () => router.back();
 
+  /* One value for what is highlighted AND what is sent. The sheet lit up
+     `choices[0]` (or 25) when no standing prep time was set, while accept
+     fell back to 0 and promised the diner nothing. */
+  const choices = prepChoices(standingPrep);
+  const selectedMinutes = prepMinutes ?? standingPrep ?? choices[0] ?? 25;
+
   const accept = async () => {
     if (!order || !session?.token) return;
-    const minutes = prepMinutes ?? standingPrep ?? 0;
+    const minutes = selectedMinutes;
     setAccepting(true);
     setAcceptError("");
     try {
@@ -111,8 +119,6 @@ export function NewOrderScreen() {
     }
   };
 
-  const choices = prepChoices(standingPrep);
-  const selectedMinutes = prepMinutes ?? standingPrep ?? choices[0] ?? 25;
   const isCod = order?.paymentMode === "cod";
   const isPaid = order?.paymentStatus === "paid";
 
@@ -131,6 +137,12 @@ export function NewOrderScreen() {
         {loading ? (
           <View style={styles.centerBox}>
             <Text style={styles.subtleText}>Loading order…</Text>
+          </View>
+        ) : !order && error ? (
+          /* The load FAILED — not "nothing waiting". A kitchen told there was
+             no ticket while an order sat unread is a missed order. */
+          <View style={styles.centerBox}>
+            <Note tone="bad">{error}</Note>
           </View>
         ) : !order ? (
           <View style={styles.centerBox}>
@@ -165,14 +177,21 @@ export function NewOrderScreen() {
                 </View>
               </View>
 
-              <Text style={styles.payoutValue}>{rupees(order.partnerPayout)}</Text>
+              <Text style={styles.payoutValue}>
+                {rupees(order.settlement?.restaurantReceives ?? order.partnerPayout)}
+              </Text>
               {/* What this kitchen sold, and what it keeps of it. It used to
                   read "diner pays ₹200" — a figure carrying GST, the platform
                   fee and the delivery fee, none of it the restaurant's, and
                   one the server no longer sends a partner session. */}
               <Text style={styles.payoutSub}>
-                You keep this · {rupees(order.itemsTotal)} of food
+                {order.settlement
+                  ? `Food ${rupees(order.settlement.foodOrderValue)}` +
+                    (order.settlement.packagingFee ? ` + packaging ${rupees(order.settlement.packagingFee)}` : "") +
+                    ` · Commission ${rupees(order.settlement.commission)} (${order.settlement.commissionRate}%)`
+                  : `You keep this · ${rupees(order.itemsTotal)} of food`}
               </Text>
+              <Text style={styles.payoutSub}>Lampose currently charges 0% commission on food orders.</Text>
             </View>
 
             {/* ── 2. ITEMS CARD ──────────────────────────────────────────────── */}
@@ -183,18 +202,23 @@ export function NewOrderScreen() {
 
               <View style={styles.itemsList}>
                 {order.lines.map((line, i) => {
-                  const isVeg = line.isVeg === "veg" || line.isVeg === undefined;
                   return (
                     <View key={`${line.productName}-${i}`} style={styles.itemRow}>
                       <View style={styles.itemLeft}>
                         {/* Veg / Non-Veg Indicator */}
-                        <View style={[styles.dietDotBorder, isVeg ? styles.vegBorder : styles.nonVegBorder]}>
-                          <View style={[styles.dietDot, isVeg ? styles.vegDot : styles.nonVegDot]} />
+                        <View style={[styles.dietDotBorder, { borderColor: dietColor(line.isVeg) }]}>
+                          <View style={[styles.dietDot, { backgroundColor: dietColor(line.isVeg) }]} />
                         </View>
-                        <Text style={styles.itemTitle}>
-                          {line.quantity}× {line.productName}
-                          {line.variantName ? ` · ${line.variantName}` : ""}
-                        </Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.itemTitle}>
+                            {line.quantity}× {line.productName}
+                            {line.variantName ? ` · ${line.variantName}` : ""}
+                          </Text>
+                          {/* What to add to it — missing, the dish is cooked wrong. */}
+                          {!!addOnsLabel(line.addOns) && (
+                            <Text style={styles.noteText}>{addOnsLabel(line.addOns)}</Text>
+                          )}
+                        </View>
                       </View>
                       <Text style={styles.itemPrice}>{rupees(line.lineTotal)}</Text>
                     </View>
