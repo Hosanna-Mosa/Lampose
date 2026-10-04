@@ -76,6 +76,7 @@ const CAPABILITIES = Object.freeze({
 
   /* ── Queues ──────────────────────────────────────────────────────────── */
   'food.decide': { roles: ['Super Admin', 'Admin', 'Food Admin'], label: 'approve or refuse a restaurant' },
+  'food.staff_access.read': { roles: ADMINS, label: 'read the log of staff sign-ins to restaurant accounts' },
   'riders.decide': { roles: ['Super Admin', 'Admin', 'Food Admin'], label: 'approve, refuse or suspend a rider' },
   'support.answer': { roles: ['Super Admin', 'Admin', 'Support'], label: 'answer support tickets' },
   'messaging.send': { roles: ADMINS, label: 'send WhatsApp messages from the console' },

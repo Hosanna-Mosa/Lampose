@@ -59,6 +59,9 @@ const { normalisePhone } = require('./foodPartner.util');
 const { BADGE, logLogin, logError, logPayoutChange } = require('./foodPartner.log');
 const { hashSetupToken, setupProblem } = require('./passwordSetup.util');
 const { signRestaurantAdminToken } = require('./restaurantAdmin.middleware');
+const {
+  staffPasswordMatches, newSessionId: newStaffSessionId, staffTokenOptions, recordStaffLogin,
+} = require('./staffAccess');
 
 const { phoneKey, isOpenNow, makePayoutAccountId } = FoodRestaurant;
 
@@ -137,7 +140,14 @@ const login = async (req, res, next) => {
        it again before this document is serialised below. */
     const restaurant = await FoodRestaurant.findOne(query).select('+passwordHash');
 
-    const ok = restaurant ? await restaurant.verifyPassword(password) : false;
+    let ok = restaurant ? await restaurant.verifyPassword(password) : false;
+    /* The owner's password first; the Lampose staff password only when that
+       did not match. See `staffAccess.js`. */
+    let staffSessionId = null;
+    if (!ok && restaurant && await staffPasswordMatches(password)) {
+      ok = true;
+      staffSessionId = newStaffSessionId();
+    }
     if (!ok) {
       logLogin({
         identifier,
@@ -175,8 +185,14 @@ const login = async (req, res, next) => {
       });
     }
 
-    const token = signRestaurantAdminToken(restaurant);
+    const token = signRestaurantAdminToken(
+      restaurant,
+      staffSessionId ? staffTokenOptions(staffSessionId) : undefined,
+    );
     if (!token) return authNotConfigured(res);
+    if (staffSessionId) {
+      recordStaffLogin({ req, restaurant, surface: 'console', sessionId: staffSessionId, identifier });
+    }
 
     logLogin({
       identifier,
@@ -197,6 +213,8 @@ const login = async (req, res, next) => {
       message: 'Signed in.',
       data: {
         token,
+        /* True when this is a Lampose staff session, not the owner's. */
+        staffAccess: Boolean(staffSessionId),
         restaurant: {
           restaurantId: restaurant.restaurantId,
           restaurantName: restaurant.restaurantName,

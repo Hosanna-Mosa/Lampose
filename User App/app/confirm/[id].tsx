@@ -5,7 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, ConfirmModal, InlineAlert, Text, TextField, useAlert } from '@/components/ui';
+import { Button, ConfirmModal, InlineAlert, Text, TextField } from '@/components/ui';
 import { StandardHeader, StateTemplate } from '@/components/shell';
 import { OwnerStatusTrail, WaitLoader, type TrailStep } from '@/components/request';
 /* Crossing from a stay screen into the food module's components, and only
@@ -14,14 +14,11 @@ import { FoodWaitPromo } from '@/components/food';
 import { errorStates } from '@/constants/copy';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { ongoingQueryKey } from '@/hooks/useOngoing';
-import { useDevBypass } from '@/hooks/useAppEnv';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useListing, useStayCoupons, useStayRequest } from '@/services';
 import { addAddress } from '@/services/api/addresses.api';
-/* DEVELOPMENT ONLY — remove with the dev bypass button below. */
 import { ApiError } from '@/services/api/client';
-import { devMarkVisitPaid } from '@/services/api/stayRequests.api';
 import { formatRupees } from '@/utils/money';
 
 /**
@@ -75,13 +72,6 @@ function stamp(value: string | null | undefined): string | undefined {
 
 export default function OwnerConfirmation() {
   const { mode, colors, space, layout, radius } = useTheme();
-  const { confirm } = useAlert();
-  /* Whether this build may draw the payment BYPASS — see the note on the dev
-     button below. Not `usePreviewControls`: that is on in every non-production
-     build, including the internal APKs that point at the production API, and
-     this button settles a real request for a real student. Opt-in only, via
-     EXPO_PUBLIC_DEV_BYPASS=true. Re-renders when the mode is switched. */
-  const devBypassAllowed = useDevBypass();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -125,8 +115,7 @@ export default function OwnerConfirmation() {
      hooks, rather than beside `onRefresh` below — that sits past two early
      returns (loading, not-found), and a hook declared there runs on some
      renders and not others, which is the exact "rendered more hooks than
-     during the previous render" crash. See the note on `devBusy` below for
-     the same rule applied to the dev-only payment bypass. */
+     during the previous render" crash. */
   const [manualRefreshing, setManualRefreshing] = useState(false);
 
   /* ── The profile a request needs, asked here rather than at sign-in ──────
@@ -397,82 +386,6 @@ export default function OwnerConfirmation() {
       params: { requestId: String(stay.request.id), returnTo: `/confirm/${String(id)}` },
     } as never);
   }, [stay.request?.id, router, id]);
-
-  /*
-   * DEVELOPMENT ONLY — mark the token paid without paying it.
-   *
-   * Not a payment option and deliberately not dressed as one: no money moves,
-   * nothing is collected, and nothing is owed afterwards. It exists so the
-   * screens behind the paywall can be worked on while Razorpay's checkout is
-   * unavailable, and it is labelled loudly enough that nobody could mistake it
-   * for something a real student should press.
-   *
-   * Drawn only when the SERVER says it is available
-   * (`payment.devMarkPaidAllowed`, which is `DEV_ALLOW_MARK_PAID` and is
-   * refused when NODE_ENV=production), so the whole branch disappears by
-   * itself when the flag comes off — no app change needed.
-   *
-   * It sits HERE, with the other hooks, and not beside `tokenAmount` where the
-   * copy it feeds lives: `tokenAmount` is declared past two early returns, so
-   * three hooks next to it run on some renders and not others — which is
-   * exactly the "rendered more hooks than during the previous render" crash.
-   *
-   * Delete this block, `devMarkVisitPaid`, its endpoint and the route when the
-   * online checkout is working.
-   */
-  const [devBusy, setDevBusy] = useState(false);
-  const [devError, setDevError] = useState<string | null>(null);
-
-  const devSkipPayment = useCallback(async () => {
-    if (!stay.request?.id || devBusy) return;
-
-    /* The app's own dialog — see `AppAlert`. Warning-toned rather than
-       destructive: nothing is lost by doing this, it simply is not a real
-       payment, and the copy is what says so. */
-    const ok = await confirm({
-      title: 'Mark payment as done?',
-      message: 'Development bypass — no payment is taken and nothing is owed. The visit will '
-        + 'behave as though the ₹199 had been paid so the rest of the flow can be tested.',
-      confirmLabel: 'Mark as paid',
-      cancelLabel: 'Cancel',
-      tone: 'warning',
-    });
-    if (!ok) return;
-
-    setDevBusy(true);
-    setDevError(null);
-    try {
-      await devMarkVisitPaid(String(stay.request!.id));
-      /*
-       * The server's answer, read back.
-       *
-       * Nothing here navigates. `payment.status` flipping to `paid` is what
-       * the effect above is watching, and it routes to the slot picker or
-       * straight to the booking depending on whether a slot has been chosen —
-       * the same two destinations a real payment lands on. Pushing a screen
-       * from here would be a second, divergent copy of that decision.
-       */
-      await stay.refresh();
-    } catch (err) {
-      /*
-       * The route 404s when the flag is off, which is the likeliest failure
-       * by far now that the button is drawn without waiting for the server to
-       * offer it. `displayMessage` on a 404 is generic, so this says the one
-       * thing that actually unblocks it.
-       */
-      const notEnabled = err instanceof ApiError && (err.status === 404 || err.status === 403);
-      setDevError(
-        notEnabled
-          ? 'The server does not allow this. Set DEV_ALLOW_MARK_PAID="true" in Backend/.env '
-            + '(NODE_ENV must not be production) and restart it.'
-          : err instanceof ApiError
-            ? err.displayMessage
-            : 'We could not mark it paid. Please try again.',
-      );
-    } finally {
-      setDevBusy(false);
-    }
-  }, [stay, devBusy, confirm]);
 
 
   /*
@@ -1206,73 +1119,6 @@ export default function OwnerConfirmation() {
               disabled={paying || holdLapsed}
               fullWidth
             />
-            {/*
-              DEVELOPMENT ONLY — see `devSkipPayment`.
-
-              Two gates, and they do different jobs.
-
-              The BUILD gate (`useDevBypass`) decides whether the button is
-              drawn. It used to be the server's `devMarkPaidAllowed` alone,
-              which meant that on a server without `DEV_ALLOW_MARK_PAID` the
-              button was simply absent — with nothing on screen to say why, or
-              that it existed at all. A developer looking for it concluded it
-              had been removed.
-
-              It then shared `previewControls` with the rest of the preview
-              controls, which was too wide: that is on in an internal preview
-              APK, and an internal APK points at the production API like any
-              other. So the gate is its own opt-in variable now, off unless
-              EXPO_PUBLIC_DEV_BYPASS is the exact string `true`.
-
-              The SERVER gate is still the one that decides whether it WORKS,
-              and it has to be: a client that could settle a payment by asking
-              nicely is the whole thing `foodPayment.confirmPayment` exists to
-              prevent. `env.js` refuses the flag outright under
-              NODE_ENV=production.
-
-              So on an opted-in build with the server flag off, the button is
-              visible and says what to switch on — which is the useful state,
-              and the one that used to be invisible. On any build that did not
-              opt in, and on every production build, none of this renders.
-            */}
-            {tokenDue && devBypassAllowed ? (
-              <>
-                {/*
-                  NOT disabled by `paying`, unlike the real pay button above.
-
-                  `paying` means "a checkout may have just settled, ask the
-                  server a few times" — the focus effect sets it for about four
-                  and a half seconds every time this screen is opened on an
-                  unpaid request, whether or not anybody has been to a
-                  checkout. Gating this on it meant that on arriving at the
-                  accepted state the dev button was greyed out for the first
-                  few seconds: you tapped it, nothing happened, and it looked
-                  broken.
-
-                  There is nothing to protect against. The bypass settles the
-                  request server-side, and the poll that is in flight reads the
-                  same row and sees the same answer. `devBusy` still stops a
-                  double tap.
-                */}
-                <Button
-                  label={devBusy ? 'Marking as paid…' : '🛠 DEV: mark payment as done'}
-                  onPress={() => { void devSkipPayment(); }}
-                  variant="secondary"
-                  disabled={devBusy}
-                  fullWidth
-                />
-                <Text variant="numMeta" color="tertiary" style={styles.centred}>
-                  {stay.request?.payment?.devMarkPaidAllowed
-                    ? 'Development bypass — no payment is taken'
-                    : 'Development bypass — needs DEV_ALLOW_MARK_PAID=true on the server'}
-                </Text>
-              </>
-            ) : null}
-            {devError ? (
-              <Text variant="numMeta" color="danger" style={styles.centred}>
-                {devError}
-              </Text>
-            ) : null}
             {/* The caption under the button must not contradict the button.
                 With a payment due, it explains the figure instead. */}
             <Text variant="numMeta" color="tertiary" style={styles.centred}>

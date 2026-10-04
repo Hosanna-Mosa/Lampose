@@ -57,6 +57,7 @@ const jwt = require('jsonwebtoken');
 
 const config = require('../../config/env');
 const FoodRestaurant = require('./foodRestaurant.model');
+const { trackStaffRequest } = require('./staffAccess');
 
 /** The claim that tells this session apart from the other five. */
 const TOKEN_TYPE = 'restaurant_admin';
@@ -88,10 +89,10 @@ const SESSION_TTL = process.env.RESTAURANT_ADMIN_SESSION_TTL
  * the null is here so a forgotten guard becomes a named 503 rather than a 500
  * thrown from inside jsonwebtoken.
  */
-const signRestaurantAdminToken = (restaurant, { expiresIn } = {}) => {
+const signRestaurantAdminToken = (restaurant, { expiresIn, claims } = {}) => {
   if (!config.auth.configured) return null;
   return jwt.sign(
-    { sub: restaurant.restaurantId, typ: TOKEN_TYPE, name: restaurant.restaurantName },
+    { ...(claims || {}), sub: restaurant.restaurantId, typ: TOKEN_TYPE, name: restaurant.restaurantName },
     config.auth.jwtSecret,
     { expiresIn: expiresIn || SESSION_TTL },
   );
@@ -181,6 +182,8 @@ async function requireRestaurantAdmin(req, res, next) {
        which door this request came through. */
     req.restaurantAdmin = restaurant;
     req.foodPartner = restaurant;
+    /* A Lampose staff session: marked on the request and its writes logged. */
+    trackStaffRequest(req, res, decoded, restaurant, 'console');
     return next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {

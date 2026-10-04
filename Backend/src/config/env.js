@@ -425,6 +425,27 @@ const config = {
     whatsapp: String(process.env.DELIVERY_PARTNER_WHATSAPP || '+916302321942').trim(),
   },
 
+  /* TESTING ONLY. Lets one owner phone onboard several restaurants, so a tester
+     can run the application flow again on their own number. Phone login then
+     signs into whichever restaurant it finds first. Never true in production —
+     refused like the DEV_ALLOW_* flags. The unique index on `ownerPhone` must
+     also be relaxed: `npm run fix:owner-phone-index -- --apply`. */
+  food: {
+    allowDuplicateOwnerPhone: !isProduction
+      && bool(process.env.FOOD_ALLOW_DUPLICATE_OWNER_PHONE, false),
+
+    /* Lampose staff password: the owner's phone/email plus this password
+       opens that restaurant in the Food-Partner app or the web console, as a
+       STAFF session — logged, 12-hour, and barred from bank details, the
+       owner's password and account deletion (see `staffAccess.js`). Set
+       either FOOD_STAFF_PASSWORD (plain text) or FOOD_STAFF_PASSWORD_HASH (a
+       bcrypt hash from `npm run staff-password:hash`); the plain one wins if
+       both are set. Neither means the feature is off. Allowed in production. */
+    staffPassword: String(process.env.FOOD_STAFF_PASSWORD || ''),
+    staffPasswordHash: String(process.env.FOOD_STAFF_PASSWORD_HASH || '').trim(),
+    staffSessionTtl: String(process.env.FOOD_STAFF_SESSION_TTL || '12h').trim(),
+  },
+
   /* Inbound webhooks that must prove who sent them — see
      shared/middleware/twilioSignature.js. */
   webhooks: {

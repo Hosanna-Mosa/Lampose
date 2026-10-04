@@ -39,6 +39,7 @@ const SEARCH_PLACEHOLDERS: Record<string, string> = {
   products: 'Filter by name or description',
   'food-orders': "Find an order by number, diner's phone or Razorpay id",
   'food-payouts': 'Find by restaurant, payout id, account or reference',
+  'food-staff-access': 'Find by restaurant name, id or the number signed in with',
   /* The restaurant console's own two searchable lists. */
   'restaurant-orders': "Find an order by number, diner's name or phone",
   'restaurant-menu': 'Filter dishes by name, section or tag',

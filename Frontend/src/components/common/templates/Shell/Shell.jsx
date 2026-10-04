@@ -8,6 +8,7 @@ import { Navbar } from '../../organisms/Navbar/Navbar';
 import { SignInDialog } from '../../organisms/SignInDialog';
 import { useAuth } from '../../../../auth/AuthProvider';
 import { Footer } from '../../organisms/Footer/Footer';
+import { FoodDock } from '../../organisms/FoodDock';
 import { isLightTop, LEGACY, isChromeless } from '../../utils/chromeRules';
 import { Home } from '../../../../pages/Home';
 import { Explore } from '../../../../pages/Explore';
@@ -125,6 +126,10 @@ export function Shell() {
       </Main>
 
       {!isChromeless(pathname) && <Footer />}
+
+      {/* Order Food under the thumb on phones — the bar's link to it is folded
+          into the hamburger sheet at that width. */}
+      {!isChromeless(pathname) && <FoodDock />}
     </>
   );
 }

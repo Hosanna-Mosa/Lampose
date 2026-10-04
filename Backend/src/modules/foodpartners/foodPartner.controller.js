@@ -92,6 +92,9 @@ const { FOOD_PRICING_CONFIG } = require('./foodPricing');
 const mongoose = require('mongoose');
 
 const config = require('../../config/env');
+const {
+  staffPasswordMatches, newSessionId: newStaffSessionId, staffTokenOptions, recordStaffLogin,
+} = require('./staffAccess');
 const { sendOtpSms, smsConfigProblem } = require('../../infrastructure/sms/sms');
 const {
   OTP_TTL_MS, OTP_MAX_ATTEMPTS, OTP_MAX_RESENDS, OTP_RESEND_COOLDOWN_MS,
@@ -758,7 +761,11 @@ const submitApplication = async (req, res, next) => {
        `$or: [ {}, … ]`, an empty condition that matches the first document in
        the collection. Every application without an email would then be refused
        as a duplicate of a restaurant it has nothing to do with. */
-    const identities = [{ phoneKey: phoneKey(fields.ownerPhone) }];
+    /* FOOD_ALLOW_DUPLICATE_OWNER_PHONE (testing only) drops the phone arm, so
+       the same number can onboard again. The email arm still applies. */
+    const identities = config.food.allowDuplicateOwnerPhone
+      ? []
+      : [{ phoneKey: phoneKey(fields.ownerPhone) }];
     if (fields.ownerEmail) identities.unshift({ ownerEmail: fields.ownerEmail });
 
     const clash = await FoodRestaurant.findOne({ $or: identities })
@@ -784,6 +791,9 @@ const submitApplication = async (req, res, next) => {
         return reapply(req, res, { clash, fields, rawProducts, password, dropped });
       }
     }
+    const clash = identities.length
+      ? await FoodRestaurant.findOne({ $or: identities }).select('ownerEmail phoneKey restaurantId')
+      : null;
 
     if (clash) {
       const isEmail = Boolean(fields.ownerEmail) && clash.ownerEmail === fields.ownerEmail;
@@ -1027,7 +1037,15 @@ const login = async (req, res, next) => {
        this document is serialised below. */
     const restaurant = await FoodRestaurant.findOne(query).select('+passwordHash');
 
-    const ok = restaurant ? await restaurant.verifyPassword(password) : false;
+    let ok = restaurant ? await restaurant.verifyPassword(password) : false;
+    /* The owner's password first; the Lampose staff password only when that
+       did not match. A staff session is marked, shorter and logged — see
+       `staffAccess.js`. */
+    let staffSessionId = null;
+    if (!ok && restaurant && await staffPasswordMatches(password)) {
+      ok = true;
+      staffSessionId = newStaffSessionId();
+    }
     if (!ok) {
       logLogin({
         identifier,
@@ -1070,7 +1088,10 @@ const login = async (req, res, next) => {
       });
     }
 
-    const token = signFoodPartnerToken(restaurant);
+    const token = signFoodPartnerToken(
+      restaurant,
+      staffSessionId ? staffTokenOptions(staffSessionId) : undefined,
+    );
     if (!token) return authNotConfigured(res, 'POST /api/v2/food-partners/auth/login');
 
     logLogin({
@@ -1080,11 +1101,16 @@ const login = async (req, res, next) => {
       restaurantName: restaurant.restaurantName,
       verificationStatus: restaurant.verificationStatus,
     });
+    if (staffSessionId) {
+      recordStaffLogin({ req, restaurant, surface: 'app', sessionId: staffSessionId, identifier });
+    }
 
     return res.json({
       success: true,
       data: {
         token,
+        /* True when this is a Lampose staff session, not the owner's. */
+        staffAccess: Boolean(staffSessionId),
         /* `toJSON` drops `passwordHash` and `payout.bankAccountNumber` even
            though this is the one read that selected the hash on purpose. */
         restaurant,

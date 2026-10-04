@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  IndianRupee, Plus, Trash2, UtensilsCrossed,
+  Check, ChevronDown, ChevronUp, Download, FileSpreadsheet, ImagePlus, Images, IndianRupee,
+  Pencil, Plus, RefreshCw, Trash2, UtensilsCrossed,
 } from 'lucide-react';
 import {
-  Box, Inline, Input, PlainButton, Text,
+  Box, Image, Inline, Input, PlainButton, Text,
 } from '../../../common/atoms';
 import { Field, FieldError, Note, SectionHead } from '../../molecules/Field/Field';
 import { FileDrop } from '../../molecules/FileDrop/FileDrop';
@@ -11,6 +12,7 @@ import {
   COPY, IS_VEG_OPTIONS, MENU_CATEGORY_OPTIONS, createMenuItem, isMenuItemStarted,
 } from '../../utils/restaurantOptions';
 import { menuKey } from '../../utils/validateRestaurant';
+import { downloadMenuTemplate, matchPhotos, parseMenuSheet } from '../../utils/menuSheet';
 
 /*
  * The menu, on step 2 — and it is OPTIONAL.
@@ -50,6 +52,68 @@ import { menuKey } from '../../utils/validateRestaurant';
  * in the frame, and this picture is the one on the menu card.
  */
 
+const VEG_LABEL = { veg: 'Veg', egg: 'Egg', 'non-veg': 'Non-veg' };
+
+/*
+ * A sheet dish on one line: photo (or a button to add one), name, category,
+ * food type and price, then edit and remove. Sixty of these fit where six
+ * full cards would. Editing opens the full card for that dish alone.
+ */
+function DishRow({ item, index, onPhoto, onEdit, onRemove }) {
+  const [thumbnail, setThumbnail] = useState(null);
+
+  /* Revoked on change and unmount, as in FileDrop. */
+  useEffect(() => {
+    if (!item.photoFile) { setThumbnail(null); return undefined; }
+    const url = URL.createObjectURL(item.photoFile);
+    setThumbnail(url);
+    return () => URL.revokeObjectURL(url);
+  }, [item.photoFile]);
+
+  const offer = String(item.discountedPrice ?? '').trim();
+  const photoId = `${item.uid}-rowphoto`;
+
+  return (
+    <Box className="rst-dish-row" id={`rst-menu-${index}`} tabIndex={-1}>
+      <label
+        className={`rst-dish-row-photo${thumbnail ? ' has-photo' : ''}`}
+        htmlFor={photoId}
+        title={thumbnail ? 'Change photo' : `Add photo${item.photoName ? ` (${item.photoName})` : ''}`}
+      >
+        {thumbnail ? <Image src={thumbnail} alt={item.name} /> : <ImagePlus size={16} />}
+        <Input
+          id={photoId}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={(event) => {
+            if (event.target.files?.[0]) onPhoto(event.target.files[0]);
+            event.target.value = '';
+          }}
+        />
+      </label>
+
+      <Inline className={`rst-veg-mark is-${item.isVeg}`} title={VEG_LABEL[item.isVeg]} />
+      <Inline className="rst-dish-row-name" title={item.name}>{item.name}</Inline>
+      <Inline className="rst-dish-row-cat">{item.category}</Inline>
+      <Inline className="rst-dish-row-price">
+        {offer ? (
+          <>
+            <s>₹{item.price}</s> ₹{offer}
+          </>
+        ) : `₹${item.price}`}
+      </Inline>
+
+      <PlainButton type="button" className="rst-slot-kill" onClick={onEdit} aria-label={`Edit ${item.name}`}>
+        <Pencil size={15} />
+      </PlainButton>
+      <PlainButton type="button" className="rst-slot-kill" onClick={onRemove} aria-label={`Remove ${item.name}`}>
+        <Trash2 size={15} />
+      </PlainButton>
+    </Box>
+  );
+}
+
 export function MenuSection({ form, set, errors = {}, touch = () => {} }) {
   const items = form.menuItems || [];
 
@@ -62,6 +126,97 @@ export function MenuSection({ form, set, errors = {}, touch = () => {} }) {
   const addItem = () => set({ menuItems: [...items, createMenuItem()] });
 
   const removeItem = (uid) => set({ menuItems: items.filter((item) => item.uid !== uid) });
+
+  /* The outcome of the last sheet or photo upload, shown under the buttons. */
+  const [bulkNote, setBulkNote] = useState(null);
+  const [busy, setBusy] = useState(false);
+  /* Sheet dishes are collapsed into one summary card unless this is on. */
+  const [showSheetDishes, setShowSheetDishes] = useState(false);
+  /* The one sheet dish opened from its line into the full card. */
+  const [editingUid, setEditingUid] = useState(null);
+
+  const sheetItems = items.filter((item) => item.fromSheet);
+  const sheetPhotos = sheetItems.filter((item) => item.photoFile).length;
+  const hasError = (index) => Object.keys(errors).some((key) => key.startsWith(`menu:${index}:`));
+  /* A sheet dish with a problem is always shown as a card, so it can be fixed. */
+  const sheetFixes = items.filter((item, index) => item.fromSheet && hasError(index)).length;
+
+  const importSheet = async (file) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const { items: imported, skipped } = await parseMenuSheet(file);
+      if (!imported.length) {
+        setBulkNote({ tone: 'warn', text: 'No dishes found in that sheet.' });
+        return;
+      }
+      /* A new sheet REPLACES the previous sheet's dishes and goes after the
+         dishes typed by hand; untouched blank rows go. A photo already on a
+         dish of the same name is carried over, so re-uploading a corrected
+         sheet does not mean picking every photo again. */
+      const oldPhotos = new Map(
+        sheetItems.filter((item) => item.photoFile)
+          .map((item) => [item.name.trim().toLowerCase(), item.photoFile]),
+      );
+      const carried = imported.map((item) => {
+        const photo = oldPhotos.get(item.name.trim().toLowerCase());
+        return photo ? { ...item, photoFile: photo } : item;
+      });
+      set({
+        menuItems: [...items.filter((item) => !item.fromSheet && isMenuItemStarted(item)), ...carried],
+        menuSheet: { name: file.name },
+      });
+      setShowSheetDishes(false);
+      const withPhotoNames = imported.filter((item) => item.photoName).length;
+      setBulkNote({
+        tone: 'ok',
+        text: `Added ${imported.length} dish${imported.length === 1 ? '' : 'es'} from ${file.name}`
+          + `${skipped ? ` (${skipped} blank row${skipped === 1 ? '' : 's'} skipped)` : ''}.`
+          + `${withPhotoNames ? ` Now upload the ${withPhotoNames} photo${withPhotoNames === 1 ? '' : 's'} named in the sheet.` : ''}`,
+      });
+    } catch (error) {
+      setBulkNote({ tone: 'bad', text: error.message || 'Could not read that file.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeSheet = () => {
+    const count = sheetItems.length;
+    const label = form.menuSheet?.name || 'the sheet';
+    if (count && !window.confirm(`Remove ${label} and its ${count} dish${count === 1 ? '' : 'es'}?`)) return;
+    set({ menuItems: items.filter((item) => !item.fromSheet), menuSheet: null });
+    setShowSheetDishes(false);
+    setBulkNote(null);
+  };
+
+  const sheetInput = (id) => (
+    <Input
+      id={id}
+      type="file"
+      accept=".xlsx,.xls,.csv"
+      style={{ display: 'none' }}
+      disabled={busy}
+      onChange={(event) => {
+        importSheet(event.target.files?.[0]);
+        event.target.value = '';
+      }}
+    />
+  );
+
+  const attachPhotos = (fileList) => {
+    const files = Array.from(fileList || []).filter((file) => String(file.type).startsWith('image/'));
+    if (!files.length) return;
+    const { items: next, matched, unmatched } = matchPhotos(items, files);
+    set({ menuItems: next });
+    setBulkNote({
+      tone: unmatched.length ? 'warn' : 'ok',
+      text: `Matched ${matched} photo${matched === 1 ? '' : 's'} to dishes.`
+        + (unmatched.length
+          ? ` No dish for: ${unmatched.join(', ')}. Name each photo after its dish, or add it from the dish's line.`
+          : ''),
+    });
+  };
 
   const startedItems = items.filter(isMenuItemStarted);
   const started = startedItems.length;
@@ -80,6 +235,90 @@ export function MenuSection({ form, set, errors = {}, touch = () => {} }) {
       <Box className="rst-card">
         <Field label="Dishes" optional hint={COPY.menuHelp} />
 
+        {/* Bulk entry: fill the template, upload it, then upload the photos it
+            names in one pick. See `utils/menuSheet.js` for the matching rules. */}
+        <Box className="rst-menu-bulk">
+          <PlainButton
+            type="button"
+            className="rst-btn-link"
+            onClick={() => downloadMenuTemplate().catch(() => (
+              setBulkNote({ tone: 'bad', text: 'Could not create the template.' })
+            ))}
+          >
+            <Download size={15} />
+            Download Excel template
+          </PlainButton>
+
+          {!form.menuSheet && (
+            <label className={`rst-btn-link${busy ? ' is-busy' : ''}`} htmlFor="rst-menu-sheet">
+              <FileSpreadsheet size={15} />
+              {busy ? 'Reading sheet…' : 'Upload menu Excel'}
+              {sheetInput('rst-menu-sheet')}
+            </label>
+          )}
+
+          {items.length > 0 && (
+            <label className="rst-btn-link" htmlFor="rst-menu-photos">
+              <Images size={15} />
+              Upload dish photos
+              <Input
+                id="rst-menu-photos"
+                type="file"
+                accept="image/*"
+                multiple
+                style={{ display: 'none' }}
+                onChange={(event) => {
+                  attachPhotos(event.target.files);
+                  event.target.value = '';
+                }}
+              />
+            </label>
+          )}
+        </Box>
+
+        {form.menuSheet && (
+          <Box className="rst-sheet-card">
+            <Box className="rst-sheet-head">
+              <FileSpreadsheet size={20} color="#45855a" />
+              <Box className="rst-sheet-meta">
+                <Text className="rst-sheet-name">{form.menuSheet.name}</Text>
+                <Text className="rst-hint">
+                  {sheetItems.length} dish{sheetItems.length === 1 ? '' : 'es'}
+                  {' · '}{sheetPhotos} with a photo
+                  {sheetFixes > 0 && ` · ${sheetFixes} need fixing (shown below)`}
+                </Text>
+              </Box>
+            </Box>
+
+            <Box className="rst-sheet-actions">
+              {sheetItems.length > 0 && (
+                <PlainButton
+                  type="button"
+                  className="rst-btn-link"
+                  onClick={() => setShowSheetDishes((on) => !on)}
+                  aria-expanded={showSheetDishes}
+                >
+                  {showSheetDishes ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                  {showSheetDishes ? 'Hide dishes' : 'View dishes'}
+                </PlainButton>
+              )}
+
+              <label className={`rst-btn-link${busy ? ' is-busy' : ''}`} htmlFor="rst-menu-resheet">
+                <RefreshCw size={15} />
+                {busy ? 'Reading sheet…' : 'Re-upload'}
+                {sheetInput('rst-menu-resheet')}
+              </label>
+
+              <PlainButton type="button" className="rst-btn-link rst-btn-danger" onClick={removeSheet}>
+                <Trash2 size={15} />
+                Remove
+              </PlainButton>
+            </Box>
+          </Box>
+        )}
+
+        {bulkNote && <Note tone={bulkNote.tone}>{bulkNote.text}</Note>}
+
         {items.length === 0 && (
           <Note tone="info" icon={<UtensilsCrossed size={15} />}>
             No dishes added. You can leave this empty — the owner adds the full menu, with
@@ -87,10 +326,37 @@ export function MenuSection({ form, set, errors = {}, touch = () => {} }) {
           </Note>
         )}
 
-        {items.map((item, index) => (
+        {items.map((item, index) => {
+          /* Sheet dishes are one line each; the full card is for a dish typed
+             by hand, a sheet dish being edited, and one with a problem. */
+          const fullCard = !item.fromSheet || hasError(index) || editingUid === item.uid;
+          if (!fullCard) {
+            return showSheetDishes ? (
+              <DishRow
+                key={item.uid}
+                item={item}
+                index={index}
+                onPhoto={(picked) => update(item.uid, { photoFile: picked })}
+                onEdit={() => setEditingUid(item.uid)}
+                onRemove={() => removeItem(item.uid)}
+              />
+            ) : null;
+          }
+          return (
           <Box key={item.uid} className="rst-dish" id={`rst-menu-${index}`} tabIndex={-1}>
             <Box className="rst-dish-head">
               <Text className="rst-dish-num">Dish {index + 1}</Text>
+              {item.fromSheet && editingUid === item.uid && !hasError(index) && (
+                <PlainButton
+                  type="button"
+                  className="rst-btn-link"
+                  style={{ marginLeft: 'auto', minHeight: 0, padding: '0 4px' }}
+                  onClick={() => setEditingUid(null)}
+                >
+                  <Check size={15} />
+                  Done
+                </PlainButton>
+              )}
               <PlainButton
                 type="button"
                 className="rst-slot-kill"
@@ -218,7 +484,12 @@ export function MenuSection({ form, set, errors = {}, touch = () => {} }) {
               />
             </Field>
 
-            <Field label="Dish Photo" optional error={errors[menuKey(index, 'photo')]}>
+            <Field
+              label="Dish Photo"
+              optional
+              hint={item.photoName && !item.photoFile ? `From sheet: ${item.photoName}` : undefined}
+              error={errors[menuKey(index, 'photo')]}
+            >
               <FileDrop
                 id={`${item.uid}-photo`}
                 file={item.photoFile}
@@ -231,7 +502,8 @@ export function MenuSection({ form, set, errors = {}, touch = () => {} }) {
               />
             </Field>
           </Box>
-        ))}
+          );
+        })}
 
         {/* One list for every category input on the step. */}
         <datalist id="rst-menu-categories">

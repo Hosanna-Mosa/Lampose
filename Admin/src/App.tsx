@@ -28,6 +28,7 @@ import { ProductsPage } from './pages/ProductsPage';
 import { FoodRestaurantsPage } from './pages/FoodRestaurantsPage';
 import { FoodOrdersPage } from './pages/FoodOrdersPage';
 import { FoodPayoutsPage } from './pages/FoodPayoutsPage';
+import { StaffAccessPage } from './pages/StaffAccessPage';
 import { DriversPage } from './pages/DriversPage';
 import { MonitorPage } from './pages/MonitorPage';
 import { VisitFeesPage } from './pages/VisitFeesPage';
@@ -79,6 +80,7 @@ const VALID_TABS = [
   'refunds',
   'visit-fees',
   'sales-tracking',
+  'food-staff-access',
 ] as const;
 
 type Tab = (typeof VALID_TABS)[number];
@@ -530,6 +532,12 @@ const AppContent: React.FC = () => {
       case 'food-payouts':
         return tabAllowedFor('food-payouts', user?.role) ? (
           <FoodPayoutsPage search={search} role={user?.role} />
+        ) : (
+          <Dashboard setActiveTab={setActiveTab as (t: string) => void} />
+        );
+      case 'food-staff-access':
+        return tabAllowedFor('food-staff-access', user?.role) ? (
+          <StaffAccessPage search={search} />
         ) : (
           <Dashboard setActiveTab={setActiveTab as (t: string) => void} />
         );
