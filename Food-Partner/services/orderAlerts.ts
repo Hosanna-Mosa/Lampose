@@ -26,9 +26,11 @@
    handler below opts foreground notifications back into sound, and the
    Orders screen additionally plays a tone of its own.
    ══════════════════════════════════════════════════════════════════════════ */
+import Constants from "expo-constants";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
+import { ringForPushedOrder } from "./orderPump";
 
 /** Must equal ORDER_CHANNEL in the backend's foodOrder.notifier.js. */
 export const ORDER_CHANNEL = "food-orders";
@@ -40,12 +42,18 @@ export const ORDER_CHANNEL = "food-orders";
  * can arrive before any screen has mounted.
  */
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
+  handleNotification: async (notification) => {
+    const data = (notification.request.content.data ?? {}) as { kind?: string; orderNumber?: string };
+    /* A new order while the app is open: the order pump rings its own alert,
+       once per order, so the push shows its banner without a second sound. */
+    const pumpRang = data.kind === "food_order" && ringForPushedOrder(data.orderNumber);
+    return {
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: !pumpRang,
+      shouldSetBadge: true,
+    };
+  },
 });
 
 /**
@@ -67,6 +75,15 @@ export async function ensureOrderChannel(): Promise<void> {
       lightColor: "#22A355",
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       bypassDnd: false,
+    });
+
+    /* Support replies and status changes — the backend sends them on
+       `support` (support.notifier.js), and no app used to create it. */
+    await Notifications.setNotificationChannelAsync("support", {
+      name: "Support",
+      description: "Replies from Lampose support.",
+      importance: Notifications.AndroidImportance.HIGH,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
     });
   } catch {
     /* A channel that cannot be created leaves the alert quieter, not broken.
@@ -100,7 +117,20 @@ export async function getPushToken(): Promise<PushRegistration> {
     }
     if (status !== "granted") return null;
 
-    const response = await Notifications.getExpoPushTokenAsync();
+    /* The EAS project id, as the User App passes it. Without one,
+       `getExpoPushTokenAsync` fails on a standalone build — caught below and
+       returned as null — so a kitchen silently got no background alerts at
+       all. Read from `extra.eas.projectId` (set from EAS_PROJECT_ID in
+       app.config.js) or the id EAS injects into a linked build. */
+    const projectId =
+      (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId
+      || (Constants as unknown as { easConfig?: { projectId?: string } }).easConfig?.projectId;
+    if (!projectId) {
+      console.warn("[push] No EAS project id — set EAS_PROJECT_ID (run `eas init`). Order alerts will not arrive in the background.");
+      return null;
+    }
+
+    const response = await Notifications.getExpoPushTokenAsync({ projectId });
     if (!response?.data) return null;
 
     return { token: response.data, platform: Platform.OS };

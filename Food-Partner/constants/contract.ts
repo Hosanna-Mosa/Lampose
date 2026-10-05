@@ -25,14 +25,15 @@ export const CONTRACT_CLAUSES: { n: number; heading: string; body: string }[] = 
   {
     n: 2,
     heading: "Commission",
-    body: "The Partner agrees to pay commission on each order at the agreed rate. Rates may be revised with 30 days' notice.",
+    body: "The Platform currently charges no commission (0%) on food orders. Any commission introduced later will be notified to the Partner at least 30 days in advance.",
   },
   {
     n: 3,
     heading: "Payment terms",
     body:
-      "Amounts due to the Partner are settled weekly, net of commission, fees and applicable taxes, to the account " +
-      "given in this application. The Partner is responsible for the accuracy of those bank details.",
+      "Amounts due to the Partner are paid on request from the app, once at least ₹100 is due, net of commission, " +
+      "fees and applicable taxes, to the account given in this application. The Partner is responsible for the " +
+      "accuracy of those bank details.",
   },
   {
     n: 4,

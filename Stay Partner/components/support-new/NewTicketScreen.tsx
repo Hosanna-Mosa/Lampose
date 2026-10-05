@@ -14,6 +14,7 @@ import {
 import { useSupportActions, useSupportCategories } from '@/services/hooks/useSupport';
 import { ApiError } from '@/services/api/client';
 import { backRowBase } from '@/components/common/utils/styles';
+import { categoryLabel } from '@/components/support-index/utils';
 
 /**
  * A ticket about the owner's OWN side of the product — payouts, a listing, a
@@ -69,7 +70,7 @@ export function NewTicketScreen() {
         {(categories?.categories ?? []).map((cat) => (
           <Chip
             key={cat}
-            label={cat}
+            label={categoryLabel(cat)}
             selected={category === cat}
             onPress={() => setCategory(category === cat ? null : cat)}
           />

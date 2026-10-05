@@ -1,4 +1,4 @@
-import { useRouter, Redirect } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 
@@ -19,10 +19,16 @@ import { usePreviewControls } from '@/hooks/useAppEnv';
  * running, and we have extended it by the length of the outage", and that
  * extension has to be real. The current copy promises a pause.
  */
-function MaintenanceScreen() {
+export default function MaintenanceScreen() {
   const previewControls = usePreviewControls();
   const { mode } = useTheme();
   const router = useRouter();
+
+  /* A design mock, not a live screen: nothing ever routes here, its booking
+     reference and return time are invented, and both buttons do nothing. A
+     deep link outside a preview build goes home rather than telling a real
+     student their payment deadline is paused. */
+  if (!previewControls) return <Redirect href="/" />;
 
   return (
     <>
@@ -39,16 +45,4 @@ function MaintenanceScreen() {
       />
     </>
   );
-}
-
-/**
- * A design prototype, not a product screen: it runs on fixtures and several of
- * its buttons do nothing. Nothing in the live app links here, but expo-router
- * still registers the route, so a typed or stale `lampose://` link would open
- * it. Outside preview builds it redirects home, like `/preview` does.
- */
-export default function MaintenanceScreenRoute() {
-  const previewControls = usePreviewControls();
-  if (!previewControls) return <Redirect href="/home" />;
-  return <MaintenanceScreen />;
 }

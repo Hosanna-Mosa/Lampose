@@ -211,6 +211,11 @@ const partnerSchema = new mongoose.Schema(
        holding this number proved it" — and, because ownership is derived from
        the number, it is also what makes reading their properties safe. */
     phoneVerifiedAt: { type: Date, default: null },
+    /* Set when `startAuth` creates the row for a code, cleared the moment the
+       code is verified. The TTL index below deletes a row still carrying it
+       after a day — a number that asked for a code and never used it. Rows
+       made any other way never have it, so nothing real can expire. */
+    pendingSince: { type: Date, default: null },
     lastLoginAt: { type: Date, default: null },
 
     /* When the name was first supplied. The app routes to profile setup while
@@ -361,6 +366,25 @@ partnerSchema.methods.verifyPassword = function verifyPassword(plain) {
   if (!this.passwordHash || !plain) return Promise.resolve(false);
   return bcrypt.compare(String(plain), this.passwordHash);
 };
+
+/*
+ * One owner per email.
+ *
+ * Email is a login identity (`loginWithPassword` looks the owner up by it),
+ * and without this owner A could set their email to owner B's, after which
+ * the lookup could return A's row — no password — and lock B out. Partial
+ * rather than sparse, because an owner with no email holds `''`, which a
+ * sparse index would still count as a value.
+ */
+/* Abandoned sign-ups. `startAuth` must create the row to hold the code, and
+   used to leave one behind for every number that never finished — a typo,
+   a stranger's number, a bot. TTL ignores null, so only those go. */
+partnerSchema.index({ pendingSince: 1 }, { expireAfterSeconds: 24 * 60 * 60 });
+
+partnerSchema.index(
+  { email: 1 },
+  { unique: true, partialFilterExpression: { email: { $type: 'string', $gt: '' } } },
+);
 
 const Partner = mongoose.models.AppPartner || mongoose.model('AppPartner', partnerSchema);
 

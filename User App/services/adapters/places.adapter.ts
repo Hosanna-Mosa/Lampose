@@ -44,6 +44,19 @@ function aliasesFor(name: string): string[] {
   return [...aliases];
 }
 
+type MedianRow = { medianRent: number | null; medianRentByCategory?: Record<string, number | null> };
+
+function medianFor(row: MedianRow, category?: StayCategory | null): number | null {
+  const byKind = row.medianRentByCategory;
+  if (!category || !byKind) return row.medianRent;
+  const kinds = BACKEND_CATEGORIES[category]?.length ? BACKEND_CATEGORIES[category]! : [category];
+  for (const kind of kinds) {
+    const value = byKind[kind];
+    if (typeof value === 'number') return value;
+  }
+  return null;
+}
+
 export function toLocalities(meta: BackendListingMeta, category?: StayCategory | null): Locality[] {
   return (meta.localities ?? []).map((row) => {
     let count = row.listingCount;
@@ -60,7 +73,10 @@ export function toLocalities(meta: BackendListingMeta, category?: StayCategory |
       name: row.name,
       city: row.city,
       listingCount: count,
-      medianRent: row.medianRent,
+      /* The median for the category being browsed, where the server sends
+         one — the all-kinds figure mixed a PG's rent with a bachelor flat's.
+         An older server without it keeps the overall median. */
+      medianRent: medianFor(row, category),
       /* `nearestLandmark` is deliberately absent. The panel records a postal
          address, not "opposite the water tank", and a landmark is exactly the
          kind of field that must come from somebody who has stood there. */

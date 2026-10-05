@@ -138,7 +138,18 @@ const PHONE_TOKEN_TTL = '30m';
 const signFoodPartnerToken = (restaurant, { expiresIn, claims } = {}) => {
   if (!config.auth.configured) return null;
   return jwt.sign(
-    { ...(claims || {}), sub: restaurant.restaurantId, typ: TOKEN_TYPE, phone: restaurant.ownerPhone },
+    /* ONE payload. A merge once left both branches' objects here, so the
+       second was read as the secret and the options as a callback, and every
+       restaurant sign-in threw. `ver` is checked against `sessionVersion` by
+       `requireFoodPartner`; the staff claims ride alongside and cannot
+       override the identity fields after them. */
+    {
+      ...(claims || {}),
+      sub: restaurant.restaurantId,
+      typ: TOKEN_TYPE,
+      phone: restaurant.ownerPhone,
+      ver: restaurant.sessionVersion || 0,
+    },
     config.auth.jwtSecret,
     /* Caller-chosen life, defaulting to the app's. A partner dashboard opened
        in a browser should pass `config.auth.webJwtExpiresIn`, for the reason
@@ -214,7 +225,14 @@ const notConfigured = (res) => {
  * session route has any reason to ask for them back. The one route that does
  * — login — is not this one.
  */
-async function requireFoodPartner(req, res, next) {
+/*
+ * `requireFoodPartnerForDeletion` is this guard minus the rejected-account
+ * refusal. A restaurant whose application was turned down still created an
+ * account in this app, and the store rules say it must be able to delete it
+ * from the app — but every route behind a session refused it ACCOUNT_REJECTED,
+ * the deletion routes included.
+ */
+const makeFoodPartnerGuard = ({ allowRejected = false } = {}) => async function guardFoodPartner(req, res, next) {
   try {
     if (!config.auth.configured) return notConfigured(res);
 
@@ -256,7 +274,12 @@ async function requireFoodPartner(req, res, next) {
      * `verificationStatus` already says so; testing the flag separately would
      * lock out every kitchen on its quiet fortnight.
      */
-    if (restaurant.verificationStatus === 'rejected') {
+    /* Ended on purpose — a reset, a sign-out everywhere, an erasure. */
+    if ((decoded.ver || 0) !== (restaurant.sessionVersion || 0)) {
+      return deny(res, 'This session was signed out. Please sign in again.', 'SESSION_REVOKED');
+    }
+
+    if (restaurant.verificationStatus === 'rejected' && !allowRejected) {
       const message = restaurant.verificationNote
         ? `This application was not approved: ${restaurant.verificationNote}`
         : 'This application was not approved. Please contact Lampose.';
@@ -288,7 +311,10 @@ async function requireFoodPartner(req, res, next) {
        that would sign a partner out over a server problem. */
     return next(error);
   }
-}
+};
+
+const requireFoodPartner = makeFoodPartnerGuard();
+const requireFoodPartnerForDeletion = makeFoodPartnerGuard({ allowRejected: true });
 
 /**
  * Reads a phone proof that did NOT arrive in the Authorization header.
@@ -438,6 +464,7 @@ module.exports = {
 
   signFoodPartnerToken,
   requireFoodPartner,
+  requireFoodPartnerForDeletion,
 
   signPhoneVerificationToken,
   verifyPhoneToken,

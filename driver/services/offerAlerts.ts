@@ -4,11 +4,12 @@
    A rider's phone is in a pocket, on a scooter, screen off. The socket
    delivers an offer to a screen that is open; this is what delivers it to a
    phone that is not — and for a rider, "not open" is the ordinary case. An
-   offer nobody sees for fifteen seconds is a job that went to somebody else.
+   offer is broadcast to every rider in range, so one nobody sees quickly is a
+   job that went to somebody else.
 
    ## Two channels, and they are deliberately not one
 
-   An offer expires in fifteen seconds and has to be able to ring through Do
+   An offer is a race against other riders and has to be able to ring through Do
    Not Disturb. "Your payout landed" can wait. One channel for both means the
    rider either silences the payouts or misses the work — and on Android the
    CHANNEL, not the payload, is what decides whether a notification makes a
@@ -64,7 +65,7 @@ export async function ensureChannels(): Promise<void> {
   try {
     await Notifications.setNotificationChannelAsync(OFFER_CHANNEL, {
       name: "Delivery offers",
-      description: "Rings when a delivery is offered to you. Expires in 15 seconds.",
+      description: "Rings when a delivery is offered to you.",
       importance: Notifications.AndroidImportance.MAX,
       sound: "default",
       vibrationPattern: [0, 500, 200, 500],
@@ -77,6 +78,15 @@ export async function ensureChannels(): Promise<void> {
       name: "Delivery updates",
       description: "Quieter updates about a delivery you are already carrying.",
       importance: Notifications.AndroidImportance.DEFAULT,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
+    });
+
+    /* Support replies and status changes — the backend sends them on
+       `support` (support.notifier.js), and no app used to create it. */
+    await Notifications.setNotificationChannelAsync("support", {
+      name: "Support",
+      description: "Replies from Lampose support.",
+      importance: Notifications.AndroidImportance.HIGH,
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
     });
   } catch {

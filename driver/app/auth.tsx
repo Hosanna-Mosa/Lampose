@@ -13,7 +13,7 @@ import {
   Text,
   TextInput,
   useWindowDimensions,
-  View,
+  View, Linking
 } from "react-native";
 import Animated, {
   interpolate,
@@ -235,7 +235,19 @@ export default function AuthScreen() {
 
   const handleOtpDigitChange = (text: string, index: number) => {
     setError("");
-    const char = text.replace(/\D/g, "").slice(-1);
+    const digits = text.replace(/\D/g, "");
+    /* A whole code arriving at once — pasted, or filled in from the SMS by
+       the keyboard. Each box used to keep only its last digit, so a pasted
+       "548005" became a lone "5". Three or more digits is a paste; two is
+       a typed digit landing beside the one already in the box. */
+    if (digits.length > 2) {
+      const filled = (code.slice(0, index) + digits).slice(0, OTP_LENGTH);
+      setCode(filled);
+      otpBoxRefs.current[Math.min(filled.length, OTP_LENGTH) - 1]?.focus();
+      if (filled.length === OTP_LENGTH) Keyboard.dismiss();
+      return;
+    }
+    const char = digits.slice(-1);
     const newCodeArr = code.split("");
 
     if (char) {
@@ -430,7 +442,7 @@ export default function AuthScreen() {
                 <Text style={styles.headline}>With Lampose</Text>
 
                 <Text style={styles.subtitle}>
-                  Flexible shifts. Instant weekly payouts.
+                  Flexible shifts. Paid into your own account.
                 </Text>
                 <Text style={[styles.subtitle, styles.subtitleTight]}>
                   Simple. Fast. Trusted.
@@ -594,8 +606,8 @@ export default function AuthScreen() {
                   {/* Terms & Conditions */}
                   <Text style={styles.termsText}>
                     By continuing, you agree to our{"\n"}
-                    <Text style={styles.termsLink}>Terms & Conditions</Text> and{" "}
-                    <Text style={styles.termsLink}>Privacy Policy</Text>
+                    <Text style={styles.termsLink} accessibilityRole="link" onPress={() => Linking.openURL("https://lampose.com/terms").catch(() => {})}>Terms & Conditions</Text> and{" "}
+                    <Text style={styles.termsLink} accessibilityRole="link" onPress={() => Linking.openURL("https://lampose.com/privacy").catch(() => {})}>Privacy Policy</Text>
                   </Text>
                 </View>
               </Animated.View>
@@ -632,7 +644,11 @@ export default function AuthScreen() {
                         onChangeText={(t) => handleOtpDigitChange(t, i)}
                         onKeyPress={(e) => handleOtpKeyPress(e, i)}
                         keyboardType="number-pad"
-                        maxLength={1}
+                        /* Room for a whole code, so paste and SMS autofill
+                           arrive intact — `handleOtpDigitChange` spreads it. */
+                        maxLength={OTP_LENGTH}
+                        textContentType={i === 0 ? "oneTimeCode" : "none"}
+                        autoComplete={i === 0 ? "sms-otp" : "off"}
                         selectTextOnFocus
                         selectionColor="#0A5A41"
                       />

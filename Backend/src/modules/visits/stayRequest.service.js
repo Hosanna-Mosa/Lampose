@@ -258,6 +258,25 @@ const createStayRequest = async ({
   }
 
   /*
+   * The store-review account asks only the review listing.
+   *
+   * It signs in with a fixed code that every reviewer shares, and a request
+   * from it rang a real owner's phone about a student who does not exist.
+   * The review listing (`ensureListing` in reviewAccounts.service.js) is
+   * owned by the review partner, so the whole flow can still be tried end
+   * to end without reaching anybody real.
+   */
+  const reviewAccounts = require('../reviewAccounts/reviewAccounts.service');
+  if (reviewAccounts.isReviewAccount('customer', customer)
+    && property.employeeEmail !== reviewAccounts.REVIEW_LISTING_TAG) {
+    throw new StayRequestError(
+      'REVIEW_ACCOUNT_SANDBOX',
+      'This is a test account. It can only send requests to the Lampose review listing.',
+      403,
+    );
+  }
+
+  /*
    * 5 — one request per listing per student, live OR already granted.
    *
    * Not per property per day as the web flow holds it: this one expires in
@@ -290,7 +309,33 @@ const createStayRequest = async ({
     ],
   }).lean();
 
-  if (existing && existing.status === 'confirmed') {
+  /*
+   * "Already booked" only while that booking is still a stay. A confirmed
+   * request outlives its booking — the booking is cancelled or checked out,
+   * the request stays `confirmed` as the record of the decision — and this
+   * used to refuse the student at that property for ever after.
+   */
+  if (existing && existing.status === 'confirmed' && !(await stillHolds(existing))) {
+    /* Ended. Look again for a confirmation that is still live — there can be
+       an older one and a newer one at the same listing. */
+    const others = await VisitRequest.find({
+      channel: 'app',
+      customerId: customer.customerId,
+      listingId: String(property._id),
+      status: 'confirmed',
+      _id: { $ne: existing._id },
+    }).lean();
+    for (const other of others) {
+      // eslint-disable-next-line no-await-in-loop
+      if (await stillHolds(other)) {
+        throw new StayRequestError(
+          'ALREADY_BOOKED',
+          'You already have a confirmed booking at this property.',
+          409,
+        );
+      }
+    }
+  } else if (existing && existing.status === 'confirmed') {
     throw new StayRequestError(
       'ALREADY_BOOKED',
       'You already have a confirmed booking at this property.',
@@ -340,7 +385,15 @@ const createStayRequest = async ({
     customerId: customer.customerId,
     $or: [
       { status: 'pending_owner', expiresAt: { $gt: new Date() } },
-      { status: 'confirmed', 'payment.required': true, 'payment.status': { $nin: ['paid'] } },
+      /* A window that has closed is not in flight. `payment.status` alone
+         was not enough: nothing ever set it to `expired` on its own, so an
+         unpaid confirmation blocked the student for good. */
+      {
+        status: 'confirmed',
+        'payment.required': true,
+        'payment.status': { $nin: ['paid', 'expired'] },
+        $or: [{ 'payment.dueBy': null }, { 'payment.dueBy': { $gt: new Date() } }],
+      },
     ],
   }).select('propertyName status').lean();
 
@@ -781,6 +834,23 @@ const acceptAndBook = async (requestId, partner) => {
  * forced, and the two must never be collapsed: only one of them is about this
  * student.
  */
+/**
+ * Give back a ₹100 stay coupon held for a request that has ended unpaid.
+ *
+ * `release` used to have one caller — withdrawal — so a coupon held for a
+ * request that was declined, expired, taken or cancelled stayed `reserved`
+ * for good, and the next attempt to use it was refused ALREADY_HELD. It is
+ * now called on every terminal transition. `release` only un-reserves (a
+ * spent coupon stays spent), so calling it is always safe. Never awaited by
+ * the transition and never fatal to it.
+ */
+const releaseCouponFor = (requestId) => {
+  if (!requestId) return;
+  require('../customers/stayCoupon.service').release(String(requestId)).catch((error) => {
+    console.error('[stay-coupon] could not release the hold:', error.message);
+  });
+};
+
 const decline = async (requestId, partner, { reason = 'OWNER_DECLINED', note = null } = {}) => {
   requireDb();
 
@@ -802,6 +872,7 @@ const decline = async (requestId, partner, { reason = 'OWNER_DECLINED', note = n
   );
 
   if (!request) await explainFailure(requestId, ownerKey);
+  releaseCouponFor(request && request._id);
   return request;
 };
 
@@ -982,7 +1053,10 @@ const expireDue = async ({ limit = 200 } = {}) => {
     /* Null means an owner or the student got there between the find and the
        update. Their transition stands, and this one silently does nothing —
        which is exactly right, and why no notification is sent for it. */
-    if (request) expired.push(request);
+    if (request) {
+      expired.push(request);
+      releaseCouponFor(request._id);
+    }
   }
 
   return expired;
@@ -1026,7 +1100,10 @@ const declineForLostInventory = async (shareTypeId, { exceptId = null } = {}) =>
       },
       { new: true },
     );
-    if (request) declined.push(request);
+    if (request) {
+      declined.push(request);
+      releaseCouponFor(request._id);
+    }
   }
 
   return declined;
@@ -1055,11 +1132,122 @@ const settleIfExpired = async (doc) => {
     { new: true },
   );
 
+  if (settled) releaseCouponFor(settled._id);
   return settled || VisitRequest.findById(doc._id);
+};
+
+/**
+ * Whether a confirmed request still stands for a booking that is live.
+ *
+ * A request with no booking (a visit, say) holds while it is confirmed. One
+ * whose booking has been completed or cancelled does not.
+ */
+async function stillHolds(request) {
+  if (!request.bookingId || !mongoose.isValidObjectId(request.bookingId)) return true;
+  const { PartnerBooking } = require('../partners/partnerDomains.model');
+  const booking = await PartnerBooking.findById(request.bookingId).select('status').lean();
+  if (!booking) return false;
+  return !['completed', 'cancelled'].includes(booking.status);
+}
+
+/**
+ * A booking was cancelled — close the request behind it, if nothing was paid.
+ *
+ * Cancelling used to touch only the `PartnerBooking`. The request stayed
+ * `confirmed` with its payment pending, so the app kept offering "Pay ₹X and
+ * book", paying worked, and the address was released for a booking that no
+ * longer existed — with no refund row, because the refund was decided at
+ * cancel time, when nothing had been paid yet.
+ *
+ * A request already PAID is left as it is: its money is the refund service's
+ * business (`openForCancelledBooking`). Guarded on `confirmed`, so calling it
+ * twice changes nothing.
+ */
+const closeRequestForCancelledBooking = async (bookingId) => {
+  if (!bookingId || mongoose.connection.readyState !== 1) return null;
+  const now = new Date();
+  const closed = await VisitRequest.findOneAndUpdate(
+    { bookingId: String(bookingId), status: 'confirmed', 'payment.status': { $ne: 'paid' } },
+    [{
+      $set: {
+        status: 'cancelled',
+        decidedAt: now,
+        cancelledAt: now,
+        decisionReason: 'BOOKING_CANCELLED',
+        /* Void a payment that was owed; leave `not_required` as it is. */
+        'payment.status': {
+          $cond: [{ $eq: ['$payment.required', true] }, 'expired', '$payment.status'],
+        },
+      },
+    }],
+    { new: true },
+  );
+  if (closed) releaseCouponFor(closed._id);
+  return closed;
+};
+
+/**
+ * Confirmations whose payment window closed with nothing paid.
+ *
+ * Nothing used to expire these: the bed stayed held, the booking stayed
+ * `upcoming`, and "booking in progress" blocked the student everywhere. Each
+ * row is moved with its own guarded update, like `expireDue`, so only the rows
+ * this call won are released and notified. Returns `[{ request, booking }]`;
+ * `booking` is null when there was none or it had already left occupancy.
+ */
+const expireLapsedPayments = async ({ limit = 200 } = {}) => {
+  if (mongoose.connection.readyState !== 1) return [];
+  const { PartnerBooking } = require('../partners/partnerDomains.model');
+  const { OCCUPYING, shareTypeIdForBooking } = require('../inventory/inventory.service');
+
+  const lapsedFilter = () => ({
+    channel: 'app',
+    status: 'confirmed',
+    'payment.required': true,
+    'payment.status': { $ne: 'paid' },
+    'payment.dueBy': { $ne: null, $lte: new Date() },
+  });
+  const due = await VisitRequest.find(lapsedFilter()).select('_id').limit(limit).lean();
+
+  const lapsed = [];
+  for (const { _id } of due) {
+    // eslint-disable-next-line no-await-in-loop
+    const request = await VisitRequest.findOneAndUpdate(
+      { _id, ...lapsedFilter() },
+      {
+        $set: {
+          status: 'expired',
+          decidedAt: new Date(),
+          decisionReason: 'PAYMENT_LAPSED',
+          'payment.status': 'expired',
+        },
+      },
+      { new: true },
+    );
+    if (!request) continue;
+    releaseCouponFor(request._id);
+
+    let booking = null;
+    if (request.bookingId && mongoose.isValidObjectId(request.bookingId)) {
+      // eslint-disable-next-line no-await-in-loop
+      booking = await PartnerBooking.findOneAndUpdate(
+        { _id: request.bookingId, status: { $in: OCCUPYING } },
+        { $set: { status: 'cancelled', cancelledAt: new Date(), cancelReason: 'Payment not received in time' } },
+        { new: true },
+      ).lean();
+      const shareTypeId = booking && shareTypeIdForBooking(booking);
+      // eslint-disable-next-line no-await-in-loop
+      if (shareTypeId) await releaseBed(shareTypeId).catch(() => {});
+    }
+    lapsed.push({ request, booking });
+  }
+  return lapsed;
 };
 
 module.exports = {
   StayRequestError,
+  closeRequestForCancelledBooking,
+  expireLapsedPayments,
   deadlineFrom,
   createStayRequest,
   accept,

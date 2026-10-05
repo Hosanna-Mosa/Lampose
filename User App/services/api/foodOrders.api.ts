@@ -1,5 +1,6 @@
 import { api } from './client';
 import { endpoints } from './endpoints';
+import type { FoodBillFigures } from '@/lib/foodPricing';
 
 /**
  * Placing and tracking a food order.
@@ -30,6 +31,12 @@ export type PlaceOrderLine = {
 };
 
 export type PlaceOrderRequest = {
+  /**
+   * One per checkout attempt — the same cart sends the same key. The server
+   * answers a repeat with the order it already made (`replayed: true`)
+   * instead of writing a second one for the same food.
+   */
+  clientRequestId?: string;
   restaurantId: string;
   lines: PlaceOrderLine[];
   fulfilment: 'delivery' | 'pickup';
@@ -127,20 +134,38 @@ export type ServerFoodOrder = {
    * Optional because orders placed before the field existed do not carry it.
    */
   restaurant?: { name?: string; address?: string; phone?: string } | null;
+  /**
+   * Who delivers it when it is NOT a Lampose rider: `self` (the kitchen's own
+   * staff) or `driver` (one the kitchen arranged). Absent or anything else
+   * means a Lampose rider, whose PIN closes the order at the door.
+   */
+  delivery?: { method?: string | null } | null;
   lines: ServerOrderLine[];
   itemsTotal: number;
-  /** Zero since it was dropped; a real figure on the orders charged one. */
+  /** The kitchen's packaging fee, as billed, and its 18% GST. */
   packagingCharge: number;
+  packagingGst?: number;
   /** GST on the food, and the rate it was charged at. Zero on older orders. */
   gst?: number;
   gstRate?: number;
-  /** The flat platform fee. Charged on pickup too. */
-  platformFee?: number;
+  /** The service fee and its GST. An older order's platform fee arrives here
+      too — the server renames it; a diner never sees "platform fee". */
+  serviceFee?: number;
+  serviceFeeGst?: number;
   deliveryFee: number;
+  deliveryGst?: number;
+  smallOrderFee?: number;
   discount: number;
   grandTotal: number;
   paymentMode: 'online' | 'cod';
   paymentStatus: 'pending' | 'paid' | 'refunded' | 'failed';
+  /** The diner's own payment and refund facts — see `customerView`. */
+  razorpay?: {
+    refundId?: string;
+    refundAmountPaise?: number;
+    refundedAt?: string | null;
+    refundStatus?: string;
+  };
   status: 'placed' | 'accepted' | 'preparing' | 'ready' | 'picked_up' | 'delivered' | 'rejected' | 'cancelled';
   statusHistory?: { status: string; at: string; by?: string; note?: string }[];
   /** The rider track. See `DispatchState`. */
@@ -179,6 +204,21 @@ type Envelope<T> = {
    */
   nextStep?: 'track' | 'payment';
 };
+
+/**
+ * The bill for a cart, from the server — the same calculator the order is
+ * priced with, so the cart can show what Pay will charge. Nothing is written.
+ */
+export async function quoteFoodOrder(request: {
+  restaurantId: string;
+  lines: PlaceOrderLine[];
+  dropLat?: number;
+  dropLng?: number;
+}): Promise<FoodBillFigures> {
+  const res = await api.post<Envelope<FoodBillFigures>>(endpoints.foodOrderQuote, request);
+  if (!res?.data) throw new Error(res?.message || 'Could not price this cart.');
+  return res.data;
+}
 
 /** Place it. Throws `ApiError` with the server's own reason on refusal. */
 export async function placeFoodOrder(
@@ -265,14 +305,29 @@ export async function verifyFoodPayment(
 }
 
 /** The diner's own history. */
-export async function fetchMyFoodOrders(): Promise<ServerFoodOrder[]> {
-  const res = await api.get<{ data?: ServerFoodOrder[] }>(endpoints.foodOrders);
+/** Fifty at a time; `before` (an order's `placedAt`) asks for the next page. */
+export const FOOD_ORDERS_PAGE = 50;
+
+export async function fetchMyFoodOrders(before?: string): Promise<ServerFoodOrder[]> {
+  const res = await api.get<{ data?: ServerFoodOrder[] }>(endpoints.foodOrders, {
+    ...(before ? { query: { before } } : {}),
+  });
   return Array.isArray(res?.data) ? res.data : [];
 }
 
 /** One order, for the tracking screen. */
 export async function fetchFoodOrder(orderNumber: string): Promise<ServerFoodOrder | null> {
   const res = await api.get<Envelope<ServerFoodOrder>>(endpoints.foodOrder(orderNumber));
+  return res?.data ?? null;
+}
+
+/**
+ * "It arrived" — for an order the RESTAURANT delivered (`delivery.method` is
+ * `self` or `driver`). The server refuses it for a Lampose rider's order and
+ * before the food has left; pressed twice it answers the same delivered row.
+ */
+export async function confirmFoodDelivery(orderNumber: string): Promise<ServerFoodOrder | null> {
+  const res = await api.patch<Envelope<ServerFoodOrder>>(endpoints.foodOrderDelivered(orderNumber), {});
   return res?.data ?? null;
 }
 

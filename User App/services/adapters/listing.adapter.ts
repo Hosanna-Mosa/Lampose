@@ -434,19 +434,17 @@ function toMealPlan(doc: BackendListing): MealPlan | undefined {
  * The listing
  * ------------------------------------------------------------------ */
 
-const DEFAULT_PROPERTY_IMAGES = [
-  'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=800&q=80',
-  'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80',
-  'https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?auto=format&fit=crop&w=800&q=80',
-];
-
 export function toListing(doc: BackendListing): Listing {
   const category = toStayCategory(doc.category);
   const rawImages = (doc.images ?? []).filter(Boolean);
   if (rawImages.length === 0 && (doc as unknown as { imageUrl?: string }).imageUrl) {
     rawImages.push((doc as unknown as { imageUrl?: string }).imageUrl!);
   }
-  const images = rawImages.length ? rawImages : DEFAULT_PROPERTY_IMAGES;
+  /* The owner's photos or none. Three stock photos used to stand in for a
+     listing with no pictures — and the gallery labels what it shows
+     "Uploaded by the owner", so a student was shown somebody else's room as
+     this one. The cards and the gallery draw placeholder tiles for none. */
+  const images = rawImages;
   const stayRates = toStayRates(doc);
   const sharingOptions = toSharingOptions(doc);
 
@@ -487,7 +485,9 @@ export function toListing(doc: BackendListing): Listing {
        fact — "128 viewed" is a lot this week and nothing since March. Both
        are absent, so the line does not render. */
 
-    rent: positive(doc.rent) ?? null,
+    rent: (doc.pricePeriod === '/day' && !doc.monthlyPrice)
+      ? (positive(doc.dailyPrice) ?? positive(doc.rent) ?? null)
+      : (positive(doc.monthlyPrice) ?? positive(doc.rent) ?? positive(doc.dailyPrice) ?? null),
     /* A dormitory is quoted per night; the server says so in `pricePeriod`,
        derived from the rate type the panel recorded. */
     /* A hotel is ALWAYS quoted per night — its headline rent is the nightly
@@ -551,6 +551,10 @@ export function toListing(doc: BackendListing): Listing {
      * expects an intent produces a 400 the student cannot act on.
      */
     stayRates: !doc.simpleSharingPath && stayRates.length ? stayRates : undefined,
+    /* Carried across so the date pickers can only offer what the server will
+       take. It was dropped here, so a hotel check-in a year out was picked
+       freely and refused (CHECK_IN_OUT_OF_RANGE) on the next screen. */
+    joinWindow: doc.joinWindow ?? undefined,
 
     /* Whether a confirmed visit here is paid for. Carried across so the
        request screens can say what happens after the owner says yes, rather

@@ -81,7 +81,7 @@ export function ReviewCard({
         </Box>
       ) : review.reply ? (
         <Box style={[styles.replyBox, { backgroundColor: c.surfaceSunken }]}>
-          <Avatar label="SV" tone="accent" solid size={24} />
+          <Avatar label={review.reply.author.charAt(0).toUpperCase()} tone="accent" solid size={24} />
           <Box style={styles.replyBody}>
             <Text style={styles.replyAuthor}>{review.reply.author}</Text>
             <Text variant="bodySm" color="textBody" style={styles.replyText}>

@@ -5,6 +5,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { ForcedUpdateWatcher } from '@/services/appVersion';
 import { SystemNavigationBar } from '@/components/shell';
 import { AlertProvider } from '@/components/ui';
 import { AppStateProvider } from '@/context/AppStateContext';
@@ -170,6 +171,8 @@ function Shell() {
           see that provider's placement below), which is why it is not part of
           `AuthProvider` itself. */}
       <SessionExpiredWatcher />
+      {/* Sends a build the server no longer supports to the update screen. */}
+      <ForcedUpdateWatcher />
       {/* Last, so it paints over every screen and over the Dock. Android only:
           the ground the system's buttons or gesture pill sit on. */}
       <SystemNavigationBar />
@@ -194,7 +197,10 @@ export default function RootLayout() {
     // has already failed.
     <SafeAreaProvider>
       <ThemeProvider>
-        <ErrorBoundary>
+        {/* Reported, not swallowed: a crash caught here used to leave no
+            trace at all. To the console (device logs and Expo) for now — the
+            one place to plug in a crash service when there is one. */}
+        <ErrorBoundary onError={(error, stack) => console.error('[crash]', error?.message, stack)}>
           <QueryClientProvider client={queryClient}>
             <AuthProvider>
               <AppStateProvider>

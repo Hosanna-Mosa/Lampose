@@ -89,13 +89,21 @@ export function PayoutSetupScreen() {
          on; this handles somebody landing here directly. */
       if (!next.required) router.replace('/');
     } catch {
-      setError('We could not check your payout details. Pull to try again.');
+      setError('We could not check your payout details. Tap Try again.');
     } finally {
       setLoading(false);
     }
   }, [router]);
 
   useEffect(() => { void load(); }, [load]);
+
+  /* After a failed submit or re-check. A Razorpay-side rejection is recorded
+     on the server AND answered as an error, so the error line showed at once
+     but the "could not verify" banner (which reads `state`) waited for a
+     reload. Quiet: the failure already has its sentence on screen. */
+  const rereadState = () => {
+    fetchPayoutOnboarding().then(setState).catch(() => {});
+  };
 
   const set = (key: keyof Form) => (value: string) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -126,6 +134,7 @@ export function PayoutSetupScreen() {
          does not look like a PAN" is worth more than "check your details". */
       setError((caught as { displayMessage?: string })?.displayMessage
         ?? 'We could not save those details. Please check them and try again.');
+      rereadState();
     } finally {
       setBusy(false);
     }
@@ -228,7 +237,10 @@ export function PayoutSetupScreen() {
                 setBusy(true);
                 refreshPayoutOnboarding()
                   .then((next) => { setState(next); if (!next.required) router.replace('/'); })
-                  .catch(() => setError('We could not reach Razorpay just now.'))
+                  .catch(() => {
+                    setError('We could not reach Razorpay just now.');
+                    rereadState();
+                  })
                   .finally(() => setBusy(false));
               }}
             />
@@ -264,6 +276,15 @@ export function PayoutSetupScreen() {
 
         {!!error && (
           <Text variant="caption" color="errorInk" style={styles.error}>{error}</Text>
+        )}
+        {/* The message said "pull to try again" on a screen that has no
+            pull-to-refresh. A button that does it instead. */}
+        {!!error && !state && (
+          <Button
+            label="Try again"
+            variant="secondary"
+            onPress={() => { setError(''); setLoading(true); void load(); }}
+          />
         )}
 
         {/* DEVELOPMENT ONLY — see `devSkip`. Both gates: a preview build, and

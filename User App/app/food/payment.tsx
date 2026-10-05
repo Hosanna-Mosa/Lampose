@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
+import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 import { StatusBar } from 'expo-status-bar';
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -11,6 +12,7 @@ import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import { formatRupees } from '@/utils/money';
+import { foodBillLines } from '@/components/food/foodBill';
 import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
 import { useAuth } from '@/context/AuthContext';
 
@@ -33,9 +35,9 @@ const ONLINE: readonly Method[] = [
  * Paying.
  *
  * UPI first and by app, because that is how this audience actually pays and a
- * card form is four minutes of typing they will abandon. Cash is offered for
- * pickup only — a rider carrying change to a hostel gate at midnight is a
- * different product with a different risk.
+ * card form is four minutes of typing they will abandon. Cash on delivery is
+ * offered too, where the kitchen accepts it (`acceptsCod`) — the rider takes
+ * it at the door, or by the doorstep QR.
  *
  * The CTA carries the amount. "Continue" on a screen that is about to move ₹122
  * is how people come to feel tricked, and this is a student's food budget.
@@ -52,18 +54,20 @@ export default function PaymentScreen() {
     cartKitchen: kitchen,
     count,
     itemTotal,
-    deliveryFee,
     packagingCharge,
-    gst,
-    gstRate,
-    platformFee,
+    bill: figures,
     toPay,
     address,
     placeOrder,
     startPayment,
   } = useFood();
 
-  const [method, setMethod] = useState<string>('online');
+  const { kitchenOpen } = useFoodCatalogue();
+  /* Only the ways THIS kitchen takes money. Both were always offered. */
+  const takesOnline = kitchen?.acceptsOnline !== false;
+  const takesCash = kitchen?.acceptsCod !== false;
+  const isOpen = kitchen ? kitchenOpen(kitchen) : false;
+  const [method, setMethod] = useState<string>(takesOnline ? 'online' : 'cash');
 
   /* Every order needs somewhere to go. This used to be scoped to the mode,
      because a collection order has no address to want — collection is no
@@ -103,21 +107,27 @@ export default function PaymentScreen() {
   ];
 
   /*
-    The same terms the cart printed, from the same source, because this
-    is the screen where the number stops being a preview: the button under it
-    moves money. Items, GST, the platform fee and delivery are what
-    `foodCustomerOrder.controller.js` adds into `grandTotal`, and there is
-    nothing else in it — no coupon, which is why the discount line that used to
-    sit here is gone. The tax IS real now and comes from the kitchen shape; the
-    invented 5% row that once stood here did not.
+    The same lines the cart printed, from the same source, because this is
+    the screen where the number stops being a preview: the button under it
+    moves money. The figures are the server's quote (`foodPricing.js`), and
+    the server prices the order again when it is placed.
   */
-  const bill: BillLine[] = [
-    { id: 'items', label: `Item total · ${count} ${count === 1 ? 'item' : 'items'}`, amount: itemTotal },
-    ...(packagingCharge ? [{ id: 'packaging', label: 'Packaging by the kitchen', amount: packagingCharge }] : []),
-    ...(gst ? [{ id: 'gst', label: `GST${gstRate ? ` (${gstRate}%)` : ''}`, amount: gst }] : []),
-    ...(platformFee ? [{ id: 'platform', label: 'Platform fee', amount: platformFee }] : []),
-    { id: 'delivery', label: address ? `Delivery to ${address.title}` : 'Delivery', amount: deliveryFee },
-  ];
+  const bill: BillLine[] = foodBillLines({
+    itemCount: count,
+    itemTotal,
+    foodGst: figures.foodGst,
+    foodGstRate: Math.round(figures.foodGstRate * 100),
+    foodGstIncluded: figures.foodGstIncluded,
+    deliveryFee: figures.deliveryFee,
+    deliveryGst: figures.deliveryGst,
+    deliveryLabel: address ? `Delivery to ${address.title}` : 'Delivery fee',
+    serviceFee: figures.serviceFee,
+    serviceFeeGst: figures.serviceFeeGst,
+    packagingFee: figures.packagingFee,
+    packagingGst: figures.packagingGst,
+    smallOrderFee: figures.smallOrderFee,
+    discount: figures.discount,
+  });
 
   /*
    * The order is created by the SERVER, which prices it from the menu rows.
@@ -141,12 +151,20 @@ export default function PaymentScreen() {
    * 11pm, the order under the minimum — and paraphrasing them into "something
    * went wrong" throws away the one sentence that tells a student what to do.
    */
+  /* One order per tap. `state` updates a render later, so a double tap could
+     reach `placeOrder` twice before the button disabled; a ref cannot. */
+  const paying = useRef(false);
+
   const pay = async () => {
+    if (paying.current) return;
+    paying.current = true;
     setState('paying');
     setError(null);
+    let placedId: string | null = null;
     try {
       const isCash = method === 'cash';
       const { order, nextStep } = await placeOrder(new Date(), isCash ? 'cod' : 'online');
+      placedId = order.id;
 
       if (nextStep === 'track') {
         router.replace(foodHref.order(order.id, true));
@@ -159,8 +177,9 @@ export default function PaymentScreen() {
          rather than writing another (see `held` in `FoodContext`). */
       const intent = await startPayment(order.id);
       if (!intent.checkoutToken) {
-        setError('Online payment is not available right now. Please choose cash instead.');
-        setState('failed');
+        /* The order exists. Staying here with a full cart is how a second
+           one got written; the order screen offers "Pay now" on this one. */
+        router.replace(foodHref.order(order.id));
         return;
       }
       router.replace({
@@ -168,8 +187,17 @@ export default function PaymentScreen() {
         params: { foodToken: intent.checkoutToken, orderNumber: order.id },
       });
     } catch (err) {
+      /* If the order was written before this failed — the gateway, not the
+         order — go to it rather than inviting a second one. The order
+         screen re-offers payment on a held order. */
+      if (placedId) {
+        router.replace(foodHref.order(placedId));
+        return;
+      }
       setError((err as Error)?.message || 'We could not reach the kitchen. Please try again.');
       setState('failed');
+    } finally {
+      paying.current = false;
     }
   };
 
@@ -206,7 +234,7 @@ export default function PaymentScreen() {
               { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, paddingHorizontal: space[3] },
             ]}
           >
-            {ONLINE.map((entry, index) => (
+            {ONLINE.filter(() => takesOnline).map((entry, index) => (
               <MethodRow
                 key={entry.id}
                 method={entry}
@@ -228,7 +256,7 @@ export default function PaymentScreen() {
               { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, paddingHorizontal: space[3] },
             ]}
           >
-            {others.map((entry, index) => (
+            {others.filter((entry) => entry.id !== 'cash' || takesCash).map((entry, index) => (
               <MethodRow
                 key={entry.id}
                 method={entry}
@@ -250,7 +278,7 @@ export default function PaymentScreen() {
              order will exceed by an amount nobody was shown. */
           footnote={
             packagingCharge === null
-              ? 'This kitchen has not sent its packing charge yet, so the total is not final. The kitchen prices the order when you place it.'
+              ? 'This kitchen has not sent its packaging fee yet, so the total is not final. The order is priced when you place it.'
               : undefined
           }
         />
@@ -338,9 +366,18 @@ export default function PaymentScreen() {
           loading={state === 'paying'}
           loadingLabel={method === 'cash' ? 'Sending to the kitchen' : 'Opening your payment'}
           fullWidth
-          disabled={needsAddress}
-          onPress={pay}
+          disabled={needsAddress || !isOpen || (method === 'cash' ? !takesCash : !takesOnline)}
+          /* Through the sign-in gate. `attemptPay` was written for exactly this
+             and never wired: a guest pressed Pay straight into a placement the
+             server refused, instead of being asked to sign in first. */
+          onPress={attemptPay}
         />
+
+        {!isOpen ? (
+          <Text variant="caption" color="secondary" style={{ textAlign: 'center' }}>
+            {kitchen?.name ?? 'The kitchen'} is closed right now, so it cannot take this order.
+          </Text>
+        ) : null}
 
         {/* The dead state leads back to the address picker, because that is
             what fixes it. */}

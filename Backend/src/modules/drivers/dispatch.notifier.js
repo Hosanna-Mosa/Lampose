@@ -37,7 +37,7 @@ const BADGE = '🛵 [dispatch]';
  * The offer channel, which is deliberately its own.
  *
  * A rider's phone gets two kinds of notification and they are not equally
- * urgent: an offer expires in fifteen seconds and must be able to ring through
+ * urgent: an offer goes to whichever rider accepts first and must ring through
  * Do Not Disturb; "you were paid" can wait. One channel for both means the
  * rider either silences the payouts or misses the work.
  */
@@ -208,7 +208,10 @@ async function notifyCustomerNoRider(order) {
   const tokens = await customerTokens(order.customerId);
   return ring(tokens, {
     title: 'Finding you a rider',
-    body: 'Every rider nearby is busy. We are still looking and your food is being prepared.',
+    /* Not "every rider is busy" — that was said whatever the reason (often
+       no rider within range at all, or a kitchen with no map pin). What is
+       true every time: nobody has taken it yet, and the search goes on. */
+    body: 'No rider has taken your order yet. We are still looking, and your food is being prepared.',
     data: {
       kind: 'food_order',
       orderNumber: order.orderNumber,
@@ -262,6 +265,30 @@ async function notifyCustomerOfRejection(order) {
 }
 
 /**
+ * "Your refund has been sent" — the money is on its way back.
+ *
+ * Without it the order screen said "Refund on the way" until the diner
+ * happened to reopen it, and the only news of money coming back was a bank
+ * statement. Sent when the gateway accepts the refund, which is the moment
+ * there is a reference to quote; how long the bank takes is the bank's.
+ */
+async function notifyCustomerOfRefund(order, amountRupees) {
+  const tokens = await customerTokens(order.customerId);
+  return ring(tokens, {
+    title: 'Your refund has been sent',
+    body: `${rupees(amountRupees)} for order ${order.orderNumber} is on its way back. `
+      + 'Banks usually take 5–7 working days to show it.',
+    data: {
+      kind: 'food_order',
+      orderNumber: order.orderNumber,
+      status: 'refunded',
+    },
+    sound: 'default',
+    channelId: ORDER_CHANNEL,
+  }, 'refund');
+}
+
+/**
  * "Your food is on its way" / "It has arrived" — the two hand-overs.
  *
  * An order the restaurant arranged has no rider name and no PIN to give: the
@@ -279,7 +306,8 @@ async function notifyCustomerOfHandover(order, moment) {
     }
     : {
       title: 'Delivered 🍽️',
-      body: 'Enjoy your meal. Tap to rate the order.',
+      /* No "tap to rate": there is no rating screen to land on. */
+      body: 'Enjoy your meal.',
     };
 
   return ring(tokens, {
@@ -291,7 +319,27 @@ async function notifyCustomerOfHandover(order, moment) {
   }, `handover-${moment}`);
 }
 
+/**
+ * Ready at the counter — for a PICKUP order, where it is the one moment the
+ * diner acts on (they set off). A delivery order's diner is told when a rider
+ * collects it instead; "ready" there would be a nudge with nothing to do.
+ */
+async function notifyCustomerOfPickupReady(order) {
+  if (!order || order.fulfilment !== 'pickup') return null;
+  const tokens = await customerTokens(order.customerId);
+  return ring(tokens, {
+    title: 'Your order is ready to collect',
+    body: `${order.restaurant?.name || 'The kitchen'} has it ready. Show order ${order.orderNumber} at the counter.`,
+    data: { kind: 'food_order', orderNumber: order.orderNumber, status: 'ready' },
+    sound: 'default',
+    channelId: ORDER_CHANNEL,
+    priority: 'high',
+  }, 'pickup-ready');
+}
+
 module.exports = {
+  notifyCustomerOfPickupReady,
+  notifyCustomerOfRefund,
   OFFER_CHANNEL,
   JOB_CHANNEL,
   ORDER_CHANNEL,

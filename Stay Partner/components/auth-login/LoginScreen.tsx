@@ -10,7 +10,7 @@ import {
   Text,
   TextInput,
   useWindowDimensions,
-  View,
+  View, Linking
 } from 'react-native';
 import Animated, {
   interpolate,
@@ -263,7 +263,12 @@ export function LoginScreen() {
     setAttemptsLeft(null);
     setLockedLabel(null);
     setProblem(null);
-    await resendCode();
+    /* A failed resend changed nothing on the code side of the card, so an
+       owner waited for an SMS that was never sent. */
+    const sent = await resendCode();
+    if (sent === 'failed') {
+      setProblem('We could not send a new code. Check your connection and try again in a moment.');
+    }
   };
 
   const handleUseAnotherNumber = () => {
@@ -584,8 +589,8 @@ export function LoginScreen() {
                 {/* Terms and Privacy Policy */}
                 <Text style={styles.termsText}>
                   By continuing, you agree to our{'\n'}
-                  <Text style={styles.termsLink}>Partner Terms</Text> and{' '}
-                  <Text style={styles.termsLink}>Privacy Policy</Text>
+                  <Text style={styles.termsLink} accessibilityRole="link" onPress={() => Linking.openURL('https://lampose.com/terms').catch(() => {})}>Partner Terms</Text> and{' '}
+                  <Text style={styles.termsLink} accessibilityRole="link" onPress={() => Linking.openURL('https://lampose.com/privacy').catch(() => {})}>Privacy Policy</Text>
                 </Text>
               </View>
             </Animated.View>
@@ -618,11 +623,22 @@ export function LoginScreen() {
                   length={otpLength}
                   invalid={invalidOtp}
                   disabled={isSubmitting}
-                  autoFocus
+                  /* Remounted by the flip, so `autoFocus` (which only acts on
+                     mount) fires when the code side is actually facing the
+                     user. Mounted focused on the hidden back, the keyboard
+                     came up for a field nobody could see. */
+                  key={isFlipped ? 'otp-live' : 'otp-idle'}
+                  autoFocus={isFlipped}
                 />
 
                 {codeError ? (
                   <Text style={styles.errorTextCenter}>{codeError}</Text>
+                ) : null}
+
+                {/* A failed RESEND happens on this side. Its message lived only
+                    on the phone side — behind the card — so it was never seen. */}
+                {isFlipped && failure ? (
+                  <Text style={styles.errorTextCenter}>{failureMessage ?? failure.body}</Text>
                 ) : null}
 
                 <View style={{ marginTop: 24, gap: 14, width: '100%' }}>

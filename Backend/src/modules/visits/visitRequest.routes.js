@@ -49,7 +49,11 @@ router.post('/', requireLamposeDb, attachCustomerIfPresent, startLimit, createVi
    that session and no code — see the SESSION_REQUIRED guard in the handler. */
 router.post('/:id/verify', requireLamposeDb, attachCustomerIfPresent, verifyLimit, verifyVisitRequest);
 router.post('/:id/resend', requireLamposeDb, resendLimit, resendVisitOtp);
-router.get('/:id', requireLamposeDb, statusLimit, getVisitRequest);
+/* The customer is attached when present: an APP request answers only to its
+   own signed-in customer (see `appRowOwnedBy`), because its id alone — an
+   ObjectId, timestamp plus counter, guessable — was the only credential
+   protecting the entry PIN, the name and, once released, the address. */
+router.get('/:id', requireLamposeDb, attachCustomerIfPresent, statusLimit, getVisitRequest);
 
 /* ── The ₹199 assisted-visit payment ──────────────────────────────────────
    Bachelor and co-live only, and only after the owner has confirmed. The
@@ -72,10 +76,10 @@ router.get('/:id/payment/checkout', requireLamposeDb, statusLimit, renderCheckou
 router.post('/:id/payment/callback', requireLamposeDb, paymentCallback);
 /* Telemetry from the checkout page when Razorpay declines. Records the reason
    and answers 204 — it never decides anything. */
-router.post('/:id/payment/failed', requireLamposeDb, recordPaymentFailure);
+router.post('/:id/payment/failed', requireLamposeDb, statusLimit, recordPaymentFailure);
 
 /* The slot a paid visit happens in — the app's picker posts here. The web
    channel picks its slot in WhatsApp and never calls this. */
-router.post('/:id/assisted/slot', requireLamposeDb, statusLimit, setSlot);
+router.post('/:id/assisted/slot', requireLamposeDb, attachCustomerIfPresent, statusLimit, setSlot);
 
 module.exports = router;

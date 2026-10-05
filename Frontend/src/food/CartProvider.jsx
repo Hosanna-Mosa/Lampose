@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useFoodCatalogue } from './FoodCatalogue';
 import {
-  fetchAddresses, fetchCoupons, fetchOrders, placeFoodOrder,
+  fetchAddresses, fetchCoupons, fetchOrders, placeFoodOrder, quoteFoodOrder,
 } from '../api/foodApi';
 import { useAuth } from '../auth/AuthProvider';
 import {
@@ -372,9 +372,48 @@ export function CartProvider({ children }) {
     };
   }, [isSignedIn, anyLive]);
 
+  /* What the server prices — the same lines placing an order sends. */
+  const requestLines = useMemo(() => lines.map(l => ({
+    productId: l.dishId,
+    quantity: l.qty,
+    /* By NAME, as the server matches them: it looks each up on the dish
+       and ignores one the kitchen does not offer. */
+    addOns: (l.addOns || []).map(a => ({ name: a.label })),
+    note: [l.spice && l.spice !== 'none' ? SPICE_LABEL[l.spice] : null, l.note].filter(Boolean).join(' · '),
+  })), [lines]);
+
+  /*
+   * The server's bill for this cart and address. Keyed, so an answer for a
+   * cart that has since changed is never shown; until it lands (or if it
+   * fails) the preview in `totals` stands, and the order is priced by the
+   * server again when it is placed either way.
+   */
+  const dropLat = address && Number.isFinite(address.lat) ? address.lat : null;
+  const dropLng = address && Number.isFinite(address.lng) ? address.lng : null;
+  const quoteKey = isSignedIn && kitchenId && requestLines.length
+    ? JSON.stringify([kitchenId, requestLines, dropLat, dropLng])
+    : '';
+  const [quote, setQuote] = useState(null);
+  useEffect(() => {
+    if (!quoteKey) return undefined;
+    let live = true;
+    const timer = setTimeout(() => {
+      quoteFoodOrder({
+        restaurantId: kitchenId,
+        lines: requestLines,
+        ...(dropLat !== null && dropLng !== null ? { dropLat, dropLng } : {}),
+      })
+        .then((figures) => { if (live && figures) setQuote({ key: quoteKey, figures }); })
+        .catch(() => { /* the preview stands */ });
+    }, 350);
+    return () => { live = false; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quoteKey]);
+  const liveQuote = quote && quote.key === quoteKey ? quote.figures : null;
+
   const bill = useMemo(
-    () => totals({ lines, kitchen, coupon, fulfilment }),
-    [lines, kitchen, coupon, fulfilment],
+    () => totals({ lines, kitchen, coupon, fulfilment, quote: liveQuote }),
+    [lines, kitchen, coupon, fulfilment, liveQuote],
   );
 
   /**
@@ -553,14 +592,7 @@ export function CartProvider({ children }) {
     try {
       const reply = await placeFoodOrder({
         restaurantId: kitchenId,
-        lines: lines.map(l => ({
-          productId: l.dishId,
-          quantity: l.qty,
-          /* By NAME, as the server matches them: it looks each up on the dish
-             and ignores one the kitchen does not offer. */
-          addOns: (l.addOns || []).map(a => ({ name: a.label })),
-          note: [l.spice && l.spice !== 'none' ? SPICE_LABEL[l.spice] : null, l.note].filter(Boolean).join(' · '),
-        })),
+        lines: requestLines,
         /* What the diner chose. 'online' writes the order unpaid and hands
            back `nextStep: 'payment'` — the kitchen is not told and no rider is
            looked for until a Razorpay signature verifies (`payOnline.js`). */
@@ -594,7 +626,7 @@ export function CartProvider({ children }) {
     } finally {
       placing.current = false;
     }
-  }, [isSignedIn, kitchenId, lines, fulfilment, address, payment, user, loadHistory]);
+  }, [isSignedIn, kitchenId, lines, requestLines, fulfilment, address, payment, user, loadHistory]);
 
   /* The diner's orders, from the server - and nothing else. There is no second
      list of "orders placed in this tab": an order either exists on the server

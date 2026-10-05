@@ -674,7 +674,10 @@ router.post('/', requireWriter, async (req, res) => {
       }
     }
 
-    const determinedRent = rent !== undefined ? Number(rent) : (monthlyPrice || dailyPrice || 0);
+    const mPrice = Number(monthlyPrice || 0);
+    const dPrice = Number(dailyPrice || 0);
+    const rawRent = rent !== undefined ? Number(rent) : 0;
+    const determinedRent = mPrice > 0 ? (rawRent >= mPrice ? rawRent : mPrice) : (rawRent > 0 ? rawRent : dPrice);
 
     const determinedImages = Array.isArray(images) && images.length > 0
       ? images

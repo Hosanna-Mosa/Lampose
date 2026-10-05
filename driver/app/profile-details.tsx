@@ -90,7 +90,15 @@ export default function ProfileDetailsScreen() {
     || line1.trim() !== (profile?.address?.line1 ?? "")
     || landmark.trim() !== (profile?.address?.landmark ?? "")
     || pincode.trim() !== (profile?.address?.pincode ?? "")
-    || photoUrl !== (profile?.profilePhotoUrl ?? "");
+    || photoUrl !== (profile?.profilePhotoUrl ?? "")
+    /* A freshly captured map pin is a change too — "Use my location" filled
+       the pin alone and left Save disabled, so it could never be stored. */
+    || !!pin;
+
+  /* Clearing the street on a profile that HAS an address removes it. The
+     server takes `address: null` for that, but the app never sent it, so a
+     rider could not take an old address off their account. */
+  const removingAddress = !line1.trim() && !!profile?.address;
 
   const status = STATUS[profile?.status ?? "pending"] ?? STATUS.pending;
 
@@ -177,9 +185,12 @@ export default function ProfileDetailsScreen() {
                 ...(pin ? { location: pin } : null),
               },
             }
-          : null),
+          : removingAddress
+            ? { address: null }
+            : null),
         ...(photoUrl ? { profilePhotoUrl: photoUrl } : null),
       });
+      setPin(undefined);
       say("Saved.");
     } catch (err) {
       setError(readError(err, "That did not save."));
@@ -203,7 +214,7 @@ export default function ProfileDetailsScreen() {
         </Text>
 
         <View style={styles.identity}>
-          <Avatar name={profile?.name || "Partner"} size={56} />
+          <Avatar name={profile?.name || "Partner"} size={56} photoUrl={photoUrl || profile?.profilePhotoUrl} />
           <View style={{ flex: 1, minWidth: 0, gap: space[2] }}>
             <Text variant="display2" numberOfLines={1}>
               {profile?.name || "Your name"}
@@ -233,7 +244,7 @@ export default function ProfileDetailsScreen() {
             label="City"
             value={city}
             onChangeText={setCity}
-            placeholder="Rajahmundry"
+            placeholder="Your city"
             autoCapitalize="words"
             maxLength={40}
           />

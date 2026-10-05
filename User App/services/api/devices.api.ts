@@ -60,6 +60,17 @@ export async function unregisterDevice(token: string): Promise<boolean> {
     return true;
   } catch (error) {
     logInfo('[push] could not remove this device:', (error as Error).message);
-    return false;
+    /*
+     * Refused — usually because the session this sign-out is ending has
+     * already died, so the call above carried a dead token. The handset
+     * would then keep receiving this account's alerts on its lock screen.
+     * The session-free route forgets the token instead.
+     */
+    try {
+      await api.post(endpoints.devicesForget, { token }, { token: null });
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

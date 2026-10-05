@@ -230,11 +230,28 @@ export function DateField({
   value: string | null;
   onChange: (iso: string | null) => void;
 }) {
-  const parts = (value || "").split("-");
+  /* Date part only — the server may send a full timestamp. */
+  const parts = (value || "").slice(0, 10).split("-");
   const [day, setDay] = React.useState(parts[2] || "");
   const [month, setMonth] = React.useState(parts[1] || "");
   const [year, setYear] = React.useState(parts[0] || "");
   const [focused, setFocused] = React.useState(false);
+
+  /* A value that arrives AFTER mount — the profile loading a second after the
+     screen — used to be ignored: the boxes kept their empty first state, so
+     a saved date of birth looked missing and Save sent it blank. Only a
+     complete date that differs from the boxes is taken; null is what a
+     half-typed date emits, and must not wipe what the rider is typing. */
+  React.useEffect(() => {
+    const iso = (value || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+    if (iso === `${year}-${month}-${day}`) return;
+    const [y, m, d] = iso.split("-");
+    setYear(y);
+    setMonth(m);
+    setDay(d);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
 
   const monthRef = React.useRef<TextInput>(null);
   const yearRef = React.useRef<TextInput>(null);

@@ -25,7 +25,7 @@ import {
   resendAuthCode,
   startAuth,
   updateMe,
-  verifyAuth, loginWithPassword,
+  verifyAuth, loginWithPassword, logout,
   type UpdateMeInput,
 } from '@/services/api/auth.api';
 import type { BackendOtpChallenge, BackendPartner } from '@/services/api/types';
@@ -121,6 +121,8 @@ type AuthValue = {
    * before that. See `SessionExpiredWatcher`.
    */
   sessionExpired: boolean;
+  /** Why it ended — the server's code, e.g. `ACCOUNT_BLOCKED`. */
+  sessionEndCode: string | null;
   acknowledgeSessionExpired: () => Promise<void>;
 };
 
@@ -143,6 +145,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [sendFailure, setSendFailure] = useState<SendFailure>(null);
   const [failureMessage, setFailureMessage] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [sessionEndCode, setSessionEndCode] = useState<string | null>(null);
 
   /* Guards the cooldown interval so a second send does not start a second
      timer counting the same number down twice as fast. */
@@ -285,7 +288,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
      `SessionExpiredWatcher` say so and require a tap before anything is
      cleared; `acknowledgeSessionExpired` below is what actually drops it. */
   useEffect(() => {
-    setSessionExpiredHandler(() => setSessionExpired(true));
+    setSessionExpiredHandler((code) => {
+      setSessionEndCode(code || null);
+      setSessionExpired(true);
+    });
     return () => setSessionExpiredHandler(null);
   }, []);
 
@@ -475,6 +481,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [attachDevice]);
 
   const signOut = useCallback(async () => {
+    /* The server first, while the token still works — see `logout`. Never
+       allowed to block signing out: offline, the phone is cleared anyway. */
+    await logout(pushToken.current).catch(() => {});
     await dropSession();
   }, [dropSession]);
 
@@ -500,12 +509,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     saveProfile,
     signOut,
     sessionExpired,
+    sessionEndCode,
     acknowledgeSessionExpired,
   }), [
     status, partner, pendingPhone, challenge, resendIn,
     isSubmitting, sendFailure, failureMessage,
     sendCode, resendCode, verifyCode, changeNumber, saveProfile, signOut,
-    sessionExpired, acknowledgeSessionExpired,
+    sessionExpired, sessionEndCode, acknowledgeSessionExpired,
   ]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -528,7 +538,7 @@ export function useAuth(): AuthValue {
  * session.
  */
 export function SessionExpiredWatcher() {
-  const { sessionExpired, acknowledgeSessionExpired } = useAuth();
+  const { sessionExpired, sessionEndCode, acknowledgeSessionExpired } = useAuth();
   const { alert } = useAlert();
   const showing = useRef(false);
 
@@ -536,16 +546,19 @@ export function SessionExpiredWatcher() {
     if (!sessionExpired || showing.current) return;
     showing.current = true;
     (async () => {
+      const blocked = sessionEndCode === 'ACCOUNT_BLOCKED';
       await alert({
-        title: 'Session expired',
-        message: 'Please log out and sign in again.',
+        title: blocked ? 'Account paused' : 'Session expired',
+        message: blocked
+          ? 'Lampose has paused this account, so it cannot be used right now. Please contact Lampose support.'
+          : 'Please log out and sign in again.',
         tone: 'warning',
         dismissLabel: 'Logout',
       });
       showing.current = false;
       await acknowledgeSessionExpired();
     })();
-  }, [sessionExpired, alert, acknowledgeSessionExpired]);
+  }, [sessionExpired, sessionEndCode, alert, acknowledgeSessionExpired]);
 
   return null;
 }

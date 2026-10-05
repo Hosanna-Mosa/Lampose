@@ -14,7 +14,7 @@ export function EarningsMiniCard({ today = '₹0', week = '₹0', onPress }: Pro
       onPress={onPress}
       style={({ pressed }) => [styles.cardContainer, pressed && { opacity: 0.9 }]}
       accessibilityRole="button"
-      accessibilityLabel="Earnings"
+      accessibilityLabel="Payouts"
     >
       <View style={styles.topRow}>
         <View style={styles.iconDisc}>
@@ -26,11 +26,14 @@ export function EarningsMiniCard({ today = '₹0', week = '₹0', onPress }: Pro
         </View>
       </View>
 
-      <Text style={styles.cardTitle}>Earnings</Text>
+      {/* "Payouts", not "Earnings": the figures are completed payouts — money
+          Lampose sent — not what the owner earned. Rent paid to the owner
+          directly never passes through Lampose to be counted. */}
+      <Text style={styles.cardTitle}>Payouts</Text>
       <Text style={styles.metricValue}>{today}</Text>
 
       <Text numberOfLines={1} style={styles.subtext}>
-        Today: {today}  <Text style={styles.dividerPipe}>|</Text>  This week: {week}
+        Paid today: {today}  <Text style={styles.dividerPipe}>|</Text>  This week: {week}
       </Text>
     </Pressable>
   );

@@ -79,10 +79,13 @@ export default function OwnerConfirmation() {
 
   const {
     id, stayType, units, sharingId, joinDate, flexibleJoin, consented,
-    checkIn, checkOut, rateStructure, rateQuantity,
+    checkIn, checkOut, rateStructure, rateQuantity, requestId,
   } =
     useLocalSearchParams<{
       id: string;
+      /* Set by a push or a notification row: the request to show, rather
+         than whatever this phone happens to remember for the listing. */
+      requestId?: string;
       stayType?: string;
       units?: string;
       sharingId?: string;
@@ -105,9 +108,10 @@ export default function OwnerConfirmation() {
 
   /* Keyed by listing, so a request survives the app being closed. Only the
      ID is stored — the status is always the server's. */
-  const stay = useStayRequest(id);
+  const stay = useStayRequest(id, { requestId: requestId || null });
 
   const [askingCancel, setAskingCancel] = useState(false);
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
 
   /* Manual pull-to-refresh state. Declared here, with the screen's other
      hooks, rather than beside `onRefresh` below — that sits past two early
@@ -174,13 +178,15 @@ export default function OwnerConfirmation() {
    * another booking — rather than a rule re-implemented here. See
    * `BackendStayCoupon`.
    */
-  const { spendable } = useStayCoupons(true);
+  const { spendable, isPending: couponsPending } = useStayCoupons(true);
   const reward = spendable[0] ?? null;
 
   /* One shape, two callers: the auto-send effect below, and the "Save and
      send request" button on the profile form, once a PROFILE_INCOMPLETE
      failure is fixed. Kept as one `useMemo` so a retry can never drift from
      what the first attempt actually sent. */
+  /* Only a hotel request carries a coupon (see `couponId` below). */
+  const waitsForCoupon = listing?.category === 'HOTEL';
   const sendPayload = useMemo(() => (listing ? {
     listingId: listing.id,
     /* The bed they chose, exactly as the listing offered it. */
@@ -251,6 +257,10 @@ export default function OwnerConfirmation() {
        deep link) has no account for the server to attach the request to —
        auto-sending would just 401 in front of them with no explanation. */
     if (status !== 'signedIn') return;
+    /* A hotel's coupon rides on the request. Sent before the coupons had
+       loaded, it went without one — and `sent.current` then blocked any
+       retry, so the reward was simply lost on this booking. */
+    if (couponsPending && sendPayload.couponId === null && waitsForCoupon) return;
 
     sent.current = true;
     stay.send(sendPayload).finally(() => {
@@ -264,7 +274,7 @@ export default function OwnerConfirmation() {
     /* Narrow deps on purpose: `stay` is a fresh object every render, so
        depending on it would re-run this effect constantly. Only the things
        the guard actually reads matter. */
-  }, [sendPayload, stay.isHydrating, stay.phase, stay.request, stay.send, status]);
+  }, [sendPayload, stay.isHydrating, stay.phase, stay.request, stay.send, status, couponsPending, waitsForCoupon]);
 
   /* The profile form's "Save and send request" — same payload, a fresh
      attempt. `sent.current` is left alone: it already guards against the
@@ -497,6 +507,21 @@ export default function OwnerConfirmation() {
     return <StateTemplate copy={errorStates.notFound()} onPrimary={() => router.replace('/home')} />;
   }
 
+  /* A guest — a shared link, or a session that ended — cannot send a
+     request, so the auto-send stands down and the screen used to sit on its
+     "sending" spinner for ever. Say what is needed instead. */
+  if (status !== 'signedIn' && !stay.request) {
+    return (
+      <View style={[styles.flex, styles.centre, { backgroundColor: colors.bg, padding: 24, gap: 12 }]}>
+        <Text variant="title1" style={{ textAlign: 'center' }}>Sign in to send this request</Text>
+        <Text variant="body" color="secondary" style={{ textAlign: 'center' }}>
+          The owner of {listing.name} needs to know who is asking.
+        </Text>
+        <Button label="Sign in" onPress={() => router.push('/(entry)/auth' as never)} fullWidth />
+      </View>
+    );
+  }
+
   const owner = listing.ownerName ?? 'the owner';
 
   const waiting = stay.phase === 'waiting';
@@ -510,6 +535,11 @@ export default function OwnerConfirmation() {
   /* Nobody rejected this student — the last bed went while they waited. A
      completely different sentence, and a different next action. */
   const bedTaken = declined && stay.request?.decisionReason === 'INVENTORY_TAKEN';
+  /* Two endings that are not what `cancelled` and `expired` usually mean
+     here: the BOOKING was cancelled (by either side) before it was paid, and
+     an accepted request whose payment window closed. */
+  const bookingCancelled = cancelled && stay.request?.decisionReason === 'BOOKING_CANCELLED';
+  const paymentLapsed = ranOut && stay.request?.decisionReason === 'PAYMENT_LAPSED';
 
   /*
    * What the bar says, driven by what has actually happened.
@@ -555,6 +585,16 @@ export default function OwnerConfirmation() {
     stay.request?.payment?.required && stay.request.payment.status !== 'paid',
   );
   const tokenAmount = (stay.request?.payment?.amountPaise ?? 0) / 100;
+  /* The deadline the server set for paying. Past it the hold has gone — the
+     banner said "Your room is held… Pay" over a window that had already
+     closed, and `dueBy` was never shown at all. */
+  const dueByIso = stay.request?.payment?.dueBy ?? null;
+  const dueByMs = dueByIso ? Date.parse(dueByIso) : NaN;
+  const holdLapsed = tokenDue
+    && (stay.request?.payment?.status === 'expired' || (Number.isFinite(dueByMs) && dueByMs < Date.now()));
+  const dueByLabel = Number.isFinite(dueByMs)
+    ? new Date(dueByMs).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })
+    : null;
   /*
    * Which of the two payments this is.
    *
@@ -633,7 +673,7 @@ export default function OwnerConfirmation() {
       : cancelled
         ? {
           id: 'answer',
-          label: 'You cancelled',
+          label: bookingCancelled ? 'Booking cancelled' : 'You cancelled',
           when: stamp(stay.request?.cancelledAt),
           state: 'stopped' as const,
           note: 'Nothing was charged.',
@@ -641,7 +681,7 @@ export default function OwnerConfirmation() {
         : ranOut
           ? {
             id: 'answer',
-            label: 'Closed — no answer',
+            label: paymentLapsed ? 'Closed — not paid in time' : 'Closed — no answer',
             when: stamp(stay.request?.decidedAt),
             state: 'stopped' as const,
             note: 'Nothing was charged.',
@@ -708,7 +748,15 @@ export default function OwnerConfirmation() {
   /* Said before the sheet opens, not by it. A student who picked a layout and
      waited for an owner should not meet the price for the first time as a
      payment request. */
-  const banner = accepted
+  const banner = accepted && holdLapsed
+    ? {
+      tint: colors.warning.tint,
+      ink: colors.warning.ink,
+      title: 'The payment window closed',
+      body: `${owner} held the room${dueByLabel ? ` until ${dueByLabel}` : ''}, but it was not paid in time, `
+        + 'so the hold was released. Nothing was charged — you can ask again.',
+    }
+    : accepted
     ? {
       tint: colors.success.tint,
       ink: colors.success.ink,
@@ -718,7 +766,7 @@ export default function OwnerConfirmation() {
           /* A hotel: the money IS the booking, and the dates are already
              chosen. Saying "nothing has been charged" here would be true for
              one more tap and misleading about what the tap does. */
-          ? `Your room is held. Pay ${formatRupees(tokenAmount)} to confirm the booking — `
+          ? `Your room is held${dueByLabel ? ` until ${dueByLabel}` : ''}. Pay ${formatRupees(tokenAmount)} to confirm the booking — `
             + 'your dates are already set, and the address arrives the moment it clears.'
           : `Your room is held. Nothing has been charged. Book your assisted visit for ${formatRupees(tokenAmount)} `
             + '— a Lampose representative accompanies you, and you pick the day and time right '
@@ -746,22 +794,29 @@ export default function OwnerConfirmation() {
              whole property; the last sentence is what makes the button below
              ("See other rooms here") make sense. */
           title: 'No availability right now',
-          body: 'What you asked for is not free at the moment. Nothing was charged, and nothing is '
+          body: (stay.request?.declineNote ? `The owner said: "${stay.request.declineNote}"
+
+` : '')
+            + 'What you asked for is not free at the moment. Nothing was charged, and nothing is '
             + 'owed — other rooms here may still be free, and you can ask again.',
         }
         : ranOut
           ? {
             tint: colors.warning.tint,
             ink: colors.warning.ink,
-            title: 'No answer in time',
-            body: `${owner} did not reply, so the request closed itself. Nothing was charged — you can ask again.`,
+            title: paymentLapsed ? 'Time to pay ran out' : 'No answer in time',
+            body: paymentLapsed
+              ? 'The room was held for you, but the payment did not come through in time, so it was let go. Nothing was charged — you can ask again.'
+              : `${owner} did not reply, so the request closed itself. Nothing was charged — you can ask again.`,
           }
           : cancelled
             ? {
               tint: colors.info.tint,
               ink: colors.info.ink,
-              title: 'Request cancelled',
-              body: 'Nothing was charged. You can ask again whenever you like.',
+              title: bookingCancelled ? 'Booking cancelled' : 'Request cancelled',
+              body: bookingCancelled
+                ? 'This booking was cancelled before it was paid for, so there is nothing to pay. You can ask again whenever you like.'
+                : 'Nothing was charged. You can ask again whenever you like.',
             }
             : null;
 
@@ -800,6 +855,22 @@ export default function OwnerConfirmation() {
     stay.reset();
     clearPill();
     sent.current = false;
+  };
+
+  /*
+   * Leaving an ended request — forgotten, not just its pill.
+   *
+   * This phone remembers the request it tracks per LISTING. After a decline,
+   * "See other rooms here" only cleared the pill, so choosing another room
+   * brought the student straight back to the old "No availability" banner
+   * with nothing sent: the auto-send waits for `idle`, and the stored
+   * declined request kept it from ever being idle again.
+   */
+  const leaveEnded = (href: string) => {
+    stay.reset();
+    clearPill();
+    sent.current = false;
+    router.replace(href as never);
   };
 
   return (
@@ -887,6 +958,23 @@ export default function OwnerConfirmation() {
                 : stay.request?.notifiedAt
                   ? 'It is on their phone now. You can close the app — we will tell you the moment they answer.'
                   : 'Sending it to their phone…'}
+          </Text>
+        ) : null}
+
+        {withdrawError ? <InlineAlert tone="error" title="Not withdrawn" body={withdrawError} /> : null}
+
+        {/* The ₹100 coupon was asked for and not applied. The request still
+            went through — only the discount did not — so this is a note, not
+            a failure. It used to be silent: full price, no reason. */}
+        {stay.couponRefusal ? (
+          <Text variant="caption" color="secondary">
+            {stay.couponRefusal === 'EXPIRED'
+              ? 'Your ₹100 coupon has expired, so it was not applied to this request.'
+              : stay.couponRefusal === 'ALREADY_HELD'
+                ? 'Your ₹100 coupon is held by another request, so it was not applied to this one.'
+                : stay.couponRefusal === 'ALREADY_USED'
+                  ? 'Your ₹100 coupon has already been used, so it was not applied.'
+                  : 'Your ₹100 coupon could not be applied to this request.'}
           </Text>
         ) : null}
 
@@ -1028,7 +1116,9 @@ export default function OwnerConfirmation() {
                     : `Pay ${formatRupees(tokenAmount)} and continue`)
                 : 'Continue to booking'}
               onPress={tokenDue ? payThenContinue : goToBooking}
-              disabled={paying}
+              /* Not payable once the hold has lapsed — the server would take
+                 the money for a room it already released. */
+              disabled={paying || holdLapsed}
               fullWidth
             />
             {/* The caption under the button must not contradict the button.
@@ -1090,7 +1180,7 @@ export default function OwnerConfirmation() {
             <Button
               label="Find another property"
               variant="secondary"
-              onPress={() => { clearPill(); router.replace('/home'); }}
+              onPress={() => leaveEnded('/home')}
               fullWidth
             />
           </View>
@@ -1122,13 +1212,13 @@ export default function OwnerConfirmation() {
             */}
             <Button
               label="See other rooms here"
-              onPress={() => { clearPill(); router.replace(`/listing/${listing.id}` as never); }}
+              onPress={() => leaveEnded(`/listing/${listing.id}`)}
               fullWidth
             />
             <Button
               label="Find another property"
               variant="secondary"
-              onPress={() => { clearPill(); router.replace('/home'); }}
+              onPress={() => leaveEnded('/home')}
               fullWidth
             />
           </View>
@@ -1151,7 +1241,14 @@ export default function OwnerConfirmation() {
         confirmLabel="Withdraw"
         onConfirm={async () => {
           setAskingCancel(false);
-          await stay.withdraw();
+          setWithdrawError(null);
+          const withdrawn = await stay.withdraw();
+          /* Refused — the owner answered a moment ago, or no signal. The
+             request is still live, and the student has to KNOW that: this used
+             to fail silently and leave them believing it was cancelled. */
+          if (!withdrawn) {
+            setWithdrawError('We could not withdraw your request — it is still with the owner. Check your connection and try again.');
+          }
           /* Withdrawing is the one way a student ENDS a wait themselves, and
              it is what unblocks starting another booking. The strip and the
              listing screen's guard both read one query — dropping it here is

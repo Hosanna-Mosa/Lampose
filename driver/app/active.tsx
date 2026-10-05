@@ -4,6 +4,7 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Linking,
+  Platform,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -128,7 +129,8 @@ export default function ActiveOrderScreen() {
   const advanceRef = useRef<(code: string) => Promise<boolean>>(async () => false);
   const submitCode = useCallback((code: string) => advanceRef.current(code), []);
 
-  const stage = selectStage(job);
+  const { location, heading } = useDriverLocation();
+  const stage = selectStage(job, location);
   /* The two legs: to the restaurant, then to the customer. */
   const travelling = stage === 1 || stage === 3;
   const pickedUp = stage >= 3;
@@ -138,7 +140,6 @@ export default function ActiveOrderScreen() {
   /* The diner's map follows the rider through the order room. Relayed over
      the socket rather than posted, because this is a marker position rather
      than the fix the dispatcher matches on — see `socketService.sendLocation`. */
-  const { location, heading } = useDriverLocation();
 
   /*
    * Heading is READ here and never depended on.
@@ -224,6 +225,24 @@ export default function ActiveOrderScreen() {
       return;
     }
     Linking.openURL(`tel:${number}`).catch(() => say("This phone cannot place calls."));
+  };
+
+  /* Turn-by-turn in Google Maps, two-wheeler mode. There was no way out of
+     this screen to directions at all — a rider copied the address by hand.
+     Coordinates are `[lng, lat]` (GeoJSON); maps wants lat first. The web
+     link is the fallback for a phone without the Maps app, and iOS's route. */
+  const navigateTo = (location: [number, number] | null | undefined, address?: string) => {
+    const dest = location ? `${location[1]},${location[0]}` : (address ?? "").trim();
+    if (!dest) {
+      say("We do not have a location for this stop.");
+      return;
+    }
+    const web = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}&travelmode=two-wheeler`;
+    const open = (url: string) => Linking.openURL(url);
+    (Platform.OS === "android"
+      ? open(`google.navigation:q=${encodeURIComponent(dest)}&mode=l`).catch(() => open(web))
+      : open(web)
+    ).catch(() => say("No maps app could open this."));
   };
 
   /*
@@ -385,6 +404,14 @@ export default function ActiveOrderScreen() {
                   A restaurant with no number on file is ordinary, and a dial
                   control that can only ever say "we do not have a number" is a
                   promise of a call this app cannot place. */}
+              <IconBtn
+                glyph="navigate"
+                fg={colors.brandInk}
+                tone={colors.brandOnDark}
+                bg={colors.brandTint}
+                accessibilityLabel={`Directions to ${restaurantLabel(job)}`}
+                onPress={() => navigateTo(job.pickup?.location, job.restaurant?.address)}
+              />
               {!!job.restaurant?.phone && (
                 <IconBtn
                   glyph="phone"
@@ -417,6 +444,14 @@ export default function ActiveOrderScreen() {
                   {job.drop.address || "Address unavailable"}
                 </Text>
               </View>
+              <IconBtn
+                glyph="navigate"
+                fg={colors.brandInk}
+                tone={colors.brandOnDark}
+                bg={colors.brandTint}
+                accessibilityLabel="Directions to the customer"
+                onPress={() => navigateTo(job.drop?.location, job.drop?.address)}
+              />
               <IconBtn
                 glyph="phone"
                 fg={colors.brandInk}

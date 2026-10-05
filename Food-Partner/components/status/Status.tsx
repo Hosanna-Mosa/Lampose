@@ -15,8 +15,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Box, Btn, Card, Chip, ConfirmSheet, DataRow, Icon, Notice, Scroller, Tappable, Text, TopBar } from "@/components/common";
 import { BENEFITS, COPY } from "@/constants/partner";
+
+/* "A named person to call" — found by its glyph, not by position: the list
+   changes, and `BENEFITS[3]` read past its end the day a card was removed. */
+const CONTACT_BENEFIT = BENEFITS.find((b) => b.glyph === "users") ?? BENEFITS[BENEFITS.length - 1];
 import { deliverySentence } from "@/lib/money";
-import { getMe } from "@/services/foodPartner";
+import { getMe, type ServerRestaurant } from "@/services/foodPartner";
 import { usePartnerStore, type ApplicationStatus } from "@/store/partnerStore";
 import { colors, layout, radius, space, tone as resolveTone, touch, type ToneName } from "@/theme";
 
@@ -67,6 +71,10 @@ export function Status() {
   const reset = usePartnerStore((s) => s.reset);
 
   const [checking, setChecking] = useState(false);
+  /* What the SERVER holds. "What you sent" read the local draft, which is
+     empty on any phone but the one that applied (and after a sign-out), so it
+     showed "—" and the form's defaults — 5 days, 30 min, 5 km — as if sent. */
+  const [sent, setSent] = useState<(ServerRestaurant & { menuItemCount: number }) | null>(null);
   const [checkError, setCheckError] = useState("");
 
   /* Re-read the decision from the server. There is no local way to know that
@@ -77,6 +85,7 @@ export function Status() {
     setCheckError("");
     try {
       const me = await getMe(session.token);
+      setSent(me);
       syncFromServer({
         restaurantId: me.restaurantId,
         restaurantName: me.restaurantName,
@@ -171,20 +180,41 @@ export function Status() {
           <Text variant="title1" style={{ marginBottom: space[1] }}>
             What you sent
           </Text>
-          <DataRow first label={COPY.summaryLabel} value={data.restaurantName || "—"} tabular={false} />
-          <DataRow label="Owner" value={data.ownerName || "—"} tabular={false} />
-          <DataRow label="City" value={data.city || "—"} tabular={false} />
-          <DataRow label="Open" value={`${data.days.length} days a week`} tabular={false} />
-          <DataRow label="Menu" value={`${items.length} items`} />
-          <DataRow label="Prep time" value={`${data.avgPreparationTime} min`} />
-          <DataRow label="Delivers within" value={`${data.deliveryRadiusKm} km`} />
-          <DataRow label="Payout account" value={`ending ${data.account.slice(-4) || "—"}`} />
+          <DataRow first label={COPY.summaryLabel} value={sent?.restaurantName || data.restaurantName || "—"} tabular={false} />
+          <DataRow label="Owner" value={sent?.ownerName || data.ownerName || "—"} tabular={false} />
+          <DataRow label="City" value={sent?.address?.city || data.city || "—"} tabular={false} />
+          <DataRow
+            label="Open"
+            value={
+              sent
+                ? sent.openingHours?.length ? `${sent.openingHours.length} days a week` : "—"
+                : `${data.days.length} days a week`
+            }
+            tabular={false}
+          />
+          <DataRow label="Menu" value={`${sent ? sent.menuItemCount : items.length} items`} />
+          <DataRow
+            label="Prep time"
+            value={sent ? (sent.avgPreparationTime ? `${sent.avgPreparationTime} min` : "—") : `${data.avgPreparationTime} min`}
+          />
+          <DataRow
+            label="Delivers within"
+            value={sent ? (sent.deliveryRadiusKm ? `${sent.deliveryRadiusKm} km` : "—") : `${data.deliveryRadiusKm} km`}
+          />
+          <DataRow
+            label="Payout account"
+            value={
+              sent
+                ? sent.payout?.accountLast4 ? `ending ${sent.payout.accountLast4}` : sent.payout?.upiId || "—"
+                : `ending ${data.account.slice(-4) || "—"}`
+            }
+          />
         </Box>
 
         <Box style={{ gap: space[2] }}>
-          <Text variant="title1">{BENEFITS[3].title}</Text>
+          <Text variant="title1">{CONTACT_BENEFIT.title}</Text>
           <Text variant="body" color="secondary">
-            {BENEFITS[3].desc}
+            {CONTACT_BENEFIT.desc}
           </Text>
           <Text variant="caption" color="tertiary">
             {deliverySentence(data)}
@@ -201,13 +231,23 @@ export function Status() {
           onPress={refresh}
         />
 
+        {/* Deleting the account that was created with the application.
+            Only reachable from the approved dashboard before, so a pending or
+            rejected applicant — who has an account all the same — had no way
+            to delete it from the app, which store rules require. */}
+        {!!session?.token && (
+          <Btn label="Delete my account" variant="ghost" onPress={() => router.push("/delete-account")} />
+        )}
+
         <Tappable
           accessibilityRole="button"
           onPress={() => setConfirmReset(true)}
           style={{ minHeight: touch.min, justifyContent: "center", alignItems: "center" }}
         >
-          <Text variant="bodyStrong" color="danger">
-            Start a new application
+          {/* A rejected kitchen applies again with the same phone — the server
+              replaces the rejected application rather than refusing it. */}
+          <Text variant="bodyStrong" color={status === "rejected" ? "brand" : "danger"}>
+            {status === "rejected" ? "Apply again" : "Start a new application"}
           </Text>
         </Tappable>
       </Scroller>
@@ -221,12 +261,23 @@ export function Status() {
           router.replace("/");
         }}
         spec={{
-          kicker: "Cannot be undone",
-          tone: "danger",
-          title: "Throw this application away?",
-          body: "Everything you entered is deleted from this device, including the application already sent.",
-          primary: "Delete and start again",
-          secondary: "Keep it",
+          ...(status === "rejected"
+            ? {
+                kicker: "Apply again",
+                tone: "brand" as const,
+                title: "Start a fresh application?",
+                body: "Use the same phone number. Your new application replaces the one that was not approved, and goes back for review.",
+                primary: "Start again",
+                secondary: "Not now",
+              }
+            : {
+                kicker: "Cannot be undone",
+                tone: "danger" as const,
+                title: "Throw this application away?",
+                body: "Everything you entered is deleted from this device, including the application already sent.",
+                primary: "Delete and start again",
+                secondary: "Keep it",
+              }),
         }}
       />
     </Box>

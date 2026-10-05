@@ -73,7 +73,15 @@ const deny = (res, message, code = 'UNAUTHORIZED') => res.status(401).json({
  * access for the remaining week of its token's life, which is exactly the
  * window in which somebody is blocked for running up an SMS bill.
  */
-async function requireCustomer(req, res, next) {
+/*
+ * Built twice: `requireCustomer` for the whole app, and
+ * `requireCustomerForSupport`, which is the same guard minus the one check
+ * that sent a paused customer away. They were told "This account has been
+ * paused. Please contact support." — and support used `requireCustomer` too,
+ * so it refused them with that same sentence. Same reasoning as the rider
+ * app's `requireDriverForSupport`.
+ */
+const makeCustomerGuard = ({ allowBlocked = false } = {}) => async function guardCustomer(req, res, next) {
   try {
     if (!config.auth.configured) {
       return res.status(503).json({
@@ -101,7 +109,7 @@ async function requireCustomer(req, res, next) {
     if (customer.deletion && customer.deletion.status === 'completed') {
       return deny(res, 'This account no longer exists.', 'ACCOUNT_GONE');
     }
-    if (customer.status === 'blocked') {
+    if (customer.status === 'blocked' && !allowBlocked) {
       return res.status(403).json({
         success: false,
         code: 'ACCOUNT_BLOCKED',
@@ -122,7 +130,7 @@ async function requireCustomer(req, res, next) {
     if (error.name === 'JsonWebTokenError') return deny(res, 'Invalid session.', 'BAD_TOKEN');
     return next(error);
   }
-}
+};
 
 /**
  * Loads the customer when a token happens to be there, and never refuses.
@@ -159,6 +167,9 @@ async function attachCustomerIfPresent(req, res, next) {
   }
 }
 
+const requireCustomer = makeCustomerGuard();
+const requireCustomerForSupport = makeCustomerGuard({ allowBlocked: true });
+
 module.exports = {
-  TOKEN_TYPE, signCustomerToken, requireCustomer, attachCustomerIfPresent,
+  TOKEN_TYPE, signCustomerToken, requireCustomer, requireCustomerForSupport, attachCustomerIfPresent,
 };

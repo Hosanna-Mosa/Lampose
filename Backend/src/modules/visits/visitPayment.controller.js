@@ -257,6 +257,46 @@ const markVisitPaid = async (doc, paymentId) => {
     doc.addressReleasedAt = doc.addressReleasedAt || new Date();
   }
 
+  /*
+   * A paid WEBSITE stay booking takes its bed here.
+   *
+   * This was the rule before the purposes existed ("the paid token takes the
+   * bed", after three people paid for a one-bed room and the pool never
+   * moved) and it was lost when this function was renamed. It comes back
+   * narrower, for two reasons:
+   *
+   *  · Stay bookings only. An assisted-visit fee pays for a VIEWING; taking a
+   *    bed on it would empty a building every time somebody asked to look.
+   *  · The web channel only. An app request already took its bed when the
+   *    owner accepted (`stayRequest.service#accept`), and taking another here
+   *    would count one guest twice.
+   *
+   * And the old safeguards, unchanged: it never fails the payment (the money
+   * is taken and the address released — a lost race is logged for a person,
+   * `bedClaimedAt` staying null on a paid row), it never claims twice
+   * (`bedClaimedAt`), and it never invents a pool (a request with no room
+   * type has no bed to take).
+   */
+  if (purposeOf(doc) === STAY_PURPOSE && doc.channel !== 'app' && !doc.bedClaimedAt) {
+    const { shareTypeIdFor } = require('../listings/sharing.util');
+    const shareTypeId = doc.shareTypeId
+      || (doc.sharing && doc.sharing.label ? shareTypeIdFor(doc.listingId, doc.sharing.label) : null);
+    if (shareTypeId) {
+      try {
+        const { claimBed } = require('../inventory/inventory.service');
+        const held = await claimBed(shareTypeId);
+        if (held) {
+          doc.bedClaimedAt = new Date();
+        } else {
+          console.error(`[visit-pay] PAID BUT NO BED: request ${doc._id} paid for ${shareTypeId}, `
+            + 'which had none free. The address was released; this needs a person.');
+        }
+      } catch (error) {
+        console.error(`[visit-pay] request ${doc._id} paid but the bed claim failed:`, error.message);
+      }
+    }
+  }
+
   await doc.save();
 
   /*
@@ -322,11 +362,14 @@ const markVisitPaid = async (doc, paymentId) => {
   }
 
   if (doc.channel === 'app') {
-    /* An app request is answered in the app: the push says "pick your slot"
-       and the picker is a screen, not a chat. */
+    /* An app request is answered in the app: for a visit the push says "pick
+       your slot" and the picker is a screen, not a chat. */
     try {
       const notifier = require('../notifications/stayRequest.notifier');
-      notifier.notifyVisitPaid(doc).catch((e) => console.error('[visit-pay] push failed:', e.message));
+      /* By what was paid for: a hotel stay is finished by this payment and has
+         no visit slot to pick — see `notifyStayPaid`. */
+      const send = purposeOf(doc) === STAY_PURPOSE ? notifier.notifyStayPaid : notifier.notifyVisitPaid;
+      send(doc).catch((e) => console.error('[visit-pay] push failed:', e.message));
     } catch (error) {
       console.error('[visit-pay] notifier unavailable:', error.message);
     }
@@ -812,6 +855,9 @@ const recordPaymentFailure = async (req, res, next) => {
        error status here would surface in the checkout as a failed fetch and
        tell the customer about a problem that is not theirs. */
     if (!doc || !doc.payment?.required) return res.status(204).end();
+    /* Once paid there is no failure to record. This used to overwrite the
+       PAID payment's id with whatever an unauthenticated caller sent. */
+    if (doc.payment.status === 'paid') return res.status(204).end();
 
     const trim = (value) => String(value || '').slice(0, 200);
     const detail = [

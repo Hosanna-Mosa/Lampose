@@ -205,12 +205,17 @@ describe('the student is told what the owner did', () => {
     await tick();
     setExpiryHandler(null);
 
-    assert.equal(outbox.length, 1);
-    assert.match(outbox[0].title, /expired/i);
+    /* One to each side now: the student, and the owner who missed it. */
+    const toStudent = outbox.filter((m) => !m.tokens.includes(OWNER_TOKEN));
+    const toOwner = outbox.filter((m) => m.tokens.includes(OWNER_TOKEN));
+    assert.equal(toStudent.length, 1);
+    assert.match(toStudent[0].title, /expired/i);
     /* An owner who missed three minutes was probably driving. A student who
        reads silence as rejection stops sending requests. */
-    assert.match(outbox[0].body, /did not answer in time/i);
-    assert.match(outbox[0].body, /try again/i);
+    assert.match(toStudent[0].body, /did not answer in time/i);
+    assert.match(toStudent[0].body, /try again/i);
+    assert.equal(toOwner.length, 1);
+    assert.match(toOwner[0].title, /missed/i);
   });
 });
 
@@ -247,7 +252,7 @@ describe('exactly once, with no dedupe table', () => {
 
     /* The guarded update IS the dedupe: sweeps two and three match zero
        documents, so there is nothing to notify about. */
-    assert.equal(outbox.length, 1, 'three sweeps, one notification');
+    assert.equal(outbox.length, 2, 'three sweeps, one notification to each side');
   });
 
   it('a second accept notifies nobody', async () => {

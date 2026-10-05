@@ -90,7 +90,7 @@ const {
   logDiscovery, logRejected, logDependencyMissing, startTimer,
 } = require('./foodPartner.log');
 const { escapeRegex } = require('../../shared/utils/text');
-const { GST_RATE, PLATFORM_FEE } = require('./foodCharges.util');
+const { FOOD_PRICING_CONFIG } = require('./foodPricing');
 
 const { isOpenNow, PARTNER_TYPES } = FoodRestaurant;
 
@@ -373,11 +373,30 @@ const options = (values) => (Array.isArray(values)
  * the document rather than cleared, so sending the whole object is sending
  * what is stored, and the screen reads the one its type names.
  */
-const deliveryFeeOf = (fee = {}) => ({
-  type: (fee && fee.type) || 'flat',
-  amount: number(fee && fee.amount),
-  perKm: number(fee && fee.perKm),
-  freeAboveValue: number(fee && fee.freeAboveValue),
+/*
+ * Delivery is a Lampose distance slab now (`foodPricing.js`), the same for
+ * every kitchen — not the kitchen's own setting. A card cannot know the
+ * distance, so it gets the FIRST slab as a starting price and `byDistance`
+ * to say so; the exact fee is the quote's. Kept in the old shape, so an app
+ * that has not updated still prints a sensible "₹19 delivery".
+ */
+// eslint-disable-next-line no-unused-vars
+const deliveryFeeOf = (_ownSetting = {}) => ({
+  type: 'flat',
+  amount: FOOD_PRICING_CONFIG.deliverySlabs[0].fee,
+  perKm: 0,
+  freeAboveValue: 0,
+  byDistance: true,
+});
+
+/* The charges every kitchen shares, for a card or a cart to describe.
+   `serviceFee` — never called anything else. */
+const sharedCharges = (doc) => ({
+  gstRate: FOOD_PRICING_CONFIG.foodGstRate * 100,
+  serviceFee: FOOD_PRICING_CONFIG.serviceFee,
+  packagingCharge: Math.min(number(doc.packagingCharge) || 0, FOOD_PRICING_CONFIG.maxPackagingFee),
+  smallOrderThreshold: FOOD_PRICING_CONFIG.smallOrderThreshold,
+  smallOrderFee: FOOD_PRICING_CONFIG.smallOrderFee,
 });
 
 /**
@@ -448,14 +467,14 @@ const listRow = (doc, distanceKm) => ({
   ratingCount: number(doc.ratingCount),
   avgPreparationTime: number(doc.avgPreparationTime),
   deliveryFee: deliveryFeeOf(doc.deliveryFee),
-  /* Zero, always. A kitchen has no minimum order any more — see
-     `foodCharges.util.js`. Reported rather than dropped because the app reads
-     it by name and would render `undefined` in a comparison. */
+  /* Zero, always. A kitchen has no minimum order any more (small carts pay
+     the small-order fee instead — `foodPricing.js`). Reported rather than
+     dropped because the app reads it by name and would render `undefined` in
+     a comparison. */
   minOrderValue: 0,
-  /* The platform's own charges, the same for every restaurant. They ride here
-     because the CART is what needs them and this is the object it holds. */
-  gstRate: GST_RATE,
-  platformFee: PLATFORM_FEE,
+  /* The charges every restaurant shares, and this one's packaging fee. They
+     ride here because the CART is what describes them. */
+  ...sharedCharges(doc),
   /* Derived from `openState` and the hours below. Both travel: this one
      answers "right now", the hours answer "which meal windows". */
   isCurrentlyOpen: isOpenNow(doc),
@@ -492,7 +511,7 @@ const LIST_FIELDS = [
   'restaurantId', 'restaurantName', 'description',
   'logoImage', 'coverBannerImage', 'cuisineTypes', 'partnerType',
   'ratingAvg', 'ratingCount', 'avgPreparationTime',
-  'deliveryFee', 'minOrderValue',
+  'deliveryFee', 'minOrderValue', 'packagingCharge',
   'address.city', 'address.line2', 'address.landmark',
   'openState', 'openingHours',
 ];
@@ -566,12 +585,9 @@ const restaurantDetail = (doc) => ({
 
   avgPreparationTime: number(doc.avgPreparationTime),
   deliveryRadiusKm: number(doc.deliveryRadiusKm),
-  /* Both zero: no minimum order, and the packaging charge was replaced by GST
-     and a flat platform fee. See `foodCharges.util.js`. */
+  /* No minimum order — a small-order fee under ₹150 replaced the idea. */
   minOrderValue: 0,
-  packagingCharge: 0,
-  gstRate: GST_RATE,
-  platformFee: PLATFORM_FEE,
+  ...sharedCharges(doc),
   deliveryFee: deliveryFeeOf(doc.deliveryFee),
   acceptsOnlinePayment: doc.acceptsOnlinePayment !== false,
   acceptsCod: doc.acceptsCod !== false,
@@ -582,7 +598,7 @@ const restaurantDetail = (doc) => ({
 const SUMMARY_FIELDS = [
   'restaurantId', 'restaurantName', 'logoImage', 'cuisineTypes',
   'ratingAvg', 'ratingCount', 'avgPreparationTime',
-  'deliveryFee', 'minOrderValue',
+  'deliveryFee', 'minOrderValue', 'packagingCharge',
   'address.city', 'address.line2', 'address.landmark',
   'openState', 'openingHours',
 ];
@@ -598,14 +614,12 @@ const restaurantSummary = (doc) => ({
   ratingCount: number(doc.ratingCount),
   avgPreparationTime: number(doc.avgPreparationTime),
   deliveryFee: deliveryFeeOf(doc.deliveryFee),
-  /* Zero, always. A kitchen has no minimum order any more — see
-     `foodCharges.util.js`. Reported rather than dropped because the app reads
-     it by name and would render `undefined` in a comparison. */
+  /* Zero, always. A kitchen has no minimum order any more (small carts pay
+     the small-order fee instead — `foodPricing.js`). Reported rather than
+     dropped because the app reads it by name and would render `undefined` in
+     a comparison. */
   minOrderValue: 0,
-  /* The platform's own charges, the same for every restaurant. They ride here
-     because the CART is what needs them and this is the object it holds. */
-  gstRate: GST_RATE,
-  platformFee: PLATFORM_FEE,
+  ...sharedCharges(doc),
   isCurrentlyOpen: isOpenNow(doc),
   address: placeOf(doc.address),
 });

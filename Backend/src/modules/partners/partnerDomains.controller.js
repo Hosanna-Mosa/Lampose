@@ -362,6 +362,15 @@ const checkInBooking = async (req, res, next) => {
     }
 
     if (current.entryPin) {
+      const lockedUntil = current.checkInLockedUntil ? new Date(current.checkInLockedUntil) : null;
+      if (lockedUntil && lockedUntil > new Date()) {
+        return res.status(423).json({
+          success: false,
+          code: 'CHECKIN_LOCKED',
+          message: `Too many wrong codes. Check-in for this booking is locked until ${lockedUntil.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' })}.`,
+          lockedUntil,
+        });
+      }
       const typed = digitsOnly((req.body || {}).code);
       if (!typed) {
         return res.status(400).json({
@@ -369,8 +378,34 @@ const checkInBooking = async (req, res, next) => {
         });
       }
       if (typed !== digitsOnly(current.entryPin)) {
+        /* Counted with `$inc` so parallel guesses cannot all read the same
+           count; five wrong codes lock this booking's check-in for 15 minutes. */
+        const MAX_CHECKIN_ATTEMPTS = 5;
+        const after = await PartnerBooking.findOneAndUpdate(
+          { _id: current._id },
+          { $inc: { checkInAttempts: 1 } },
+          { new: true, projection: { checkInAttempts: 1 } },
+        ).lean();
+        const used = (after && after.checkInAttempts) || 1;
+        if (used >= MAX_CHECKIN_ATTEMPTS) {
+          const until = new Date(Date.now() + 15 * 60 * 1000);
+          await PartnerBooking.updateOne(
+            { _id: current._id },
+            { $set: { checkInAttempts: 0, checkInLockedUntil: until } },
+          );
+          return res.status(423).json({
+            success: false,
+            code: 'CHECKIN_LOCKED',
+            message: 'Too many wrong codes. Check-in for this booking is locked for 15 minutes.',
+            lockedUntil: until,
+          });
+        }
+        const left = MAX_CHECKIN_ATTEMPTS - used;
         return res.status(403).json({
-          success: false, code: 'BAD_PIN', message: 'That code does not match this booking.',
+          success: false,
+          code: 'BAD_PIN',
+          message: `That code does not match this booking. ${left} ${left === 1 ? 'try' : 'tries'} left.`,
+          attemptsLeft: left,
         });
       }
     }
@@ -613,6 +648,12 @@ const cancelBooking = async (req, res, next) => {
      * it — they were not at a form when the owner pressed Cancel, so the
      * notification below carries that request. Null for the free categories.
      */
+    /* The request behind it closes too, so it can no longer be paid — see
+       `closeRequestForCancelledBooking`. Best effort: the cancel stands. */
+    await require('../visits/stayRequest.service')
+      .closeRequestForCancelledBooking(booking._id)
+      .catch((error) => console.error('[booking] cancelled but the request stayed open:', error.message));
+
     let refund = null;
     try {
       refund = await require('../settlements/refund.service')
@@ -653,11 +694,11 @@ const getEarningsSummary = async (req, res, next) => {
      * every completed payout ever recorded while being labelled "this week".
      * It is now a real seven-day window.
      */
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
+    /* India's midnight, not the server's — see `shared/utils/istTime.js`. */
+    const { istStartOfDay, istStartOfDaysAgo } = require('../../shared/utils/istTime');
+    const startOfToday = istStartOfDay();
 
-    const startOfWeek = new Date(startOfToday);
-    startOfWeek.setDate(startOfWeek.getDate() - 6);
+    const startOfWeek = istStartOfDaysAgo(6);
 
     const completed = payouts.filter((p) => p.status === 'completed' && p.payoutDate);
 
@@ -1225,17 +1266,24 @@ const getReferralInfo = async (req, res, next) => {
   }
 };
 
+/**
+ * Cash out referral points — a real payout request now, not just a reset.
+ * See `payoutService.requestReferralPayout`.
+ */
 const withdrawReferral = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
-    const key = getDigits(req.partner);
-    const ref = await PartnerReferral.findOneAndUpdate(
-      { partnerPhoneDigits: key },
-      { points: 0, earningsRupees: 0 },
-      { new: true }
-    ).lean();
-    return res.json({ success: true, data: { ...ref, id: String(ref._id) } });
+    const payout = await payoutService.requestReferralPayout(req.partner, {
+      paymentMethodId: String((req.body || {}).paymentMethodId || '').trim() || null,
+    });
+    return res.status(201).json({
+      success: true,
+      data: { payout: { ...payout.toObject(), id: String(payout._id) }, points: 0 },
+    });
   } catch (error) {
+    if (error instanceof payoutService.PayoutError) {
+      return res.status(error.status).json({ success: false, code: error.code, message: error.message });
+    }
     return next(error);
   }
 };
@@ -1297,7 +1345,16 @@ const updateShareTypeAvailability = async (req, res, next) => {
   try {
     if (mongoose.connection.readyState !== 1) return dbDown(res);
     const key = getDigits(req.partner);
-    const { isAvailable } = req.body;
+    const { isAvailable } = req.body || {};
+
+    /* A missing or malformed body is refused, not read as `false`. It used to
+       be: `Boolean(undefined)` paused every room type this owner has, from a
+       request that never said to. */
+    if (typeof isAvailable !== 'boolean') {
+      return res.status(400).json({
+        success: false, code: 'VALIDATION_ERROR', message: 'Send isAvailable as true or false.',
+      });
+    }
 
     /* The Dashboard's actual "accepting bookings" answer — see the note on
        `acceptingBookings` in partner.model.js for why this is a flag on the
@@ -1319,7 +1376,19 @@ const updateShareTypeAvailability = async (req, res, next) => {
      * and leave whatever each row was already set to alone.
      */
     if (!isAvailable) {
-      await PartnerShareType.updateMany({ partnerPhoneDigits: key }, { isAvailable: false });
+      /* Marked as the switch's doing, only on rows that were open. */
+      await PartnerShareType.updateMany(
+        { partnerPhoneDigits: key, isAvailable: true },
+        { $set: { isAvailable: false, pausedByMaster: true } },
+      );
+    } else {
+      /* Back on: what the switch paused comes back. It used to raise only the
+         flag, so the dashboard said "accepting bookings" while every room type
+         stayed paused and every listing stayed hidden from students. */
+      await PartnerShareType.updateMany(
+        { partnerPhoneDigits: key, pausedByMaster: true },
+        { $set: { isAvailable: true, pausedByMaster: false } },
+      );
     }
 
     return res.json({ success: true, isAvailable: Boolean(isAvailable) });
@@ -1362,7 +1431,8 @@ const updateOneShareTypeAvailability = async (req, res, next) => {
 
     const row = await PartnerShareType.findOneAndUpdate(
       { shareTypeId, partnerPhoneDigits: key },
-      { $set: { isAvailable } },
+      /* Switched by hand, so no longer the master switch's to restore. */
+      { $set: { isAvailable, pausedByMaster: false } },
       { new: true },
     );
 

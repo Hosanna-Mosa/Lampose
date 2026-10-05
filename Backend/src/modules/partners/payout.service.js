@@ -38,12 +38,18 @@
    the same rule `config.razorpay.assistedVisitAmountPaise` follows for money
    coming in.
    ══════════════════════════════════════════════════════════════════════════ */
+const mongoose = require('mongoose');
 const razorpay = require('../../infrastructure/razorpay/razorpay');
 const config = require('../../config/env');
 const settlements = require('../settlements/settlement.service');
 const {
-  PartnerBooking, PartnerPayout, PartnerPaymentMethod,
+  PartnerBooking, PartnerPayout, PartnerPaymentMethod, PartnerReferral,
 } = require('./partnerDomains.model');
+
+/** Referral cash-out: 1 point is ₹1, and nothing under this can be withdrawn.
+    Checked HERE — the app's own check is a convenience, not a rule. */
+const REFERRAL_POINT_RUPEES = 1;
+const MIN_REFERRAL_WITHDRAW_POINTS = 500;
 
 /** A refusal the caller is meant to show somebody. */
 class PayoutError extends Error {
@@ -179,6 +185,69 @@ const requestPayout = async (partner) => {
   await payout.save();
 
   return payout;
+};
+
+/**
+ * Cash out referral points as a real payout request.
+ *
+ * Used to set the points to zero and create nothing: the owner was told
+ * "₹X is on its way" and no row anywhere said Lampose owed it. Now the points
+ * become a `pending` PartnerPayout that the admin console pays or refuses
+ * like any other — and a refusal gives the points back (`rejectPayout`).
+ *
+ * The points are taken with ONE conditional update that also enforces the
+ * minimum, so a double tap or two phones cannot cash the same points twice.
+ */
+const requestReferralPayout = async (partner, { paymentMethodId = null } = {}) => {
+  const key = partner.phoneDigits;
+  if (!key) throw new PayoutError('NOT_ELIGIBLE', 'This account has no verified number.', 403);
+
+  /* The account the owner picked, if it is theirs; otherwise their default. */
+  let method = null;
+  if (paymentMethodId && mongoose.isValidObjectId(paymentMethodId)) {
+    method = await PartnerPaymentMethod.findOne({ _id: paymentMethodId, partnerPhoneDigits: key }).lean();
+  }
+  if (!method) {
+    method = await PartnerPaymentMethod.findOne({ partnerPhoneDigits: key })
+      .sort({ isPrimary: -1, createdAt: 1 })
+      .lean();
+  }
+  if (!method) {
+    throw new PayoutError('NO_PAYMENT_METHOD', 'Add a bank account or UPI id before withdrawing.');
+  }
+
+  const before = await PartnerReferral.findOneAndUpdate(
+    { partnerPhoneDigits: key, points: { $gte: MIN_REFERRAL_WITHDRAW_POINTS } },
+    { $set: { points: 0, earningsRupees: 0 } },
+    { new: false },
+  ).lean();
+  if (!before) {
+    throw new PayoutError(
+      'NOT_ENOUGH_POINTS',
+      `You need at least ${MIN_REFERRAL_WITHDRAW_POINTS} points to withdraw.`,
+      409,
+    );
+  }
+
+  const points = Number(before.points) || 0;
+  try {
+    return await PartnerPayout.create({
+      partnerPhoneDigits: key,
+      amount: points * REFERRAL_POINT_RUPEES,
+      status: 'pending',
+      bankAccount: maskMethod(method),
+      referralPoints: points,
+      requestedAt: new Date(),
+    });
+  } catch (error) {
+    /* The points were taken and no payout exists to show for them. Give them
+       back before failing, so the owner's balance is exactly as it was. */
+    await PartnerReferral.updateOne(
+      { partnerPhoneDigits: key },
+      { $inc: { points, earningsRupees: Number(before.earningsRupees) || 0 } },
+    );
+    throw error;
+  }
 };
 
 /**
@@ -448,11 +517,19 @@ const rejectPayout = async (payoutId, { reason = '', admin } = {}) => {
   );
   await settlements.releaseClaim(payout._id);
 
+  /* A refused referral cash-out returns its points; see `requestReferralPayout`. */
+  if (payout.referralPoints > 0) {
+    await PartnerReferral.updateOne(
+      { partnerPhoneDigits: payout.partnerPhoneDigits },
+      { $inc: { points: payout.referralPoints, earningsRupees: payout.referralPoints * REFERRAL_POINT_RUPEES } },
+    );
+  }
+
   return payout;
 };
 
 module.exports = {
-  PayoutError, availableBalance, requestPayout, processPayout,
+  PayoutError, availableBalance, requestPayout, requestReferralPayout, processPayout,
   /* Exported so a payout status has exactly one interpreter, shared with
      the webhook — see the note above `applyPayoutStatus`. */
   applyPayoutStatus, applyWebhookPayout,

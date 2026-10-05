@@ -36,7 +36,9 @@ const AMENITY_CHOICES: readonly AmenityName[] = [
   'parking',
 ];
 
-const GENDER_CHOICES: readonly Gender[] = ['BOYS', 'GIRLS'];
+/* Co-ed is a real kind of place, and somebody who wants one had no way to
+   say so — they had to pick a gender that excluded it. */
+const GENDER_CHOICES: readonly Gender[] = ['BOYS', 'GIRLS', 'COED'];
 
 const MEAL_CHOICES: readonly { value: boolean | null; label: string }[] = [
   { value: null, label: 'Any' },
@@ -130,8 +132,11 @@ export function FilterSheet({ query, inventory, category, onApply, onClose }: Fi
     setDraft({ ...draft, ...clearedFilters });
   };
 
+  /* The label names the ACTUAL block. It always said "Choose who this is for",
+     even when gender was picked and the rent ceiling was what stopped it. */
+  const firstBlock = issues.find((issue) => issue.level === 'blocking');
   const applyLabel = blocked
-    ? 'Choose who this is for'
+    ? firstBlock?.field === 'rent' ? 'Raise your budget' : 'Choose who this is for'
     : count === 0
       ? 'No places match'
       : `Show ${count} ${count === 1 ? 'place' : 'places'}`;

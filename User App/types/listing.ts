@@ -578,6 +578,9 @@ export type Listing = {
    * selector — bed choice moves to the request, where it is being committed to.
    */
   stayRates?: readonly StayRate[];
+  /** The joining / check-in dates the server will accept, inclusive. Absent
+      on an older server — the pickers then fall back to "not before today". */
+  joinWindow?: { min: string; max: string };
 
   /** Whether the property has been physically verified by a Lampose field partner. */
   isVerified?: boolean;

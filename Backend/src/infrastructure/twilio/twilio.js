@@ -1402,6 +1402,7 @@ module.exports = {
   _useClientForTests,
   sendDriverDocumentRejected,
   sendOwnerText,
+  sendContentOrText,
   sendVerificationMessage,
   sendConfirmationMessage,
   sendVisitConfirmationToCustomer,

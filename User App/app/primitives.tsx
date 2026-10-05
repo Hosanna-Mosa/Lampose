@@ -1,4 +1,4 @@
-import { Stack, useRouter, Redirect } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,7 +36,7 @@ import {
 import { StandardHeader } from '@/components/shell';
 import { useTheme } from '@/context/ThemeContext';
 import { actions } from '@/constants/actions';
-import { usePreviewControls } from '@/hooks/useAppEnv';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * Batch 1 — primitives preview.
@@ -389,14 +389,5 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
 });
 
-/**
- * A design prototype, not a product screen: it runs on fixtures and several of
- * its buttons do nothing. Nothing in the live app links here, but expo-router
- * still registers the route, so a typed or stale `lampose://` link would open
- * it. Outside preview builds it redirects home, like `/preview` does.
- */
-export default function PrimitivesPreviewRoute() {
-  const previewControls = usePreviewControls();
-  if (!previewControls) return <Redirect href="/home" />;
-  return <PrimitivesPreview />;
-}
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(PrimitivesPreview);

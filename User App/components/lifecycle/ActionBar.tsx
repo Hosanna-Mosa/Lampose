@@ -33,6 +33,11 @@ export type ActionBarProps = {
   onSecondary?: () => void;
   onDestructive?: () => void;
   onSupport?: () => void;
+  /**
+   * The server will still cancel this booking — it is `upcoming`, not yet
+   * started. The one action a CONFIRMED booking keeps: see `actionsFor`.
+   */
+  cancellable?: boolean;
 };
 
 type Actions = {
@@ -75,7 +80,16 @@ type Actions = {
  * and the payment are real Lampose processes, so "Cancel this request", the
  * payment retry and "Track my refund" still mean something there.
  */
-function actionsFor(booking: BookingSummary, category?: string | null): Actions {
+function actionsFor(booking: BookingSummary, category?: string | null, cancellable = false): Actions {
+  /*
+   * Except cancelling, before it starts. That IS a Lampose action — the
+   * server cancels an `upcoming` booking, frees the bed, and opens the refund
+   * for a paid one — and with no button for it the refundable branch of the
+   * cancel screen could not be reached by anybody.
+   */
+  if (booking.status === 'CONFIRMED' && cancellable) {
+    return { destructive: 'Cancel booking' };
+  }
   if (booking.status === 'CONFIRMED' || booking.status === 'CHECKED_IN') {
     return {};
   }
@@ -129,8 +143,8 @@ function supportHidden(booking: BookingSummary): boolean {
  * The caller offers its own way out rather than this file inventing an action
  * the gate above exists to withhold.
  */
-export function hasActions(booking: BookingSummary, category?: string | null): boolean {
-  const slots = actionsFor(booking, category);
+export function hasActions(booking: BookingSummary, category?: string | null, cancellable = false): boolean {
+  const slots = actionsFor(booking, category, cancellable);
   return Boolean(slots.primary || slots.secondary || slots.destructive)
     || !supportHidden(booking);
 }
@@ -142,12 +156,13 @@ export function ActionBar({
   onSecondary,
   onDestructive,
   onSupport,
+  cancellable = false,
 }: ActionBarProps) {
   const { space } = useTheme();
-  const slots = actionsFor(booking, category);
+  const slots = actionsFor(booking, category, cancellable);
   const hideSupport = supportHidden(booking);
 
-  if (!hasActions(booking, category)) return null;
+  if (!hasActions(booking, category, cancellable)) return null;
 
   return (
     <View style={{ gap: space[2] }}>

@@ -53,13 +53,6 @@ export function statusLabel(status: StaffStatus): string {
 
 const listeners = new Set<() => void>();
 
-export function subscribeStaff(fn: () => void): () => void {
-  listeners.add(fn);
-  return () => {
-    listeners.delete(fn);
-  };
-}
-
 let nextId = 100;
 
 /** A sent invite lands in the list as `invited` — nobody starts `active` sight unseen. */

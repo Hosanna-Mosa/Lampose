@@ -67,14 +67,20 @@ export default function ProfileScreen() {
       ? `${profile.payout.bankName || "Bank"} ••••${profile.payout.accountLast4}`
       : profile?.payout?.upiId || "Add a payout method",
     "/earnings": earnings.week ? `₹${earnings.week.toLocaleString("en-IN")} this week` : "",
-    "/orders": history.length ? `${history.length} delivered` : "",
+    /* Delivered ones only — the loaded history also holds cancelled and
+       in-progress rows, which this used to count as "delivered". */
+    "/orders": (() => {
+      const delivered = history.filter((job) => job.status === "delivered").length;
+      return delivered ? `${delivered} delivered` : "";
+    })(),
   };
 
   const toneFor = (route: string): ToneName | undefined =>
     route === "/documents" && rejected ? "danger" : undefined;
 
   const driverName = profile?.name || "Partner Rider";
-  const driverId = profile?.driverId || "DR-285792FE";
+  /* The rider's own id or nothing — "DR-285792FE" was somebody else's. */
+  const driverId = profile?.driverId || "";
 
   return (
     <View style={styles.root}>
@@ -82,7 +88,7 @@ export default function ProfileScreen() {
       <View style={[styles.headerContainer, { paddingTop: Math.max(insets.top + 8, 20) }]}>
         <RNText style={styles.pageHeaderTitle}>Profile</RNText>
         <View style={styles.profileCard}>
-          <Avatar name={driverName} size={68} />
+          <Avatar name={driverName} size={68} photoUrl={profile?.profilePhotoUrl} />
           <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
             <RNText style={styles.driverNameText} numberOfLines={1}>
               {driverName}

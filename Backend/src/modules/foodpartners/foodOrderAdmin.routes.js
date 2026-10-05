@@ -47,6 +47,7 @@ const verifyAdminToken = require('../analytics/verifyAdminToken.middleware');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const {
   listOrders, getCounts, getOrder, markDelivered, issueRefund, recordSettledRefund,
+  cancelOrder, redispatchOrder,
 } = require('./foodOrderAdmin.controller');
 const { tagFoodPartnerRequest } = require('./foodPartner.log');
 
@@ -80,6 +81,11 @@ router.get('/:orderNumber', getOrder);
 
 /* Only a completer may say a website order was delivered. */
 router.post('/:orderNumber/delivered', requireCompleter, markDelivered);
+/* The way out for a stuck order — see `cancelOrder` and `redispatchOrder`.
+   Same narrow gate as marking delivered: both decide what happens to an
+   order somebody has paid for. */
+router.post('/:orderNumber/cancel', requireCompleter, cancelOrder);
+router.post('/:orderNumber/redispatch', requireCompleter, redispatchOrder);
 
 /* Only a refunder may send it, or declare it sent. */
 router.post('/:orderNumber/refund', requireRefunder, issueRefund);

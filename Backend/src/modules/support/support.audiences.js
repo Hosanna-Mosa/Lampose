@@ -47,7 +47,10 @@
  * these strings are already in `User App/types/support.ts` and in tickets
  * sitting in the database, so they are not renamed here.
  */
-const CUSTOMER_CATEGORIES = ['property', 'deposit', 'payment', 'owner', 'booking', 'other'];
+/* `order` — a food order. Diners filing about one had only stay categories to
+   choose from ("A payment" for cold biryani). Already a valid stored category:
+   riders and kitchens file under it. */
+const CUSTOMER_CATEGORIES = ['property', 'deposit', 'payment', 'owner', 'booking', 'order', 'other'];
 
 /**
  * The rider's six.

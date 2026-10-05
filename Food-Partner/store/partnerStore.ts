@@ -25,7 +25,7 @@ import { uid } from "@/lib/uid";
 import { disconnectOrderSocket } from "@/services/orderSocket";
 import { releaseOrderSound } from "@/services/alertSound";
 import { getPushToken } from "@/services/orderAlerts";
-import { unregisterDevice } from "@/services/foodPartner";
+import { forgetDevice, logoutSession } from "@/services/foodPartner";
 
 // ─── Domain types ─────────────────────────────────────────────────────────────
 
@@ -551,9 +551,13 @@ export const usePartnerStore = create<PartnerState>()(
         })),
 
       addCategory: (name) =>
-        set((s) => ({
-          data: { ...s.data, menuCategories: [...s.data.menuCategories, { id: uid(), name, items: [] }] },
-        })),
+        set((s) =>
+          /* Once per name, whatever the case — the suggestion chips call this
+             directly, without the naming sheet's check. */
+          s.data.menuCategories.some((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase())
+            ? s
+            : { data: { ...s.data, menuCategories: [...s.data.menuCategories, { id: uid(), name, items: [] }] } },
+        ),
 
       removeCategory: (categoryId) =>
         set((s) => ({
@@ -561,7 +565,28 @@ export const usePartnerStore = create<PartnerState>()(
         })),
 
       saveItem: (categoryId, item) =>
-        set((s) => ({
+        set((s) => {
+          /* The form's category picker MOVES the dish. It used to be ignored:
+             the item stayed in the category it was opened from, and that
+             category's name is what the application sends. */
+          const target = s.data.menuCategories.find(
+            (c) => c.name === item.category && c.id !== categoryId,
+          );
+          if (target) {
+            return {
+              data: {
+                ...s.data,
+                menuCategories: s.data.menuCategories.map((c) => {
+                  if (c.id === categoryId) return { ...c, items: c.items.filter((i) => i.id !== item.id) };
+                  if (c.id === target.id) {
+                    return { ...c, items: [...c.items, { ...item, displayOrder: c.items.length }] };
+                  }
+                  return c;
+                }),
+              },
+            };
+          }
+          return {
           data: {
             ...s.data,
             menuCategories: s.data.menuCategories.map((c) => {
@@ -577,7 +602,8 @@ export const usePartnerStore = create<PartnerState>()(
               };
             }),
           },
-        })),
+          };
+        }),
 
       removeItem: (categoryId, itemId) =>
         set((s) => ({
@@ -627,6 +653,8 @@ export const usePartnerStore = create<PartnerState>()(
           submitting: false,
           submitError: "",
           phoneProof: null,
+          /* Submitted: the secrets in memory go too. */
+          data: { ...data, password: "", confirmPassword: "", account: "", accountConfirm: "" },
           status: "pending",
           submittedAt: new Date().toISOString(),
           restaurantId: result.restaurantId,
@@ -666,8 +694,14 @@ export const usePartnerStore = create<PartnerState>()(
            that hangs is a person standing there. */
         const token = get().session?.token;
         if (token) {
+          /* `logoutSession` forgets the push token AND tells the server the
+             session is over, so it is not just this phone that forgets it. */
           getPushToken()
-            .then((registration) => (registration ? unregisterDevice(registration.token, token) : null))
+            .catch(() => null)
+            .then((registration) => logoutSession(token, registration?.token).catch(() => (
+              /* A dead session refuses the logout; forget the handset anyway. */
+              registration?.token ? forgetDevice(registration.token) : null
+            )))
             .catch(() => {
               /* No push token on this handset, or no way to reach the server.
                  Either way the sign-out below has already happened. */
@@ -675,7 +709,12 @@ export const usePartnerStore = create<PartnerState>()(
         }
         disconnectOrderSocket();
         releaseOrderSound();
-        set({ session: null });
+        /* Everything, not just the session. Keeping `status`, `restaurantId`
+           and the draft meant the sign-in screen went on saying "You're live"
+           for a kitchen nobody was signed in to, and the next person on a
+           shared tablet inherited the last one's application. The server has
+           all of it; signing in reads it back. */
+        get().reset();
       },
 
       reset: () =>
@@ -694,12 +733,18 @@ export const usePartnerStore = create<PartnerState>()(
     {
       name: "lampose-food-partner",
       /* Both credentials go to the Keychain / Keystore: `session` carries
-         the restaurant's bearer token, and `verificationToken` is the phone
-         proof that can submit an application. The draft application itself
-         stays in AsyncStorage — it is long, and it is not a credential. */
-      storage: createJSONStorage(() => secureFields(["session", "verificationToken"])),
+         the restaurant's bearer token, and `phoneProof` is the token that can
+         submit an application. This listed `verificationToken`, a field the
+         store does not have, so the proof sat in plain AsyncStorage. The
+         draft application itself stays in AsyncStorage — it is long, and
+         apart from the fields stripped below it is not a credential. */
+      storage: createJSONStorage(() => secureFields(["session", "phoneProof"])),
       partialize: (s) => ({
-        data: s.data,
+        /* Never written to disk: the account password and the full bank
+           account number. They were kept in plain storage and never cleared,
+           even after submitting. An applicant whose app restarts mid-form
+           types them again; the step gates ask for them. */
+        data: { ...s.data, password: "", confirmPassword: "", account: "", accountConfirm: "" },
         status: s.status,
         submittedAt: s.submittedAt,
         restaurantId: s.restaurantId,

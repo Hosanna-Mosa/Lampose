@@ -235,6 +235,10 @@ describe('end to end · two students, one bed', () => {
     const before = await call('GET', `/api/v2/listings/${propertyId}`);
     assert.equal(before.body.data.sharingOptions[0].availableBeds, 1);
 
+    /* Both creation pushes, before the outbox is cleared. They are sent after
+       the response, so the second could land AFTER the reset below and be
+       counted as something the accept caused — a flaky failure, not a bug. */
+    await waitFor(() => outbox.filter((m) => m.data?.kind === 'request.created').length >= 2);
     outbox = [];
     const accepted = await call('POST', `/api/v2/partners/requests/${first.body.data.id}/accept`, {
       token: ownerToken,
@@ -287,7 +291,8 @@ describe('end to end · both apps closed', () => {
     assert.equal(swept.expired, 1);
     await settleFor('request.expired');
 
-    assert.deepEqual(kindsIn(), ['request.expired']);
+    /* The student, then the owner who missed it — both are told now. */
+    assert.deepEqual(kindsIn(), ['request.expired', 'request.expired']);
     assert.deepEqual(outbox[0].tokens, ['ExponentPushToken[priya]']);
 
     /* And when the student finally opens the app. */

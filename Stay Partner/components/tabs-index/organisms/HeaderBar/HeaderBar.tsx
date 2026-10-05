@@ -13,7 +13,7 @@ type Props = {
 
 export function HeaderBar({
   propertyName,
-  locationLabel = 'Rajahmundry, AP',
+  locationLabel = '',
   unreadCount = 0,
   ownerName,
   onPressProperty,
@@ -41,9 +41,11 @@ export function HeaderBar({
             </Text>
             <Icon name="chevron-down" size={16} color="#1E293B" />
           </View>
-          <Text numberOfLines={1} style={styles.propertyLocation}>
-            {locationLabel}
-          </Text>
+          {locationLabel ? (
+            <Text numberOfLines={1} style={styles.propertyLocation}>
+              {locationLabel}
+            </Text>
+          ) : null}
         </View>
       </Pressable>
 

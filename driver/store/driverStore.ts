@@ -2,15 +2,14 @@ import { AppState, type AppStateStatus } from "react-native";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { secureFields } from "../services/secureStore";
-import { api, ApiError, SESSION_DEAD_CODES } from "@/utils/api";
-import type { ChatMessage } from "@/utils/chatMessages";
+import { api, ApiError, SESSION_DEAD_CODES, setAccountSuspendedHandler } from "@/utils/api";
 import { getPushToken } from "@/services/offerAlerts";
 import { playOfferAlert } from "@/services/alertSound";
 import { socketService } from "@/utils/socketService";
 /* Importing this REGISTERS the background location task: `defineTask` runs at
    module scope there, and it has to have run before Android can hand the task
    a batch — including on a headless relaunch. See `services/backgroundLocation.ts`. */
-import { startDeliveryTracking, stopDeliveryTracking } from "@/services/backgroundLocation";
+import { startDeliveryTracking, stopDeliveryTracking, syncTracking } from "@/services/backgroundLocation";
 
 /**
  * The rider's session and their work.
@@ -120,11 +119,12 @@ export type Job = {
     etaMinutes?: number;
   };
   drop: { location: [number, number] | null; address: string };
+  /** Where the server actually puts the pickup ETA on an offer — at the top
+      level (see `offerFor` / `broadcastOffers`), not under `pickup`. */
+  etaMinutes?: number;
   /** Empty until the offer is accepted — the server withholds both. */
   customerName: string;
   customerPhone: string;
-  /** The kitchen reads this out at the pass. Empty until accepted. */
-  pickupCode: string;
   placedAt?: string;
   promisedMinutes?: number;
   /**
@@ -319,6 +319,9 @@ const EMPTY_EARNINGS: EarningsSummary = {
 };
 
 const BASE = "/api/v2/drivers";
+
+/** Accept refusals that mean the offer itself is over, not that the call failed. */
+const OFFER_OVER_CODES = new Set(["TAKEN", "OFFER_EXPIRED", "ORDER_CLOSED", "NOT_FOUND"]);
 
 /** How often the poll fallback asks, while online and holding nothing. */
 const OFFER_POLL_MS = 4000;
@@ -549,10 +552,6 @@ type DriverState = {
   /** Why the last earnings read failed, in the server's words. Empty when it did not. */
   earningsError: string;
 
-  // Chat
-  activeChat: ChatMessage[];
-  unreadCount: number;
-  isChatActive: boolean;
 
   // ── Actions ────────────────────────────────────────────────────────────────
   startSignIn: (phone: string) => Promise<void>;
@@ -629,10 +628,6 @@ type DriverState = {
       onto themselves. */
   fetchHistory: (options?: { more?: boolean }) => Promise<void>;
 
-  addChatMessage: (message: ChatMessage) => void;
-  clearChat: () => void;
-  setUnreadCount: (count: number) => void;
-  setIsChatActive: (active: boolean) => void;
 };
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -696,9 +691,6 @@ export const useDriverStore = create<DriverState>()(
       earningsLoaded: false,
       earningsError: "",
 
-      activeChat: [],
-      unreadCount: 0,
-      isChatActive: false,
 
       // ── Session ──────────────────────────────────────────────────────────
 
@@ -877,6 +869,7 @@ export const useDriverStore = create<DriverState>()(
       },
 
       logout: async (options) => {
+        queuedOffers = [];
         /* Same reasoning as the device unregister below: on a shared handset a
            service left running would keep reporting the PREVIOUS rider's
            position, under their token, with a notification the next person can
@@ -889,12 +882,29 @@ export const useDriverStore = create<DriverState>()(
            they can read. */
         const { token } = get();
         if (token && !options?.accountGone) {
+          /* One call does both now: takes the rider off duty on the server
+             (they stayed "online" there and kept being offered jobs) and
+             forgets this handset's push token. Not awaited — a rider with no
+             signal must still be able to sign out. */
           getPushToken()
-            .then((registration) =>
-              registration
-                ? api(`${BASE}/me/devices`, { method: "DELETE", body: registration, token })
-                : null,
-            )
+            .catch(() => null)
+            .then(async (registration) => {
+              try {
+                await api(`${BASE}/auth/logout`, {
+                  method: "POST",
+                  body: registration?.token ? { pushToken: registration.token } : {},
+                  token,
+                });
+              } catch {
+                /* Refused — usually because this sign-out is BECAUSE the
+                   session died. The session-free route still takes the
+                   handset off, or it keeps getting this rider's offers. */
+                if (registration?.token) {
+                  await api(`/api/v2/devices/forget`, { method: "POST", body: { token: registration.token } })
+                    .catch(() => {});
+                }
+              }
+            })
             .catch(() => {});
         }
         socketService.disconnect();
@@ -915,9 +925,6 @@ export const useDriverStore = create<DriverState>()(
           earnings: EMPTY_EARNINGS,
           earningsLoaded: false,
           earningsError: "",
-          activeChat: [],
-          unreadCount: 0,
-          isChatActive: false,
         });
       },
 
@@ -971,6 +978,8 @@ export const useDriverStore = create<DriverState>()(
             ...(online ? null : { offer: null }),
           }));
           if (online) get().pollOffer().catch(() => {});
+          /* On duty, the location service runs too — see `syncTracking`. */
+          syncTracking({ online: get().isOnline, hasJob: !!get().currentJob }).catch(() => {});
         } finally {
           set({ togglingDuty: false });
         }
@@ -989,6 +998,15 @@ export const useDriverStore = create<DriverState>()(
       pushLocation: async (lat, lng, heading) => {
         const { token, isOnline } = get();
         if (!token || !isOnline) return;
+        /* One stored fix every few seconds, not every fix. The foreground
+           watch fires every 3 s / 5 m — about 300 a quarter-hour on a scooter
+           — against a server limit of 240, so a moving rider got 429s, the
+           dispatcher saw stale positions and the diner's map stuttered. The
+           diner's live marker rides the socket relay, which is not
+           throttled; only this stored position is. */
+        const now = Date.now();
+        if (now - lastLocationPushAt < LOCATION_PUSH_MIN_MS) return;
+        lastLocationPushAt = now;
         try {
           await api(`${BASE}/me/location`, {
             method: "PATCH",
@@ -1063,6 +1081,17 @@ export const useDriverStore = create<DriverState>()(
         if (existing && existing.orderNumber === incoming.orderNumber) return;
         if (get().currentJob) return; // already carrying something
 
+        /* A second offer while one is on screen WAITS. Offers go to every
+           rider in range at once, so two can arrive together — and the second
+           used to replace the first mid-read, a job vanishing from under the
+           rider's thumb. It shows (and rings) when this one is answered. */
+        if (existing) {
+          if (!queuedOffers.some((o) => o.orderNumber === incoming.orderNumber)) {
+            queuedOffers.push(incoming);
+          }
+          return;
+        }
+
         set({ offer: incoming });
 
         /*
@@ -1082,10 +1111,12 @@ export const useDriverStore = create<DriverState>()(
       },
 
       clearOffer: (orderNumber) => {
+        /* Closed elsewhere while it waited in line: it never shows. */
+        if (orderNumber) queuedOffers = queuedOffers.filter((o) => o.orderNumber !== orderNumber);
         const current = get().offer;
         if (!current) return;
         if (orderNumber && current.orderNumber !== orderNumber) return;
-        set({ offer: null });
+        showNextOffer();
       },
 
       pollOffer: async () => {
@@ -1117,7 +1148,9 @@ export const useDriverStore = create<DriverState>()(
           if (!job) throw new ApiError(res?.message || "That offer has gone.", 410);
 
           supersedeJobReads();
-          set({ offer: null, currentJob: job, jobEndedNote: "", activeChat: [], unreadCount: 0 });
+          /* Carrying one now — whatever waited in line is not for this rider. */
+          queuedOffers = [];
+          set({ offer: null, currentJob: job, jobEndedNote: "" });
           socketService.trackOrder(job.orderNumber);
           /* Fired, not awaited. Background permission can send the rider to a
              settings screen on Android 11+, and holding the accept behind that
@@ -1126,6 +1159,17 @@ export const useDriverStore = create<DriverState>()(
              app is on screen. */
           startDeliveryTracking().catch(() => {});
           return job;
+        } catch (err) {
+          /* The server said this offer is over — taken, closed, gone. Held
+             here, it also stopped `pollOffer` (which skips while an offer is
+             held), so a rider with no socket never saw another offer. A
+             network failure keeps it: the offer may well still be open. */
+          const code = (err as { payload?: { code?: string } } | null)?.payload?.code;
+          if (code && OFFER_OVER_CODES.has(code)) {
+            const current = get().offer;
+            if (current && current.orderNumber === offer.orderNumber) showNextOffer();
+          }
+          throw err;
         } finally {
           set({ busy: false });
         }
@@ -1142,7 +1186,7 @@ export const useDriverStore = create<DriverState>()(
       declineOffer: async (reason) => {
         const { token, offer } = get();
         if (!offer) return;
-        set({ offer: null });
+        showNextOffer();
         try {
           await api(`${BASE}/orders/${offer.orderNumber}/decline`, {
             method: "POST",
@@ -1216,8 +1260,7 @@ export const useDriverStore = create<DriverState>()(
            * genuinely still theirs. A job that ended while the app was closed
            * stops a service that would otherwise have been left running.
            */
-          if (job) startDeliveryTracking().catch(() => {});
-          else stopDeliveryTracking().catch(() => {});
+          syncTracking({ online: get().isOnline, hasJob: !!job }).catch(() => {});
         } catch {
           /* Leaves whatever was persisted. A rider mid-delivery on no signal
              keeps their job on screen. */
@@ -1251,15 +1294,15 @@ export const useDriverStore = create<DriverState>()(
 
           if (status === "delivered") {
             socketService.untrackOrder(currentJob.orderNumber);
-            /* The delivery is over: the service, its notification and the GPS
-               drain all stop here. */
-            stopDeliveryTracking().catch(() => {});
+            /* The delivery is over. Off duty, the service stops here; still
+               online, it drops back to the waiting rate. */
+            syncTracking({ online: get().isOnline, hasJob: false }).catch(() => {});
             set((s) => ({
               currentJob: null,
-              history: [job, ...s.history].slice(0, 100),
-              activeChat: [],
-              unreadCount: 0,
-              isChatActive: false,
+              history: mergeHistory([job], s.history).slice(0, 100),
+              historyTotal: s.history.some((h) => h.orderNumber === job.orderNumber)
+                ? s.historyTotal
+                : s.historyTotal + 1,
             }));
             // Earnings are the server's arithmetic, not ours — see the note on
             // `driver.model.js`: a counter and a ledger that disagree is the
@@ -1313,7 +1356,10 @@ export const useDriverStore = create<DriverState>()(
           });
           socketService.untrackOrder(currentJob.orderNumber);
           supersedeJobReads();
-          set({ currentJob: null, activeChat: [], unreadCount: 0, isChatActive: false });
+          set({ currentJob: null });
+          /* The released order is in the server's history now — reload it, or
+             the Orders tab shows it as still in progress. */
+          get().fetchHistory().catch(() => {});
         } finally {
           set({ busy: false });
         }
@@ -1333,8 +1379,15 @@ export const useDriverStore = create<DriverState>()(
        * happened.
        */
       fetchEarnings: async () => {
-        const { token } = get();
+        const { token, profile } = get();
         if (!token) return;
+        /* Both routes sit behind `requireApprovedDriver`. A rider still in
+           review has, truthfully, nothing — asking only earned a 403 that the
+           screen then showed as a load failure. */
+        if (notYetApproved(profile)) {
+          set({ earnings: EMPTY_EARNINGS, earningsLoaded: true, earningsError: "" });
+          return;
+        }
 
         set({ loadingEarnings: true });
         try {
@@ -1368,8 +1421,12 @@ export const useDriverStore = create<DriverState>()(
       },
 
       fetchHistory: async (options) => {
-        const { token, history } = get();
+        const { token, history, profile } = get();
         if (!token) return;
+        if (notYetApproved(profile)) {
+          set({ history: [], historyTotal: 0, historyLoaded: true, historyError: "" });
+          return;
+        }
 
         const more = options?.more === true;
         if (more) set({ loadingMoreHistory: true });
@@ -1383,7 +1440,11 @@ export const useDriverStore = create<DriverState>()(
           );
           const page = Array.isArray(res?.data) ? res.data : [];
           set({
-            history: more ? [...history, ...page] : page,
+            /* Merged by order number. A delivery finished in the app is put
+               at the top locally, which moves every server row down by one — so
+               the next "load more" asked from an offset one short and sent a
+               row already on screen. That was the duplicate. */
+            history: more ? mergeHistory(history, page) : page,
             historyTotal: typeof res?.total === "number" ? res.total : page.length,
             historyLoaded: true,
             historyError: "",
@@ -1404,22 +1465,6 @@ export const useDriverStore = create<DriverState>()(
         }
       },
 
-      // ── Chat ─────────────────────────────────────────────────────────────
-
-      addChatMessage: (message) =>
-        set((s) => {
-          if (s.activeChat.some((m) => m.id === message.id)) return s;
-          const fromCustomer = message.from === "customer";
-          return {
-            activeChat: [...s.activeChat, message],
-            unreadCount: fromCustomer && !s.isChatActive ? s.unreadCount + 1 : s.unreadCount,
-          };
-        }),
-
-      clearChat: () => set({ activeChat: [], unreadCount: 0 }),
-      setUnreadCount: (count) => set({ unreadCount: Math.max(0, count) }),
-      setIsChatActive: (active) =>
-        set(active ? { isChatActive: true, unreadCount: 0 } : { isChatActive: false }),
     }),
     {
       name: "driver-store",
@@ -1480,6 +1525,20 @@ export const useDriverStore = create<DriverState>()(
  * counter. Neither makes the socket a dependency: it still carries every one
  * of these changes the instant they happen, and this is the floor under it.
  */
+/* Any request refused with ACCOUNT_SUSPENDED puts the app in the same state
+   `refreshProfile` does on that refusal — which is what `_layout.tsx` reads to
+   show `app/suspended.tsx`. Duty and background tracking stop with it. */
+setAccountSuspendedHandler((message) => {
+  const { token } = useDriverStore.getState();
+  if (!token) return;
+  useDriverStore.setState((s) => ({
+    profile: s.profile ? { ...s.profile, status: "suspended", canGoOnline: false } : s.profile,
+    isOnline: false,
+    suspensionNotice: message || s.suspensionNotice,
+  }));
+  syncTracking({ online: false, hasJob: false }).catch(() => {});
+});
+
 export function startOfferPump(): () => void {
   const store = useDriverStore;
 
@@ -1512,6 +1571,11 @@ export function startOfferPump(): () => void {
           payload?.message?.trim() || `Order ${job.orderNumber} was cancelled.`,
       });
     }
+    /* Its row in Orders still says in progress until the history is read
+       again — the server has the cancellation on it now. */
+    if (payload?.orderNumber && store.getState().history.some((h) => h.orderNumber === payload.orderNumber)) {
+      store.getState().fetchHistory().catch(() => {});
+    }
   };
   /* The kitchen moving the order forward. The rider's screen enables "Collect"
      only when the server says `ready`, so this is what makes that button light
@@ -1538,7 +1602,17 @@ export function startOfferPump(): () => void {
      (the Home banner, Documents, onboarding's checklist) updates at once
      rather than on the next pull to refresh. */
   const onAccountChanged = () => {
-    store.getState().refreshProfile().catch(() => {});
+    /* Then earnings and orders — skipped while the rider was in review, so an
+       approval that lands with the app open would otherwise leave them at
+       the empty pre-approval answer until a restart. */
+    store
+      .getState()
+      .refreshProfile()
+      .then(() => {
+        store.getState().fetchEarnings().catch(() => {});
+        store.getState().fetchHistory().catch(() => {});
+      })
+      .catch(() => {});
   };
 
   socketService.on("delivery_offer", onOffer);
@@ -1607,19 +1681,45 @@ export function startOfferPump(): () => void {
  * and giving them separate stages is what used to make the rail jump from 3
  * to 5 and read as almost-finished the instant the bag was closed.
  */
-export const selectStage = (job: Job | null): number => {
+export const selectStage = (
+  job: Job | null,
+  rider?: { lat: number; lng: number } | null,
+): number => {
   if (!job) return 0;
-  switch (job.status) {
-    case "delivered":
-      return 4;
-    case "picked_up":
-      return 3;
-    case "ready":
-      return 2;
-    default:
-      return 1;
+  if (job.status === "delivered") return 4;
+  if (job.status === "picked_up") return 3;
+  /* Before collection, "going" or "arrived" is where the RIDER is, not what
+     the kitchen has done. It followed the kitchen's status, so food marked
+     ready said "Arrived at restaurant" to a rider still kilometres away —
+     and a rider waiting at the counter for a slow kitchen was told to head
+     there. With no fix or no pickup pin, the kitchen's status is the guess. */
+  const pickup = job.pickup?.location;
+  if (rider && pickup) {
+    return metresBetween([rider.lng, rider.lat], pickup) <= ARRIVED_METRES ? 2 : 1;
   }
+  return job.status === "ready" ? 2 : 1;
 };
+
+/* Offers waiting behind the one on screen — see `receiveOffer`. In memory
+   only: a restarted app re-reads the open offer from the server. */
+let queuedOffers: Job[] = [];
+
+/** The current offer is done with: the next waiting one, if any, takes the
+    screen and rings; otherwise the screen clears. */
+function showNextOffer() {
+  const next = queuedOffers.shift() ?? null;
+  useDriverStore.setState({ offer: next });
+  if (next) playOfferAlert().catch(() => {});
+}
+
+/* See `pushLocation`. Six seconds is at most 150 a quarter-hour, well inside
+   the server's 240 with room for the background service's own sends. */
+const LOCATION_PUSH_MIN_MS = 6000;
+let lastLocationPushAt = 0;
+
+/** Close enough to the pickup pin to count as at the counter. Pins are
+    dropped by hand at the door, so a little slack for GPS and car parks. */
+const ARRIVED_METRES = 150;
 
 /** Write a collect endpoint's answer onto the job it was asked about. */
 function mergeCollection(orderNumber: string, data: CollectionState | undefined) {
@@ -1663,8 +1763,27 @@ export const pickupKm = (job: Job | null): number | null => {
 };
 
 /** Minutes to the pickup, or null when the server sent no estimate. */
+/** Known and not approved. An unknown profile (cold start, before `/me` has
+    answered) is not a reason to skip — the server decides then. */
+const notYetApproved = (profile: DriverProfile | null): boolean =>
+  !!profile && profile.status !== "approved";
+
+/** `first` then `rest`, one row per order — `first` wins where both have it. */
+const mergeHistory = (first: Job[], rest: Job[]): Job[] => {
+  const seen = new Set<string>();
+  const out: Job[] = [];
+  for (const job of [...first, ...rest]) {
+    if (seen.has(job.orderNumber)) continue;
+    seen.add(job.orderNumber);
+    out.push(job);
+  }
+  return out;
+};
+
 export const pickupEtaMinutes = (job: Job | null): number | null => {
-  const minutes = job?.pickup?.etaMinutes;
+  /* Top level first — that is what the server sends. Reading only
+     `pickup.etaMinutes` meant the ETA never once appeared on an offer. */
+  const minutes = job?.etaMinutes ?? job?.pickup?.etaMinutes;
   return typeof minutes === "number" ? minutes : null;
 };
 

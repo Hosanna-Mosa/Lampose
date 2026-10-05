@@ -23,7 +23,6 @@ export {
  * cross-category surface (a "similar in other categories" row, a saved-search
  * digest) if one is ever built.
  */
-export { CategoryCarousel, type CategoryCarouselProps } from './CategoryCarousel';
 
 export { FilterSheet, type FilterSheetProps } from './FilterSheet';
 

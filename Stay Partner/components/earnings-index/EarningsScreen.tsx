@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { fetchPayoutOnboarding, type PayoutOnboarding } from '@/services/api/payoutOnboarding.api';
 import { Box } from '@/components/common';
 import { useRouter } from 'expo-router';
 import { Screen, Text, TextButton, IconButton, Button, Badge, EmptyState, ErrorState } from '@/components/common';
@@ -102,6 +103,19 @@ export function EarningsScreen() {
   const held = Number(earnings?.heldBalance) || 0;
   const hasPending = Boolean(earnings?.pendingPayout);
 
+  /* Hotel payouts need a bank account registered with our payments partner,
+     and the screen that does it was reachable from nowhere — so a hotel's
+     settlements sat "waiting" with no way for the owner to unblock them.
+     Shown only when the server says it is required (a hotel, not yet active). */
+  const [payoutSetup, setPayoutSetup] = useState<PayoutOnboarding | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetchPayoutOnboarding()
+      .then((next) => { if (live) setPayoutSetup(next); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+
   return (
     <Screen
       contentStyle={styles.stack}
@@ -118,9 +132,23 @@ export function EarningsScreen() {
         <TextButton label="Payout methods" onPress={() => router.push('/earnings/methods')} />
       </Box>
 
+      {payoutSetup?.required ? (
+        <Box style={[styles.card, { borderColor: c.warningFill, backgroundColor: c.warningTint }]}>
+          <Text variant="cardTitle" color="warningInk">Set up hotel payouts</Text>
+          <Text variant="caption" color="warningInk">
+            {payoutSetup.settlementsWaiting > 0
+              ? `${payoutSetup.settlementsWaiting} booking${payoutSetup.settlementsWaiting === 1 ? ' is' : 's are'} waiting to be paid to you. `
+              : ''}
+            Add the bank account guests' payments should go to.
+          </Text>
+          <Button label="Add bank account" onPress={() => router.push('/(auth)/payout-setup')} />
+        </Box>
+      ) : null}
+
       <Box style={styles.statRow}>
-        <StatTile label="Today" value={earnings?.todayEarnings ?? '₹0'} loading={loadingEarnings} />
-        <StatTile label="This week" value={earnings?.weekEarnings ?? '₹0'} loading={loadingEarnings} />
+        {/* Completed payouts — see the dashboard's Payouts card. */}
+        <StatTile label="Paid out today" value={earnings?.todayEarnings ?? '₹0'} loading={loadingEarnings} />
+        <StatTile label="Paid out this week" value={earnings?.weekEarnings ?? '₹0'} loading={loadingEarnings} />
       </Box>
 
       {earningsFailed && !earnings ? (

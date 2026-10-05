@@ -46,6 +46,7 @@ export const endpoints = {
   /* Email and password. Only accounts that have been GIVEN a password can use
      it — the server fails closed on an account without one. */
   partnerAuthLogin: `${V2}/partners/auth/login`,
+  partnerAuthLogout: `${V2}/partners/auth/logout`,
 
   /** GET for the profile behind a session; PATCH is what profile-setup writes. */
   partnerMe: `${V2}/partners/me`,
@@ -65,6 +66,8 @@ export const endpoints = {
    * stranger's handset against an account they do not own.
    */
   devices: `${V2}/partners/devices`,
+  /* No session — for a handset whose session has already died. */
+  devicesForget: `${V2}/devices/forget`,
 
   /* ---------------------------------------------------------------- *
    * What they own, and who has asked about it

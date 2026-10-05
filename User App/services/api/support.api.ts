@@ -79,6 +79,8 @@ export type CreateTicketInput = {
       about nothing in the catalogue. */
   listingId?: string | null;
   placeLabel?: string | null;
+  /** A food order this is about. The server stores it on the ticket. */
+  orderNumber?: string | null;
 };
 
 export async function createTicket(
@@ -92,6 +94,7 @@ export async function createTicket(
       body: input.body,
       listingId: input.listingId ?? null,
       placeLabel: input.placeLabel ?? null,
+      ...(input.orderNumber ? { orderNumber: input.orderNumber } : {}),
     },
     { signal },
   );
@@ -132,10 +135,13 @@ export async function replyToTicket(
   reference: string,
   body: string,
   signal?: AbortSignal,
+  options?: { confirmsResolved?: boolean },
 ): Promise<BackendTicketDetail> {
   const envelope = await api.post<ApiEnvelope<BackendTicketDetail>>(
     endpoints.supportTicketMessages(reference),
-    { body },
+    /* `confirmsResolved` tells the server this is "yes, it is sorted" — a
+       reply that must not reopen a resolved ticket. */
+    options?.confirmsResolved ? { body, confirmsResolved: true } : { body },
     { signal },
   );
   return unwrap(envelope);

@@ -65,10 +65,21 @@ export function RaiseDisputeScreen() {
     try {
       const body = `${reason} — booking #${linkedBooking.id} (${linkedBooking.guest}, `
         + `${linkedBooking.roomType}).\n\n${description.trim()}`;
+      /* Filed where it belongs — a false review is about the LISTING, a
+         manipulated booking about the BOOKING; only damage is about the
+         guest. Every one went in as `guest` before. And the property itself,
+         by id and by name: the room type alone ("2 Sharing") named no place. */
+      const CATEGORY: Record<DisputeReason, string> = {
+        'Guest damage': 'guest',
+        'False review': 'listing',
+        'Booking manipulation': 'booking',
+        Other: 'other',
+      };
       const thread = await create.mutateAsync({
-        category: 'guest',
+        category: CATEGORY[reason],
         body,
-        placeLabel: linkedBooking.roomType,
+        placeLabel: [linkedBooking.propertyName, linkedBooking.roomType].filter(Boolean).join(' · '),
+        listingId: linkedBooking.propertyId ?? null,
       });
       router.replace(`/support/ticket?id=${thread.reference}`);
     } catch {

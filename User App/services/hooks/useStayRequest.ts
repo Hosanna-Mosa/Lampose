@@ -7,6 +7,7 @@ import { ApiError } from '@/services/api/client';
 import {
   createStayRequest,
   fetchStayRequest,
+  fetchStayRequests,
   withdrawStayRequest,
   type CreateStayRequestInput,
 } from '@/services/api/stayRequests.api';
@@ -96,9 +97,36 @@ export type UseStayRequestResult = {
   refresh: () => Promise<void>;
   /** Forget it locally and start over. Does not touch the server. */
   reset: () => void;
+  /** Why the coupon on the request just sent was not applied, if it was not. */
+  couponRefusal: string | null;
 };
 
-export function useStayRequest(listingId?: string | null): UseStayRequestResult {
+/**
+ * The student's live request on this listing, as the SERVER has it — for a
+ * phone that does not remember one. Live means an owner is still deciding, or
+ * it was accepted and the payment is still owed and still open.
+ */
+async function findLiveRequestOnServer(listingId: string): Promise<string | null> {
+  const { requests } = await fetchStayRequests();
+  const now = Date.now();
+  const live = requests
+    .filter((r) => r.listingId === listingId)
+    .filter((r) => {
+      if (r.status === 'pending_owner') return !r.expiresAt || Date.parse(r.expiresAt) > now;
+      if (r.status !== 'confirmed') return false;
+      const pay = r.payment;
+      return Boolean(pay?.required) && pay?.status !== 'paid' && pay?.status !== 'expired'
+        && (!pay?.dueBy || Date.parse(pay.dueBy) > now);
+    })
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  return live[0]?.id ?? null;
+}
+
+export function useStayRequest(
+  listingId?: string | null,
+  options: { requestId?: string | null } = {},
+): UseStayRequestResult {
+  const knownRequestId = options.requestId || null;
   const queryClient = useQueryClient();
 
   const [requestId, setRequestId] = useState<string | null>(null);
@@ -107,6 +135,7 @@ export function useStayRequest(listingId?: string | null): UseStayRequestResult 
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const [isHydrating, setIsHydrating] = useState(Boolean(listingId));
+  const [couponRefusal, setCouponRefusal] = useState<string | null>(null);
 
   /*
    * How far this device's clock is from the server's, in milliseconds.
@@ -135,10 +164,21 @@ export function useStayRequest(listingId?: string | null): UseStayRequestResult 
     setLocal(null);
     setPhase('idle');
 
-    AsyncStorage.getItem(storageKey(listingId))
+    /*
+     * Where the request comes from, in order: the id a push or notification
+     * named; the id this phone stored; and — new — the server. This phone
+     * only ever remembered requests IT sent, so on a second phone, after a
+     * reinstall, or for a request made on the website, the screen found
+     * nothing, auto-sent a new request, and was refused (ALREADY_REQUESTED /
+     * ALREADY_BOOKED) — leaving the student no way to reach the live one or
+     * pay for it.
+     */
+    (knownRequestId ? Promise.resolve(knownRequestId) : AsyncStorage.getItem(storageKey(listingId)))
+      .then(async (stored) => stored || findLiveRequestOnServer(listingId).catch(() => null))
       .then((stored) => {
         if (!active) return;
         if (stored) {
+          AsyncStorage.setItem(storageKey(listingId), stored).catch(() => {});
           setRequestId(stored);
           /*
            * Still hydrating.
@@ -164,7 +204,7 @@ export function useStayRequest(listingId?: string | null): UseStayRequestResult 
       });
 
     return () => { active = false; };
-  }, [listingId]);
+  }, [listingId, knownRequestId]);
 
   /* ── The live status ─────────────────────────────────────────────────
      Polled while waiting; fetched once and left alone after that, because a
@@ -296,6 +336,7 @@ export function useStayRequest(listingId?: string | null): UseStayRequestResult 
     setPhase('sending');
     try {
       const created = await createStayRequest(input);
+      setCouponRefusal(created.couponRefusal ?? null);
       applyOffset(created);
       setLocal(created);
       setRequestId(created.id);
@@ -369,5 +410,6 @@ export function useStayRequest(listingId?: string | null): UseStayRequestResult 
     withdraw,
     refresh,
     reset,
+    couponRefusal,
   };
 }

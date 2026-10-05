@@ -34,8 +34,6 @@ export type StickyCtaBarProps = {
   depositMonths?: number;
   /** The figure is a total for a chosen stay, so it carries no unit suffix. */
   total?: boolean;
-  /** The rate is per night (a hotel), so the suffix reads "/night", not "/month". */
-  perNight?: boolean;
   /** What the total covers: "7 days · with mess". Sits under the number. */
   secondaryLine?: string;
   /**
@@ -48,6 +46,9 @@ export type StickyCtaBarProps = {
    * at 6.
    */
   multiplier?: string;
+  /** The period `rent` is quoted for, when it is not a month — the chosen
+      short-stay rate. Without it the bar printed "/month" after a day rate. */
+  ratePeriod?: 'day' | 'night';
   /** Measured, never assumed — the bar is 76pt with one button and 180 with three. */
   onMeasure?: (height: number) => void;
 };
@@ -76,9 +77,9 @@ export function StickyCtaBar({
   deposit,
   depositMonths,
   total = false,
-  perNight = false,
   secondaryLine,
   multiplier,
+  ratePeriod,
   onMeasure,
 }: StickyCtaBarProps) {
   const { colors, space, layout, elevation, radius } = useTheme();
@@ -202,8 +203,9 @@ export function StickyCtaBar({
                 depositMonths={depositMonths}
                 size="bar"
                 total={total}
-                perNight={perNight}
                 secondaryLine={secondaryLine}
+                perDay={ratePeriod === 'day'}
+                perNight={ratePeriod === 'night'}
               />
               {multiplier ? <Text variant="numMeta">{multiplier}</Text> : null}
             </View>
@@ -256,8 +258,8 @@ export function StickyCtaBar({
                 deposit={deposit}
                 depositMonths={depositMonths}
                 total={total}
-                perNight={perNight}
                 secondaryLine={secondaryLine}
+                ratePeriod={ratePeriod}
               />
               {/* The count, kept out of the figure. It never shrinks — a
                   truncated "× 3 mont…" is worse than a tight rate beside it. */}
@@ -306,15 +308,15 @@ function PriceSlot({
   deposit,
   depositMonths,
   total = false,
-  perNight = false,
   secondaryLine,
+  ratePeriod,
 }: {
   rent: number;
   deposit?: number;
   depositMonths?: number;
   total?: boolean;
-  perNight?: boolean;
   secondaryLine?: string;
+  ratePeriod?: 'day' | 'night';
 }) {
   const reduceMotion = useReduceMotion();
   const [shown, setShown] = useState(rent);
@@ -344,8 +346,9 @@ function PriceSlot({
         depositMonths={depositMonths}
         size="bar"
         total={total}
-        perNight={perNight}
         secondaryLine={secondaryLine}
+        perDay={ratePeriod === 'day'}
+        perNight={ratePeriod === 'night'}
       />
     </Animated.View>
   );

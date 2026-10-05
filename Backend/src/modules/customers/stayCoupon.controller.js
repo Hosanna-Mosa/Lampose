@@ -27,6 +27,9 @@ const toPublic = (coupon) => ({
   expiresAt: coupon.expiresAt,
   usedAt: coupon.usedAt || null,
   earnedAt: coupon.createdAt,
+  /* The move-in that earned it — so the reward screen for a booking shows
+     THAT booking's coupon, not simply the newest one. */
+  bookingId: coupon.bookingId || null,
 });
 
 // @route   GET /api/v2/customers/stay-coupons

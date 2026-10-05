@@ -40,8 +40,10 @@ export { defaultSharingSelection };
  * student mid-decision would move a price they were reading.
  */
 
-/** Available unless the count is a known zero. `undefined` means unrecorded. */
-const available = (option: SharingOption) => option.bedsLeft !== 0;
+/** Never pre-select something that cannot be asked for — see
+    `SharingTypeSelector`'s note on `availableBeds` vs the old `bedsLeft`. */
+const available = (option: SharingOption) =>
+  option.requestable !== false && (option.availableBeds ?? option.bedsLeft) !== 0;
 
 /**
  * The first bed a listing actually offers.

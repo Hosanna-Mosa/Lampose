@@ -75,17 +75,27 @@ export default {
         /*
          * RECEIVE_BOOT_COMPLETED is deliberately NOT requested.
          *
-         * It existed so `expo-task-manager` could restart background tasks
-         * after a reboot. This app defines none — there is no
-         * `TaskManager.defineTask` and no `startLocationUpdatesAsync`
-         * anywhere in it — so the only thing the permission bought was the
-         * boot receiver that Play flags: from Android 15 an app may not start
-         * a `location` foreground service from a BOOT_COMPLETED broadcast,
-         * and doing so crashes the app on the rider's phone at boot.
+         * It exists so `expo-task-manager` can restart background tasks after
+         * a reboot. This app DOES define one now (`services/backgroundLocation.ts`),
+         * but deliberately does not want it restarted at boot: from Android 15
+         * an app may not start a `location` foreground service from a
+         * BOOT_COMPLETED broadcast, and doing so crashes the app on the
+         * rider's phone at boot.
          *
          * Tracking is started by the rider opening the app and taking a
          * delivery, which is the only moment it should start.
          */
+      ],
+      /*
+       * Never shipped: neither app records audio or draws over other apps.
+       * `expo-audio` merges RECORD_AUDIO in for a microphone this app never
+       * opens, and the React Native template adds SYSTEM_ALERT_WINDOW. Both
+       * land on the Play data-safety form as permissions the app "uses".
+       * Blocked here so a fresh `expo prebuild` cannot put them back.
+       */
+      blockedPermissions: [
+        'android.permission.RECORD_AUDIO',
+        'android.permission.SYSTEM_ALERT_WINDOW',
       ],
       /* Android has no built-in maps renderer the way iOS does, so
          `react-native-maps` cannot draw anything at all here without this —
@@ -134,7 +144,8 @@ export default {
          foreground by the app itself rather than by a notification, because a
          push needs a registered device token and there is none on a simulator,
          on a refused permission, or before the first successful registration. */
-      'expo-audio',
+      /* Playback only — see `blockedPermissions`. */
+      ['expo-audio', { microphonePermission: false }],
       'expo-web-browser',
       [
         'expo-notifications',

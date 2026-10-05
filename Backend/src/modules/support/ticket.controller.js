@@ -526,9 +526,16 @@ const replyToTicket = async (req, res, next) => {
        into the pile. A resolved ticket that the requester (or, on a linked
        one, the property owner) replies to is reopened for the same reason —
        new information has arrived and it is worth another look. */
-    if (ticket.status === 'awaiting_customer' || ticket.status === 'resolved') {
+    /* EXCEPT the requester confirming it is sorted (`confirmsResolved`):
+       that is the opposite of new information. "Yes, close this" used to
+       reopen the very ticket it was agreeing to close, and drop it back in the
+       queue. It stays resolved, with the confirmation on the thread. */
+    const confirmsResolved = (req.body || {}).confirmsResolved === true
+      && ticket.status === 'resolved' && !linked;
+    if (!confirmsResolved && (ticket.status === 'awaiting_customer' || ticket.status === 'resolved')) {
       ticket.status = 'open';
     }
+    if (confirmsResolved) ticket.requesterConfirmedAt = now;
 
     /* They have just written in it, so by definition they have read it —
        whichever of the two watermarks is theirs. */

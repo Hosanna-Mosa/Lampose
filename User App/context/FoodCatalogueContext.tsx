@@ -45,6 +45,7 @@ import { useAppState } from '@/context/AppStateContext';
 import { fetchKitchen } from '@/services/api/food.api';
 import { openNowOf } from '@/services/adapters/food.adapter';
 import { useKitchens } from '@/services/hooks/useFood';
+import { FOOD_MODE } from '@/constants/env';
 import { queryKeys } from '@/services/hooks/keys';
 import type { Dish, Kitchen } from '@/types/food';
 
@@ -88,7 +89,13 @@ export function FoodCatalogueProvider({ children }: { children: React.ReactNode 
    */
   const { locality } = useAppState();
   const near = locality?.near ?? null;
+  /* Only where the food module is actually shown. In a production build it is
+     hidden (`FOOD_MODE`), yet this provider is mounted at the root and polled
+     the kitchen feed — and up to 25 menus — every minute, on every phone,
+     for a screen nobody could open. */
+  const foodShown = FOOD_MODE === 'dev';
   const feed = useKitchens({
+    enabled: foodShown,
     limit: 50,
     partnerType: 'food',
     lat: near?.lat ?? null,
@@ -114,6 +121,7 @@ export function FoodCatalogueProvider({ children }: { children: React.ReactNode 
       queryFn: () => fetchKitchen(kitchen.id),
       staleTime: 60_000,
       refetchInterval: 60_000,
+      enabled: foodShown,
     })),
   });
 

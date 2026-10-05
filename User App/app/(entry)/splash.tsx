@@ -1,10 +1,10 @@
-import { useRouter, Redirect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
 
 import { SplashSequence } from '@/components/auth';
 import { useAuth } from '@/context/AuthContext';
-import { usePreviewControls } from '@/hooks/useAppEnv';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * Screen 01 — Splash.
@@ -34,14 +34,5 @@ function SplashScreen() {
   );
 }
 
-/**
- * A design prototype, not a product screen: it runs on fixtures and several of
- * its buttons do nothing. Nothing in the live app links here, but expo-router
- * still registers the route, so a typed or stale `lampose://` link would open
- * it. Outside preview builds it redirects home, like `/preview` does.
- */
-export default function SplashScreenRoute() {
-  const previewControls = usePreviewControls();
-  if (!previewControls) return <Redirect href="/home" />;
-  return <SplashScreen />;
-}
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(SplashScreen);

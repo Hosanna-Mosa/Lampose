@@ -1,4 +1,4 @@
-import { useRouter, Redirect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
@@ -37,7 +37,7 @@ import {
   visitRequested,
 } from '@/data/bookings';
 import type { RefundStageId } from '@/types/booking';
-import { usePreviewControls } from '@/hooks/useAppEnv';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * Batch 4 — booking preview.
@@ -345,14 +345,5 @@ const styles = StyleSheet.create({
   wrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
 });
 
-/**
- * A design prototype, not a product screen: it runs on fixtures and several of
- * its buttons do nothing. Nothing in the live app links here, but expo-router
- * still registers the route, so a typed or stale `lampose://` link would open
- * it. Outside preview builds it redirects home, like `/preview` does.
- */
-export default function BookingPreviewRoute() {
-  const previewControls = usePreviewControls();
-  if (!previewControls) return <Redirect href="/home" />;
-  return <BookingPreview />;
-}
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(BookingPreview);

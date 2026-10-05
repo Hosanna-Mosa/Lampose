@@ -150,6 +150,8 @@ export const endpoints = {
    * stranger's handset against an account they do not own.
    */
   devices: `${V2}/customers/devices`,
+  /* No session — for a handset whose session has already died. */
+  devicesForget: `${V2}/devices/forget`,
 
   /**
    * The alerts inbox, derived from this customer's visit requests.
@@ -252,10 +254,16 @@ export const endpoints = {
    * token opens, and none of them can see another restaurant's queue.
    */
   foodOrders: `${V2}/food-partners/orders`,
+  /** The bill for a cart, priced by the server before anyone pays. */
+  foodOrderQuote: `${V2}/food-partners/orders/quote`,
   foodOrder: (orderNumber: string) =>
     `${V2}/food-partners/orders/${encodeURIComponent(orderNumber)}`,
   foodOrderCancel: (orderNumber: string) =>
     `${V2}/food-partners/orders/${encodeURIComponent(orderNumber)}/cancel`,
+  /** The diner confirms a RESTAURANT-arranged delivery reached them. A Lampose
+      rider's delivery is closed by the PIN at the door instead. */
+  foodOrderDelivered: (orderNumber: string) =>
+    `${V2}/food-partners/orders/${encodeURIComponent(orderNumber)}/delivered`,
 
   /**
    * Paying for an order, in two calls.

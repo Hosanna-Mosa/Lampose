@@ -86,7 +86,20 @@ export type PushPayload = {
     /* Everything the food flow sends — placed, a rider assigned, collected,
        delivered. One kind rather than four, because they all open the same
        screen and the SERVER's status decides what it draws. */
-    | 'food_order';
+    | 'food_order'
+    /* Support: a reply on a ticket, or its status changing. Carries
+       `reference`, the ticket's own id. */
+    | 'support.reply'
+    | 'support.status'
+    /* Money and rewards on a booking. */
+    | 'refund.paid'
+    | 'coupon.earned'
+    /* The assisted-visit flow. */
+    | 'visit.paid'
+    | 'visit.scheduled'
+    | 'visit.slot_reminder';
+  /** Support only — the ticket reference. */
+  reference?: string;
   /** Stay flow only. */
   requestId?: string;
   listingId?: string;
@@ -119,7 +132,11 @@ export const isBookingPush = (payload?: PushPayload | null): boolean =>
  * and the cold one kept throwing food away.
  */
 const isOurs = (payload?: PushPayload | null): boolean =>
-  !!(payload?.requestId || payload?.orderNumber || payload?.bookingId);
+  !!(payload?.requestId || payload?.orderNumber || payload?.bookingId || payload?.reference);
+
+/** True for a support push — see `PushPayload.kind`. */
+export const isSupportPush = (payload?: PushPayload | null): boolean =>
+  !!payload && (payload.kind === 'support.reply' || payload.kind === 'support.status') && !!payload.reference;
 
 export type PushAvailability =
   | { ok: true }
@@ -206,6 +223,15 @@ async function ensureChannel(): Promise<void> {
        screen, not hidden behind "tap to reveal". */
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     sound: 'default',
+  });
+
+  /* Support replies and status changes — the backend sends them on
+     `support` (support.notifier.js), and no app used to create it. */
+  await Notifications.setNotificationChannelAsync('support', {
+    name: 'Support',
+    description: 'Replies from Lampose support.',
+    importance: Notifications.AndroidImportance.HIGH,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
   });
 }
 
@@ -301,6 +327,10 @@ export function addPushListeners(handlers: {
 export async function getInitialPush(): Promise<PushPayload | null> {
   try {
     const response = await Notifications.getLastNotificationResponseAsync();
+    /* Consumed, so it is routed ONCE. The OS keeps the last tapped
+       notification until it is cleared, and every later cold start re-opened
+       the same old screen — a request answered days ago, on every launch. */
+    Notifications.clearLastNotificationResponseAsync().catch(() => {});
     const payload = response?.notification.request.content.data as PushPayload | undefined;
     return isOurs(payload) ? (payload as PushPayload) : null;
   } catch {

@@ -27,6 +27,11 @@ export function CheckoutSheetScreen() {
   const [failure, setFailure] = useState<string | null>(null);
 
   const ready = inspected && keyReturned && !checkOut.isPending;
+  /* A PG, co-living or bachelor tenancy has no checkout DAY — the owner is
+     recording that the tenant has left, so the sheet says that. */
+  const movedOut = booking?.category === 'BACHELOR' || booking?.category === 'PG_HOSTEL'
+    || booking?.category === 'COLIVE';
+  const actionLabel = movedOut ? 'Mark moved out' : 'Confirm checkout';
   const close = () => router.back();
 
   /*
@@ -56,14 +61,14 @@ export function CheckoutSheetScreen() {
         options={{ presentation: 'transparentModal', animation: 'fade', headerShown: false }}
       />
       <BottomSheet
-        title="Confirm checkout"
+        title={actionLabel}
         subtitle={booking ? `${booking.guest} · ${booking.roomType}` : undefined}
         onClose={close}
         footer={
           <>
             <Button label="Not yet" variant="secondary" onPress={close} style={styles.action} />
             <Button
-              label={checkOut.isPending ? 'Checking out…' : 'Confirm checkout'}
+              label={checkOut.isPending ? 'Saving…' : actionLabel}
               onPress={handleCheckout}
               loading={checkOut.isPending}
               disabled={!ready}

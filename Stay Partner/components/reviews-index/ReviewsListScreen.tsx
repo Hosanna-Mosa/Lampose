@@ -48,11 +48,16 @@ export function ReviewsListScreen() {
            against a room that may not exist. */
         roomType: r.propertyName || r.roomType || '',
         date: new Date(r.date || Date.now()),
-        rating: r.rating || 5,
+        /* The guest's own stars, or none — not a made-up 5. */
+        rating: Number.isFinite(Number(r.rating)) ? Number(r.rating) : 0,
         text: r.comment || r.text || '',
-        reply: r.reply
-          ? { author: 'Owner', text: typeof r.reply === 'string' ? r.reply : r.reply.text || '' }
-          : undefined,
+        /* A reply only when there is TEXT. The schema stores an unanswered
+           review's reply as `{ text: null }`, which is truthy — so every
+           review drew an empty reply box and the Reply button never showed. */
+        reply: (() => {
+          const text = typeof r.reply === 'string' ? r.reply : r.reply?.text;
+          return text ? { author: 'You', text } : undefined;
+        })(),
       }));
       setReviews(mapped);
       /* `?? null`, not `|| 4.8`: an average of 0 is a real answer, and there

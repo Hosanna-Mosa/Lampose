@@ -141,12 +141,32 @@ const preview = (text, n = 120) => {
  * not speech.
  */
 const pushReply = (ticket, message) => {
-  if (!ticket || !message || message.author !== 'support') return;
+  if (!ticket || !message) return;
+  /*
+   * The property owner answering a student's ticket about their listing.
+   * It reached the thread and nothing else — the student, who filed it, was
+   * never pushed, so an owner's answer sat unread until they happened to
+   * open the app. Same push as a support reply, named for who wrote it.
+   */
+  if (message.author === 'partner') {
+    const requester = requesterOf(ticket);
+    if (requester.kind === 'customer' && requester.id) {
+      pushTo('customer', requester.id, {
+        title: `${ticket.linkedPartnerName || 'The property owner'} replied`,
+        body: `${ticket.subject ? `${ticket.subject} · ` : ''}${preview(message.body)}`,
+        data: { kind: 'support.reply', reference: ticket.reference, ticketKind: ticket.kind },
+      }).catch(() => {});
+    }
+    return;
+  }
+  if (message.author !== 'support') return;
   const who = requesterOf(ticket);
   const data = { kind: 'support.reply', reference: ticket.reference, ticketKind: ticket.kind };
 
   pushTo(who.kind, who.id, {
-    title: `${message.authorName || 'Lampose Support'} replied`,
+    /* "Lampose Support", never the staff member's own name — the thread
+       deliberately hides it, and the push on the lock screen printed it. */
+    title: 'Lampose Support replied',
     body: `${ticket.subject ? `${ticket.subject} · ` : ''}${preview(message.body)}`,
     data,
   }).catch(() => {});
@@ -206,17 +226,27 @@ const bubbleOf = (message) => (message ? {
  * an empty room is a wasted round trip on the hot path of somebody pressing
  * "send" on a complaint.
  */
+/**
+ * One event, several rooms, ONE emit.
+ *
+ * A socket is often in more than one of these at once — a diner with the
+ * thread open is in `ticket:<ref>` AND `customer:<id>`; an administrator
+ * watching a thread is in it AND `support`. Emitting to each room separately
+ * delivered the same event once per room it shared, so a message appeared
+ * twice. socket.io sends a multi-room emit to each socket once.
+ */
+const toRoomsOnce = (rooms, event, payload) => {
+  const targets = [...new Set(rooms.filter(Boolean))];
+  if (targets.length) realtime.toRoom(targets, event, payload);
+};
+
 const ticketOpened = (ticket) => {
   if (!ticket) return;
   try {
     const payload = { ticket: rowOf(ticket) };
+    /* A different event for the console, so it stays its own emit. */
     realtime.toSupport('support_ticket_opened', payload);
-
-    const room = requesterRoom(ticket);
-    if (room) realtime.toRoom(room, 'support_ticket_updated', payload);
-
-    const linked = linkedRoom(ticket);
-    if (linked) realtime.toRoom(linked, 'support_ticket_updated', payload);
+    toRoomsOnce([requesterRoom(ticket), linkedRoom(ticket)], 'support_ticket_updated', payload);
   } catch {
     /* See the header: a notifier never fails a write. */
   }
@@ -239,14 +269,12 @@ const messageAdded = (ticket, message) => {
       ticket: rowOf(ticket),
     };
 
-    realtime.toRoom(realtime.rooms.ticket(ticket.reference), 'support_message', payload);
-    realtime.toSupport('support_message', payload);
-
-    const room = requesterRoom(ticket);
-    if (room) realtime.toRoom(room, 'support_message', payload);
-
-    const linked = linkedRoom(ticket);
-    if (linked) realtime.toRoom(linked, 'support_message', payload);
+    toRoomsOnce([
+      realtime.rooms.ticket(ticket.reference),
+      realtime.SUPPORT_ROOM,
+      requesterRoom(ticket),
+      linkedRoom(ticket),
+    ], 'support_message', payload);
   } catch {
     /* As above. */
   }
@@ -268,14 +296,12 @@ const ticketUpdated = (ticket) => {
   try {
     const payload = { reference: ticket.reference, ticket: rowOf(ticket) };
 
-    realtime.toRoom(realtime.rooms.ticket(ticket.reference), 'support_ticket_updated', payload);
-    realtime.toSupport('support_ticket_updated', payload);
-
-    const room = requesterRoom(ticket);
-    if (room) realtime.toRoom(room, 'support_ticket_updated', payload);
-
-    const linked = linkedRoom(ticket);
-    if (linked) realtime.toRoom(linked, 'support_ticket_updated', payload);
+    toRoomsOnce([
+      realtime.rooms.ticket(ticket.reference),
+      realtime.SUPPORT_ROOM,
+      requesterRoom(ticket),
+      linkedRoom(ticket),
+    ], 'support_ticket_updated', payload);
   } catch {
     /* As above. */
   }

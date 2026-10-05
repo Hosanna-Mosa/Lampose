@@ -134,8 +134,8 @@ export function WithdrawReferralsScreen() {
       <Screen scroll={false} padX={20} background="bg" stickyHeader={backRow}>
         <EmptyState
           icon="check-circle"
-          title="Withdrawal started"
-          body={`${formatINR(available)} is on its way to ${selectedMethod ? shortLabel(selectedMethod) : 'your account'}. Transfers usually settle within a few business days.`}
+          title="Withdrawal requested"
+          body={`We have your request to pay ${formatINR(available)} to ${selectedMethod ? shortLabel(selectedMethod) : 'your account'}. You can follow it under Payouts; if it is refused, the points come back.`}
           actionLabel="Done"
           onAction={() => router.replace('/referrals')}
         />
@@ -148,7 +148,7 @@ export function WithdrawReferralsScreen() {
     setWithdrawing(true);
     setWithdrawError(null);
     try {
-      await withdrawReferralApi();
+      await withdrawReferralApi(selectedMethod.id);
       setDone(true);
     } catch (err) {
       setWithdrawError(err instanceof ApiError ? err.displayMessage : 'We could not start that withdrawal.');

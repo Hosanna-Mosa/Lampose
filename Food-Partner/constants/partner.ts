@@ -36,19 +36,16 @@ export const BENEFITS: { glyph: IconName; title: string; desc: string }[] = [
       "Your kitchen is shown to the residents already living within walking " +
       "distance of it — the people most likely to order twice.",
   },
+  /* Said the way payouts actually work (`constants/contract.ts`): requested
+     from the app, not settled weekly. A "mess subscriptions" card stood after
+     this one; no subscription exists anywhere in the food backend, so it was
+     a feature promised to a kitchen deciding whether to sign. */
   {
     glyph: "wallet",
-    title: "Money on a fixed day",
+    title: "Your money, when you ask",
     desc:
-      "Weekly settlements straight to the account you enter below, with " +
-      "every deduction itemised before it is taken.",
-  },
-  {
-    glyph: "calendar",
-    title: "Monthly plans, steady income",
-    desc:
-      "Run mess subscriptions alongside single orders, so part of next " +
-      "month's revenue is known before it starts.",
+      "Request a payout from the app once ₹100 is due, straight to the account " +
+      "you enter below, with every order itemised.",
   },
   {
     glyph: "users",
@@ -75,9 +72,9 @@ export const FAQS: { q: string; a: string }[] = [
   {
     q: "What does Lampose charge?",
     a:
-      "Commission starts at 15% per delivered order and is negotiable at " +
-      "volume. There is no listing fee and no joining fee — the full " +
-      "commercial terms are shown to you before you sign.",
+      "Lampose currently charges 0% commission on food orders. There is no " +
+      "listing fee and no joining fee — the full commercial terms are shown " +
+      "to you before you sign.",
   },
   {
     q: "Can I run a mess subscription as well as single orders?",
@@ -180,21 +177,33 @@ export const OPEN_STATE_LABELS: Record<(typeof OPEN_STATES)[number], string> = {
   closed: "Closed",
 };
 
+/* Every state AND union territory. Seven UTs were missing, so a restaurant
+   in Puducherry, Chandigarh or Jammu could not finish step 1 at all. */
 export const INDIAN_STATES = [
-  "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh", "Delhi",
-  "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jharkhand", "Karnataka", "Kerala",
-  "Madhya Pradesh", "Maharashtra", "Manipur", "Meghalaya", "Mizoram", "Nagaland",
-  "Odisha", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana", "Tripura",
-  "Uttar Pradesh", "Uttarakhand", "West Bengal",
+  "Andaman and Nicobar Islands", "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar",
+  "Chandigarh", "Chhattisgarh", "Dadra and Nagar Haveli and Daman and Diu", "Delhi",
+  "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jammu and Kashmir", "Jharkhand",
+  "Karnataka", "Kerala", "Ladakh", "Lakshadweep", "Madhya Pradesh", "Maharashtra",
+  "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Odisha", "Puducherry", "Punjab",
+  "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana", "Tripura", "Uttar Pradesh",
+  "Uttarakhand", "West Bengal",
 ] as const;
 
 /* ── Commercials ─────────────────────────────────────────────────────────── */
 
 /** Shown on the contract step AND quoted on the pitch. One source, so they cannot drift. */
+/*
+ * What the server actually does — each line was checked against it. The old
+ * list promised weekly Monday settlements (payouts are requested by the
+ * kitchen), a 10% late-cancellation charge (a diner simply cannot cancel once
+ * cooking starts, and nothing is charged), and shared discount costs (no
+ * discount is applied to any order), and never stated the commission at all.
+ */
 export const COMMERCIALS: { label: string; value: string }[] = [
-  { label: "Payment cycle", value: "Weekly settlements — every Monday, for the week before" },
-  { label: "Cancellation policy", value: "Free up to 5 minutes. Later cancellations are charged 10% of order value." },
-  { label: "Promotional contribution", value: "Optional. Shared cost on discounts and free-delivery campaigns." },
+  { label: "Commission", value: "0% — Lampose currently charges no commission on food orders" },
+  { label: "Packaging fee", value: "Set by you (up to ₹50), billed to the diner and paid to you in full" },
+  { label: "Payouts", value: "On request from the app, once ₹100 or more is due, to your bank account" },
+  { label: "Cancellations", value: "A diner can cancel only before you start preparing. Online payments for cancelled orders are refunded to the diner." },
 ];
 
 /* ── Copy ────────────────────────────────────────────────────────────────── */

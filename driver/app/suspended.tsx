@@ -37,10 +37,10 @@
    when nothing has been captured, this screen says the reason has not reached
    it rather than inventing a cause or dressing up an old one.
 
-   The durable fix is a backend one and is not made here: a read-only self view
-   a suspended rider is allowed to fetch, behind its own narrowly-named guard.
-   That is written up with the rest of this pass; nothing in this app is
-   waiting on it, and nothing in this app pretends to have it.
+   The durable fix is in now: `GET /me/standing`, behind the support guard
+   that admits a suspended rider, answers the status and the operator's own
+   reason. This screen asks it on every open and prefers its sentence; the
+   captured refusal is only the fallback for an older server.
 
    ## And now something routes to it
 
@@ -57,12 +57,13 @@
    the server was built to keep it open.
    ══════════════════════════════════════════════════════════════════════════ */
 import { router } from "expo-router";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { Btn, Icon, Sheet, Text, TopBar } from "@/components/ui";
 import { useSheet } from "@/hooks/useSheet";
 import { useDriverStore } from "@/store/driverStore";
 import { useFlowStore } from "@/store/flowStore";
+import { api } from "@/utils/api";
 import { colors, layout, radius, space } from "@/theme";
 
 /** Blocking state — no bottom navigation, only one way out. */
@@ -70,8 +71,27 @@ export default function SuspendedScreen() {
   const setOverlay = useFlowStore((s) => s.setOverlay);
   const sheet = useSheet();
 
-  const notice = useDriverStore((s) => s.suspensionNotice).trim();
+  const captured = useDriverStore((s) => s.suspensionNotice).trim();
   const refreshProfile = useDriverStore((s) => s.refreshProfile);
+  const token = useDriverStore((s) => s.token);
+
+  /* The operator's reason, read from the one route a suspended rider may
+     call. Kept separate from `captured` — the 403's wording — so the screen
+     can show the reason itself rather than a sentence wrapped round it. */
+  const [reason, setReason] = useState("");
+  useEffect(() => {
+    if (!token) return;
+    let live = true;
+    api<{ data?: { status?: string; statusReason?: string } }>("/api/v2/drivers/me/standing", { token })
+      .then((res) => {
+        if (live && res?.data?.statusReason) setReason(`Your account is on hold: ${res.data.statusReason}`);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [token]);
+  const notice = reason || captured;
 
   /*
     Asked again on every open, for two reasons that both matter to the person

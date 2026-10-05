@@ -39,12 +39,25 @@ export default function SupportList() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const { tickets, isPending, error, refetch, isFetching } = useTickets();
-  /* Tickets live on the account. A guest reached this screen (a link, a
-     support row) and got "We could not load your requests" with a Try again
-     that could never succeed — the way forward is signing in. */
+  /* A guest has no tickets to list: the read was sent anyway and its 401 was
+     drawn as "could not load", which reads as a broken screen, not as
+     "sign in to see your conversations". */
   const { status, requireSignIn } = useAuth();
   const signedIn = status === 'signedIn';
+  const { tickets, isPending, error, refetch, isFetching } = useTickets(signedIn);
+
+  if (!signedIn) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <StandardHeader title="Support" onBack={() => router.back()} />
+        <StateTemplate
+          copy={emptyStates.signInRequired({ what: 'your support conversations' })}
+          onPrimary={() => requireSignIn(() => {})}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
@@ -66,12 +79,7 @@ export default function SupportList() {
           />
         }
       >
-        {!signedIn ? (
-          <StateTemplate
-            copy={emptyStates.signInRequired({ what: 'your support requests' })}
-            onPrimary={() => requireSignIn(() => {})}
-          />
-        ) : isPending ? (
+        {isPending ? (
           <View style={styles.centre}>
             <ActivityIndicator color={colors.brand} />
           </View>

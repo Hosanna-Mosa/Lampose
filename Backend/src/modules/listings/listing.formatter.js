@@ -137,7 +137,7 @@ const formatListing = (input, resolvedOwnerName = '') => {
     stayType: doc.stayType || 'Long Stay',
     longStayDuration: doc.longStayDuration || null,
     shortStayDuration: doc.shortStayDuration || null,
-    rent: doc.rent || 0,
+    rent: (doc.monthlyPrice > 0 ? doc.monthlyPrice : (doc.rent > 0 && !(doc.dailyPrice > 0 && doc.rent === doc.dailyPrice) ? doc.rent : (doc.dailyPrice > 0 ? doc.dailyPrice : doc.rent))) || 0,
     pricePeriod: isDaily(doc) ? '/day' : '/mo',
     monthlyPrice: doc.monthlyPrice || null,
     dailyPrice: doc.dailyPrice || null,
@@ -161,7 +161,14 @@ const formatListing = (input, resolvedOwnerName = '') => {
      * listing whose owner is not on Stay Partner yet.
      */
     ownerName: resolvedOwnerName || doc.ownerName || 'Property Owner',
-    ownerMobile: doc.ownerMobile || '',
+    /*
+     * NOT the owner's phone number.
+     *
+     * This projection is served to anybody by `/api/v2/listings`, and the
+     * number reaches a student only after an OTP-verified request or a paid
+     * visit. Owner-scoped responses (portfolio, property edit) add it back
+     * themselves — see `ownerMobile` in `partners/portfolio.controller.js`.
+     */
     /*
      * NOT the street address.
      *

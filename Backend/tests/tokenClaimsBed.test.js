@@ -36,7 +36,10 @@ const Property = require('../src/modules/properties/property.model');
 const VisitRequest = require('../src/modules/visits/visitRequest.model');
 const { PartnerShareType } = require('../src/modules/partners/partnerDomains.model');
 const { syncShareTypes } = require('../src/modules/inventory/inventory.service');
-const { markPaidAndReleaseAddress } = require('../src/modules/visits/visitPayment.controller');
+/* `markPaidAndReleaseAddress` became `markVisitPaid` when payments gained a
+   purpose; the bed claim now belongs to the STAY-BOOKING purpose on the web
+   channel only (see the note above the claim in visitPayment.controller.js). */
+const { markVisitPaid: markPaidAndReleaseAddress } = require('../src/modules/visits/visitPayment.controller');
 
 withDatabase();
 
@@ -71,8 +74,9 @@ const freeBeds = async (shareTypeId) => {
   return row.availableBeds;
 };
 
-/** A confirmed request with the token outstanding — the state before paying. */
-const awaitingPayment = ({ property, shareTypeId }, name = 'Payer') => VisitRequest.create({
+/** A confirmed WEBSITE stay booking with the payment outstanding — the state
+    before paying. `overrides` reshapes it for the cases that must take nothing. */
+const awaitingPayment = ({ property, shareTypeId }, name = 'Payer', overrides = {}) => VisitRequest.create({
   listingId: String(property._id),
   propertyName: property.name,
   ownerName: 'Owner',
@@ -82,7 +86,8 @@ const awaitingPayment = ({ property, shareTypeId }, name = 'Payer') => VisitRequ
   decidedAt: new Date(),
   shareTypeId,
   sharing: { label: '1 BHK', price: 12000 },
-  payment: { required: true, status: 'pending', amountPaise: 2000 },
+  payment: { required: true, status: 'pending', amountPaise: 2000, purpose: 'stay_booking' },
+  ...overrides,
 });
 
 describe('paying the token takes a bed', () => {
@@ -177,5 +182,30 @@ describe('requests that predate the pool id', () => {
     assert.equal(await freeBeds(listing.shareTypeId), 2, 'nothing to claim, nothing claimed');
     assert.equal(doc.bedClaimedAt, null);
     assert.equal(doc.payment.status, 'paid', 'and the payment still stands');
+  });
+});
+
+describe('payments that must NOT take a bed', () => {
+  it('an assisted-visit fee pays for a viewing, not a room', async () => {
+    const listing = await makeListing(2);
+    const doc = await awaitingPayment(listing, 'Viewer', {
+      payment: { required: true, status: 'pending', amountPaise: 29900, purpose: 'assisted_visit' },
+    });
+
+    await markPaidAndReleaseAddress(doc, 'pay_VIEW');
+
+    assert.equal(await freeBeds(listing.shareTypeId), 2, 'a viewing empties nothing');
+    assert.equal(doc.bedClaimedAt, null);
+    assert.equal(doc.payment.status, 'paid');
+  });
+
+  it('an app booking took its bed at accept, so paying takes no second one', async () => {
+    const listing = await makeListing(2);
+    const doc = await awaitingPayment(listing, 'App guest', { channel: 'app' });
+
+    await markPaidAndReleaseAddress(doc, 'pay_APP');
+
+    assert.equal(await freeBeds(listing.shareTypeId), 2, 'counted once, at accept — not again here');
+    assert.equal(doc.payment.status, 'paid');
   });
 });

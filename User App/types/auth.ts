@@ -141,7 +141,7 @@ export function phoneError(digits: string): string | undefined {
  * Every one of them names whose fault it is. A student on patchy 4G who is
  * told "invalid request" assumes their data pack died and stops trying.
  */
-export type SendFailure = 'smsProvider' | 'offline' | 'rateLimited';
+export type SendFailure = 'smsProvider' | 'offline' | 'rateLimited' | 'accountPaused' | 'badNumber' | 'server';
 
 export type SendFailureCopy = {
   headline: string;
@@ -168,6 +168,27 @@ export function sendFailureCopy(
       return {
         headline: 'No internet',
         body: 'You can keep browsing places offline. Signing in needs a connection.',
+      };
+    /* Not an SMS failure — this used to say "The SMS didn't send" to a number
+       Lampose had paused, so they kept retrying something that could not work. */
+    case 'accountPaused':
+      return {
+        headline: 'This number is paused',
+        body: 'Lampose has paused the account on this number, so it cannot sign in. Please contact Lampose support.',
+      };
+    /* Each of these used to read "The SMS didn't send" — telling somebody
+       with a mistyped number, or caught by our own outage, to retry an SMS
+       that was never the problem. */
+    case 'badNumber':
+      return {
+        headline: 'Check the number',
+        body: 'That does not look like a 10-digit Indian mobile number. Fix it and try again.',
+      };
+    case 'server':
+      return {
+        headline: 'Lampose is having trouble',
+        body: 'The problem is on our side, not your number or your connection. Please try again in a minute.',
+        action: 'Try again',
       };
     case 'rateLimited':
       return {

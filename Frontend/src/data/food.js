@@ -22,7 +22,13 @@
    Money is whole rupees everywhere - no paise, no floats to round.
    ══════════════════════════════════════════════════════════════════════════ */
 
-export const rupees = n => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+/* Whole rupees print whole; anything with paise prints both places — ₹0.90,
+   not ₹0.9 (an 18% GST is rarely a whole number). */
+export const rupees = (n) => {
+  const value = Math.round(Number(n || 0) * 100) / 100;
+  const paise = !Number.isInteger(value);
+  return `₹${value.toLocaleString('en-IN', { minimumFractionDigits: paise ? 2 : 0, maximumFractionDigits: 2 })}`;
+};
 
 /* "1:28 pm" from minutes past midnight — the one clock formatter for food. */
 export const clockLabel = minute => {

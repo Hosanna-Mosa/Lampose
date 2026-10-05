@@ -17,12 +17,10 @@ import type { OrdersTab, Period } from "@/constants/lampose";
  * losing it strands a rider on a doorstep.
  */
 
+/* Only the three sheets something actually opens. "gps", "permission",
+   "network", "server" and "docexpired" had specs and no caller — and copy no
+   one could stand behind ("error 503", "3 more days"). */
 export type OverlayKey =
-  | "gps"
-  | "permission"
-  | "network"
-  | "server"
-  | "docexpired"
   | "problem"
   | "cancel"
   | "logout"
@@ -34,7 +32,6 @@ type FlowState = {
 
   ordersTab: OrdersTab;
   period: Period;
-  switches: Record<string, boolean>;
 
   setOverlay: (overlay: OverlayKey) => void;
   say: (message: string) => void;
@@ -42,7 +39,6 @@ type FlowState = {
 
   setOrdersTab: (tab: OrdersTab) => void;
   setPeriod: (period: Period) => void;
-  toggleSwitch: (key: string) => void;
 };
 
 /** Five, and every one of them is reachable — see `STAGES`. */
@@ -54,7 +50,6 @@ export const useFlowStore = create<FlowState>()((set) => ({
 
   ordersTab: "Active",
   period: "Today",
-  switches: { orders: true, earnings: true, incentives: true, news: false },
 
   setOverlay: (overlay) => set({ overlay }),
   say: (toast) => set({ toast }),
@@ -62,5 +57,4 @@ export const useFlowStore = create<FlowState>()((set) => ({
 
   setOrdersTab: (ordersTab) => set({ ordersTab }),
   setPeriod: (period) => set({ period }),
-  toggleSwitch: (key) => set((s) => ({ switches: { ...s.switches, [key]: !s.switches[key] } })),
 }));

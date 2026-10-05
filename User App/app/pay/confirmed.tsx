@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter, Redirect } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
@@ -17,7 +17,7 @@ import { formatRupees } from '@/utils/money';
 import { useDepositMark } from '@/components/ui/DepositMark';
 import { findBooking } from '@/data/bookings';
 import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
-import { usePreviewControls } from '@/hooks/useAppEnv';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * "It's yours."
@@ -234,14 +234,5 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
 });
 
-/**
- * A design prototype, not a product screen: it runs on fixtures and several of
- * its buttons do nothing. Nothing in the live app links here, but expo-router
- * still registers the route, so a typed or stale `lampose://` link would open
- * it. Outside preview builds it redirects home, like `/preview` does.
- */
-export default function PaymentConfirmedRoute() {
-  const previewControls = usePreviewControls();
-  if (!previewControls) return <Redirect href="/home" />;
-  return <PaymentConfirmed />;
-}
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(PaymentConfirmed);

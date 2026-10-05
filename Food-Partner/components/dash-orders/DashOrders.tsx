@@ -22,33 +22,86 @@
    and rejecting ends the order and sends the money back. Neither may be a
    single unlabelled tap, and neither may be a form either — this is a counter
    mid-service, so both are a row of the answers a kitchen actually gives.
+
+   Laid out as the Adios orders tab — a filter row under the title and one
+   card per order — with the kitchen's actions kept ON the card, so accepting
+   is still one tap from the list.
    ══════════════════════════════════════════════════════════════════════════ */
 import { prepChoices } from "@/components/common/utils/prepChoices";
+import { Ionicons } from "@expo/vector-icons";
 import * as Notifications from "expo-notifications";
 import { useFocusEffect } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import {
-  AppState,
-  StyleSheet,
-} from "react-native";
+import { AppState, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Box, Note, Refresher, Scroller, Tappable, TextField } from "@/components/common";
-import { Btn, Card, Chip, ChoiceChip, Icon, ModalSheet, Rule, Seg, Text, TopBar } from "@/components/common";
-import { rupees } from "@/lib/money";
+import { useTabBarHeight } from "@/components/dash/organisms/TabBar";
+import {
+  Avatar,
+  Badge,
+  BottomSheet,
+  BrandBanner,
+  Button,
+  Card,
+  CardSkeleton,
+  Chip,
+  ChipRow,
+  EmptyState,
+  InfoNote,
+  InfoRow,
+  ScreenShell,
+  ScreenTitle,
+  TextField,
+  Txt,
+  staggerListItem,
+} from "@/components/ui";
+import { addOnsLabel, rupees } from "@/lib/money";
 import { cancelledOrders, clearCancelledOrders, onQueueChanged } from "@/services/orderPump";
 import { getMe, listMyOrders, setOrderStatus, type ServerOrder } from "@/services/foodPartner";
 import { usePartnerStore } from "@/store/partnerStore";
-import { colors, layout, space, type ToneName } from "@/theme";
+import { type ToneName } from "@/theme";
+import { font, fromToneName, line, ms, radius, size, ui } from "@/theme/ui";
 
-const TABS = ["live", "placed", "delivered", "all"] as const;
+const TABS = ["live", "placed", "delivered", "cancelled", "all"] as const;
 type Tab = (typeof TABS)[number];
+
+const TAB_LABEL: Record<Tab, string> = {
+  live: "Kitchen",
+  placed: "New",
+  delivered: "Done",
+  cancelled: "Cancelled",
+  all: "All",
+};
 
 /** What each tab asks the server for. "live" is the working set. */
 const QUERY: Record<Tab, string | undefined> = {
   live: "placed,accepted,preparing,ready",
   placed: "placed",
-  delivered: "delivered",
+  /* Out of the kitchen: on the road or delivered. `picked_up`, `rejected`
+     and `cancelled` were in no tab but All, so an order a rider had just
+     collected vanished from every working view. */
+  delivered: "picked_up,delivered",
+  cancelled: "rejected,cancelled",
   all: undefined,
+};
+
+/** Each tab's empty state, in its own words — "nothing has been placed with
+    this restaurant yet" was said on every tab, even with orders in another. */
+const EMPTY_COPY: Record<Tab, string> = {
+  live: "Nothing is being prepared right now. Accepted orders show here until a rider collects them.",
+  placed: "No new orders are waiting for you to accept.",
+  delivered: "Orders appear here once a rider has collected them.",
+  cancelled: "No rejected or cancelled orders.",
+  all: "Orders placed by diners appear here as they come in. Nothing has been placed with this restaurant yet.",
+};
+
+const EMPTY_ICON: Record<Tab, keyof typeof Ionicons.glyphMap> = {
+  live: "flame-outline",
+  placed: "notifications-outline",
+  delivered: "checkmark-done-outline",
+  cancelled: "close-circle-outline",
+  all: "receipt-outline",
 };
 
 const STATUS_TONE: Record<string, ToneName> = {
@@ -131,6 +184,8 @@ const REJECT_REASONS = [
 /** The kitchen's own standing preparation time, offered alongside the presets. */
 
 export function DashOrders() {
+  const insets = useSafeAreaInsets();
+  const tabBarHeight = useTabBarHeight();
   const session = usePartnerStore((s) => s.session);
 
   const [tab, setTab] = useState<Tab>("live");
@@ -219,6 +274,19 @@ export function DashOrders() {
       setLoading(false);
     }
   }, [session?.token, tab]);
+
+  /* The pull's own flag. `loading` is set true only on mount, so a pull
+     started a load with the spinner already off — it vanished at once and
+     the partner could not tell whether anything had been fetched. */
+  const [refreshing, setRefreshing] = useState(false);
+  const pull = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load]);
 
   useFocusEffect(
     useCallback(() => {
@@ -368,27 +436,33 @@ export function DashOrders() {
   const liveCount =
     (counts.placed ?? 0) + (counts.accepted ?? 0) + (counts.preparing ?? 0) + (counts.ready ?? 0);
 
+  const tabCount: Partial<Record<Tab, number>> = { live: liveCount, placed: counts.placed ?? 0 };
+
   return (
-    <Box style={{ flex: 1, backgroundColor: colors.bg }}>
-      <TopBar
-        back={null}
-        title="Orders"
-        subtitle={liveCount ? `${liveCount} in the kitchen` : undefined}
+    <ScreenShell style={{ paddingTop: insets.top + 12 }}>
+      <ScreenTitle title="Orders" subtitle={liveCount ? `${liveCount} in the kitchen` : undefined} />
+      <ChipRow<Tab>
+        value={tab}
+        onChange={setTab}
+        options={TABS.map((key) => ({ key, label: TAB_LABEL[key], count: tabCount[key] }))}
       />
 
-      <Scroller
-        contentContainerStyle={styles.body}
-        refreshControl={<Refresher refreshing={loading} onRefresh={load} />}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.body, { paddingBottom: tabBarHeight }]}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={pull} tintColor={ui.brand} colors={[ui.brand]} />}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        {!!error && <Note tone="bad">{error}</Note>}
+        {!!error && <InfoNote tone="danger" text={error} />}
 
         {arrived > 0 && (
-          <Tappable accessibilityRole="button" onPress={() => { setArrived(0); setTab("placed"); }}>
-            <Note tone="ok" glyph="bell">
-              {arrived} new order{arrived === 1 ? "" : "s"} just came in. Tap to see {arrived === 1 ? "it" : "them"}.
-            </Note>
-          </Tappable>
+          <BrandBanner
+            icon="notifications"
+            title={`${arrived} new order${arrived === 1 ? "" : "s"} just came in.`}
+            subtitle={`Tap to see ${arrived === 1 ? "it" : "them"}.`}
+            onPress={() => { setArrived(0); setTab("placed"); }}
+          />
         )}
 
         {/* A ticket that left rather than arrived. The card itself is already
@@ -398,230 +472,236 @@ export function DashOrders() {
             stays until somebody clears it: an order called off during service
             is worth interrupting for. */}
         {cancelled.length > 0 && (
-          <Tappable
-            accessibilityRole="button"
+          <InfoNote
+            tone="warning"
+            icon="alert-circle"
             onPress={() => { clearCancelledOrders(); setCancelled([]); }}
-          >
-            <Note tone="warn" glyph="alert">
-              {cancelled.length === 1
+            text={
+              (cancelled.length === 1
                 ? `The diner cancelled order ${cancelled[0]}. Do not cook it.`
-                : `The diner cancelled ${cancelled.length} orders. Do not cook them: ${cancelled.join(", ")}.`}
-              {" Tap to clear this."}
-            </Note>
-          </Tappable>
+                : `The diner cancelled ${cancelled.length} orders. Do not cook them: ${cancelled.join(", ")}.`) +
+              " Tap to clear this."
+            }
+          />
         )}
 
-        <Seg
-          options={TABS}
-          value={tab}
-          onChange={setTab}
-          labels={{ live: "In the kitchen", placed: "New", delivered: "Done", all: "All" }}
-        />
+        {loading && orders.length === 0 && !error && <CardSkeleton count={3} />}
 
         {!loading && orders.length === 0 && (
-          <Card style={{ alignItems: "center", gap: space[2], paddingVertical: space[6] }}>
-            <Icon name="doc" size={26} color={colors.textTertiary} />
-            <Text variant="title1">No orders here</Text>
-            <Text variant="caption" color="tertiary" style={{ textAlign: "center" }}>
-              Orders placed by diners appear here as they come in. Nothing has been placed with this
-              restaurant yet.
-            </Text>
-          </Card>
+          <EmptyState icon={EMPTY_ICON[tab]} title="No orders here" subtitle={EMPTY_COPY[tab]} />
         )}
 
-        {orders.map((order) => {
+        {orders.map((order, index) => {
           const move_ = NEXT_MOVE[order.status];
           const canReject = CAN_REJECT.has(order.status);
           /* A rejected or cancelled order is not going to be paid for. */
           const paying = order.status !== "rejected" && order.status !== "cancelled";
           const promised = prepFor[order.orderNumber] ?? standingPrep;
+          const needsAction = !!move_;
+          const placedAt = new Date(order.placedAt).toLocaleString([], {
+            day: "2-digit",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+
           return (
-            <Card key={order.orderNumber} style={{ gap: space[3] }}>
-              <Box style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
-                <Box style={{ flex: 1, minWidth: 0 }}>
-                  <Text variant="priceMd">{order.orderNumber}</Text>
-                  <Text variant="caption" color="tertiary">
-                    {new Date(order.placedAt).toLocaleString([], {
-                      day: "2-digit",
-                      month: "short",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </Text>
-                </Box>
-                <Chip
-                  label={STATUS_LABEL[order.status] ?? order.status}
-                  tone={STATUS_TONE[order.status] ?? "muted"}
-                />
-              </Box>
+            <Animated.View key={order.orderNumber} entering={staggerListItem(index)}>
+              <Card bordered elevationLevel="none" padding={14} style={[styles.card, needsAction && styles.cardAction]}>
+                {/* ── Which order ───────────────────────────────────────── */}
+                <View style={styles.topRow}>
+                  <View style={[styles.iconTile, { backgroundColor: needsAction ? ui.brandSkin : ui.sunken }]}>
+                    <Ionicons name="bag-handle" size={ms(18)} color={needsAction ? ui.brandInk : ui.sec} />
+                  </View>
+                  <View style={styles.headTexts}>
+                    <Txt style={styles.orderId} numberOfLines={1}>
+                      {order.orderNumber}
+                    </Txt>
+                    <Txt style={styles.meta} numberOfLines={1}>
+                      {[order.customerName, placedAt].filter(Boolean).join(" · ")}
+                    </Txt>
+                  </View>
+                  <Badge
+                    label={STATUS_LABEL[order.status] ?? order.status}
+                    tone={fromToneName(STATUS_TONE[order.status] ?? "muted")}
+                    dot
+                  />
+                </View>
 
-              <Rule subtle />
+                {/* ── What to cook ──────────────────────────────────────── */}
+                <View>
+                  {order.lines.map((line_, i) => (
+                    <View
+                      key={`${order.orderNumber}-${i}`}
+                      style={[styles.itemRow, i < order.lines.length - 1 && styles.itemDivider]}
+                    >
+                      <Txt style={styles.qty}>{line_.quantity}×</Txt>
+                      <View style={styles.itemTexts}>
+                        <Txt style={styles.itemName} numberOfLines={2}>
+                          {line_.productName}
+                          {line_.variantName ? ` · ${line_.variantName}` : ""}
+                        </Txt>
+                        {/* Add-ons and the diner's note are part of what to cook —
+                            without them the dish goes out wrong. */}
+                        {!!addOnsLabel(line_.addOns) && (
+                          <Txt style={styles.itemExtra}>{addOnsLabel(line_.addOns)}</Txt>
+                        )}
+                        {!!line_.note && <Txt style={styles.itemNote}>Note: {line_.note}</Txt>}
+                      </View>
+                      <Txt style={styles.itemPrice}>{rupees(line_.lineTotal)}</Txt>
+                    </View>
+                  ))}
+                </View>
 
-              {order.lines.map((line, i) => (
-                <Box key={`${order.orderNumber}-${i}`} style={styles.line}>
-                  <Text variant="priceSm" color="tertiary">
-                    {line.quantity}×
-                  </Text>
-                  <Text variant="body" style={{ flex: 1 }} numberOfLines={1}>
-                    {line.productName}
-                    {line.variantName ? ` · ${line.variantName}` : ""}
-                  </Text>
-                  <Text variant="priceSm">{rupees(line.lineTotal)}</Text>
-                </Box>
-              ))}
+                {/* ── The money ─────────────────────────────────────────── */}
+                <View style={styles.totalRow}>
+                  <View style={{ flex: 1 }}>
+                    <Txt style={styles.totalLabel}>
+                      {order.paymentMode === "cod" ? "Cash on delivery" : "Paid online"}
+                    </Txt>
+                    {/* The FOOD. This printed `grandTotal`, which carries GST,
+                        the platform fee and the delivery fee — so a ₹160 order
+                        read ₹200 on a kitchen's own screen and none of the
+                        difference was theirs. The server stopped sending it:
+                        see `partnerView`. */}
+                    <Txt style={styles.totalValue}>{rupees(order.itemsTotal)}</Txt>
+                  </View>
+                  {/* `partnerPayout` is written once, when the order is placed,
+                      and nothing zeroes it afterwards — so a rejected or
+                      cancelled card went on promising a kitchen money for food
+                      it never cooked, which is the figure they would eventually
+                      query an invoice against. There is nothing to put in its
+                      place, so nothing is what goes there. */}
+                  <View style={{ alignItems: "flex-end" }}>
+                    <Txt style={styles.totalLabel}>{paying ? "You receive" : "Nothing to receive"}</Txt>
+                    <Txt style={[styles.payout, !paying && { color: ui.muted }]}>
+                      {paying ? rupees(order.settlement?.restaurantReceives ?? order.partnerPayout) : "—"}
+                    </Txt>
+                  </View>
+                </View>
 
-              <Rule subtle />
+                {paying && order.settlement ? (
+                  <Txt style={styles.caption}>
+                    {`Food ${rupees(order.settlement.foodOrderValue)}`}
+                    {order.settlement.packagingFee ? ` + packaging ${rupees(order.settlement.packagingFee)}` : ""}
+                    {` · Commission ${rupees(order.settlement.commission)} (${order.settlement.commissionRate}%)`}
+                  </Txt>
+                ) : null}
 
-              <Box style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
-                <Box style={{ flex: 1 }}>
-                  <Text variant="caption" color="tertiary">
-                    {order.paymentMode === "cod" ? "Cash on delivery" : "Paid online"}
-                  </Text>
-                  {/* The FOOD. This printed `grandTotal`, which carries GST,
-                      the platform fee and the delivery fee — so a ₹160 order
-                      read ₹200 on a kitchen's own screen and none of the
-                      difference was theirs. The server stopped sending it:
-                      see `partnerView`. */}
-                  <Text variant="priceLg">{rupees(order.itemsTotal)}</Text>
-                </Box>
-                {/* `partnerPayout` is written once, when the order is placed,
-                    and nothing zeroes it afterwards — so a rejected or
-                    cancelled card went on promising a kitchen money for food
-                    it never cooked, which is the figure they would eventually
-                    query an invoice against. There is nothing to put in its
-                    place, so nothing is what goes there. */}
-                <Box style={{ alignItems: "flex-end" }}>
-                  <Text variant="caption" color="tertiary">
-                    {paying ? "You receive" : "Nothing to receive"}
-                  </Text>
-                  {paying ? (
-                    <Text variant="priceMd" color="brand">
-                      {rupees(order.partnerPayout)}
-                    </Text>
-                  ) : (
-                    <Text variant="priceMd" color="tertiary">
-                      —
-                    </Text>
-                  )}
-                </Box>
-              </Box>
+                {!!order.deliveryAddress && (
+                  <InfoRow icon="location-outline" text={order.deliveryAddress} numberOfLines={2} />
+                )}
 
-              {!!order.deliveryAddress && (
-                <Text variant="caption" color="tertiary" numberOfLines={2}>
-                  {order.customerName ? `${order.customerName} · ` : ""}
-                  {order.deliveryAddress}
-                </Text>
-              )}
+                {/*
+                  ── Who is collecting it ─────────────────────────────────────
 
-              {/*
-                ── Who is collecting it ─────────────────────────────────────
+                  Three states, worded as three different things rather than one
+                  spinner, because the kitchen does something different in each:
 
-                Three states, worded as three different things rather than one
-                spinner, because the kitchen does something different in each:
+                    searching    riders are being asked. Carry on cooking.
+                    unassigned   nobody took it yet. Still carry on cooking — the
+                                 server tries again the moment this is marked
+                                 ready — but do not plate it early.
+                    assigned     somebody is on the way, and the code below is
+                                 what they will ask for at the pass.
+                */}
+                {order.dispatch?.state === "searching" && !order.rider && (
+                  <InfoNote tone="info" icon="bicycle-outline" text="Finding a delivery partner for this order." />
+                )}
 
-                  searching    riders are being asked. Carry on cooking.
-                  unassigned   nobody took it yet. Still carry on cooking — the
-                               server tries again the moment this is marked
-                               ready — but do not plate it early.
-                  assigned     somebody is on the way, and the code below is
-                               what they will ask for at the pass.
-              */}
-              {order.dispatch?.state === "searching" && !order.rider && (
-                <Note tone="info">Finding a delivery partner for this order.</Note>
-              )}
+                {order.dispatch?.state === "unassigned" && !order.rider && (
+                  <InfoNote
+                    tone="warning"
+                    text="No rider has taken this one yet. Keep cooking — we look again as soon as you mark it ready."
+                  />
+                )}
 
-              {order.dispatch?.state === "unassigned" && !order.rider && (
-                <Note tone="warn" glyph="clock">
-                  No rider has taken this one yet. Keep cooking — we look again as soon as you
-                  mark it ready.
-                </Note>
-              )}
+                {order.rider && (
+                  <View style={styles.rider}>
+                    <Avatar name={order.rider.name} size={ms(44)} />
+                    <View style={styles.riderTexts}>
+                      <Txt style={styles.riderEyebrow}>
+                        {order.rider.pickedUpAt ? "Collected by" : "Rider on the way"}
+                      </Txt>
+                      <Txt style={styles.riderName} numberOfLines={1}>
+                        {order.rider.name}
+                      </Txt>
+                      <Txt style={styles.meta} numberOfLines={1}>
+                        {[order.rider.vehicle?.type, order.rider.vehicle?.plate, order.rider.phone]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </Txt>
+                    </View>
+                  </View>
+                )}
 
-              {order.rider && (
-                <Box style={styles.rider}>
-                  <Box style={{ flex: 1, minWidth: 0 }}>
-                    <Text variant="caption" color="tertiary">
-                      {order.rider.pickedUpAt ? "Collected by" : "Rider on the way"}
-                    </Text>
-                    <Text variant="title2" numberOfLines={1}>
-                      {order.rider.name}
-                    </Text>
-                    <Text variant="caption" color="tertiary" numberOfLines={1}>
-                      {[order.rider.vehicle?.type, order.rider.vehicle?.plate, order.rider.phone]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </Text>
-                  </Box>
+                {/* Shown from `ready` onwards only. Before that there is
+                    nothing to hand over, and a code on screen through the
+                    whole cook is a code somebody reads out early. */}
+                {order.rider && order.status === "ready" && !!order.pickupCode && (
+                  <View style={styles.codeBox}>
+                    <Txt style={styles.codeLabel}>Hand-over code</Txt>
+                    <Txt style={styles.code}>{order.pickupCode}</Txt>
+                  </View>
+                )}
 
-                  {/* Shown from `ready` onwards only. Before that there is
-                      nothing to hand over, and a code on screen through the
-                      whole cook is a code somebody reads out early. */}
-                  {order.status === "ready" && !!order.pickupCode && (
-                    <Box style={{ alignItems: "flex-end" }}>
-                      <Text variant="caption" color="tertiary">
-                        Hand-over code
-                      </Text>
-                      <Text variant="priceLg">{order.pickupCode}</Text>
-                    </Box>
-                  )}
-                </Box>
-              )}
+                {(move_ || canReject) && (
+                  <View style={styles.actions}>
+                    {/* Asked before the order is taken, not after: the answer
+                        travels with the acceptance, and the diner's screen has
+                        a countdown that has nothing to count without it. The
+                        row is pre-answered, so a kitchen that does not want to
+                        think about it still accepts in one tap. */}
+                    {order.status === "placed" && (
+                      <>
+                        <Txt style={styles.readyIn}>Ready in</Txt>
+                        <View style={styles.choices}>
+                          {prepChoices(standingPrep).map((minutes) => (
+                            <Chip
+                              key={minutes}
+                              label={`${minutes} min`}
+                              selected={promised === minutes}
+                              onPress={() =>
+                                setPrepFor((all) => ({ ...all, [order.orderNumber]: minutes }))
+                              }
+                            />
+                          ))}
+                        </View>
+                      </>
+                    )}
 
-              {(move_ || canReject) && (
-                <Box style={{ gap: space[2] }}>
-                  {/* Asked before the order is taken, not after: the answer
-                      travels with the acceptance, and the diner's screen has
-                      a countdown that has nothing to count without it. The
-                      row is pre-answered, so a kitchen that does not want to
-                      think about it still accepts in one tap. */}
-                  {order.status === "placed" && (
-                    <>
-                      <Text variant="caption" color="tertiary">
-                        Ready in
-                      </Text>
-                      <Box style={styles.choices}>
-                        {prepChoices(standingPrep).map((minutes) => (
-                          <ChoiceChip
-                            key={minutes}
-                            label={`${minutes} min`}
-                            selected={promised === minutes}
-                            onPress={() =>
-                              setPrepFor((all) => ({ ...all, [order.orderNumber]: minutes }))
-                            }
-                          />
-                        ))}
-                      </Box>
-                    </>
-                  )}
+                    {moveError?.orderNumber === order.orderNumber && (
+                      <InfoNote tone="danger" text={moveError.message} />
+                    )}
 
-                  {moveError?.orderNumber === order.orderNumber && (
-                    <Note tone="bad">{moveError.message}</Note>
-                  )}
-
-                  {move_ && (
-                    <Btn
-                      label={move_.label}
-                      loading={busy === order.orderNumber}
-                      onPress={() => {
-                        if (move_.status === "accepted") accept(order);
-                        else void move(order, move_.status);
-                      }}
-                    />
-                  )}
-                  {canReject && (
-                    <Btn
-                      label="Reject"
-                      variant="danger"
-                      disabled={busy === order.orderNumber}
-                      onPress={() => askWhy(order)}
-                    />
-                  )}
-                </Box>
-              )}
-            </Card>
+                    {move_ && (
+                      <Button
+                        title={move_.label}
+                        loading={busy === order.orderNumber}
+                        fullWidth
+                        onPress={() => {
+                          if (move_.status === "accepted") accept(order);
+                          else void move(order, move_.status);
+                        }}
+                      />
+                    )}
+                    {canReject && (
+                      <Button
+                        title="Reject"
+                        variant="secondary"
+                        fullWidth
+                        disabled={busy === order.orderNumber}
+                        onPress={() => askWhy(order)}
+                        icon={<Ionicons name="close-circle-outline" size={18} color={ui.error} />}
+                      />
+                    )}
+                  </View>
+                )}
+              </Card>
+            </Animated.View>
           );
         })}
-      </Scroller>
+      </ScrollView>
 
       {/*
         ── Why, and are you sure ─────────────────────────────────────────────
@@ -637,42 +717,39 @@ export function DashOrders() {
         lines do not cover. Nothing is pre-selected: a default reason would be
         a reason nobody chose, attached to somebody's dinner.
       */}
-      <ModalSheet
+      <BottomSheet
         visible={!!rejecting}
         title="Why are you rejecting this?"
         onClose={() => setRejecting(null)}
+        closeButton
         footer={
-          <Box style={{ gap: space[2] }}>
-            <Btn
-              label="Reject the order"
+          <>
+            <Button
+              title="Reject the order"
               variant="danger"
+              fullWidth
               disabled={!(reason === REJECT_OTHER ? reasonNote.trim() : reason)}
               loading={!!rejecting && busy === rejecting.orderNumber}
               onPress={confirmReject}
             />
-            <Btn label="Keep the order" variant="ghost" onPress={() => setRejecting(null)} />
-          </Box>
+            <Button title="Keep the order" variant="ghost" fullWidth onPress={() => setRejecting(null)} />
+          </>
         }
       >
         {!!rejecting && moveError?.orderNumber === rejecting.orderNumber && (
-          <Note tone="bad">{moveError.message}</Note>
+          <InfoNote tone="danger" text={moveError.message} />
         )}
 
-        <Text variant="body" color="secondary">
+        <Txt style={styles.sheetText}>
           {rejecting?.orderNumber} · {rupees(rejecting?.itemsTotal ?? 0)}. The diner is told what you
           say here, and anything they have paid is sent back to them.
-        </Text>
+        </Txt>
 
-        <Box style={styles.choices}>
+        <View style={styles.choices}>
           {REJECT_REASONS.map((option) => (
-            <ChoiceChip
-              key={option}
-              label={option}
-              selected={reason === option}
-              onPress={() => setReason(option)}
-            />
+            <Chip key={option} label={option} selected={reason === option} onPress={() => setReason(option)} />
           ))}
-        </Box>
+        </View>
 
         {reason === REJECT_OTHER && (
           <TextField
@@ -683,21 +760,96 @@ export function DashOrders() {
             multiline
           />
         )}
-      </ModalSheet>
-    </Box>
+      </BottomSheet>
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { padding: layout.gutter, gap: space[3], paddingBottom: space[10] },
-  line: { flexDirection: "row", alignItems: "center", gap: space[2] },
-  choices: { flexDirection: "row", flexWrap: "wrap", gap: space[2] },
+  body: { paddingHorizontal: 16, paddingTop: 4, gap: 12 },
+
+  card: { gap: 12 },
+  cardAction: { borderLeftColor: ui.brand, borderLeftWidth: 3 },
+  topRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  iconTile: { width: ms(40), height: ms(40), borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  headTexts: { flex: 1, minWidth: 0 },
+  orderId: { fontFamily: font.body.semibold, fontSize: size.medium, color: ui.text },
+  meta: { fontFamily: font.body.medium, fontSize: size.small, color: ui.sec, marginTop: 2 },
+
+  itemRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 9 },
+  itemDivider: { borderBottomWidth: 1, borderBottomColor: ui.border },
+  qty: {
+    minWidth: ms(30),
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    backgroundColor: ui.brandSkin,
+    textAlign: "center",
+    fontFamily: font.body.bold,
+    fontSize: size.small,
+    color: ui.brandInk,
+    overflow: "hidden",
+  },
+  itemTexts: { flex: 1, minWidth: 0, gap: 2 },
+  itemName: { fontFamily: font.body.medium, fontSize: size.medium, lineHeight: line.medium, color: ui.text },
+  itemExtra: { fontFamily: font.body.regular, fontSize: size.small, lineHeight: line.small, color: ui.sec },
+  itemNote: { fontFamily: font.body.semibold, fontSize: size.small, lineHeight: line.small, color: ui.warning },
+  itemPrice: { fontFamily: font.body.semibold, fontSize: size.medium, color: ui.text },
+
+  totalRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: ui.borderStrong,
+    borderStyle: "dashed",
+    paddingTop: 12,
+  },
+  totalLabel: { fontFamily: font.body.medium, fontSize: size.small, color: ui.sec },
+  totalValue: { fontFamily: font.heading.bold, fontSize: size.large, lineHeight: line.large, color: ui.text },
+  payout: { fontFamily: font.heading.bold, fontSize: size.large, lineHeight: line.large, color: ui.brandInk },
+  caption: { fontFamily: font.body.regular, fontSize: size.small, lineHeight: line.small, color: ui.muted },
+
   rider: {
     flexDirection: "row",
     alignItems: "center",
-    gap: space[3],
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    paddingTop: space[3],
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: ui.border,
+    paddingTop: 12,
   },
+  riderTexts: { flex: 1, minWidth: 0 },
+  riderEyebrow: {
+    fontFamily: font.body.bold,
+    fontSize: size.small,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: ui.muted,
+  },
+  riderName: { fontFamily: font.body.semibold, fontSize: size.medium, color: ui.text, marginTop: 2 },
+
+  codeBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    backgroundColor: ui.brandSkin,
+    borderRadius: radius.md,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  codeLabel: { fontFamily: font.body.bold, fontSize: size.medium, color: ui.text },
+  code: {
+    fontFamily: font.heading.bold,
+    fontSize: size.extraLarge,
+    lineHeight: line.extraLarge,
+    letterSpacing: 4,
+    color: ui.brandInk,
+  },
+
+  actions: { gap: 10, marginTop: 2 },
+  readyIn: { fontFamily: font.body.medium, fontSize: size.small, color: ui.sec },
+  choices: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+
+  sheetText: { fontFamily: font.body.regular, fontSize: size.medium, lineHeight: line.medium, color: ui.sec },
 });

@@ -32,18 +32,13 @@
    composer at all: a composer that takes a paragraph and then throws it away
    is worse than no composer.
    ══════════════════════════════════════════════════════════════════════════ */
+import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Platform,
-  StyleSheet,
-  type ScrollView,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ActivityIndicator, StyleSheet, TextInput, View, type ScrollView } from "react-native";
 
-import { Box, KeyboardAware, Note, Refresher, Scroller, TextField } from "@/components/common";
-import { Btn, Card, Chip, DataRow, Rule, Text, TopBar, type IconName } from "@/components/common";
-import { clockWords, stampWords } from "@/lib/when";
+import { Badge, Button, Card, Header, IconButton, InfoNote, ScreenShell, Txt } from "@/components/ui";
+import { stampWords } from "@/lib/when";
 import {
   BODY_MAX_FALLBACK,
   categoryWords,
@@ -52,19 +47,18 @@ import {
   replyToTicket,
   watchTicket,
   STATUS_WORD,
-  type SupportMessage,
   type SupportThread,
   type TicketStatus,
 } from "@/services/support";
 import { usePartnerStore } from "@/store/partnerStore";
-import { colors, layout, radius, space } from "@/theme";
+import { MAX_FONT_SCALE, font, fromToneName, line, ms, size, ui } from "@/theme/ui";
 import { Message } from "@/components/support-reference/molecules/Message";
 
-const STATUS_GLYPH: Record<TicketStatus, IconName> = {
-  open: "alert",
-  awaiting_customer: "clock",
-  resolved: "check",
-  closed: "lock",
+const STATUS_GLYPH: Record<TicketStatus, keyof typeof Ionicons.glyphMap> = {
+  open: "alert-circle-outline",
+  awaiting_customer: "time-outline",
+  resolved: "checkmark-circle-outline",
+  closed: "lock-closed-outline",
 };
 
 /** What the state means for the person reading it, not what it is called. */
@@ -76,7 +70,6 @@ const STATUS_SENTENCE: Record<TicketStatus, string> = {
 };
 
 export function SupportThreadScreen() {
-  const insets = useSafeAreaInsets();
   const session = usePartnerStore((s) => s.session);
   const params = useLocalSearchParams<{ reference: string }>();
 
@@ -204,138 +197,188 @@ export function SupportThreadScreen() {
   const messages = useMemo(() => thread?.messages ?? [], [thread]);
 
   return (
-    <Box style={styles.root}>
-      <TopBar
-        back="Help &amp; support"
-        title={thread ? words.label : "Request"}
-        subtitle={reference || undefined}
-      />
+    <ScreenShell
+      keyboardAvoiding
+      header={
+        <Header
+          bar
+          title={thread ? words.label : "Request"}
+          subtitle={reference || undefined}
+          onBack={() => router.back()}
+          backLabel="Back to Help & support"
+        />
+      }
+      scroll
+      scrollRef={scroller}
+      refreshing={loading}
+      onRefresh={() => load()}
+      scrollProps={{ onContentSizeChange: () => scroller.current?.scrollToEnd({ animated: true }) }}
+      contentStyle={styles.body}
+      footer={
+        thread ? (
+          /* ── The composer, or the sentence that replaces it ──────────── */
+          <>
+            {closed && (
+              <>
+                <InfoNote
+                  tone="info"
+                  icon="lock-closed-outline"
+                  text={`This one is closed, so it cannot take a reply. Open a new request and we will pick it up there — quote ${thread.reference} and whoever answers has the history.`}
+                />
+                <Button
+                  title="Open a new request"
+                  variant="secondary"
+                  fullWidth
+                  icon={<Ionicons name="add" size={18} color={ui.text} />}
+                  onPress={() => router.push("/support/new")}
+                />
+              </>
+            )}
 
-      <KeyboardAware
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
-      >
-        <Scroller
-          ref={scroller}
-          contentContainerStyle={styles.body}
-          refreshControl={
-            <Refresher refreshing={loading} onRefresh={() => load()} />
-          }
-          onContentSizeChange={() => scroller.current?.scrollToEnd({ animated: true })}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {!!error && <Note tone="bad">{error}</Note>}
-
-          {loading && !thread && !error && (
-            <Text variant="body" color="tertiary">
-              Opening this request…
-            </Text>
-          )}
-
-          {!!thread && (
-            <>
-              <Card style={{ gap: space[2] }}>
-                <Box style={styles.headRow}>
-                  <Text variant="title1" style={{ flex: 1 }} numberOfLines={2}>
-                    {thread.subject || words.label}
-                  </Text>
-                  {!!status && (
-                    <Chip
-                      label={status.label}
-                      tone={status.tone}
-                      glyph={STATUS_GLYPH[thread.status]}
-                    />
-                  )}
-                </Box>
-
-                {/* A status this build has never heard of gets no sentence
-                    rather than an invented one — the chip above still shows
-                    the server's own word for it. */}
-                {!!STATUS_SENTENCE[thread.status] && (
-                  <Text variant="caption" color="secondary">
-                    {STATUS_SENTENCE[thread.status]}
-                  </Text>
+            {keepComposer && (
+              <View style={styles.composer}>
+                <View style={styles.inputWrap}>
+                  <TextInput
+                    style={styles.input}
+                    value={draft}
+                    onChangeText={setDraft}
+                    placeholder={closed ? "Copy this into the new request" : "Write a reply"}
+                    placeholderTextColor={ui.muted}
+                    multiline
+                    maxLength={BODY_MAX_FALLBACK}
+                    autoCorrect={false}
+                    maxFontSizeMultiplier={MAX_FONT_SCALE}
+                  />
+                </View>
+                {sending ? (
+                  <View style={styles.sending}>
+                    <ActivityIndicator color={ui.onBrand} />
+                  </View>
+                ) : (
+                  <IconButton
+                    icon="send"
+                    size={44}
+                    color={ui.onBrand}
+                    background={ui.brand}
+                    /* A closed thread cannot take this, and the server would say so
+                       with a 409. The box stays only so the words survive. */
+                    disabled={!text || sending || closed}
+                    onPress={send}
+                    accessibilityLabel="Send"
+                  />
                 )}
+              </View>
+            )}
+          </>
+        ) : undefined
+      }
+    >
+      {!!error && <InfoNote tone="danger" text={error} />}
 
-                <DataRow first label="Reference" value={thread.reference} />
-                <DataRow label="Filed" value={stampWords(thread.createdAt) || "—"} tabular={false} />
-                {!!thread.orderNumber && <DataRow label="Order" value={thread.orderNumber} />}
-                {!!thread.outcome && (
-                  <DataRow label="Outcome" value={thread.outcome} tabular={false} />
-                )}
-              </Card>
-
-              {messages.map((message) => (
-                <Message key={message.id} message={message} />
-              ))}
-            </>
-          )}
-        </Scroller>
-      </KeyboardAware>
-
-      {/* ── The composer, or the sentence that replaces it ───────────────── */}
-      {!!thread && (
-        <Box style={[styles.foot, { paddingBottom: insets.bottom + space[3] }]}>
-          {closed && (
-            <>
-              <Note tone="info" glyph="lock">
-                This one is closed, so it cannot take a reply. Open a new request and we will pick
-                it up there — quote {thread.reference} and whoever answers has the history.
-              </Note>
-              <Btn
-                label="Open a new request"
-                variant="ghost"
-                glyph="plus"
-                onPress={() => router.push("/support/new")}
-              />
-            </>
-          )}
-
-          {keepComposer && (
-            <>
-              <TextField
-                value={draft}
-                onChangeText={setDraft}
-                placeholder={closed ? "Copy this into the new request" : "Write a reply"}
-                multiline
-                maxLength={BODY_MAX_FALLBACK}
-                style={styles.composer}
-              />
-              <Btn
-                label={sending ? "Sending…" : "Send"}
-                glyph="arrowRight"
-                loading={sending}
-                /* A closed thread cannot take this, and the server would say so
-                   with a 409. The box stays only so the words survive. */
-                disabled={!text || sending || closed}
-                onPress={send}
-              />
-            </>
-          )}
-        </Box>
+      {loading && !thread && !error && (
+        <ActivityIndicator size="large" color={ui.brand} style={styles.loader} accessibilityLabel="Opening this request…" />
       )}
-    </Box>
+
+      {!!thread && (
+        <>
+          <Card bordered elevationLevel="none" style={styles.summary}>
+            <View style={styles.headRow}>
+              <Txt style={styles.subject} numberOfLines={2}>
+                {thread.subject || words.label}
+              </Txt>
+              {!!status && (
+                <Badge
+                  label={status.label}
+                  tone={fromToneName(status.tone)}
+                  icon={STATUS_GLYPH[thread.status as TicketStatus]}
+                />
+              )}
+            </View>
+
+            {/* A status this build has never heard of gets no sentence
+                rather than an invented one — the badge above still shows
+                the server's own word for it. */}
+            {!!STATUS_SENTENCE[thread.status as TicketStatus] && (
+              <Txt style={styles.sentence}>{STATUS_SENTENCE[thread.status as TicketStatus]}</Txt>
+            )}
+
+            <View style={styles.facts}>
+              <Fact label="Reference" value={thread.reference} first />
+              <Fact label="Filed" value={stampWords(thread.createdAt) || "—"} />
+              {!!thread.orderNumber && <Fact label="Order" value={thread.orderNumber} />}
+              {!!thread.outcome && <Fact label="Outcome" value={thread.outcome} />}
+            </View>
+          </Card>
+
+          <View style={styles.messages}>
+            {messages.map((message) => (
+              <Message key={message.id} message={message} />
+            ))}
+          </View>
+        </>
+      )}
+    </ScreenShell>
   );
 }
 
-/* ------------------------------------------------------------------ *
- * One line of the conversation
- * ------------------------------------------------------------------ */
+/** One label / value line of the request's facts. */
+function Fact({ label, value, first }: { label: string; value: string; first?: boolean }) {
+  return (
+    <View style={[styles.fact, !first && styles.factDivider]}>
+      <Txt style={styles.factLabel}>{label}</Txt>
+      <Txt style={styles.factValue} selectable>
+        {value}
+      </Txt>
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
-  body: { padding: layout.gutter, gap: space[3], paddingBottom: space[4] },
-  headRow: { flexDirection: "row", alignItems: "flex-start", gap: space[2] },
+  body: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16, gap: 14 },
+  loader: { marginTop: 40 },
 
-  foot: {
-    gap: space[2],
-    paddingHorizontal: layout.gutter,
-    paddingTop: space[3],
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    backgroundColor: colors.surface,
+  summary: { gap: 10 },
+  headRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  subject: {
+    flex: 1,
+    fontFamily: font.heading.semibold,
+    fontSize: size.large,
+    lineHeight: line.large,
+    color: ui.text,
   },
-  composer: { minHeight: 88 },
+  sentence: { fontFamily: font.body.medium, fontSize: size.small, lineHeight: line.small, color: ui.sec },
+  facts: { marginTop: 2 },
+  fact: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12, paddingVertical: 8 },
+  factDivider: { borderTopWidth: 1, borderTopColor: ui.border },
+  factLabel: { fontFamily: font.body.medium, fontSize: size.small, color: ui.sec },
+  factValue: { flexShrink: 1, fontFamily: font.body.semibold, fontSize: size.small, color: ui.text, textAlign: "right" },
+
+  messages: { gap: 10 },
+
+  composer: { flexDirection: "row", alignItems: "center", gap: 10 },
+  inputWrap: {
+    flex: 1,
+    backgroundColor: ui.bg,
+    borderWidth: 1,
+    borderColor: ui.border,
+    borderRadius: 22,
+    minHeight: ms(44),
+    maxHeight: 120,
+    paddingHorizontal: 16,
+    justifyContent: "center",
+  },
+  input: {
+    fontFamily: font.body.regular,
+    fontSize: size.medium,
+    color: ui.text,
+    paddingVertical: 10,
+  },
+  sending: {
+    width: ms(44),
+    height: ms(44),
+    borderRadius: ms(22),
+    backgroundColor: ui.brand,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

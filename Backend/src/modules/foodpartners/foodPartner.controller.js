@@ -88,6 +88,7 @@
    process: a missing database, SMS gateway or `JWT_SECRET` is a named 503 on
    the affected route and nothing else.
    ══════════════════════════════════════════════════════════════════════════ */
+const { FOOD_PRICING_CONFIG } = require('./foodPricing');
 const mongoose = require('mongoose');
 
 const config = require('../../config/env');
@@ -109,7 +110,7 @@ const {
 } = require('./foodPartnerAuth.middleware');
 const {
   normalisePhone, isIndianMobile, buildOpeningHours,
-  sanitiseApplication, validateApplication,
+  sanitiseApplication, validateApplication, toGeoPoint,
 } = require('./foodPartner.util');
 const {
   logApplicationSteps, logApplicationSaved, logRejected, logLogin, logAvailability,
@@ -565,6 +566,78 @@ const saveWithNewId = async (fields) => {
   return null;
 };
 
+/**
+ * The rejected application, replaced by the new one — see `submitApplication`.
+ *
+ * The new menu goes in FIRST and the old one is removed only once it has: a
+ * failed insert then leaves the rejected application exactly as it was, rather
+ * than a pending kitchen with no dishes. Sessions on the old password end.
+ */
+const reapply = async (req, res, { clash, fields, rawProducts, password, dropped }) => {
+  const { restaurantId } = clash;
+  const docs = withCategoryOrder(rawProducts).map((product) => ({
+    ...product,
+    productId: makeProductId(),
+    restaurantId,
+  }));
+  const newIds = docs.map((d) => d.productId);
+
+  if (docs.length) {
+    try {
+      await FoodProduct.insertMany(docs, { ordered: true });
+    } catch (error) {
+      logError(`the menu for the reapplication of ${restaurantId} could not be saved`, error);
+      await FoodProduct.deleteMany({ restaurantId, productId: { $in: newIds } }).catch(() => {});
+      return fail(
+        res,
+        500,
+        'MENU_SAVE_FAILED',
+        'We could not save your menu, so nothing was submitted. Please try again.',
+      );
+    }
+  }
+  await FoodProduct.deleteMany({ restaurantId, productId: { $nin: newIds } });
+
+  const passwordHash = await FoodRestaurant.hashPassword(password || generatePassword());
+  const restaurant = await FoodRestaurant.findOne({ restaurantId });
+  restaurant.set({
+    ...fields,
+    passwordHash,
+    verificationStatus: 'pending',
+    verificationNote: '',
+    verifiedAt: null,
+  });
+  restaurant.sessionVersion = (restaurant.sessionVersion || 0) + 1;
+  await restaurant.save();
+
+  logApplicationSaved({
+    restaurantId,
+    restaurantName: restaurant.restaurantName,
+    productCount: docs.length,
+    verificationStatus: restaurant.verificationStatus,
+    timer: req.foodPartnerTimer || startTimer(),
+  });
+
+  const token = signFoodPartnerToken(restaurant);
+  return res.status(201).json({
+    success: true,
+    data: {
+      restaurantId,
+      verificationStatus: restaurant.verificationStatus,
+      token,
+      tokenError: token ? null : 'AUTH_NOT_CONFIGURED',
+      restaurant,
+      productCount: docs.length,
+      documentCount: Array.isArray(restaurant.verificationDocuments)
+        ? restaurant.verificationDocuments.length
+        : 0,
+      dropped,
+      reapplied: true,
+    },
+    message: 'Your new application has been received. Lampose will verify your documents again.',
+  });
+};
+
 // @route   POST /api/v2/food-partners/applications
 // @desc    The whole onboarding form: one restaurant and its entire menu
 // @access  Public (rate-limited in the routes file; a phone proof is enforced
@@ -695,9 +768,33 @@ const submitApplication = async (req, res, next) => {
       : [{ phoneKey: phoneKey(fields.ownerPhone) }];
     if (fields.ownerEmail) identities.unshift({ ownerEmail: fields.ownerEmail });
 
+    /* No identities at all (duplicate phones allowed, no email) means nothing
+       to clash with — and `$or: []` is an error in MongoDB, not a no-match. */
     const clash = identities.length
-      ? await FoodRestaurant.findOne({ $or: identities }).select('ownerEmail phoneKey restaurantId')
+      ? await FoodRestaurant.findOne({ $or: identities })
+        .select('ownerEmail phoneKey restaurantId verificationStatus')
       : null;
+
+    /*
+     * Applying AGAIN after a rejection. The rejected account still holds the
+     * owner's phone and email, so every new application was refused 409 —
+     * a rejected kitchen had no way back in short of a support ticket. When
+     * the clash is that same owner's own rejected application (same phone,
+     * proven on this request by `requireApplicantOrStaff`, and the email, if
+     * any, not someone else's), it is replaced in place and goes back to the
+     * queue as pending.
+     */
+    if (clash && clash.verificationStatus === 'rejected'
+      && clash.phoneKey === phoneKey(fields.ownerPhone)) {
+      const emailElsewhere = fields.ownerEmail
+        ? await FoodRestaurant.exists({
+          ownerEmail: fields.ownerEmail, restaurantId: { $ne: clash.restaurantId },
+        })
+        : null;
+      if (!emailElsewhere) {
+        return reapply(req, res, { clash, fields, rawProducts, password, dropped });
+      }
+    }
 
     if (clash) {
       const isEmail = Boolean(fields.ownerEmail) && clash.ownerEmail === fields.ownerEmail;
@@ -1086,13 +1183,15 @@ const EDITABLE_FIELDS = [
   'openingHours', 'openState', 'avgPreparationTime', 'deliveryRadiusKm',
   'deliveryFee',
   'acceptsOnlinePayment', 'acceptsCod',
+  /* Billed again under the launch pricing (`foodPricing.js`): the kitchen
+     sets its own packaging fee, and 18% GST goes on it. */
+  'packagingCharge',
 ];
 
-/* `minOrderValue` and `packagingCharge` were on that list and are not any
-   more. Neither is charged: there is no minimum order, and the packaging
-   charge was replaced by GST and a flat platform fee — see
-   `foodCharges.util.js`. The COLUMNS stay for the orders that were billed
-   under them; what is gone is the ability to set a figure nothing will read. */
+/* `minOrderValue` is not on the list: there is no minimum order (a small-order
+   fee under ₹150 replaced the idea). Its COLUMN stays for orders refused under
+   it. `deliveryFee` is still accepted but no longer prices an order — delivery
+   is a Lampose distance slab now. */
 
 /* Server-decided. A partner who could set `verificationStatus` would list an
    unverified kitchen at two in the morning; one who could set `ratingAvg`
@@ -1290,6 +1389,11 @@ const updateMe = async (req, res, next) => {
     ].forEach(([key, fragment]) => {
       if (body[key] === undefined) return;
       const value = readMoney(body[key]);
+      /* The packaging fee has a ceiling — it is billed to every diner. */
+      if (key === 'packagingCharge' && value !== null && value > FOOD_PRICING_CONFIG.maxPackagingFee) {
+        problems.push(`a packaging fee of ₹${FOOD_PRICING_CONFIG.maxPackagingFee} or less`);
+        return;
+      }
       /* Said in words here rather than left to the schema's `min: 0`, which
          throws a ValidationError that reaches the app as a 500. */
       if (value === null) problems.push(fragment);
@@ -1474,6 +1578,49 @@ const setAvailability = async (req, res, next) => {
   }
 };
 
+// @route   PUT /api/v2/food-partners/me/location
+// @desc    Drop the map pin — once, and only if there is none yet
+// @access  Food-partner session
+/*
+ * `location` is a re-verification field (see `RE_VERIFICATION_FIELDS`): moving
+ * a verified kitchen's pin is a change a person checks, so `PATCH /me` still
+ * refuses it. But the pin was optional at onboarding, and a kitchen without one
+ * can never be found by dispatch — every order sat `unassigned` for good, with
+ * no way to fix it from the app. SETTING A MISSING PIN is not moving a verified
+ * one, so it is allowed here, once. The write is conditional on there being no
+ * location, so two taps or two phones cannot set it twice.
+ */
+const setMissingLocation = async (req, res, next) => {
+  try {
+    if (mongoose.connection.readyState !== 1) return dbDown(res);
+
+    const restaurant = req.foodPartner;
+    if (!restaurant) return notFound(res, 'This account no longer exists.');
+
+    const body = req.body || {};
+    const point = toGeoPoint(body.lat ?? body.latitude, body.lng ?? body.longitude);
+    if (!point) {
+      return badInput(res, 'Send the pin as lat and lng, in range.', 'BAD_LOCATION');
+    }
+
+    const result = await FoodRestaurant.updateOne(
+      { _id: restaurant._id, 'location.coordinates': { $exists: false } },
+      { $set: { location: point } },
+    );
+    if (!result.modifiedCount) {
+      return fail(
+        res, 409, 'LOCATION_ALREADY_SET',
+        'Your restaurant already has a map pin. Contact Lampose to move it.',
+      );
+    }
+
+    return res.json({ success: true, data: { location: point } });
+  } catch (error) {
+    logError('could not set the restaurant pin', error);
+    return next(error);
+  }
+};
+
 /* ══════════════════════════════════════════════════════════════════════════
    Payouts — what this kitchen is owed, and asking to be paid
 
@@ -1569,11 +1716,6 @@ const resetPassword = async (req, res, next) => {
     }
 
     const key = phoneKey(phone);
-    const restaurant = await FoodRestaurant.findOne({ phoneKey: key });
-    if (!restaurant) {
-      return fail(res, 404, 'ACCOUNT_NOT_FOUND', 'No account found with this phone number.');
-    }
-
     const verificationToken = body.verificationToken;
     const otp = String(body.otp || body.code || '').trim();
 
@@ -1585,7 +1727,13 @@ const resetPassword = async (req, res, next) => {
       }
     } else if (otp) {
       const entry = pendingCodes.get(phone);
-      if (!entry || !verifyOtp(otp, entry.salt, entry.hash) || entry.expiresAt <= Date.now()) {
+      if (!entry || entry.expiresAt <= Date.now() || entry.attempts >= OTP_MAX_ATTEMPTS) {
+        return fail(res, 400, 'INVALID_OTP', 'Invalid or expired OTP code.');
+      }
+      if (!verifyOtp(otp, entry.salt, entry.hash)) {
+        /* Counted, as on the sign-in path — this one let a six-digit code be
+           guessed for as long as it lived. */
+        entry.attempts += 1;
         return fail(res, 400, 'INVALID_OTP', 'Invalid or expired OTP code.');
       }
       pendingCodes.delete(phone);
@@ -1593,7 +1741,17 @@ const resetPassword = async (req, res, next) => {
       return badInput(res, 'OTP or verification token is required.', 'OTP_REQUIRED');
     }
 
+    /* Looked up only AFTER the phone is proven. Answering ACCOUNT_NOT_FOUND
+       first told anybody, without a code, which numbers run a kitchen here. */
+    const restaurant = await FoodRestaurant.findOne({ phoneKey: key });
+    if (!restaurant) {
+      return fail(res, 404, 'ACCOUNT_NOT_FOUND', 'No account found with this phone number.');
+    }
+
     restaurant.passwordHash = await FoodRestaurant.hashPassword(newPassword);
+    /* A reset is usually "somebody else may know my password", so every
+       session signed in with the old one ends now. */
+    restaurant.sessionVersion = (restaurant.sessionVersion || 0) + 1;
     await restaurant.save();
 
     return res.json({
@@ -1618,6 +1776,7 @@ module.exports = {
   getMe,
   updateMe,
   setAvailability,
+  setMissingLocation,
   listMyPayouts,
   requestMyPayout,
 

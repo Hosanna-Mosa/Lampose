@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Keyboard,
   Linking,
@@ -93,6 +94,11 @@ function AuthScreen() {
   // Front Form State (Phone)
   const [digits, setDigits] = useState('');
   const [touched, setTouched] = useState(false);
+  /* An owner's invite code, optional and folded away: most people sign up
+     without one. The server applies it in the same request that proves the
+     number and says what it did (`referralMessage`). */
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteCode, setInviteCode] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
@@ -205,7 +211,8 @@ function AuthScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {}
 
-    const result = await sendCode(`+91${digits}`);
+    const invite = inviteCode.trim().toUpperCase();
+    const result = await sendCode(`+91${digits}`, invite ? { referralCode: invite } : undefined);
     if (result === 'failed') return;
   };
 
@@ -225,6 +232,9 @@ function AuthScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch {}
       setOtpState('idle');
+      /* Applied, expired, used, someone else's — the server's own sentence.
+         Absent when no code was entered. */
+      if (result.referralMessage) Alert.alert('Invite code', result.referralMessage);
       await completeOnboardingStep('auth');
 
       /* A held action (from `requireSignIn`) wins over the ordinary
@@ -257,7 +267,13 @@ function AuthScreen() {
     setLockedLabel(null);
     setExpiredMessage(null);
     setProblem(null);
-    await resendCode();
+    /* A failed resend used to change nothing on this side of the card, so
+       somebody waited for an SMS that was never sent. */
+    const sent = await resendCode();
+    if (sent === 'failed') {
+      setOtpState('error');
+      setProblem('We could not send a new code. Check your connection and try again in a moment.');
+    }
   };
 
   const handleUseAnotherNumber = () => {
@@ -504,6 +520,34 @@ function AuthScreen() {
                   <Text style={styles.errorText}>{numberError}</Text>
                 ) : null}
 
+                {showInvite ? (
+                  <View style={[styles.phoneInputContainer, { marginTop: 12 }]}>
+                    <Icon name="offer" size={18} color="#0A5A41" />
+                    <TextInput
+                      value={inviteCode}
+                      onChangeText={(v) => setInviteCode(v.replace(/\s/g, '').slice(0, 20))}
+                      placeholder="Invite code (optional)"
+                      placeholderTextColor="#94A3B8"
+                      autoCapitalize="characters"
+                      autoCorrect={false}
+                      maxLength={20}
+                      style={[styles.phoneInput, styles.phoneInputEmpty]}
+                      selectionColor="#0A5A41"
+                      accessibilityLabel="Invite code, optional"
+                    />
+                  </View>
+                ) : (
+                  <Pressable
+                    onPress={() => setShowInvite(true)}
+                    accessibilityRole="button"
+                    style={{ marginTop: 10, alignSelf: 'flex-start', paddingVertical: 4 }}
+                  >
+                    <Text style={{ color: '#0A5A41', fontSize: 13, fontWeight: '600' }}>
+                      Have an invite code?
+                    </Text>
+                  </Pressable>
+                )}
+
                 {failure ? (
                   <View style={{ marginTop: 12, width: '100%' }}>
                     <InlineAlert
@@ -567,7 +611,7 @@ function AuthScreen() {
                   <Text
                     style={styles.termsLink}
                     accessibilityRole="link"
-                    onPress={() => void Linking.openURL(LEGAL_URLS.terms)}
+                    onPress={() => Linking.openURL(LEGAL_URLS.terms).catch(() => {})}
                   >
                     Terms & Conditions
                   </Text>{' '}
@@ -575,7 +619,7 @@ function AuthScreen() {
                   <Text
                     style={styles.termsLink}
                     accessibilityRole="link"
-                    onPress={() => void Linking.openURL(LEGAL_URLS.privacy)}
+                    onPress={() => Linking.openURL(LEGAL_URLS.privacy).catch(() => {})}
                   >
                     Privacy Policy
                   </Text>
@@ -655,6 +699,9 @@ function AuthScreen() {
                   state={otpState}
                   errorMessage={codeError}
                   onComplete={submitOtp}
+                  /* Ready to type the moment the code is sent — the boxes
+                     needed a tap first, and the SMS autofill had nowhere to go. */
+                  autoFocus
                 />
                 )}
 
@@ -663,9 +710,11 @@ function AuthScreen() {
                     <InlineAlert
                       tone="warning"
                       title={usesPassword ? 'Sign-in locked' : 'Code locked'}
+                      /* The time it opens again — `lockedLabel` held it all along
+                         and was only ever used as a flag. */
                       body={usesPassword
-                        ? 'Too many wrong tries. Go back and enter the number again.'
-                        : 'Too many wrong tries. Ask for a new one below.'}
+                        ? `Too many wrong tries. You can try again after ${lockedLabel}, or go back and enter the number again.`
+                        : `Too many wrong tries. This code is locked until ${lockedLabel} — ask for a new one below.`}
                     />
                   </View>
                 ) : null}

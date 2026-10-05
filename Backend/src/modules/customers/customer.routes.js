@@ -172,6 +172,18 @@ const requestByIp = rateLimit({
 const withdrawByCustomer = rateLimit({
   name: 'stay-request-withdraw-customer', windowMs: 60 * 60 * 1000, max: 12, keyOf: customerKey,
 });
+/* Their OWN buckets. All four shared the withdraw counter above, so a student
+   who had withdrawn a few requests could be refused when sending their bank
+   details for a refund, or a review — different acts, different budgets. */
+const cancelByCustomer = rateLimit({
+  name: 'booking-cancel-customer', windowMs: 60 * 60 * 1000, max: 12, keyOf: customerKey,
+});
+const refundDetailsByCustomer = rateLimit({
+  name: 'booking-refund-details-customer', windowMs: 60 * 60 * 1000, max: 12, keyOf: customerKey,
+});
+const reviewByCustomer = rateLimit({
+  name: 'booking-review-customer', windowMs: 60 * 60 * 1000, max: 12, keyOf: customerKey,
+});
 
 router.post(
   '/stay-requests',
@@ -219,20 +231,20 @@ router.get('/bookings/:id', requireLamposeDb, requireCustomer, getBooking);
    not be able to hand a bed back to the pool repeatedly. */
 router.post(
   '/bookings/:id/cancel',
-  requireLamposeDb, requireCustomer, withdrawByCustomer, cancelBooking,
+  requireLamposeDb, requireCustomer, cancelByCustomer, cancelBooking,
 );
 /* Where a refund should go — asked after an owner cancelled, or if the guest
    skipped the field when cancelling. See `submitRefundDetails`. */
 router.post(
   '/bookings/:id/refund-details',
-  requireLamposeDb, requireCustomer, withdrawByCustomer, submitRefundDetails,
+  requireLamposeDb, requireCustomer, refundDetailsByCustomer, submitRefundDetails,
 );
 /* "Rate your stay" — offered once a booking reaches `completed`. Limited per
    customer for the same reason as everything else on this router; a genuine
    review is a once-per-stay action, not something anybody sends repeatedly. */
 router.post(
   '/bookings/:id/review',
-  requireLamposeDb, requireCustomer, withdrawByCustomer, createReview,
+  requireLamposeDb, requireCustomer, reviewByCustomer, createReview,
 );
 
 /* ── This device ─────────────────────────────────────────────────────────

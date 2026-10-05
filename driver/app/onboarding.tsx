@@ -111,7 +111,8 @@ const ACCOUNT_TYPES: Choice<"savings" | "current">[] = [
 const DOC_HINTS: Record<DocumentKind, string> = {
   licence: "Both sides, with the number and the expiry readable.",
   rc: "The RC book or card for the vehicle above.",
-  aadhaar: "Any government photo ID works — Aadhaar, voter ID or passport.",
+  /* The server files this as the Aadhaar card, so the hint asks for that. */
+  aadhaar: "A clear photo of your Aadhaar card, front side.",
   pan: "Needed before we can pay you above ₹20,000 in a year.",
   insurance: "Third-party cover is enough. You can add this later.",
 };
@@ -200,6 +201,9 @@ export default function OnboardingScreen() {
 
   const [holder, setHolder] = useState("");
   const [account, setAccount] = useState("");
+  /* Typed twice, as on Bank details — a transposed digit here pays a
+     stranger, and the number is never shown back in full. Not sent. */
+  const [accountConfirm, setAccountConfirm] = useState("");
   const [ifsc, setIfsc] = useState("");
   const [upi, setUpi] = useState("");
   const [accountType, setAccountType] = useState<"savings" | "current">("savings");
@@ -311,7 +315,10 @@ export default function OnboardingScreen() {
                 ...(pin ? { location: pin } : null),
               },
             }
-          : null),
+          : profile?.address
+            /* Cleared on a return visit: say so, or the old one stays. */
+            ? { address: null }
+            : null),
         ...(photoUrl ? { profilePhotoUrl: photoUrl } : null),
         onboardingStep: "vehicle",
       },
@@ -364,6 +371,9 @@ export default function OnboardingScreen() {
     if (account.trim()) {
       if (!holder.trim()) errors.holder = "Whose account is it?";
       if (!ifsc.trim()) errors.ifsc = "The IFSC code is on your cheque book and passbook.";
+      if (accountConfirm.replace(/\s/g, "") !== account.replace(/\s/g, "")) {
+        errors.accountConfirm = "The two account numbers are not the same. Check both.";
+      }
     }
     setFieldErrors(errors);
     if (Object.keys(errors).length) return;
@@ -396,8 +406,8 @@ export default function OnboardingScreen() {
     setSaving(true);
     try {
       await updateProfile({ hasCompletedOnboarding: true, onboardingStep: "done" });
-      /* The root layout gates the tabs on `hasCompletedOnboarding`, so the
-         redirect is that flag changing rather than a push from here. */
+      /* Nothing redirects on this flag — the root layout does not gate on it —
+         so the way out is the "Go to home" button the Done step now shows. */
     } catch (err) {
       setError(readError(err, "We could not submit that. Please check the earlier steps."));
     } finally {
@@ -553,7 +563,7 @@ export default function OnboardingScreen() {
                 value={city}
                 onChangeText={setCity}
                 error={fieldErrors.city}
-                placeholder="Rajahmundry"
+                placeholder="Your city"
                 autoCapitalize="words"
                 maxLength={40}
               />
@@ -710,7 +720,7 @@ export default function OnboardingScreen() {
         {screen === "bank" && (
           <>
             <Text variant="bodyLg" color="secondary" style={styles.blurb}>
-              Earnings are paid every Monday. A bank account or a UPI id — either one is
+              Where your earnings are paid. A bank account or a UPI id — either one is
               enough to get started.
             </Text>
 
@@ -744,6 +754,20 @@ export default function OnboardingScreen() {
                    how a transposed digit reaches a payout run. */
                 hint="We only ever show you the last four digits after this."
               />
+              {!!account.trim() && (
+                <Input
+                  label="Account number again"
+                  value={accountConfirm}
+                  onChangeText={setAccountConfirm}
+                  error={fieldErrors.accountConfirm}
+                  required={false}
+                  placeholder="Type it a second time"
+                  keyboardType="number-pad"
+                  maxLength={18}
+                  mono
+                  hint="You will not be shown these digits again, so they are checked now."
+                />
+              )}
               <Input
                 label="IFSC code"
                 value={ifsc}
@@ -772,7 +796,7 @@ export default function OnboardingScreen() {
                 autoCorrect={false}
                 keyboardType="email-address"
                 maxLength={64}
-                hint="Where your weekly settlement is sent."
+                hint="Where your earnings are sent."
               />
             </View>
           </>
@@ -830,6 +854,11 @@ export default function OnboardingScreen() {
               onPress={finish}
             />
           )}
+          {/* The only way off this screen once the form is in: the top bar is
+              hidden on `done` and nothing sits underneath it in the stack. */}
+          {screen === "done" && profile?.hasCompletedOnboarding && (
+            <Btn label="Go to home" large onPress={() => router.replace("/(tabs)")} />
+          )}
           {screen === "done" && profile?.hasCompletedOnboarding && (
             <Btn
               label="Check status"
@@ -875,7 +904,7 @@ function Welcome() {
         Earn on your own schedule
       </Text>
       <Text variant="bodyLg" color="secondary" style={[styles.blurb, { textAlign: "center" }]}>
-        Deliver for Rajahmundry&apos;s best restaurants, and get paid weekly into the
+        Deliver for the best restaurants near you, and get paid into the
         account you give us.
       </Text>
     </View>

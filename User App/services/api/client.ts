@@ -167,6 +167,13 @@ export function getAuthToken(): string | null {
   return authToken;
 }
 
+/** A paused account — 403 ACCOUNT_BLOCKED on a signed-in request. Not a dead
+    session: support still takes it, so nothing is cleared. */
+let onAccountPaused: (() => void) | null = null;
+export function setAccountPausedHandler(handler: (() => void) | null): void {
+  onAccountPaused = handler;
+}
+
 export function setSessionExpiredHandler(handler: (() => void) | null): void {
   onSessionExpired = handler;
 }
@@ -320,6 +327,9 @@ export async function apiRequest<T = unknown>(
            Only for a token we actually sent — a 401 from an endpoint called
            without one is that endpoint saying "sign in", not "your session
            died", and clearing state on it would log out a guest. */
+        if (response.status === 403 && bearer && shape.code === 'ACCOUNT_BLOCKED') {
+          onAccountPaused?.();
+        }
         if (response.status === 401 && bearer && SESSION_DEAD.has(String(shape.code))) {
           onSessionExpired?.();
         }

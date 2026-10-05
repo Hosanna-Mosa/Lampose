@@ -17,7 +17,13 @@ const { sharingOptionsFor } = require('./sharing.util');
  *            (reviewAccounts/reviewAccounts.service.js) — real in that owner's
  *            dashboard, invisible to every student.
  */
-const HIDDEN_STATUSES = ['removed', 'review'];
+/* What the feed, the area counts and the view counter SHOW: an allowlist,
+   the same rule `stayRequest.service.js` applies to a request (`active`, or
+   no status on an older document — `null` matches a missing field). The
+   denylist above let any other value through — a stray `paused` or `draft`
+   written by the v2 create endpoint — into a feed whose Request button then
+   failed with PROPERTY_UNAVAILABLE. */
+const LISTED = { $in: ['active', null] };
 
 /* `$centerSphere` takes its radius in RADIANS, which is kilometres over the
    earth's radius. 6378.1 is the equatorial radius MongoDB's own
@@ -244,7 +250,7 @@ const getListings = async (req, res, next) => {
        property has no `partner_share_types` rows worth loading availability
        for, and the point is that it is gone from the feed as completely as a
        property that never existed. See `removeMyProperty`. */
-    const filter = { status: { $nin: HIDDEN_STATUSES } };
+    const filter = { status: LISTED };
 
     /*
      * Near a fix, rather than inside a named area.
@@ -300,10 +306,12 @@ const getListings = async (req, res, next) => {
 
     if (search) {
       const term = new RegExp(escapeRegex(search), 'i');
+      /* Not by owner name: a student typing a person's name found every
+         place that person owns — a lookup nobody should be able to run on a
+         private individual from the public feed. */
       filter.$or = [
         { name: term },
         { place: term },
-        { ownerName: term },
         { amenities: term },
       ];
     }
@@ -589,7 +597,7 @@ const getListingMeta = async (req, res, next) => {
        isDaily() can tell a nightly rate from a monthly one — see the median
        below. `status` and the sharing fields inside `categoryDetails` are
        what let the pause check below run without a second query per row. */
-    const properties = await Property.find({ status: { $nin: HIDDEN_STATUSES } }, {
+    const properties = await Property.find({ status: LISTED }, {
       category: 1, place: 1, rent: 1, dailyPrice: 1, monthlyPrice: 1, categoryDetails: 1,
     }).lean();
 
@@ -638,7 +646,10 @@ const getListingMeta = async (req, res, next) => {
       cityEntry.count += 1;
       cityEntry.categories[categoryName] = (cityEntry.categories[categoryName] || 0) + 1;
       if (rent > 0) cityEntry.rents.push(rent);
-      byCity.set(city, cityEntry);
+      /* An address that names no city we can read is counted in the total
+         but not offered as an area: "Unknown" opened a feed that could never
+         match it (the feed filters by a real place name). */
+      if (city !== 'Unknown') byCity.set(city, cityEntry);
 
       /* Keyed on city+locality: "Sector 1" in two cities is two places, and
          merging them would put one city's count on the other's row. */
@@ -662,11 +673,16 @@ const getListingMeta = async (req, res, next) => {
            * other places in an area that has one.
            */
           categories: {},
+          /* Rents per kind, for a per-category median — see below. */
+          rentsByCategory: {},
         };
       localityEntry.count += 1;
       localityEntry.categories[categoryName] = (localityEntry.categories[categoryName] || 0) + 1;
-      if (rent > 0) localityEntry.rents.push(rent);
-      byLocality.set(key, localityEntry);
+      if (rent > 0) {
+        localityEntry.rents.push(rent);
+        (localityEntry.rentsByCategory[categoryName] = localityEntry.rentsByCategory[categoryName] || []).push(rent);
+      }
+      if (city !== 'Unknown') byLocality.set(key, localityEntry);
 
       const categoryEntry = byCategory.get(categoryName)
         || { name: categoryName, slug: slugify(categoryName), count: 0 };
@@ -691,13 +707,19 @@ const getListingMeta = async (req, res, next) => {
           .sort(byVolume),
         localities: [...byLocality.values()]
           .map(({
-            id, name, city, count, rents: localRents, categories,
+            id, name, city, count, rents: localRents, categories, rentsByCategory,
           }) => ({
             id,
             name,
             city,
             listingCount: count,
             medianRent: medianOf(localRents),
+            /* The median for ONE kind of place. The area list is browsed
+               inside a category, and the all-kinds median put a PG's rent
+               beside an area whose only PG cost twice that. */
+            medianRentByCategory: Object.fromEntries(
+              Object.entries(rentsByCategory).map(([kind, list]) => [kind, medianOf(list)]),
+            ),
             categories,
           }))
           .sort((a, b) => b.listingCount - a.listingCount || a.name.localeCompare(b.name)),
@@ -733,7 +755,7 @@ const recordListingClick = async (req, res) => {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) return res.status(202).json({ success: true, counted: false });
 
-    const visible = await Property.exists({ _id: id, status: { $nin: HIDDEN_STATUSES } });
+    const visible = await Property.exists({ _id: id, status: LISTED });
     if (!visible) return res.status(202).json({ success: true, counted: false });
 
     const { recordClick } = require('./propertyClick.model');
@@ -747,4 +769,5 @@ const recordListingClick = async (req, res) => {
 
 module.exports = { getListings, getListingById, getListingMeta, recordListingClick,
   getListingReviews,
+  withAvailability,
 };

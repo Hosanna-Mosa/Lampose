@@ -113,9 +113,9 @@ export default {
     },
     extra: {
       apiUrl: process.env.EXPO_PUBLIC_API_URL,
-      eas: {
-        projectId: '78a643f8-38af-410e-b218-e26320ffbf8d',
-      },
+      /* Needed for an Expo push token on a real build — see `orderAlerts.ts`.
+         Defaults to @lampose.com/lampose-food-partner; EAS_PROJECT_ID overrides. */
+      eas: { projectId: process.env.EAS_PROJECT_ID || '78a643f8-38af-410e-b218-e26320ffbf8d' },
     },
     owner: 'lampose.com',
   },

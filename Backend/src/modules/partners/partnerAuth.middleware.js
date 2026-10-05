@@ -74,7 +74,9 @@ const deny = (res, message, code = 'UNAUTHORIZED') => res.status(401).json({
  * access for the remaining life of its token, which is exactly the window in
  * which somebody is blocked.
  */
-async function requirePartner(req, res, next) {
+/* `requirePartnerForSupport` is this guard minus the paused-account check —
+   an owner told "contact Lampose" must be able to. See the customer guard. */
+const makePartnerGuard = ({ allowBlocked = false } = {}) => async function guardPartner(req, res, next) {
   try {
     if (!config.auth.configured) {
       return res.status(503).json({
@@ -103,7 +105,7 @@ async function requirePartner(req, res, next) {
       return deny(res, 'This account no longer exists.', 'ACCOUNT_GONE');
     }
 
-    if (partner.status === 'blocked') {
+    if (partner.status === 'blocked' && !allowBlocked) {
       return res.status(403).json({
         success: false,
         code: 'ACCOUNT_BLOCKED',
@@ -130,6 +132,9 @@ async function requirePartner(req, res, next) {
     if (error.name === 'JsonWebTokenError') return deny(res, 'Invalid session.', 'BAD_TOKEN');
     return next(error);
   }
-}
+};
 
-module.exports = { TOKEN_TYPE, signPartnerToken, requirePartner };
+const requirePartner = makePartnerGuard();
+const requirePartnerForSupport = makePartnerGuard({ allowBlocked: true });
+
+module.exports = { TOKEN_TYPE, signPartnerToken, requirePartner, requirePartnerForSupport };

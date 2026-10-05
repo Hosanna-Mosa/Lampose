@@ -18,6 +18,7 @@ export {
   getAuthToken,
   setAuthToken,
   setSessionExpiredHandler,
+  setAccountPausedHandler,
   type ApiEnvelope,
   type ApiRequestOptions,
 } from './api/client';
@@ -65,7 +66,6 @@ export {
   fetchStayRequest,
   fetchStayRequests,
   withdrawStayRequest,
-  confirmMovedIn,
   type CreateStayRequestInput,
   type StayIntent,
   type StayRequestsResult,
@@ -189,4 +189,3 @@ export { useAddresses } from './hooks/useAddresses';
 export { useMyCoupon } from './hooks/useMyCoupon';
 export { useStayCoupons } from './hooks/useStayCoupons';
 export { useCreateSupportRequest, useTicket, useTickets } from './hooks/useTickets';
-export { useHealth } from './hooks/useHealth';

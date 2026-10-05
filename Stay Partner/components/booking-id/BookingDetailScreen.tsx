@@ -22,6 +22,10 @@ import { useColors } from '@/hooks/useColors';
 import { PrimaryAction } from '@/components/booking-id/organisms/PrimaryAction/PrimaryAction';
 import { styles } from '@/components/booking-id/styles';
 
+/** The open-ended categories — see the cancel button below. */
+const isLongStay = (category?: string | null) =>
+  category === 'BACHELOR' || category === 'PG_HOSTEL' || category === 'COLIVE';
+
 export function BookingDetailScreen() {
   const c = useColors();
   const router = useRouter();
@@ -232,19 +236,17 @@ export function BookingDetailScreen() {
         </Card>
       ) : null}
 
-      {/* Not for a bachelor room, PG/Hostel or Co-living. From confirmation
-          on, all three are a direct arrangement with the guest — the same
-          reason the User App's booking screen stopped offering Cancel,
-          Message the owner and the rest for these categories
-          (`components/lifecycle/ActionBar.tsx`), and the same reason none
-          of them has a payout above. Cancelling it here is not a button
-          Lampose can offer either: there is nothing on this side for it to
-          undo that the two of them have not already arranged between
-          themselves. */}
-      {booking.category !== 'BACHELOR' && booking.category !== 'PG_HOSTEL' && booking.category !== 'COLIVE'
-        && (booking.status === 'confirmed' || booking.status === 'inHouse'
-        || booking.status === 'arriving' || booking.status === 'departing'
-        || booking.status === 'overdueArrival' || booking.status === 'overdueDeparture') ? (
+      {/* Every category can be cancelled. A bachelor room, PG/Hostel or
+          Co-living booking is a direct arrangement with the guest, but it
+          still holds a bed here, and cancel is one of only two actions that
+          give it back — without it a guest who never came kept the bed for
+          good. For these three it is offered only BEFORE move-in; once they
+          are in, "Mark moved out" (PrimaryAction) is how the stay ends. */}
+      {(isLongStay(booking.category)
+        ? (booking.status === 'confirmed' || booking.status === 'arriving' || booking.status === 'overdueArrival')
+        : (booking.status === 'confirmed' || booking.status === 'inHouse'
+          || booking.status === 'arriving' || booking.status === 'departing'
+          || booking.status === 'overdueArrival' || booking.status === 'overdueDeparture')) ? (
         <Tappable
           onPress={() => router.push({ pathname: '/booking/cancel', params: { id: booking.id } })}
           accessibilityRole="button"

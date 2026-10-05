@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Screen, Text, Button, Input, Toast } from '@/components/common';
+import { Screen, Text, Button, Input, Toast, TextButton } from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
 import { ApiError } from '@/services';
 
@@ -30,7 +30,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
  */
 export function ProfileSetupScreen() {
   const router = useRouter();
-  const { saveProfile, partner } = useAuth();
+  const { saveProfile, partner, signOut } = useAuth();
 
   /* Prefilled from whatever the account already holds. A partner who got here,
      backgrounded the app and came back should not retype what they had. */
@@ -141,6 +141,12 @@ export function ProfileSetupScreen() {
         disabled={!canContinue}
         style={styles.cta}
       />
+
+      {/* The only way out of this screen. Somebody who verified the wrong
+          number, or picked the app up on a shared phone, was stuck here: no
+          back, no sign-out, and every route sends an unfinished profile back
+          to this form. */}
+      <TextButton label="Not you? Sign out" onPress={() => { void signOut(); }} />
     </Screen>
   );
 }

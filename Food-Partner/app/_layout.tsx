@@ -12,6 +12,15 @@ import { Archivo_400Regular } from "@expo-google-fonts/archivo/400Regular";
 import { Archivo_500Medium } from "@expo-google-fonts/archivo/500Medium";
 import { Archivo_600SemiBold } from "@expo-google-fonts/archivo/600SemiBold";
 import { Archivo_700Bold } from "@expo-google-fonts/archivo/700Bold";
+import { FamiljenGrotesk_400Regular } from "@expo-google-fonts/familjen-grotesk/400Regular";
+import { FamiljenGrotesk_500Medium } from "@expo-google-fonts/familjen-grotesk/500Medium";
+import { FamiljenGrotesk_600SemiBold } from "@expo-google-fonts/familjen-grotesk/600SemiBold";
+import { FamiljenGrotesk_700Bold } from "@expo-google-fonts/familjen-grotesk/700Bold";
+import { Figtree_400Regular } from "@expo-google-fonts/figtree/400Regular";
+import { Figtree_500Medium } from "@expo-google-fonts/figtree/500Medium";
+import { Figtree_600SemiBold } from "@expo-google-fonts/figtree/600SemiBold";
+import { Figtree_700Bold } from "@expo-google-fonts/figtree/700Bold";
+import { Ionicons } from "@expo/vector-icons";
 import { InstrumentSans_400Regular } from "@expo-google-fonts/instrument-sans/400Regular";
 import { InstrumentSans_500Medium } from "@expo-google-fonts/instrument-sans/500Medium";
 import { InstrumentSans_600SemiBold } from "@expo-google-fonts/instrument-sans/600SemiBold";
@@ -21,11 +30,12 @@ import { MartianMono_500Medium } from "@expo-google-fonts/martian-mono/500Medium
 import { MartianMono_600SemiBold } from "@expo-google-fonts/martian-mono/600SemiBold";
 import { MartianMono_700Bold } from "@expo-google-fonts/martian-mono/700Bold";
 import { useFonts } from "expo-font";
-import { Stack, router } from "expo-router";
+import { Stack, router, usePathname } from "expo-router";
+import * as Notifications from "expo-notifications";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
@@ -59,6 +69,18 @@ const fonts = {
   MartianMono_500Medium,
   MartianMono_600SemiBold,
   MartianMono_700Bold,
+  /* The signed-in screens (dashboard, orders, menu, profile, support,
+     payouts) are drawn in the Adios partner app's type pair and icon set —
+     see `theme/ui.ts`. Sign-in and onboarding keep the three faces above. */
+  FamiljenGrotesk_400Regular,
+  FamiljenGrotesk_500Medium,
+  FamiljenGrotesk_600SemiBold,
+  FamiljenGrotesk_700Bold,
+  Figtree_400Regular,
+  Figtree_500Medium,
+  Figtree_600SemiBold,
+  Figtree_700Bold,
+  ...Ionicons.font,
 };
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -68,6 +90,12 @@ export default function RootLayout() {
   const sessionToken = usePartnerStore((s) => s.session?.token ?? null);
   const signOut = usePartnerStore((s) => s.signOut);
   const setStatus = usePartnerStore((s) => s.setStatus);
+  const applicationStatus = usePartnerStore((s) => s.status);
+  /* Read in the rejected handler without re-registering it on every route
+     change — see that handler. */
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
   const [fontsLoaded, fontError] = useFonts(fonts);
   const [sessionExpired, setSessionExpired] = useState(false);
 
@@ -111,7 +139,10 @@ export default function RootLayout() {
   useEffect(() => {
     setAccountRejectedHandler((verificationNote) => {
       setStatus("rejected", verificationNote);
-      router.replace("/status");
+      /* Not again from /status itself: that screen re-reads `/me` on mount,
+         which is refused with this same code, and replacing to the screen
+         already showing re-mounted it — a loop, every few seconds. */
+      if (pathnameRef.current !== "/status") router.replace("/status");
     });
     return () => setAccountRejectedHandler(null);
   }, [setStatus]);
@@ -129,10 +160,45 @@ export default function RootLayout() {
     reason: an order must be able to arrive while somebody is looking at the
     menu.
   */
+  /*
+    Tapping a notification, from anywhere — including the tap that launched
+    the app from closed. The Orders tab had the only handler, and a tab is
+    not mounted until somebody opens it, so a tap with Home on screen (or a
+    cold start) went nowhere; support replies had no handler at all.
+  */
+  const handledTap = useRef<string | null>(null);
   useEffect(() => {
     if (!hydrated || !sessionToken) return;
-    return startOrderPump(sessionToken);
+    const route = (response: Notifications.NotificationResponse | null) => {
+      if (!response) return;
+      const id = response.notification.request.identifier;
+      if (handledTap.current === id) return;
+      handledTap.current = id;
+      const data = response.notification.request.content.data as
+        | { kind?: string; reference?: string }
+        | undefined;
+      if (data?.kind === "food_order") router.push("/(dash)/orders");
+      else if ((data?.kind === "support.reply" || data?.kind === "support.status") && data.reference) {
+        router.push({ pathname: "/support/[reference]", params: { reference: data.reference } });
+      }
+    };
+    /* Routed once, then cleared — see the User App's `getInitialPush`. */
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        route(response);
+        if (response) Notifications.clearLastNotificationResponseAsync().catch(() => {});
+      })
+      .catch(() => {});
+    const sub = Notifications.addNotificationResponseReceivedListener(route);
+    return () => sub.remove();
   }, [hydrated, sessionToken]);
+
+  useEffect(() => {
+    /* Not for a rejected restaurant: every poll would be refused with
+       ACCOUNT_REJECTED, and each refusal sent the app back to /status. */
+    if (!hydrated || !sessionToken || applicationStatus === "rejected") return;
+    return startOrderPump(sessionToken);
+  }, [hydrated, sessionToken, applicationStatus]);
 
   /*
     This tablet, so the kitchen can be rung when the app is not in front.

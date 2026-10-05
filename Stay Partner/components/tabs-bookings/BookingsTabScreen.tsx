@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useWindowDimensions } from 'react-native';
 import { Box, Tappable } from '@/components/common';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import {
   Screen,
   Text,
@@ -237,6 +237,24 @@ export function BookingsTabScreen() {
      same reload the pull-to-refresh gesture does rather than an invalidated
      cache key. */
   useEffect(() => onBookingEvent(() => { loadBookings(); }), [loadBookings]);
+
+  /*
+   * And the owner's OWN actions. Check-out and cancel happen on other screens
+   * and the socket above only carries what a student did, so coming back here
+   * showed the old row until a pull to refresh. Reloaded quietly on every
+   * return to the tab — skipping the first focus, which the mount effect
+   * above already covers.
+   */
+  const focusedOnce = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (!focusedOnce.current) {
+        focusedOnce.current = true;
+        return;
+      }
+      loadBookings({ silent: true });
+    }, [loadBookings]),
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

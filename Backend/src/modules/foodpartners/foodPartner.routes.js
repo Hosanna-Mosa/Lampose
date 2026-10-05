@@ -37,6 +37,7 @@
    this module answers is invisible in the console.
    ══════════════════════════════════════════════════════════════════════════ */
 const express = require('express');
+const jwt = require('jsonwebtoken');
 const multer = require('multer');
 
 const { rateLimit } = require('../../shared/middleware/rateLimit');
@@ -44,7 +45,7 @@ const { requireAuthConfig, requireLamposeDb } = require('../../shared/middleware
 
 const {
   startPhoneOtp, verifyPhoneOtp, submitApplication,
-  login, resetPassword, getMe, updateMe, setAvailability,
+  login, resetPassword, getMe, updateMe, setAvailability, setMissingLocation,
   listMyPayouts, requestMyPayout,
 } = require('./foodPartner.controller');
 const {
@@ -52,7 +53,7 @@ const {
 } = require('./foodMenu.controller');
 const { listMyOrders, getMyOrder, setOrderStatus } = require('./foodOrder.controller');
 const {
-  placeOrder, listMyOrders: listCustomerOrders, getMyOrder: getCustomerOrder, cancelMyOrder, confirmMyDelivery,
+  placeOrder, quoteOrder, listMyOrders: listCustomerOrders, getMyOrder: getCustomerOrder, cancelMyOrder, confirmMyDelivery,
 } = require('./foodCustomerOrder.controller');
 const {
   startPayment, verifyPayment, renderCheckout, checkoutCallback,
@@ -66,7 +67,8 @@ const {
   uploadFoodPartnerImages, FOOD_UPLOAD_LIMITS,
 } = require('./foodUpload.controller');
 const {
-  requireFoodPartner, requireFoodPartnerOrVerifiedPhone,
+  requireFoodPartner, requireFoodPartnerOrVerifiedPhone, requireVerifiedPhone, PHONE_TOKEN_TYPE,
+  requireFoodPartnerForDeletion,
 } = require('./foodPartnerAuth.middleware');
 /* The v2 STAFF guard (`scriper_users`) — the leads panel's and the Onboard
    console's identity, and a sixth audience on this router. It is imported
@@ -75,9 +77,38 @@ const {
 const { protect: requireStaff } = require('../../shared/middleware/authMiddleware');
 const { tagFoodPartnerRequest } = require('./foodPartner.log');
 const { makeInAppDeletionRouter } = require('../accountDeletion/accountDeletion.routes');
+const { makeLogout } = require('../iam/session.controller');
 const { forbidStaff } = require('./staffAccess');
 
 const router = express.Router();
+
+/**
+ * Who may submit a restaurant application: an applicant who proved the
+ * owner's phone, or a member of staff on the Onboard console.
+ *
+ * The route used to take neither, so a POST with any `ownerPhone` and no
+ * Authorization header created a restaurant — and a session — on a stranger's
+ * number, and the real owner was then refused with `PHONE_IN_USE`.
+ *
+ * Branched on the unverified `typ` claim, as `requireFoodPartnerOrVerifiedPhone`
+ * does: it picks the verifier, and each verifier checks the signature itself.
+ * A phone proof goes to `requireVerifiedPhone`, which sets `req.verifiedPhone`
+ * for the controller's own "is it THIS number" comparison; anything else must
+ * be a valid staff token.
+ */
+function requireApplicantOrStaff(req, res, next) {
+  const header = String(req.headers.authorization || '');
+  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  let typ = null;
+  try {
+    const claims = token ? jwt.decode(token) : null;
+    typ = claims && claims.typ;
+  } catch (error) {
+    typ = null;
+  }
+  if (typ === PHONE_TOKEN_TYPE) return requireVerifiedPhone(req, res, next);
+  return requireStaff(req, res, next);
+}
 
 /* Held in memory and streamed straight to Cloudinary — nothing a partner
    uploads touches this server's disk. The ceiling is the upload controller's,
@@ -122,6 +153,7 @@ router.post(
   byPhone('fp-apply-phone', 60 * 60 * 1000, 5),
   requireLamposeDb,
   requireAuthConfig,
+  requireApplicantOrStaff,
   submitApplication,
 );
 
@@ -186,11 +218,19 @@ router.post(
 /* ── The signed-in restaurant ────────────────────────────────────────────── */
 
 router.get('/me', requireLamposeDb, requireAuthConfig, requireFoodPartner, getMe);
+/* Signing out on the server: forgets this handset's push token, and with
+   `everywhere: true` ends every session — see `makeLogout`. */
+router.post('/auth/logout', requireLamposeDb, requireAuthConfig, requireFoodPartner, makeLogout('foodPartner'));
 router.patch('/me', requireLamposeDb, requireAuthConfig, requireFoodPartner, updateMe);
 router.patch(
   '/me/availability',
   requireLamposeDb, requireAuthConfig, requireFoodPartner,
   setAvailability,
+);
+router.put(
+  '/me/location',
+  requireLamposeDb, requireAuthConfig, requireFoodPartner,
+  setMissingLocation,
 );
 
 /* ── The menu ────────────────────────────────────────────────────────────── */
@@ -199,9 +239,21 @@ const session = [requireLamposeDb, requireAuthConfig, requireFoodPartner];
 
 /* Asking to delete the kitchen's account from inside the app — status,
    request, cancel. The public half is lampose.com/delete-account. */
-/* A Lampose staff session (staffAccess.js) may read the deletion status but
-   never request or cancel a deletion. */
-router.use('/me/account-deletion', makeInAppDeletionRouter('restaurant', 'foodPartner', [...session, forbidStaff({ writesOnly: true })]));
+/* ONE mount, both rules:
+     · its own guard — a REJECTED restaurant may delete its account too, see
+       `requireFoodPartnerForDeletion` (which marks staff sessions exactly as
+       `requireFoodPartner` does);
+     · a Lampose staff session (staffAccess.js) may read the deletion status
+       but never request or cancel a deletion.
+   A merge once left these as two mounts. Express answered from the first,
+   which had no staff check, so a shared staff password could delete any
+   restaurant's account. */
+router.use(
+  '/me/account-deletion',
+  makeInAppDeletionRouter('restaurant', 'foodPartner', [
+    requireLamposeDb, requireAuthConfig, requireFoodPartnerForDeletion, forbidStaff({ writesOnly: true }),
+  ]),
+);
 
 /* ── Payouts: what this kitchen is owed, and asking to be paid ───────────
    Reuses `foodPayout.service.js`, the same service the staff queue and the
@@ -250,6 +302,8 @@ router.patch('/me/orders/:orderNumber/status', session, setOrderStatus);
 
 const customer = [requireLamposeDb, requireAuthConfig, requireCustomer];
 
+/* The bill for a cart, priced by the server — what the apps show before Pay. */
+router.post('/orders/quote', customer, quoteOrder);
 router.post('/orders', customer, placeOrder);
 router.get('/orders', customer, listCustomerOrders);
 router.get('/orders/:orderNumber', customer, getCustomerOrder);

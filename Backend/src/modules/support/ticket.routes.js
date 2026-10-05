@@ -148,14 +148,16 @@ const makeSupportRouter = ({ kind, guard, pick }) => {
  * The three, built.
  * ------------------------------------------------------------------ */
 
-const { requireCustomer } = require('../customers/customerAuth.middleware');
+const { requireCustomerForSupport } = require('../customers/customerAuth.middleware');
 const { requireDriverForSupport } = require('../drivers/driverAuth.middleware');
 const { requireFoodPartner } = require('../foodpartners/foodPartnerAuth.middleware');
-const { requirePartner } = require('../partners/partnerAuth.middleware');
+const { requirePartnerForSupport } = require('../partners/partnerAuth.middleware');
 
 const customerSupportRouter = makeSupportRouter({
   kind: 'customer',
-  guard: requireCustomer,
+  /* A paused customer is told to contact support, so support must let them
+     in — see `requireCustomerForSupport`. */
+  guard: requireCustomerForSupport,
   pick: (req) => (req.customer ? {
     id: req.customer.customerId,
     name: req.customer.name,
@@ -208,8 +210,9 @@ const restaurantSupportRouter = makeSupportRouter({
 /*
  * The Stay Partner owner's support router.
  *
- * `requirePartner` — the same guard `partner.routes.js` puts on every other
- * owner route — rather than a widened one, matching this file's own rule.
+ * `requirePartnerForSupport` — the guard `partner.routes.js` puts on every
+ * other owner route, minus the paused-account refusal: a paused owner is told
+ * to contact Lampose, and this is where they do.
  * It carries this owner's own tickets (payouts, KYC uploads, listings) AND,
  * because `ownedBy` in `ticket.controller.js` treats `linkedPartnerId` as a
  * second kind of ownership, every ticket a student filed under `property`
@@ -217,7 +220,7 @@ const restaurantSupportRouter = makeSupportRouter({
  */
 const partnerSupportRouter = makeSupportRouter({
   kind: 'partner',
-  guard: requirePartner,
+  guard: requirePartnerForSupport,
   pick: (req) => (req.partner ? {
     id: req.partner.partnerId,
     name: req.partner.name || '',

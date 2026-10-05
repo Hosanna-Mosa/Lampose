@@ -80,6 +80,17 @@ export default {
         'POST_NOTIFICATIONS',
         'RECEIVE_BOOT_COMPLETED',
       ],
+      /*
+       * Never shipped: neither app records audio or draws over other apps.
+       * `expo-audio` merges RECORD_AUDIO in for a microphone this app never
+       * opens, and the React Native template adds SYSTEM_ALERT_WINDOW. Both
+       * land on the Play data-safety form as permissions the app "uses".
+       * Blocked here so a fresh `expo prebuild` cannot put them back.
+       */
+      blockedPermissions: [
+        'android.permission.RECORD_AUDIO',
+        'android.permission.SYSTEM_ALERT_WINDOW',
+      ],
     },
     notification: {
       icon: './assets/images/icon.png',
@@ -116,7 +127,18 @@ export default {
          there is none in Expo Go, on a simulator, on a refused permission,
          or before the first successful registration. See
          `services/alertSound.ts`. */
-      'expo-audio',
+      /* Playback only — see `blockedPermissions` above. */
+      ['expo-audio', { microphonePermission: false }],
+      /* The property photo picker. Used by the app but never declared, so the
+         native photo-library usage text was missing from the build. */
+      [
+        'expo-image-picker',
+        {
+          photosPermission: 'Lampose Partner opens your photos so you can add pictures of your property.',
+          cameraPermission: false,
+          microphonePermission: false,
+        },
+      ],
       'expo-web-browser',
       [
         'expo-notifications',

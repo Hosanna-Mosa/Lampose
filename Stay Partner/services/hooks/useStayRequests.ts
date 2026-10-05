@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { ApiError } from '@/services/api/client';
@@ -70,6 +71,13 @@ const POLL_MS = 4000;
  */
 const IDLE_POLL_MS = 5000;
 
+/* After this long with nothing new, the idle heartbeat slows to
+   `QUIET_POLL_MS`. Every phone polling every five seconds forever is load for
+   no news; a new request, a live event or the app returning to the front
+   resets it, so the first minutes after anything happens stay fast. */
+const QUIET_AFTER_MS = 2 * 60 * 1000;
+const QUIET_POLL_MS = 15000;
+
 /** How far this device's clock is from the server's. */
 function useClockOffset() {
   const offset = useRef(0);
@@ -126,9 +134,23 @@ export function useStayRequests() {
    * reactively, so a fresher list is all a new request needs to be noticed
    * instantly instead of up to four seconds late.
    */
+  /* When the list last CHANGED (a different set of ids), or something live
+     happened — what the idle back-off counts from. */
+  const lastActivity = useRef(Date.now());
+  const lastSignature = useRef('');
+
+  /* Back in front is activity too — the owner is looking again. */
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') lastActivity.current = Date.now();
+    });
+    return () => sub.remove();
+  }, []);
+
   useEffect(() => {
     if (!enabled) return undefined;
     return onStayRequestEvent(() => {
+      lastActivity.current = Date.now();
       queryClient.invalidateQueries({ queryKey: queryKeys.requests });
     });
   }, [enabled, queryClient]);
@@ -143,10 +165,18 @@ export function useStayRequests() {
      * polling it every four seconds forever is what the second rate avoids.
      */
     refetchInterval: (q) => {
-      const anyPending = (q.state.data?.requests ?? []).some((r) => r.status === 'pending_owner');
+      const list = q.state.data?.requests ?? [];
+      const signature = list.map((r) => `${r.id}:${r.status}`).join(',');
+      if (signature !== lastSignature.current) {
+        lastSignature.current = signature;
+        lastActivity.current = Date.now();
+      }
+      const anyPending = list.some((r) => r.status === 'pending_owner');
       /* Four seconds while a deadline is running, a slow heartbeat otherwise —
-         never off. See IDLE_POLL_MS. */
-      return anyPending ? POLL_MS : IDLE_POLL_MS;
+         never off, and slower again once nothing has changed for a while.
+         See IDLE_POLL_MS and QUIET_AFTER_MS. */
+      if (anyPending) return POLL_MS;
+      return Date.now() - lastActivity.current > QUIET_AFTER_MS ? QUIET_POLL_MS : IDLE_POLL_MS;
     },
     refetchOnWindowFocus: true,
     refetchOnMount: 'always',

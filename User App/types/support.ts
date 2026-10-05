@@ -36,6 +36,7 @@ export type TicketCategoryId =
   | 'payment'
   | 'owner'
   | 'booking'
+  | 'order'
   | 'other';
 
 export type TicketCategory = {

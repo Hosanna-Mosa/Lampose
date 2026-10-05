@@ -133,7 +133,18 @@ const ensureCustomer = async () => {
     return 'created';
   }
   await Customer.updateOne({ _id: found._id }, {
-    $set: { status: 'active', ...CLEAR_OTP_LOCK, ...(found.name ? {} : { name: 'Play Review' }) },
+    $set: {
+      status: 'active',
+      ...CLEAR_OTP_LOCK,
+      ...(found.name ? {} : { name: 'Play Review' }),
+      /* A reviewer who tests "Delete account" leaves a deletion request on the
+         shared review login, and the next reviewer met a pending deletion
+         banner. Reset with everything else; the eraser never touches this
+         account anyway (see the header). */
+      'deletion.status': 'none',
+      'deletion.requestedAt': null,
+      'deletion.scheduledFor': null,
+    },
   });
   return 'kept';
 };

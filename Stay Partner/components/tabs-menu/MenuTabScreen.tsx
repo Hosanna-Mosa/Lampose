@@ -1,4 +1,5 @@
 import { Fragment, useState, type ReactNode } from 'react';
+import { Alert } from 'react-native';
 import { Box, Tappable } from '@/components/common';
 import { useRouter, type Href } from 'expo-router';
 import { Screen, Text, Card, Divider, Icon } from '@/components/common';
@@ -29,8 +30,12 @@ const ACCOUNT_ROWS: NavRow[] = [
   { label: 'Customers', href: '/customers' },
   { label: 'Edit profile', href: '/settings/profile' },
   { label: 'Payout methods', href: '/earnings/methods' },
-  { label: 'Staff & permissions', href: '/staff' },
+  { label: 'Staff & permissions (coming soon)', href: '/staff' },
   { label: 'Refer & earn', href: '/referrals' },
+  /* Both screens existed with nothing leading to them: reviews could only be
+     reached by a deep link, and support only from the lockout screen. */
+  { label: 'Guest reviews', href: '/reviews' },
+  { label: 'Help & support', href: '/support' },
 ];
 
 import { useAuth } from '@/context/AuthContext';
@@ -143,10 +148,21 @@ export function MenuTabScreen() {
 
       {/* Log out button at the very bottom */}
       <Tappable
-        onPress={async () => {
-          await signOut();
-          router.replace('/login');
-        }}
+        /* Asked first: the row sits at the bottom of a scroll, where a thumb
+           landing on it signed the owner out with no way back but the code. */
+        onPress={() =>
+          Alert.alert('Log out?', 'You will need your phone number and a code to sign in again.', [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Log out',
+              style: 'destructive',
+              onPress: async () => {
+                await signOut();
+                router.replace('/login');
+              },
+            },
+          ])
+        }
         accessibilityRole="button"
         style={({ pressed }) => [
           styles.logout,

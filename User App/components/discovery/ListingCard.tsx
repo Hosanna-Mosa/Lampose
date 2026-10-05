@@ -246,9 +246,9 @@ function PhotoCarousel({
         </View>
       ) : null}
 
-      {/* Floating Bottom Left: Gender Badge — only where the owner recorded a
-          rule. It used to fall back to "Boys", which put a Boys badge on
-          every hotel, flat and women's PG with no hostel type set. */}
+      {/* Floating Bottom Left: Gender Badge — only when the listing says. Most
+          of the catalogue is untagged, and every one of those used to read
+          "Boys", turning girls away from places that take them. */}
       {listing.gender ? (
         <View style={styles.bottomLeftContainer} pointerEvents="none">
           <View style={styles.genderPill}>
@@ -314,7 +314,11 @@ function CardBody({
    */
   const hasRating = typeof listing.averageRating === 'number' && (listing.reviewCount ?? 0) > 0;
 
-  const rentValue = formatRupees(listing.rent || 6500);
+  /* No rent set is "Price on request" — the same words `RentDisplay` uses —
+     never a stand-in. ₹6,500 was printed on every listing without a price. */
+  const rent = typeof listing.rent === 'number' && listing.rent > 0 ? listing.rent : null;
+  const hasRent = rent !== null;
+  const rentValue = rent !== null ? formatRupees(rent) : 'Price on request';
   /* Nightly first: a nightly price labelled monthly understates the stay
      thirty times over, so no other flag may outrank it. */
   const unitSuffix = listing.perNight || listing.category === 'HOTEL'
@@ -372,7 +376,16 @@ function CardBody({
         <View style={styles.locationLeft}>
           <Icon name="mapPin" size={14} color="#64748B" />
           <Text style={styles.locationText} numberOfLines={1}>
-            {listing.locality} · Hyderabad
+            {/* The listing's own city, when it differs from the locality. This
+                said "Hyderabad" for every listing in a Bangalore catalogue. */}
+            {listing.localityNote ? `${listing.locality} · ${listing.localityNote}` : listing.locality}
+            {/* On a "near me" feed, how far — the one reason that feed exists,
+                computed by the server and never shown. Under 1 km in metres. */}
+            {typeof listing.distanceKm === 'number'
+              ? ` · ${listing.distanceKm < 1
+                ? `${Math.max(50, Math.round((listing.distanceKm * 1000) / 50) * 50)} m away`
+                : `${listing.distanceKm.toFixed(listing.distanceKm < 10 ? 1 : 0)} km away`}`
+              : ''}
           </Text>
         </View>
         {hasRating ? (
@@ -388,7 +401,7 @@ function CardBody({
           <Text style={[styles.priceNumber, { color: mode === 'dark' ? '#34D399' : '#0B473A' }]}>
             {rentValue}
           </Text>
-          <Text style={styles.unitSuffixText}>{unitSuffix}</Text>
+          {hasRent ? <Text style={styles.unitSuffixText}>{unitSuffix}</Text> : null}
         </View>
 
         {/*

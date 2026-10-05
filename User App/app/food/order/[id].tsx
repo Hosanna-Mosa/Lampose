@@ -1,7 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Linking, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Linking, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { useReorder } from '@/components/food/useReorder';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Icon, Text } from '@/components/ui';
@@ -23,6 +24,7 @@ import { foodHref } from '@/components/food/routes';
 import { TIMELINE_STEP, useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import { formatRupees } from '@/utils/money';
+import { foodBillLines } from '@/components/food/foodBill';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 import { connectSupportSocket, watchOrder, type FoodOrderLocationEvent } from '@/services';
 
@@ -72,10 +74,31 @@ export default function OrderScreen() {
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  /* The same reorder as the Orders tab. When the cart cannot be the same
+     order (a dish gone, an add-on withdrawn, another cart replaced) it says
+     so before opening anything. */
+  const { reorder, reorderNote, setReorderNote } = useReorder();
+  useEffect(() => {
+    if (!reorderNote) return;
+    const note = reorderNote;
+    Alert.alert(note.title, note.message, [{
+      text: note.kitchenId ? 'Open the kitchen' : 'Open the cart',
+      onPress: () => {
+        setReorderNote(null);
+        router.push(note.kitchenId ? foodHref.kitchen(note.kitchenId) : foodHref.cart);
+      },
+    }]);
+  }, [reorderNote, setReorderNote, router]);
   const { id, placed } = useLocalSearchParams<{ id: string; placed?: string }>();
-  const { orders, cancelOrder, refreshOrder, startPayment, address } = useFood();
+  const { orders, cancelOrder, confirmDelivered, refreshOrder, startPayment, address, settlePaidOrder } = useFood();
 
   const [cancelling, setCancelling] = useState(false);
+  /* One cancel at a time. A double tap sent two: the first cancelled the
+     order, the second was refused ("the kitchen has already started") and
+     that false sentence was what the diner saw. */
+  const [cancelBusy, setCancelBusy] = useState(false);
+  /* Same one-at-a-time guard for "Delivered". */
+  const [deliveredBusy, setDeliveredBusy] = useState(false);
   const [reason, setReason] = useState(CANCEL_REASONS[0]);
   const [paying, setPaying] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -94,7 +117,16 @@ export default function OrderScreen() {
      tolerate a missing order and the guard comes after them. */
 
   const live = !!order && ['placed', 'confirmed', 'preparing', 'ready', 'onTheWay'].includes(order.status);
-  const awaitingPayment = order?.paymentLabel === 'Payment not completed';
+  /* Not on an order that is over: "Pay now" on a cancelled or refused order
+     led to a 409 ORDER_CLOSED from the server. */
+  const awaitingPayment = order?.paymentLabel === 'Payment not completed'
+    && order.status !== 'cancelled' && order.status !== 'rejected';
+  /* Paid now: the cart this order was made from is spent. See
+     `settlePaidOrder` — this is what stops Back-then-Pay ordering it twice. */
+  const paidOnlineNow = order?.paymentLabel === 'Paid online';
+  useEffect(() => {
+    if (order && paidOnlineNow) settlePaidOrder(order.id);
+  }, [order, paidOnlineNow, settlePaidOrder]);
   const dispatchState = order?.dispatch?.state ?? 'idle';
   const searching = order?.fulfilment === 'delivery' && dispatchState === 'searching';
   const noRiderYet = order?.fulfilment === 'delivery' && dispatchState === 'unassigned';
@@ -197,7 +229,10 @@ export default function OrderScreen() {
       }
       router.push({
         pathname: '/pay/checkout',
-        params: { foodToken: intent.checkoutToken, orderNumber: id },
+        /* `from: 'order'` — this order's screen is already underneath, so a
+           successful payment returns to IT rather than stacking a second
+           copy (see `pay/checkout.tsx`). */
+        params: { foodToken: intent.checkoutToken, orderNumber: id, from: 'order' },
       });
     } catch (err) {
       setNotice((err as Error)?.message || 'We could not open the payment.');
@@ -244,7 +279,10 @@ export default function OrderScreen() {
     case, and one read is what puts it there. Polling stops the moment the order
     stops moving; a delivered order polled all night is a battery complaint.
   */
-  const shouldPoll = !!id && (!order || live || searching);
+  /* A missing order is looked up ONCE (and again on Try again) — it used to
+     be polled every eight seconds for as long as the screen was open, for an
+     order that a bad or foreign link would never produce. */
+  const shouldPoll = !!id && ((!order && !lookedUp) || live || searching);
   const interval = rider ? 5000 : 8000;
   const refresh = useRef(refreshOrder);
   refresh.current = refreshOrder;
@@ -333,9 +371,11 @@ export default function OrderScreen() {
         <StandardHeader title="Order" onBack={() => router.back()} />
         <FoodEmptyState
           title="We cannot find that order"
-          body="It may belong to another account. Your orders are all under the Orders tab in Food."
-          primaryLabel="Back to food"
-          onPrimary={() => router.replace('/home')}
+          body="The link may be old, the order may be on a different account, or the connection dropped while we looked. Your own orders are all under the Orders tab in Food."
+          primaryLabel="Try again"
+          onPrimary={() => setLookedUp(false)}
+          secondaryLabel="Back to food"
+          onSecondary={() => router.replace('/home')}
         />
       </View>
     );
@@ -384,7 +424,8 @@ export default function OrderScreen() {
     for and then writes to support about — nothing was ever taken from them.
     Only a payment that actually landed has anything to send back.
   */
-  const paidOnline = order.paymentLabel === 'Paid online' || order.paymentLabel === 'Refund on the way';
+  const paidOnline = order.paymentLabel === 'Paid online' || order.paymentLabel === 'Refund on the way'
+    || order.paymentLabel === 'Refunded';
   const refundLine = paidOnline
     ? `The ${formatRupees(order.paid)} you paid goes back to the account you paid from.`
     : order.paymentLabel === 'Cash on delivery'
@@ -421,23 +462,24 @@ export default function OrderScreen() {
     ...order.lines
       .filter((line) => line.note)
       .map((line) => ({ id: `${line.name}-note`, label: line.note as string, amount: 0, amountLabel: 'included', sub: true })),
-    order.fulfilment === 'pickup'
-      ? { id: 'pickup', label: 'Pickup', amount: 0, amountLabel: 'Free' }
-      /* Not the cart's CURRENT address: an old order must keep saying where it
-         actually went, and the cart has moved on. `FoodOrder` carries no
-         address of its own, so the line is left unqualified rather than
-         labelled with somewhere the food never went. */
-      : { id: 'delivery', label: 'Delivery', amount: order.deliveryFee },
-    /* The kitchen's own packing charge, under its own name — on the orders
-       that were charged one. It is no longer billed: GST and a flat platform
-       fee replaced it, and both are listed below. Every one of these lines is
-       a term in the server's `grandTotal`, which is what makes the receipt add
-       up to what was paid. */
-    ...(order.packagingCharge ? [{ id: 'packaging', label: 'Packaging by the kitchen', amount: order.packagingCharge }] : []),
-    /* GST and the platform fee, as STORED on the order rather than recomputed:
-       a rate that changes must not rewrite what an old receipt says. */
-    ...(order.gst ? [{ id: 'gst', label: `GST${order.gstRate ? ` (${order.gstRate}%)` : ''}`, amount: order.gst }] : []),
-    ...(order.platformFee ? [{ id: 'platform', label: 'Platform fee', amount: order.platformFee }] : []),
+    /* Every fee as STORED on the order rather than recomputed — a rate that
+       changes must not rewrite what an old receipt says — in the same order
+       the cart printed them. Each is a term in the server's `grandTotal`,
+       which is what makes the receipt add up to what was paid. The dishes
+       are listed above, so the "Item total" line is left out. */
+    ...foodBillLines({
+      itemTotal: order.itemTotal,
+      foodGst: order.gst ?? 0,
+      foodGstRate: order.gstRate ?? 0,
+      deliveryFee: order.deliveryFee,
+      deliveryGst: order.deliveryGst ?? 0,
+      deliveryLabel: order.fulfilment === 'pickup' ? 'Pickup' : 'Delivery fee',
+      serviceFee: order.serviceFee ?? 0,
+      serviceFeeGst: order.serviceFeeGst ?? 0,
+      packagingFee: order.packagingCharge ?? 0,
+      packagingGst: order.packagingGst ?? 0,
+      smallOrderFee: order.smallOrderFee ?? 0,
+    }).filter((line) => line.id !== 'items'),
     ...(order.discount ? [{ id: 'discount', label: order.couponCode ?? 'Discount', amount: order.discount, discount: true }] : []),
   ];
 
@@ -461,7 +503,13 @@ export default function OrderScreen() {
           <FoodNotice
             tone="good"
             title={order.paymentLabel === 'Cash on delivery' ? 'Order placed' : 'Payment successful'}
-            body={`${formatRupees(order.paid)} · ${order.paymentLabel}. ${order.kitchenName} has your order — we send one notification when it is ready, and nothing else.`}
+            /* What is actually sent. "One notification when it is ready" was
+               promised and never sent: a delivery is announced when a rider
+               collects it and when it arrives; a pickup when it is ready. */
+            body={`${formatRupees(order.paid)} · ${order.paymentLabel}. ${order.kitchenName} has your order — `
+              + (order.fulfilment === 'pickup'
+                ? 'we will notify you when it is ready to collect.'
+                : 'we will notify you when a rider picks it up and when it is delivered.')}
           />
         ) : null}
 
@@ -569,7 +617,10 @@ export default function OrderScreen() {
           directly — see the comment on `liveFix` above: whichever of the
           polled fix and the live socket fix is actually newer.
         */}
-        {rider && (order.pickupLocation || order.dropLocation) ? (
+        {/* Live orders only. A delivered order kept its map, with "signal
+            lost" over a rider who had simply finished — and a stale socket fix
+            could still move the marker after delivery. */}
+        {live && rider && (order.pickupLocation || order.dropLocation) ? (
           <DeliveryMap
             restaurant={order.pickupLocation}
             drop={order.dropLocation}
@@ -616,7 +667,9 @@ export default function OrderScreen() {
                   </Text>
                 ) : null}
               </View>
-              {rider.phone ? (
+              {/* While the order is live only. A rider's personal number stayed
+                  on the order, with a Call button, for ever. */}
+              {rider.phone && live ? (
                 <Button
                   label="Call"
                   variant="secondary"
@@ -777,8 +830,11 @@ export default function OrderScreen() {
             </Text>
             <Text variant="caption" style={{ color: colors.onGraphiteMuted }}>
               {order.fulfilment === 'pickup'
-                ? `${kitchen?.landmark ?? 'the counter'} · ${kitchen?.walkMinutes ?? 0} min walk`
-                : (address?.title ?? 'your address')}
+                /* The order's OWN address (the first part — its title), not the
+                   cart's current one; and no "0 min walk" when the distance is
+                   unknown. */
+                ? `${kitchen?.landmark ?? 'the counter'}${kitchen?.walkMinutes ? ` · ${kitchen.walkMinutes} min walk` : ''}`
+                : (order.deliveryAddress?.split(' · ')[0] || address?.title || 'your address')}
             </Text>
 
             {order.pickupCode && order.status === 'ready' ? (
@@ -805,17 +861,9 @@ export default function OrderScreen() {
         ) : null}
 
         {/*
-          Refund, when there is one. The support-message-that-never-gets-written.
-
-          Nothing sets `order.refund` today and nothing honestly can: the server
-          holds one fact about a refunded order — `paymentStatus: 'refunded'`,
-          meaning the money is OWED back — and the refund itself is made by hand
-          in the gateway dashboard, so there is no reference, no destination and
-          no expected date to print. Filling those in from the order total and a
-          guessed number of working days would be a receipt for a transaction
-          nobody has made. What IS known reaches the diner through the Payment
-          line on the receipt below, which says the refund is on the way. See
-          the note beside `paymentLabel` in `FoodContext`.
+          A refund that has gone out. Shown only from what the server recorded
+          when the money was sent — the refund id, the amount and the time —
+          never estimated. Until then the payment line says "Refund on the way".
         */}
         {order.refund ? (
           <View
@@ -826,7 +874,7 @@ export default function OrderScreen() {
           >
             <View style={styles.headRow}>
               <Text variant="title2" style={{ color: colors.success.ink, flex: 1 }}>
-                Refund on the way
+                Refund sent
               </Text>
               <Text variant="priceLg" style={{ color: colors.success.ink }}>
                 {formatRupees(order.refund.amount)}
@@ -834,8 +882,9 @@ export default function OrderScreen() {
             </View>
 
             <Text variant="caption" style={{ color: colors.success.ink }}>
-              {order.refund.reason} {formatRupees(order.refund.amount)} goes back to {order.refund.destination}, the
-              same way you paid. Expected by {order.refund.expectedBy}, often sooner.
+              {formatRupees(order.refund.amount)} went back the same way you paid
+              {order.refund.sentAt ? ` on ${new Date(order.refund.sentAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long' })}` : ''}.
+              Banks usually show it within 5–7 working days.
             </Text>
 
             <View
@@ -846,23 +895,11 @@ export default function OrderScreen() {
                 marginTop: space[1],
               }}
             >
-              <ReceiptLine label="Reference" value={order.refund.reference} />
-              <ReceiptLine
-                label="Status"
-                value={
-                  order.refund.status === 'credited'
-                    ? 'Credited'
-                    : order.refund.status === 'sentToBank'
-                      ? 'Sent to bank'
-                      : 'Initiated'
-                }
-                last
-              />
+              <ReceiptLine label="Reference" value={order.refund.reference} last />
             </View>
 
             <Text variant="caption" style={{ color: colors.success.ink }}>
-              Nothing for you to do. If it has not landed by {order.refund.expectedBy}, tap Get help and we chase the
-              bank with that reference.
+              If it has not reached you after that, tap Get help and quote this reference.
             </Text>
           </View>
         ) : null}
@@ -927,6 +964,31 @@ export default function OrderScreen() {
           (call the kitchen, call the rider), so nothing is lost by dropping
           a control that could now only ever fail.
         */}
+        {/* A restaurant-delivered order has no Lampose rider and no door PIN,
+            so nothing else can close it: the diner says it arrived. Only once
+            it has left the kitchen — the server refuses it before then. */}
+        {order.restaurantDelivers && order.status === 'onTheWay' ? (
+          <View style={{ gap: space[2] }}>
+            <Button
+              label="My order arrived"
+              fullWidth
+              loading={deliveredBusy}
+              disabled={deliveredBusy}
+              onPress={() => {
+                if (deliveredBusy) return;
+                setDeliveredBusy(true);
+                setNotice(null);
+                confirmDelivered(order.id)
+                  .catch((err: Error) => setNotice(err?.message || 'We could not mark that delivered.'))
+                  .finally(() => setDeliveredBusy(false));
+              }}
+            />
+            <Text variant="caption" color="tertiary" style={styles.center}>
+              The restaurant is delivering this one. Tap once the food is with you.
+            </Text>
+          </View>
+        ) : null}
+
         {cancelling ? (
           <View
             style={[
@@ -979,14 +1041,19 @@ export default function OrderScreen() {
                  cooking, frees whichever rider was already assigned and flags
                  prepaid money as owed back — and its refusal is the sentence
                  shown, because it is the one that says what to do instead. */
+              loading={cancelBusy}
+              disabled={cancelBusy}
               onPress={() => {
+                if (cancelBusy) return;
+                setCancelBusy(true);
                 setNotice(null);
                 cancelOrder(order.id, reason)
                   .then(() => setCancelling(false))
                   .catch((err: Error) => {
                     setCancelling(false);
                     setNotice(err?.message || 'We could not cancel that order.');
-                  });
+                  })
+                  .finally(() => setCancelBusy(false));
               }}
             />
           </View>
@@ -1004,8 +1071,16 @@ export default function OrderScreen() {
         )}
 
         <View style={[styles.actions, { gap: space[2] }]}>
-          <Button label="Get help" variant="secondary" onPress={() => router.push('/support')} />
-          <Button label="Order it again" onPress={() => router.push(foodHref.kitchen(order.kitchenId))} />
+          {/* A ticket about THIS order — its number rides along, so support
+              does not have to ask which one. This opened the generic list. */}
+          <Button
+            label="Get help"
+            variant="secondary"
+            onPress={() => router.push(`/support/new?orderNumber=${encodeURIComponent(order.id)}` as never)}
+          />
+          {/* Refills the cart from this order — it only opened the kitchen,
+              leaving the diner to find and re-add every dish by hand. */}
+          <Button label="Order it again" onPress={() => reorder(order)} />
         </View>
       </ScrollView>
     </View>

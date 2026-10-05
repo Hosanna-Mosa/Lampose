@@ -1,5 +1,5 @@
 import React from "react";
-import { ActivityIndicator, Pressable, StyleSheet, TextStyle, View, ViewStyle } from "react-native";
+import { ActivityIndicator, Image, Pressable, StyleSheet, TextStyle, View, ViewStyle } from "react-native";
 import { colors, elevation, radius, space, tone as resolveTone, touch, type ToneName } from "@/theme";
 import { Icon, type IconName } from "./Icon";
 import { Text } from "./Text";
@@ -520,7 +520,29 @@ export function StepBars({
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
-export function Avatar({ name, size = 44 }: { name?: string | null; size?: number }) {
+export function Avatar({
+  name,
+  size = 44,
+  photoUrl,
+}: {
+  name?: string | null;
+  size?: number;
+  /** The rider's uploaded photo. Initials only when there is none — the
+      avatar used to show initials always, as if the upload had failed. */
+  photoUrl?: string | null;
+}) {
+  const [failed, setFailed] = React.useState(false);
+  if (photoUrl && !failed) {
+    return (
+      <Image
+        source={{ uri: photoUrl }}
+        onError={() => setFailed(true)}
+        accessibilityLabel={name ? `${name}'s photo` : "Profile photo"}
+        style={{ width: size, height: size, borderRadius: radius.pill, backgroundColor: colors.brandTint }}
+      />
+    );
+  }
+
   const initials = (name ?? "")
     .trim()
     .split(/\s+/)

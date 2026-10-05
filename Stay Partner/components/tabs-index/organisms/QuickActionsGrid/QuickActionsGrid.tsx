@@ -17,7 +17,7 @@ export function QuickActionsGrid({
   const actions = [
     {
       id: 'requests',
-      title: `${pendingCount} pending requests`,
+      title: `${pendingCount} pending ${pendingCount === 1 ? "request" : "requests"}`,
       subtitle: pendingCount > 0 ? 'Requires your response' : 'Nothing waiting on you',
       bg: '#FFF7ED',
       border: '#FFEDD5',

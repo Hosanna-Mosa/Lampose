@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter, Redirect } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
@@ -20,6 +20,7 @@ import {
 } from '@/types/payment';
 import { usePreviewControls } from '@/hooks/useAppEnv';
 import { useActionBarInset } from '@/hooks/useActionBarInset';
+import { previewOnly } from '@/components/shell/previewOnly';
 
 /**
  * Leaving, returning, waiting, and the three ways it fails.
@@ -298,14 +299,5 @@ const styles = StyleSheet.create({
   fieldRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
 });
 
-/**
- * A design prototype, not a product screen: it runs on fixtures and several of
- * its buttons do nothing. Nothing in the live app links here, but expo-router
- * still registers the route, so a typed or stale `lampose://` link would open
- * it. Outside preview builds it redirects home, like `/preview` does.
- */
-export default function PaymentProcessingRoute() {
-  const previewControls = usePreviewControls();
-  if (!previewControls) return <Redirect href="/home" />;
-  return <PaymentProcessing />;
-}
+/* A fixture or simulator, not a real screen — see `previewOnly`. */
+export default previewOnly(PaymentProcessing);

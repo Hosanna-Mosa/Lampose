@@ -367,6 +367,11 @@ const startServer = async () => {
         }
       })
       .catch((error) => console.error('[dispatch] reconcile failed:', error.message));
+
+    /* Online orders nobody paid for, closed after 30 minutes. */
+    // eslint-disable-next-line global-require
+    require('./src/modules/foodpartners/foodPayment.controller').expireUnpaidOrders()
+      .catch((error) => console.error('[food] unpaid-order sweep failed:', error.message));
   };
 
   const firstSweep = setTimeout(runSweeps, 20000);
