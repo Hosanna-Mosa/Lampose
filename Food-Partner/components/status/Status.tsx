@@ -15,6 +15,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Box, Btn, Card, Chip, ConfirmSheet, DataRow, Icon, Notice, Scroller, Tappable, Text, TopBar } from "@/components/common";
 import { BENEFITS, COPY } from "@/constants/partner";
+
+/* "A named person to call" — found by its glyph, not by position: the list
+   changes, and `BENEFITS[3]` read past its end the day a card was removed. */
+const CONTACT_BENEFIT = BENEFITS.find((b) => b.glyph === "users") ?? BENEFITS[BENEFITS.length - 1];
 import { deliverySentence } from "@/lib/money";
 import { getMe, type ServerRestaurant } from "@/services/foodPartner";
 import { usePartnerStore, type ApplicationStatus } from "@/store/partnerStore";
@@ -208,9 +212,9 @@ export function Status() {
         </Box>
 
         <Box style={{ gap: space[2] }}>
-          <Text variant="title1">{BENEFITS[3].title}</Text>
+          <Text variant="title1">{CONTACT_BENEFIT.title}</Text>
           <Text variant="body" color="secondary">
-            {BENEFITS[3].desc}
+            {CONTACT_BENEFIT.desc}
           </Text>
           <Text variant="caption" color="tertiary">
             {deliverySentence(data)}

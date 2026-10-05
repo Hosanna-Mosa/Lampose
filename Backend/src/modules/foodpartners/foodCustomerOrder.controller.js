@@ -86,6 +86,23 @@ const createWithFreshNumber = async (fields) => {
   return null;
 };
 
+/**
+ * The order a checkout attempt already made, answered as if just placed.
+ *
+ * Same shape as a fresh placement, so the app needs no second path: an
+ * online order still waiting on its money goes to `payment`, anything else
+ * to `track`. `replayed` says what happened, for the log and for anybody
+ * debugging a "my order went through once" report.
+ */
+const replayOrder = (res, order) => res.status(200).json({
+  success: true,
+  message: 'This order was already placed.',
+  data: FoodOrder.customerView(order),
+  nextStep: order.paymentMode === 'online' && order.paymentStatus !== 'paid' ? 'payment' : 'track',
+  notified: true,
+  replayed: true,
+});
+
 const fail = (res, status, code, message) => res.status(status).json({
   success: false, code, message, error: message,
 });
@@ -233,6 +250,19 @@ const placeOrder = async (req, res, next) => {
     const restaurantId = String(body.restaurantId || '').trim().toUpperCase();
     const rawLines = Array.isArray(body.lines) ? body.lines : [];
 
+    /* ── Placed already? ────────────────────────────────────────────────
+       A key the app mints once per checkout attempt (body or the standard
+       header). A double tap, a retry after the payment failed to open, or
+       Back-then-Pay sends the same key again — and gets the order that
+       exists rather than a second one for the same food. Scoped to THIS
+       diner, so a key is never a way to read somebody else's order. */
+    const customerId = req.customer?.customerId || '';
+    const requestKey = String(body.clientRequestId || req.get('Idempotency-Key') || '').trim().slice(0, 64);
+    if (requestKey && customerId) {
+      const existing = await FoodOrder.findOne({ customerId, clientRequestId: requestKey });
+      if (existing) return replayOrder(res, existing);
+    }
+
     if (!restaurantId) return fail(res, 400, 'BAD_INPUT', 'Which restaurant is this order for?');
     if (!rawLines.length) return fail(res, 400, 'EMPTY_ORDER', 'There is nothing in this order.');
     if (rawLines.length > MAX_LINES) {
@@ -366,63 +396,75 @@ const placeOrder = async (req, res, next) => {
 
     /* ── Write it ───────────────────────────────────────────────────────── */
     const now = new Date();
-    const order = await createWithFreshNumber({
-      restaurantId,
-      customerId: req.customer?.customerId || '',
-      customerName: String(body.customerName || req.customer?.name || '').trim(),
-      customerPhone: String(req.customer?.phone || '').trim(),
-      deliveryAddress: String(body.deliveryAddress || '').trim().slice(0, 300),
-      fulfilment: 'delivery',
-      /* Where it was placed. Only the website says `web`; anything else — the app
-         sending nothing, or a value nobody recognises — is `app`, the flow that
-         finds a real driver. Not a credential and not a permission: it only picks
-         WHICH delivery flow the order follows, so a client claiming `web` gets
-         the website's flow and nothing else. */
-      channel: body.channel === 'web' ? 'web' : 'app',
-      pickupLocation,
-      dropLocation,
-      /* The kitchen in words, snapshotted beside its pin for the same reason
-         the pin is snapshotted: a rider is sent to the restaurant this order
-         was placed at, not to whatever that restaurantId names an hour later.
-         It is also the only way the Driver app can head a job card with a
-         name — see `restaurantSnapshot` on the model. */
-      restaurant: restaurantSnapshot(restaurant),
-      lines,
-      itemsTotal,
-      /* The flat fields every existing reader uses, filled from the one
-         breakdown — and the breakdown itself, frozen as `pricing`, so a later
-         change of rule cannot rewrite what this order charged. */
-      gst: pricing.foodGstIncluded ? 0 : pricing.foodGst,
-      gstRate: pricing.foodGstRate * 100,
-      platformFee: 0,
-      serviceFee: pricing.serviceFee,
-      serviceFeeGst: pricing.serviceFeeGst,
-      deliveryFee: pricing.deliveryFee,
-      deliveryGst: pricing.deliveryGst,
-      packagingCharge: pricing.packagingFee,
-      packagingGst: pricing.packagingGst,
-      smallOrderFee: pricing.smallOrderFee,
-      distanceKm: pricing.distanceKm,
-      discount: pricing.discount,
-      grandTotal,
-      partnerPayout: pricing.restaurantPayable,
-      commissionRate: COMMISSION_RATE,
-      pricing,
-      paymentMode,
-      /* Cash is owed at the door; an online order is only `paid` once a
-         verified signature says so. Marking it paid here would put money in a
-         settlement report that never arrived. */
-      paymentStatus: 'pending',
-      status: 'placed',
-      statusHistory: [{ status: 'placed', at: now, by: 'customer' }],
-      /* The two hand-over codes, minted now so both are on the order before
-         anybody could need them. `pickupCode` is what the RIDER shows the
-         kitchen to collect the food; `deliveryOtp` is what the diner gives the
-         rider at the door. Both still apply — every order is delivered now. */
-      pickupCode: makeHandoverCode(),
-      deliveryOtp: makeHandoverCode(),
-      placedAt: now,
-    });
+    let order;
+    try {
+      order = await createWithFreshNumber({
+        restaurantId,
+        customerId: req.customer?.customerId || '',
+        ...(requestKey && customerId ? { clientRequestId: requestKey } : null),
+        customerName: String(body.customerName || req.customer?.name || '').trim(),
+        customerPhone: String(req.customer?.phone || '').trim(),
+        deliveryAddress: String(body.deliveryAddress || '').trim().slice(0, 300),
+        fulfilment: 'delivery',
+        /* Where it was placed. Only the website says `web`; anything else — the app
+           sending nothing, or a value nobody recognises — is `app`, the flow that
+           finds a real driver. Not a credential and not a permission: it only picks
+           WHICH delivery flow the order follows, so a client claiming `web` gets
+           the website's flow and nothing else. */
+        channel: body.channel === 'web' ? 'web' : 'app',
+        pickupLocation,
+        dropLocation,
+        /* The kitchen in words, snapshotted beside its pin for the same reason
+           the pin is snapshotted: a rider is sent to the restaurant this order
+           was placed at, not to whatever that restaurantId names an hour later.
+           It is also the only way the Driver app can head a job card with a
+           name — see `restaurantSnapshot` on the model. */
+        restaurant: restaurantSnapshot(restaurant),
+        lines,
+        itemsTotal,
+        /* The flat fields every existing reader uses, filled from the one
+           breakdown — and the breakdown itself, frozen as `pricing`, so a later
+           change of rule cannot rewrite what this order charged. */
+        gst: pricing.foodGstIncluded ? 0 : pricing.foodGst,
+        gstRate: pricing.foodGstRate * 100,
+        platformFee: 0,
+        serviceFee: pricing.serviceFee,
+        serviceFeeGst: pricing.serviceFeeGst,
+        deliveryFee: pricing.deliveryFee,
+        deliveryGst: pricing.deliveryGst,
+        packagingCharge: pricing.packagingFee,
+        packagingGst: pricing.packagingGst,
+        smallOrderFee: pricing.smallOrderFee,
+        distanceKm: pricing.distanceKm,
+        discount: pricing.discount,
+        grandTotal,
+        partnerPayout: pricing.restaurantPayable,
+        commissionRate: COMMISSION_RATE,
+        pricing,
+        paymentMode,
+        /* Cash is owed at the door; an online order is only `paid` once a
+           verified signature says so. Marking it paid here would put money in a
+           settlement report that never arrived. */
+        paymentStatus: 'pending',
+        status: 'placed',
+        statusHistory: [{ status: 'placed', at: now, by: 'customer' }],
+        /* The two hand-over codes, minted now so both are on the order before
+           anybody could need them. `pickupCode` is what the RIDER shows the
+           kitchen to collect the food; `deliveryOtp` is what the diner gives the
+           rider at the door. Both still apply — every order is delivered now. */
+        pickupCode: makeHandoverCode(),
+        deliveryOtp: makeHandoverCode(),
+        placedAt: now,
+      });
+    } catch (error) {
+      /* Two requests with one key landed together and the other one won the
+         unique index. Its order IS this order. */
+      if (error && error.code === 11000 && /clientRequestId/.test(String(error.message))) {
+        const existing = await FoodOrder.findOne({ customerId, clientRequestId: requestKey });
+        if (existing) return replayOrder(res, existing);
+      }
+      throw error;
+    }
 
     console.log(
       `${BADGE} [New Order] ${order.orderNumber} · ${restaurant.restaurantName} · ` +

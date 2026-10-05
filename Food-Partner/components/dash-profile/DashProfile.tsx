@@ -14,15 +14,32 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Box, Note, Refresher, Scroller, TextField } from "@/components/common";
-import { Icon, Text } from "@/components/common";
-import { rupees } from "@/lib/money";
-import { getMe, updateMe, type ServerRestaurant } from "@/services/foodPartner";
+import { Box, ImagePick, Note, Refresher, Scroller, TextField, TimeRange } from "@/components/common";
+import { ChoiceChip, Icon, Text } from "@/components/common";
+import { DAYS } from "@/constants/partner";
+import { getMe, updateMe, type ServerImage, type ServerRestaurant } from "@/services/foodPartner";
+import { uploadOne } from "@/services/uploads";
 import { listTickets } from "@/services/support";
-import { usePartnerStore } from "@/store/partnerStore";
+import { usePartnerStore, type Attachment, type Slot } from "@/store/partnerStore";
 
 /** The most a kitchen may charge for packaging — `FOOD_PRICING_CONFIG.maxPackagingFee` on the server. */
 const MAX_PACKAGING_FEE = 50;
+
+/** A stored Cloudinary image as the picker's attachment, so it previews as-is. */
+const asAttachment = (image: ServerImage | undefined, name: string): Attachment | null =>
+  image?.url ? { name, uri: image.url, url: image.url, publicId: image.publicId ?? "" } : null;
+
+/** The server's flat `openingHours` rows, back into onboarding's days + per-day slots. */
+const toWeek = (rows: ServerRestaurant["openingHours"]) => {
+  const slots: Record<string, Slot[]> = {};
+  for (const row of rows ?? []) {
+    (slots[row.day] ??= []).push({ open: row.openTime, close: row.closeTime });
+  }
+  const days: string[] = DAYS.filter((day) => slots[day]?.length);
+  return { days, slots };
+};
+
+const DEFAULT_SLOT: Slot = { open: "09:00", close: "22:00" };
 
 
 export function DashProfile() {
@@ -52,16 +69,34 @@ export function DashProfile() {
 
 
   /* Editable restaurant details — accepted by PATCH /me since onboarding, but
-     with no screen to reach them from after it. The delivery fee is edited
-     in Operations above. Business hours are the one `updateMe` field still
-     without an editor here — they need the onboarding flow's per-day
-     `TimeRange` step, not a text box. */
+     with no screen to reach them from after it. There is deliberately no
+     delivery-fee editor: `deliveryFee` no longer prices an order (see the
+     packaging note above). */
   const [description, setDescription] = useState("");
   const [cuisineTypesText, setCuisineTypesText] = useState("");
   const [contactNumber, setContactNumber] = useState("");
   const [savingDetails, setSavingDetails] = useState(false);
   const [detailsError, setDetailsError] = useState("");
   const [detailsNote, setDetailsNote] = useState("");
+
+  /* Brand images. Seeded with the stored Cloudinary pair; a new pick is a
+     local uri until Save uploads it. Only a CHANGED image is sent, and a
+     removed one is not sent at all — the server refuses an image with no url
+     rather than blank the listing card, so "Remove" keeps what is live. */
+  const [logo, setLogo] = useState<Attachment | null>(null);
+  const [cover, setCover] = useState<Attachment | null>(null);
+  const [savingImages, setSavingImages] = useState(false);
+  const [imagesError, setImagesError] = useState("");
+  const [imagesNote, setImagesNote] = useState("");
+
+  /* Opening hours, in the same days + per-day-slots shape the onboarding step
+     edits, flattened back into rows on save — see `buildApplicationPayload`. */
+  const [days, setDays] = useState<string[]>([]);
+  const [slots, setSlots] = useState<Record<string, Slot[]>>({});
+  const [activeDay, setActiveDay] = useState<string>("Monday");
+  const [savingHours, setSavingHours] = useState(false);
+  const [hoursError, setHoursError] = useState("");
+  const [hoursNote, setHoursNote] = useState("");
 
   const load = useCallback(async () => {
     if (!session?.token) {
@@ -82,6 +117,12 @@ export function DashProfile() {
       setDescription(restaurant.description ?? "");
       setCuisineTypesText((restaurant.cuisineTypes ?? []).join(", "));
       setContactNumber(restaurant.contactNumber ?? "");
+      setLogo(asAttachment(restaurant.logoImage, "Logo"));
+      setCover(asAttachment(restaurant.coverBannerImage, "Cover banner"));
+      const week = toWeek(restaurant.openingHours);
+      setDays(week.days);
+      setSlots(week.slots);
+      setActiveDay(week.days[0] ?? "Monday");
 
       try {
         const { unread } = await listTickets(session.token);
@@ -177,6 +218,101 @@ export function DashProfile() {
       setSavingDetails(false);
     }
   };
+
+  const handleSaveImages = async () => {
+    if (!session?.token || !me) return;
+    const changedLogo = logo && logo.uri !== me.logoImage?.url ? logo : null;
+    const changedCover = cover && cover.uri !== me.coverBannerImage?.url ? cover : null;
+    setImagesError("");
+    setImagesNote("");
+    if (!changedLogo && !changedCover) {
+      setImagesNote("Nothing new to save. Choose a new logo or cover first.");
+      return;
+    }
+    setSavingImages(true);
+    try {
+      const body: Record<string, unknown> = {};
+      /* Uploaded first: only a Cloudinary link may reach the database (see
+         `services/uploads.ts`). */
+      if (changedLogo) {
+        const up = await uploadOne(changedLogo, "logo", session.token);
+        body.logoImage = { url: up.url, publicId: up.publicId };
+      }
+      if (changedCover) {
+        const up = await uploadOne(changedCover, "cover", session.token);
+        body.coverBannerImage = { url: up.url, publicId: up.publicId };
+      }
+      const updated = await updateMe(session.token, body);
+      setMe(updated);
+      setLogo(asAttachment(updated.logoImage, "Logo"));
+      setCover(asAttachment(updated.coverBannerImage, "Cover banner"));
+      setImagesNote("Images updated. Diners see them on your listing now.");
+    } catch (err) {
+      setImagesError((err as Error)?.message || "The images did not save.");
+    } finally {
+      setSavingImages(false);
+    }
+  };
+
+  const toggleDay = (day: string) => {
+    setHoursNote("");
+    if (days.includes(day)) {
+      const next = days.filter((d) => d !== day);
+      setDays(next);
+      if (activeDay === day) setActiveDay(next[0] ?? "Monday");
+      return;
+    }
+    /* Kept in week order, and a newly opened day starts with a slot so it is
+       never selected-but-empty. */
+    setDays(DAYS.filter((d) => d === day || days.includes(d)));
+    if (!slots[day]?.length) setSlots((prev) => ({ ...prev, [day]: [{ ...DEFAULT_SLOT }] }));
+    setActiveDay(day);
+  };
+
+  const setDaySlots = (day: string, next: Slot[]) => {
+    setHoursNote("");
+    setSlots((prev) => ({ ...prev, [day]: next }));
+  };
+
+  const copyToEveryOpenDay = () => {
+    const source = slots[activeDay] ?? [DEFAULT_SLOT];
+    setHoursNote("");
+    setSlots((prev) => {
+      const next = { ...prev };
+      for (const day of days) next[day] = source.map((s) => ({ ...s }));
+      return next;
+    });
+  };
+
+  const handleSaveHours = async () => {
+    if (!session?.token || !me) return;
+    setHoursError("");
+    setHoursNote("");
+    if (!days.length) {
+      setHoursError("Pick at least one day you are open.");
+      return;
+    }
+    /* Only the ticked days — a day unticked keeps its slots in `slots` but
+       must not reopen the kitchen (same rule as `buildOpeningHours`). */
+    const openingHours = days.flatMap((day) =>
+      (slots[day] ?? []).map((s) => ({ day, openTime: s.open, closeTime: s.close })),
+    );
+    setSavingHours(true);
+    try {
+      const updated = await updateMe(session.token, { openingHours });
+      setMe(updated);
+      const week = toWeek(updated.openingHours);
+      setDays(week.days);
+      setSlots(week.slots);
+      setHoursNote("Opening hours updated. They decide when diners can order.");
+    } catch (err) {
+      setHoursError((err as Error)?.message || "The hours did not save.");
+    } finally {
+      setSavingHours(false);
+    }
+  };
+
+  const activeSlots = slots[activeDay] ?? [];
 
   /* The kitchen's own details or nothing — see DashHome for what these used
      to fall back to. */
@@ -317,6 +453,124 @@ export function DashProfile() {
             disabled={savingDetails}
           >
             <Text style={styles.saveBtnText}>{savingDetails ? "Saving Changes..." : "Save Details"}</Text>
+          </Pressable>
+        </View>
+
+        {/* ── SECTION: BRAND IMAGES ─────────────────────────────────────── */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Icon name="image" size={20} color="#059669" />
+            <Text style={styles.cardTitle}>Brand Images</Text>
+          </View>
+
+          {/* No "Sample" shortcut: this is the live listing's real photograph. */}
+          <ImagePick
+            label="Logo"
+            desc="Square. Shown on your card in the listing."
+            value={logo}
+            onChange={(v) => {
+              setLogo(v);
+              setImagesNote("");
+            }}
+            allowSample={false}
+          />
+          <ImagePick
+            label="Cover banner"
+            desc="Wide. Sits across the top of your restaurant page."
+            aspect="wide"
+            value={cover}
+            onChange={(v) => {
+              setCover(v);
+              setImagesNote("");
+            }}
+            allowSample={false}
+          />
+
+          {!!imagesError && <Note tone="bad">{imagesError}</Note>}
+          {!!imagesNote && <Note tone="ok">{imagesNote}</Note>}
+
+          <Pressable
+            style={[styles.saveBtn, savingImages && { opacity: 0.7 }]}
+            onPress={handleSaveImages}
+            disabled={savingImages}
+          >
+            <Text style={styles.saveBtnText}>{savingImages ? "Uploading..." : "Save Images"}</Text>
+          </Pressable>
+        </View>
+
+        {/* ── SECTION: OPENING HOURS ───────────────────────────────────── */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Icon name="clock" size={20} color="#059669" />
+            <Text style={styles.cardTitle}>Opening Hours</Text>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Days you are open</Text>
+            <View style={styles.chipWrap}>
+              {DAYS.map((day) => (
+                <ChoiceChip
+                  key={day}
+                  label={day.slice(0, 3)}
+                  selected={days.includes(day)}
+                  onPress={() => toggleDay(day)}
+                />
+              ))}
+            </View>
+          </View>
+
+          {days.length > 0 && (
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Hours for</Text>
+              <View style={styles.chipWrap}>
+                {days.map((day) => (
+                  <ChoiceChip
+                    key={day}
+                    label={day.slice(0, 3)}
+                    selected={activeDay === day}
+                    onPress={() => setActiveDay(day)}
+                  />
+                ))}
+              </View>
+
+              {activeSlots.map((slot, i) => (
+                <TimeRange
+                  key={`${activeDay}-${i}`}
+                  slot={slot}
+                  onChange={(next) => setDaySlots(activeDay, activeSlots.map((s, idx) => (idx === i ? next : s)))}
+                  onRemove={
+                    activeSlots.length > 1
+                      ? () => setDaySlots(activeDay, activeSlots.filter((_, idx) => idx !== i))
+                      : undefined
+                  }
+                />
+              ))}
+
+              <Pressable
+                style={styles.linkRow}
+                onPress={() => setDaySlots(activeDay, [...activeSlots, { open: "18:00", close: "23:00" }])}
+              >
+                <Icon name="plus" size={14} color="#059669" />
+                <Text style={styles.linkText}>Add another slot for {activeDay}</Text>
+              </Pressable>
+              {days.length > 1 && (
+                <Pressable style={styles.linkRow} onPress={copyToEveryOpenDay}>
+                  <Icon name="refresh" size={14} color="#059669" />
+                  <Text style={styles.linkText}>Copy {activeDay}&apos;s hours to every open day</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+
+          {!!hoursError && <Note tone="bad">{hoursError}</Note>}
+          {!!hoursNote && <Note tone="ok">{hoursNote}</Note>}
+
+          <Pressable
+            style={[styles.saveBtn, savingHours && { opacity: 0.7 }]}
+            onPress={handleSaveHours}
+            disabled={savingHours}
+          >
+            <Text style={styles.saveBtnText}>{savingHours ? "Saving Changes..." : "Save Hours"}</Text>
           </Pressable>
         </View>
 
@@ -696,6 +950,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#6B7280",
     marginTop: 2,
+  },
+
+  /* OPENING HOURS */
+  chipWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  linkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 6,
+  },
+  linkText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#059669",
   },
 
   saveBtn: {

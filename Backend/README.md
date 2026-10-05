@@ -383,19 +383,24 @@ User App        POST /api/v2/food-partners/orders
                   every price re-derived from food_products — the request says
                   WHAT, never how much
 
-  cash ─────────► the kitchen is rung, and the dispatcher starts
+  cash ─────────► the kitchen is rung
   online ───────► the order is HELD: paymentStatus 'pending', nobody is told,
                   no rider is sent
                 POST .../payment           mints a Razorpay order for OUR figure
                 GET  /food-partners/checkout?t=…   the page the app WebViews
                 POST .../checkout/callback  signature verified → confirmPayment
 
-backend         foodDispatch.service.js
-                  · driverMatch: 2km → 5km → 10km, first ring that finds anyone
-                  · ONE offer at a time, nearest first, 15s each
-                  · a decline moves to the next rider immediately
-                  · nobody left → dispatch.state 'unassigned', retried when the
-                    kitchen marks the order ready
+backend         foodDispatch.service.js — starts when the kitchen ACCEPTS with
+                a prep-time quote (order.promisedMinutes), never before
+                  · search radius = the prep-time quote at PLANNING_SPEED_KMH
+                  · BROADCAST: every rider in range is offered at once, with
+                    the food's readyAt — no per-rider countdown
+                  · first accept wins (one atomic claim); a decline only
+                    removes that rider
+                  · nobody in range → the radius widens twice (mid-prep, then
+                    5 min before ready)
+                  · still nobody → dispatch.state 'unassigned', retried when
+                    the kitchen marks the order ready
 
 Driver app      delivery_offer over socket.io  AND  GET /drivers/me/offer
                 POST /drivers/orders/:n/accept    ← one atomic claim, no race
@@ -519,20 +524,22 @@ online all shift receiving nothing.
 The list endpoint carries no positions at all: fifty orders would be fifty
 driver lookups to draw markers nobody is looking at.
 
-Both apps draw the same three points — kitchen, rider, door — with the same
-projection, at one uniform scale, with a scale bar and a real haversine
-distance. There are no street tiles: that means a native module and a Google
-Maps key, and `User App/components/food/DeliveryMap.tsx` is the seam where they
-would go. The geometry is duplicated in `driver/components/ui/MapPanel.tsx`
-because this monorepo has no workspace tooling — if you change one, change the
-other, or the rider and the diner are reading two different pictures of one
-journey.
+Both apps draw the same three points — kitchen, rider, door — on a real
+Google Map (`react-native-maps`, `PROVIDER_GOOGLE`, key from
+`EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`), as native markers. The line between two
+points is a real road route from `react-native-maps-directions`; it falls back
+to a straight DASHED line only when a route cannot be fetched. The code lives
+in `User App/components/food/DeliveryMap.tsx` and is duplicated in
+`driver/components/ui/MapPanel.tsx` because this monorepo has no workspace
+tooling — if you change one, change the other, or the rider and the diner are
+reading two different pictures of one journey.
 
 ### Realtime is an optimisation, never a dependency
 
 `socket.io` rides on the same HTTP server and the same port. A rider's offer
-expires in fifteen seconds, which is shorter than any polling interval a phone
-can afford all day — so the offer is pushed.
+is broadcast to everyone in range and goes to whoever accepts first, so the
+seconds matter more than any polling interval a phone can afford all day — so
+the offer is pushed.
 
 Everything it carries is also readable over HTTP: `GET /drivers/me/offer` for
 the rider, an 8-second poll for the diner, a 20-second poll for the kitchen.

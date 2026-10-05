@@ -97,6 +97,14 @@ export function PayoutSetupScreen() {
 
   useEffect(() => { void load(); }, [load]);
 
+  /* After a failed submit or re-check. A Razorpay-side rejection is recorded
+     on the server AND answered as an error, so the error line showed at once
+     but the "could not verify" banner (which reads `state`) waited for a
+     reload. Quiet: the failure already has its sentence on screen. */
+  const rereadState = () => {
+    fetchPayoutOnboarding().then(setState).catch(() => {});
+  };
+
   const set = (key: keyof Form) => (value: string) => setForm((f) => ({ ...f, [key]: value }));
 
   /* Every other form in this app gates its submit on field completeness, not
@@ -126,6 +134,7 @@ export function PayoutSetupScreen() {
          does not look like a PAN" is worth more than "check your details". */
       setError((caught as { displayMessage?: string })?.displayMessage
         ?? 'We could not save those details. Please check them and try again.');
+      rereadState();
     } finally {
       setBusy(false);
     }
@@ -228,7 +237,10 @@ export function PayoutSetupScreen() {
                 setBusy(true);
                 refreshPayoutOnboarding()
                   .then((next) => { setState(next); if (!next.required) router.replace('/'); })
-                  .catch(() => setError('We could not reach Razorpay just now.'))
+                  .catch(() => {
+                    setError('We could not reach Razorpay just now.');
+                    rereadState();
+                  })
                   .finally(() => setBusy(false));
               }}
             />

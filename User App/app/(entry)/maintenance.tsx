@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 
@@ -23,6 +23,12 @@ export default function MaintenanceScreen() {
   const previewControls = usePreviewControls();
   const { mode } = useTheme();
   const router = useRouter();
+
+  /* A design mock, not a live screen: nothing ever routes here, its booking
+     reference and return time are invented, and both buttons do nothing. A
+     deep link outside a preview build goes home rather than telling a real
+     student their payment deadline is paused. */
+  if (!previewControls) return <Redirect href="/" />;
 
   return (
     <>

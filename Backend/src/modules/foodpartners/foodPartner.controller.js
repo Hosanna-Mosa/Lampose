@@ -768,8 +768,12 @@ const submitApplication = async (req, res, next) => {
       : [{ phoneKey: phoneKey(fields.ownerPhone) }];
     if (fields.ownerEmail) identities.unshift({ ownerEmail: fields.ownerEmail });
 
-    const clash = await FoodRestaurant.findOne({ $or: identities })
-      .select('ownerEmail phoneKey restaurantId verificationStatus');
+    /* No identities at all (duplicate phones allowed, no email) means nothing
+       to clash with — and `$or: []` is an error in MongoDB, not a no-match. */
+    const clash = identities.length
+      ? await FoodRestaurant.findOne({ $or: identities })
+        .select('ownerEmail phoneKey restaurantId verificationStatus')
+      : null;
 
     /*
      * Applying AGAIN after a rejection. The rejected account still holds the
@@ -791,9 +795,6 @@ const submitApplication = async (req, res, next) => {
         return reapply(req, res, { clash, fields, rawProducts, password, dropped });
       }
     }
-    const clash = identities.length
-      ? await FoodRestaurant.findOne({ $or: identities }).select('ownerEmail phoneKey restaurantId')
-      : null;
 
     if (clash) {
       const isEmail = Boolean(fields.ownerEmail) && clash.ownerEmail === fields.ownerEmail;

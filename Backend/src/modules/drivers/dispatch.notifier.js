@@ -265,6 +265,30 @@ async function notifyCustomerOfRejection(order) {
 }
 
 /**
+ * "Your refund has been sent" — the money is on its way back.
+ *
+ * Without it the order screen said "Refund on the way" until the diner
+ * happened to reopen it, and the only news of money coming back was a bank
+ * statement. Sent when the gateway accepts the refund, which is the moment
+ * there is a reference to quote; how long the bank takes is the bank's.
+ */
+async function notifyCustomerOfRefund(order, amountRupees) {
+  const tokens = await customerTokens(order.customerId);
+  return ring(tokens, {
+    title: 'Your refund has been sent',
+    body: `${rupees(amountRupees)} for order ${order.orderNumber} is on its way back. `
+      + 'Banks usually take 5–7 working days to show it.',
+    data: {
+      kind: 'food_order',
+      orderNumber: order.orderNumber,
+      status: 'refunded',
+    },
+    sound: 'default',
+    channelId: ORDER_CHANNEL,
+  }, 'refund');
+}
+
+/**
  * "Your food is on its way" / "It has arrived" — the two hand-overs.
  *
  * An order the restaurant arranged has no rider name and no PIN to give: the
@@ -315,6 +339,7 @@ async function notifyCustomerOfPickupReady(order) {
 
 module.exports = {
   notifyCustomerOfPickupReady,
+  notifyCustomerOfRefund,
   OFFER_CHANNEL,
   JOB_CHANNEL,
   ORDER_CHANNEL,

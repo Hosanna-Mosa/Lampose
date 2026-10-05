@@ -379,7 +379,13 @@ const makeInAppHandlers = (audience, reqKey) => {
   const status = async (req, res, next) => {
     try {
       const account = accountOf(req);
-      return res.json({ success: true, data: requestView(audience, account) });
+      /* What is still in this person's hands, so the screen can say so BEFORE
+         the button — the app has read these fields all along and they were
+         never sent, so its "still in progress" warning could not appear.
+         Reported, never a refusal; a failed count just says nothing. */
+      const openWork = await Promise.resolve(audience.activeWork ? audience.activeWork(account) : {})
+        .catch(() => ({}));
+      return res.json({ success: true, data: { ...requestView(audience, account), ...openWork } });
     } catch (error) {
       return next(error);
     }

@@ -4,7 +4,7 @@ import type { BackendPartnerTicket, SupportTicketStatus } from '@/services/api/s
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 import { styles } from '@/components/support-index/styles';
-import { STATUS_TONE, STATUS_LABEL, timeLabel } from '@/components/support-index/utils';
+import { STATUS_TONE, STATUS_LABEL, timeLabel, categoryLabel } from '@/components/support-index/utils';
 
 export function TicketRow({ ticket, onPress }: { ticket: BackendPartnerTicket; onPress: () => void }) {
   const c = useColors();
@@ -15,7 +15,7 @@ export function TicketRow({ ticket, onPress }: { ticket: BackendPartnerTicket; o
     <Tappable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${ticket.subject}. ${STATUS_LABEL[ticket.status]}. ${ticket.category ?? ''}, ${timeLabel(ticket.lastActivityAt)}`}
+      accessibilityLabel={`${ticket.subject}. ${STATUS_LABEL[ticket.status]}. ${ticket.category ? categoryLabel(ticket.category) : 'Report'}, ${timeLabel(ticket.lastActivityAt)}`}
       style={({ pressed }) => [
         styles.card,
         { borderColor: c.borderCard, backgroundColor: c.surface, opacity: pressed ? 0.75 : dimmed ? 0.75 : 1 },
@@ -39,7 +39,7 @@ export function TicketRow({ ticket, onPress }: { ticket: BackendPartnerTicket; o
           <Badge label="Guest issue" tone="neutral" />
         )}
         <Text variant="caption" color="textCaption" style={styles.metaText}>
-          {ticket.category ?? 'Report'} · {timeLabel(ticket.lastActivityAt)}
+          {ticket.category ? categoryLabel(ticket.category) : 'Report'} · {timeLabel(ticket.lastActivityAt)}
         </Text>
       </Box>
     </Tappable>

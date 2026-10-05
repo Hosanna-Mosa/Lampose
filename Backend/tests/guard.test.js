@@ -100,13 +100,21 @@ const EXEMPT = {
     'brings its own MongoMemoryServer and overwrites MONGO_URI before config/env is read. '
     + 'Requiring the guard at the top would load config/env first and defeat that, so this '
     + 'script is safe by construction instead.',
+  'scripts/verify-restaurant-admin.js':
+    'same as verify-partner-login.js: MongoMemoryServer, MONGO_URI set before config/env is required.',
+  'scripts/verify-food-order-whatsapp.js':
+    'same as verify-partner-login.js: it starts a MongoMemoryServer and sets MONGO_URI to it '
+    + 'before config/env is first required, so it can only ever write to that throwaway server.',
 };
 
 const root = path.join(__dirname, '..');
 const candidates = [
   ...fs.readdirSync(path.join(root, 'scripts'))
     .filter((f) => f.endsWith('.js'))
-    .map((f) => path.join('scripts', f)),
+    /* Forward slashes on every platform: `path.join` gives `scripts\x.js` on
+       Windows, which matched none of the EXEMPT keys, so the test failed on
+       every Windows machine for scripts it had already exempted. */
+    .map((f) => `scripts/${f}`),
   ...fs.readdirSync(root).filter((f) => f.endsWith('.js') && f !== 'server.js' && f !== 'app.js'),
 ];
 

@@ -433,6 +433,41 @@ describe('placing an order', () => {
     assert.equal((await call('GET', '/api/v2/food-web/orders', { token: other.token })).body.data.orders.length, 0);
   });
 
+  it('one checkout attempt is one order — a repeat, or two at once, returns the same one', async () => {
+    await makeKitchen();
+    await makeDish();
+    const { token } = await makeDiner();
+    const other = await makeDiner({ customerId: 'cus_diner3', phone: '+919333333333', name: 'Third Diner' });
+    const body = order({ clientRequestId: 'chk-attempt-1' });
+
+    const first = await call('POST', '/api/v2/food-partners/orders', { token, body });
+    assert.equal(first.status, 201);
+
+    /* Double tap / Back-then-Pay: the same key again. */
+    const again = await call('POST', '/api/v2/food-partners/orders', { token, body });
+    assert.equal(again.status, 200);
+    assert.equal(again.body.replayed, true);
+    assert.equal(again.body.data.orderNumber, first.body.data.orderNumber);
+
+    /* Two at once: the unique index settles it, and both answers name one order.
+       Built first — a production server builds it at boot (`autoIndex`), but
+       in a fresh test database the build is still in flight when the two
+       requests race, which would test the timing and not the code. */
+    await FoodOrder.syncIndexes();
+    const racing = order({ clientRequestId: 'chk-attempt-2' });
+    const [a, b] = await Promise.all([
+      call('POST', '/api/v2/food-partners/orders', { token, body: racing }),
+      call('POST', '/api/v2/food-partners/orders', { token, body: racing }),
+    ]);
+    assert.equal(a.body.data.orderNumber, b.body.data.orderNumber);
+    assert.equal(await FoodOrder.countDocuments({ customerId: 'cus_diner1' }), 2, 'two attempts, two orders — no more');
+
+    /* A key is the diner's own: another diner using it gets their own order. */
+    const theirs = await call('POST', '/api/v2/food-partners/orders', { token: other.token, body });
+    assert.equal(theirs.status, 201);
+    assert.notEqual(theirs.body.data.orderNumber, first.body.data.orderNumber);
+  });
+
   it('refuses an order with no session', async () => {
     await makeKitchen();
     await makeDish();

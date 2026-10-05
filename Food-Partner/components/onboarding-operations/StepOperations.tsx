@@ -17,13 +17,11 @@ import {
   StyleSheet,
 } from "react-native";
 
-import { Block, Box, Field, Note, NumberField, StepFrame, SwitchRow, Tappable, TimeRange } from "@/components/common";
+import { Block, Box, Field, Note, StepFrame, SwitchRow, Tappable, TimeRange } from "@/components/common";
 import { ChoiceChip, Icon, Seg, Stepper, Text } from "@/components/common";
 import {
   COPY,
   DAYS,
-  DELIVERY_FEE_LABELS,
-  DELIVERY_FEE_TYPES,
   OPEN_STATES,
   OPEN_STATE_LABELS,
 } from "@/constants/partner";
@@ -174,77 +172,10 @@ export function StepOperations() {
           enforcing or billing either (see `foodCharges.util.js` and
           `placeOrder`), so asking for them — and printing them as terms in
           the contract — promised the kitchen money it would never collect. */}
-      <Block glyph="rupee" title="Order charges">
-
-        <Field label="How delivery is charged" required>
-          <Seg
-            options={DELIVERY_FEE_TYPES}
-            value={data.deliveryFeeType}
-            onChange={(v) => set("deliveryFeeType", v)}
-            labels={DELIVERY_FEE_LABELS}
-          />
-        </Field>
-
-        {/* Only the field the chosen rule actually uses. Showing all three
-            invites a partner to fill in numbers their pricing never involves. */}
-        {data.deliveryFeeType === "flat" && (
-          <Field label="Delivery fee" required>
-            <NumberField
-              value={data.deliveryFeeAmount}
-              onChangeText={(v) => set("deliveryFeeAmount", v)}
-              placeholder="30"
-              prefix="₹"
-            />
-          </Field>
-        )}
-        {data.deliveryFeeType === "distance_based" && (
-          /* The base is what a delivery costs before distance — and what is
-             charged when the diner's location is not known. Without it the
-             fee came to ₹0 on every order. */
-          <Field label="Base delivery fee" required>
-            <NumberField
-              value={data.deliveryFeeAmount}
-              onChangeText={(v) => set("deliveryFeeAmount", v)}
-              placeholder="20"
-              prefix="₹"
-            />
-          </Field>
-        )}
-        {data.deliveryFeeType === "distance_based" && (
-          <Field label="Rate per kilometre" required>
-            <NumberField
-              value={data.deliveryFeePerKm}
-              onChangeText={(v) => set("deliveryFeePerKm", v)}
-              placeholder="8"
-              prefix="₹"
-              suffix="/ km"
-              decimals
-            />
-          </Field>
-        )}
-        {data.deliveryFeeType === "free_above" && (
-          <>
-            <Field label="Fee below the threshold" required>
-              <NumberField
-                value={data.deliveryFeeAmount}
-                onChangeText={(v) => set("deliveryFeeAmount", v)}
-                placeholder="30"
-                prefix="₹"
-              />
-            </Field>
-            <Field label="Free above" required>
-              <NumberField
-                value={data.deliveryFreeAboveValue}
-                onChangeText={(v) => set("deliveryFreeAboveValue", v)}
-                placeholder="499"
-                prefix="₹"
-              />
-            </Field>
-          </>
-        )}
-
-        {/* Read back what was just configured, in the words a diner would see.
-            A pricing rule nobody can restate is one that gets set wrong. */}
+      {/* Delivery is no longer the kitchen's to price — Lampose charges the
+          diner by distance — so this says so instead of asking for a fee
+          that would price nothing. */}
+      <Block glyph="rupee" title="Delivery charges">
         <Note tone="info" glyph="info">
           {deliverySentence(data)}
         </Note>

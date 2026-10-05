@@ -4,7 +4,7 @@ import { Tappable } from '@/components/common';
 import { useRouter } from 'expo-router';
 import { Screen, TopHeader, Text, Button, Input, Card, Toast, Icon } from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
-import { ApiError, fetchMe } from '@/services';
+import { ApiError, fetchMe, type BackendPartner } from '@/services';
 import { LocationRefused, locateMe } from '@/services/location/locateMe';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
@@ -38,12 +38,18 @@ export function EditProfileScreen() {
   const [emailTouched, setEmailTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone: 'error' | 'success' } | null>(null);
+  /* What "unchanged" is measured against. Starts as the cached profile and is
+     replaced by the fresh read below — comparing against the cache meant a
+     profile edited on another device looked dirty (or clean) for the wrong
+     reason, and Save either sent nothing new or skipped a real change. */
+  const [baseline, setBaseline] = useState<BackendPartner | null>(partner ?? null);
 
   useEffect(() => {
     let cancelled = false;
     fetchMe()
       .then((fresh) => {
         if (cancelled) return;
+        setBaseline(fresh);
         setName(fresh.name ?? '');
         setEmail(fresh.email ?? '');
         setBusinessName(fresh.businessName ?? '');
@@ -51,6 +57,7 @@ export function EditProfileScreen() {
         setLandmark(fresh.address?.landmark ?? '');
         setCity(fresh.address?.city ?? '');
         setPincode(fresh.address?.pincode ?? '');
+        setRegion(fresh.address?.state ?? '');
       })
       .catch(() => {});
     return () => {
@@ -100,13 +107,14 @@ export function EditProfileScreen() {
       : undefined;
 
   const dirty =
-    trimmedName !== (partner?.name ?? '')
-    || trimmedEmail !== (partner?.email ?? '')
-    || businessName.trim() !== (partner?.businessName ?? '')
-    || line1.trim() !== (partner?.address?.line1 ?? '')
-    || landmark.trim() !== (partner?.address?.landmark ?? '')
-    || city.trim() !== (partner?.address?.city ?? '')
-    || pincode.trim() !== (partner?.address?.pincode ?? '')
+    trimmedName !== (baseline?.name ?? '')
+    || trimmedEmail !== (baseline?.email ?? '')
+    || businessName.trim() !== (baseline?.businessName ?? '')
+    || line1.trim() !== (baseline?.address?.line1 ?? '')
+    || landmark.trim() !== (baseline?.address?.landmark ?? '')
+    || city.trim() !== (baseline?.address?.city ?? '')
+    || pincode.trim() !== (baseline?.address?.pincode ?? '')
+    || region.trim() !== (baseline?.address?.state ?? '')
     || pin !== undefined;
 
   const canSave = trimmedName.length > 0 && !emailError && !saving;
@@ -132,9 +140,11 @@ export function EditProfileScreen() {
         name: trimmedName,
         email: trimmedEmail,
         businessName: businessName.trim(),
+        /* No `kind`: the server edits an existing address field by field, so
+           leaving it out keeps whatever is stored, and a new address gets the
+           schema's own default. Sending 'home' reset any other kind. */
         address: line1.trim()
           ? {
-              kind: 'home' as const,
               line1: line1.trim(),
               landmark: landmark.trim(),
               city: city.trim(),
@@ -142,7 +152,7 @@ export function EditProfileScreen() {
               pincode: pincode.trim(),
               ...(pin ? { location: pin } : null),
             }
-          : partner?.address
+          : baseline?.address
             ? null
             : undefined,
       });
@@ -181,11 +191,10 @@ export function EditProfileScreen() {
         <Card style={styles.heroCard}>
           <View style={styles.heroContent}>
             <View style={styles.avatarContainer}>
+              {/* No edit badge: there is no profile photo to change — the
+                  partner model has no field for one. */}
               <View style={[styles.avatarCircle, { backgroundColor: c.accent }]}>
                 <Text style={styles.avatarText}>{initialLetter}</Text>
-              </View>
-              <View style={[styles.avatarEditBadge, { backgroundColor: c.surface, borderColor: c.accent }]}>
-                <Icon name="edit" size={12} color={c.accent} />
               </View>
             </View>
             <View style={styles.heroTextContainer}>
@@ -401,17 +410,6 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontFamily: fonts.bold,
     color: '#FFFFFF',
-  },
-  avatarEditBadge: {
-    position: 'absolute',
-    bottom: -2,
-    right: -2,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   heroTextContainer: {
     flex: 1,

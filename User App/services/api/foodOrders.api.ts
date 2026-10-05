@@ -31,6 +31,12 @@ export type PlaceOrderLine = {
 };
 
 export type PlaceOrderRequest = {
+  /**
+   * One per checkout attempt — the same cart sends the same key. The server
+   * answers a repeat with the order it already made (`replayed: true`)
+   * instead of writing a second one for the same food.
+   */
+  clientRequestId?: string;
   restaurantId: string;
   lines: PlaceOrderLine[];
   fulfilment: 'delivery' | 'pickup';
@@ -128,6 +134,12 @@ export type ServerFoodOrder = {
    * Optional because orders placed before the field existed do not carry it.
    */
   restaurant?: { name?: string; address?: string; phone?: string } | null;
+  /**
+   * Who delivers it when it is NOT a Lampose rider: `self` (the kitchen's own
+   * staff) or `driver` (one the kitchen arranged). Absent or anything else
+   * means a Lampose rider, whose PIN closes the order at the door.
+   */
+  delivery?: { method?: string | null } | null;
   lines: ServerOrderLine[];
   itemsTotal: number;
   /** The kitchen's packaging fee, as billed, and its 18% GST. */
@@ -306,6 +318,16 @@ export async function fetchMyFoodOrders(before?: string): Promise<ServerFoodOrde
 /** One order, for the tracking screen. */
 export async function fetchFoodOrder(orderNumber: string): Promise<ServerFoodOrder | null> {
   const res = await api.get<Envelope<ServerFoodOrder>>(endpoints.foodOrder(orderNumber));
+  return res?.data ?? null;
+}
+
+/**
+ * "It arrived" — for an order the RESTAURANT delivered (`delivery.method` is
+ * `self` or `driver`). The server refuses it for a Lampose rider's order and
+ * before the food has left; pressed twice it answers the same delivered row.
+ */
+export async function confirmFoodDelivery(orderNumber: string): Promise<ServerFoodOrder | null> {
+  const res = await api.patch<Envelope<ServerFoodOrder>>(endpoints.foodOrderDelivered(orderNumber), {});
   return res?.data ?? null;
 }
 

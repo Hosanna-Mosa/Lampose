@@ -383,6 +383,11 @@ const foodOrderSchema = new mongoose.Schema(
        diner runs most, and unset only for an order placed before accounts
        were required. */
     customerId: { type: String, default: '', index: true },
+    /* The checkout attempt this order came from, minted by the app. The same
+       key twice from the same diner is the same order — see `placeOrder`.
+       Absent (not '') on orders placed without one, so the unique index
+       below ignores them. */
+    clientRequestId: { type: String, default: undefined, trim: true },
     customerName: { type: String, default: '', trim: true },
     customerPhone: { type: String, default: '', trim: true },
     deliveryAddress: { type: String, default: '', trim: true },
@@ -801,6 +806,13 @@ foodOrderSchema.index({ restaurantId: 1, status: 1, placedAt: -1 });
 foodOrderSchema.index({ restaurantId: 1, placedAt: -1 });
 /* The diner's own history, newest first. */
 foodOrderSchema.index({ customerId: 1, placedAt: -1 });
+/* One order per checkout attempt per diner — what makes a double tap, a retry
+   after a failed payment start, or Back-then-Pay collapse into one order, even
+   when two requests land at the same moment. */
+foodOrderSchema.index(
+  { customerId: 1, clientRequestId: 1 },
+  { unique: true, partialFilterExpression: { clientRequestId: { $type: 'string' } } },
+);
 /* "What am I carrying / what have I carried", the two queries the Driver app
    runs on every open. */
 foodOrderSchema.index({ 'delivery.driverId': 1, placedAt: -1 });

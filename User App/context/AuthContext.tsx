@@ -300,7 +300,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
        * no connection must still be able to leave, so a failure here does not
        * block the local sign-out below.
        */
-      await logoutAuth().catch(() => {});
+      /* Capped at four seconds: on a weak signal this call could hang the
+         Log out button for as long as the request took, with nothing on
+         screen. Signing out locally never waits longer than that. */
+      const revoke = new AbortController();
+      const giveUp = setTimeout(() => revoke.abort(), 4000);
+      await logoutAuth(revoke.signal).catch(() => {});
+      clearTimeout(giveUp);
 
       setUser(null);
       setToken(null);
@@ -807,7 +813,9 @@ function referralMessageFor(referral: BackendReferralOutcome | undefined): strin
   if (!referral) return undefined;
   switch (referral.status) {
     case 'applied':
-      return `Signed up via ${referral.propertyName ?? 'your referral'} — you've unlocked ₹${referral.discountRupees ?? 0} off your first food order.`;
+      /* A reward held on the account, not a discount at checkout — no food
+         order applies it yet (same wording as the Profile card). */
+      return `Signed up via ${referral.propertyName ?? 'your referral'} — you've earned a ₹${referral.discountRupees ?? 0} food reward, saved to your account.`;
     case 'expired':
       return 'That referral code has expired, so it was not applied — your account is set up either way.';
     case 'used':

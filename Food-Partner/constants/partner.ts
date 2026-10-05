@@ -36,19 +36,16 @@ export const BENEFITS: { glyph: IconName; title: string; desc: string }[] = [
       "Your kitchen is shown to the residents already living within walking " +
       "distance of it — the people most likely to order twice.",
   },
+  /* Said the way payouts actually work (`constants/contract.ts`): requested
+     from the app, not settled weekly. A "mess subscriptions" card stood after
+     this one; no subscription exists anywhere in the food backend, so it was
+     a feature promised to a kitchen deciding whether to sign. */
   {
     glyph: "wallet",
-    title: "Money on a fixed day",
+    title: "Your money, when you ask",
     desc:
-      "Weekly settlements straight to the account you enter below, with " +
-      "every deduction itemised before it is taken.",
-  },
-  {
-    glyph: "calendar",
-    title: "Monthly plans, steady income",
-    desc:
-      "Run mess subscriptions alongside single orders, so part of next " +
-      "month's revenue is known before it starts.",
+      "Request a payout from the app once ₹100 is due, straight to the account " +
+      "you enter below, with every order itemised.",
   },
   {
     glyph: "users",

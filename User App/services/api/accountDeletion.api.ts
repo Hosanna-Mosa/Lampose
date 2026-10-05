@@ -29,6 +29,10 @@ export type AccountDeletion = {
   /** Still in flight — reported, never a refusal. */
   activeOrders?: number;
   activeBookings?: number;
+  /** Stay or visit requests still waiting on an owner. */
+  pendingRequests?: number;
+  /** Refunds owed with no bank account to send them to yet. */
+  refundsAwaitingDetails?: number;
   alreadyRequested?: boolean;
   /** Always true now — deletion is carried out on the request. */
   immediate?: boolean;

@@ -51,14 +51,9 @@ export const missingFor = (step: number, d: OnboardingData, copy: PartnerCopy): 
     if (!d.avgPreparationTime) need.push("a preparation time");
     if (!d.deliveryRadiusKm) need.push("a delivery radius");
 
-    /* Only the field the chosen fee type actually uses. Asking for all three
-       would block a partner on numbers their own pricing never involves. */
-    if (d.deliveryFeeType === "flat" && !d.deliveryFeeAmount) need.push("the delivery fee");
-    if (d.deliveryFeeType === "distance_based" && !d.deliveryFeeAmount) need.push("the base delivery fee");
-    if (d.deliveryFeeType === "distance_based" && !d.deliveryFeePerKm) need.push("the per-kilometre rate");
-    if (d.deliveryFeeType === "free_above" && !d.deliveryFreeAboveValue) {
-      need.push("the order value above which delivery is free");
-    }
+    /* No delivery-fee checks: the kitchen no longer sets one. Lampose prices
+       delivery by distance (`foodPricing.js`), and the stored fee prices
+       nothing — see `deliverySentence`. */
 
     // A restaurant that takes neither cash nor card cannot be paid at all.
     if (!d.acceptsOnlinePayment && !d.acceptsCod) need.push("at least one way to be paid");

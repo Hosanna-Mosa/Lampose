@@ -1216,7 +1216,12 @@ export default function Home() {
           {/* Only shown once a referral has actually earned one — most
               customers signed up with no code and have nothing here. Not
               gated behind FOOD_MODE: the reward exists whether or not the
-              food module itself is finished. */}
+              food module itself is finished.
+
+              Worded as a reward HELD, not a discount at checkout: no order
+              applies it yet (see `foodCoupon.model.js` — nothing marks it
+              used), so "₹X off your first order" was a promise checkout
+              did not keep. */}
           {coupon && coupon.status === 'active' ? (
             <View
               style={[
@@ -1224,9 +1229,10 @@ export default function Home() {
                 { backgroundColor: colors.surfaceSunken, borderRadius: radius.card },
               ]}
             >
-              <Text variant="title3">🎉 ₹{coupon.amountRupees} off your first food order</Text>
+              <Text variant="title3">🎉 You have earned a ₹{coupon.amountRupees} food reward</Text>
               <Text variant="body" color="secondary">
-                From signing up via {coupon.propertyName || 'your referral'}.
+                From signing up via {coupon.propertyName || 'your referral'}. It is saved to your
+                account; checkout does not apply it yet.
               </Text>
             </View>
           ) : null}
@@ -1316,8 +1322,12 @@ export default function Home() {
                   void (async () => {
                     const ok = await confirm({
                       title: 'Log out?',
-                      message: 'You will need your mobile number and a new code to sign back in. '
-                        + 'Your bookings, saved places and addresses stay on your account.',
+                      /* Every device, because the account holds one session
+                         version — see `logoutAuth`. Said, so it is not a
+                         surprise on the other phone. */
+                      message: 'This signs you out on every phone where you use Lampose. You will need '
+                        + 'your mobile number and a new code to sign back in. Your bookings, saved '
+                        + 'places and addresses stay on your account.',
                       confirmLabel: 'Log out',
                       cancelLabel: 'Stay signed in',
                     });
