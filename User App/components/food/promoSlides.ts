@@ -43,16 +43,12 @@ export function buildPromoSlides(onPress: () => void): PromoSlide[] {
    * `banner-first-order.jpg`) and `hero-spices.jpg` are all superseded now
    * and referenced by nothing.
    *
-   * ## The 50%-off slide
+   * ## The 50%-off slide is gone
    *
-   * `banner-full-first-order.jpg` promises a discount this app cannot yet
-   * honour — every order it has ever written carries `discount: 0`, so a
-   * diner who taps it arrives at full price. That was raised twice and
-   * included anyway, deliberately, so this is a note rather than an
-   * argument: the slide comes out, or the discount gets built, before this
-   * is in front of real diners. It is the one thing on this screen that
-   * breaks the rule the rest of the module keeps — see
-   * `RestaurantListCard` on why no card here ever shows a percentage.
+   * `banner-full-first-order.jpg` promised "flat 50% off your first order",
+   * a discount this app has never applied — every order carries
+   * `discount: 0`. It is out of the rotation until a discount exists to
+   * honour it; the image stays in assets for that day.
    *
    * Every slide carries `onPress`, because every one of these images has a
    * button PAINTED into it. See `PromoSlide.onPress`.
@@ -143,24 +139,6 @@ export function buildPromoSlides(onPress: () => void): PromoSlide[] {
       },
       onPress,
       label: 'Order now — your favourite food, delivered',
-    },
-    {
-      id: 'full-first-order',
-      tone: 'caution',
-      image: require('../../assets/images/banner-full-first-order.jpg'),
-      /* Two, both measured off `new2.png`: the coconut chutney bowl at 68%
-         across and the filter coffee tumbler at 77%. The coffee's is the
-         smaller and shorter of the pair, because a tumbler that size does
-         not throw the plume a full bowl does — a matched pair would read as
-         two copies of one effect rather than as two hot things. */
-      /* Pushed harder than the green banner: this one steams against a lit
-         orange sky, where white has far less of the range to itself. */
-      steam: [
-        { x: 0.679, y: 0.632, rise: 0.22, spread: 0.12, strength: 1.2 },
-        { x: 0.774, y: 0.661, rise: 0.16, spread: 0.09, strength: 1.2 },
-      ],
-      onPress,
-      label: 'New user offer — flat 50% off your first order',
     },
     {
       id: 'full-street-bites',

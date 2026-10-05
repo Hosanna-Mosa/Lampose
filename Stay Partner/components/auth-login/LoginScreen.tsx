@@ -263,7 +263,12 @@ export function LoginScreen() {
     setAttemptsLeft(null);
     setLockedLabel(null);
     setProblem(null);
-    await resendCode();
+    /* A failed resend changed nothing on the code side of the card, so an
+       owner waited for an SMS that was never sent. */
+    const sent = await resendCode();
+    if (sent === 'failed') {
+      setProblem('We could not send a new code. Check your connection and try again in a moment.');
+    }
   };
 
   const handleUseAnotherNumber = () => {

@@ -18,7 +18,7 @@ import type { TicketCategoryId } from '@/types/support';
     the six the backend already offers rather than adding new ones — see
     `support.audiences.js`. */
 const PROPERTY_CATEGORIES: readonly TicketCategoryId[] = ['property', 'deposit', 'owner', 'booking'];
-const PLATFORM_CATEGORIES: readonly TicketCategoryId[] = ['payment', 'other'];
+const PLATFORM_CATEGORIES: readonly TicketCategoryId[] = ['order', 'payment', 'other'];
 
 type Topic = 'platform' | 'property';
 
@@ -58,7 +58,8 @@ export default function NewTicket() {
   const { orderNumber: orderParam } = useLocalSearchParams<{ orderNumber?: string }>();
   const orderNumber = typeof orderParam === 'string' && orderParam.trim() ? orderParam.trim().toUpperCase() : null;
   const [topic, setTopic] = useState<Topic | null>(orderNumber ? 'platform' : null);
-  const [categoryId, setCategoryId] = useState<TicketCategoryId | null>(null);
+  /* Opened from an order's "Get help" — it is about that order. */
+  const [categoryId, setCategoryId] = useState<TicketCategoryId | null>(orderNumber ? 'order' : null);
   const [body, setBody] = useState('');
   /* Which place this is about, in the student's own words — the PLATFORM
      branch's fallback, where there is no real listing to attach (see
@@ -103,7 +104,9 @@ export default function NewTicket() {
 
   const categories = ticketCategories.filter((c) => (
     (topic === 'property' ? PROPERTY_CATEGORIES : PLATFORM_CATEGORIES).includes(c.id)
-    && (serverCategoryIds === null || serverCategoryIds.includes(c.id))
+    /* An EMPTY answer is treated like no answer: it would otherwise hide
+       every category and leave a form nobody can send. */
+    && (!serverCategoryIds?.length || serverCategoryIds.includes(c.id))
   ));
 
   /**

@@ -90,13 +90,15 @@ export default function OrderScreen() {
     }]);
   }, [reorderNote, setReorderNote, router]);
   const { id, placed } = useLocalSearchParams<{ id: string; placed?: string }>();
-  const { orders, cancelOrder, refreshOrder, startPayment, address, settlePaidOrder } = useFood();
+  const { orders, cancelOrder, confirmDelivered, refreshOrder, startPayment, address, settlePaidOrder } = useFood();
 
   const [cancelling, setCancelling] = useState(false);
   /* One cancel at a time. A double tap sent two: the first cancelled the
      order, the second was refused ("the kitchen has already started") and
      that false sentence was what the diner saw. */
   const [cancelBusy, setCancelBusy] = useState(false);
+  /* Same one-at-a-time guard for "Delivered". */
+  const [deliveredBusy, setDeliveredBusy] = useState(false);
   const [reason, setReason] = useState(CANCEL_REASONS[0]);
   const [paying, setPaying] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -962,6 +964,31 @@ export default function OrderScreen() {
           (call the kitchen, call the rider), so nothing is lost by dropping
           a control that could now only ever fail.
         */}
+        {/* A restaurant-delivered order has no Lampose rider and no door PIN,
+            so nothing else can close it: the diner says it arrived. Only once
+            it has left the kitchen — the server refuses it before then. */}
+        {order.restaurantDelivers && order.status === 'onTheWay' ? (
+          <View style={{ gap: space[2] }}>
+            <Button
+              label="My order arrived"
+              fullWidth
+              loading={deliveredBusy}
+              disabled={deliveredBusy}
+              onPress={() => {
+                if (deliveredBusy) return;
+                setDeliveredBusy(true);
+                setNotice(null);
+                confirmDelivered(order.id)
+                  .catch((err: Error) => setNotice(err?.message || 'We could not mark that delivered.'))
+                  .finally(() => setDeliveredBusy(false));
+              }}
+            />
+            <Text variant="caption" color="tertiary" style={styles.center}>
+              The restaurant is delivering this one. Tap once the food is with you.
+            </Text>
+          </View>
+        ) : null}
+
         {cancelling ? (
           <View
             style={[

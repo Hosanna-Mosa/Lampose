@@ -344,7 +344,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     alignItems: 'center',
-    justify: 'center',
+    justifyContent: 'center',
     position: 'relative',
     marginLeft: 2,
   },
@@ -357,7 +357,7 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
     gap: 3,
-    justify: 'center',
+    justifyContent: 'center',
   },
   statusBadge: {
     flexDirection: 'row',
@@ -379,7 +379,7 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: 16,
     alignItems: 'center',
-    justify: 'center',
+    justifyContent: 'center',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,

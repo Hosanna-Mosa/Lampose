@@ -9,6 +9,7 @@ import { StandardHeader, StateTemplate } from '@/components/shell';
 import { TicketRow } from '@/components/lifecycle';
 import { emptyStates } from '@/constants/copy';
 import { SUPPORT_HOURS_NOTE } from '@/data/support';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useTickets } from '@/services';
 
@@ -38,7 +39,25 @@ export default function SupportList() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const { tickets, isPending, error, refetch, isFetching } = useTickets();
+  /* A guest has no tickets to list: the read was sent anyway and its 401 was
+     drawn as "could not load", which reads as a broken screen, not as
+     "sign in to see your conversations". */
+  const { status, requireSignIn } = useAuth();
+  const signedIn = status === 'signedIn';
+  const { tickets, isPending, error, refetch, isFetching } = useTickets(signedIn);
+
+  if (!signedIn) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <StandardHeader title="Support" onBack={() => router.back()} />
+        <StateTemplate
+          copy={emptyStates.signInRequired({ what: 'your support conversations' })}
+          onPrimary={() => requireSignIn(() => {})}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>

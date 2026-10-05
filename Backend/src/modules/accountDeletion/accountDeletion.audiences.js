@@ -35,11 +35,25 @@ const AUDIENCES = {
     activeWork: async (doc) => {
       const FoodOrder = require('../foodpartners/foodOrder.model');
       const { PartnerBooking } = require('../partners/partnerDomains.model');
-      const [orders, bookings] = await Promise.all([
+      const VisitRequest = require('../visits/visitRequest.model');
+      const { HotelRefund } = require('../settlements/hotelRefund.model');
+      const [orders, bookings, requests, refunds] = await Promise.all([
         FoodOrder.countDocuments({ customerId: doc.customerId, status: OPEN_ORDER }),
         PartnerBooking.countDocuments({ customerId: doc.customerId, status: OPEN_BOOKING }),
+        /* A request still waiting on an owner — the owner is about to answer
+           somebody who will no longer be there. */
+        VisitRequest.countDocuments({ customerId: doc.customerId, status: { $in: ['otp_pending', 'pending_owner'] } }),
+        /* Money owed back with nowhere to send it. Deleting removes the only
+           place bank details can be given, so this one is worth saying
+           loudest. */
+        HotelRefund.countDocuments({ customerId: doc.customerId, status: 'awaiting_details' }),
       ]);
-      return { activeOrders: orders, activeBookings: bookings };
+      return {
+        activeOrders: orders,
+        activeBookings: bookings,
+        pendingRequests: requests,
+        refundsAwaitingDetails: refunds,
+      };
     },
   },
 

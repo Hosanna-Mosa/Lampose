@@ -130,7 +130,8 @@ export default function DeleteAccountScreen() {
 
   const legacyRequest = state?.status === 'requested';
   const support = state?.supportEmail || 'contact@lampose.com';
-  const inFlight = (state?.activeOrders ?? 0) + (state?.activeBookings ?? 0);
+  const inFlight = (state?.activeOrders ?? 0) + (state?.activeBookings ?? 0) + (state?.pendingRequests ?? 0);
+  const refundsWaiting = state?.refundsAwaitingDetails ?? 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
@@ -169,10 +170,20 @@ export default function DeleteAccountScreen() {
               </View>
             ) : null}
 
+            {/* Before the in-progress note: this one is money, and after the
+                delete there is nowhere left to give the bank details. */}
+            {refundsWaiting > 0 ? (
+              <InlineAlert
+                tone="error"
+                title={`${refundsWaiting === 1 ? 'A refund is' : `${refundsWaiting} refunds are`} waiting for your bank details`}
+                body="Add your bank details from the booking before deleting, or the money cannot be sent to you."
+              />
+            ) : null}
+
             {inFlight > 0 ? (
               <InlineAlert
                 tone="warning"
-                title={`${inFlight} ${inFlight === 1 ? 'order or stay' : 'orders or stays'} still in progress`}
+                title={`${inFlight} ${inFlight === 1 ? 'order, stay or request' : 'orders, stays or requests'} still in progress`}
                 body="They stay exactly as they are, but you will no longer be able to manage them from this account."
               />
             ) : null}

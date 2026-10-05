@@ -18,6 +18,24 @@ export const STATUS_LABEL: Record<SupportTicketStatus, string> = {
   closed: 'Closed',
 };
 
+/* Readable names for the server's category ids — ids from the server, labels
+   here. Shared by the new-ticket chips and the ticket list, which used to
+   print the raw id ("guest", "listing"). */
+const CATEGORY_LABELS: Record<string, string> = {
+  payout: 'Payouts',
+  booking: 'A booking',
+  guest: 'A guest',
+  listing: 'My listing',
+  account: 'My account',
+  app: 'The app',
+  other: 'Something else',
+};
+
+/** An id this build has no label for still reads as a word, not a slug. */
+export function categoryLabel(id: string): string {
+  return CATEGORY_LABELS[id] ?? (id.charAt(0).toUpperCase() + id.slice(1)).replace(/_/g, ' ');
+}
+
 /** "3 min", "2 h", "5 d". */
 
 export function timeLabel(iso: string): string {

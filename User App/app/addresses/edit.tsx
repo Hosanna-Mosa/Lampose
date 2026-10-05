@@ -57,7 +57,15 @@ import {
   type AddressKind,
   type SavedAddress,
 } from '@/services/api/addresses.api';
+import { ApiError } from '@/services/api/client';
 import { LocationRefused, locateMe } from '@/services/location/useMyLocation';
+
+/** The server's rule (`shared/utils/address.js`): six digits, first not a zero. */
+const PINCODE = /^[1-9]\d{5}$/;
+
+/** `ApiError.displayMessage` when the server spoke, so a network failure says so. */
+const messageOf = (err: unknown, fallback: string) =>
+  err instanceof ApiError ? err.displayMessage : (err as Error)?.message || fallback;
 
 /**
  * Two strings that name the same thing.
@@ -119,6 +127,9 @@ export default function EditAddressScreen() {
   const [loading, setLoading] = useState(editing);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  /* Under the Pincode box, not at the foot of the form — the one field the
+     server refuses on its own shape should say so where it is typed. */
+  const [pincodeError, setPincodeError] = useState('');
 
   /*
     The pin, and the crosshair that fetches it.
@@ -132,7 +143,14 @@ export default function EditAddressScreen() {
     `undefined` means "leave whatever is stored alone" — an edit that does not
     touch the crosshair must not clear a pin captured last week.
   */
-  const [pin, setPin] = useState<{ lat: number; lng: number } | undefined>(undefined);
+  /* `null` = remove the stored pin (the server clears it on `location: null`). */
+  const [pin, setPin] = useState<{ lat: number; lng: number } | null | undefined>(undefined);
+  /* Whether the address being edited already has a pin — the only way to know
+     a "Remove pin" control has anything to remove. */
+  const [storedPin, setStoredPin] = useState(false);
+  /* The address could not be read. Saving then would send the empty form and
+     overwrite every stored field with blanks, so Save is held. */
+  const [loadFailed, setLoadFailed] = useState(false);
   const [locating, setLocating] = useState(false);
   const [notice, setNotice] = useState('');
 
@@ -181,9 +199,11 @@ export default function EditAddressScreen() {
         if (cancelled) return;
         const found = rows.find((a) => a.addressId === addressId);
         if (!found) {
+          setLoadFailed(true);
           setError('That address is no longer saved.');
           return;
         }
+        setStoredPin(Array.isArray(found.location));
         setKind(found.kind);
         setLabel(found.label);
         setLine1(found.line1);
@@ -194,7 +214,10 @@ export default function EditAddressScreen() {
         setInstructions(found.instructions);
       })
       .catch((err) => {
-        if (!cancelled) setError((err as Error)?.message || 'We could not load that address.');
+        if (!cancelled) {
+          setLoadFailed(true);
+          setError(messageOf(err, 'We could not load that address. Go back and open it again.'));
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -205,11 +228,17 @@ export default function EditAddressScreen() {
   }, [editing, addressId]);
 
   const save = async () => {
+    if (loadFailed) return;
     if (!line1.trim()) {
       setError('The first line of the address is needed.');
       return;
     }
+    if (pincode.trim() && !PINCODE.test(pincode.trim())) {
+      setPincodeError('That pincode does not look right. It is six digits.');
+      return;
+    }
     setError('');
+    setPincodeError('');
     setSaving(true);
 
     const input: AddressInput = {
@@ -223,7 +252,7 @@ export default function EditAddressScreen() {
       instructions: instructions.trim(),
       /* Omitted when the crosshair was not used, so an edit cannot silently
          drop a pin captured earlier. */
-      ...(pin ? { location: pin } : null),
+      ...(pin !== undefined ? { location: pin } : null),
     };
 
     try {
@@ -269,7 +298,8 @@ export default function EditAddressScreen() {
          book is full, that a pincode is not a real one — and paraphrasing
          those into "something went wrong" throws away the one line that says
          what to do next. */
-      setError((err as Error)?.message || 'That did not save.');
+      if (err instanceof ApiError && err.code === 'BAD_PINCODE') setPincodeError(err.displayMessage);
+      else setError(messageOf(err, 'That did not save.'));
     } finally {
       setSaving(false);
     }
@@ -372,6 +402,23 @@ export default function EditAddressScreen() {
               </Text>
             )}
 
+            {/* A pin that is now wrong (the address moved buildings) had no
+                way off: the crosshair could only REPLACE it. */}
+            {(pin || (storedPin && pin === undefined)) ? (
+              <Pressable
+                onPress={() => {
+                  setPin(null);
+                  setNotice('Map pin will be removed when you save.');
+                }}
+                accessibilityRole="button"
+                style={{ alignSelf: 'flex-start', paddingVertical: 4 }}
+              >
+                <Text variant="bodyStrong" style={{ color: colors.danger.ink }}>
+                  Remove map pin
+                </Text>
+              </Pressable>
+            ) : null}
+
             <TextField
               label="Name it"
               /* The server's own limits (shared/utils/address.js) — past them
@@ -412,7 +459,11 @@ export default function EditAddressScreen() {
             <TextField
               label="Pincode"
               value={pincode}
-              onChangeText={setPincode}
+              onChangeText={(v) => {
+                setPincode(v);
+                setPincodeError('');
+              }}
+              error={pincodeError || undefined}
               placeholder="533101"
               keyboardType="number-pad"
               maxLength={6}
@@ -434,7 +485,7 @@ export default function EditAddressScreen() {
             <Button
               label={saving ? 'Saving…' : editing ? 'Save changes' : 'Save address'}
               fullWidth
-              disabled={saving}
+              disabled={saving || loadFailed}
               onPress={save}
             />
 

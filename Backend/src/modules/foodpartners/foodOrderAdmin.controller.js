@@ -1390,6 +1390,22 @@ const issueRefund = async (req, res, next) => {
         + `${refund.status || 'requested'} · by ${who}${reason ? ` — "${reason}"` : ''}`,
       );
 
+      /* The diner is told, and an open order screen redraws — "Refund on the
+         way" used to stand until they reopened it. After the write, and never
+         able to fail the refund: the money has already moved. */
+      try {
+        // eslint-disable-next-line global-require
+        const dispatch = require('../drivers/foodDispatch.service');
+        // eslint-disable-next-line global-require
+        const realtime = require('../../infrastructure/realtime/realtime');
+        realtime.toOrderParties(saved, 'dispatch_update', dispatch.dispatchUpdate(saved));
+        // eslint-disable-next-line global-require
+        require('../drivers/dispatch.notifier').notifyCustomerOfRefund(saved, rupees)
+          .catch((error) => console.warn(`${BADGE} refund push for ${orderNumber} failed:`, error.message));
+      } catch (error) {
+        console.warn(`${BADGE} refund notice for ${orderNumber} failed:`, error.message);
+      }
+
       return res.json({
         success: true,
         recorded: true,

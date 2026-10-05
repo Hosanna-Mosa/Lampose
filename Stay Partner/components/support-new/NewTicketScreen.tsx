@@ -14,6 +14,7 @@ import {
 import { useSupportActions, useSupportCategories } from '@/services/hooks/useSupport';
 import { ApiError } from '@/services/api/client';
 import { backRowBase } from '@/components/common/utils/styles';
+import { categoryLabel } from '@/components/support-index/utils';
 
 /**
  * A ticket about the owner's OWN side of the product — payouts, a listing, a
@@ -27,18 +28,6 @@ import { backRowBase } from '@/components/common/utils/styles';
  * screen is one-sided on purpose: an owner cannot open a ticket as though a
  * guest had filed it.
  */
-/* Readable names for the server's category ids — the chips showed the raw
-   ids ("payout", "app"). Ids from the server, labels here. */
-const CATEGORY_LABELS: Record<string, string> = {
-  payout: 'Payouts',
-  booking: 'A booking',
-  guest: 'A guest',
-  listing: 'My listing',
-  account: 'My account',
-  app: 'The app',
-  other: 'Something else',
-};
-
 export function NewTicketScreen() {
   const router = useRouter();
   const { data: categories } = useSupportCategories();
@@ -81,7 +70,7 @@ export function NewTicketScreen() {
         {(categories?.categories ?? []).map((cat) => (
           <Chip
             key={cat}
-            label={CATEGORY_LABELS[cat] ?? cat.charAt(0).toUpperCase() + cat.slice(1)}
+            label={categoryLabel(cat)}
             selected={category === cat}
             onPress={() => setCategory(category === cat ? null : cat)}
           />

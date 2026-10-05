@@ -15,6 +15,7 @@ import {
   REPORT_WEIGHT_NOTE,
   reportReasons,
 } from '@/data/support';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useCreateSupportRequest } from '@/services';
 
@@ -57,6 +58,7 @@ export default function ReportProblem() {
   const short = detail.trim().length < REPORT_MIN_CHARS;
 
   const { submitReport, isSubmittingReport, reportError } = useCreateSupportRequest();
+  const { requireSignIn } = useAuth();
 
   /**
    * Files it, then opens the thread.
@@ -73,7 +75,15 @@ export default function ReportProblem() {
    * somebody upset, about dates and amounts they had to remember, and asking
    * them to type it twice is how a report stops being filed at all.
    */
-  const send = async () => {
+  /* Through `requireSignIn`, like a ticket (`support/new.tsx`): a guest is
+     asked to sign in and the report sends after, with every word still on
+     screen — instead of filling the whole form and meeting a refusal. */
+  const send = () => {
+    if (!reasonId || short) return;
+    requireSignIn(() => { void sendNow(); });
+  };
+
+  const sendNow = async () => {
     if (!reasonId || short) return;
     try {
       /* `placeLabel` only, never a `listingId`. This is a typed name, and

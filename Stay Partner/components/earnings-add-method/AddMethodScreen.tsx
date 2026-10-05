@@ -45,12 +45,19 @@ export function AddMethodScreen() {
      is what matters and it is often not the one we hold. */
   const [holderName, setHolderName] = useState(partner?.name ?? '');
   const [accountNumber, setAccountNumber] = useState('');
+  /* Typed twice, the way every bank's own form asks: a slipped digit here
+     sends real money to a stranger, and nothing downstream can catch it —
+     the app never sees the full number again after this screen. */
+  const [accountConfirm, setAccountConfirm] = useState('');
+  const [confirmTouched, setConfirmTouched] = useState(false);
   const [ifsc, setIfsc] = useState('');
   const [ifscTouched, setIfscTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const cleanAccount = accountNumber.replace(/\D/g, '');
+  const accountsMatch = cleanAccount === accountConfirm.replace(/\D/g, '');
+  const mismatch = confirmTouched && accountConfirm.length > 0 && !accountsMatch;
   const cleanIfsc = ifsc.trim().toUpperCase();
   const bankName = bankNameForIFSC(cleanIfsc);
   const ifscValid = isValidIFSC(cleanIfsc);
@@ -61,6 +68,7 @@ export function AddMethodScreen() {
   const canSave =
     holderName.trim().length > 0 &&
     cleanAccount.length >= 6 &&
+    accountsMatch &&
     ifscValid &&
     !saving;
 
@@ -125,6 +133,19 @@ export function AddMethodScreen() {
         value={accountNumber}
         onChangeText={(v) => setAccountNumber(v.replace(/[^\d\s]/g, ''))}
         keyboardType="number-pad"
+        containerStyle={styles.field}
+      />
+
+      <Input
+        label="Re-enter account number"
+        value={accountConfirm}
+        onChangeText={(v) => setAccountConfirm(v.replace(/[^\d\s]/g, ''))}
+        onBlur={() => setConfirmTouched(true)}
+        keyboardType="number-pad"
+        /* No paste-from-above shortcut on purpose: copying the first box
+           copies its typo too. */
+        contextMenuHidden
+        error={mismatch ? 'The two account numbers do not match.' : undefined}
         containerStyle={styles.field}
       />
 

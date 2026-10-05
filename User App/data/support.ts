@@ -68,6 +68,7 @@ export const ticketCategories: readonly TicketCategory[] = [
     hint: 'Not replying, changing the terms, asking for money outside the app.',
   },
   { id: 'booking', label: 'My booking', hint: 'Dates, sharing type, moving in or out.' },
+  { id: 'order', label: 'A food order', hint: 'Late, missing items, wrong food, or a refund for an order.' },
   { id: 'other', label: 'Something else', hint: 'Anything that does not fit above.' },
 ];
 

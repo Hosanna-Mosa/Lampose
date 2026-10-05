@@ -24,26 +24,11 @@ export const deliverySentence = (d: Pick<
   OnboardingData,
   "deliveryFeeType" | "deliveryFeeAmount" | "deliveryFeePerKm" | "deliveryFreeAboveValue" | "minOrderValue" | "packagingCharge"
 >): string => {
-  const parts: string[] = [];
-
-  if (d.deliveryFeeType === "flat") {
-    parts.push(d.deliveryFeeAmount ? `Delivery is ${rupees(d.deliveryFeeAmount)} on every order.` : "Delivery fee not set yet.");
-  } else if (d.deliveryFeeType === "distance_based") {
-    parts.push(
-      d.deliveryFeePerKm
-        ? `Delivery is ${d.deliveryFeeAmount ? `${rupees(d.deliveryFeeAmount)} plus ` : ""}${rupees(d.deliveryFeePerKm)} per kilometre from your restaurant.`
-        : "Per-kilometre rate not set yet.",
-    );
-  } else {
-    parts.push(
-      d.deliveryFreeAboveValue
-        ? `Delivery is free above ${rupees(d.deliveryFreeAboveValue)}${
-            d.deliveryFeeAmount ? `, and ${rupees(d.deliveryFeeAmount)} below it` : ""
-          }.`
-        : "Free-above threshold not set yet.",
-    );
-  }
-
-
-  return parts.join(" ");
+  /* One true sentence, whatever the form holds. This used to read back the
+     kitchen's own fee ("Delivery is ₹30 on every order") — but that fee prices
+     nothing any more: Lampose charges the diner by distance (`foodPricing.js`
+     on the server), so the sentence described a charge no diner ever paid.
+     The parameter stays so the three screens that show it need no change. */
+  void d;
+  return "Delivery is priced by Lampose by distance and charged to the diner — you do not set a delivery fee.";
 };

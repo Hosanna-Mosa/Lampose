@@ -768,6 +768,8 @@ const submitApplication = async (req, res, next) => {
       : [{ phoneKey: phoneKey(fields.ownerPhone) }];
     if (fields.ownerEmail) identities.unshift({ ownerEmail: fields.ownerEmail });
 
+    /* No identities at all (duplicate phones allowed, no email) means nothing
+       to clash with — and `$or: []` is an error in MongoDB, not a no-match. */
     /* `$or: []` is an error in Mongo, so with the phone arm dropped and no
        email there is nothing to look up. */
     const clash = identities.length

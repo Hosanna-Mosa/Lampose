@@ -9,6 +9,7 @@ import { isPortionOption, packagingChargeOf, splitOptions } from '@/services/ada
 import { previewFoodBill, type FoodBillFigures } from '@/lib/foodPricing';
 import {
   cancelFoodOrder,
+  confirmFoodDelivery,
   fetchFoodOrder,
   fetchMyFoodOrders,
   FOOD_ORDERS_PAGE,
@@ -270,6 +271,8 @@ export type FoodContextValue = {
    */
   startPayment: (id: string) => Promise<PaymentIntent>;
   cancelOrder: (id: string, reason: string) => Promise<void>;
+  /** Close a restaurant-delivered order: "it reached me". See `confirmFoodDelivery`. */
+  confirmDelivered: (id: string) => Promise<void>;
 
   /*
    * — order-status notifications —
@@ -1213,6 +1216,8 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
        be one more place the pair can be swapped. */
     pickupLocation: coordinatesOf(row.pickupLocation),
     dropLocation: coordinatesOf(row.dropLocation),
+    /* The server's own test (`restaurantArrangedDelivery`). */
+    restaurantDelivers: !isPickup && ['self', 'driver'].includes(row.delivery?.method ?? ''),
     timeline: buildTimeline(row, isPickup, at),
   };
 }
@@ -1238,6 +1243,20 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
     [kitchenId, addressId, rawLines],
   );
 
+  /*
+   * The checkout attempt's key — see `PlaceOrderRequest.clientRequestId`.
+   *
+   * Kept while the cart is the same cart, so a double tap, a retry after the
+   * payment failed to open, or Back-then-Pay all send the SAME key and the
+   * server hands back the order it already made. A changed cart is a new
+   * attempt. An EMPTIED cart forgets it, so ordering the identical meal again
+   * tomorrow is a new order rather than yesterday's.
+   */
+  const attemptRef = useRef<{ signature: string; key: string } | null>(null);
+  useEffect(() => {
+    if (rawLines.length === 0) attemptRef.current = null;
+  }, [rawLines.length]);
+
   const placeOrder = useCallback(
     async (now: Date = new Date(), mode: 'online' | 'cod' = 'cod') => {
       if (!kitchenId) throw new Error('There is no kitchen selected.');
@@ -1260,7 +1279,9 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       }
 
       const orderKitchen = kitchen;
-      const isPickup = fulfilment === 'pickup';
+      /* Every order this app places is a delivery — `fulfilment` is the
+         constant 'delivery' (see its declaration). Reading a stored order back
+         still knows about pickup, for rows written before it was removed. */
 
       /*
         The gate, defended where the order is actually made.
@@ -1277,34 +1298,46 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
         the server's own sentences on failure, and "we do not know where to
         send this" is a sentence somebody can act on.
       */
-      if (!isPickup && !address) {
+      if (!address) {
         throw new Error('Choose a delivery address before placing the order.');
       }
 
       /* WHAT was ordered, never how much it costs. Every figure comes back
          from the server, which prices from the menu rows — see
          `foodOrders.api.ts`. */
+      if (attemptRef.current?.signature !== cartSignature) {
+        attemptRef.current = {
+          signature: cartSignature,
+          key: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+        };
+      }
+      const attemptKey = attemptRef.current.key;
+
       const { order: placed, nextStep } = await placeFoodOrder({
         restaurantId: kitchenId,
-        fulfilment: isPickup ? 'pickup' : 'delivery',
+        fulfilment,
         /* The mode the payment screen chose. `online` writes a HELD order that
            the kitchen cannot see and no rider is sent for, until a verified
            signature says the money arrived — see `foodPayment.controller.js`.
            `cod` goes straight out. */
         paymentMode: mode,
-        ...(isPickup ? null : { deliveryAddress: [address?.title, address?.detail, address?.instructions].filter(Boolean).join(' · ') }),
+        clientRequestId: attemptKey,
+        deliveryAddress: [address.title, address.detail, address.instructions].filter(Boolean).join(' · '),
         /* Where the food is going, so the dispatcher can search around it. Its
            absence is ordinary — a diner who declined location access still
            orders, and the server falls back to searching around the kitchen
            rather than refusing. */
-        ...(isPickup || address?.lat === undefined || address?.lng === undefined
+        ...(address.lat === undefined || address.lng === undefined
           ? null
           : { dropLat: address.lat, dropLng: address.lng }),
         lines: requestLines,
       });
 
       const order = toAppOrder(placed, placed.restaurant?.name || orderKitchen?.name || UNNAMED_KITCHEN, now);
-      setOrders((current) => [order, ...current]);
+      /* Replaced, not added, when it is already listed — a repeated attempt
+         comes back as the SAME order (see `attemptRef`), and listing it twice
+         would show one meal as two orders. */
+      setOrders((current) => [order, ...current.filter((entry) => entry.id !== order.id)]);
       /* The cart is emptied for a CASH order only. An online order is held and
          not yet paid, and clearing the cart before the money lands would leave
          a student who backs out of the UPI screen with nothing to go back to. */
@@ -1577,6 +1610,23 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
     );
   }, []);
 
+  /* Same shape as `cancelOrder`: the server's returned row replaces ours
+     through the one mapping, and its refusal is thrown with its own sentence. */
+  const confirmDelivered = useCallback(async (id: string) => {
+    const row = await confirmFoodDelivery(id);
+    if (!row) return;
+    setOrders((current) =>
+      current.map((entry) =>
+        entry.id === id
+          ? {
+            ...toAppOrder(row, row.restaurant?.name || entry.kitchenName, new Date()),
+            placedLabel: entry.placedLabel,
+          }
+          : entry,
+      ),
+    );
+  }, []);
+
   /**
    * The one order still in flight — what the pinned card on Home shows.
    *
@@ -1799,6 +1849,7 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       refreshOrder,
       startPayment,
       cancelOrder,
+      confirmDelivered,
       foodUnread,
       markFoodNotificationsSeen,
       preferences,
@@ -1852,6 +1903,7 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       refreshOrder,
       startPayment,
       cancelOrder,
+      confirmDelivered,
       foodUnread,
       markFoodNotificationsSeen,
       preferences,

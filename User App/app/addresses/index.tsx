@@ -28,7 +28,9 @@ import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Text, useAlert } from '@/components/ui';
-import { StandardHeader } from '@/components/shell';
+import { StandardHeader, StateTemplate } from '@/components/shell';
+import { emptyStates } from '@/constants/copy';
+import { ApiError } from '@/services/api/client';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { queryKeys } from '@/services';
@@ -50,11 +52,15 @@ const KIND_WORD: Record<string, string> = {
   other: 'Other',
 };
 
+/** `ApiError.displayMessage` when the server spoke, so a network failure says so. */
+const messageOf = (err: unknown, fallback: string) =>
+  err instanceof ApiError ? err.displayMessage : (err as Error)?.message || fallback;
+
 export default function AddressesScreen() {
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { status } = useAuth();
+  const { status, requireSignIn } = useAuth();
   const isSignedIn = status === 'signedIn';
   const client = useQueryClient();
   const { confirm } = useAlert();
@@ -64,6 +70,9 @@ export default function AddressesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  /* The LOAD failed — different from a failed edit: there is no list to show,
+     and "No addresses saved" under it would say the book is empty. */
+  const [loadFailed, setLoadFailed] = useState(false);
 
   /**
    * One place to record a new book, in both the screen and the cache.
@@ -88,14 +97,15 @@ export default function AddressesScreen() {
     if (!isSignedIn) {
       setAddresses([]);
       setLoading(false);
-      setError('Sign in to save an address.');
       return;
     }
     setError('');
+    setLoadFailed(false);
     try {
       publish(await fetchAddresses());
     } catch (err) {
-      setError((err as Error)?.message || 'We could not load your addresses.');
+      setLoadFailed(true);
+      setError(messageOf(err, 'We could not load your addresses.'));
     } finally {
       setLoading(false);
     }
@@ -116,7 +126,7 @@ export default function AddressesScreen() {
     try {
       publish(await setDefaultAddress(address.addressId));
     } catch (err) {
-      setError((err as Error)?.message || 'That did not save.');
+      setError(messageOf(err, 'That did not save.'));
     } finally {
       setBusy('');
     }
@@ -139,11 +149,26 @@ export default function AddressesScreen() {
     try {
       publish(await removeAddress(address.addressId));
     } catch (err) {
-      setError((err as Error)?.message || 'That did not delete.');
+      setError(messageOf(err, 'That did not delete.'));
     } finally {
       setBusy('');
     }
   };
+
+  /* A guest had a sentence and no way forward. The book lives on the account,
+     so the way forward is signing in. */
+  if (!isSignedIn) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <StandardHeader title="Your addresses" onBack={() => router.back()} />
+        <StateTemplate
+          copy={emptyStates.signInRequired({ what: 'your addresses' })}
+          onPrimary={() => requireSignIn(() => {})}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
@@ -179,6 +204,8 @@ export default function AddressesScreen() {
           <Text variant="body" color="tertiary">
             Loading…
           </Text>
+        ) : loadFailed && addresses.length === 0 ? (
+          <Button label="Try again" variant="secondary" fullWidth onPress={() => { setLoading(true); void load(); }} />
         ) : addresses.length === 0 ? (
           <View style={{ gap: space[2], paddingVertical: space[6] }}>
             <Text variant="title3">No addresses saved</Text>
@@ -283,7 +310,7 @@ export default function AddressesScreen() {
           ))
         )}
 
-        {isSignedIn && (
+        {!loadFailed && (
           <Button
             label="Add an address"
             fullWidth
