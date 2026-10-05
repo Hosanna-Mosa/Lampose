@@ -11,13 +11,6 @@ import { StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Box, ImagePick, Note, Refresher, Scroller, TextField, TimeRange } from "@/components/common";
-import { ChoiceChip, Icon, Text } from "@/components/common";
-import { DAYS } from "@/constants/partner";
-import { getMe, updateMe, type ServerImage, type ServerRestaurant } from "@/services/foodPartner";
-import { uploadOne } from "@/services/uploads";
-import { listTickets } from "@/services/support";
-import { usePartnerStore, type Attachment, type Slot } from "@/store/partnerStore";
 import { useTabBarHeight } from "@/components/dash/organisms/TabBar";
 import {
   AlertDialog,
@@ -36,9 +29,15 @@ import {
   Txt,
   fadeInUp,
 } from "@/components/ui";
-import { getMe, updateMe, type ServerRestaurant } from "@/services/foodPartner";
+import { Chip } from "@/components/ui";
+/* The image picker and time-slot editor are onboarding's own, reused here so
+   the profile edits images and hours exactly as sign-up captured them. */
+import { ImagePick, TimeRange } from "@/components/common";
+import { DAYS } from "@/constants/partner";
+import { getMe, updateMe, type ServerImage, type ServerRestaurant } from "@/services/foodPartner";
 import { listTickets } from "@/services/support";
-import { usePartnerStore } from "@/store/partnerStore";
+import { uploadOne } from "@/services/uploads";
+import { usePartnerStore, type Attachment, type Slot } from "@/store/partnerStore";
 import { elevation, font, line, ms, radius, size, ui } from "@/theme/ui";
 
 /** The most a kitchen may charge for packaging — `FOOD_PRICING_CONFIG.maxPackagingFee` on the server. */
@@ -387,158 +386,6 @@ export function DashProfile() {
             />
           </View>
         </View>
-
-        {/* ── SECTION: BRAND IMAGES ─────────────────────────────────────── */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Icon name="image" size={20} color="#059669" />
-            <Text style={styles.cardTitle}>Brand Images</Text>
-          </View>
-
-          {/* No "Sample" shortcut: this is the live listing's real photograph. */}
-          <ImagePick
-            label="Logo"
-            desc="Square. Shown on your card in the listing."
-            value={logo}
-            onChange={(v) => {
-              setLogo(v);
-              setImagesNote("");
-            }}
-            allowSample={false}
-          />
-          <ImagePick
-            label="Cover banner"
-            desc="Wide. Sits across the top of your restaurant page."
-            aspect="wide"
-            value={cover}
-            onChange={(v) => {
-              setCover(v);
-              setImagesNote("");
-            }}
-            allowSample={false}
-          />
-
-          {!!imagesError && <Note tone="bad">{imagesError}</Note>}
-          {!!imagesNote && <Note tone="ok">{imagesNote}</Note>}
-
-          <Pressable
-            style={[styles.saveBtn, savingImages && { opacity: 0.7 }]}
-            onPress={handleSaveImages}
-            disabled={savingImages}
-          >
-            <Text style={styles.saveBtnText}>{savingImages ? "Uploading..." : "Save Images"}</Text>
-          </Pressable>
-        </View>
-
-        {/* ── SECTION: OPENING HOURS ───────────────────────────────────── */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Icon name="clock" size={20} color="#059669" />
-            <Text style={styles.cardTitle}>Opening Hours</Text>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Days you are open</Text>
-            <View style={styles.chipWrap}>
-              {DAYS.map((day) => (
-                <ChoiceChip
-                  key={day}
-                  label={day.slice(0, 3)}
-                  selected={days.includes(day)}
-                  onPress={() => toggleDay(day)}
-                />
-              ))}
-            </View>
-          </View>
-
-          {days.length > 0 && (
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Hours for</Text>
-              <View style={styles.chipWrap}>
-                {days.map((day) => (
-                  <ChoiceChip
-                    key={day}
-                    label={day.slice(0, 3)}
-                    selected={activeDay === day}
-                    onPress={() => setActiveDay(day)}
-                  />
-                ))}
-              </View>
-
-              {activeSlots.map((slot, i) => (
-                <TimeRange
-                  key={`${activeDay}-${i}`}
-                  slot={slot}
-                  onChange={(next) => setDaySlots(activeDay, activeSlots.map((s, idx) => (idx === i ? next : s)))}
-                  onRemove={
-                    activeSlots.length > 1
-                      ? () => setDaySlots(activeDay, activeSlots.filter((_, idx) => idx !== i))
-                      : undefined
-                  }
-                />
-              ))}
-
-              <Pressable
-                style={styles.linkRow}
-                onPress={() => setDaySlots(activeDay, [...activeSlots, { open: "18:00", close: "23:00" }])}
-              >
-                <Icon name="plus" size={14} color="#059669" />
-                <Text style={styles.linkText}>Add another slot for {activeDay}</Text>
-              </Pressable>
-              {days.length > 1 && (
-                <Pressable style={styles.linkRow} onPress={copyToEveryOpenDay}>
-                  <Icon name="refresh" size={14} color="#059669" />
-                  <Text style={styles.linkText}>Copy {activeDay}&apos;s hours to every open day</Text>
-                </Pressable>
-              )}
-            </View>
-          )}
-
-          {!!hoursError && <Note tone="bad">{hoursError}</Note>}
-          {!!hoursNote && <Note tone="ok">{hoursNote}</Note>}
-
-          <Pressable
-            style={[styles.saveBtn, savingHours && { opacity: 0.7 }]}
-            onPress={handleSaveHours}
-            disabled={savingHours}
-          >
-            <Text style={styles.saveBtnText}>{savingHours ? "Saving Changes..." : "Save Hours"}</Text>
-          </Pressable>
-        </View>
-
-        {/* ── SECTION 2: OPERATIONAL SETTINGS ─────────────────────────── */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Icon name="clock" size={20} color="#059669" />
-            <Text style={styles.cardTitle}>Kitchen Operations</Text>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Prep Time (Minutes)</Text>
-            <View style={styles.inputWrap}>
-              <TextField
-                value={prepTime}
-                onChangeText={setPrepTime}
-                keyboardType="number-pad"
-                style={styles.inputField}
-              />
-              <Text style={styles.inputUnit}>min</Text>
-            </View>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Delivery Radius</Text>
-            <View style={styles.inputWrap}>
-              <TextField
-                value={deliveryRadius}
-                onChangeText={setDeliveryRadius}
-                keyboardType="numeric"
-                style={styles.inputField}
-              />
-              <Text style={styles.inputUnit}>km</Text>
-            </View>
-          </View>
-
       </Animated.View>
 
       {/* ── Restaurant & owner ─────────────────────────────────────────── */}
@@ -577,6 +424,107 @@ export function DashProfile() {
           {!!detailsNote && <InfoNote tone="success" text={detailsNote} />}
 
           <Button title="Save Details" onPress={handleSaveDetails} loading={savingDetails} fullWidth />
+        </Card>
+      </ListGroup>
+
+      {/* ── Brand images ───────────────────────────────────────────────── */}
+      <ListGroup title="Brand Images" grouped={false} delay={90}>
+        <Card bordered elevationLevel="none" style={styles.form}>
+          {/* No "Sample" shortcut: this is the live listing's real photograph. */}
+          <ImagePick
+            label="Logo"
+            desc="Square. Shown on your card in the listing."
+            value={logo}
+            onChange={(v) => {
+              setLogo(v);
+              setImagesNote("");
+            }}
+            allowSample={false}
+          />
+          <ImagePick
+            label="Cover banner"
+            desc="Wide. Sits across the top of your restaurant page."
+            aspect="wide"
+            value={cover}
+            onChange={(v) => {
+              setCover(v);
+              setImagesNote("");
+            }}
+            allowSample={false}
+          />
+
+          {!!imagesError && <InfoNote tone="danger" text={imagesError} />}
+          {!!imagesNote && <InfoNote tone="success" text={imagesNote} />}
+
+          <Button title="Save Images" onPress={handleSaveImages} loading={savingImages} fullWidth />
+        </Card>
+      </ListGroup>
+
+      {/* ── Opening hours ──────────────────────────────────────────────── */}
+      <ListGroup title="Opening Hours" grouped={false} delay={100}>
+        <Card bordered elevationLevel="none" style={styles.form}>
+          <View style={styles.hoursGroup}>
+            <Txt style={styles.hoursLabel}>Days you are open</Txt>
+            <View style={styles.chipWrap}>
+              {DAYS.map((day) => (
+                <Chip
+                  key={day}
+                  label={day.slice(0, 3)}
+                  selected={days.includes(day)}
+                  onPress={() => toggleDay(day)}
+                />
+              ))}
+            </View>
+          </View>
+
+          {days.length > 0 && (
+            <View style={styles.hoursGroup}>
+              <Txt style={styles.hoursLabel}>Hours for</Txt>
+              <View style={styles.chipWrap}>
+                {days.map((day) => (
+                  <Chip
+                    key={day}
+                    label={day.slice(0, 3)}
+                    selected={activeDay === day}
+                    onPress={() => setActiveDay(day)}
+                  />
+                ))}
+              </View>
+
+              {activeSlots.map((slot, i) => (
+                <TimeRange
+                  key={`${activeDay}-${i}`}
+                  slot={slot}
+                  onChange={(next) => setDaySlots(activeDay, activeSlots.map((s, idx) => (idx === i ? next : s)))}
+                  onRemove={
+                    activeSlots.length > 1
+                      ? () => setDaySlots(activeDay, activeSlots.filter((_, idx) => idx !== i))
+                      : undefined
+                  }
+                />
+              ))}
+
+              <Button
+                title={`+ Add another slot for ${activeDay}`}
+                variant="link"
+                onPress={() => setDaySlots(activeDay, [...activeSlots, { open: "18:00", close: "23:00" }])}
+                style={styles.linkButton}
+              />
+              {days.length > 1 && (
+                <Button
+                  title={`Copy ${activeDay}'s hours to every open day`}
+                  variant="link"
+                  onPress={copyToEveryOpenDay}
+                  style={styles.linkButton}
+                />
+              )}
+            </View>
+          )}
+
+          {!!hoursError && <InfoNote tone="danger" text={hoursError} />}
+          {!!hoursNote && <InfoNote tone="success" text={hoursNote} />}
+
+          <Button title="Save Hours" onPress={handleSaveHours} loading={savingHours} fullWidth />
         </Card>
       </ListGroup>
 
@@ -729,277 +677,6 @@ export function DashProfile() {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 16,
-    paddingBottom: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#111827",
-  },
-  helpBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#ECFDF5",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    position: "relative",
-  },
-  helpText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#059669",
-  },
-  unreadDot: {
-    position: "absolute",
-    top: 4,
-    right: 4,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#EF4444",
-  },
-  scrollContent: {
-    padding: 16,
-    gap: 16,
-    paddingBottom: 40,
-  },
-
-  /* HERO CARD */
-  heroCard: {
-    backgroundColor: "#034527",
-    borderRadius: 20,
-    padding: 20,
-    alignItems: "center",
-    gap: 6,
-  },
-  avatarWrapper: {
-    position: "relative",
-    marginBottom: 4,
-  },
-  heroAvatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
-  },
-  heroName: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-  heroId: {
-    fontSize: 13,
-    color: "rgba(255,255,255,0.75)",
-    fontWeight: "600",
-  },
-  verifiedRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 6,
-  },
-  verifiedPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#DCFCE7",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  verifiedPillText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#059669",
-  },
-  statusPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  statusPillText: {
-    fontSize: 11,
-    fontWeight: "700",
-  },
-
-  /* SECTIONS — flat, not cards: no background fill, no shadow, no border
-     radius. A bottom divider is what tells one section from the next,
-     matching the menu screen's flat rows rather than a floating white box
-     per section. */
-  card: {
-    gap: 14,
-    paddingBottom: 18,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-  },
-  cardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-    paddingBottom: 12,
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#111827",
-  },
-  infoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  infoLabel: {
-    fontSize: 14,
-    color: "#6B7280",
-    fontWeight: "500",
-  },
-  infoValue: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  /* Stacked label-then-value item, for fields whose value can run long
-     (a cuisine list, a full address) and would otherwise crush against the
-     label in a side-by-side row. */
-  infoItem: {
-    gap: 4,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  infoItemLast: {
-    gap: 4,
-  },
-  infoValueBlock: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#111827",
-    lineHeight: 21,
-  },
-
-  /* INPUT GROUPS */
-  inputGroup: {
-    gap: 6,
-  },
-  inputLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#374151",
-  },
-  inputWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  inputField: {
-    flex: 1,
-  },
-  inputUnit: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#059669",
-    width: 32,
-  },
-
-  /* PAYMENT TOGGLES — restored after a merge kept the rows and lost these. */
-  switchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
-  },
-  switchTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  switchSub: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginTop: 2,
-  },
-
-  /* OPENING HOURS */
-  chipWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  linkRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: 6,
-  },
-  linkText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#059669",
-  },
-
-  saveBtn: {
-    backgroundColor: "#059669",
-    borderRadius: 14,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 6,
-  },
-  saveBtnText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-
-  /* PAYOUTS LINK — a flat row, not a card. */
-  payoutsLinkCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 4,
-  },
-  payoutsLinkIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#ECFDF5",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  payoutsLinkTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  payoutsLinkSub: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginTop: 2,
-  },
-
-  /* SIGN OUT BUTTON */
-  signOutBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: "#FEF2F2",
-    borderRadius: 16,
-    paddingVertical: 14,
   content: { paddingHorizontal: 16 },
   // The scroll content is already padded; the title must not add its own.
   title: { paddingHorizontal: 0 },
@@ -1027,6 +704,10 @@ const styles = StyleSheet.create({
   badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
 
   form: { gap: 16 },
+  hoursGroup: { gap: 8 },
+  hoursLabel: { fontFamily: font.body.semibold, fontSize: size.small, color: ui.sec },
+  chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  linkButton: { alignSelf: "flex-start" },
   unit: { fontFamily: font.body.bold, fontSize: size.medium, color: ui.brandInk },
   switches: {
     borderWidth: 1,

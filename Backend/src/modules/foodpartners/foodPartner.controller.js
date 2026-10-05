@@ -770,8 +770,6 @@ const submitApplication = async (req, res, next) => {
 
     /* No identities at all (duplicate phones allowed, no email) means nothing
        to clash with — and `$or: []` is an error in MongoDB, not a no-match. */
-    /* `$or: []` is an error in Mongo, so with the phone arm dropped and no
-       email there is nothing to look up. */
     const clash = identities.length
       ? await FoodRestaurant.findOne({ $or: identities })
         .select('ownerEmail phoneKey restaurantId verificationStatus')
