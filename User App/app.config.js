@@ -150,6 +150,8 @@ export default {
         },
       ],
       'expo-web-browser',
+      /* EAS builds this app at ".../User App" — see the plugin. */
+      './plugins/withQuotedBundleScript',
       /* The OS date dialog behind `DateField`. A config plugin rather than an
          autolinked module: it needs a compileSdk bump on Android. */
       '@react-native-community/datetimepicker',
