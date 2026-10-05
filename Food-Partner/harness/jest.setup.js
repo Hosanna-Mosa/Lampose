@@ -8,6 +8,13 @@
 
 const React = require('react');
 
+/* ── react-native-reanimated ─────────────────────────────────────────────────
+   A native animation engine, so a leaf. The signed-in screens animate their
+   entrances, and a live `entering` animation stamps each view with a
+   counter-based nativeID that changes on every render — the tree would never
+   converge (F4). The library's own mock renders the same views, unanimated. */
+jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));
+
 /* ── Router ──────────────────────────────────────────────────────────────────
    The whole surface this app uses: router.push/replace/back/canGoBack,
    useFocusEffect, useLocalSearchParams, Stack(+Screen), Tabs(+Screen).

@@ -21,16 +21,23 @@
    point — the alternative is somebody typing two hundred careful characters
    and then being told the door does not exist.
    ══════════════════════════════════════════════════════════════════════════ */
+import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
-import {
-  Platform,
-  StyleSheet,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
 
-import { Box, Field, KeyboardAware, Note, Refresher, Scroller, TextField } from "@/components/common";
-import { Btn, Card, ChoiceChip, Text, TopBar } from "@/components/common";
+import {
+  Button,
+  Card,
+  Chip,
+  Field,
+  Header,
+  InfoNote,
+  ScreenShell,
+  TextField,
+  fadeInUp,
+} from "@/components/ui";
 import {
   BODY_MAX_FALLBACK,
   categoryWords,
@@ -38,10 +45,9 @@ import {
   fetchCategories,
 } from "@/services/support";
 import { usePartnerStore } from "@/store/partnerStore";
-import { colors, layout, space } from "@/theme";
+import { ui } from "@/theme/ui";
 
 export function NewSupportRequest() {
-  const insets = useSafeAreaInsets();
   const session = usePartnerStore((s) => s.session);
 
   const [categories, setCategories] = useState<string[]>([]);
@@ -107,136 +113,107 @@ export function NewSupportRequest() {
   const chosen = category ? categoryWords(category) : null;
 
   return (
-    <Box style={styles.root}>
-      <TopBar back="Help &amp; support" title="New request" />
-
-      <KeyboardAware
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
-      >
-        <Scroller
-          contentContainerStyle={styles.body}
-          refreshControl={
-            <Refresher refreshing={loading} onRefresh={load} />
-          }
-          /* Without this the first tap on a chip only dismisses the keyboard,
-             which reads as the control being broken. */
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {!!error && <Note tone="bad">{error}</Note>}
-
-          {/* The topics did not load, so there is no form to show — and a
-              pull-to-refresh nobody knows about was the only way back. */}
-          {!!error && !loading && categories.length === 0 && !!session?.token && (
-            <Btn
-              label="Try again"
-              glyph="refresh"
-              variant="ghost"
-              onPress={() => {
-                setLoading(true);
-                void load();
-              }}
-            />
-          )}
-
-          {loading && categories.length === 0 && !error && (
-            <Text variant="body" color="tertiary">
-              Loading the topics…
-            </Text>
-          )}
-
-          {categories.length > 0 && (
-            <>
-              <Field
-                label="What is this about?"
-                required
-                hint="Picking the closest one is what gets it to the right desk first time."
-              >
-                <Box style={styles.chips}>
-                  {categories.map((id) => (
-                    <ChoiceChip
-                      key={id}
-                      label={categoryWords(id).label}
-                      selected={category === id}
-                      onPress={() => setCategory(id)}
-                    />
-                  ))}
-                </Box>
-              </Field>
-
-              {!!chosen?.hint && (
-                <Card>
-                  <Text variant="caption" color="secondary">
-                    {chosen.hint}
-                  </Text>
-                </Card>
-              )}
-
-              <Field
-                label="Order number"
-                optional
-                hint="If this is about one order, the number saves us asking."
-              >
-                <TextField
-                  value={orderNumber}
-                  onChangeText={(v) => setOrderNumber(v.toUpperCase().slice(0, 24))}
-                  placeholder="e.g. LO4K7Q2M"
-                  autoCapitalize="characters"
-                />
-              </Field>
-
-              <Field
-                label="What happened?"
-                required
-                hint={`Dates, amounts and order numbers get this answered fastest. ${
-                  body.length
-                } of ${bodyMax} characters.`}
-              >
-                <TextField
-                  value={body}
-                  onChangeText={setBody}
-                  placeholder="Tell us what happened, in your own words."
-                  multiline
-                  maxLength={bodyMax}
-                  style={styles.bodyField}
-                />
-              </Field>
-
-              <Note tone="info" glyph="clock">
-                We answer in the app — the reply lands on this screen and the tablet shows it as a
-                new reply. Nothing here changes an order.
-              </Note>
-            </>
-          )}
-        </Scroller>
-      </KeyboardAware>
-
-      {/* Pinned and clear of the device navigation bar. */}
-      <Box style={[styles.actions, { paddingBottom: insets.bottom + space[3] }]}>
-        <Btn
-          label={sending ? "Sending…" : "Send to support"}
-          glyph="mail"
+    <ScreenShell
+      keyboardAvoiding
+      header={<Header title="New request" onBack={() => router.back()} backLabel="Back to Help & support" />}
+      scroll
+      refreshing={loading}
+      onRefresh={load}
+      contentStyle={styles.body}
+      /* Pinned and clear of the device navigation bar. */
+      footer={
+        <Button
+          title={sending ? "Sending…" : "Send to support"}
+          icon={<Ionicons name="mail-outline" size={20} color={ui.onBrand} />}
           loading={sending}
           disabled={!ready}
+          fullWidth
           onPress={send}
         />
-      </Box>
-    </Box>
+      }
+    >
+      {!!error && <InfoNote tone="danger" text={error} />}
+
+      {/* The topics did not load, so there is no form to show — and a
+          pull-to-refresh nobody knows about was the only way back. */}
+      {!!error && !loading && categories.length === 0 && !!session?.token && (
+        <Button
+          title="Try again"
+          variant="secondary"
+          fullWidth
+          icon={<Ionicons name="refresh" size={18} color={ui.text} />}
+          onPress={() => {
+            setLoading(true);
+            void load();
+          }}
+        />
+      )}
+
+      {loading && categories.length === 0 && !error && (
+        <ActivityIndicator size="large" color={ui.brand} style={styles.loader} accessibilityLabel="Loading the topics…" />
+      )}
+
+      {categories.length > 0 && (
+        <Animated.View entering={fadeInUp(0)} style={styles.stack}>
+          <Card bordered elevationLevel="none" style={styles.form}>
+            <Field
+              label="What is this about?"
+              required
+              hint="Picking the closest one is what gets it to the right desk first time."
+            >
+              <View style={styles.chips}>
+                {categories.map((id) => (
+                  <Chip
+                    key={id}
+                    label={categoryWords(id).label}
+                    selected={category === id}
+                    onPress={() => setCategory(id)}
+                  />
+                ))}
+              </View>
+            </Field>
+
+            {!!chosen?.hint && <InfoNote tone="info" text={chosen.hint} />}
+
+            <TextField
+              label="Order number"
+              optional
+              hint="If this is about one order, the number saves us asking."
+              value={orderNumber}
+              onChangeText={(v) => setOrderNumber(v.toUpperCase().slice(0, 24))}
+              placeholder="e.g. LO4K7Q2M"
+              autoCapitalize="characters"
+            />
+
+            <TextField
+              label="What happened?"
+              required
+              hint={`Dates, amounts and order numbers get this answered fastest. ${body.length} of ${bodyMax} characters.`}
+              value={body}
+              onChangeText={setBody}
+              placeholder="Tell us what happened, in your own words."
+              multiline
+              multilineHeight={160}
+              maxLength={bodyMax}
+              autoCapitalize="sentences"
+            />
+          </Card>
+
+          <InfoNote
+            tone="info"
+            icon="time-outline"
+            text="We answer in the app — the reply lands on this screen and the tablet shows it as a new reply. Nothing here changes an order."
+          />
+        </Animated.View>
+      )}
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
-  body: { padding: layout.gutter, gap: space[4], paddingBottom: space[6] },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: space[2] },
-  bodyField: { minHeight: 160 },
-  actions: {
-    paddingHorizontal: layout.gutter,
-    paddingTop: space[3],
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    backgroundColor: colors.surface,
-  },
+  body: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 24, gap: 14 },
+  loader: { marginTop: 40 },
+  stack: { gap: 14 },
+  form: { gap: 18 },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
 });
