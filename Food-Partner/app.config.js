@@ -114,8 +114,9 @@ export default {
     extra: {
       apiUrl: process.env.EXPO_PUBLIC_API_URL,
       /* Needed for an Expo push token on a real build — see `orderAlerts.ts`.
-         `eas init` prints it; put it in .env as EAS_PROJECT_ID. */
-      eas: { projectId: process.env.EAS_PROJECT_ID || undefined },
+         Defaults to @lampose.com/lampose-food-partner; EAS_PROJECT_ID overrides. */
+      eas: { projectId: process.env.EAS_PROJECT_ID || '78a643f8-38af-410e-b218-e26320ffbf8d' },
     },
+    owner: 'lampose.com',
   },
 };

@@ -34,3 +34,6 @@ yarn-error.*
 # machine, and it is regenerated whenever an app is re-registered.
 google-services.json
 GoogleService-Info.plist
+# goldie render output (screenshots, previews, studio data)
+goldie/out/
+.argent/recordings/

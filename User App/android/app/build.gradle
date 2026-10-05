@@ -127,7 +127,11 @@ android {
          * producing something different.
          */
         def longPathNinja = rootProject.file('tools/ninja.exe')
-        if (longPathNinja.exists()) {
+        /* Windows only: ninja.exe is a Windows binary, so on macOS (local
+           builds) and Linux (EAS) it cannot run and CMake fails at configure
+           with "Permission denied". Everywhere else the SDK's ninja is fine. */
+        def onWindows = System.getProperty('os.name').toLowerCase().contains('windows')
+        if (onWindows && longPathNinja.exists()) {
             externalNativeBuild {
                 cmake {
                     arguments "-DCMAKE_MAKE_PROGRAM=" + longPathNinja.absolutePath.replace(File.separator, "/")

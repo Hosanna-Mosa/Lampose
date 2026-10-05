@@ -393,7 +393,10 @@ function LocalityPicker() {
             </Text>
 
             {results.map((locality, index) => (
-              <React.Fragment key={locality.id}>
+              /* Index as well as id: the catalogue can hold two areas that
+                 slug to the same id (two spellings of one name), and a
+                 duplicate key let React drop one of the rows. */
+              <React.Fragment key={`${locality.id}-${index}`}>
                 {index > 0 ? <Divider /> : null}
                 <LocalityRow locality={locality} onPress={() => choose(locality)} />
               </React.Fragment>

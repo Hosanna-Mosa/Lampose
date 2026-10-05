@@ -1,0 +1,9 @@
+steps:
+  - launch: com.lampose.users.com
+  - echo: Starts on Home. The capture uninstalls the app first, store-01-home onboards as a guest, and the app keeps that state for every flow after it.
+  - await: { visible: { text: in every area we cover } }
+  - wait: 1500
+  - tap: { text: Looking in }
+  - await: { visible: { text: Where are you looking } }
+  - wait: 1000
+  - await: { idle: true }

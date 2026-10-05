@@ -194,13 +194,13 @@ export default function AddressesScreen() {
           />
         }
       >
-        {!!error && (
+        {!!error && isSignedIn && (
           <Text variant="body" style={{ color: colors.danger.ink }}>
             {error}
           </Text>
         )}
 
-        {loading ? (
+        {!isSignedIn ? null : loading ? (
           <Text variant="body" color="tertiary">
             Loading…
           </Text>
@@ -210,8 +210,8 @@ export default function AddressesScreen() {
           <View style={{ gap: space[2], paddingVertical: space[6] }}>
             <Text variant="title3">No addresses saved</Text>
             <Text variant="body" color="secondary">
-              Add one and it becomes the address your orders go to. You can save several and
-              pick between them at checkout.
+              Add one and it is filled in for you next time. You can save several and choose
+              which one is the default.
             </Text>
           </View>
         ) : (

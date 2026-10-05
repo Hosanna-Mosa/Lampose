@@ -336,6 +336,10 @@ const styles = StyleSheet.create({
   },
   passTitle: {
     fontSize: 20,
+    /* Explicit: these override the size of a `Text` whose variant sets a
+       smaller line height, and iOS clips glyphs to the line — the price's
+       digits were cut off at the bottom on the feed card. */
+    lineHeight: 26,
     fontWeight: '800',
     color: '#0F172A',
   },
@@ -386,6 +390,7 @@ const styles = StyleSheet.create({
   },
   digitText: {
     fontSize: 32,
+    lineHeight: 40,
     fontWeight: '800',
     color: '#3730A3',
     textAlign: 'center',

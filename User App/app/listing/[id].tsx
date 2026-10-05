@@ -37,6 +37,7 @@ import {
   type PhotoGroup,
 } from '@/components/discovery';
 import { errorStates } from '@/constants/copy';
+import { LEGAL_URLS } from '@/constants/legal';
 import { useAppState } from '@/context/AppStateContext';
 import { useAuth } from '@/context/AuthContext';
 import { useOngoing } from '@/hooks/useOngoing';
@@ -230,6 +231,7 @@ export default function ListingDetail() {
   /** The bar's second gate. Never remembered across listings. */
   const [consented, setConsented] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryIndex, setGalleryIndex] = useState(0);
   const [ctaHeight, setCtaHeight] = useState(96);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
@@ -644,7 +646,10 @@ export default function ListingDetail() {
           <HeroCarousel
             photos={photos}
             height={heroHeight}
-            onPressPhoto={() => setGalleryOpen(true)}
+            onPressPhoto={(index) => {
+              setGalleryIndex(index);
+              setGalleryOpen(true);
+            }}
           />
         </PhotoHero>
 
@@ -1017,8 +1022,8 @@ export default function ListingDetail() {
                 the links line up with the sentence they belong to. */}
             <View style={[styles.legalRow, { gap: space[2], paddingLeft: 22, paddingBottom: 2 }]}>
               {[
-                { label: 'Privacy Policy', url: 'https://lampose.com/privacy' },
-                { label: 'Terms and Conditions', url: 'https://lampose.com/terms' },
+                { label: 'Privacy Policy', url: LEGAL_URLS.privacy },
+                { label: 'Terms and Conditions', url: LEGAL_URLS.terms },
               ].map((doc) => (
                 <Pressable
                   key={doc.url}
@@ -1124,6 +1129,7 @@ export default function ListingDetail() {
         visible={galleryOpen}
         onClose={() => setGalleryOpen(false)}
         groups={groups}
+        initialIndex={galleryIndex}
         provenance="Uploaded by the owner."
       />
 

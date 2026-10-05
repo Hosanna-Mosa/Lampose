@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Keyboard,
   Platform,
@@ -53,6 +53,27 @@ export function AirbnbSearchBar({
   const { colors, radius, mode } = useTheme();
   const inputRef = useRef<TextInput>(null);
   const [isFocused, setIsFocused] = useState(false);
+  /*
+   * The field is UNCONTROLLED: the native input owns its text and reports each
+   * change upward. Home re-renders the whole feed on every keystroke; feeding
+   * that value back into a controlled input made the cursor jump mid-word on a
+   * fast typist ("Kondapur" came out "Kndapuro" / "Kondrapu"). `text` mirrors
+   * what the field holds; when the parent's value changes while nobody is
+   * typing here — a clear, or the other copy of this bar (hero vs docked) —
+   * the field is remounted with it via `syncKey`.
+   */
+  const [text, setText] = useState(value);
+  const [syncKey, setSyncKey] = useState(0);
+  useEffect(() => {
+    if (!isFocused && value !== text) {
+      setText(value);
+      setSyncKey((key) => key + 1);
+    }
+  }, [value, isFocused, text]);
+  /* Set by a tap on the pill. The input only mounts once editing starts, so a
+     `focus()` call in the same tap reached nothing and the keyboard needed a
+     second tap; `autoFocus` on the freshly mounted input does it in one. */
+  const [focusOnMount, setFocusOnMount] = useState(false);
   const scale = useSharedValue(1);
 
   const animatedCapsuleStyle = useAnimatedStyle(() => ({
@@ -73,11 +94,14 @@ export function AirbnbSearchBar({
     } catch {
       // no-op if unsupported
     }
+    setFocusOnMount(true);
     inputRef.current?.focus();
     setIsFocused(true);
   };
 
   const handleClear = () => {
+    inputRef.current?.clear();
+    setText('');
     onChangeText('');
     onClear?.();
     try {
@@ -92,7 +116,7 @@ export function AirbnbSearchBar({
     onPressFilters?.();
   };
 
-  const hasSearchText = value.trim().length > 0;
+  const hasSearchText = text.trim().length > 0;
   const isEditing = isFocused || hasSearchText;
 
   const displayLocality = locality && locality !== 'Choose an area' ? locality : 'Where to?';
@@ -138,16 +162,24 @@ export function AirbnbSearchBar({
         {isEditing ? (
           <View style={styles.inputContainer}>
             <TextInput
+              key={syncKey}
               ref={inputRef}
-              value={value}
-              onChangeText={onChangeText}
+              defaultValue={text}
+              onChangeText={(next) => {
+                setText(next);
+                onChangeText(next);
+              }}
+              autoFocus={focusOnMount}
               onSubmitEditing={() => {
                 setIsFocused(false);
                 Keyboard.dismiss();
                 onSubmitEditing?.();
               }}
               onFocus={() => setIsFocused(true)}
-              onBlur={() => setIsFocused(false)}
+              onBlur={() => {
+                setIsFocused(false);
+                setFocusOnMount(false);
+              }}
               placeholder={placeholder}
               placeholderTextColor={colors.textTertiary}
               returnKeyType="search"

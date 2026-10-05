@@ -347,7 +347,9 @@ function Node({
         {label}
       </Text>
       {timestamp && done ? (
-        <Text variant="numMeta" color="tertiary" numberOfLines={1}>
+        /* Two lines, centred: a step is 74pt wide and "24 Sep at 2:04 PM"
+           is wider than that, so one line cut the time off. */
+        <Text variant="numMeta" color="tertiary" numberOfLines={2} style={{ textAlign: 'center' }}>
           {timestamp}
         </Text>
       ) : null}

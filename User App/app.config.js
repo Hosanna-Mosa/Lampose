@@ -72,6 +72,11 @@ export default {
       bundleIdentifier: 'com.lampose.users.com',
       infoPlist: {
         UIBackgroundModes: ['remote-notification'],
+        /* The app uses only the system's standard HTTPS — no encryption of
+           its own — so it is exempt from export documentation. Declaring it
+           here stops App Store Connect holding every build in TestFlight
+           until somebody answers the encryption question by hand. */
+        ITSAppUsesNonExemptEncryption: false,
       },
       /* `react-native-maps` on iOS ships Apple Maps by default; this is what
          switches `DeliveryMap`'s `PROVIDER_GOOGLE` map over to real Google
@@ -133,17 +138,20 @@ export default {
        */
       'expo-router',
       'expo-font',
-      /* The crosshair on the address forms. Foreground only — nothing here
-         tracks anybody; the permission is asked at the moment somebody taps
-         "use my location" and the fix is used once to fill a form. */
+      /* Two foreground-only uses, both started by a tap: "Use my current
+         location" on the area screen (places within a radius of you) and the
+         crosshair on the address forms. Nothing tracks anybody. App Review
+         checks that this sentence describes EVERY use, so it names both. */
       [
         'expo-location',
         {
           locationWhenInUsePermission:
-            'Lampose uses your location once, when you tap it, to fill in a delivery address so a rider can find your door.',
+            'Lampose uses your location only when you tap "Use my current location", to show places near you and to fill in your address.',
         },
       ],
       'expo-web-browser',
+      /* EAS builds this app at ".../User App" — see the plugin. */
+      './plugins/withQuotedBundleScript',
       /* The OS date dialog behind `DateField`. A config plugin rather than an
          autolinked module: it needs a compileSdk bump on Android. */
       '@react-native-community/datetimepicker',
@@ -164,9 +172,9 @@ export default {
       apiUrl: process.env.EXPO_PUBLIC_API_URL,
       appEnv: process.env.EXPO_PUBLIC_APP_ENV,
       eas: {
-        projectId: 'f954b7a0-c4da-49d9-80e7-89262c052954',
+        projectId: 'd1f19acf-5d14-4a6c-b512-df0274f9fd0c',
       },
     },
-    owner: 'hosanna4190',
+    owner: 'lampose.com',
   },
 };

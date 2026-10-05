@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
-import { Linking } from 'react-native';
+import { Linking, Platform } from 'react-native';
 
 import { updateStoreUrl } from '@/services/appVersion';
 
@@ -30,7 +30,7 @@ export default function ForceUpdateScreen() {
       <BlockingScreen
         headline="Update LAMPOSE to keep booking"
         body="Payments and owner replies changed in this version. The one you have cannot show them correctly, so we have stopped it rather than risk a wrong price."
-        actionLabel="Update from Play Store"
+        actionLabel={Platform.OS === 'ios' ? 'Update from the App Store' : 'Update from Play Store'}
         /* It did nothing. Now the store page this server named (or the Play
            listing). */
         onAction={() => { Linking.openURL(updateStoreUrl()).catch(() => {}); }}

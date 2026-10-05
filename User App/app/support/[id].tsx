@@ -23,6 +23,8 @@ import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
 import { Button, InlineAlert, Text, TextField } from '@/components/ui';
 import { StandardHeader, StateTemplate } from '@/components/shell';
 import { TicketMessageRow } from '@/components/lifecycle';
+import { emptyStates } from '@/constants/copy';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useTicket } from '@/services';
 
@@ -102,6 +104,7 @@ export default function TicketThread() {
     isSending,
     sendError,
   } = useTicket(id);
+  const { status: authStatus, requireSignIn } = useAuth();
 
   /* The box is cleared only once the server has the message. Clearing on tap
      and failing would lose what somebody just wrote. */
@@ -216,6 +219,21 @@ export default function TicketThread() {
    * not-found template for those would tell a student their deposit dispute
    * had been deleted because their train went into a tunnel.
    */
+  /* A ticket belongs to an account; a guest following a link to one is asked
+     to sign in rather than shown a retry that cannot succeed. */
+  if (authStatus !== 'signedIn') {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <StandardHeader title="Support" onBack={() => router.back()} />
+        <StateTemplate
+          copy={emptyStates.signInRequired({ what: 'this support request' })}
+          onPrimary={() => requireSignIn(() => {})}
+        />
+      </View>
+    );
+  }
+
   if (error?.status === 404) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>

@@ -1,6 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { bookingStatus } from '@/constants/tokens';
 import React, { useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,6 +22,7 @@ import {
 
 import { formatRupees } from '@/utils/money';
 import { useDepositMark } from '@/components/ui/DepositMark';
+import { bookingStatus } from '@/constants/tokens';
 
 /**
  * One template, thirteen statuses.

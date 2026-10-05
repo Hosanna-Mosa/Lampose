@@ -47,7 +47,7 @@ import { AppearanceRow, BookingRow, BookingSegments, ProfileGroup, ProfileRow } 
 import { FoodComingSoon, FoodModule } from '@/components/food';
 import { TypographyScope } from '@/context/TypographyContext';
 import { foodHref } from '@/components/food/routes';
-import { useFoodMode } from '@/hooks/useAppEnv';
+import { useFoodMode, useFoodVisible } from '@/hooks/useAppEnv';
 import { emptyStates } from '@/constants/copy';
 import { useAppState } from '@/context/AppStateContext';
 import { useBottomBar } from '@/context/BottomBarContext';
@@ -204,8 +204,14 @@ export default function Home() {
    * tap on the bar afterwards behaves exactly as it always did.
    */
   const { tab: requestedTab } = useLocalSearchParams<{ tab?: string }>();
+  /* No Food tab where Food may not show — see `useFoodVisible`. */
+  const foodVisible = useFoodVisible();
+  const stayTabs = useMemo(
+    () => (foodVisible ? TABS : TABS.filter((item) => item.id !== 'food')),
+    [foodVisible],
+  );
   const [tab, setTab] = useState(
-    requestedTab && TABS.some((item) => item.id === requestedTab) ? requestedTab : 'explore',
+    requestedTab && stayTabs.some((item) => item.id === requestedTab) ? requestedTab : 'explore',
   );
   const [undo, setUndo] = useState<SavedEntry | null>(null);
   /**
@@ -1521,7 +1527,7 @@ export default function Home() {
       */}
       <View style={styles.dockedBar} pointerEvents="box-none">
         <TabBar
-          tabs={inFoodModule ? FOOD_TABS : TABS}
+          tabs={inFoodModule ? FOOD_TABS : stayTabs}
           activeId={inFoodModule ? FOOD_TAB_IDS[foodTab] : tab}
           onChange={changeTab}
           collapsedTo={tab === 'food' && !inFoodModule ? FOOD_EXIT : null}

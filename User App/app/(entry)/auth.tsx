@@ -6,12 +6,13 @@ import {
   Alert,
   Image,
   Keyboard,
+  Linking,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   useWindowDimensions,
-  View, Linking
+  View,
 } from 'react-native';
 import Animated, {
   interpolate,
@@ -29,7 +30,9 @@ import { Button, Icon, InlineAlert, OtpInput, type OtpState } from '@/components
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { useAppState } from '@/context/AppStateContext';
 import { useAuth } from '@/context/AuthContext';
-import { useTheme } from '@/context/ThemeContext';
+import { LEGAL_URLS } from '@/constants/legal';
+import { useFoodVisible } from '@/hooks/useAppEnv';
+import { LightThemeScope, useTheme } from '@/context/ThemeContext';
 import { isValidIndianMobile, phoneError, sendFailureCopy } from '@/types/auth';
 
 /**
@@ -38,9 +41,24 @@ import { isValidIndianMobile, phoneError, sendFailureCopy } from '@/types/auth';
  * Front side: Phone Number Entry
  * Back side: OTP Verification
  */
-export default function AuthScreen() {
+/**
+ * The card is drawn on a fixed white ground, so its controls must take the
+ * LIGHT palette whatever the app's theme is — in dark mode the ghost "Continue
+ * as guest" took the dark palette's pale teal and nearly vanished on white.
+ * Same treatment as `categories` and `locality`.
+ */
+export default function AuthRoute() {
+  return (
+    <LightThemeScope>
+      <AuthScreen />
+    </LightThemeScope>
+  );
+}
+
+function AuthScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const foodVisible = useFoodVisible();
   const router = useRouter();
   const { width: screenWidth } = useWindowDimensions();
 
@@ -431,11 +449,17 @@ export default function AuthScreen() {
               pointerEvents={isFlipped ? 'none' : 'auto'}
             >
               {/* Headline */}
-              <Text style={styles.headline}>
-                Your <Text style={styles.textGreen}>Stay</Text>
-                <Text style={styles.textGreenLight}> & </Text>
-                <Text style={styles.textGreen}>Food</Text>
-              </Text>
+              {foodVisible ? (
+                <Text style={styles.headline}>
+                  Your <Text style={styles.textGreen}>Stay</Text>
+                  <Text style={styles.textGreenLight}> & </Text>
+                  <Text style={styles.textGreen}>Food</Text>
+                </Text>
+              ) : (
+                <Text style={styles.headline}>
+                  Your Next <Text style={styles.textGreen}>Stay</Text>
+                </Text>
+              )}
               <Text style={styles.headline}>All in One Place</Text>
 
               {/* Subtitle */}
@@ -584,8 +608,21 @@ export default function AuthScreen() {
                 {/* Terms and Privacy Policy (Exact 2 lines) */}
                 <Text style={styles.termsText}>
                   By continuing, you agree to our{'\n'}
-                  <Text style={styles.termsLink} accessibilityRole="link" onPress={() => Linking.openURL('https://lampose.com/terms').catch(() => {})}>Terms & Conditions</Text> and{' '}
-                  <Text style={styles.termsLink} accessibilityRole="link" onPress={() => Linking.openURL('https://lampose.com/privacy').catch(() => {})}>Privacy Policy</Text>
+                  <Text
+                    style={styles.termsLink}
+                    accessibilityRole="link"
+                    onPress={() => Linking.openURL(LEGAL_URLS.terms).catch(() => {})}
+                  >
+                    Terms & Conditions
+                  </Text>{' '}
+                  and{' '}
+                  <Text
+                    style={styles.termsLink}
+                    accessibilityRole="link"
+                    onPress={() => Linking.openURL(LEGAL_URLS.privacy).catch(() => {})}
+                  >
+                    Privacy Policy
+                  </Text>
                 </Text>
               </View>
             </Animated.View>
@@ -744,7 +781,11 @@ export default function AuthScreen() {
           minimumFontScale={0.75}
           style={styles.footerScriptText}
         >
-          Better Stays  <Text style={styles.footerPipe}>|</Text>  Fresher Bites  <Text style={styles.footerPipe}>|</Text>  Brighter Days
+          Better Stays  <Text style={styles.footerPipe}>|</Text>  {foodVisible ? (
+            <>
+              Fresher Bites  <Text style={styles.footerPipe}>|</Text>{'  '}
+            </>
+          ) : null}Brighter Days
         </Text>
       </View>
     </View>

@@ -1,0 +1,7 @@
+steps:
+  - launch: com.lampose.users.com
+  - echo: Starts on Home (store-05-hotel left it on the Hotels tab); just scroll the feed.
+  - await: { visible: { text: in every area we cover } }
+  - tool: gesture-swipe
+    args: { fromX: 0.5, fromY: 0.78, toX: 0.5, toY: 0.4, durationMs: 700, momentum: false }
+  - wait: 300
