@@ -170,9 +170,9 @@ export default {
       apiUrl: process.env.EXPO_PUBLIC_API_URL,
       appEnv: process.env.EXPO_PUBLIC_APP_ENV,
       eas: {
-        projectId: 'f954b7a0-c4da-49d9-80e7-89262c052954',
+        projectId: 'd1f19acf-5d14-4a6c-b512-df0274f9fd0c',
       },
     },
-    owner: 'hosanna4190',
+    owner: 'lampose.com',
   },
 };
