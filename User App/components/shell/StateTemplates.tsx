@@ -9,26 +9,23 @@ import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { useDepositMark } from '@/components/ui/DepositMark';
 
 /**
- * The illustration slot.
+ * The mark above every empty and error state.
  *
- * It stays a dashed box until real artwork exists. A stock-looking spot
- * illustration would undo the whole visual direction, and an obvious hole is
- * easier to notice than a wrong-looking drawing.
+ * A dashed "120 × 120" box stood here while artwork was pending — fine in a
+ * design review, but it shipped to users and App Review reads it as an
+ * unfinished app. A single brand-tinted disc with a line icon carries the same
+ * weight without pretending to be an illustration.
  */
-function IllustrationSlot() {
-  const { colors, radius } = useTheme();
+function StateMark({ tone }: { tone: 'neutral' | 'error' }) {
+  const { colors } = useTheme();
+  const error = tone === 'error';
   return (
     <View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[
-        styles.illustration,
-        { borderColor: colors.border, borderRadius: radius.card, backgroundColor: colors.surfaceSunken },
-      ]}
+      style={[styles.mark, { backgroundColor: error ? colors.danger.tint : colors.brandTint }]}
     >
-      <Text variant="numMeta" color="tertiary">
-        120 × 120
-      </Text>
+      <Icon name={error ? 'alert' : 'search'} size={28} color={error ? colors.danger.base : colors.brandInk} />
     </View>
   );
 }
@@ -58,7 +55,7 @@ export function StateTemplate({ copy, onPrimary, onSecondary, tone = 'neutral', 
       entering={reduceMotion ? FadeIn.duration(120) : FadeIn.duration(200)}
       style={[styles.stateHost, { padding: layout.gutter, gap: space[5] }]}
     >
-      <IllustrationSlot />
+      <StateMark tone={tone} />
 
       <View style={[styles.centred, { gap: space[2] }]}>
         <Text variant="title1" style={styles.centredText}>
@@ -273,11 +270,10 @@ export function RefreshLine({ active }: { active: boolean }) {
 
 const styles = StyleSheet.create({
   stateHost: { alignItems: 'center', justifyContent: 'center', flexGrow: 1 },
-  illustration: {
-    width: 120,
-    height: 120,
-    borderWidth: 1,
-    borderStyle: 'dashed',
+  mark: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },

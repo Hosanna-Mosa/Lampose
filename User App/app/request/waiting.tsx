@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, Redirect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
@@ -33,7 +33,7 @@ import { usePreviewControls } from '@/hooks/useAppEnv';
 
 const REFERENCE = 'LAM-4192';
 
-export default function RequestWaiting() {
+function RequestWaiting() {
   const previewControls = usePreviewControls();
   const { colors, space, layout, mode, radius } = useTheme();
   const insets = useSafeAreaInsets();
@@ -303,3 +303,15 @@ const styles = StyleSheet.create({
   num: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
   disc: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
 });
+
+/**
+ * A design prototype, not a product screen: it runs on fixtures and several of
+ * its buttons do nothing. Nothing in the live app links here, but expo-router
+ * still registers the route, so a typed or stale `lampose://` link would open
+ * it. Outside preview builds it redirects home, like `/preview` does.
+ */
+export default function RequestWaitingRoute() {
+  const previewControls = usePreviewControls();
+  if (!previewControls) return <Redirect href="/home" />;
+  return <RequestWaiting />;
+}

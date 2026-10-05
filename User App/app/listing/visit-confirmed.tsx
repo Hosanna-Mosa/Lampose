@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, Redirect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import { ScrollView, View } from 'react-native';
@@ -11,6 +11,7 @@ import { DirectionsButton } from '@/components/discovery';
 import { visitConfirmed } from '@/data/bookings';
 import { findListing } from '@/data/listings';
 import { useTheme } from '@/context/ThemeContext';
+import { usePreviewControls } from '@/hooks/useAppEnv';
 
 /**
  * Screen 32 — the visit is confirmed.
@@ -24,7 +25,7 @@ import { useTheme } from '@/context/ThemeContext';
  * the button. What they do not know is what happens when they arrive, and that
  * is the anxiety the screen can actually remove.
  */
-export default function VisitConfirmed() {
+function VisitConfirmed() {
   const { colors, space, layout, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -96,4 +97,16 @@ export default function VisitConfirmed() {
       </ScrollView>
     </View>
   );
+}
+
+/**
+ * A design prototype, not a product screen: it runs on fixtures and several of
+ * its buttons do nothing. Nothing in the live app links here, but expo-router
+ * still registers the route, so a typed or stale `lampose://` link would open
+ * it. Outside preview builds it redirects home, like `/preview` does.
+ */
+export default function VisitConfirmedRoute() {
+  const previewControls = usePreviewControls();
+  if (!previewControls) return <Redirect href="/home" />;
+  return <VisitConfirmed />;
 }

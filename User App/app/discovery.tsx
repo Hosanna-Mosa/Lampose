@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useRouter, Redirect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
@@ -36,6 +36,7 @@ import {
   unpricedListing,
   vasaviBachelor,
 } from '@/data/listings';
+import { usePreviewControls } from '@/hooks/useAppEnv';
 
 /**
  * Batch 3 — discovery preview.
@@ -91,7 +92,7 @@ function Panel({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function DiscoveryPreview() {
+function DiscoveryPreview() {
   const { colors, space, layout, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -386,3 +387,15 @@ export default function DiscoveryPreview() {
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
 });
+
+/**
+ * A design prototype, not a product screen: it runs on fixtures and several of
+ * its buttons do nothing. Nothing in the live app links here, but expo-router
+ * still registers the route, so a typed or stale `lampose://` link would open
+ * it. Outside preview builds it redirects home, like `/preview` does.
+ */
+export default function DiscoveryPreviewRoute() {
+  const previewControls = usePreviewControls();
+  if (!previewControls) return <Redirect href="/home" />;
+  return <DiscoveryPreview />;
+}

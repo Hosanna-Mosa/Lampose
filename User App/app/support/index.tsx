@@ -9,6 +9,7 @@ import { StandardHeader, StateTemplate } from '@/components/shell';
 import { TicketRow } from '@/components/lifecycle';
 import { emptyStates } from '@/constants/copy';
 import { SUPPORT_HOURS_NOTE } from '@/data/support';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useTickets } from '@/services';
 
@@ -39,6 +40,11 @@ export default function SupportList() {
   const router = useRouter();
 
   const { tickets, isPending, error, refetch, isFetching } = useTickets();
+  /* Tickets live on the account. A guest reached this screen (a link, a
+     support row) and got "We could not load your requests" with a Try again
+     that could never succeed — the way forward is signing in. */
+  const { status, requireSignIn } = useAuth();
+  const signedIn = status === 'signedIn';
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
@@ -60,7 +66,12 @@ export default function SupportList() {
           />
         }
       >
-        {isPending ? (
+        {!signedIn ? (
+          <StateTemplate
+            copy={emptyStates.signInRequired({ what: 'your support requests' })}
+            onPrimary={() => requireSignIn(() => {})}
+          />
+        ) : isPending ? (
           <View style={styles.centre}>
             <ActivityIndicator color={colors.brand} />
           </View>

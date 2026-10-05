@@ -1,5 +1,9 @@
 import React, { useState } from 'react';
-import { Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Keyboard, Modal, Pressable, StyleSheet, View } from 'react-native';
+/* The library's KeyboardAvoidingView, as in `components/ui/Overlay.tsx`: the
+   custom-distance field autofocuses a number pad, which has no Done key on
+   iOS and used to cover both the field and the Search button. */
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Icon, Text, TextField } from '@/components/ui';
@@ -57,134 +61,141 @@ export function NearbyRadiusDialog({ visible, onClose, onSelect }: NearbyRadiusD
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
-      <Pressable style={styles.backdrop} onPress={handleClose}>
-        <Pressable
-          style={[
-            styles.card,
-            {
-              backgroundColor: colors.surface,
-              borderColor: mode === 'dark' ? colors.borderSubtle : '#E2E8F0',
-              paddingBottom: Math.max(insets.bottom, space[4]),
-            },
-          ]}
-          onPress={(event) => event.stopPropagation()}
-        >
-          <View
-            style={[styles.dragHandle, { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.2)' : '#CBD5E1' }]}
-          />
-
-          <View style={[styles.header, { paddingHorizontal: space[4] }]}>
-            <Text variant="title3" style={styles.headerTitle}>
-              How far should we look?
-            </Text>
-            <Pressable
-              onPress={handleClose}
-              hitSlop={8}
-              style={[styles.closeCircle, { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.1)' : '#F1F5F9' }]}
-            >
-              <Icon name="close" size={14} color={colors.textSecondary} />
-            </Pressable>
-          </View>
-
-          <Text
-            variant="caption"
-            color="secondary"
-            style={{ paddingHorizontal: space[4], paddingBottom: space[3] }}
+      <KeyboardAvoidingView style={styles.flex} behavior="padding">
+        <Pressable style={styles.backdrop} onPress={handleClose}>
+          <Pressable
+            style={[
+              styles.card,
+              {
+                backgroundColor: colors.surface,
+                borderColor: mode === 'dark' ? colors.borderSubtle : '#E2E8F0',
+                paddingBottom: Math.max(insets.bottom, space[4]),
+              },
+            ]}
+            onPress={(event) => {
+              event.stopPropagation();
+              /* A tap anywhere on the card that is not a control closes the
+                 number pad — the only way to put it away on iOS. */
+              Keyboard.dismiss();
+            }}
           >
-            We will show places within this distance of where you are right now.
-          </Text>
+            <View
+              style={[styles.dragHandle, { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.2)' : '#CBD5E1' }]}
+            />
 
-          <View style={{ paddingHorizontal: space[4], gap: space[2] }}>
-            {PRESETS_KM.map((km) => {
-              const isSelected = selected === km;
-              return (
-                <Pressable
-                  key={km}
-                  onPress={() => setSelected(km)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: isSelected }}
-                  style={[
-                    styles.optionRow,
-                    {
-                      borderRadius: radius.chip,
-                      borderColor: isSelected ? activeTint : colors.border,
-                      backgroundColor: isSelected ? activeFill : 'transparent',
-                    },
-                  ]}
-                >
-                  <View
+            <View style={[styles.header, { paddingHorizontal: space[4] }]}>
+              <Text variant="title3" style={styles.headerTitle}>
+                How far should we look?
+              </Text>
+              <Pressable
+                onPress={handleClose}
+                hitSlop={8}
+                style={[styles.closeCircle, { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.1)' : '#F1F5F9' }]}
+              >
+                <Icon name="close" size={14} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+
+            <Text
+              variant="caption"
+              color="secondary"
+              style={{ paddingHorizontal: space[4], paddingBottom: space[3] }}
+            >
+              We will show places within this distance of where you are right now.
+            </Text>
+
+            <View style={{ paddingHorizontal: space[4], gap: space[2] }}>
+              {PRESETS_KM.map((km) => {
+                const isSelected = selected === km;
+                return (
+                  <Pressable
+                    key={km}
+                    onPress={() => setSelected(km)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: isSelected }}
                     style={[
-                      styles.indicatorCircle,
+                      styles.optionRow,
                       {
-                        borderColor: isSelected ? activeTint : '#CBD5E1',
-                        backgroundColor: isSelected ? activeTint : 'transparent',
+                        borderRadius: radius.chip,
+                        borderColor: isSelected ? activeTint : colors.border,
+                        backgroundColor: isSelected ? activeFill : 'transparent',
                       },
                     ]}
                   >
-                    {isSelected ? <Icon name="check" size={12} color="#FFFFFF" /> : null}
-                  </View>
-                  <Text variant="bodyStrong" style={{ color: isSelected ? activeTint : colors.textPrimary }}>
-                    Within {km} km
-                  </Text>
-                </Pressable>
-              );
-            })}
+                    <View
+                      style={[
+                        styles.indicatorCircle,
+                        {
+                          borderColor: isSelected ? activeTint : '#CBD5E1',
+                          backgroundColor: isSelected ? activeTint : 'transparent',
+                        },
+                      ]}
+                    >
+                      {isSelected ? <Icon name="check" size={12} color="#FFFFFF" /> : null}
+                    </View>
+                    <Text variant="bodyStrong" style={{ color: isSelected ? activeTint : colors.textPrimary }}>
+                      Within {km} km
+                    </Text>
+                  </Pressable>
+                );
+              })}
 
-            <Pressable
-              onPress={() => setSelected('custom')}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: selected === 'custom' }}
-              style={[
-                styles.optionRow,
-                styles.customRow,
-                {
-                  borderRadius: radius.chip,
-                  borderColor: selected === 'custom' ? activeTint : colors.border,
-                  backgroundColor: selected === 'custom' ? activeFill : 'transparent',
-                },
-              ]}
-            >
-              <View
+              <Pressable
+                onPress={() => setSelected('custom')}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: selected === 'custom' }}
                 style={[
-                  styles.indicatorCircle,
+                  styles.optionRow,
+                  styles.customRow,
                   {
-                    borderColor: selected === 'custom' ? activeTint : '#CBD5E1',
-                    backgroundColor: selected === 'custom' ? activeTint : 'transparent',
+                    borderRadius: radius.chip,
+                    borderColor: selected === 'custom' ? activeTint : colors.border,
+                    backgroundColor: selected === 'custom' ? activeFill : 'transparent',
                   },
                 ]}
               >
-                {selected === 'custom' ? <Icon name="check" size={12} color="#FFFFFF" /> : null}
-              </View>
-              <View style={styles.flex}>
-                {selected === 'custom' ? (
-                  <TextField
-                    label="Custom distance (km)"
-                    placeholder="e.g. 7"
-                    value={customText}
-                    onChangeText={(text) => setCustomText(text.replace(/[^0-9]/g, ''))}
-                    keyboardType="number-pad"
-                    maxLength={2}
-                    autoFocus
-                  />
-                ) : (
-                  <Text variant="bodyStrong" color="secondary">
-                    Custom distance
-                  </Text>
-                )}
-              </View>
-            </Pressable>
-          </View>
+                <View
+                  style={[
+                    styles.indicatorCircle,
+                    {
+                      borderColor: selected === 'custom' ? activeTint : '#CBD5E1',
+                      backgroundColor: selected === 'custom' ? activeTint : 'transparent',
+                    },
+                  ]}
+                >
+                  {selected === 'custom' ? <Icon name="check" size={12} color="#FFFFFF" /> : null}
+                </View>
+                <View style={styles.flex}>
+                  {selected === 'custom' ? (
+                    <TextField
+                      label="Custom distance (km)"
+                      placeholder="e.g. 7"
+                      value={customText}
+                      onChangeText={(text) => setCustomText(text.replace(/[^0-9]/g, ''))}
+                      keyboardType="number-pad"
+                      maxLength={2}
+                      autoFocus
+                    />
+                  ) : (
+                    <Text variant="bodyStrong" color="secondary">
+                      Custom distance
+                    </Text>
+                  )}
+                </View>
+              </Pressable>
+            </View>
 
-          <View style={{ paddingHorizontal: space[4], paddingTop: space[4] }}>
-            <Button
-              label={chosenRadius ? `Search within ${chosenRadius} km` : 'Choose a distance'}
-              onPress={confirm}
-              disabled={!chosenRadius}
-              fullWidth
-            />
-          </View>
+            <View style={{ paddingHorizontal: space[4], paddingTop: space[4] }}>
+              <Button
+                label={chosenRadius ? `Search within ${chosenRadius} km` : 'Choose a distance'}
+                onPress={confirm}
+                disabled={!chosenRadius}
+                fullWidth
+              />
+            </View>
+          </Pressable>
         </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

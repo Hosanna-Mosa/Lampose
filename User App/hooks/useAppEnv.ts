@@ -11,6 +11,7 @@
  * every check.
  */
 import { useSyncExternalStore } from 'react';
+import { Platform } from 'react-native';
 
 import {
   debugLogs,
@@ -52,3 +53,17 @@ export const useDevBypass = (): boolean =>
 
 export const useFoodMode = (): FoodMode =>
   useSyncExternalStore(subscribeAppEnv, foodMode, foodMode);
+
+/**
+ * Whether any door into Food may show at all.
+ *
+ * Food is not live: in a production build the tab opens a "coming soon"
+ * screen. Google Play accepted that; App Review rejects a tab that exists only
+ * to say a feature is not ready (guideline 2.1, app completeness). So on iOS
+ * a production build shows no Food tab and no food promo — the stay app on
+ * its own. Android keeps exactly what it shipped with.
+ */
+export const useFoodVisible = (): boolean => {
+  const mode = useFoodMode();
+  return !(Platform.OS === 'ios' && mode === 'production');
+};

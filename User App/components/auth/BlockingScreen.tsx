@@ -81,14 +81,11 @@ export function BlockingScreen({
       ]}
     >
       <View
-        style={[
-          styles.illustration,
-          { borderColor: colors.border, borderRadius: radius.card, backgroundColor: colors.surfaceSunken },
-        ]}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[styles.mark, { backgroundColor: colors.brandTint }]}
       >
-        <Text variant="numMeta" color="tertiary">
-          120 × 120
-        </Text>
+        <Icon name="retry" size={28} color={colors.brandInk} />
       </View>
 
       <View style={[styles.centred, { gap: space[2] }]}>
@@ -144,11 +141,10 @@ export function BlockingScreen({
 
 const styles = StyleSheet.create({
   host: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  illustration: {
-    width: 120,
-    height: 120,
-    borderWidth: 1,
-    borderStyle: 'dashed',
+  mark: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },

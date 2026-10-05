@@ -13,6 +13,7 @@ import { OwnerStatusTrail, WaitLoader, type TrailStep } from '@/components/reque
 import { FoodWaitPromo } from '@/components/food';
 import { errorStates } from '@/constants/copy';
 import { usePendingRequest } from '@/context/PendingRequestContext';
+import { useFoodVisible } from '@/hooks/useAppEnv';
 import { ongoingQueryKey } from '@/hooks/useOngoing';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -72,6 +73,7 @@ function stamp(value: string | null | undefined): string | undefined {
 
 export default function OwnerConfirmation() {
   const { mode, colors, space, layout, radius } = useTheme();
+  const foodVisible = useFoodVisible();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -1072,9 +1074,11 @@ export default function OwnerConfirmation() {
               hero's own carousel goes there instead; see `FoodWaitPromo` for
               why it is that component rather than a smaller copy of it.
             */}
-            <View style={{ marginTop: space[3] }}>
-              <FoodWaitPromo />
-            </View>
+            {foodVisible ? (
+              <View style={{ marginTop: space[3] }}>
+                <FoodWaitPromo />
+              </View>
+            ) : null}
           </View>
         ) : ranOut || cancelled ? (
           <View style={{ gap: space[3] }}>

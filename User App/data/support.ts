@@ -101,7 +101,7 @@ export const REPORT_EMERGENCY_NOTE =
   'If you are in immediate danger, call 100 first. This is not an emergency line.';
 
 export const REPORT_WEIGHT_NOTE =
-  'A report goes to our safety team, not to the owner. She is not told you filed it until we have looked into it. We may suspend the listing while we investigate.';
+  'A report goes to our safety team, not to the owner. The owner is not told you filed it until we have looked into it. We may suspend the listing while we investigate.';
 
 export const REPORT_DETAIL_HINT =
   'Dates, amounts and exact words matter here — this may be used in a dispute.';

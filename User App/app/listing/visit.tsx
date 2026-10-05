@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, Redirect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
@@ -12,6 +12,7 @@ import { findListing } from '@/data/listings';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { actions } from '@/constants/actions';
+import { usePreviewControls } from '@/hooks/useAppEnv';
 
 /**
  * Screen 31 — booking a visit.
@@ -29,7 +30,7 @@ import { actions } from '@/constants/actions';
  * exactly what is shared, with whom, for how long, and why. It sits above the
  * button, because consent that appears after the commitment is not consent.
  */
-export default function BookVisit() {
+function BookVisit() {
   const { colors, space, layout, mode, radius } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -115,3 +116,15 @@ const styles = StyleSheet.create({
   centred: { textAlign: 'center' },
   flex: { flex: 1 },
 });
+
+/**
+ * A design prototype, not a product screen: it runs on fixtures and several of
+ * its buttons do nothing. Nothing in the live app links here, but expo-router
+ * still registers the route, so a typed or stale `lampose://` link would open
+ * it. Outside preview builds it redirects home, like `/preview` does.
+ */
+export default function BookVisitRoute() {
+  const previewControls = usePreviewControls();
+  if (!previewControls) return <Redirect href="/home" />;
+  return <BookVisit />;
+}

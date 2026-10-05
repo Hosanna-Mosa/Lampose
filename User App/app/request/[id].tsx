@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, Redirect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
@@ -24,6 +24,7 @@ import {
   type Quote,
   type TenantDetails,
 } from '@/types/request';
+import { usePreviewControls } from '@/hooks/useAppEnv';
 
 /**
  * The request, in three steps.
@@ -36,7 +37,7 @@ import {
 
 const STEPS = ['Your quote', 'Your details', 'Check and send'] as const;
 
-export default function RequestFlow() {
+function RequestFlow() {
   const { colors, space, layout, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -284,3 +285,15 @@ const styles = StyleSheet.create({
   step: { flexDirection: 'row', alignItems: 'center' },
   stepNumber: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
 });
+
+/**
+ * A design prototype, not a product screen: it runs on fixtures and several of
+ * its buttons do nothing. Nothing in the live app links here, but expo-router
+ * still registers the route, so a typed or stale `lampose://` link would open
+ * it. Outside preview builds it redirects home, like `/preview` does.
+ */
+export default function RequestFlowRoute() {
+  const previewControls = usePreviewControls();
+  if (!previewControls) return <Redirect href="/home" />;
+  return <RequestFlow />;
+}

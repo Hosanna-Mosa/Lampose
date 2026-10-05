@@ -216,6 +216,13 @@ export const errorStates = {
    * Dead links here usually arrive over WhatsApp from a senior, so the copy
    * assumes a shared link rather than a mistyped address.
    */
+  /** A support reference that does not exist, or is not this account's. */
+  ticketNotFound: (): StateCopy => ({
+    headline: 'We could not find that request',
+    body: 'The link may be from an old message, or the request belongs to a different account. Your requests are all listed in Support.',
+    primaryAction: 'Go to my support requests',
+  }),
+
   notFound: (): StateCopy => ({
     headline: "This page isn't here anymore",
     body: 'The link may be from an old message. Search the place by name, or start from your college.',

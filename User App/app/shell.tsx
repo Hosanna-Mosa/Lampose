@@ -1,4 +1,4 @@
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useRouter, Redirect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
 import { ScrollView, View } from 'react-native';
@@ -24,6 +24,7 @@ import {
 import { emptyStates, errorStates, successCopy } from '@/constants/copy';
 import { useTheme } from '@/context/ThemeContext';
 import { actions } from '@/constants/actions';
+import { usePreviewControls } from '@/hooks/useAppEnv';
 
 /**
  * Batch 2 — shell preview.
@@ -41,7 +42,7 @@ const TABS: TabItem[] = [
 
 const VIEWS = ['Headers', 'CTA bar', 'States', 'Photo'] as const;
 
-export default function ShellPreview() {
+function ShellPreview() {
   const { mode, colors, space, layout } = useTheme();
   const router = useRouter();
   const heroHeight = usePhotoHeroHeight();
@@ -297,3 +298,14 @@ function Label({ text }: { text: string }) {
   );
 }
 
+/**
+ * A design prototype, not a product screen: it runs on fixtures and several of
+ * its buttons do nothing. Nothing in the live app links here, but expo-router
+ * still registers the route, so a typed or stale `lampose://` link would open
+ * it. Outside preview builds it redirects home, like `/preview` does.
+ */
+export default function ShellPreviewRoute() {
+  const previewControls = usePreviewControls();
+  if (!previewControls) return <Redirect href="/home" />;
+  return <ShellPreview />;
+}

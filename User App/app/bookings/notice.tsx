@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useRouter, Redirect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
@@ -9,6 +9,7 @@ import { StandardHeader } from '@/components/shell';
 import { DepositEstimate, NoticeDatePicker } from '@/components/lifecycle';
 import { noticeTerms } from '@/data/bookings';
 import { useTheme } from '@/context/ThemeContext';
+import { usePreviewControls } from '@/hooks/useAppEnv';
 
 /**
  * Screen 52 — giving notice.
@@ -22,7 +23,7 @@ import { useTheme } from '@/context/ThemeContext';
  * The costly option is not disabled. Leaving early is a legitimate choice; it
  * just may not be a silent one. See `NoticeDatePicker`.
  */
-export default function GiveNotice() {
+function GiveNotice() {
   const { colors, space, layout, mode, radius } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -99,3 +100,15 @@ export default function GiveNotice() {
 const styles = StyleSheet.create({
   centred: { textAlign: 'center' },
 });
+
+/**
+ * A design prototype, not a product screen: it runs on fixtures and several of
+ * its buttons do nothing. Nothing in the live app links here, but expo-router
+ * still registers the route, so a typed or stale `lampose://` link would open
+ * it. Outside preview builds it redirects home, like `/preview` does.
+ */
+export default function GiveNoticeRoute() {
+  const previewControls = usePreviewControls();
+  if (!previewControls) return <Redirect href="/home" />;
+  return <GiveNotice />;
+}

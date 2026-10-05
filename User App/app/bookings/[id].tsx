@@ -22,6 +22,7 @@ import {
 
 import { formatRupees } from '@/utils/money';
 import { useDepositMark } from '@/components/ui/DepositMark';
+import { bookingStatus } from '@/constants/tokens';
 
 /**
  * One template, thirteen statuses.
@@ -343,13 +344,10 @@ export default function BookingDetail() {
             <View style={[styles.statusChip, chipSkin.chip]}>
               <View style={[styles.statusDot, chipSkin.dot]} />
               <Text style={[styles.statusChipText, chipSkin.text]}>
-                {booking.status === 'CONFIRMED'
-                  ? 'Confirmed'
-                  : booking.status === 'ACCEPTED'
-                  ? 'Accepted'
-                  : booking.status === 'REQUESTED'
-                  ? 'Requested'
-                  : booking.status}
+                {/* The shared status vocabulary, so every state reads as a
+                    word — this used to fall through to the raw enum and show
+                    "CHECKED_IN" to a student. */}
+                {bookingStatus[booking.status as keyof typeof bookingStatus]?.label ?? 'Booking'}
               </Text>
             </View>
           </View>

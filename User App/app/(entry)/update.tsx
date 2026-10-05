@@ -1,6 +1,7 @@
-import { useRouter } from 'expo-router';
+import { useRouter, Redirect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
+import { Platform } from 'react-native';
 
 import { BlockingScreen } from '@/components/auth';
 import { useTheme } from '@/context/ThemeContext';
@@ -16,7 +17,7 @@ import { usePreviewControls } from '@/hooks/useAppEnv';
  *
  * No "later", no ✕, no back handler.
  */
-export default function ForceUpdateScreen() {
+function ForceUpdateScreen() {
   const previewControls = usePreviewControls();
   const { mode } = useTheme();
   const router = useRouter();
@@ -27,7 +28,7 @@ export default function ForceUpdateScreen() {
       <BlockingScreen
         headline="Update LAMPOSE to keep booking"
         body="Payments and owner replies changed in this version. The one you have cannot show them correctly, so we have stopped it rather than risk a wrong price."
-        actionLabel="Update from Play Store"
+        actionLabel={Platform.OS === 'ios' ? 'Update from the App Store' : 'Update from Play Store'}
         onAction={() => {}}
         footnote="About 18 MB. Your saved places and bookings stay where they are."
         // Dev only. In a real build this screen renders above the navigator
@@ -38,4 +39,16 @@ export default function ForceUpdateScreen() {
       />
     </>
   );
+}
+
+/**
+ * A design prototype, not a product screen: it runs on fixtures and several of
+ * its buttons do nothing. Nothing in the live app links here, but expo-router
+ * still registers the route, so a typed or stale `lampose://` link would open
+ * it. Outside preview builds it redirects home, like `/preview` does.
+ */
+export default function ForceUpdateScreenRoute() {
+  const previewControls = usePreviewControls();
+  if (!previewControls) return <Redirect href="/home" />;
+  return <ForceUpdateScreen />;
 }

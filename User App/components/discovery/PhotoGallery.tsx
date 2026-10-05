@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Image,
   Modal,
@@ -56,6 +56,8 @@ export type PhotoGalleryProps = {
   provenance?: string;
   /** Which group to open on. */
   initialGroupId?: string;
+  /** Which photo of that group to open on — the one that was tapped. */
+  initialIndex?: number;
 };
 
 const PLACEHOLDERS = [
@@ -71,6 +73,7 @@ export function PhotoGallery({
   groups,
   provenance,
   initialGroupId,
+  initialIndex = 0,
 }: PhotoGalleryProps) {
   const { colors, space, radius } = useTheme();
   const insets = useSafeAreaInsets();
@@ -80,7 +83,13 @@ export function PhotoGallery({
     const found = groups.findIndex((group) => group.id === initialGroupId);
     return found === -1 ? 0 : found;
   });
-  const [pageIndex, setPageIndex] = useState(0);
+  const [pageIndex, setPageIndex] = useState(initialIndex);
+  /* Every open starts on the photo that was tapped. The gallery stays mounted
+     between opens, so without this it opened on photo 1 (the pager) while the
+     counter still showed wherever it was last left. */
+  useEffect(() => {
+    if (visible) setPageIndex(initialIndex);
+  }, [visible, initialIndex]);
 
   const group = groups[groupIndex];
   const total = groups.reduce((sum, item) => sum + item.count, 0);
@@ -107,15 +116,18 @@ export function PhotoGallery({
           {/* Per group and overall — one tells you where you are in the set,
               the other whether you have seen everything of this kind. */}
           <Text variant="numMeta" style={{ color: colors.onGraphite }}>
-            {pageIndex + 1} / {group.count} · {seenBefore + pageIndex + 1} of {total}
+            {groups.length > 1
+              ? `${pageIndex + 1} / ${group.count} · ${seenBefore + pageIndex + 1} of ${total}`
+              : `${pageIndex + 1} / ${group.count}`}
           </Text>
           <View style={styles.close} />
         </View>
 
         <ScrollView
-          key={group.id}
+          key={`${group.id}-${initialIndex}`}
           horizontal
           pagingEnabled
+          contentOffset={{ x: initialIndex * width, y: 0 }}
           showsHorizontalScrollIndicator={false}
           onMomentumScrollEnd={handleScroll}
           style={styles.flex}
