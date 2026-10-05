@@ -113,6 +113,10 @@ export default {
     },
     extra: {
       apiUrl: process.env.EXPO_PUBLIC_API_URL,
+      eas: {
+        projectId: '78a643f8-38af-410e-b218-e26320ffbf8d',
+      },
     },
+    owner: 'lampose.com',
   },
 };
