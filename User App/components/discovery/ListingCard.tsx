@@ -246,15 +246,19 @@ function PhotoCarousel({
         </View>
       ) : null}
 
-      {/* Floating Bottom Left: Gender Badge */}
-      <View style={styles.bottomLeftContainer} pointerEvents="none">
-        <View style={styles.genderPill}>
-          <View style={styles.genderMonogramBox}>
-            <Text style={styles.genderMonogramLetter}>{genderLetter}</Text>
+      {/* Floating Bottom Left: Gender Badge — only where the owner recorded a
+          rule. It used to fall back to "Boys", which put a Boys badge on
+          every hotel, flat and women's PG with no hostel type set. */}
+      {listing.gender ? (
+        <View style={styles.bottomLeftContainer} pointerEvents="none">
+          <View style={styles.genderPill}>
+            <View style={styles.genderMonogramBox}>
+              <Text style={styles.genderMonogramLetter}>{genderLetter}</Text>
+            </View>
+            <Text style={styles.genderLabelText}>{genderWord}</Text>
           </View>
-          <Text style={styles.genderLabelText}>{genderWord}</Text>
         </View>
-      </View>
+      ) : null}
 
       {/* Floating Bottom Right: Image Counter Badge */}
       <View style={styles.bottomRightContainer} pointerEvents="none">

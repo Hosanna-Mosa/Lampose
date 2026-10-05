@@ -1,0 +1,8 @@
+{
+  "background": "linear-gradient(165deg, #0E6E5C 0%, #13806B 42%, #E3F0EB 100%)",
+  "frame": "17-pro-orange",
+  "fontFamily": "\"Lato\", system-ui, sans-serif",
+  "template": "showcase",
+  "layout": "classic",
+  "screenOnly": false
+}

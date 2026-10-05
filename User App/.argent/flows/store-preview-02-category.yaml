@@ -1,0 +1,7 @@
+executionPrerequisite: >-
+  Home feed open, scrolled down one card; the docked header shows the category tabs.
+steps:
+  - tap: { text: Bachelor Rooms }
+  - echo: The count line is scrolled off-screen here, so settle on idle instead of awaiting text.
+  - await: { idle: true }
+  - wait: 700

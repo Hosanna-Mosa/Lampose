@@ -1030,6 +1030,9 @@ export default function ListingDetail() {
           // length in makes two listings at the same rate look different
           // because one was viewed at 3 months and the other at 6.
           rent={totals ? totals.perUnit : (shownRent ?? undefined)}
+          // Same rule as the price card above: a hotel quoted by the night
+          // must not read "/month" in the bar.
+          perNight={totals ? totals.rate.id === 'DAILY' : Boolean(listing.perNight)}
           multiplier={
             totals && intent.units !== null
               ? `× ${intent.units} ${totals.rate.unit}${intent.units === 1 ? '' : 's'}`

@@ -1,0 +1,11 @@
+executionPrerequisite: >-
+  Home feed open on Bachelor Rooms.
+steps:
+  - tap: { text: View details for }
+  - await: { visible: { text: STARTING RENT } }
+  - wait: 600
+  - tool: gesture-swipe
+    args: { fromX: 0.5, fromY: 0.75, toX: 0.5, toY: 0.42, durationMs: 700, momentum: false }
+  - echo: Bachelor flats list their layouts as cards with a price each; pick one.
+  - tap: { text: 2 BHK }
+  - wait: 1000

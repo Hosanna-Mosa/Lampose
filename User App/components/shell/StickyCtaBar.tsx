@@ -34,6 +34,8 @@ export type StickyCtaBarProps = {
   depositMonths?: number;
   /** The figure is a total for a chosen stay, so it carries no unit suffix. */
   total?: boolean;
+  /** The rate is per night (a hotel), so the suffix reads "/night", not "/month". */
+  perNight?: boolean;
   /** What the total covers: "7 days · with mess". Sits under the number. */
   secondaryLine?: string;
   /**
@@ -74,6 +76,7 @@ export function StickyCtaBar({
   deposit,
   depositMonths,
   total = false,
+  perNight = false,
   secondaryLine,
   multiplier,
   onMeasure,
@@ -199,6 +202,7 @@ export function StickyCtaBar({
                 depositMonths={depositMonths}
                 size="bar"
                 total={total}
+                perNight={perNight}
                 secondaryLine={secondaryLine}
               />
               {multiplier ? <Text variant="numMeta">{multiplier}</Text> : null}
@@ -252,6 +256,7 @@ export function StickyCtaBar({
                 deposit={deposit}
                 depositMonths={depositMonths}
                 total={total}
+                perNight={perNight}
                 secondaryLine={secondaryLine}
               />
               {/* The count, kept out of the figure. It never shrinks — a
@@ -301,12 +306,14 @@ function PriceSlot({
   deposit,
   depositMonths,
   total = false,
+  perNight = false,
   secondaryLine,
 }: {
   rent: number;
   deposit?: number;
   depositMonths?: number;
   total?: boolean;
+  perNight?: boolean;
   secondaryLine?: string;
 }) {
   const reduceMotion = useReduceMotion();
@@ -337,6 +344,7 @@ function PriceSlot({
         depositMonths={depositMonths}
         size="bar"
         total={total}
+        perNight={perNight}
         secondaryLine={secondaryLine}
       />
     </Animated.View>

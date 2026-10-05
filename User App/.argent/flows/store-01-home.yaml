@@ -1,0 +1,13 @@
+steps:
+  - launch: com.lampose.users.com
+  - echo: Fresh install opens on sign-in; browse as a guest like a first-time visitor.
+  - await: { visible: { text: Continue as guest } }
+  - tap: { text: Continue as guest }
+  - await: { visible: { text: What kind of place } }
+  - tap: { text: "PG / Hostel" }
+  - tap: { text: Show me }
+  - await: { visible: { text: Where are you looking } }
+  - tap: { text: All locations }
+  - await: { visible: { text: in every area we cover } }
+  - wait: 2000
+  - await: { idle: true }

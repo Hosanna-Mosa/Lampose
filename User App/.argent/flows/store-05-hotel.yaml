@@ -1,0 +1,22 @@
+steps:
+  - launch: com.lampose.users.com
+  - echo: Starts on Home. The capture uninstalls the app first, store-01-home onboards as a guest, and the app keeps that state for every flow after it.
+  - await: { visible: { text: in every area we cover } }
+  - wait: 1500
+  - echo: The category tabs scroll sideways; bring Hotels into view before tapping it.
+  - tool: gesture-swipe
+    args: { fromX: 0.85, fromY: 0.33, toX: 0.2, toY: 0.33, durationMs: 500, momentum: false }
+  - wait: 600
+  - tap: { text: Hotels }
+  - await: { visible: { text: hotels in every area } }
+  - wait: 1500
+  - tap: { text: View details for }
+  - await: { visible: { text: Hotel Stay Dates } }
+  - wait: 1500
+  - echo: Scroll so the room choice and the per night / month / hour options are on screen.
+  - tool: gesture-swipe
+    args: { fromX: 0.5, fromY: 0.75, toX: 0.5, toY: 0.45, durationMs: 600, momentum: false }
+  - wait: 600
+  - tap: { text: Single Room }
+  - wait: 800
+  - await: { idle: true }
