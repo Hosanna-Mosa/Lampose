@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { categoryLabel } from '@/lib/format';
 import { Box, Picture, Tappable } from '@/components/common';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -50,14 +51,9 @@ import { styles } from '@/components/settings-property-edit/styles';
  */
 
 /* Codes, matching the schema enum — Backend/src/shared/constants/categories.js.
-   CATEGORY_LABEL is what the picker shows. */
+   `categoryLabel` (lib/format) is what the picker shows. */
 const CATEGORIES = ['PG_HOSTEL', 'BACHELOR', 'HOTEL', 'COLIVE'] as const;
-const CATEGORY_LABEL: Record<(typeof CATEGORIES)[number], string> = {
-  PG_HOSTEL: 'PG / Hostel',
-  BACHELOR: 'Bachelor',
-  HOTEL: 'Hotels',
-  COLIVE: 'House / Co-live',
-};
+
 /* Matches the backend's third value verbatim — `stayIntent.util.js` gates
    short-stay bookability on this exact string containing "both". Collapsing
    it to 'Long Stay' on load used to silently downgrade a dual-rate listing
@@ -287,7 +283,7 @@ export function PropertyEditScreen() {
             <Select
               label="Category"
               options={CATEGORIES}
-              format={(c) => CATEGORY_LABEL[c]}
+              format={(c) => categoryLabel(c)}
               value={form.category}
               /* The details belong to a category — a hotel's room list is
                  meaningless on a PG. A new category starts empty; going back

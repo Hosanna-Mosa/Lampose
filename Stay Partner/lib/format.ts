@@ -119,3 +119,22 @@ export function initials(name?: string): string {
     .map((w) => w[0]?.toUpperCase() ?? '')
     .join('');
 }
+
+/**
+ * A property category as an owner reads it.
+ *
+ * The API sends the schema code (`PG_HOSTEL`); the edit form already had these
+ * words, but the property card and Add customer printed the raw code. One map
+ * here so all three say the same thing. An unknown or legacy value is shown as
+ * it came rather than hidden.
+ */
+export const CATEGORY_LABEL: Record<string, string> = {
+  PG_HOSTEL: 'PG / Hostel',
+  BACHELOR: 'Bachelor',
+  HOTEL: 'Hotels',
+  COLIVE: 'House / Co-live',
+  COMMERCIAL: 'Shop / Commercial',
+};
+
+export const categoryLabel = (code: string | null | undefined): string =>
+  (code ? CATEGORY_LABEL[code] ?? code : '');

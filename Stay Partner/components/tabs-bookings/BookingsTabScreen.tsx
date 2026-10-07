@@ -324,6 +324,11 @@ export function BookingsTabScreen() {
   const historyRequests = useMemo(
     () => requestGroups.answered.filter(
       (r) => REQUEST_HISTORY_STATUSES.has(r.status)
+        /* A request the owner accepted opened a booking, and the booking row
+           tells that story from then on. Cancelling the booking also marks
+           the request 'cancelled', so without this the same stay was listed
+           twice in History — once as the booking, once as its request. */
+        && !r.bookingId
         /* `useStayRequests` has no server-side category filter — it backs
            the live Requests tab too, where an owner wants to see every
            incoming ask regardless of kind. So the category chip narrows

@@ -30,7 +30,9 @@ const ACCOUNT_ROWS: NavRow[] = [
   { label: 'Customers', href: '/customers' },
   { label: 'Edit profile', href: '/settings/profile' },
   { label: 'Payout methods', href: '/earnings/methods' },
-  { label: 'Staff & permissions (coming soon)', href: '/staff' },
+  /* No staff row: staff accounts are not built yet, and a row that opens a
+     "coming soon" screen is what App Review rejects (guideline 2.1). The
+     /staff routes are dev-only until the feature ships. */
   { label: 'Refer & earn', href: '/referrals' },
   /* Both screens existed with nothing leading to them: reviews could only be
      reached by a deep link, and support only from the lockout screen. */

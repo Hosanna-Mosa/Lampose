@@ -1,4 +1,5 @@
-import { RefreshControl, View } from 'react-native';
+import { Platform, RefreshControl, View } from 'react-native';
+import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { layout } from '@/constants/layout';
@@ -117,30 +118,45 @@ export function Screen({
         </View>
       )}
       {footer ? (
-        <View
-          style={[
-            styles.footer,
-            {
-              backgroundColor: bg,
-              borderTopColor: c.borderSubtle,
-              /*
-               * The tab bar is not paid for twice.
-               *
-               * `BottomTabBar` only goes `position: 'absolute'` when it is
-               * HIDDEN — while it is visible the navigator lays it out BELOW
-               * this screen and pays the bottom inset itself. Reserving its
-               * height and that inset here reserved the same band a second
-               * time, so the strip floated a whole tab bar's height above the
-               * tab bar with a dead band of page beneath it. Inside tabs the
-               * footer owes nothing but its own breathing room; outside them
-               * it still owes the safe area, because nothing below it does.
-               */
-              paddingBottom: tabBarSpacing ? 12 : insets.bottom + 12,
-            },
-          ]}
+        /*
+         * The footer rides on top of the keyboard.
+         *
+         * It used to be a plain View after the scroll area, so the keyboard
+         * opened OVER it: the ticket composer, "Save payout method" and
+         * "Submit ticket" all sat behind the keys while somebody was typing
+         * into the form they belong to. `opened` subtracts the bottom inset
+         * the footer already pads for — the keyboard covers the home-bar band
+         * itself, so keeping it would float the bar that far above the keys.
+         */
+        <KeyboardStickyView
+          enabled={Platform.OS !== 'web'}
+          offset={{ closed: 0, opened: tabBarSpacing ? 0 : insets.bottom }}
         >
-          {footer}
-        </View>
+          <View
+            style={[
+              styles.footer,
+              {
+                backgroundColor: bg,
+                borderTopColor: c.borderSubtle,
+                /*
+                 * The tab bar is not paid for twice.
+                 *
+                 * `BottomTabBar` only goes `position: 'absolute'` when it is
+                 * HIDDEN — while it is visible the navigator lays it out BELOW
+                 * this screen and pays the bottom inset itself. Reserving its
+                 * height and that inset here reserved the same band a second
+                 * time, so the strip floated a whole tab bar's height above the
+                 * tab bar with a dead band of page beneath it. Inside tabs the
+                 * footer owes nothing but its own breathing room; outside them
+                 * it still owes the safe area, because nothing below it does.
+                 */
+                paddingBottom: tabBarSpacing ? 12 : insets.bottom + 12,
+              },
+            ]}
+          >
+            {footer}
+          </View>
+        </KeyboardStickyView>
       ) : null}
     </View>
   );

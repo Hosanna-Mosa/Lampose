@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { categoryLabel } from '@/lib/format';
 import { Share, StyleSheet } from 'react-native';
 import { Box } from '@/components/common';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -475,7 +476,7 @@ export function AddCustomerScreen() {
           <Text variant="badge" color="textTertiary">
             Category
           </Text>
-          <Text style={[styles.categoryValue, { color: c.textPrimary }]}>{category}</Text>
+          <Text style={[styles.categoryValue, { color: c.textPrimary }]}>{categoryLabel(category)}</Text>
         </Box>
       ) : null}
 

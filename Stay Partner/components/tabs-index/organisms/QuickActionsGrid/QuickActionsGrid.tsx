@@ -51,7 +51,7 @@ export function QuickActionsGrid({
     {
       id: 'complaints',
       title: 'Complaints',
-      subtitle: openComplaintsCount > 0 ? `${openComplaintsCount} open issues` : 'Nothing open right now',
+      subtitle: openComplaintsCount > 0 ? `${openComplaintsCount} open ${openComplaintsCount === 1 ? 'issue' : 'issues'}` : 'Nothing open right now',
       bg: '#FDF2F8',
       border: '#FCE7F3',
       discBg: '#FCE7F3',

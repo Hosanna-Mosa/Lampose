@@ -98,26 +98,37 @@ export function MethodActionsSheetScreen() {
     }
   };
 
+  /*
+   * The sheet slides in once it knows what it is showing.
+   *
+   * It used to open at its "Loading…" size and grow when the account arrived.
+   * The slide-in animation settles on the height it STARTED with, so the extra
+   * rows pushed the bottom of the sheet off the screen — "Close" and "Make
+   * default" ended up under the home bar. The fetch is one small request, so
+   * waiting for it costs a blink and the sheet lands at its final height.
+   * (The screen itself still mounts at once — only the sheet waits.)
+   */
   return (
     <>
       <Stack.Screen
         options={{ presentation: 'transparentModal', animation: 'fade', headerShown: false }}
       />
-      <BottomSheet
-        title={method?.bankName ?? (loading ? 'Loading…' : 'Payout method')}
-        subtitle={method ? maskedNumber(method) : undefined}
-        onClose={close}
-        footer={(
-          <>
-            <Button label="Close" variant="secondary" onPress={close} style={styles.action} />
-            <Button
-              label="Make default"
-              onPress={() => { void makeDefault(); }}
-              disabled={!method || method.isDefault || busy}
-              loading={busy}
-              style={styles.action}
-            />
-          </>
+      {loading ? null : (
+        <BottomSheet
+          title={method?.bankName ?? (loading ? 'Loading…' : 'Payout method')}
+          subtitle={method ? maskedNumber(method) : undefined}
+          onClose={close}
+          footer={(
+            <>
+              <Button label="Close" variant="secondary" onPress={close} style={styles.action} />
+              <Button
+                label="Make default"
+                onPress={() => { void makeDefault(); }}
+                disabled={!method || method.isDefault || busy}
+                loading={busy}
+                style={styles.action}
+              />
+            </>
         )}
       >
         {method?.holderName ? (
@@ -141,6 +152,7 @@ export function MethodActionsSheetScreen() {
           </Text>
         ) : null}
       </BottomSheet>
+      )}
     </>
   );
 }

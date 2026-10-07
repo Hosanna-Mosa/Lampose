@@ -33,8 +33,13 @@ export function RequestCard({
   onPress?: () => void;
 }) {
   const c = useColors();
+  /* The countdown belongs to a request still waiting on an answer. History
+     reuses this card for declined, cancelled and expired requests, and their
+     deadline has always passed — so the chip read "Expired" beside a
+     "Declined" badge, two answers to one question. */
+  const live = request.status === 'pending';
   const urgency = urgencyOf(request.expiresAt - Date.now());
-  const expired = urgency === 'expired';
+  const expired = !live || urgency === 'expired';
 
   const border = expired
     ? { width: 1, color: c.borderSubtle }
@@ -74,7 +79,7 @@ export function RequestCard({
 
       <View style={styles.bottomRow}>
         <BookingStatusBadge status={request.status} />
-        <CountdownChip expiresAt={request.expiresAt} bare={expired} />
+        {live ? <CountdownChip expiresAt={request.expiresAt} bare={expired} /> : null}
       </View>
     </Pressable>
   );

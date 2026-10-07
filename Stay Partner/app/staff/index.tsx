@@ -5,4 +5,8 @@
  * its default export, because with file-based routing the path IS the route --
  * moving or renaming it deletes the screen behind a green build (M5).
  */
-export { StaffComingSoonScreen as default } from '@/components/staff-coming-soon/StaffComingSoonScreen';
+import { devOnly } from '@/components/dev-only/devOnly';
+import { StaffComingSoonScreen } from '@/components/staff-coming-soon/StaffComingSoonScreen';
+
+/* Not linked from the app until staff accounts exist — see MenuTabScreen. */
+export default devOnly(StaffComingSoonScreen);

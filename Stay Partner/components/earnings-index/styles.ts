@@ -26,7 +26,9 @@ export const styles = StyleSheet.create({
   statTile: { flex: 1, borderWidth: 1, borderRadius: 14, padding: 14, gap: 4 },
   statValue: { fontFamily: fonts.extrabold, fontSize: 20 },
   card: { borderWidth: 1, borderRadius: radius.card, padding: 16, gap: 4 },
-  amount: { fontFamily: fonts.extrabold, fontSize: 30, marginTop: 2 },
+  /* An explicit lineHeight: without one a 30pt figure inherits the Text
+     default and the top of "₹0" is clipped. */
+  amount: { fontFamily: fonts.extrabold, fontSize: 30, lineHeight: 38, marginTop: 2 },
   hint: { marginBottom: 6 },
   requestButton: { marginTop: 8 },
   pendingRow: {
