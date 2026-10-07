@@ -48,16 +48,25 @@ export function VerificationCodeDisplay({
    * each role onto the theme's own tokens.
    */
   const dark = mode === 'dark';
+  /* Two roles take their colour from the theme in BOTH modes: the ₹100 offer
+     is a reward, so it wears the logo's yellow (`deal`), and "Code not
+     working?" is a link, so it is the link blue. */
+  const offer = {
+    box: { backgroundColor: colors.deal.tint, borderColor: colors.deal.border },
+    iconBg: { backgroundColor: colors.deal.base },
+    icon: colors.deal.on,
+    text: { color: colors.deal.ink },
+  };
   const skin = dark
     ? {
         passBadge: { backgroundColor: colors.success.tint, borderColor: colors.success.border },
         passBadgeText: { color: colors.success.ink },
         passIcon: colors.success.ink,
         passTitle: { color: colors.textPrimary },
-        offerBox: { backgroundColor: colors.warning.tint, borderColor: colors.warning.borderStrong },
-        offerIconBg: { backgroundColor: colors.warning.border },
-        offerIcon: colors.warning.ink,
-        offerText: { color: colors.warning.ink },
+        offerBox: offer.box,
+        offerIconBg: offer.iconBg,
+        offerIcon: offer.icon,
+        offerText: offer.text,
         tile: { backgroundColor: colors.brandTint, borderColor: colors.success.border },
         digit: { color: colors.brandInk },
         metaRow: { backgroundColor: colors.surfaceSunken, borderColor: colors.borderSubtle },
@@ -68,17 +77,17 @@ export function VerificationCodeDisplay({
         checkBadge: { backgroundColor: colors.success.tint, borderColor: colors.success.border },
         checkIcon: colors.success.ink,
         assuranceText: { color: colors.textSecondary },
-        link: colors.brandInk,
+        link: colors.link.ink,
       }
     : {
         passBadge: {},
         passBadgeText: {},
         passIcon: '#059669',
         passTitle: {},
-        offerBox: {},
-        offerIconBg: {},
-        offerIcon: '#D97706',
-        offerText: {},
+        offerBox: offer.box,
+        offerIconBg: offer.iconBg,
+        offerIcon: offer.icon,
+        offerText: offer.text,
         tile: {},
         digit: {},
         metaRow: {},
@@ -89,7 +98,7 @@ export function VerificationCodeDisplay({
         checkBadge: {},
         checkIcon: '#059669',
         assuranceText: {},
-        link: '#4F46E5',
+        link: colors.link.ink,
       };
 
   return (
@@ -347,8 +356,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: '#FEF3C7',
-    borderColor: '#F59E0B',
+    /* Colours: `offer` in the component — the theme's `deal` set. */
     borderWidth: 1.5,
     borderRadius: 10,
     paddingHorizontal: 14,
@@ -359,14 +367,12 @@ const styles = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: '#FDE68A',
     alignItems: 'center',
     justifyContent: 'center',
   },
   offerHighlightText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#92400E',
     lineHeight: 18,
     flex: 1,
   },

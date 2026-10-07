@@ -72,18 +72,18 @@ describe('paymentForNewRequest', () => {
     const payment = await paymentForNewRequest('BACHELOR', null, 0, '2 BHK');
     assert.equal(payment.required, true);
     assert.equal(payment.purpose, 'assisted_visit');
-    assert.equal(payment.amountPaise, 99900);
+    assert.equal(payment.amountPaise, 69900);
     assert.equal(payment.feeTier, '2BHK');
   });
 
   it('charges co-live and commercial visits', async () => {
-    assert.equal((await paymentForNewRequest('COLIVE', null, 0, '1 BHK')).amountPaise, 49900);
+    assert.equal((await paymentForNewRequest('COLIVE', null, 0, '1 BHK')).amountPaise, 29900);
     assert.equal((await paymentForNewRequest('COMMERCIAL', null, 0, null)).amountPaise, 199900);
   });
 
   it('never discounts a visit fee', async () => {
     const payment = await paymentForNewRequest('BACHELOR', null, 100, '1 RK');
-    assert.equal(payment.amountPaise, 29900);
+    assert.equal(payment.amountPaise, 19900);
   });
 
   it('PG stays free', async () => {
@@ -111,12 +111,12 @@ describe('updateFees', () => {
 
     const rows = await AdminAuditLog.find({ action: 'visit_fees.changed' }).lean();
     assert.equal(rows.length, 1);
-    assert.deepEqual(rows[0].before, { '1RK': 29900 });
+    assert.deepEqual(rows[0].before, { '1RK': 19900 });
     assert.deepEqual(rows[0].after, { '1RK': 34900 });
   });
 
   it('writes nothing when nothing changed', async () => {
-    await fees.updateFees({ '1RK': 29900 }, req);
+    await fees.updateFees({ '1RK': 19900 }, req);
     assert.equal(await AdminAuditLog.countDocuments({ action: 'visit_fees.changed' }), 0);
   });
 

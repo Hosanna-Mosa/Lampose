@@ -151,6 +151,28 @@ export type ThemeColors = {
   };
   danger: SemanticColor;
   info: SemanticColor;
+  /**
+   * Blue — links, and the outline of whatever has been picked: the colour a
+   * reader already takes for "tap this" and "you chose this".
+   *
+   * For a screen that gives each colour one job, as a marketplace product page
+   * does. There green is left to mean the brand's own action and good news
+   * (available, cheaper), so it stops being every accent at once.
+   */
+  link: SemanticColor;
+  /**
+   * The logo's yellow — the O in "lampose" (#FCDD44 on the master). For what
+   * sells or rewards: a filled badge ("Zero Brokerage") with dark `on` text,
+   * or a pale `tint` panel for an offer. Never text on white: yellow ink does
+   * not read there, which is why `ink` is a deep ochre.
+   */
+  deal: SemanticColor;
+  /**
+   * Food's orange — the Food door in the bottom bar and the food Home tab.
+   * A vivid orange rather than caution's burnt one, which means "waiting on
+   * somebody". `ink` is the darker step for text on white or on `tint`.
+   */
+  orange: SemanticColor;
 
   category: Record<StayCategory, CategoryColor>;
 };
@@ -318,6 +340,14 @@ const lightColors: ThemeColors = {
    * one up as good news.
    */
   info: { base: '#55524C', ink: '#1A1917', tint: '#E9E6E0', border: '#DDD9D1', on: '#FFFFFF' },
+  /* White on `base` 6.0:1; `ink` on white 7.2:1, on `tint` 6.4:1. */
+  link: { base: '#1F63B6', ink: '#1A56A0', tint: '#EAF2FC', border: '#B8D0EE', on: '#FFFFFF' },
+  /* `base` is the logo's own yellow. `on` (near-black) on it 13:1; `ink` on
+     `tint` 7.0:1. */
+  deal: { base: '#FCDD44', ink: '#6B5200', tint: '#FFF8D9', border: '#F0D35A', on: '#1A1917' },
+  /* White on `base` 3.6:1 — enough for a glyph and a bold label on a button;
+     `ink` on white 5.2:1 for text. */
+  orange: { base: '#EA580C', ink: '#C2410C', tint: '#FFEDD5', border: '#FDBA74', on: '#FFFFFF' },
 
   /*
    * Category marks are a taxonomy, not brand expression, and the reference
@@ -437,6 +467,12 @@ const darkColors: ThemeColors = {
   /* Neutral, matching light mode — a caveat is not good news. It follows the
      charcoal ramp, which is the whole point of it being the neutral role. */
   info: { base: '#BEC3CA', ink: '#F3F4F6', tint: '#232629', border: '#2C2F34', on: '#101113' },
+  /* Lightened to sit on near-black, so what sits ON them turns near-black too
+     (`on`) — the same flip `onBrand` makes. `base` on `surface` 6.2:1. */
+  link: { base: '#5E9EEB', ink: '#8DBDF5', tint: '#132339', border: '#2B4A70', on: '#08111F' },
+  deal: { base: '#F2D14B', ink: '#F5DC72', tint: '#2A2408', border: '#5C4D12', on: '#1A1503' },
+  /* Lightened to sit on near-black, so `on` flips to near-black like the rest. */
+  orange: { base: '#FB8A3C', ink: '#FDA766', tint: '#2E1A0A', border: '#6B3A14', on: '#1A0E05' },
 
   /* The category marks keep their hues — they are a taxonomy and telling them
      apart is their job. Only the TINTS moved, off the brown ramp and onto
@@ -458,7 +494,11 @@ export const palettes = { light: lightColors, dark: darkColors };
  * Typography
  * ------------------------------------------------------------------ */
 
-export type TypeFace = 'display' | 'body' | 'numeric' | 'stays';
+/**
+ * The one face the app draws in — Manrope, for stays AND food. See
+ * `constants/fonts.ts`. It is still named for the side that adopted it first.
+ */
+export type TypeFace = 'stays';
 
 export type TypeStyle = {
   face: TypeFace;
@@ -475,27 +515,29 @@ export type TypeStyle = {
 };
 
 /**
- * The type scale. This is the whole scale — a screen may not invent a size,
- * a weight or a family outside it.
+ * The FOOD type scale. This is the whole scale — a screen may not invent a
+ * size, a weight or a family outside it.
  *
- * The `numeric` face is not decorative: it is load-bearing. A timer, distance,
- * date, deposit, booking id and verification code is set in it, so that digits
- * stay column-aligned and a changing number never shifts the layout around it.
+ * ## One family, the stays one
  *
- * ## The two hero price tiers are DISPLAY, not numeric
+ * Food used to set this scale in three faces — Outfit for headings and hero
+ * prices, Source Sans 3 for prose, DM Mono for secondary figures — which put a
+ * price in a different typeface from the label above it, and the food tab in a
+ * different typeface from the stays tab beside it. Every variant is now drawn
+ * in Manrope, the face the stay screens use.
  *
- * Changed 20 Aug 2026 with the Dock repaint, and it is the reference's call
- * rather than a preference: the sheet sets its DISPLAY specimen to "₹8,500" in
- * Outfit and reserves the FIGURES specimen — "17,000 · 4192 · 22 min · 3 free"
- * — for DM Mono. So the rent a student is actually deciding on is display type,
- * and everything secondary around it is mono.
+ * What food keeps is its own SIZES: they were cut four times on purpose (see
+ * below) and a food screen is denser than a stay screen. What it takes from
+ * stays is how Manrope is set, because those settings belong to the face, not
+ * the module:
  *
- * That reading is also what makes the trio work at all. DM Mono has no weight
- * above Medium (see `fontFamilies`), so a hero rent left on `numeric` would be
- * the one figure on the screen that could not be the heaviest thing on it.
+ *   - nothing below 500. Manrope is light-cored and read thin at 400 on dim
+ *     phone panels; see `STAYS_STEPS`.
+ *   - far less negative tracking. The tight tracking was Outfit's; Manrope is
+ *     drawn tight already, so headings use the stays values.
  *
- * `tabular` stays true on both: Outfit's numerals are uniform-width by design,
- * so a rent that ticks between sharing options still does not reflow its row.
+ * `tabular` stays on every figure so a changing total or countdown never
+ * reflows its row.
  */
 export const typeScale = {
   /*
@@ -513,26 +555,25 @@ export const typeScale = {
    *
    * `codeHero` is untouched at 50 and still `noScale`.
    */
-  display1: { face: 'display', size: 21, weight: 700, lineHeight: 23, letterSpacing: -0.63 },
-  display2: { face: 'display', size: 15, weight: 700, lineHeight: 19, letterSpacing: -0.38 },
-  title1: { face: 'display', size: 14, weight: 700, lineHeight: 17, letterSpacing: -0.28 },
-  title2: { face: 'display', size: 13, weight: 700, lineHeight: 16, letterSpacing: -0.2 },
-  title3: { face: 'display', size: 12, weight: 600, lineHeight: 15, letterSpacing: -0.12 },
+  display1: { face: 'stays', size: 21, weight: 700, lineHeight: 23, letterSpacing: -0.3 },
+  display2: { face: 'stays', size: 15, weight: 700, lineHeight: 19, letterSpacing: -0.1 },
+  title1: { face: 'stays', size: 14, weight: 700, lineHeight: 17, letterSpacing: -0.1 },
+  title2: { face: 'stays', size: 13, weight: 700, lineHeight: 16, letterSpacing: -0.1 },
+  title3: { face: 'stays', size: 12, weight: 600, lineHeight: 15, letterSpacing: 0 },
 
-  bodyLg: { face: 'body', size: 12, weight: 400, lineHeight: 18, letterSpacing: 0 },
-  body: { face: 'body', size: 11.5, weight: 400, lineHeight: 17, letterSpacing: 0 },
-  bodyStrong: { face: 'body', size: 11.5, weight: 600, lineHeight: 15, letterSpacing: 0 },
-  caption: { face: 'body', size: 10, weight: 400, lineHeight: 14, letterSpacing: 0 },
-  label: { face: 'body', size: 10, weight: 600, lineHeight: 13, letterSpacing: 1, upper: true },
-  eyebrow: { face: 'body', size: 10, weight: 600, lineHeight: 13, letterSpacing: 1.4, upper: true },
+  bodyLg: { face: 'stays', size: 12, weight: 500, lineHeight: 18, letterSpacing: 0 },
+  body: { face: 'stays', size: 11.5, weight: 500, lineHeight: 17, letterSpacing: 0 },
+  bodyStrong: { face: 'stays', size: 11.5, weight: 600, lineHeight: 15, letterSpacing: 0 },
+  caption: { face: 'stays', size: 10, weight: 500, lineHeight: 14, letterSpacing: 0 },
+  label: { face: 'stays', size: 10, weight: 600, lineHeight: 13, letterSpacing: 0.8, upper: true },
+  eyebrow: { face: 'stays', size: 10, weight: 600, lineHeight: 13, letterSpacing: 1.1, upper: true },
 
-  // Display face — see the note above the scale.
-  priceHero: { face: 'display', size: 19, weight: 700, lineHeight: 19, letterSpacing: -0.76, tabular: true },
-  priceLg: { face: 'display', size: 15, weight: 700, lineHeight: 15, letterSpacing: -0.6, tabular: true },
-  priceMd: { face: 'numeric', size: 12.5, weight: 700, lineHeight: 13, letterSpacing: -0.5, tabular: true },
-  priceSm: { face: 'numeric', size: 10.5, weight: 600, lineHeight: 14, letterSpacing: 0, tabular: true },
-  numMeta: { face: 'numeric', size: 10, weight: 500, lineHeight: 14, letterSpacing: 0, tabular: true },
-  codeHero: { face: 'numeric', size: 50, weight: 700, lineHeight: 50, letterSpacing: 0, tabular: true, noScale: true },
+  priceHero: { face: 'stays', size: 19, weight: 700, lineHeight: 19, letterSpacing: -0.3, tabular: true },
+  priceLg: { face: 'stays', size: 15, weight: 700, lineHeight: 15, letterSpacing: -0.1, tabular: true },
+  priceMd: { face: 'stays', size: 12.5, weight: 700, lineHeight: 13, letterSpacing: 0, tabular: true },
+  priceSm: { face: 'stays', size: 10.5, weight: 600, lineHeight: 14, letterSpacing: 0, tabular: true },
+  numMeta: { face: 'stays', size: 10, weight: 500, lineHeight: 14, letterSpacing: 0, tabular: true },
+  codeHero: { face: 'stays', size: 50, weight: 700, lineHeight: 50, letterSpacing: 0, tabular: true, noScale: true },
 } as const satisfies Record<string, TypeStyle>;
 
 export type TypeVariant = keyof typeof typeScale;
@@ -571,8 +612,8 @@ export type TypeVariant = keyof typeof typeScale;
    for the reason they always did: a countdown that reflows its row is worse
    than one that is a pixel wide.
 
-   FOOD IS NOT AFFECTED. It keeps `typeScale` and the three original families
-   — see `TypographyScope`.
+   FOOD SHARES THE FAMILY, NOT THE STEPS. It is drawn in Manrope too, but keeps
+   its own smaller sizes in `typeScale` — see `TypographyScope`.
    ══════════════════════════════════════════════════════════════════════════ */
 
 const STAYS_STEPS = {
@@ -653,76 +694,9 @@ export const staysTypeScale = {
 
 
 
-/**
- * Loaded font family names, keyed by face and weight.
- *
- * React Native cannot synthesise a weight from a single family, so every
- * weight is a separately registered family. `resolveFontFamily` below is the
- * only place allowed to do this lookup.
- *
- * The Dock trio, adopted 20 Aug 2026 with the palette:
- *   DISPLAY  Outfit         — headings, and the hero rent figure
- *   BODY     Source Sans 3  — everything read as prose
- *   FIGURES  DM Mono        — secondary numerals: deposits, distances,
- *                             counts, timers, ids and the gate code
- *
- * ## DM Mono stops at 500
- *
- * The family ships Light/Regular/Medium and nothing heavier, so `numeric` 600
- * and 700 both resolve to `DMMono_500Medium`. That is a genuine ceiling rather
- * than an oversight, and it is survivable only because of the change above it:
- * the *hero* rent moved onto the display face, so nothing that needed to be
- * the heaviest numeral on a surface is asking this family to be bold. What is
- * left on `numeric` — a deposit, "22 min", "3 beds free", a booking id — is
- * secondary by definition and reads correctly at Medium.
- *
- * Swapping in a mono with a bold (JetBrains Mono, IBM Plex Mono) is the fix if
- * a heavier figure is ever needed; it is a change in this map alone.
- */
-export const fontFamilies: Record<TypeFace, Record<400 | 500 | 600 | 700, string>> = {
-  display: {
-    400: 'Outfit_400Regular',
-    500: 'Outfit_500Medium',
-    600: 'Outfit_600SemiBold',
-    700: 'Outfit_700Bold',
-  },
-  body: {
-    400: 'SourceSans3_400Regular',
-    500: 'SourceSans3_500Medium',
-    600: 'SourceSans3_600SemiBold',
-    700: 'SourceSans3_700Bold',
-  },
-  numeric: {
-    400: 'DMMono_400Regular',
-    500: 'DMMono_500Medium',
-    // No 600 or 700 exists in DM Mono. Both fall back to Medium — see above.
-    600: 'DMMono_500Medium',
-    700: 'DMMono_500Medium',
-  },
-
-  /*
-   * STAYS — one family, every weight.
-   *
-   * Manrope, replacing the Outfit/Source Sans/DM Mono trio across the stay
-   * side of the app. It is a UI face rather than a text face: open apertures
-   * that hold up at 11px on a cheap panel, and numerals that are close enough
-   * to uniform width that a changing rent does not reflow the row around it.
-   *
-   * One family for headings, prose AND figures is the point. Three faces meant
-   * a price sat in a different typeface from the label above it and the total
-   * below it, which is a lot of visual difference to carry for no information.
-   */
-  stays: {
-    400: 'Manrope_400Regular',
-    500: 'Manrope_500Medium',
-    600: 'Manrope_600SemiBold',
-    700: 'Manrope_700Bold',
-  },
-};
-
-export function resolveFontFamily(face: TypeFace, weight: 400 | 500 | 600 | 700): string {
-  return fontFamilies[face][weight];
-}
+/* Which font each face is drawn in — the files, the names they are registered
+   under and `resolveFontFamily` — lives in `constants/fonts.ts`, the one file
+   that names a font. */
 
 /**
  * How far each face is allowed to grow under the OS font-size setting.
@@ -759,11 +733,7 @@ export function resolveFontFamily(face: TypeFace, weight: 400 | 500 | 600 | 700)
 export const MAX_FONT_SCALE = 1.3;
 
 export const maxFontSizeMultiplier: Record<TypeFace, number> = {
-  display: MAX_FONT_SCALE,
-  body: MAX_FONT_SCALE,
-  numeric: MAX_FONT_SCALE,
-  /* Stays uses the body cap: it IS the body face now. */
-  stays: 1.3,
+  stays: MAX_FONT_SCALE,
 };
 
 /* ------------------------------------------------------------------ *

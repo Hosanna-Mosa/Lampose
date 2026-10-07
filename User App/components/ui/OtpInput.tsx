@@ -11,8 +11,10 @@ import Animated, {
 
 import { Icon } from './Icon';
 import { Text } from './Text';
+import { applyFont } from '@/constants/fonts';
 import { easing } from '@/constants/motion';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
+import { useTypeScale } from '@/context/TypographyContext';
 
 const GAP = 7;
 const HEIGHT = 52;
@@ -60,6 +62,7 @@ export function OtpInput({
   autoFocus = false,
 }: OtpInputProps) {
   const { colors, space, radius } = useTheme();
+  const scale = useTypeScale();
   const reduceMotion = useReduceMotion();
   const inputRef = useRef<TextInput>(null);
   const shake = useSharedValue(0);
@@ -138,7 +141,9 @@ export function OtpInput({
           autoFocus={autoFocus}
           caretHidden
           accessibilityLabel={`Verification code, ${length} digits`}
-          style={[StyleSheet.absoluteFill, styles.overlayInput]}
+          /* Its glyphs are invisible, but they are still letters: same face
+             as the boxes, from the one font file. */
+          style={[StyleSheet.absoluteFill, applyFont(scale.body.face, styles.overlayInput)]}
         />
       </View>
 
@@ -223,7 +228,7 @@ function OtpBox({ index, digit, width, radius, state, active, colors, reduceMoti
         },
       ]}
     >
-      {/* DM Mono, so a 1 and a 7 cannot be confused at a glance. */}
+      {/* Tabular figures, so every digit sits in the same width of box. */}
       <Text variant="priceMd">{digit ?? ''}</Text>
     </Animated.View>
   );

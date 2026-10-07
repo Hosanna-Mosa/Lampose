@@ -129,11 +129,14 @@ export type AddResult = 'added' | 'conflict';
  * on Home — the field across the top of the feed is where a search actually
  * starts. Being off the bar changes where it is reached FROM, not what it is,
  * so it stays a module screen rather than becoming a pushed route.
+ *
+ * `dinein` is table bookings — restaurants to book and the diner's own
+ * bookings (`FoodDineIn`).
  */
-export type FoodTab = 'home' | 'search' | 'orders';
+export type FoodTab = 'home' | 'search' | 'orders' | 'dinein';
 
 export type FoodContextValue = {
-  /** Home / Search / Orders — the bottom bar's three stay-side-shaped tabs. */
+  /** Home / Search / Orders / Dine-in — the module's screens; Search is off the bar. */
   foodTab: FoodTab;
   setFoodTab: (tab: FoodTab) => void;
 

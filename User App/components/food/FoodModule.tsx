@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Keyboard, StyleSheet, View } from 'react-native';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -11,7 +11,9 @@ import { usePendingRequest } from '@/context/PendingRequestContext';
 import { CartSwitchSheet } from './CartSwitchSheet';
 import { foodHref } from './routes';
 import { DockedCartBar } from './DockedCartBar';
+import { FoodPausedContext } from './FoodPaused';
 import { FoodHome } from './FoodHome';
+import { FoodDineIn } from './FoodDineIn';
 import { FoodOrders } from './FoodOrders';
 import { FoodSearch } from './FoodSearch';
 
@@ -48,9 +50,20 @@ export type FoodModuleProps = {
    *  screen above can paint that header over artwork or as an ordinary bar.
    *  Only Home has a banner; the other two screens never fire it. */
   onBannerUnderHeader?: (under: boolean) => void;
+  /**
+   * Whether the Food tab is the one on screen.
+   *
+   * The module is kept MOUNTED behind the stay tabs (see the Food branch in
+   * `app/home.tsx`) so opening Food shows a tree that already exists instead
+   * of building the whole feed in the frame the tab was tapped. While hidden
+   * it must leave no trace on the screen in front of it: the docked cart bar
+   * gives back its claim on the bottom edge, and the cart-switch sheet stays
+   * shut — exactly what an unmounted module did.
+   */
+  active?: boolean;
 };
 
-function FoodModuleImpl({ onBannerUnderHeader }: FoodModuleProps) {
+function FoodModuleImpl({ onBannerUnderHeader, active = true }: FoodModuleProps) {
   const router = useRouter();
   const {
     count,
@@ -109,19 +122,38 @@ function FoodModuleImpl({ onBannerUnderHeader }: FoodModuleProps) {
    * the tab bar uses — the largest claim wins, and a claimant may only withdraw
    * its own.
    */
+  /* The last height the cart bar measured, so its claim can be put back the
+     moment the tab is shown again without waiting for a fresh layout pass. */
+  const cartHeight = useRef(0);
   const measureCart = useCallback(
-    (height: number) => reserveBottom('foodCart', height),
-    [reserveBottom],
+    (height: number) => {
+      cartHeight.current = height;
+      if (active) reserveBottom('foodCart', height);
+    },
+    [active, reserveBottom],
   );
   useEffect(() => {
-    if (count === 0) releaseBottom('foodCart');
+    if (count === 0 || !active) releaseBottom('foodCart');
+    else if (cartHeight.current > 0) reserveBottom('foodCart', cartHeight.current);
     return () => releaseBottom('foodCart');
-  }, [count, releaseBottom]);
+  }, [count, active, reserveBottom, releaseBottom]);
+
+  /* Leaving Food used to unmount the search field, which took the keyboard
+     down with it. Kept mounted, a focused field would hold the keyboard up
+     over the stay tab — so it is put away on the way out. */
+  const wasActive = useRef(active);
+  useEffect(() => {
+    /* Only on the way OUT — not when the module is first built hidden, which
+       happens while somebody may be typing in the stay side's search. */
+    if (wasActive.current && !active) Keyboard.dismiss();
+    wasActive.current = active;
+  }, [active]);
 
   const cartContext =
     fulfilment === 'pickup' ? `pickup · ${kitchen?.name ?? 'counter'}` : (address?.title ?? 'no address yet');
 
   return (
+    <FoodPausedContext.Provider value={!active}>
     <View style={styles.host}>
       <View style={styles.body}>
         {foodTab === 'home' ? (
@@ -131,6 +163,8 @@ function FoodModuleImpl({ onBannerUnderHeader }: FoodModuleProps) {
           />
         ) : foodTab === 'search' ? (
           <FoodSearch onBack={() => setFoodTab('home')} />
+        ) : foodTab === 'dinein' ? (
+          <FoodDineIn />
         ) : (
           <FoodOrders onHome={() => setFoodTab('home')} />
         )}
@@ -157,7 +191,7 @@ function FoodModuleImpl({ onBannerUnderHeader }: FoodModuleProps) {
       ) : null}
 
       <CartSwitchSheet
-        pending={pendingAdd}
+        pending={active ? pendingAdd : null}
         currentKitchenName={kitchen?.name}
         lineCount={lines.length}
         lineTotal={itemTotal}
@@ -165,6 +199,7 @@ function FoodModuleImpl({ onBannerUnderHeader }: FoodModuleProps) {
         onCancel={cancelSwitch}
       />
     </View>
+    </FoodPausedContext.Provider>
   );
 }
 

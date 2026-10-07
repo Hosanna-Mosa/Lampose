@@ -1,9 +1,7 @@
-import { Box } from '@/components/common';
 import { useRouter } from 'expo-router';
-import { Text, Button } from '@/components/common';
+import { Button } from '@/components/common';
 import { isSameDay } from '@/lib/format';
 import { type Booking } from '@/lib/bookings';
-import { PREVIEW_CONTROLS } from '@/constants/env';
 import { MONTHS } from '@/components/booking-id/utils';
 
 export function PrimaryAction({ booking }: { booking: Booking }) {
@@ -83,41 +81,14 @@ export function PrimaryAction({ booking }: { booking: Booking }) {
   /*
    * Not their arrival day yet.
    *
-   * The disabled button is the real answer and stays exactly as it was — an
-   * owner must not be able to check somebody in a fortnight early.
-   *
-   * Underneath it, on a build that allows preview controls, is a link to the
-   * real check-in screen, which has its own dev-only bypass now
-   * (`devForceIn` in `checkin.tsx`) — this button used to claim the date
-   * gate was client-side only and that reaching that screen was the whole
-   * bypass, which stopped being true the moment `checkInBooking` grew a real
-   * server-side `TOO_EARLY` check: typing even the correct code there still
-   * got refused. This just gets a developer to where that bypass lives.
-   *
-   * It exists because the hotel settlement chain cannot be walked otherwise:
-   * a settlement stays `held` until check-in, so Withdraw in the admin
-   * Monitor is unreachable until a real arrival date comes round.
-   *
-   * Delete this block when the flow no longer needs walking through by hand.
+   * The disabled button is the whole answer — an owner must not be able to
+   * check somebody in a fortnight early, and the server refuses it anyway
+   * (`TOO_EARLY` in `checkInBooking`).
    */
   return (
-    <Box style={{ gap: 8 }}>
-      <Button
-        label={`Check-in available ${MONTHS[booking.checkIn.getMonth()]} ${booking.checkIn.getDate()}`}
-        disabled
-      />
-      {PREVIEW_CONTROLS ? (
-        <>
-          <Button
-            label="🛠 DEV: open check-in (bypass on the next screen)"
-            variant="secondary"
-            onPress={() => router.push({ pathname: '/booking/checkin', params: { id: booking.id } })}
-          />
-          <Text variant="caption" color="textTertiary" center>
-            Development only — the real bypass is the button on that screen
-          </Text>
-        </>
-      ) : null}
-    </Box>
+    <Button
+      label={`Check-in available ${MONTHS[booking.checkIn.getMonth()]} ${booking.checkIn.getDate()}`}
+      disabled
+    />
   );
 }

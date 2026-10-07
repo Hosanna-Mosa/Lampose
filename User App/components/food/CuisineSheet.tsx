@@ -13,7 +13,7 @@ export type CuisineSheetProps = {
   visible: boolean;
   onClose: () => void;
   /** Every cuisine in the feed, not just the ones the rail had room for. */
-  cuisines: readonly { name: string; photo?: string | number }[];
+  cuisines: readonly { name: string; photo?: string }[];
   /** The popular dishes, already deduplicated and ordered by the caller. */
   dishes: readonly Dish[];
   onPickCuisine: (name: string) => void;
@@ -115,9 +115,8 @@ function Tile({
   onPress,
 }: {
   label: string;
-  /** A URL for a dish tile, a bundled asset for a cuisine tile — see
-   *  `FoodPhotoProps.uri`. */
-  photo?: string | number;
+  /** A real photo URL — a dish, or the dish standing for a cuisine. */
+  photo?: string;
   onPress: () => void;
 }) {
   const { space } = useTheme();

@@ -1,15 +1,15 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { startTransition, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  InteractionManager,
   Keyboard,
   Modal,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
-  useWindowDimensions,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -42,9 +42,10 @@ import {
   SavedRow,
   type SavedEntry,
   StayHeroSection,
+  CategoryGlassBar,
 } from '@/components/discovery';
 import { AppearanceRow, BookingRow, BookingSegments, ProfileGroup, ProfileRow } from '@/components/lifecycle';
-import { FoodComingSoon, FoodModule } from '@/components/food';
+import { FoodComingSoon, FoodFeedSkeleton, FoodModule } from '@/components/food';
 import { TypographyScope } from '@/context/TypographyContext';
 import { foodHref } from '@/components/food/routes';
 import { useFoodMode, useFoodVisible } from '@/hooks/useAppEnv';
@@ -85,10 +86,11 @@ import { formatRupees } from '@/utils/money';
  */
 
 /**
- * The Food pivot: Profile leaves the bar and Food takes its slot, raised and
- * in the caution set so it reads as a door to another module rather than a
- * fourth peer screen. Profile is now the person icon in the header — the same
- * demotion Alerts went through when Saved was promoted here.
+ * The Food pivot: Profile leaves the bar and Food becomes a door beside it —
+ * its own round yellow button, so it reads as a way into another module rather
+ * than a fourth peer screen, and the bar holds only Home, Saved and Bookings.
+ * Profile is now the person icon in the header — the same demotion Alerts went
+ * through when Saved was promoted here.
  *
  * The header icons themselves now pivot too, once Food is open: the bell
  * opens `foodHref.notifications` instead of `/notifications`, and the person
@@ -98,15 +100,25 @@ import { formatRupees } from '@/utils/money';
  * destination" idea `TabBar`'s own doc comment describes for the bottom bar.
  */
 const TABS: readonly TabItem[] = [
-  { id: 'explore', label: 'Home', icon: 'home' },
-  /* A HEART, matching the control that fills this tab. Saving a stay is a
-     heart on the card and a heart in the listing header; a bookmark on the
-     tab that holds the result made the tab look like a different list from
-     the one the taps were going into. */
-  { id: 'saved', label: 'Saved', icon: 'heart' },
-  { id: 'bookings', label: 'Bookings', icon: 'calendar' },
-  { id: 'food', label: 'Food', icon: 'food', raised: true, tone: 'caution' },
+  /* The classic set: an outline at rest, solid in the lime bubble when open. */
+  { id: 'explore', label: 'Home', icon: 'home', glyph: 'home' },
+  { id: 'saved', label: 'Saved', icon: 'heart', glyph: 'saved' },
+  { id: 'bookings', label: 'Bookings', icon: 'calendar', glyph: 'bookings' },
+  /* The burnt-orange door to Food, with its steaming bowl. Drawn as its own
+     rounded-square button beside the bar (see `TabItem.raised`), with a soft
+     glow, so the bar itself carries only Home, Saved and Bookings. */
+  { id: 'food', label: 'Food', icon: 'food', glyph: 'food', raised: true, tone: 'ember', glow: true },
 ];
+
+/**
+ * How long after the app settles the food module is built off screen.
+ *
+ * Long enough that the first stay feed has painted and the entry animations
+ * have finished — `InteractionManager` waits for those, this waits a beat
+ * more for images arriving — and short enough that a diner reaching for the
+ * Food tab almost always finds it already built.
+ */
+const FOOD_WARM_UP_MS = 1200;
 
 /**
  * And what the bar becomes once Food is open.
@@ -114,23 +126,28 @@ const TABS: readonly TabItem[] = [
  * Stepping into the module takes the stay tabs with it — Home, Saved and
  * Bookings are the app you left, not three places to keep flicking between
  * while you read a mess menu. In their place the SAME bar, in the same
- * position, carries the module's own three screens, and the fourth slot keeps
- * the raised disc: the button you pressed to get in is the button you press to
- * get out, wearing the stay side's accent instead of the module's orange.
+ * position, carries the module's own three screens, and the round button
+ * beside it stays put: the button you pressed to get in is the button you press to
+ * get out. It stays in the module's orange, like the rest of the bar in here —
+ * Food is the orange side of the app, and the door out is still inside it.
  *
- * The disc takes a map pin rather than Explore's magnifier, because Food has a
- * Search of its own two slots to the left and one bar cannot carry two
- * magnifying glasses meaning different things.
+ * The button takes a bed — rooms, the stay side — rather than Explore's
+ * magnifier, because Food has a search of its own and one bar cannot carry two
+ * magnifying glasses meaning different things. Not a house either: Food's own
+ * Home tab is the house, and one bar cannot carry two of those.
  *
  * `food:` ids are namespaced so `changeTab` can tell a module screen from a
  * stay tab without knowing what the module's screens are called.
  */
 const FOOD_EXIT: TabItem = {
   id: 'explore',
-  label: 'Explore',
+  /* Named for where it takes you — the stay side — not for the stay tab it
+     lands on. */
+  label: 'Stays',
   icon: 'search',
+  glyph: 'stays',
   raised: true,
-  tone: 'brand',
+  tone: 'ember',
 };
 
 const FOOD_TAB_IDS = {
@@ -141,6 +158,7 @@ const FOOD_TAB_IDS = {
      honest: none of the places in the bar is where you are. */
   search: 'food:search',
   orders: 'food:orders',
+  dinein: 'food:dinein',
 } as const;
 
 
@@ -258,6 +276,43 @@ export default function Home() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const FOOD_MODE = useFoodMode();
+  /*
+   * Food is BUILT before it is asked for, and kept once it is.
+   *
+   * Tapping Food used to unmount the stay feed and build the whole food feed —
+   * banner carousel, cuisine rail, two dish rails and up to fifty kitchen
+   * cards — inside the very frame the tab was tapped, so the press sat on a
+   * frozen screen until all of it had rendered. Now:
+   *
+   *   - a moment after the app settles, the module is built off screen, as a
+   *     transition React may interrupt for any touch, so it never janks the
+   *     feed somebody is scrolling;
+   *   - once built it STAYS mounted, hidden, behind the stay tabs — opening
+   *     Food is showing a tree that exists, not building one, and coming back
+   *     finds it where it was left;
+   *   - tapped before the warm-up has run, the tab paints its skeleton in the
+   *     same frame and the module arrives as a transition right behind it.
+   *
+   * Hidden, it costs nothing: every loop in it pauses (`FoodPaused`) and it
+   * gives back the bottom edge it claims for the cart bar.
+   */
+  const foodBuilt = FOOD_MODE === 'dev';
+  const [foodMounted, setFoodMounted] = useState(false);
+  useEffect(() => {
+    if (!foodBuilt || foodMounted) return undefined;
+    if (tab === 'food') {
+      startTransition(() => setFoodMounted(true));
+      return undefined;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const task = InteractionManager.runAfterInteractions(() => {
+      timer = setTimeout(() => startTransition(() => setFoodMounted(true)), FOOD_WARM_UP_MS);
+    });
+    return () => {
+      task.cancel();
+      if (timer) clearTimeout(timer);
+    };
+  }, [foodBuilt, foodMounted, tab]);
   const [segment, setSegment] = useState<BookingSegment>('active');
   /*
    * `GET /customers/bookings`, mapped through `fromRealBooking` into the
@@ -628,11 +683,13 @@ export default function Home() {
   const [bannerUnderHeader, setBannerUnderHeader] = useState(true);
   const headerOverlay = inFoodHome && bannerUnderHeader;
 
-  /* Leaving Food Home resets it, so coming back always starts over artwork
-     rather than inheriting whatever the last scroll position implied. */
+  /* Leaving Food Home for Orders or Search unmounts it, and it comes back at
+     the top — over artwork — so the flag resets with it. Leaving for a STAY
+     tab does not: the module is kept mounted (see `foodMounted`), Home keeps
+     its scroll position, and the last value it reported is still the truth. */
   useEffect(() => {
-    if (!inFoodHome) setBannerUnderHeader(true);
-  }, [inFoodHome]);
+    if (foodTab !== 'home') setBannerUnderHeader(true);
+  }, [foodTab]);
 
   /* And the bar comes back up on every tab change. Where the screen you just
      LEFT was scrolled to says nothing about the one arriving, and arriving on
@@ -643,7 +700,7 @@ export default function Home() {
   }, [tab, foodTab, showBar]);
 
   /*
-   * Home, Orders, and the way out.
+   * Home, Orders, Dine-in, and the way out.
    *
    * Search is not in the bar — it is the one screen here with a door of its
    * own on Home, the search field across the top of the feed. Orders sits
@@ -652,10 +709,14 @@ export default function Home() {
    */
   const FOOD_TABS = useMemo<readonly TabItem[]>(
     () => [
-      { id: FOOD_TAB_IDS.home, label: 'Home', icon: 'food' },
+      { id: FOOD_TAB_IDS.home, label: 'Home', icon: 'home', glyph: 'home' },
       // The dot, not a count: there is only ever one order in flight, so a
       // number would always read "1" and say nothing the dot does not.
-      { id: FOOD_TAB_IDS.orders, label: 'Orders', icon: 'agreement', dot: liveOrder !== null },
+      { id: FOOD_TAB_IDS.orders, label: 'Orders', icon: 'agreement', glyph: 'orders', dot: liveOrder !== null },
+      /* Table bookings: restaurants to book, and the diner's own bookings.
+         Third, so the bar has three tabs like the stay bar and the door
+         button beside it stays exactly where the Food button was. */
+      { id: FOOD_TAB_IDS.dinein, label: 'Dine-in', icon: 'dining', glyph: 'dinein' },
       FOOD_EXIT,
     ],
     [liveOrder],
@@ -666,7 +727,7 @@ export default function Home() {
   // of the data it would otherwise need an account to show — see the
   // `status !== 'signedIn'` branches inside their render blocks below.
   const changeTab = (next: string) => {
-    // A module screen never leaves the Food tab; only the raised disc does.
+    // A module screen never leaves the Food tab; only the round door button does.
     if (next.startsWith('food:')) {
       setFoodTab(next.slice('food:'.length) as FoodTab);
       return;
@@ -752,10 +813,12 @@ export default function Home() {
   };
 
   const insets = useSafeAreaInsets();
-  const { width: screenWidth } = useWindowDimensions();
-  const bannerHeight = Math.round((screenWidth * 9) / 16);
-  // Dock cleanly as the hero banner scrolls off-screen under the safe-area
-  const stickyThreshold = Math.max(100, bannerHeight - insets.top - 16);
+  /* Where the hero's own search bar starts, reported by the hero once it has
+     laid out. The sticky copy of the search bar and categories docks the
+     moment the real one reaches the top of the screen, so the hand-off
+     happens in one place rather than at a guessed height. */
+  const [heroDockY, setHeroDockY] = useState(0);
+  const stickyThreshold = Math.max(60, heroDockY - insets.top - 4);
 
   const scrollY = useSharedValue(0);
   const [isScrolledPastHero, setIsScrolledPastHero] = useState(false);
@@ -825,16 +888,14 @@ export default function Home() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      {/* Dynamic status bar: 'light' over the dark bedroom hero banner, adapting to theme mode
-          when the docked sticky header is active so icons are always crystal clear */}
+      {/* Dark status-bar icons over the light Explore hero (and its docked
+          header) in light mode; light ones in dark mode. */}
       <StatusBar
         style={
           tab === 'explore'
-            ? isScrolledPastHero
-              ? mode === 'dark'
-                ? 'light'
-                : 'dark'
-              : 'light'
+            ? mode === 'dark'
+              ? 'light'
+              : 'dark'
             : headerOverlay || mode === 'dark'
             ? 'light'
             : 'dark'
@@ -875,8 +936,10 @@ export default function Home() {
             </View>
 
             {category ? (
-              <View style={{ paddingBottom: 6 }}>
-                <CategoryTabs value={category} onChange={setCategory} variant="airbnb" />
+              <View style={{ paddingHorizontal: layout.gutter, paddingBottom: 8 }}>
+                {/* On the plain page rather than the hero's wash, so the pane
+                    takes an ordinary border to keep its edge. */}
+                <CategoryGlassBar value={category} onChange={setCategory} style={{ borderColor: colors.border }} />
               </View>
             ) : null}
           </Animated.View>
@@ -900,7 +963,8 @@ export default function Home() {
               />
             }
           >
-            {/* Top Lifestyle Bedroom Hero with Looking In, Search & Typography */}
+            {/* The light glass hero: locality, greeting, search and the
+                category bar with its moving bubble. */}
             <StayHeroSection
               locality={headerLocality}
               city={headerCity}
@@ -912,14 +976,10 @@ export default function Home() {
               onPressProfile={() => (inFoodModule ? router.push(foodHref.profile) : setTab('profile'))}
               userName={user?.name}
               searchBarProps={searchBarProps}
+              category={category}
+              onChangeCategory={setCategory}
+              onDockPoint={setHeroDockY}
             />
-
-            {/* Category Segment Tabs */}
-            {category ? (
-              <View style={{ marginVertical: 2 }}>
-                <CategoryTabs value={category} onChange={setCategory} variant="airbnb" />
-              </View>
-            ) : null}
 
             {/* Filter Chips Bar */}
             <FilterChipRow
@@ -1169,14 +1229,15 @@ export default function Home() {
            promise, dev gets the work in progress. The gate lives in
            constants/food.ts and defaults to production — a missing env value
            must never leak the unfinished module. */
-        FOOD_MODE === 'dev' ? (
-          /* The second of the two food typography boundaries — the other is
-             app/food/_layout.tsx. This module is reached as a TAB rather than
-             a route, so it never passes through that layout and would
-             otherwise inherit the stay scale. */
-          <TypographyScope module="food">
-            <FoodModule onBannerUnderHeader={setBannerUnderHeader} />
-          </TypographyScope>
+        foodBuilt ? (
+          /* The module itself is rendered below, outside this chain, so it
+             can stay mounted while another tab is showing. Here is only the
+             frame between a tap and its first build — see `foodMounted`. */
+          foodMounted ? null : (
+            <TypographyScope module="food">
+              <FoodFeedSkeleton />
+            </TypographyScope>
+          )
         ) : (
           <FoodComingSoon onExplore={() => setTab('explore')} />
         )
@@ -1232,7 +1293,14 @@ export default function Home() {
             <View
               style={[
                 styles.couponCard,
-                { backgroundColor: colors.surfaceSunken, borderRadius: radius.card },
+                /* A reward held, so the logo's yellow — the pale panel every
+                   coupon and offer in the app wears. */
+                {
+                  backgroundColor: colors.deal.tint,
+                  borderColor: colors.deal.border,
+                  borderWidth: 1,
+                  borderRadius: radius.card,
+                },
               ]}
             >
               <Text variant="title3">🎉 You have earned a ₹{coupon.amountRupees} food reward</Text>
@@ -1457,7 +1525,16 @@ export default function Home() {
                     })}
                   >
                     <Text variant="bodyStrong" numberOfLines={1}>{item.title}</Text>
-                    <Text variant="caption" color="secondary">{item.status}</Text>
+                    {/* Amber, the colour `BookingStatusChip` gives these same
+                        stages (Requested, Payment pending) in the rows below —
+                        and bold when the next move is the student's. */}
+                    <Text
+                      variant="caption"
+                      color="warning"
+                      style={item.tone === 'action' ? { fontWeight: '700' } : undefined}
+                    >
+                      {item.status}
+                    </Text>
                   </Pressable>
                 ))}
                 {shown.map((booking) => (
@@ -1473,6 +1550,31 @@ export default function Home() {
 
         </ScrollView>
       )}
+
+      {/*
+        The Food module, kept mounted once built — see `foodMounted`.
+
+        It sits in the slot the chain above leaves empty on the Food tab, so
+        it lays out exactly where the conditional render used to put it. Off
+        that tab it is `display: none`: no layout, nothing drawn, nothing a
+        screen reader can reach, and its loops paused through `active`.
+
+        The second of the two food typography boundaries — the other is
+        app/food/_layout.tsx. This module is reached as a TAB rather than a
+        route, so it never passes through that layout and would otherwise
+        inherit the stay scale.
+      */}
+      {foodBuilt && foodMounted ? (
+        <View
+          style={tab === 'food' ? styles.foodHost : styles.foodHidden}
+          accessibilityElementsHidden={tab !== 'food'}
+          importantForAccessibility={tab === 'food' ? 'auto' : 'no-hide-descendants'}
+        >
+          <TypographyScope module="food">
+            <FoodModule onBannerUnderHeader={setBannerUnderHeader} active={tab === 'food'} />
+          </TypographyScope>
+        </View>
+      ) : null}
 
       {/* Rendered HERE, after the content, rather than up where the in-flow
           header goes: it has to paint over the banner, and render order is
@@ -1522,8 +1624,8 @@ export default function Home() {
         is gone", it is "the bar is missing". Every scrollable above pays for
         it with `barHeight` of extra tail padding.
 
-        `box-none` so the strip either side of the raised disc still belongs to
-        whatever is behind it.
+        `box-none` so the strip around the bar and its door button still
+        belongs to whatever is behind it.
       */}
       <View style={styles.dockedBar} pointerEvents="box-none">
         <TabBar
@@ -1535,6 +1637,8 @@ export default function Home() {
              between the module's own screens keeps the same name and gets no
              transition — only crossing between the stay side and Food does. */
           setId={tab === 'food' ? 'food' : 'stay'}
+          /* Lime on the stay side, the Food door's orange inside Food. */
+          accent={tab === 'food' ? 'ember' : 'brand'}
         />
       </View>
 
@@ -1611,6 +1715,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   pinnedHeader: { position: 'absolute', top: 0, left: 0, right: 0 },
+  foodHost: { flex: 1 },
+  foodHidden: { display: 'none' },
   dockedBar: { position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center' },
   identity: { flexDirection: 'row', alignItems: 'center' },
   avatar: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },

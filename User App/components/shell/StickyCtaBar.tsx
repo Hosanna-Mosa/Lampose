@@ -221,16 +221,19 @@ export function StickyCtaBar({
             style={[
               styles.highlight,
               {
-                backgroundColor: colors.success.tint,
-                borderColor: colors.success.border,
+                /* A perk ("Pay at Visit"), so the logo's yellow as a tint —
+                   the colour "Zero Brokerage" wears above it — and never a
+                   second green beside the green button it could be taken for. */
+                backgroundColor: colors.deal.tint,
+                borderColor: colors.deal.border,
                 borderRadius: radius.pill,
                 paddingHorizontal: space[3],
                 gap: space[1] + 2,
               },
             ]}
           >
-            <Icon name={highlightIcon} size={14} color={colors.success.ink} />
-            <Text variant="bodyStrong" style={{ color: colors.success.ink }}>
+            <Icon name={highlightIcon} size={14} color={colors.deal.ink} />
+            <Text variant="bodyStrong" style={{ color: colors.deal.ink }}>
               {highlight}
             </Text>
           </View>

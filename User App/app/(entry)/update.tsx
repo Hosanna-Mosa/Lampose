@@ -1,4 +1,3 @@
-import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import { Linking, Platform } from 'react-native';
@@ -7,7 +6,6 @@ import { updateStoreUrl } from '@/services/appVersion';
 
 import { BlockingScreen } from '@/components/auth';
 import { useTheme } from '@/context/ThemeContext';
-import { usePreviewControls } from '@/hooks/useAppEnv';
 
 /**
  * Screen 02a — Force update.
@@ -20,9 +18,7 @@ import { usePreviewControls } from '@/hooks/useAppEnv';
  * No "later", no ✕, no back handler.
  */
 export default function ForceUpdateScreen() {
-  const previewControls = usePreviewControls();
   const { mode } = useTheme();
-  const router = useRouter();
 
   return (
     <>
@@ -36,11 +32,6 @@ export default function ForceUpdateScreen() {
         onAction={() => { Linking.openURL(updateStoreUrl()).catch(() => {}); }}
         /* No download size: nobody measured one, and "18 MB" was a guess. */
         footnote="Your saved places and bookings stay where they are."
-        // Dev only. In a real build this screen renders above the navigator
-        // with no way past it — a blocking screen with an escape hatch is not
-        // a blocking screen. The exit exists so the preview is navigable.
-        secondaryLabel={previewControls ? 'Leave (preview only)' : undefined}
-        onSecondary={previewControls ? () => router.replace('/preview') : undefined}
       />
     </>
   );

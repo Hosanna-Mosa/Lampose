@@ -231,7 +231,7 @@ export type AmenityGridProps = {
  * case.
  */
 export function AmenityGrid({ amenities, category, initial = 6 }: AmenityGridProps) {
-  const { colors, space } = useTheme();
+  const { space } = useTheme();
   const [expanded, setExpanded] = useState(false);
 
   const known = amenities.filter((amenity) => amenity.state !== 'unknown');
@@ -328,7 +328,7 @@ export function AmenityGrid({ amenities, category, initial = 6 }: AmenityGridPro
           hitSlop={{ top: space[3], bottom: space[3], left: space[4], right: space[3] }}
           style={({ pressed }) => [styles.moreLink, { opacity: pressed ? 0.6 : 1 }]}
         >
-          <Text variant="bodyStrong" style={{ color: colors.brandInk }}>
+          <Text variant="bodyStrong" color="link">
             {expanded ? 'Show fewer' : `See all ${ranked.length}`}
           </Text>
         </Pressable>

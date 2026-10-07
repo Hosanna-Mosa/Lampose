@@ -284,6 +284,23 @@ export const endpoints = {
     `${V2}/food-partners/orders/${encodeURIComponent(orderNumber)}/payment/verify`,
 
   /**
+   * Dine-in — booking a table rather than ordering food.
+   *
+   * The slot grid is PUBLIC, like the rest of discovery: anybody may see when
+   * a restaurant has a table for four. Booking, the list and cancelling sit
+   * behind the same customer session as an order. Every rule (half-hour
+   * slots, seven days ahead, fifteen minutes for the restaurant to answer)
+   * is the server's — see `Backend/src/modules/dineIn/dineIn.rules.js`.
+   */
+  foodTableSlots: (restaurantId: string) =>
+    `${V2}/food-partners/restaurants/${encodeURIComponent(restaurantId)}/dine-in/slots`,
+  foodTableBookings: `${V2}/food-partners/table-bookings`,
+  foodTableBooking: (reference: string) =>
+    `${V2}/food-partners/table-bookings/${encodeURIComponent(reference)}`,
+  foodTableBookingCancel: (reference: string) =>
+    `${V2}/food-partners/table-bookings/${encodeURIComponent(reference)}/cancel`,
+
+  /**
    * The diner's address book.
    *
    * A LIST — an address is a property of the ORDER, chosen each time. Setting

@@ -372,6 +372,19 @@ const startServer = async () => {
     // eslint-disable-next-line global-require
     require('./src/modules/foodpartners/foodPayment.controller').expireUnpaidOrders()
       .catch((error) => console.error('[food] unpaid-order sweep failed:', error.message));
+
+    /* Table bookings: requests nobody answered in 15 minutes expire, a
+       confirmed table gets its one-hour reminder, and stale holds are
+       dropped. Correctness never waits on this — an unanswered request stops
+       holding its table the moment its window closes. */
+    // eslint-disable-next-line global-require
+    require('./src/modules/dineIn/tableBooking.service').runSweeps()
+      .then(({ expired, reminded, dropped }) => {
+        if (expired || reminded || dropped) {
+          console.log(`🍽️  [Dine-in] ${expired} expired · ${reminded} reminded · ${dropped} stale hold(s) dropped`);
+        }
+      })
+      .catch((error) => console.error('[dine-in] sweep failed:', error.message));
   };
 
   const firstSweep = setTimeout(runSweeps, 20000);

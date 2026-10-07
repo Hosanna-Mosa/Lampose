@@ -43,8 +43,11 @@ import { ensureOrderChannel, getPushToken } from "@/services/orderAlerts";
 import { primeOrderSound } from "@/services/alertSound";
 import { setAccountRejectedHandler, setSessionExpiredHandler } from "@/services/api";
 import { SessionExpiredSheet } from "@/components/common";
+import { TableRequestToast } from "@/components/dash/organisms/TableRequestToast";
+import { openTableBookings } from "@/components/dash/utils/shared";
 import { registerDevice } from "@/services/foodPartner";
 import { isSheetOpen, onNewOrder, onSessionExpired, startOrderPump } from "@/services/orderPump";
+import { startTablePump } from "@/services/tablePump";
 import { usePartnerStore } from "@/store/partnerStore";
 import { colors } from "@/theme";
 
@@ -178,6 +181,9 @@ export default function RootLayout() {
         | { kind?: string; reference?: string }
         | undefined;
       if (data?.kind === "food_order") router.push("/(dash)/orders");
+      /* A table request (or a diner cancelling one): the Dine-in tab, on its
+         lists. The local fallback chime carries its own kind. */
+      else if (data?.kind === "table_booking" || data?.kind === "table_booking_local") openTableBookings();
       else if ((data?.kind === "support.reply" || data?.kind === "support.status") && data.reference) {
         router.push({ pathname: "/support/[reference]", params: { reference: data.reference } });
       }
@@ -198,6 +204,14 @@ export default function RootLayout() {
        ACCOUNT_REJECTED, and each refusal sent the app back to /status. */
     if (!hydrated || !sessionToken || applicationStatus === "rejected") return;
     return startOrderPump(sessionToken);
+  }, [hydrated, sessionToken, applicationStatus]);
+
+  /* The table pump, beside it and for the same reason: a table request has
+     fifteen minutes to be answered, and must ring with Home on screen. It
+     rides the order pump's socket rather than opening its own. */
+  useEffect(() => {
+    if (!hydrated || !sessionToken || applicationStatus === "rejected") return;
+    return startTablePump(sessionToken);
   }, [hydrated, sessionToken, applicationStatus]);
 
   /*
@@ -319,6 +333,8 @@ export default function RootLayout() {
               own _layout, so the three screens under it are one route here. */}
           <Stack.Screen name="support" />
           <Stack.Screen name="payouts" />
+          <Stack.Screen name="dine-in" />
+          <Stack.Screen name="photos" />
           <Stack.Screen name="delete-account" />
           {/* Named by its FILE, not its folder: `app/product/` has no _layout, so
               expo-router flattens it and the child route is `product/[id]`.
@@ -330,6 +346,8 @@ export default function RootLayout() {
           <Stack.Screen name="product/[id]" options={{ animation: "slide_from_bottom" }} />
           <Stack.Screen name="+not-found" options={{ animation: "fade" }} />
         </Stack>
+        {/* Over every screen: a table request is said wherever the kitchen is. */}
+        <TableRequestToast />
         <SessionExpiredSheet visible={sessionExpired} onLogout={handleSessionExpiredLogout} />
       </SafeAreaProvider>
     </GestureHandlerRootView>

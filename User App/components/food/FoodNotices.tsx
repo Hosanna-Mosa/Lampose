@@ -7,10 +7,9 @@ import { useTheme } from '@/context/ThemeContext';
 /**
  * An offer, stated as a saving.
  *
- * Amber is the app's accent colour and it is also what deadlines wear, so the
- * two are told apart by SHAPE rather than hue: an offer is a filled caution
- * chip on a plain surface card, a deadline is a fully caution-tinted card with no
- * chip. One offer strip per screen, ever — a feed with three of them is an
+ * An offer wears the logo's yellow (`deal`) — a filled yellow chip with dark
+ * ink on a plain surface card — and so no longer shares a hue with deadlines,
+ * which keep the caution amber. One offer strip per screen, ever — a feed with three of them is an
  * advertisement, and this one exists because ₹20 off a ₹99 meal is a fifth of
  * the price to the person reading it.
  */
@@ -32,7 +31,7 @@ export function OfferStrip({
         styles.strip,
         {
           backgroundColor: colors.surface,
-          borderColor: colors.warning.border,
+          borderColor: colors.deal.border,
           borderRadius: radius.card,
           paddingHorizontal: space[3],
           paddingVertical: space[2] + 2,
@@ -43,10 +42,10 @@ export function OfferStrip({
       <View
         style={[
           styles.offerChip,
-          { backgroundColor: colors.warning.base, borderRadius: radius.chip, paddingHorizontal: space[2] },
+          { backgroundColor: colors.deal.base, borderRadius: radius.chip, paddingHorizontal: space[2] },
         ]}
       >
-        <Text variant="label" style={{ color: colors.warning.on, letterSpacing: 0.3 }}>
+        <Text variant="label" style={{ color: colors.deal.on, letterSpacing: 0.3 }}>
           {headline}
         </Text>
       </View>

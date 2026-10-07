@@ -39,7 +39,7 @@
  * different sentences and only one of them needs a retry button.
  */
 import { useQueries } from '@tanstack/react-query';
-import React, { createContext, useCallback, useContext, useMemo } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 
 import { useAppState } from '@/context/AppStateContext';
 import { fetchKitchen } from '@/services/api/food.api';
@@ -78,6 +78,17 @@ const CatalogueContext = createContext<FoodCatalogue | null>(null);
 
 /** How many kitchens' menus are pulled for the feed. See the header. */
 const MENU_FANOUT_CAP = 25;
+
+/** The same array back for as long as every element is the same reference —
+ *  `useMemo` with element-wise equality, for a list rebuilt every render. */
+function useStableList<T>(list: readonly T[]): readonly T[] {
+  const ref = useRef(list);
+  const previous = ref.current;
+  if (previous.length !== list.length || list.some((item, index) => item !== previous[index])) {
+    ref.current = list;
+  }
+  return ref.current;
+}
 
 export function FoodCatalogueProvider({ children }: { children: React.ReactNode }) {
   /*
@@ -125,25 +136,38 @@ export function FoodCatalogueProvider({ children }: { children: React.ReactNode 
     })),
   });
 
+  /*
+   * Keyed on the menus' DATA, not on the query results.
+   *
+   * `useQueries` hands back a fresh results array on every state change —
+   * including the fetch flag flipping on and off for each of up to 25 menus on
+   * every 60-second poll — while structural sharing keeps each `data` the same
+   * object when the menu has not changed. Keyed on the results, the catalogue
+   * was rebuilt (new kitchen objects included) fifty-odd times a minute and
+   * every food screen re-rendered its whole feed with it; keyed on the data,
+   * it changes when a menu does.
+   */
+  const menuData = useStableList(menuQueries.map((query) => query.data));
+
   /* The detail response carries the section list, which a feed row cannot —
      so the kitchen from the detail call supersedes the one from the feed
      wherever it has arrived. The feed's `distanceKm` is preserved, because
      only the feed was asked with a pin. */
   const kitchens = useMemo<readonly Kitchen[]>(() => {
     const bySections = new Map<string, Kitchen>();
-    for (const query of menuQueries) {
-      const loaded = query.data?.kitchen;
+    for (const data of menuData) {
+      const loaded = data?.kitchen;
       if (loaded) bySections.set(loaded.id, loaded);
     }
     return feedKitchens.map((row) => {
       const detailed = bySections.get(row.id);
       return detailed ? { ...detailed, walkMinutes: row.walkMinutes, deliveryMinutes: row.deliveryMinutes } : row;
     });
-  }, [feedKitchens, menuQueries]);
+  }, [feedKitchens, menuData]);
 
   const dishes = useMemo<readonly Dish[]>(
-    () => menuQueries.flatMap((query) => query.data?.dishes ?? []),
-    [menuQueries],
+    () => menuData.flatMap((data) => data?.dishes ?? []),
+    [menuData],
   );
 
   const findKitchen = useCallback(
@@ -191,10 +215,18 @@ export function FoodCatalogueProvider({ children }: { children: React.ReactNode 
     [dishes],
   );
 
+  /* Stable for the provider's lifetime — the queries it calls are read at the
+     moment it runs, so a new results array is not a new `refetch` and does not
+     hand every consumer a new catalogue. */
+  const latest = useRef({ feed, menuQueries });
+  useEffect(() => {
+    latest.current = { feed, menuQueries };
+  });
   const refetch = useCallback(() => {
-    void feed.refetch();
-    menuQueries.forEach((query) => void query.refetch());
-  }, [feed, menuQueries]);
+    void latest.current.feed.refetch();
+    latest.current.menuQueries.forEach((query) => void query.refetch());
+  }, []);
+  const loadingMenus = menuQueries.some((query) => query.isLoading);
 
   /* The feed's own failure first, because without it there is no catalogue at
      all. A failing MENU is reported only when not one of them arrived: a feed
@@ -212,7 +244,7 @@ export function FoodCatalogueProvider({ children }: { children: React.ReactNode 
       kitchens,
       dishes,
       loading: feed.isLoading,
-      loadingMenus: menuQueries.some((query) => query.isLoading),
+      loadingMenus,
       error,
       refetch,
       findKitchen,
@@ -223,7 +255,7 @@ export function FoodCatalogueProvider({ children }: { children: React.ReactNode 
       menuFor,
     }),
     [
-      kitchens, dishes, feed.isLoading, error, menuQueries,
+      kitchens, dishes, feed.isLoading, loadingMenus, error,
       refetch, findKitchen, findDish, kitchensFor, dishesFor, kitchenOpen, menuFor,
     ],
   );

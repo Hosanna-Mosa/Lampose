@@ -280,7 +280,12 @@ function DishCard({
           {item.productImage?.url ? (
             <Image source={{ uri: item.productImage.url }} style={[styles.image, !inStock && styles.imageDim]} />
           ) : (
-            <Ionicons name="fast-food-outline" size={30} color={ui.muted} />
+            /* Says what is missing rather than drawing a stand-in: a dish
+               with no photo shows diners none, and this is where it is added. */
+            <View style={styles.noPhoto}>
+              <Ionicons name="camera-outline" size={24} color={ui.brandInk} />
+              <Txt style={styles.noPhotoText}>Add photo</Txt>
+            </View>
           )}
           {!inStock ? (
             <View style={styles.soldOutTag}>
@@ -346,6 +351,8 @@ const styles = StyleSheet.create({
   },
   image: { width: "100%", height: "100%" },
   imageDim: { opacity: 0.45 },
+  noPhoto: { alignItems: "center", gap: 2 },
+  noPhotoText: { fontFamily: font.body.semibold, fontSize: size.small, lineHeight: line.small, color: ui.brandInk },
   soldOutTag: {
     position: "absolute",
     bottom: 6,

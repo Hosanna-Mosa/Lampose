@@ -84,7 +84,8 @@ export function FoodWaitPromo() {
   return (
     <View style={{ gap: space[3] }}>
       <View style={[styles.captionRow, { gap: space[2] }]}>
-        <Icon name="food" size={18} color={colors.warning.ink} />
+        {/* The Food door's own colour — the logo's yellow, as on its tab. */}
+        <Icon name="food" size={18} color={colors.deal.ink} />
         <Text variant="bodyStrong" style={{ color: colors.textPrimary, flex: 1 }}>
           While you wait — food on Lampose
         </Text>

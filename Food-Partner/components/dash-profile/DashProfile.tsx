@@ -30,22 +30,17 @@ import {
   fadeInUp,
 } from "@/components/ui";
 import { Chip } from "@/components/ui";
-/* The image picker and time-slot editor are onboarding's own, reused here so
-   the profile edits images and hours exactly as sign-up captured them. */
-import { ImagePick, TimeRange } from "@/components/common";
+/* The time-slot editor is onboarding's own, reused here so the profile edits
+   hours exactly as sign-up captured them. */
+import { TimeRange } from "@/components/common";
 import { DAYS } from "@/constants/partner";
-import { getMe, updateMe, type ServerImage, type ServerRestaurant } from "@/services/foodPartner";
+import { getMe, updateMe, type ServerRestaurant } from "@/services/foodPartner";
 import { listTickets } from "@/services/support";
-import { uploadOne } from "@/services/uploads";
-import { usePartnerStore, type Attachment, type Slot } from "@/store/partnerStore";
+import { usePartnerStore, type Slot } from "@/store/partnerStore";
 import { elevation, font, line, ms, radius, size, ui } from "@/theme/ui";
 
 /** The most a kitchen may charge for packaging — `FOOD_PRICING_CONFIG.maxPackagingFee` on the server. */
 const MAX_PACKAGING_FEE = 50;
-
-/** A stored Cloudinary image as the picker's attachment, so it previews as-is. */
-const asAttachment = (image: ServerImage | undefined, name: string): Attachment | null =>
-  image?.url ? { name, uri: image.url, url: image.url, publicId: image.publicId ?? "" } : null;
 
 /** The server's flat `openingHours` rows, back into onboarding's days + per-day slots. */
 const toWeek = (rows: ServerRestaurant["openingHours"]) => {
@@ -98,16 +93,6 @@ export function DashProfile() {
   const [detailsError, setDetailsError] = useState("");
   const [detailsNote, setDetailsNote] = useState("");
 
-  /* Brand images. Seeded with the stored Cloudinary pair; a new pick is a
-     local uri until Save uploads it. Only a CHANGED image is sent, and a
-     removed one is not sent at all — the server refuses an image with no url
-     rather than blank the listing card, so "Remove" keeps what is live. */
-  const [logo, setLogo] = useState<Attachment | null>(null);
-  const [cover, setCover] = useState<Attachment | null>(null);
-  const [savingImages, setSavingImages] = useState(false);
-  const [imagesError, setImagesError] = useState("");
-  const [imagesNote, setImagesNote] = useState("");
-
   /* Opening hours, in the same days + per-day-slots shape the onboarding step
      edits, flattened back into rows on save — see `buildApplicationPayload`. */
   const [days, setDays] = useState<string[]>([]);
@@ -136,8 +121,6 @@ export function DashProfile() {
       setDescription(restaurant.description ?? "");
       setCuisineTypesText((restaurant.cuisineTypes ?? []).join(", "));
       setContactNumber(restaurant.contactNumber ?? "");
-      setLogo(asAttachment(restaurant.logoImage, "Logo"));
-      setCover(asAttachment(restaurant.coverBannerImage, "Cover banner"));
       const week = toWeek(restaurant.openingHours);
       setDays(week.days);
       setSlots(week.slots);
@@ -235,41 +218,6 @@ export function DashProfile() {
       setDetailsError((err as Error)?.message || "Failed to update details.");
     } finally {
       setSavingDetails(false);
-    }
-  };
-
-  const handleSaveImages = async () => {
-    if (!session?.token || !me) return;
-    const changedLogo = logo && logo.uri !== me.logoImage?.url ? logo : null;
-    const changedCover = cover && cover.uri !== me.coverBannerImage?.url ? cover : null;
-    setImagesError("");
-    setImagesNote("");
-    if (!changedLogo && !changedCover) {
-      setImagesNote("Nothing new to save. Choose a new logo or cover first.");
-      return;
-    }
-    setSavingImages(true);
-    try {
-      const body: Record<string, unknown> = {};
-      /* Uploaded first: only a Cloudinary link may reach the database (see
-         `services/uploads.ts`). */
-      if (changedLogo) {
-        const up = await uploadOne(changedLogo, "logo", session.token);
-        body.logoImage = { url: up.url, publicId: up.publicId };
-      }
-      if (changedCover) {
-        const up = await uploadOne(changedCover, "cover", session.token);
-        body.coverBannerImage = { url: up.url, publicId: up.publicId };
-      }
-      const updated = await updateMe(session.token, body);
-      setMe(updated);
-      setLogo(asAttachment(updated.logoImage, "Logo"));
-      setCover(asAttachment(updated.coverBannerImage, "Cover banner"));
-      setImagesNote("Images updated. Diners see them on your listing now.");
-    } catch (err) {
-      setImagesError((err as Error)?.message || "The images did not save.");
-    } finally {
-      setSavingImages(false);
     }
   };
 
@@ -427,37 +375,18 @@ export function DashProfile() {
         </Card>
       </ListGroup>
 
-      {/* ── Brand images ───────────────────────────────────────────────── */}
-      <ListGroup title="Brand Images" grouped={false} delay={90}>
-        <Card bordered elevationLevel="none" style={styles.form}>
-          {/* No "Sample" shortcut: this is the live listing's real photograph. */}
-          <ImagePick
-            label="Logo"
-            desc="Square. Shown on your card in the listing."
-            value={logo}
-            onChange={(v) => {
-              setLogo(v);
-              setImagesNote("");
-            }}
-            allowSample={false}
-          />
-          <ImagePick
-            label="Cover banner"
-            desc="Wide. Sits across the top of your restaurant page."
-            aspect="wide"
-            value={cover}
-            onChange={(v) => {
-              setCover(v);
-              setImagesNote("");
-            }}
-            allowSample={false}
-          />
-
-          {!!imagesError && <InfoNote tone="danger" text={imagesError} />}
-          {!!imagesNote && <InfoNote tone="success" text={imagesNote} />}
-
-          <Button title="Save Images" onPress={handleSaveImages} loading={savingImages} fullWidth />
-        </Card>
+      {/* ── Photos ─────────────────────────────────────────────────────── */}
+      {/* Logo, cover and the restaurant's own photos have a screen of their
+          own — the camera or gallery, a grid, one save. */}
+      <ListGroup title="Photos" delay={90}>
+        <ListRow
+          icon="images-outline"
+          iconColor={ui.brandInk}
+          iconBackground={ui.brandSkin}
+          label="Logo, cover and restaurant photos"
+          description={`${me?.galleryImages?.filter((image) => !!image.url).length ?? 0} restaurant photos · ${me?.coverBannerImage?.url ? "cover set" : "no cover yet"}`}
+          onPress={() => router.push("/photos")}
+        />
       </ListGroup>
 
       {/* ── Opening hours ──────────────────────────────────────────────── */}

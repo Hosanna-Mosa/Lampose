@@ -6,7 +6,7 @@ import { Icon, Text } from '@/components/ui';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { pressScale, usePressAnimation } from '@/hooks/usePressAnimation';
 import type { Dish, Kitchen } from '@/types/food';
-import { metaLine, walkLabel } from '@/services/adapters/food.adapter';
+import { metaLine, takesTableBookings, walkLabel } from '@/services/adapters/food.adapter';
 import { formatRupees } from '@/utils/money';
 
 import { FavouriteHeart } from './FavouriteHeart';
@@ -148,8 +148,10 @@ export function RestaurantListCard({
             {/* Real facts only. Free delivery is a thing this kitchen actually
                 does; there is no membership to qualify it with. */}
             {open && kitchen.deliveryFee === 0 ? (
-              <View style={[styles.ribbon, { backgroundColor: colors.brand, paddingHorizontal: space[3] }]}>
-                <Text variant="numMeta" style={{ color: colors.onBrand }}>
+              /* A perk, so the logo's yellow with its dark `on` ink — the
+                 same filled badge "Zero Brokerage" wears on the stay side. */
+              <View style={[styles.ribbon, { backgroundColor: colors.deal.base, paddingHorizontal: space[3] }]}>
+                <Text variant="numMeta" style={{ color: colors.deal.on }}>
                   Free delivery
                 </Text>
               </View>
@@ -193,6 +195,18 @@ export function RestaurantListCard({
             <Text variant="caption" color="tertiary" numberOfLines={1}>
               {kitchen.cuisine}
             </Text>
+
+            {/* The Dine-in mark: a fact from the feed row, in the same quiet
+                register as the time above it — the filter on Home is what
+                finds these, this only says which card it found. */}
+            {takesTableBookings(kitchen) ? (
+              <View style={[styles.metaRow, { gap: space[1] + 2 }]}>
+                <Icon name="dining" size={16} color={colors.textTertiary} />
+                <Text variant="caption" color="tertiary" numberOfLines={1}>
+                  Dine-in · takes table bookings
+                </Text>
+              </View>
+            ) : null}
           </View>
         </Animated.View>
       </Pressable>

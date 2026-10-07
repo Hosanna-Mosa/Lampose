@@ -2,7 +2,9 @@ import React from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { DateField, Text } from '@/components/ui';
+import { applyFont } from '@/constants/fonts';
 import { useTheme } from '@/context/ThemeContext';
+import { useTypeScale } from '@/context/TypographyContext';
 import { formatRupees } from '@/utils/money';
 import type { SharingOption } from '@/types/listing';
 
@@ -106,6 +108,7 @@ const prettyDay = (iso: string): string =>
 
 export function HotelStaySelector({ options, value, onChange, joinWindow }: HotelStaySelectorProps) {
   const { colors, space, radius } = useTheme();
+  const scale = useTypeScale();
 
   /* Never before today, whatever the listing said — see `joinWindow`. */
   const earliest = laterOf(todayISO(), joinWindow?.min);
@@ -130,10 +133,12 @@ export function HotelStaySelector({ options, value, onChange, joinWindow }: Hote
     : (value.rateQuantity ?? 0);
   const total = active && quantity > 0 ? (active.price as number) * quantity : 0;
 
+  /* Blue outline and tint — what `OptionCard accent="link"` gives a chosen
+     sharing type, so both pickers on listing detail mark a choice alike. */
   const chip = (selected: boolean) => ({
-    borderWidth: 1,
-    borderColor: selected ? colors.brand : colors.border,
-    backgroundColor: selected ? colors.brandTint : colors.surface,
+    borderWidth: selected ? 1.5 : 1,
+    borderColor: selected ? colors.link.base : colors.border,
+    backgroundColor: selected ? colors.link.tint : colors.surface,
     borderRadius: radius.card,
     paddingVertical: space[3],
     paddingHorizontal: space[4],
@@ -274,7 +279,7 @@ export function HotelStaySelector({ options, value, onChange, joinWindow }: Hote
                   keyboardType="number-pad"
                   placeholder={String(active?.min ?? 1)}
                   placeholderTextColor={colors.textTertiary}
-                  style={[styles.input, {
+                  style={[applyFont(scale.body.face, styles.input, scale.body.weight), {
                     borderColor: colors.border, backgroundColor: colors.surface,
                     color: colors.textPrimary, borderRadius: radius.card, padding: space[3],
                   }]}

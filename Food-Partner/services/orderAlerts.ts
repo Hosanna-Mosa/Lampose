@@ -31,6 +31,7 @@ import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import { ringForPushedOrder } from "./orderPump";
+import { ringForPushedTableBooking } from "./tablePump";
 
 /** Must equal ORDER_CHANNEL in the backend's foodOrder.notifier.js. */
 export const ORDER_CHANNEL = "food-orders";
@@ -43,10 +44,18 @@ export const ORDER_CHANNEL = "food-orders";
  */
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
-    const data = (notification.request.content.data ?? {}) as { kind?: string; orderNumber?: string };
+    const data = (notification.request.content.data ?? {}) as {
+      kind?: string;
+      orderNumber?: string;
+      reference?: string;
+    };
     /* A new order while the app is open: the order pump rings its own alert,
-       once per order, so the push shows its banner without a second sound. */
-    const pumpRang = data.kind === "food_order" && ringForPushedOrder(data.orderNumber);
+       once per order, so the push shows its banner without a second sound.
+       A table request rides the same channel and gets the same treatment
+       from the table pump. */
+    const pumpRang =
+      (data.kind === "food_order" && ringForPushedOrder(data.orderNumber))
+      || (data.kind === "table_booking" && ringForPushedTableBooking(data.reference));
     return {
       shouldShowBanner: true,
       shouldShowList: true,

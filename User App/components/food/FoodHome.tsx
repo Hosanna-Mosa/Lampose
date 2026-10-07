@@ -38,6 +38,7 @@ import { RestaurantListCard } from './RestaurantListCard';
 import { ActiveOrderCard } from './FoodStatus';
 import { SUGGESTIONS } from './FoodSearch';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
+import { useFoodPaused } from './FoodPaused';
 
 /**
  * Home — the Food module's feed.
@@ -300,32 +301,29 @@ export function FoodHome({
      cuisine none of its kitchens carry. Sorted for a stable order run to
      run, not the order kitchens happen to load in. */
   /*
-   * The rail's cuisines, each with its own bundled photograph.
+   * The rail's cuisines, each with a REAL photograph from a kitchen that
+   * cooks it — never artwork.
    *
-   * The WHICH is still live — the list is the set of `cuisineTypes` the
-   * kitchens near you actually declare, so a cuisine nobody cooks never
-   * appears and tapping one still filters exactly as before. Only the
-   * PICTURE is fixed now.
-   *
-   * It used to take a real dish photo off a kitchen carrying the tag, and
-   * that was broken twice over. The lookup picked the kitchen's first
-   * photographed menu item without reference to the tag being matched, so
-   * every cuisine on a kitchen got the same dish; and because all fifteen
-   * seeded restaurants share one fifty-dish menu with shared Cloudinary
-   * images, that dish was the same photograph everywhere. Every chip showed
-   * one picture.
-   *
-   * Curated artwork fixes it at the root rather than patching the lookup:
-   * one image per cuisine, chosen to actually look like the cuisine, which
-   * a dish pulled out of a menu by position never reliably does.
+   * The WHICH is live: the set of `cuisineTypes` the kitchens near you
+   * declare, so a cuisine nobody cooks never appears. The PICTURE is chosen
+   * by `cuisinePhotos` below, which fixes the two ways the old lookup put one
+   * photo on every chip: it matches the dish to the cuisine (a "Chinese" chip
+   * shows a dish from a Chinese section, not whatever a kitchen listed first),
+   * and it never hands the same photograph to two chips — seeded menus share
+   * their images, and a repeat reads as a bug. A cuisine with no photo left
+   * gets the empty well, not a borrowed picture.
    */
   const cuisineOptions = useMemo(() => {
     const tags = new Set<string>();
     vegFilteredKitchens.forEach((kitchen) => kitchen.cuisineTypes.forEach((tag) => tags.add(tag)));
-    return [...tags]
-      .map((name) => ({ name, photo: cuisineArt(name) }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [vegFilteredKitchens]);
+    const names = [...tags].sort((a, b) => a.localeCompare(b));
+    const photos = cuisinePhotos(
+      names,
+      vegFilteredKitchens,
+      preferences.vegOnly ? dishesFor().filter((dish) => dish.diet === 'veg') : dishesFor(),
+    );
+    return names.map((name) => ({ name, photo: photos.get(name) }));
+  }, [vegFilteredKitchens, dishesFor, preferences.vegOnly]);
 
   /*
    * The dishes the "see all" sheet lists, most-ordered first.
@@ -348,10 +346,12 @@ export function FoodHome({
       .slice(0, 40);
   }, [dishesFor]);
 
-  /* "All" gets its own plate rather than the feed's most-ordered dish: the
-     chip means "no filter", and a picture of one specific dish is the least
-     accurate thing to put on it. */
-  const allPhoto = CUISINE_ART_ALL;
+  /* "All" is every cuisine, so its chip is the first few cuisines' own
+     photos together — real dishes, and a picture of no single one. */
+  const allPhotos = useMemo(
+    () => cuisineOptions.map((cuisine) => cuisine.photo).filter((uri): uri is string => !!uri).slice(0, 4),
+    [cuisineOptions],
+  );
 
   const kitchens = useMemo(() => {
     let list = vegFilteredKitchens;
@@ -533,7 +533,7 @@ export function FoodHome({
       <View style={{ marginTop: -space[3] }}>
         <CuisineRail
           cuisines={cuisineOptions}
-          allPhoto={allPhoto}
+          allPhotos={allPhotos}
           active={cuisineFilter}
           onChange={setCuisineFilter}
           cheapActive={cheapOnly}
@@ -879,42 +879,57 @@ export function FoodHome({
  * ------------------------------------------------------------------ */
 
 /**
- * One photograph per cuisine, bundled rather than fetched.
+ * A real dish photo for each cuisine chip, no photograph used twice.
  *
- * Keyed on the tag lower-cased, because `cuisineTypes` is free text a
- * restaurant typed — "North Indian" and "north indian" are the same
- * cuisine and must not be two chips with one picture between them.
- *
- * A tag with no entry here gets NO picture, deliberately, rather than
- * falling back to the "All" plate: `FoodPhoto` draws its own well for a
- * missing photo, and a wrong picture is worse than an honest empty one.
- * When a new cuisine starts appearing in the feed often enough to matter,
- * add artwork for it here — see the session notes for the generation
- * prompt the existing sixteen were made with.
+ * For each cuisine, the candidates in order of how well they show it:
+ *   1. a dish from a kitchen cooking it, in a menu section (or with a name)
+ *      that says the cuisine — "Desserts", "South Indian", "Chinese";
+ *   2. the cover of a kitchen whose FIRST cuisine it is;
+ *   3. any dish from a kitchen cooking it;
+ *   4. any such kitchen's cover.
+ * Cuisines with the fewest candidates choose first, so a rare one is not left
+ * empty by a common one taking its only picture. Everything here is an
+ * upload by the kitchen itself, through the adapter's https-only rule.
  */
-const CUISINE_ART: Record<string, number> = {
-  bakery: require('../../assets/images/cuisine-bakery.jpg'),
-  beverages: require('../../assets/images/cuisine-beverages.jpg'),
-  chinese: require('../../assets/images/cuisine-chinese.jpg'),
-  continental: require('../../assets/images/cuisine-continental.jpg'),
-  desserts: require('../../assets/images/cuisine-desserts.jpg'),
-  'fast food': require('../../assets/images/cuisine-fastfood.jpg'),
-  healthy: require('../../assets/images/cuisine-healthy.jpg'),
-  italian: require('../../assets/images/cuisine-italian.jpg'),
-  japanese: require('../../assets/images/cuisine-japanese.jpg'),
-  mexican: require('../../assets/images/cuisine-mexican.jpg'),
-  mughlai: require('../../assets/images/cuisine-mughlai.jpg'),
-  'north indian': require('../../assets/images/cuisine-northindian.jpg'),
-  'south indian': require('../../assets/images/cuisine-southindian.jpg'),
-  'street food': require('../../assets/images/cuisine-streetfood.jpg'),
-  thai: require('../../assets/images/cuisine-thai.jpg'),
-};
+function cuisinePhotos(
+  names: readonly string[],
+  kitchens: readonly Kitchen[],
+  dishes: readonly Dish[],
+): Map<string, string> {
+  const photographed = dishes.filter((dish) => dish.photo && !dish.soldOut);
+  const candidates = new Map<string, string[]>();
 
-/** The "All" chip's own plate. Not in the map above — "All" is not a
- *  cuisine, and putting it there would make it filterable by name. */
-const CUISINE_ART_ALL = require('../../assets/images/cuisine-all.jpg');
+  for (const name of names) {
+    const word = name.trim().toLowerCase();
+    const cooking = kitchens.filter((kitchen) => kitchen.cuisineTypes.includes(name));
+    const ids = new Set(cooking.map((kitchen) => kitchen.id));
+    const theirs = photographed.filter((dish) => ids.has(dish.kitchenId));
+    const says = (dish: Dish) => {
+      const section = dish.section.trim().toLowerCase();
+      return (section.length >= 4 && (section.includes(word) || word.includes(section)))
+        || dish.name.toLowerCase().includes(word);
+    };
+    const ordered = [
+      ...theirs.filter(says).map((dish) => dish.photo),
+      ...cooking.filter((kitchen) => kitchen.cuisineTypes[0] === name).map((kitchen) => kitchen.cover),
+      ...theirs.map((dish) => dish.photo),
+      ...cooking.map((kitchen) => kitchen.cover),
+    ].filter((uri): uri is string => !!uri);
+    candidates.set(name, [...new Set(ordered)]);
+  }
 
-const cuisineArt = (tag: string): number | undefined => CUISINE_ART[tag.trim().toLowerCase()];
+  const used = new Set<string>();
+  const chosen = new Map<string, string>();
+  [...names]
+    .sort((a, b) => (candidates.get(a)?.length ?? 0) - (candidates.get(b)?.length ?? 0))
+    .forEach((name) => {
+      const pick = candidates.get(name)?.find((uri) => !used.has(uri));
+      if (!pick) return;
+      used.add(pick);
+      chosen.set(name, pick);
+    });
+  return chosen;
+}
 
 /** How far the curve dips at its deepest (dead centre), in dp.
  *
@@ -1051,12 +1066,14 @@ function HeroControls({
  */
 function RotatingPlaceholder({ areaLabel }: { areaLabel: string }) {
   const reduceMotion = useReduceMotion();
+  /* Off screen behind a stay tab — see `FoodPaused`. */
+  const paused = useFoodPaused();
   const terms = useMemo(() => [`dishes, kitchens near ${areaLabel}`, ...SUGGESTIONS], [areaLabel]);
   const [index, setIndex] = useState(0);
   const opacity = useSharedValue(1);
 
   useEffect(() => {
-    if (terms.length <= 1 || reduceMotion) return undefined;
+    if (terms.length <= 1 || reduceMotion || paused) return undefined;
     let swap: ReturnType<typeof setTimeout> | null = null;
     const timer = setInterval(() => {
       opacity.value = withTiming(0, { duration: 200 });
@@ -1073,7 +1090,7 @@ function RotatingPlaceholder({ areaLabel }: { areaLabel: string }) {
       clearInterval(timer);
       if (swap) clearTimeout(swap);
     };
-  }, [terms.length, reduceMotion, opacity]);
+  }, [terms.length, reduceMotion, paused, opacity]);
 
   const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
 

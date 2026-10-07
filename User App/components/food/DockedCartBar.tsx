@@ -5,6 +5,7 @@ import * as Haptics from 'expo-haptics';
 
 import { Icon, Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
+import { withAlpha } from '@/utils/color';
 import { formatRupees } from '@/utils/money';
 
 export type DockedCartBarProps = {
@@ -24,6 +25,10 @@ export type DockedCartBarProps = {
  *
  * Deliberately still: no slide-in when the first item is added and no pulse
  * when the count changes. It simply appears and updates.
+ *
+ * Drawn in the logo's yellow (`deal`), the food module's own colour, so the
+ * strip that turns up after the first add reads as part of Food. Everything on
+ * it takes `deal.on`, the near-black that yellow needs — white does not read.
  */
 export function DockedCartBar({
   count,
@@ -61,7 +66,8 @@ export function DockedCartBar({
         style={({ pressed }) => [
           styles.bar,
           {
-            backgroundColor: pressed ? colors.graphiteRaised : colors.graphite,
+            backgroundColor: colors.deal.base,
+            opacity: pressed ? 0.88 : 1,
             borderRadius: radius.button + 2,
             paddingLeft: space[4],
             paddingRight: space[3],
@@ -69,17 +75,17 @@ export function DockedCartBar({
             gap: space[3],
             shadowColor: '#000000',
             shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.25,
+            shadowOpacity: 0.18,
             shadowRadius: 10,
             elevation: 8,
           },
         ]}
       >
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text variant="priceMd" style={{ color: colors.onGraphite, fontWeight: '700' }}>
+          <Text variant="priceMd" style={{ color: colors.deal.on, fontWeight: '700' }}>
             {count} {count === 1 ? 'item' : 'items'} · {formatRupees(total)}
           </Text>
-          <Text variant="caption" style={{ color: colors.onGraphiteMuted, marginTop: 2 }} numberOfLines={1}>
+          <Text variant="caption" style={{ color: withAlpha(colors.deal.on, 0.7), marginTop: 2 }} numberOfLines={1}>
             {context}
           </Text>
         </View>
@@ -88,16 +94,16 @@ export function DockedCartBar({
           style={[
             styles.action,
             {
-              backgroundColor: colors.onGraphite,
+              backgroundColor: colors.deal.on,
               borderRadius: radius.pill,
               paddingHorizontal: space[3] + 2,
             },
           ]}
         >
-          <Text variant="title3" style={{ color: colors.graphite, fontWeight: '700', fontSize: 13 }}>
+          <Text variant="title3" style={{ color: colors.deal.base, fontWeight: '700', fontSize: 13 }}>
             {label}
           </Text>
-          <Icon name="arrowRight" size={16} color={colors.graphite} />
+          <Icon name="arrowRight" size={16} color={colors.deal.base} />
         </View>
       </Pressable>
     </View>

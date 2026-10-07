@@ -258,7 +258,7 @@ const formatListing = (input, resolvedOwnerName = '') => {
        *   byLayout     one row per option the page offers — the fee a
        *                visitor will actually be charged for that pick. The
        *                request freezes the same figure, from the same rule.
-       *   amountPaise  the LOWEST of them — "from ₹299" — kept because every
+       *   amountPaise  the LOWEST of them — "from ₹199" — kept because every
        *                client built before this reads it as "the" fee.
        *   varies       whether the layouts differ, so a page knows to say
        *                "from" and to show the fee next to the picker.

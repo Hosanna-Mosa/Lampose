@@ -7,9 +7,10 @@ import { staysTypeScale, typeScale } from '@/constants/tokens';
  *
  * ## Why this exists at all
  *
- * The stay side moved to one family and four sizes; the food side did not.
- * They share `components/ui/Text`, so the two scales cannot both be "the"
- * scale — something has to say which subtree is which.
+ * Both sides draw in one family (Manrope), but the stay side moved to four
+ * sizes and the food side kept its own denser scale. They share
+ * `components/ui/Text`, so the two scales cannot both be "the" scale —
+ * something has to say which subtree is which.
  *
  * ## Why STAYS is the default
  *

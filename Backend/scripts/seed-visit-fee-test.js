@@ -5,7 +5,7 @@
    between them hit every fee tier in `visitFees.service.js` — including the
    edge cases the rule has to get right:
 
-     "Single Private Room"  → 1 RK        (₹299)
+     "Single Private Room"  → 1 RK        (₹199)
      "1 RK Studio"          → 1 RK, not Commercial — the number wins
      "Studio"               → Commercial  (₹1,999)
      "6 BHK Independent"    → 5 BHK+      (₹2,499)
@@ -106,14 +106,14 @@ const PROPERTIES = [
     name: 'Fee Test · Sunand Compact Rooms',
     place: 'KPHB Colony, Hyderabad', coordinates: [78.3915, 17.4849],
     layouts: { '1 RK': 7500, 'Single Private Room': 6000, '1 RK Studio': 8000 },
-    description: 'Fee test: 1 RK, Single Private Room and "1 RK Studio" — all three should cost ₹299 to visit.',
+    description: 'Fee test: 1 RK, Single Private Room and "1 RK Studio" — all three should cost ₹199 to visit.',
   }),
   listing({
     owner: A, category: 'BACHELOR', photo: 1,
     name: 'Fee Test · Sunand Family Flats',
     place: 'Madhapur, Hyderabad', coordinates: [78.3915, 17.4483],
     layouts: { '1 BHK': 12000, '2 BHK Apartment': 18000, '3 BHK Apartment': 26000 },
-    description: 'Fee test: 1 BHK ₹499, 2 BHK ₹999 and 3 BHK ₹1,499 to visit.',
+    description: 'Fee test: 1 BHK ₹299, 2 BHK ₹699 and 3 BHK ₹1,499 to visit.',
   }),
   listing({
     owner: A, category: 'BACHELOR', photo: 2,
@@ -127,21 +127,21 @@ const PROPERTIES = [
     name: 'Fee Test · Sunand Odd Layouts',
     place: 'Gachibowli, Hyderabad', coordinates: [78.3489, 17.4401],
     layouts: { Studio: 11000, Penthouse: 60000 },
-    description: 'Fee test: "Studio" is charged the Commercial fee (₹1,999); "Penthouse" matches no tier and is charged 1 RK (₹299) with a warning in the server log.',
+    description: 'Fee test: "Studio" is charged the Commercial fee (₹1,999); "Penthouse" matches no tier and is charged 1 RK (₹199) with a warning in the server log.',
   }),
   listing({
     owner: A, category: 'COLIVE', photo: 4,
     name: 'Fee Test · Sunand Co-live House',
     place: 'Hitec City, Hyderabad', coordinates: [78.3810, 17.4435],
     layouts: { '2 BHK': 9000, '3 BHK': 8000 },
-    description: 'Fee test (House / Co-live): 2 BHK ₹999 and 3 BHK ₹1,499 to visit.',
+    description: 'Fee test (House / Co-live): 2 BHK ₹699 and 3 BHK ₹1,499 to visit.',
   }),
   listing({
     owner: A, category: 'COLIVE', photo: 5,
     name: 'Fee Test · Sunand Single-Layout Co-live',
     place: 'Kukatpally, Hyderabad', coordinates: [78.4011, 17.4948],
     layouts: { '1 BHK': 10500 },
-    description: 'Fee test (House / Co-live): one layout, so the page shows a single fee (₹499) and never "from".',
+    description: 'Fee test (House / Co-live): one layout, so the page shows a single fee (₹299) and never "from".',
   }),
 
   /* ── Owner B — 9398334115 ─────────────────────────────────────────── */
@@ -150,7 +150,7 @@ const PROPERTIES = [
     name: 'Fee Test · Benz Circle Bachelor Rooms',
     place: 'Benz Circle, Vijayawada', coordinates: [80.6480, 16.4990],
     layouts: { '1RK Independent': 6500, '1 BHK Independent': 9500, '2 BHK': 14000 },
-    description: 'Fee test: 1 RK ₹299, 1 BHK ₹499 and 2 BHK ₹999 to visit.',
+    description: 'Fee test: 1 RK ₹199, 1 BHK ₹299 and 2 BHK ₹699 to visit.',
   }),
   listing({
     owner: B, category: 'BACHELOR', photo: 2,
@@ -164,7 +164,7 @@ const PROPERTIES = [
     name: 'Fee Test · Patamata Co-live Homes',
     place: 'Patamata, Vijayawada', coordinates: [80.6620, 16.4920],
     layouts: { '1 RK': 5500, '2 BHK': 8500 },
-    description: 'Fee test (House / Co-live): 1 RK ₹299 and 2 BHK ₹999 to visit.',
+    description: 'Fee test (House / Co-live): 1 RK ₹199 and 2 BHK ₹699 to visit.',
   }),
   listing({
     owner: B, category: 'COLIVE', photo: 4,

@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -15,35 +16,7 @@ import { FoodCatalogueProvider } from '@/context/FoodCatalogueContext';
 import { FoodProvider } from '@/context/FoodContext';
 import { PendingRequestProvider } from '@/context/PendingRequestContext';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
-import {
-  Outfit_400Regular,
-  Outfit_500Medium,
-  Outfit_600SemiBold,
-  Outfit_700Bold,
-} from '@expo-google-fonts/outfit';
-import {
-  SourceSans3_400Regular,
-  SourceSans3_500Medium,
-  SourceSans3_600SemiBold,
-  SourceSans3_700Bold,
-} from '@expo-google-fonts/source-sans-3';
-import { DMMono_400Regular, DMMono_500Medium } from '@expo-google-fonts/dm-mono';
-/* Stays typography — one family, four sizes. The three faces above are still
-   loaded because the FOOD module keeps them; see `TypographyScope`. */
-import {
-  Manrope_400Regular,
-  Manrope_500Medium,
-  Manrope_600SemiBold,
-  Manrope_700Bold,
-} from '@expo-google-fonts/manrope';
-/* The auth screen's footer, and nothing else.
-
-   A script face is a signature, not a text face — it is unreadable below about
-   14px and illegible in a paragraph, so it is deliberately absent from the
-   type scale in `constants/tokens.ts`. It is loaded here because fonts load
-   once for the whole app, and named directly at its one call site rather than
-   given a `face` in the scale, which would invite a second use. */
-import { DancingScript_600SemiBold } from '@expo-google-fonts/dancing-script';
+import { fontAssets } from '@/constants/fonts';
 import { useFonts } from 'expo-font';
 import { StyleSheet, View } from 'react-native';
 import { Stack } from 'expo-router';
@@ -71,38 +44,6 @@ const queryClient = new QueryClient();
 AppState.addEventListener('change', (status: AppStateStatus) => {
   focusManager.setFocused(status === 'active');
 });
-
-/**
- * The Dock trio, each face with a job.
- *
- * Outfit carries headings and the hero rent, Source Sans 3 carries reading
- * text, and DM Mono carries the secondary numerals — deposit, timers,
- * distances, counts, booking ids and the gate code. React Native cannot
- * synthesise weights, so each weight is registered as its own family;
- * `constants/tokens.ts` maps them.
- *
- * DM Mono ships only Light/Regular/Medium, so just two of its weights are
- * loaded here and `fontFamilies` folds 600 and 700 onto Medium. Registering
- * fewer files is the point — three faces at four weights each was twelve
- * blocking downloads before the splash could lift.
- */
-const fonts = {
-  Outfit_400Regular,
-  Outfit_500Medium,
-  Outfit_600SemiBold,
-  Outfit_700Bold,
-  SourceSans3_400Regular,
-  SourceSans3_500Medium,
-  SourceSans3_600SemiBold,
-  SourceSans3_700Bold,
-  DMMono_400Regular,
-  DMMono_500Medium,
-  Manrope_400Regular,
-  Manrope_500Medium,
-  Manrope_600SemiBold,
-  Manrope_700Bold,
-  DancingScript_600SemiBold,
-};
 
 /**
  * Every screen draws its own header — `StandardHeader`, `ExploreHeader`,
@@ -181,7 +122,11 @@ function Shell() {
 }
 
 export default function RootLayout() {
-  const [fontsLoaded, fontError] = useFonts(fonts);
+  /* Every font the app draws with — which ones, and the names they are
+     registered under, are `constants/fonts.ts`'s business alone. The tab
+     bar's icon font loads with them, so the bar never paints empty glyphs on
+     the first frame. */
+  const [fontsLoaded, fontError] = useFonts({ ...fontAssets, ...Ionicons.font });
 
   useEffect(() => {
     if (fontsLoaded || fontError) {

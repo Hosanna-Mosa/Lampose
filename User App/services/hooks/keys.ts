@@ -44,6 +44,21 @@ export const queryKeys = {
     ] as const,
   foodKitchen: (restaurantId: string) => ['food', 'kitchen', restaurantId] as const,
   foodDish: (productId: string) => ['food', 'dish', productId] as const,
+  /* Under `['food']`, so refreshing the feed re-reads an open slot grid too.
+     A null date is "whichever day the server starts on" — its own key, so the
+     first read is not mistaken for a pick. */
+  tableChoices: (restaurantId: string, date: string, guests: number, time: string) =>
+    ['food', 'tableChoices', restaurantId, date, guests, time] as const,
+  tableSlots: (restaurantId: string, date: string | null, guests: number) =>
+    ['food', 'table-slots', restaurantId, date, guests] as const,
+
+  /* The diner's table bookings. NOT under `['food']`: they are the account's,
+     not the catalogue's, and pulling the feed down must not re-read them.
+     Hierarchical, so a booking made or cancelled invalidates the list and
+     whichever booking is open in one call. */
+  tableBookings: ['table-bookings'] as const,
+  tableBookingList: ['table-bookings', 'list'] as const,
+  tableBooking: (reference: string) => ['table-bookings', 'detail', reference] as const,
 
   /* The stay itself, as opposed to the request that asked for it. Both are
      cached separately because they change for different reasons and at

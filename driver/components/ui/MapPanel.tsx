@@ -9,7 +9,6 @@ import MapView, {
   type Camera,
 } from "react-native-maps";
 import MapViewDirections from "react-native-maps-directions";
-import Svg, { Circle, Path } from "react-native-svg";
 import { colors, elevation, radius, space } from "@/theme";
 import { Icon } from "./Icon";
 import { Text } from "./Text";
@@ -125,41 +124,17 @@ function bearingBetween(a: LngLat, b: LngLat): number {
   return (toDeg(Math.atan2(y, x)) + 360) % 360;
 }
 
-/** A teardrop pin, sized to its own small marker canvas rather than the whole
-    map — `anchor={{x:0.5,y:1}}` on the `Marker` puts its tip on the coordinate. */
-function PinIcon() {
-  const r = 7;
-  const w = r * 2 + 6;
-  const h = r * 2.6 + 6;
-  const d = [
-    `M ${w / 2} ${h - 3}`,
-    `L ${w / 2 - r} ${h - 3 - r * 1.6}`,
-    `A ${r} ${r} 0 1 1 ${w / 2 + r} ${h - 3 - r * 1.6}`,
-    "Z",
-  ].join(" ");
-  return (
-    <Svg width={w} height={h}>
-      <Path d={d} fill={colors.graphite} stroke={colors.surface} strokeWidth={2} />
-    </Svg>
-  );
-}
-
-/** The restaurant: a ring, filled once the food has left it. */
-function RingIcon({ filled }: { filled: boolean }) {
-  const size = 22;
-  return (
-    <Svg width={size} height={size}>
-      <Circle
-        cx={size / 2}
-        cy={size / 2}
-        r={8}
-        fill={filled ? colors.brand : colors.surface}
-        stroke={colors.brand}
-        strokeWidth={3}
-      />
-    </Svg>
-  );
-}
+/* The two ends of the job as Lampose's own 3D buildings, the same artwork as
+   the customer app's `DeliveryMap.tsx` (drawn and rendered by
+   `brand/build-map-markers.js`; SVGs under `assets/images/markers/source/`).
+   PNGs with @2x/@3x siblings through `Marker`'s `image` prop: the same size
+   in dp on every density, and no custom child view for Android to snapshot
+   and clip. Each stands on its coordinate, the ground under its front
+   corner, so `anchor` is that point as a fraction of the 56×68 dp image. */
+const RESTAURANT_MARKER = require("../../assets/images/markers/marker_restaurant.png");
+const RESTAURANT_ANCHOR = { x: 26 / 56, y: 60 / 68 };
+const HOME_MARKER = require("../../assets/images/markers/marker_home.png");
+const HOME_ANCHOR = { x: 28 / 56, y: 60 / 68 };
 
 /** The signed difference from `fromDeg` to `toDeg`, in (-180, 180] — the
     SHORT way round a compass, so a turn that crosses 0°/360° never reads
@@ -631,17 +606,18 @@ export function MapPanel({
           />
         ) : null}
 
+        {/* The restaurant fades once the food has left it, so the leg still
+            being ridden is the one that stands out. */}
         {pickup ? (
-          <Marker coordinate={toLatLng(pickup)} anchor={{ x: 0.5, y: 0.5 }}>
-            <RingIcon filled={pickedUp} />
-          </Marker>
+          <Marker
+            coordinate={toLatLng(pickup)}
+            image={RESTAURANT_MARKER}
+            anchor={RESTAURANT_ANCHOR}
+            opacity={pickedUp ? 0.6 : 1}
+          />
         ) : null}
 
-        {drop ? (
-          <Marker coordinate={toLatLng(drop)} anchor={{ x: 0.5, y: 1 }}>
-            <PinIcon />
-          </Marker>
-        ) : null}
+        {drop ? <Marker coordinate={toLatLng(drop)} image={HOME_MARKER} anchor={HOME_ANCHOR} /> : null}
 
         {/* The rider — a native image marker, rotated by the SDK itself
             (`image` + `rotation` + `flat`) rather than a custom React child
@@ -693,20 +669,19 @@ export function MapPanel({
 
         {/*
           The target's label. Its own `Marker` at the SAME coordinate as
-          whichever pin it labels, so it rides with the map rather than
-          needing to be repositioned by hand on every camera move — but it is
-          a real pin's worth of pixels above that coordinate rather than
-          centred on it, and `anchor` only offsets by a FRACTION of this
-          view's own size, not a fixed pixel amount the way the old
-          screen-space overlay could. `y: 1.6` is a tuned guess at clearing
-          the pin underneath without floating too far above it; it is the one
-          number in this file I could not check by eye — I have no native
-          build to render it on — so treat it as a starting point to nudge
-          after you see it on a device.
+          whichever building it labels, so it rides with the map rather than
+          needing to be repositioned by hand on every camera move. It hangs
+          just BELOW that point, like a name plate at the building's foot:
+          the building already fills the 60 dp above it, and a label over
+          the pin would be pushed out of the top of a 168 dp panel. `y: 0`
+          plus a fixed `paddingTop` gives an offset in dp. An anchor
+          fraction would scale with the chip's own size.
         */}
         {legTarget ? (
-          <Marker coordinate={toLatLng(legTarget)} anchor={{ x: 0.5, y: 1.6 }} zIndex={3}>
-            <Chip label={target} tone="brand" />
+          <Marker coordinate={toLatLng(legTarget)} anchor={{ x: 0.5, y: 0 }} zIndex={3}>
+            <View style={styles.targetLabel}>
+              <Chip label={target} tone="brand" />
+            </View>
           </Marker>
         ) : null}
       </MapView>
@@ -793,6 +768,8 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: colors.brand,
   },
+  /* Clears the building's ground shadow, which spills a few dp below its point. */
+  targetLabel: { paddingTop: 6 },
   searchOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",

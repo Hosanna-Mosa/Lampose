@@ -16,8 +16,6 @@ import { useBooking, useBookingActions } from '@/services/hooks/useBookings';
 import { ApiError } from '@/services/api/client';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
-/* DEVELOPMENT ONLY — gates the force-check-in bypass below. */
-import { PREVIEW_CONTROLS } from '@/constants/env';
 import { backRowBase, boldBody, centred } from '@/components/common/utils/styles';
 
 /**
@@ -66,7 +64,7 @@ export function CheckInScreen() {
   const { id, state: forced } = useLocalSearchParams<{ id: string; state?: Forced }>();
 
   const { booking, notFound, isPending } = useBooking(id);
-  const { checkIn, devForceCheckIn } = useBookingActions(id);
+  const { checkIn } = useBookingActions(id);
 
   const [code, setCode] = useState('');
   const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS);
@@ -159,35 +157,6 @@ export function CheckInScreen() {
     markIn(code);
   };
 
-  /*
-   * DEVELOPMENT ONLY — skip the code and the check-in date, both.
-   *
-   * The real flow above already works correctly once the code is right — see
-   * `POST /bookings/:id/checkin` on the backend — but the SERVER also
-   * refuses `TOO_EARLY` until the booking's actual check-in date, which makes
-   * everything past this screen (active stay, checkout, the hotel settlement
-   * chain) untestable on a booking made for a future date. This calls the
-   * dev-only route that stamps both halves of the move-in at once and goes
-   * straight to the next screen, so that chain can be walked through without
-   * waiting for the calendar. 404s on the server unless `DEV_ALLOW_FORCE_CHECKIN`
-   * is on, which is refused outright in production — see `devForceCheckInOwner`.
-   */
-  const devForceIn = () => {
-    if (devForceCheckIn.isPending) return;
-    devForceCheckIn.mutate(undefined, {
-      onSuccess: () => {
-        router.replace({ pathname: '/booking/checked-in', params: { id: booking.id } });
-      },
-      onError: (err) => {
-        setToast(
-          err instanceof ApiError
-            ? err.displayMessage
-            : 'The dev bypass failed. Please try again.',
-        );
-      },
-    });
-  };
-
   // ── Lockout replaces the whole body: there's nothing to type into. ──
   if (lockedOut) {
     return (
@@ -202,14 +171,6 @@ export function CheckInScreen() {
               variant="secondary"
               onPress={() => router.push('/support')}
             />
-            {PREVIEW_CONTROLS ? (
-              <Button
-                label={devForceCheckIn.isPending ? 'Marking in…' : '🛠 DEV: check in now'}
-                variant="secondary"
-                onPress={devForceIn}
-                disabled={devForceCheckIn.isPending}
-              />
-            ) : null}
           </Box>
         }
         stickyHeader={
@@ -333,28 +294,6 @@ export function CheckInScreen() {
             loading={checkIn.isPending}
             disabled={(!codeless && !complete) || expired || checkIn.isPending}
           />
-          {/*
-            DEVELOPMENT ONLY — see `devForceIn`.
-            Same power as the "🛠 DEV: check in now" button on the booking
-            detail screen, one step further: that one only got as far as
-            THIS screen, where the server's real date gate still refused a
-            booking made for a future day. This is the bypass that actually
-            finishes the job — it does not read the typed code at all, so it
-            works whether or not `complete` is true.
-          */}
-          {PREVIEW_CONTROLS ? (
-            <>
-              <Button
-                label={devForceCheckIn.isPending ? 'Marking in…' : '🛠 DEV: check in now (ignores date & code)'}
-                variant="secondary"
-                onPress={devForceIn}
-                disabled={devForceCheckIn.isPending}
-              />
-              <Text variant="caption" color="textTertiary" center>
-                Development only — stamps both sides of the move-in directly
-              </Text>
-            </>
-          ) : null}
         </Box>
 
       <Box style={styles.spacer} />

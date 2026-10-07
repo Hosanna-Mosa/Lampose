@@ -242,7 +242,7 @@ const SIMPLE_PATH_CATEGORIES = ['BACHELOR', 'COLIVE', 'COMMERCIAL'];
  * ## 26 September 2026 — priced by layout, and COLIVE and COMMERCIAL are back
  *
  * The flat ₹199 became a table: the fee depends on the LAYOUT the visitor
- * picked (1 RK ₹299 … 5 BHK+ ₹2,499), and a Commercial visit is ₹1,999.
+ * picked (1 RK ₹199 … 5 BHK+ ₹2,499), and a Commercial visit is ₹1,999.
  * The amounts are edited by a Super Admin in the console, and the layout rule
  * lives in `modules/visitFees/visitFees.service.js`. Co-live pays again, on the
  * same table as Bachelor. Commercial now has a listing page and a visit flow,

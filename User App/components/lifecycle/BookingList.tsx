@@ -118,6 +118,7 @@ export function BookingSegments({
       value={label}
       onChange={(next) => onChange(TO_SEGMENT[next])}
       accessibilityLabel="Which bookings"
+      accent="link"
     />
   );
 }

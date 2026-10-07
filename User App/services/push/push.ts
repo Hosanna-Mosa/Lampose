@@ -87,6 +87,10 @@ export type PushPayload = {
        delivered. One kind rather than four, because they all open the same
        screen and the SERVER's status decides what it draws. */
     | 'food_order'
+    /* Dine-in — a table request confirmed, declined, expired or cancelled,
+       and the hour-before reminder. Carries `reference`, the booking's own
+       id; one kind for all of them, because they all open the booking. */
+    | 'table_booking'
     /* Support: a reply on a ticket, or its status changing. Carries
        `reference`, the ticket's own id. */
     | 'support.reply'
@@ -98,7 +102,7 @@ export type PushPayload = {
     | 'visit.paid'
     | 'visit.scheduled'
     | 'visit.slot_reminder';
-  /** Support only — the ticket reference. */
+  /** Support — the ticket reference; dine-in — the booking's. */
   reference?: string;
   /** Stay flow only. */
   requestId?: string;
@@ -117,6 +121,11 @@ export type PushPayload = {
 /** True when this payload is about a food order rather than a stay request. */
 export const isFoodPush = (payload?: PushPayload | null): boolean =>
   !!payload && payload.kind === 'food_order' && !!payload.orderNumber;
+
+/** True for a table booking (dine-in) — see `PushPayload.kind`. Checked by
+    kind as well as `reference`, which a support push carries too. */
+export const isTableBookingPush = (payload?: PushPayload | null): boolean =>
+  !!payload && payload.kind === 'table_booking' && !!payload.reference;
 
 /** True for the three booking-lifecycle kinds — see `PushPayload.kind`. */
 export const isBookingPush = (payload?: PushPayload | null): boolean =>

@@ -3,7 +3,15 @@ import { announceFoodOrdersChanged } from '@/services/push/foodRefresh';
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { addPushListeners, getInitialPush, isBookingPush, isFoodPush, isSupportPush, type PushPayload } from './push';
+import {
+  addPushListeners,
+  getInitialPush,
+  isBookingPush,
+  isFoodPush,
+  isSupportPush,
+  isTableBookingPush,
+  type PushPayload,
+} from './push';
 
 /**
  * What happens when a notification arrives, and when one is tapped.
@@ -47,6 +55,17 @@ export function usePushRouting() {
         router.push({
           pathname: '/food/order/[id]',
           params: { id: payload.orderNumber },
+        } as never);
+        return;
+      }
+
+      /* A table booking: the booking itself, which draws every ending
+         (confirmed, declined, expired, cancelled) from the server's status.
+         Ahead of support, which also carries a `reference`. */
+      if (isTableBookingPush(payload)) {
+        router.push({
+          pathname: '/food/table-booking/[reference]',
+          params: { reference: payload.reference },
         } as never);
         return;
       }
@@ -116,6 +135,10 @@ export function usePushRouting() {
          are read again (see `foodRefresh.ts`). */
       if (isFoodPush(payload)) {
         announceFoodOrdersChanged();
+        return;
+      }
+      if (isTableBookingPush(payload)) {
+        queryClient.invalidateQueries({ queryKey: ['table-bookings'] });
         return;
       }
       if (isSupportPush(payload)) {

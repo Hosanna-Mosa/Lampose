@@ -38,19 +38,6 @@ export async function checkInBookingApi(id: string, code?: string) {
   return unwrap(res);
 }
 
-/**
- * DEVELOPMENT ONLY — force both halves of a move-in without a real code or
- * the check-in date having arrived.
- *
- * 404s unless the server has `DEV_ALLOW_FORCE_CHECKIN` on, which is refused
- * outright under NODE_ENV=production — see `devForceCheckInOwner` on the
- * backend. Drawn only behind `PREVIEW_CONTROLS` on this side.
- */
-export async function devForceCheckInOwnerApi(id: string) {
-  const res = await api.post<ApiEnvelope<any>>(endpoints.partnerBookingDevForceCheckin(id));
-  return unwrap(res);
-}
-
 export async function checkOutBookingApi(id: string) {
   const res = await api.post<ApiEnvelope<any>>(endpoints.partnerBookingCheckout(id));
   return unwrap(res);

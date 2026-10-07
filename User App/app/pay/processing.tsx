@@ -18,7 +18,6 @@ import {
   type PaymentPhase,
   type ProcessingStep,
 } from '@/types/payment';
-import { usePreviewControls } from '@/hooks/useAppEnv';
 import { useActionBarInset } from '@/hooks/useActionBarInset';
 import { previewOnly } from '@/components/shell/previewOnly';
 
@@ -38,7 +37,6 @@ import { previewOnly } from '@/components/shell/previewOnly';
  * payment mid-flight is how someone ends up paying twice.
  */
 function PaymentProcessing() {
-  const previewControls = usePreviewControls();
   const { colors, space, layout, mode, radius } = useTheme();
   const insets = useSafeAreaInsets();
   /* Nothing on a handset that reports a real inset; the shortfall on one
@@ -53,7 +51,7 @@ function PaymentProcessing() {
   const [phase, setPhase] = useState<PaymentPhase>('leaving');
   const [step, setStep] = useState<ProcessingStep>('verifying');
   const [elapsed, setElapsed] = useState(0);
-  const [failure, setFailure] = useState<FailureKind>('unconfirmed');
+  const failure: FailureKind = 'unconfirmed';
 
   // 42a holds for ~600ms while the intent fires, then the app is "away".
   useEffect(() => {
@@ -192,33 +190,6 @@ function PaymentProcessing() {
               </View>
             ) : null}
 
-            {previewControls ? (
-              <View style={{ gap: space[2], paddingTop: space[4] }}>
-                <Text variant="numMeta" color="tertiary">
-                  outcome — preview only
-                </Text>
-                <View style={[styles.wrap, { gap: space[2] }]}>
-                  <Button
-                    label="confirmed"
-                    size="sm"
-                    variant="secondary"
-                    onPress={() => router.replace({ pathname: '/pay/confirmed', params: { id } })}
-                  />
-                  {(['declined', 'unconfirmed', 'unreachable'] as const).map((kind) => (
-                    <Button
-                      key={kind}
-                      label={kind}
-                      size="sm"
-                      variant="secondary"
-                      onPress={() => {
-                        setFailure(kind);
-                        setPhase('failed');
-                      }}
-                    />
-                  ))}
-                </View>
-              </View>
-            ) : null}
           </View>
         ) : null}
 
@@ -295,7 +266,6 @@ const styles = StyleSheet.create({
   centre: { alignItems: 'center', justifyContent: 'center', flexGrow: 1 },
   centredText: { textAlign: 'center' },
   row: { flexDirection: 'row', alignItems: 'center' },
-  wrap: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
   fieldRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
 });
 

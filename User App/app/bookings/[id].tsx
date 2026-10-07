@@ -22,7 +22,7 @@ import {
 
 import { formatRupees } from '@/utils/money';
 import { useDepositMark } from '@/components/ui/DepositMark';
-import { bookingStatus } from '@/constants/tokens';
+import { bookingStatus, phaseColors } from '@/constants/tokens';
 
 /**
  * One template, thirteen statuses.
@@ -95,18 +95,17 @@ export default function BookingDetail() {
   const cardSkin = dark
     ? { backgroundColor: colors.surface, borderColor: colors.borderSubtle, shadowOpacity: 0 }
     : null;
+  /*
+   * Colour by job, as on listing detail. The section icons are neutral — the
+   * clock was green, which said "good" over a booking the owner had just
+   * cancelled — except "Where to go", which is the link blue because it leads
+   * to directions. Status colour belongs to the chip (see `statusTone`).
+   */
   const badgeSkin = {
-    clock: dark ? { bg: colors.success.tint, fg: colors.success.ink } : { bg: '#ECFDF5', fg: '#059669' },
-    pin: dark ? { bg: colors.info.tint, fg: colors.info.base } : { bg: '#EFF6FF', fg: '#2563EB' },
-    terms: dark ? { bg: colors.surfaceSunken, fg: colors.textSecondary } : { bg: '#F8FAFC', fg: '#64748B' },
+    clock: { bg: colors.surfaceSunken, fg: colors.textSecondary },
+    pin: { bg: colors.link.tint, fg: colors.link.base },
+    terms: { bg: colors.surfaceSunken, fg: colors.textSecondary },
   };
-  const chipSkin = dark
-    ? {
-        chip: { backgroundColor: colors.success.tint, borderColor: colors.success.border },
-        dot: { backgroundColor: colors.success.base },
-        text: { color: colors.success.ink },
-      }
-    : { chip: {}, dot: {}, text: {} };
   const disclaimerSkin = dark
     ? { backgroundColor: colors.surfaceSunken, borderColor: colors.borderSubtle }
     : null;
@@ -314,6 +313,12 @@ export default function BookingDetail() {
       : booking.status === 'CONFIRMED'
   ) && !(stay.request?.payment?.required && stay.request.payment.status !== 'paid');
 
+  /* The chip in "Where this booking is" takes its status's colour — the same
+     phases `BookingStatusChip` draws in the Bookings list: amber waiting,
+     green good, red stopped, grey closed. It was a fixed green, so "Cancelled
+     by owner" and "Payment failed" both read as good news. */
+  const statusTone = phaseColors(colors, bookingStatus[booking.status]?.phase ?? 'closed');
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
@@ -356,9 +361,14 @@ export default function BookingDetail() {
                 Where this booking is
               </Text>
             </View>
-            <View style={[styles.statusChip, chipSkin.chip]}>
-              <View style={[styles.statusDot, chipSkin.dot]} />
-              <Text style={[styles.statusChipText, chipSkin.text]}>
+            <View
+              style={[
+                styles.statusChip,
+                { backgroundColor: statusTone.tint, borderColor: statusTone.border },
+              ]}
+            >
+              <View style={[styles.statusDot, { backgroundColor: statusTone.ink }]} />
+              <Text style={[styles.statusChipText, { color: statusTone.ink }]}>
                 {/* The shared label table — three statuses had words here and
                     the other ten printed raw codes like CANCELLED_BY_OWNER. */}
                 {bookingStatus[booking.status]?.label ?? booking.status}
@@ -609,8 +619,12 @@ export default function BookingDetail() {
             stay is complete and unreviewed; see `real` above. */}
         {canReview ? (
           <View
+            /* A rating is star-yellow everywhere, so the ask wears the logo's
+               yellow as a pale panel — `deal.tint`, never yellow text. */
             style={{
-              backgroundColor: colors.surfaceSunken,
+              backgroundColor: colors.deal.tint,
+              borderColor: colors.deal.border,
+              borderWidth: 1,
               borderRadius: BOX_RADIUS,
               padding: space[4],
               gap: space[3],
@@ -723,25 +737,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#ECFDF5',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#A7F3D0',
     /* One short word. It keeps its size and the heading beside it shrinks. */
     flexShrink: 0,
   },
+  /* Chip, dot and label colours: `statusTone`, by the booking's phase. */
   statusDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#10B981',
   },
   statusChipText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#065F46',
   },
   termsBody: {
     gap: 0,

@@ -119,7 +119,7 @@ const {
 const { generatePassword } = require('../../shared/utils/password');
 
 const {
-  makeRestaurantId, phoneKey, isOpenNow, OPEN_STATES, DELIVERY_FEE_TYPES,
+  makeRestaurantId, phoneKey, isOpenNow, OPEN_STATES, DELIVERY_FEE_TYPES, MAX_RESTAURANT_PHOTOS,
 } = FoodRestaurant;
 const { makeProductId } = FoodProduct;
 
@@ -1176,7 +1176,7 @@ const getMe = async (req, res, next) => {
 
 const EDITABLE_FIELDS = [
   /* Presentation. */
-  'description', 'cuisineTypes', 'logoImage', 'coverBannerImage',
+  'description', 'cuisineTypes', 'logoImage', 'coverBannerImage', 'galleryImages',
   /* Contact — the customer-facing number, which is not the login identity. */
   'contactNumber',
   /* C. Operations. */
@@ -1336,6 +1336,29 @@ const updateMe = async (req, res, next) => {
       changed.push(key);
     });
 
+    /* The whole gallery, in the partner's order — a list is replaced, never
+       merged, so removing a photo is sending the list without it and an empty
+       list clears it. Only uploaded photographs: an entry that is not an http
+       URL is a local file the app failed to upload, or a data: URI, and
+       storing either would put a picture no diner's phone can load on the
+       restaurant's page. */
+    if (body.galleryImages !== undefined) {
+      if (!Array.isArray(body.galleryImages)) {
+        problems.push('galleryImages as a list of uploaded photos');
+      } else {
+        const photos = body.galleryImages.map(readImage);
+        if (photos.some((photo) => !/^https?:\/\//.test(photo.url))) {
+          problems.push('every restaurant photo uploaded first — upload it, then send the url and publicId');
+        } else if (photos.length > MAX_RESTAURANT_PHOTOS) {
+          problems.push(`no more than ${MAX_RESTAURANT_PHOTOS} restaurant photos`);
+        } else {
+          const seen = new Set();
+          restaurant.set('galleryImages', photos.filter((photo) => !seen.has(photo.url) && seen.add(photo.url)));
+          changed.push('galleryImages');
+        }
+      }
+    }
+
     if (body.contactNumber !== undefined) {
       /* Permissive on purpose: this is the number printed in the app, and it is
          frequently a landline or a counter phone. `ownerPhone` is the strict
@@ -1474,6 +1497,15 @@ const updateMe = async (req, res, next) => {
     }
 
     await restaurant.save();
+
+    /* New hours can leave a booked table outside them. Those bookings are
+       cancelled and each diner told — after the save, never able to fail it. */
+    if (changed.includes('openingHours')) {
+      // eslint-disable-next-line global-require
+      require('../dineIn/tableBooking.service').cancelOutsideHours(restaurant)
+        .then((n) => { if (n) console.log(`🍽️  [Dine-in] ${restaurant.restaurantId} hours changed — ${n} booking(s) cancelled`); })
+        .catch((error) => console.error('🍽️  [Dine-in] hours check failed:', error.message));
+    }
 
     note(
       '📝',

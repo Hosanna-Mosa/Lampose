@@ -16,6 +16,8 @@ export { InfoNote, type NoteTone } from "./InfoNote";
 export { InfoRow } from "./InfoRow";
 export { ListGroup } from "./ListGroup";
 export { ListRow } from "./ListRow";
+export { PhotoGrid } from "./PhotoGrid";
+export { usePhotoPicker, type PhotoRequest } from "./PhotoPicker";
 export { ScreenShell } from "./ScreenShell";
 export { ScreenTitle } from "./ScreenTitle";
 export { SectionHeader } from "./SectionHeader";

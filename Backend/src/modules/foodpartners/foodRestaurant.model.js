@@ -143,6 +143,10 @@ const PARTNER_TYPES = ['food', 'meat'];
 
 const DOCUMENT_KINDS = ['fssai', 'gst', 'pan', 'cheque', 'menu_sheet'];
 
+/* How many of its own photographs a restaurant page carries. Enough for the
+   food, the room and the counter; few enough that a diner scrolls past them. */
+const MAX_RESTAURANT_PHOTOS = 12;
+
 /* Full names, Monday first, matching `Frontend/src/data/partner.js` DAYS and
    the `weekday: 'long'` output of the formatter below. Full names rather than
    0–6 because an opening-hours row is read by a person in three consoles, and
@@ -268,6 +272,52 @@ const pointSchema = new mongoose.Schema(
  * serving until 01:00 is ordinary. See `isOpenNow`, which is the only place
  * that rule is implemented.
  */
+/* Dine-in: the restaurant's table types and floor. Each type carries its
+   letter and its tables' numbers ("4 seats × 10, A1–A10"). See
+   `modules/dineIn/dineIn.rules.js` for the numbering rules and which fields
+   are required to switch dine-in on — the schema accepts a half-filled form
+   saved with it off, and a type saved before numbering (no `prefix`, no
+   `numbers`) is read with the defaults. */
+const dineInTableSchema = new mongoose.Schema(
+  {
+    seats: { type: Number, required: true, min: 1, max: 20 },
+    count: { type: Number, required: true, min: 1, max: 100 },
+    prefix: { type: String, default: '', trim: true },
+    numbers: { type: [String], default: [] },
+  },
+  { _id: false },
+);
+
+const dineInSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    paused: { type: Boolean, default: false },
+    tableTypes: { type: [dineInTableSchema], default: [] },
+    tableCount: { type: Number, default: 0, min: 0 },
+    seatingCapacity: { type: Number, default: 0, min: 0 },
+    acSeating: { type: String, enum: ['ac', 'non_ac', 'both', null], default: null },
+    indoorSeating: { type: Boolean, default: null },
+    outdoorSeating: { type: Boolean, default: false },
+    familySeating: { type: Boolean, default: false },
+    coupleSeating: { type: Boolean, default: false },
+    smoking: { type: String, enum: ['non_smoking', 'smoking_area', null], default: null },
+    wheelchairAccessible: { type: Boolean, default: false },
+    parkingAvailable: { type: Boolean, default: null },
+    valetParking: { type: Boolean, default: false },
+    kidsFriendly: { type: Boolean, default: false },
+    petFriendly: { type: Boolean, default: false },
+    /* A whole day closed to bookings ("YYYY-MM-DD", India), and single
+       half-hour slots marked full by hand — the walk-ins the app cannot see. */
+    blockedDates: { type: [String], default: [] },
+    blockedSlots: {
+      type: [new mongoose.Schema({ date: String, time: String }, { _id: false })],
+      default: [],
+    },
+    updatedAt: { type: Date, default: null },
+  },
+  { _id: false },
+);
+
 const openingHourSchema = new mongoose.Schema(
   {
     day: { type: String, enum: WEEKDAYS, required: true },
@@ -431,6 +481,13 @@ const foodRestaurantSchema = new mongoose.Schema(
 
     logoImage: { type: imageSchema, default: () => ({}) },
     coverBannerImage: { type: imageSchema, default: () => ({}) },
+    /* The restaurant's own photographs — the food, the room, the counter —
+       shown on its page in the customer app. Separate from the cover because
+       the cover is the ONE picture on the listing card, and a partner adding
+       a photo of the dining room must not silently change that card. Every
+       entry is an upload to `POST /uploads/images` (kind `gallery`); the
+       order is the partner's, and capped at MAX_RESTAURANT_PHOTOS. */
+    galleryImages: { type: [imageSchema], default: [] },
 
     /* The one-line tagline under the name on the listing card. Short by
        convention rather than by validator — the card truncates. */
@@ -529,6 +586,14 @@ const foodRestaurantSchema = new mongoose.Schema(
     openingHours: { type: [openingHourSchema], default: [] },
 
     openState: { type: String, enum: OPEN_STATES, default: 'auto' },
+
+    /* Table bookings — what the floor offers and whether diners may book it.
+       The rules live in `modules/dineIn/dineIn.rules.js`; `tableCount` and
+       `seatingCapacity` are DERIVED from `tableTypes` there and stored only
+       so a reader never has to add them up. `paused` is separate from
+       `openState` on purpose: a kitchen can stop taking table bookings for a
+       busy night and keep delivering, or close delivery and keep its tables. */
+    dineIn: { type: dineInSchema, default: () => ({}) },
 
     /* Minutes. Feeds the ETA on the listing card; a per-item override lives on
        `food_products.preparationTime`. */
@@ -990,4 +1055,5 @@ module.exports.VERIFICATION_STATUSES = VERIFICATION_STATUSES;
 module.exports.OPEN_STATES = OPEN_STATES;
 module.exports.PARTNER_TYPES = PARTNER_TYPES;
 module.exports.DOCUMENT_KINDS = DOCUMENT_KINDS;
+module.exports.MAX_RESTAURANT_PHOTOS = MAX_RESTAURANT_PHOTOS;
 module.exports.WEEKDAYS = WEEKDAYS;

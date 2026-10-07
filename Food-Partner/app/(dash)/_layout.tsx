@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   The signed-in restaurant: four tabs.
+   The signed-in restaurant: five tabs — Home, Menu, Orders, Dine-in, Profile.
 
    Ported from the driver app's tab bar. The selected tab takes a brand-tinted
    pill behind its glyph with brand ink on both glyph and label — ink-versus-

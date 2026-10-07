@@ -195,8 +195,10 @@ export function DishRow({
             does not carry it. */}
         {!soldOut && (dish.ordersInBlock ?? 0) >= REORDER_MARK ? (
           <View style={[styles.reorder, { gap: space[1] + 2 }]}>
-            <View style={[styles.reorderBar, { backgroundColor: colors.success.base }]} />
-            <Text variant="numMeta" style={{ color: colors.success.ink }}>
+            {/* The logo's yellow, as every "people like this" mark in the app
+                is — a bestseller is a recommendation, not a status. */}
+            <View style={[styles.reorderBar, { backgroundColor: colors.deal.base }]} />
+            <Text variant="numMeta" style={{ color: colors.deal.ink }}>
               Highly reordered
             </Text>
           </View>

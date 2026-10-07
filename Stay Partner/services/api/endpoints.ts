@@ -88,8 +88,6 @@ export const endpoints = {
      more than the bank account under `earnings/methods`. */
   payoutOnboarding: `${V2}/partners/payout-onboarding`,
   payoutOnboardingRefresh: `${V2}/partners/payout-onboarding/refresh`,
-  /* DEVELOPMENT ONLY — 404s unless the server allows it. */
-  payoutOnboardingDevActivate: `${V2}/partners/payout-onboarding/dev-activate`,
 
   /**
    * This partner's listings, scoped by the phone number they proved.
@@ -187,9 +185,6 @@ export const endpoints = {
   partnerBookings: `${V2}/partners/bookings`,
   partnerBooking: (id: string) => `${V2}/partners/bookings/${encodeURIComponent(id)}`,
   partnerBookingCheckin: (id: string) => `${V2}/partners/bookings/${encodeURIComponent(id)}/checkin`,
-  /** DEVELOPMENT ONLY — 404s unless the server has DEV_ALLOW_FORCE_CHECKIN on. */
-  partnerBookingDevForceCheckin: (id: string) =>
-    `${V2}/partners/bookings/${encodeURIComponent(id)}/dev-force-checkin`,
   partnerBookingCheckout: (id: string) => `${V2}/partners/bookings/${encodeURIComponent(id)}/checkout`,
   partnerBookingCancel: (id: string) => `${V2}/partners/bookings/${encodeURIComponent(id)}/cancel`,
 

@@ -314,7 +314,8 @@ const sampleItem = (
 ): MenuItem => ({
   id: uid(),
   productName,
-  productImage: sampleFile(`${productName.toLowerCase().replace(/\W+/g, "_")}.jpg`),
+  /* No picture: a diner is only ever shown a real photo of the dish. */
+  productImage: null,
   galleryImages: [],
   description: "",
   category,
@@ -339,8 +340,10 @@ const SAMPLES: Record<number, () => Partial<OnboardingData>> = {
     restaurantName: "Paradise Biryani House",
     description: "Authentic Hyderabadi dum biryani, cooked to order",
     cuisineTypes: ["North Indian", "Mughlai", "South Indian"],
-    logoImage: sampleFile("paradise_logo.jpg"),
-    coverBannerImage: sampleFile("paradise_cover.jpg"),
+    /* Left empty: the logo and cover are what diners see, so they are only
+       ever a real photo the partner takes or chooses. */
+    logoImage: null,
+    coverBannerImage: null,
     ownerName: "Ravi Kumar Reddy",
     ownerEmail: "ravi@paradisebiryani.in",
     password: "lampose123",

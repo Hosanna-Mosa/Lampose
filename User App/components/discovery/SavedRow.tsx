@@ -120,7 +120,7 @@ export function SavedRow({ entry, onPress, onRemove }: SavedRowProps) {
         ) : null}
 
         {gone ? (
-          <Text variant="numMeta" color="tertiary">
+          <Text variant="numMeta" color="danger">
             {availabilityLabel(listing.availability)}
           </Text>
         ) : null}
@@ -140,7 +140,9 @@ export function SavedRow({ entry, onPress, onRemove }: SavedRowProps) {
         accessibilityLabel={`Remove ${listing.name} from saved`}
         style={styles.remove}
       >
-        <Icon name="heart" size={24} color={colors.brandInk} fill={colors.brandInk} />
+        {/* Red, as on the listing header: a saved heart is the one mark
+            everybody already reads in that colour. */}
+        <Icon name="heart" size={24} color={colors.danger.base} fill={colors.danger.base} />
       </Pressable>
     </Pressable>
   );

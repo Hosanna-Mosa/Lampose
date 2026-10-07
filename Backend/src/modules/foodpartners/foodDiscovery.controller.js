@@ -91,6 +91,8 @@ const {
 } = require('./foodPartner.log');
 const { escapeRegex } = require('../../shared/utils/text');
 const { FOOD_PRICING_CONFIG } = require('./foodPricing');
+const { isBookable } = require('../dineIn/dineIn.rules');
+const { publicDineIn } = require('../dineIn/tableBooking.service');
 
 const { isOpenNow, PARTNER_TYPES } = FoodRestaurant;
 
@@ -491,6 +493,9 @@ const listRow = (doc, distanceKm) => ({
      nothing. */
   distanceKm,
   address: placeOf(doc.address),
+  /* Whether this kitchen takes table bookings right now — the card's
+     "Dine-in" mark and the filter. The floor itself is on the detail. */
+  dineInAvailable: isBookable(doc),
 });
 
 /*
@@ -514,6 +519,7 @@ const LIST_FIELDS = [
   'deliveryFee', 'minOrderValue', 'packagingCharge',
   'address.city', 'address.line2', 'address.landmark',
   'openState', 'openingHours',
+  'dineIn.enabled', 'dineIn.paused', 'dineIn.tableTypes',
 ];
 
 const LIST_SELECT = LIST_FIELDS.join(' ');
@@ -537,12 +543,13 @@ const LIST_PROJECT = LIST_FIELDS.reduce(
  */
 const DETAIL_FIELDS = [
   'restaurantId', 'restaurantName', 'description',
-  'logoImage', 'coverBannerImage', 'cuisineTypes', 'partnerType',
+  'logoImage', 'coverBannerImage', 'galleryImages', 'cuisineTypes', 'partnerType',
   'ratingAvg', 'ratingCount',
   'address', 'location', 'contactNumber',
   'openingHours', 'openState',
   'avgPreparationTime', 'deliveryRadiusKm', 'minOrderValue', 'packagingCharge',
   'deliveryFee', 'acceptsOnlinePayment', 'acceptsCod',
+  'dineIn',
 ];
 
 const DETAIL_SELECT = DETAIL_FIELDS.join(' ');
@@ -553,6 +560,10 @@ const restaurantDetail = (doc) => ({
   description: doc.description || '',
   logoImage: imageUrl(doc.logoImage),
   coverBannerImage: imageUrl(doc.coverBannerImage),
+  /* The restaurant's own photographs, for its page — not the card's, which
+     has the cover. Empty entries are dropped rather than sent as `{url:''}`:
+     a gallery is a strip of pictures, and a blank tile in it is a broken one. */
+  galleryImages: imageList(doc.galleryImages).filter((image) => image.url),
   cuisineTypes: textList(doc.cuisineTypes),
   partnerType: doc.partnerType || 'food',
   ratingAvg: number(doc.ratingAvg),
@@ -591,6 +602,10 @@ const restaurantDetail = (doc) => ({
   deliveryFee: deliveryFeeOf(doc.deliveryFee),
   acceptsOnlinePayment: doc.acceptsOnlinePayment !== false,
   acceptsCod: doc.acceptsCod !== false,
+  /* The floor and its facilities, or null when it takes no table bookings.
+     Blocked days and slots stay with the restaurant — the slot grid already
+     leaves them out. */
+  dineIn: publicDineIn(doc),
 });
 
 /* The parent summary on the Product Details screen — a name to put at the top
@@ -834,6 +849,15 @@ const listRestaurants = async (req, res, next) => {
      */
     if (PARTNER_TYPES.includes(partnerType)) filter.partnerType = partnerType;
 
+    /* `dineIn=true` — the Food home's "Dine-in" filter: restaurants taking
+       table bookings right now (switched on, not paused, with tables). */
+    const dineInOnly = isYes(query.dineIn);
+    if (dineInOnly) {
+      Object.assign(filter, {
+        'dineIn.enabled': true, 'dineIn.paused': { $ne: true }, 'dineIn.tableTypes.0': { $exists: true },
+      });
+    }
+
     const byName = searchFilter(search);
     if (byName) Object.assign(filter, byName);
 
@@ -874,6 +898,7 @@ const listRestaurants = async (req, res, next) => {
         cuisine: cuisines,
         search: search || undefined,
         openNow: openNow || undefined,
+        dineIn: dineInOnly || undefined,
         partnerType: filter.partnerType,
         page,
         limit,

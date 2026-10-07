@@ -1,105 +1,23 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import {
-  Image,
-  Pressable,
-  StyleSheet,
-  useWindowDimensions,
-  View,
-  type ViewStyle,
-} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import React, { useEffect, useMemo } from 'react';
+import { Platform, Pressable, StyleSheet, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import Animated, {
-  interpolate,
+  cancelAnimation,
   useAnimatedStyle,
   useSharedValue,
-  withDelay,
-  withSequence,
-  withSpring,
+  withRepeat,
   withTiming,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 
 import { Icon, Text } from '@/components/ui';
-import { useTheme } from '@/context/ThemeContext';
-import { withAlpha } from '@/utils/color';
+import { easing } from '@/constants/motion';
+import type { StayCategory } from '@/constants/tokens';
+import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { AirbnbSearchBar, type AirbnbSearchBarProps } from './AirbnbSearchBar';
-
-// Character sets for letter-by-letter fall & arrange
-const ITS_CHARS = ['i', 't', "'", 's'];
-const ITS_TILTS = [-8, 7, -4, 8];
-
-const A_CHARS = ['a'];
-const A_TILTS = [-6];
-
-const LIFESTYLE_CHARS = ['L', 'i', 'f', 'e', 's', 't', 'y', 'l', 'e'];
-const LIFESTYLE_TILTS = [9, -7, 6, -8, 8, -6, 7, -5, 6];
-
-// Stagger timing constants (ms)
-const STAGGER_STEP = 32;
-const ITS_START = 80;
-const A_START = ITS_START + ITS_CHARS.length * STAGGER_STEP + 35; // 243ms
-const LIFESTYLE_START = A_START + 1 * STAGGER_STEP + 35; // 310ms
-const LIFESTYLE_END = LIFESTYLE_START + (LIFESTYLE_CHARS.length - 1) * STAGGER_STEP; // 566ms
-
-type FallingCharProps = {
-  char: string;
-  delay: number;
-  trigger: number;
-  tilt?: number;
-  style?: any;
-};
-
-function FallingChar({ char, delay, trigger, tilt = 0, style }: FallingCharProps) {
-  const translateY = useSharedValue(-42);
-  const opacity = useSharedValue(0);
-  const rotate = useSharedValue(tilt);
-  const scale = useSharedValue(1.25);
-
-  useEffect(() => {
-    translateY.value = -42;
-    opacity.value = 0;
-    rotate.value = tilt;
-    scale.value = 1.25;
-
-    translateY.value = withDelay(
-      delay,
-      withSpring(0, {
-        damping: 11,
-        stiffness: 240,
-        mass: 0.8,
-      }),
-    );
-    opacity.value = withDelay(
-      delay,
-      withTiming(1, { duration: 90 }),
-    );
-    rotate.value = withDelay(
-      delay,
-      withSpring(0, { damping: 12, stiffness: 220 }),
-    );
-    scale.value = withDelay(
-      delay,
-      withSpring(1, { damping: 12, stiffness: 240 }),
-    );
-  }, [trigger, delay, tilt, translateY, opacity, rotate, scale]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-    transform: [
-      { translateY: translateY.value },
-      { rotate: `${rotate.value}deg` },
-      { scale: scale.value },
-    ],
-  }));
-
-  return (
-    <Animated.Text style={[style, animatedStyle]}>
-      {char}
-    </Animated.Text>
-  );
-}
+import { CategoryGlassBar } from './CategoryGlassBar';
 
 export type StayHeroSectionProps = {
   locality: string;
@@ -110,9 +28,39 @@ export type StayHeroSectionProps = {
   onPressProfile?: () => void;
   userName?: string;
   searchBarProps: AirbnbSearchBarProps;
+  /** The category the feed is showing. The glass category bar is drawn only
+   *  when this and `onChangeCategory` are both given. */
+  category?: StayCategory | null;
+  onChangeCategory?: (category: StayCategory) => void;
+  /**
+   * How far down the hero its search bar starts, in points. The screen docks
+   * a sticky copy of the search bar and categories once it has scrolled this
+   * far, so the hand-off happens exactly where the real one leaves.
+   */
+  onDockPoint?: (y: number) => void;
   style?: ViewStyle;
 };
 
+function greetingFor(hour: number): string {
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+/**
+ * The Explore hero — light, and made of glass.
+ *
+ * It replaced a dark 16:9 bedroom photograph with white type on scrims. This
+ * one is a pale wash of the brand's own colours that fades into the page, with
+ * three soft glows drifting slowly behind it, and everything on it is a pane of
+ * frosted glass: the locality, the bell, the profile mark, and the category bar
+ * with its moving bubble (`CategoryGlassBar`). The type is the app's normal
+ * dark ink, so nothing needs a scrim or a text shadow to be read.
+ *
+ * In order: where you are looking and your two header buttons, a greeting and
+ * the line, the search bar, and the categories. The filter chips are not part
+ * of the hero and are untouched — they follow it in the feed.
+ */
 export function StayHeroSection({
   locality,
   city,
@@ -122,562 +70,284 @@ export function StayHeroSection({
   onPressProfile,
   userName,
   searchBarProps,
+  category,
+  onChangeCategory,
+  onDockPoint,
   style,
 }: StayHeroSectionProps) {
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
-  const { space, colors, mode } = useTheme();
-
-  /*
-   * The bell and profile discs over the banner follow the theme.
-   *
-   * They were literal white with a literal slate glyph, in both modes. On
-   * Android phones that apply a system "force dark" to anything the app did
-   * not theme itself, that white disc was darkened while the glyph stayed
-   * dark — both icons vanished in dark mode. In dark mode they are now a
-   * near-opaque raised surface with the light ink and a hairline ring (so
-   * they keep an edge on the photo); light mode is unchanged.
-   */
-  const isDark = mode === 'dark';
-  const discStyle = isDark
-    ? {
-      backgroundColor: withAlpha(colors.surfaceRaised, 0.92),
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: withAlpha('#FFFFFF', 0.18),
-    }
-    : null;
-  const discInk = isDark ? colors.textPrimary : '#1E293B';
+  const { colors, mode, layout } = useTheme();
+  const reduceMotion = useReduceMotion();
+  const dark = mode === 'dark';
 
   /* Null for a guest, or an account with no name yet — the button then shows
      a person icon, never a made-up letter. */
   const userInitial = userName?.trim().charAt(0).toUpperCase() || null;
+  const firstName = userName?.trim().split(/\s+/)[0] || null;
+  const greeting = useMemo(() => greetingFor(new Date().getHours()), []);
   const fullLocalityText =
-    city && city.trim().length > 0
-      ? `${locality}, ${city}`
-      : (locality || 'All locations');
+    city && city.trim().length > 0 ? `${locality}, ${city}` : locality || 'All locations';
 
-  // Exact 16:9 aspect ratio based on screen width
-  const bannerWidth = screenWidth;
-  const bannerHeight = Math.round((bannerWidth * 9) / 16);
-
-  // Trigger state for kinetic falling replay
-  const [animTrigger, setAnimTrigger] = useState(0);
-
-  // Pretitle animation
-  const quoteOpacity = useSharedValue(0);
-  const quoteTranslateY = useSharedValue(-10);
-
-  // Underline flourish & sparkle animation
-  const flourishScale = useSharedValue(0);
-  const flourishOpacity = useSharedValue(0);
-  const sparkleScale = useSharedValue(0);
-  const sparkleRotate = useSharedValue(0);
-
-  // Subtitle badge animation
-  const subtitleOpacity = useSharedValue(0);
-  const subtitleTranslateY = useSharedValue(10);
-
-  const handleReplay = useCallback(() => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {}
-    setAnimTrigger((prev) => prev + 1);
-  }, []);
-
-  // Automatically trigger the letter-by-letter falling effect every 10 seconds
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setAnimTrigger((prev) => prev + 1);
-    }, 10000);
-
-    return () => clearInterval(timer);
-  }, [animTrigger]);
-
-  useEffect(() => {
-    // 1. Pretitle enters first
-    quoteOpacity.value = withTiming(1, { duration: 300 });
-    quoteTranslateY.value = withSpring(0, { damping: 14 });
-
-    // 2. Underline flourish sweeps across right as the last letter lands
-    flourishScale.value = 0;
-    flourishOpacity.value = 0;
-    flourishScale.value = withDelay(
-      LIFESTYLE_END + 40,
-      withSpring(1, { damping: 14, stiffness: 170 }),
-    );
-    flourishOpacity.value = withDelay(
-      LIFESTYLE_END + 20,
-      withTiming(1, { duration: 200 }),
-    );
-
-    // 3. Sparkle star pops and spins
-    sparkleScale.value = 0;
-    sparkleScale.value = withDelay(
-      LIFESTYLE_END + 80,
-      withSequence(
-        withSpring(1.3, { damping: 10 }),
-        withSpring(1, { damping: 14 }),
-      ),
-    );
-    sparkleRotate.value = withDelay(
-      LIFESTYLE_END + 80,
-      withTiming(sparkleRotate.value + 180, { duration: 500 }),
-    );
-
-    // 4. Subtitle badge settles in
-    subtitleOpacity.value = 0;
-    subtitleTranslateY.value = 10;
-    subtitleOpacity.value = withDelay(
-      LIFESTYLE_END + 120,
-      withTiming(1, { duration: 320 }),
-    );
-    subtitleTranslateY.value = withDelay(
-      LIFESTYLE_END + 120,
-      withSpring(0, { damping: 14, stiffness: 180 }),
-    );
-  }, [
-    animTrigger,
-    quoteOpacity,
-    quoteTranslateY,
-    flourishScale,
-    flourishOpacity,
-    sparkleScale,
-    sparkleRotate,
-    subtitleOpacity,
-    subtitleTranslateY,
-  ]);
-
-  const pretitleAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: quoteOpacity.value,
-    transform: [{ translateY: quoteTranslateY.value }],
-  }));
-
-  const flourishAnimatedStyle = useAnimatedStyle(() => ({
-    width: interpolate(flourishScale.value, [0, 1], [0, 112]),
-    opacity: flourishOpacity.value,
-    overflow: 'hidden',
-  }));
-
-  const sparkleAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [
-      { scale: sparkleScale.value },
-      { rotate: `${sparkleRotate.value}deg` },
-    ],
-  }));
-
-  const subtitleAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: subtitleOpacity.value,
-    transform: [{ translateY: subtitleTranslateY.value }],
-  }));
+  const glass = glassStyle(dark);
 
   return (
     <View style={[styles.container, style]}>
-      {/* 1. Hero Photo Banner Container (Exact 16:9 Explicit Pixel Geometry) */}
-      <View style={[styles.bannerBox, { width: bannerWidth, height: bannerHeight }]}>
-        <Image
-          source={require('@/assets/images/hero-lifestyle-16-9-v8.jpg')}
-          style={{
-            width: bannerWidth,
-            height: bannerHeight,
-            position: 'absolute',
-            top: 0,
-            left: 0,
-          }}
-          resizeMode="cover"
+      {/* The wash: a pale brand tint at the top, fading into the page. The
+          faint mint holds until the very bottom, so the glass category bar
+          still has a colour behind it to be glass against. */}
+      <LinearGradient
+        colors={dark ? ['#0E231C', '#111A17', '#101513', colors.bg] : ['#DDF1E8', '#EAF6F0', '#F2F9F5', colors.bg]}
+        locations={[0, 0.5, 0.9, 1]}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+
+      {/* Three soft glows drifting behind the glass. */}
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.glowClip]}>
+        <Glow
+          id="heroGlowBrand"
+          size={260}
+          color={colors.brand}
+          opacity={dark ? 0.28 : 0.22}
+          style={{ top: -90, left: -80 }}
+          drift={22}
+          duration={9000}
+          still={reduceMotion}
         />
-
-        {/* Top Subtle Scrim Gradient for Status Bar & Header Contrast */}
-        <LinearGradient
-          colors={[
-            'rgba(0, 0, 0, 0.45)',
-            'rgba(0, 0, 0, 0.15)',
-            'rgba(0, 0, 0, 0)',
-          ]}
-          locations={[0, 0.35, 0.7]}
-          style={{
-            width: bannerWidth,
-            height: bannerHeight,
-            position: 'absolute',
-            top: 0,
-            left: 0,
-          }}
-          pointerEvents="none"
+        <Glow
+          id="heroGlowSun"
+          size={210}
+          color={colors.deal.base}
+          opacity={dark ? 0.16 : 0.42}
+          style={{ top: 10, right: -70 }}
+          drift={16}
+          duration={11000}
+          still={reduceMotion}
         />
-
-        {/* Left Subtle Scrim for Text Contrast and Flawless Readability */}
-        <LinearGradient
-          colors={[
-            'rgba(3, 18, 12, 0.35)',
-            'rgba(3, 18, 12, 0.12)',
-            'rgba(3, 18, 12, 0)',
-          ]}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 0.7, y: 0.5 }}
-          style={{
-            width: bannerWidth,
-            height: bannerHeight,
-            position: 'absolute',
-            top: 0,
-            left: 0,
-          }}
-          pointerEvents="none"
+        <Glow
+          id="heroGlowSky"
+          size={180}
+          color={colors.link.base}
+          opacity={dark ? 0.2 : 0.14}
+          style={{ top: 150, left: screenWidth * 0.35 }}
+          drift={14}
+          duration={8000}
+          still={reduceMotion}
         />
-
-        {/* Content Container inside the banner */}
-        <View
-          style={[
-            styles.bannerContent,
-            {
-              paddingTop: Math.max(insets.top + 2, 14),
-              width: bannerWidth,
-              height: bannerHeight,
-            },
-          ]}
-        >
-          {/* Top Bar: Locality + Notification Bell + Profile Avatar */}
-          <View style={styles.topBar}>
-            <Pressable
-              onPress={onPressLocality}
-              style={styles.localityContainer}
-              accessibilityRole="button"
-              accessibilityLabel={`Looking in ${fullLocalityText}. Tap to change.`}
-            >
-              <Text style={styles.lookingInLabel}>LOOKING IN</Text>
-              <View style={styles.localityRow}>
-                <Icon name="mapPin" size={16} color="#FFFFFF" />
-                <Text numberOfLines={1} style={styles.localityText}>
-                  {fullLocalityText}
-                </Text>
-                <Text style={styles.chevronIcon}>⌄</Text>
-              </View>
-            </Pressable>
-
-            <View style={styles.headerActions}>
-              {/* Notification Bell */}
-              <Pressable
-                onPress={onPressAlerts}
-                style={[styles.actionCircleGlass, discStyle]}
-                accessibilityRole="button"
-                accessibilityLabel="Notifications"
-              >
-                <Icon name="bell" size={18} color={discInk} />
-                {alertCount > 0 ? (
-                  <View
-                    style={[
-                      styles.redBadge,
-                      isDark ? { borderColor: colors.surfaceRaised } : null,
-                    ]}
-                  />
-                ) : null}
-              </Pressable>
-
-              {/* Profile Initial Avatar */}
-              {onPressProfile ? (
-                <Pressable
-                  onPress={onPressProfile}
-                  style={[styles.profileAvatar, discStyle]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Your Profile"
-                >
-                  {userInitial ? (
-                    <Text style={[styles.profileInitial, { color: discInk }]}>{userInitial}</Text>
-                  ) : (
-                    <Icon name="user" size={18} color={discInk} />
-                  )}
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-
-          {/* Hero Headline & Subtitle with Kinetic Falling Letter Arrangement */}
-          <Pressable
-            onPress={handleReplay}
-            style={styles.heroTextContainer}
-            accessibilityRole="header"
-            accessibilityLabel="More than a Stay, it's a Lifestyle."
-          >
-            <Animated.Text style={[styles.heroPretitle, pretitleAnimatedStyle]}>
-              More than a Stay,
-            </Animated.Text>
-
-            <View style={styles.lifestyleRow}>
-              {/* Word 1: "it's" */}
-              <View style={styles.wordRow}>
-                {ITS_CHARS.map((char, idx) => (
-                  <FallingChar
-                    key={`its-${idx}-${animTrigger}`}
-                    char={char}
-                    delay={ITS_START + idx * STAGGER_STEP}
-                    trigger={animTrigger}
-                    tilt={ITS_TILTS[idx]}
-                    style={styles.heroMainTitle}
-                  />
-                ))}
-              </View>
-
-              {/* Space between "it's" and "a" */}
-              <View style={styles.wordSpace} />
-
-              {/* Word 2: "a" */}
-              <View style={styles.wordRow}>
-                {A_CHARS.map((char, idx) => (
-                  <FallingChar
-                    key={`a-${idx}-${animTrigger}`}
-                    char={char}
-                    delay={A_START + idx * STAGGER_STEP}
-                    trigger={animTrigger}
-                    tilt={A_TILTS[idx]}
-                    style={styles.heroMainTitle}
-                  />
-                ))}
-              </View>
-
-              {/* Space between "a" and "Lifestyle" */}
-              <View style={styles.wordSpace} />
-
-              {/* Word 3: "Lifestyle" with green underline flourish */}
-              <View style={styles.lifestyleWordContainer}>
-                <View style={styles.wordRow}>
-                  {LIFESTYLE_CHARS.map((char, idx) => (
-                    <FallingChar
-                      key={`life-${idx}-${animTrigger}`}
-                      char={char}
-                      delay={LIFESTYLE_START + idx * STAGGER_STEP}
-                      trigger={animTrigger}
-                      tilt={LIFESTYLE_TILTS[idx]}
-                      style={styles.heroMainTitle}
-                    />
-                  ))}
-                </View>
-
-                {/* Highlight Sparkle Diamond Star */}
-                <Animated.View style={[styles.sparkleWrapper, sparkleAnimatedStyle]} pointerEvents="none">
-                  <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-                    <Path
-                      d="M12 0L14.8 9.2L24 12L14.8 14.8L12 24L9.2 14.8L0 12L9.2 9.2L12 0Z"
-                      fill="#34D399"
-                    />
-                  </Svg>
-                </Animated.View>
-
-                {/* Green curved brush flourish underline under "Lifestyle" */}
-                <Animated.View style={[styles.flourishWrapper, flourishAnimatedStyle]} pointerEvents="none">
-                  <Svg width={112} height={8} viewBox="0 0 112 8" fill="none">
-                    <Path
-                      d="M2 6C30 2 78 2 110 5.5"
-                      stroke="#22C55E"
-                      strokeWidth={3}
-                      strokeLinecap="round"
-                    />
-                  </Svg>
-                </Animated.View>
-              </View>
-            </View>
-
-          </Pressable>
-        </View>
       </View>
 
-      {/* 2. Floating Capsule Search Bar Overlapping Bottom Edge of Banner */}
-      <View style={styles.searchBarWrapper}>
-        <AirbnbSearchBar {...searchBarProps} />
+      <View
+        style={[
+          styles.content,
+          { paddingTop: insets.top + 8, paddingHorizontal: layout.gutter },
+        ]}
+      >
+        {/* Where you are looking, and the two header buttons. */}
+        <View style={styles.topBar}>
+          <Pressable
+            onPress={onPressLocality}
+            style={[styles.localityPill, glass]}
+            accessibilityRole="button"
+            accessibilityLabel={`Looking in ${fullLocalityText}. Tap to change.`}
+          >
+            <View style={[styles.pinDisc, { backgroundColor: colors.brand }]}>
+              <Ionicons name="location" size={15} color={colors.onBrand} />
+            </View>
+            <View style={styles.localityText}>
+              <Text variant="caption" color="tertiary" style={styles.lookingIn}>
+                Looking in
+              </Text>
+              <View style={styles.localityRow}>
+                <Text variant="title3" numberOfLines={1} style={styles.localityName}>
+                  {fullLocalityText}
+                </Text>
+                <Ionicons name="chevron-down" size={14} color={colors.textSecondary} />
+              </View>
+            </View>
+          </Pressable>
+
+          <View style={styles.actions}>
+            <Pressable
+              onPress={onPressAlerts}
+              style={[styles.disc, glass]}
+              accessibilityRole="button"
+              accessibilityLabel={alertCount > 0 ? `Notifications, ${alertCount} unread` : 'Notifications'}
+            >
+              <Icon name="bell" size={18} color={colors.textPrimary} />
+              {alertCount > 0 ? (
+                <View
+                  style={[
+                    styles.badgeDot,
+                    { backgroundColor: colors.danger.base, borderColor: dark ? colors.surfaceRaised : '#FFFFFF' },
+                  ]}
+                />
+              ) : null}
+            </Pressable>
+
+            {onPressProfile ? (
+              <Pressable
+                onPress={onPressProfile}
+                style={[styles.disc, glass]}
+                accessibilityRole="button"
+                accessibilityLabel="Your profile"
+              >
+                {userInitial ? (
+                  <Text variant="title3" style={{ color: colors.brandInk }}>
+                    {userInitial}
+                  </Text>
+                ) : (
+                  <Icon name="user" size={18} color={colors.textPrimary} />
+                )}
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+
+        {/* The greeting and the line. */}
+        <View style={styles.headline}>
+          <Text variant="caption" color="secondary">
+            {firstName ? `${greeting}, ${firstName}` : greeting}
+          </Text>
+          <Text variant="display1" accessibilityRole="header" style={styles.title}>
+            More than a stay,{'\n'}it&apos;s a{' '}
+            <Text variant="display1" color="brand" style={styles.title}>
+              lifestyle.
+            </Text>
+          </Text>
+        </View>
+
+        <View onLayout={(event) => onDockPoint?.(event.nativeEvent.layout.y)}>
+          <AirbnbSearchBar {...searchBarProps} />
+        </View>
+
+        {category && onChangeCategory ? (
+          <CategoryGlassBar value={category} onChange={onChangeCategory} />
+        ) : null}
       </View>
     </View>
   );
 }
 
+/** Frosted glass for the small panes on the hero. See `CategoryGlassBar` for
+ *  why Android gets a more opaque fill and no elevation. */
+function glassStyle(dark: boolean): ViewStyle {
+  if (dark) {
+    return {
+      backgroundColor: 'rgba(255, 255, 255, 0.07)',
+      borderColor: 'rgba(255, 255, 255, 0.14)',
+      borderWidth: 1,
+    };
+  }
+  return Platform.OS === 'android'
+    ? { backgroundColor: 'rgba(255, 255, 255, 0.82)', borderColor: 'rgba(0, 0, 0, 0.06)', borderWidth: 1 }
+    : {
+        backgroundColor: 'rgba(255, 255, 255, 0.62)',
+        borderColor: 'rgba(255, 255, 255, 0.95)',
+        borderWidth: 1,
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.06,
+        shadowRadius: 10,
+      };
+}
+
+/**
+ * A soft round glow that drifts back and forth, slowly.
+ *
+ * A radial gradient rather than a translucent circle, so it has no edge — a
+ * flat disc reads as a shape, a glow reads as light. Still under reduced
+ * motion.
+ */
+function Glow({
+  id,
+  size,
+  color,
+  opacity,
+  style,
+  drift,
+  duration,
+  still,
+}: {
+  /** Unique per glow: SVG gradient ids are global to the document. */
+  id: string;
+  size: number;
+  color: string;
+  opacity: number;
+  style: ViewStyle;
+  /** How far it wanders, in points. */
+  drift: number;
+  duration: number;
+  still: boolean;
+}) {
+  const t = useSharedValue(0.5);
+
+  useEffect(() => {
+    if (still) {
+      cancelAnimation(t);
+      t.value = 0.5;
+      return;
+    }
+    t.value = 0;
+    t.value = withRepeat(withTiming(1, { duration, easing: easing.inOut }), -1, true);
+    return () => cancelAnimation(t);
+  }, [still, duration, t]);
+
+  const drifting = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: (t.value - 0.5) * drift * 2 },
+      { translateY: (0.5 - t.value) * drift },
+      { scale: 0.96 + t.value * 0.08 },
+    ],
+  }));
+
+  const r = size / 2;
+  return (
+    <Animated.View style={[{ position: 'absolute', width: size, height: size }, style, drifting]}>
+      <Svg width={size} height={size}>
+        <Defs>
+          <RadialGradient id={id} cx="50%" cy="50%" r="50%">
+            <Stop offset="0" stopColor={color} stopOpacity={opacity} />
+            <Stop offset="1" stopColor={color} stopOpacity={0} />
+          </RadialGradient>
+        </Defs>
+        <Circle cx={r} cy={r} r={r} fill={`url(#${id})`} />
+      </Svg>
+    </Animated.View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: {
-    width: '100%',
-    position: 'relative',
-    marginBottom: 4,
-  },
-  bannerBox: {
-    width: '100%',
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  bannerContent: {
-    flex: 1,
-    paddingHorizontal: 16,
-    justifyContent: 'space-between',
-    paddingBottom: 36,
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  localityContainer: {
-    flex: 1,
-    marginRight: 12,
-  },
-  lookingInLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: 'rgba(255, 255, 255, 0.85)',
-    letterSpacing: 0.9,
-    marginBottom: 2,
-    textTransform: 'uppercase',
-  },
-  localityRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  localityText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    maxWidth: '82%',
-    letterSpacing: 0.1,
-  },
-  chevronIcon: {
-    fontSize: 13,
-    color: '#FFFFFF',
-    fontWeight: '700',
-    marginTop: -2,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  actionCircleGlass: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  redBadge: {
-    position: 'absolute',
-    top: 5,
-    right: 5,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#EF4444',
-    borderWidth: 1.5,
-    borderColor: '#FFFFFF',
-  },
-  profileAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  profileInitial: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#1E293B',
-  },
-  heroTextContainer: {
-    paddingVertical: 2,
-    gap: 3,
-    maxWidth: '68%',
-  },
-  heroPretitle: {
-    fontSize: 16,
-    fontStyle: 'italic',
-    fontWeight: '600',
-    color: '#D1FAE5',
-    letterSpacing: 0.2,
-    textShadowColor: 'rgba(0, 0, 0, 0.45)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  lifestyleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    marginBottom: 3,
-  },
-  wordRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-  },
-  wordSpace: {
-    width: 6.5,
-  },
-  lifestyleWordContainer: {
-    position: 'relative',
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-  },
-  heroMainTitle: {
-    fontSize: 27,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: -0.5,
-    textShadowColor: 'rgba(0, 0, 0, 0.65)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 6,
-  },
-  sparkleWrapper: {
-    position: 'absolute',
-    top: -5,
-    right: -14,
-  },
-  flourishWrapper: {
-    position: 'absolute',
-    bottom: -5,
-    right: 0,
-    height: 8,
-  },
-  subtitleBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(4, 28, 22, 0.78)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 7,
-    borderWidth: 1,
-    borderColor: 'rgba(52, 211, 153, 0.35)',
-    alignSelf: 'flex-start',
-    marginTop: 2,
-    maxWidth: '92%',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 5,
-    elevation: 3,
-  },
-  subtitleGlowDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#22C55E',
-    shadowColor: '#22C55E',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.9,
-    shadowRadius: 4,
-  },
-  subtitleBadgeText: {
-    fontSize: 10.5,
-    fontWeight: '600',
-    color: '#F8FAFC',
-    letterSpacing: 0.1,
+  container: { width: '100%', position: 'relative' },
+  glowClip: { overflow: 'hidden' },
+  content: { paddingBottom: 12, gap: 14 },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  localityPill: {
     flexShrink: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 5,
+    paddingLeft: 5,
+    paddingRight: 12,
+    borderRadius: 999,
   },
-  searchBarWrapper: {
-    marginTop: -26,
-    paddingHorizontal: 16,
-    zIndex: 10,
-    elevation: 6,
+  pinDisc: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  localityText: { flexShrink: 1 },
+  lookingIn: { fontSize: 10, lineHeight: 12, textTransform: 'uppercase', letterSpacing: 0.6 },
+  localityRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  localityName: { flexShrink: 1, fontSize: 14, lineHeight: 18 },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  disc: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  badgeDot: {
+    position: 'absolute',
+    top: 8,
+    right: 9,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    borderWidth: 1.5,
   },
+  headline: { gap: 2 },
+  title: { fontSize: 25, lineHeight: 31, letterSpacing: -0.4 },
 });

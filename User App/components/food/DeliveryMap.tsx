@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 import MapView, { AnimatedRegion, Marker, MarkerAnimated, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import MapViewDirections from 'react-native-maps-directions';
-import Svg, { Circle, Path } from 'react-native-svg';
 
 import { Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
@@ -165,52 +164,36 @@ function useEasedHeading(heading: number | null | undefined): number {
 }
 
 /* ------------------------------------------------------------------ *
- * Markers — small, fixed-size canvases rather than the whole map, since
- * `react-native-maps` places each one at its own coordinate rather than at
- * a hand-projected pixel.
+ * Markers — Lampose's own 3D artwork, drawn and rendered by
+ * `brand/build-map-markers.js` (the SVGs are kept under
+ * `assets/images/markers/source/`). Each is a PNG with @2x/@3x siblings
+ * handed to `Marker`'s `image` prop, so it is the same size in dp on every
+ * density, in a dev build and a release build alike, and there is no custom
+ * child view for Android to snapshot and clip.
  * ------------------------------------------------------------------ */
 
-/** A teardrop pin whose tip sits on the coordinate — `anchor={{x:0.5,y:1}}`
-    on the `Marker` puts it there. */
-function PinIcon({ fill, stroke }: { fill: string; stroke: string }) {
-  const r = 6.5;
-  const w = r * 2 + 5;
-  const h = r * 2.6 + 5;
-  const d = [
-    `M ${w / 2} ${h - 2}`,
-    `L ${w / 2 - r} ${h - 2 - r * 1.6}`,
-    `A ${r} ${r} 0 1 1 ${w / 2 + r} ${h - 2 - r * 1.6}`,
-    'Z',
-  ].join(' ');
-  return (
-    <Svg width={w} height={h}>
-      <Path d={d} fill={fill} stroke={stroke} strokeWidth={1.5} />
-    </Svg>
-  );
-}
+/** The restaurant: a flat-roofed green café with a striped awning and the
+    Lampose pin over it. 56×68 dp; it stands on its coordinate, which is the
+    ground under the front corner, 26 across and 60 down. */
+const RESTAURANT_MARKER = require('../../assets/images/markers/marker_restaurant.png');
+const RESTAURANT_ANCHOR = { x: 26 / 56, y: 60 / 68 };
 
-/** The restaurant: a ring, filled once the food has left it. */
-function RingIcon({ filled, fill, stroke }: { filled: boolean; fill: string; stroke: string }) {
-  const size = 20;
-  return (
-    <Svg width={size} height={size}>
-      <Circle cx={size / 2} cy={size / 2} r={7} fill={filled ? stroke : fill} stroke={stroke} strokeWidth={2.5} />
-    </Svg>
-  );
-}
+/** The door: a cream two-storey home with a rooftop tank and the Lampose
+    pin. 56×68 dp, standing on the ground under its front corner (28, 60). */
+const HOME_MARKER = require('../../assets/images/markers/marker_home.png');
+const HOME_ANCHOR = { x: 28 / 56, y: 60 / 68 };
+
+/** Both buildings stand UP from their point, 60 dp of them above it, so the
+    camera keeps that much clear at the top edge or the pin gets cut off. */
+const BUILDING_HEADROOM = 68;
 
 /**
- * The rider: a top-down illustrated scooter — back after a brief detour
- * through the driver app's own plain heading-arrow glyph. The arrow read
- * clearly, but a diner watching THIS map wants to recognise "a bike is on
- * its way", the way an arrow never quite gestures at even when it's easy
- * to see. What was actually wrong the first time this was tried was the
- * SIZE, not the shape: 22×48 at this map's smaller, card-embedded scale
- * rendered as a barely-visible speck, and both 33×70 and 47×100 were still
- * too small. `scooter_blue_top_view_marker.png` is the same crop,
- * regenerated at 65×140 — to resize it again, regenerate the PNG at a
- * different pixel size (same 68:146 aspect ratio); there is no style prop
- * for this, by design, same as the driver app's own image marker.
+ * The rider: a top-down 3D delivery rider. Lampose green jacket, white
+ * helmet, and the yellow delivery box with the logo's "o", on a motorbike,
+ * nose up (north), centred. 40×56 dp at every density (@2x/@3x siblings).
+ * The plain heading arrow is still what the rider sees of THEMSELVES in the
+ * driver app; a diner watching THIS map wants to recognise "a bike is on its
+ * way", the way an arrow never quite gestures at.
  *
  * It rotates again — but not the way the very first version of this
  * marker did. That one turned to face a heading INFERRED from the
@@ -237,7 +220,7 @@ function RingIcon({ filled, fill, stroke }: { filled: boolean; fill: string; str
  * its own troubleshooting to land on `rotation`+`flat` (native, SDK-level
  * rotation) over animating a `transform` by hand. Both lessons are
  * reused here from the start rather than relearned. */
-const RIDER_MARKER_IMAGE = require('../../assets/images/scooter_blue_top_view_marker.png');
+const RIDER_MARKER_IMAGE = require('../../assets/images/markers/marker_rider_top.png');
 
 /* ------------------------------------------------------------------ *
  * The map
@@ -308,7 +291,7 @@ export type DeliveryMapProps = {
  * Several things changed after this actually reached a device: the marker
  * used to be an abstract chevron, then a plain circular bike badge, then
  * (briefly) a plain heading arrow, and it used to SNAP to each new fix
- * rather than move to it. It is now a top-down illustrated scooter
+ * rather than move to it. It is now a top-down 3D delivery rider
  * (`RIDER_MARKER_IMAGE`), and it glides between the polled positions via
  * `riderRegion`, an `AnimatedRegion` (see its own comment for why that
  * mechanism, specifically, is what makes smooth marker movement possible
@@ -447,7 +430,7 @@ export function DeliveryMap({
   useEffect(() => {
     if (points.length < 2) return;
     mapRef.current?.fitToCoordinates(points.map(toLatLng), {
-      edgePadding: { top: 40, right: 36, bottom: 40, left: 36 },
+      edgePadding: { top: BUILDING_HEADROOM, right: 36, bottom: 40, left: 36 },
       animated: true,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -538,21 +521,20 @@ export function DeliveryMap({
             />
           ) : null}
 
-          {/* The restaurant: a ring, filled once the food has left it. */}
+          {/* The restaurant: the 3D café, faded once the food has left it so
+              the leg still being ridden is the one that stands out. */}
           {restaurant ? (
-            <Marker coordinate={toLatLng(restaurant)} anchor={{ x: 0.5, y: 0.5 }}>
-              <RingIcon filled={pickedUp} fill={colors.surface} stroke={colors.brand} />
-            </Marker>
+            <Marker
+              coordinate={toLatLng(restaurant)}
+              image={RESTAURANT_MARKER}
+              anchor={RESTAURANT_ANCHOR}
+              opacity={pickedUp ? 0.6 : 1}
+            />
           ) : null}
 
-          {/* The door: a solid pin, and the only teardrop marker on the map so
-              it is distinguishable from the restaurant without relying on
-              colour. */}
-          {drop ? (
-            <Marker coordinate={toLatLng(drop)} anchor={{ x: 0.5, y: 1 }}>
-              <PinIcon fill={colors.graphite} stroke={colors.surface} />
-            </Marker>
-          ) : null}
+          {/* The door: the 3D home, a different building from the café so the
+              two ends tell apart by shape, not only by colour. */}
+          {drop ? <Marker coordinate={toLatLng(drop)} image={HOME_MARKER} anchor={HOME_ANCHOR} /> : null}
 
           {/* The rider: a native image marker (see `RIDER_MARKER_IMAGE`'s own
               comment) that glides to each new fix rather than jumping to it —

@@ -262,6 +262,7 @@ function SharingRow({
       label={option.label}
       description={description}
       selected={selected}
+      accent="link"
       unavailable={soldOut}
       onSelect={onSelect}
       accessibilityLabel={

@@ -38,11 +38,9 @@ import { useRouter } from 'expo-router';
 
 import { Button, Card, Input, Screen, Text } from '@/components/common';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
-import { useAlert } from '@/components/common';
-import { PREVIEW_CONTROLS } from '@/constants/env';
 import { useColors } from '@/hooks/useColors';
 import {
-  devActivatePayout, fetchPayoutOnboarding, refreshPayoutOnboarding,
+  fetchPayoutOnboarding, refreshPayoutOnboarding,
   submitPayoutOnboarding, type PayoutOnboarding,
 } from '@/services/api/payoutOnboarding.api';
 import { centred } from '@/components/common/utils/styles';
@@ -73,7 +71,6 @@ const FIELDS: { key: keyof Form; label: string; hint?: string; caps?: boolean }[
 export function PayoutSetupScreen() {
   const c = useColors();
   const router = useRouter();
-  const { confirm } = useAlert();
 
   const [state, setState] = useState<PayoutOnboarding | null>(null);
   const [form, setForm] = useState<Form>(EMPTY);
@@ -135,39 +132,6 @@ export function PayoutSetupScreen() {
       setError((caught as { displayMessage?: string })?.displayMessage
         ?? 'We could not save those details. Please check them and try again.');
       rereadState();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  /*
-   * DEVELOPMENT ONLY — skip the whole thing.
-   *
-   * Route is not enabled on the test account, so a real linked account cannot
-   * be created and everything past this gate — the held transfer, the admin
-   * Monitor's Withdraw — is unreachable. This marks the owner payable with an
-   * obviously fake account id.
-   *
-   * Drawn on a preview build AND only when the server says it allows it, so
-   * it is never a button that can only 404. Delete with `devActivatePayout`.
-   */
-  const devSkip = async () => {
-    const yes = await confirm({
-      title: 'Skip payout setup?',
-      message: 'Development bypass — this marks you as payable with a fake account so the rest '
-        + 'of the app can be tested. No real payout can reach it.',
-      confirmLabel: 'Skip it',
-      cancelLabel: 'Cancel',
-      tone: 'warning',
-    });
-    if (!yes) return;
-    setBusy(true);
-    try {
-      await devActivatePayout();
-      router.replace('/');
-    } catch (caught) {
-      setError((caught as { displayMessage?: string })?.displayMessage
-        ?? 'The server does not allow that. Set DEV_ALLOW_FORCE_CHECKIN="true" in Backend/.env.');
     } finally {
       setBusy(false);
     }
@@ -287,21 +251,6 @@ export function PayoutSetupScreen() {
           />
         )}
 
-        {/* DEVELOPMENT ONLY — see `devSkip`. Both gates: a preview build, and
-            a server that says it allows it. */}
-        {PREVIEW_CONTROLS && state?.devActivateAllowed && (
-          <Box style={styles.dev}>
-            <Button
-              label="🛠 DEV: skip and mark me payable"
-              variant="secondary"
-              disabled={busy}
-              onPress={() => { void devSkip(); }}
-            />
-            <Text variant="caption" color="textTertiary" center>
-              Development only — writes a fake payout account, no real payout can reach it
-            </Text>
-          </Box>
-        )}
       </KeyboardAwareScrollViewCompat>
     </Screen>
   );
@@ -313,5 +262,4 @@ const styles = StyleSheet.create({
   lede: { marginBottom: 2 },
   stack: { gap: 12 },
   error: { marginTop: 4 },
-  dev: { gap: 6, marginTop: 20 },
 });

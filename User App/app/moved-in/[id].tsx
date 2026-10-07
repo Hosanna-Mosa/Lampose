@@ -129,8 +129,10 @@ export default function MovedInScreen() {
             style={[
               styles.reward,
               {
-                backgroundColor: colors.brandTint,
-                borderColor: colors.success.border,
+                /* A reward wears the logo's yellow — the same pale panel and
+                   ochre ink as every coupon and offer in the app. */
+                backgroundColor: colors.deal.tint,
+                borderColor: colors.deal.border,
                 borderRadius: radius.card,
                 padding: space[4],
                 gap: space[3],
@@ -138,10 +140,10 @@ export default function MovedInScreen() {
             ]}
           >
             <View style={{ gap: space[1] }}>
-              <Text variant="eyebrow" style={{ color: colors.brandInk }}>
+              <Text variant="eyebrow" style={{ color: colors.deal.ink }}>
                 A thank-you from Lampose
               </Text>
-              <Text variant="display1" style={{ color: colors.brandInk }}>
+              <Text variant="display1" style={{ color: colors.deal.ink }}>
                 ₹{earned.amountRupees} off your next hotel
               </Text>
               <Text variant="caption" color="secondary">
@@ -162,7 +164,7 @@ export default function MovedInScreen() {
                 styles.codeRow,
                 {
                   backgroundColor: colors.surface,
-                  borderColor: colors.success.border,
+                  borderColor: colors.deal.border,
                   borderRadius: radius.chip,
                   paddingHorizontal: space[3],
                   paddingVertical: space[3],

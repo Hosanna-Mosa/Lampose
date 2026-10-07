@@ -48,6 +48,7 @@ export default function CouponsScreen() {
 
       <FoodEmptyState
         glyph="rupee"
+        tone="reward"
         title="Coupon codes are not live yet"
         body="Nothing can be taken off a food order today, so there is no code to enter and none to offer. You pay for the items, GST, delivery, the service fee and packaging — the same total the cart shows."
         primaryLabel="Back to your order"

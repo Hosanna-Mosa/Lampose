@@ -176,7 +176,7 @@ export function DraggableMapPill({ onPress, bottomInset, label = 'Map' }: Dragga
           <Text variant="bodyStrong" style={styles.label}>
             {label}
           </Text>
-          <Icon name="mapPin" size={16} color="#FFFFFF" />
+          <Icon name="mapPin" size={14} color="#FFFFFF" />
         </Animated.View>
       </GestureDetector>
     </View>
@@ -188,9 +188,9 @@ const styles = StyleSheet.create({
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    gap: 5,
   },
-  label: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
+  label: { color: '#FFFFFF', fontWeight: '700', fontSize: 12, lineHeight: 16 },
 });

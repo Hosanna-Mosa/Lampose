@@ -22,7 +22,9 @@ export type FoodEmptyStateProps = {
   onPrimary: () => void;
   secondaryLabel?: string;
   onSecondary?: () => void;
-  tone?: 'neutral' | 'problem';
+  /** `reward` is the logo's yellow, for an empty screen about coupons or
+   *  offers — the colour those wear everywhere else in the app. */
+  tone?: 'neutral' | 'problem' | 'reward';
   /** Error code, reference, timestamp — the line support will ask for. */
   footnote?: string;
 };
@@ -46,7 +48,7 @@ export function FoodEmptyState({
   footnote,
 }: FoodEmptyStateProps) {
   const { colors, space, layout, radius } = useTheme();
-  const palette = tone === 'problem' ? colors.danger : colors.info;
+  const palette = tone === 'problem' ? colors.danger : tone === 'reward' ? colors.deal : colors.info;
 
   return (
     <View style={[styles.state, { padding: layout.gutter, gap: space[4] }]}>

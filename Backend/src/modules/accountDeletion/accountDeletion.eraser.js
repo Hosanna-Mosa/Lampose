@@ -213,6 +213,7 @@ const ERASERS = {
         panNumber: '',
         payoutAccounts: [],
         verificationDocuments: [],
+        galleryImages: [],
         devices: [],
         /* Off the app and the website. */
         isActive: false,

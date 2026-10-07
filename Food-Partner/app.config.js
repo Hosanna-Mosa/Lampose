@@ -85,9 +85,9 @@ export default {
         'expo-image-picker',
         {
           photosPermission:
-            'Lampose Partner needs your photo library to attach dish photos and licence scans to your application.',
+            'Lampose Partner uses your photo library so you can add photos of your dishes and restaurant, and attach licence scans.',
           cameraPermission:
-            'Lampose Partner needs the camera to photograph your licence, PAN card and cancelled cheque.',
+            'Lampose Partner uses the camera so you can photograph your dishes and restaurant, and your licence, PAN card and cancelled cheque.',
         },
       ],
       /* The OS time dialog behind the opening-hours picker. A config plugin

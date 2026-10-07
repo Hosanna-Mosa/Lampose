@@ -11,25 +11,18 @@ import type { HouseRule, MealPlan } from '@/types/listing';
 
 export type MealPlanCardProps = { plan: MealPlan };
 
-/**
- * The brand's own yellow — the "o" in the Lampose wordmark (`#FFC93C`, see
- * `Frontend/src/styles/lampose.css`) — rather than the generic `warning`
- * semantic token. `warning` was deliberately darkened away from this exact
- * hue elsewhere in the app for contrast reasons (see its own comment in
- * `constants/tokens.ts`); this card wants the literal logo colour, not a
- * caution colour that happens to be warm.
+/*
+ * The brand's own yellow — the "o" in the Lampose wordmark — through the
+ * theme's `deal` set, the one yellow every reward, offer and rating in the app
+ * now wears. It had a private copy of the website's `#FFC93C` here, which made
+ * it the one yellow in the app that matched nothing else.
  *
  * It paints SURFACES only — `tint` for the card, `border` for its edge and
  * rule, `base` for the glyph chip, `on` for the icon drawn on that chip. No
  * text is set in it: every word on the card is theme ink, because a heading
- * in gold on a pale yellow card is the least legible thing on it. `tint` and
- * `border` invert for dark the way `warning`'s dark set does — a darker
- * ground, so the pairing still reads on a dark card.
+ * in gold on a pale yellow card is the least legible thing on it. The set
+ * carries its own dark-mode values, so the pairing still reads on a dark card.
  */
-const MEAL_YELLOW = {
-  light: { base: '#FFC93C', tint: '#FFF8E6', border: '#F3DFA0', on: '#3D2900' },
-  dark: { base: '#FFC93C', tint: '#2E2408', border: '#5C4C1E', on: '#201804' },
-} as const;
 
 /**
  * Timings matter more than the meal count.
@@ -39,8 +32,8 @@ const MEAL_YELLOW = {
  * rather than being left blank for the reader to interpret.
  */
 export function MealPlanCard({ plan }: MealPlanCardProps) {
-  const { colors, space, radius, mode } = useTheme();
-  const yellow = MEAL_YELLOW[mode];
+  const { colors, space, radius } = useTheme();
+  const yellow = colors.deal;
 
   /* Meals get the warm family — the same one "What guests say" carries
      further down — rather than the plain surface every other card on this

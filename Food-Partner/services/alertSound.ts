@@ -131,13 +131,28 @@ export async function primeOrderSound(): Promise<void> {
 }
 
 /**
+ * What the OS fallback below says, when there is no chime to play.
+ *
+ * A table request rings with this same tone — it is the same "somebody wants
+ * something from you" — but its fallback must not read "New order" to a
+ * counter that will then go looking for a food ticket.
+ */
+type AlertWords = { title: string; body: string; kind: string };
+
+const ORDER_WORDS: AlertWords = {
+  title: "New order",
+  body: "A diner has placed an order.",
+  kind: "food_order_local",
+};
+
+/**
  * Chime, and buzz.
  *
  * Both, because they fail in different rooms: a tablet in a loud kitchen may
  * not be heard, and a tablet in a rigid counter stand transmits almost no
  * vibration. Between the two, one of them lands.
  */
-export async function playNewOrderAlert(): Promise<void> {
+export async function playNewOrderAlert(words: AlertWords = ORDER_WORDS): Promise<void> {
   try {
     Vibration.vibrate(KITCHEN_BUZZ);
 
@@ -153,15 +168,15 @@ export async function playNewOrderAlert(): Promise<void> {
        * the system tone rather than our chime — the point is that the kitchen
        * hears something today, on the build already on the counter.
        *
-       * `kind` is deliberately NOT 'food_order': the Orders screen listens for
-       * that value and calls this function, so reusing it would ring, reload,
-       * ring, reload, forever.
+       * `kind` is deliberately NOT 'food_order' (nor 'table_booking'): the
+       * Orders screen listens for that value and calls this function, so
+       * reusing it would ring, reload, ring, reload, forever.
        */
       await Notifications.scheduleNotificationAsync({
         content: {
-          title: "New order",
-          body: "A diner has placed an order.",
-          data: { kind: "food_order_local" },
+          title: words.title,
+          body: words.body,
+          data: { kind: words.kind },
           sound: "default",
           ...(Platform.OS === "android" ? { channelId: ORDER_CHANNEL } : null),
         },
