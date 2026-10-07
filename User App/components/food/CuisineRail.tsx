@@ -24,15 +24,16 @@ import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { pressScale, usePressAnimation } from '@/hooks/usePressAnimation';
 
 import { FoodPhoto } from './FoodMarks';
+import { useFoodPaused } from './FoodPaused';
 
 export type CuisineRailProps = {
   /** The cuisines actually present in the current feed — never a fixed,
    *  decorative list. See `FoodHome`, which derives these from the real
-   *  `Kitchen.cuisineTypes` the seeded restaurants carry and pairs each with
-   *  its own bundled artwork. */
-  cuisines: readonly { name: string; photo?: string | number }[];
-  /** The picture over the "All" chip. */
-  allPhoto?: string | number;
+   *  `Kitchen.cuisineTypes` the kitchens carry and pairs each with a real
+   *  dish photo from one of them. A URL, never bundled artwork. */
+  cuisines: readonly { name: string; photo?: string }[];
+  /** Real dish photos for the "All" chip, drawn together — up to four. */
+  allPhotos?: readonly string[];
   /** `null` means "All". */
   active: string | null;
   onChange: (value: string | null) => void;
@@ -95,7 +96,7 @@ const ARC_SHRINK = 0.12;
  */
 export function CuisineRail({
   cuisines,
-  allPhoto,
+  allPhotos,
   active,
   onChange,
   cheapActive,
@@ -193,7 +194,7 @@ export function CuisineRail({
       </ArcTile>
 
       <ArcTile offsetX={offsetX} viewport={viewport} flat={reduceMotion}>
-        <RailChip label="All" photo={allPhoto} active={active === null} onPress={() => onChange(null)} />
+        <RailChip label="All" mosaic={allPhotos} active={active === null} onPress={() => onChange(null)} />
       </ArcTile>
 
       {shown.map((cuisine) => (
@@ -406,8 +407,9 @@ const ROCK_REST_MS = 2600;
  * circular photographs on an arc now, and a lone rectangle in that row
  * reads as a tile that failed to load rather than as a deliberate one. So
  * it takes the same disc-and-label shape as everything beside it, and stays
- * distinct the way it should have all along: by COLOUR, on the amber set,
- * against fifteen photographs.
+ * distinct the way it should have all along: by COLOUR — the logo's yellow
+ * (`deal`, the app's colour for value), against fifteen photographs. It was
+ * the caution amber, which elsewhere means "waiting on somebody".
  *
  * ## The repeating part
  *
@@ -430,9 +432,11 @@ function CheapTile({ active, onPress }: { active: boolean; onPress: () => void }
   /* −1..1, the lean. Kept as a factor rather than as degrees so the angle
      itself lives in one constant. */
   const rock = useSharedValue(0);
+  /* Off screen behind a stay tab — see `FoodPaused`. */
+  const paused = useFoodPaused();
 
   useEffect(() => {
-    if (reduceMotion) {
+    if (reduceMotion || paused) {
       rock.value = 0;
       return undefined;
     }
@@ -454,7 +458,7 @@ function CheapTile({ active, onPress }: { active: boolean; onPress: () => void }
       false,
     );
     return () => cancelAnimation(rock);
-  }, [reduceMotion, rock]);
+  }, [reduceMotion, paused, rock]);
 
   const discStyle = useAnimatedStyle(() => {
     const press = reduceMotion ? 1 : 1 - progress.value * (1 - pressScale.chip);
@@ -463,7 +467,7 @@ function CheapTile({ active, onPress }: { active: boolean; onPress: () => void }
     };
   });
 
-  const ink = active ? colors.warning.on : colors.warning.ink;
+  const ink = active ? colors.deal.on : colors.deal.ink;
 
   return (
     <Pressable
@@ -480,8 +484,8 @@ function CheapTile({ active, onPress }: { active: boolean; onPress: () => void }
             styles.cheapDisc,
             discStyle,
             {
-              backgroundColor: active ? colors.warning.base : colors.warning.tint,
-              borderColor: colors.warning.border,
+              backgroundColor: active ? colors.deal.base : colors.deal.tint,
+              borderColor: colors.deal.border,
             },
           ]}
         >
@@ -505,11 +509,14 @@ function CheapTile({ active, onPress }: { active: boolean; onPress: () => void }
 function RailChip({
   label,
   photo,
+  mosaic,
   active,
   onPress,
 }: {
   label: string;
-  photo?: string | number;
+  photo?: string;
+  /** Four photos in one disc — the "All" chip, which is every cuisine. */
+  mosaic?: readonly string[];
   active: boolean;
   onPress: () => void;
 }) {
@@ -543,7 +550,15 @@ function RailChip({
             own striped well, and a rail where some chips have a picture and
             others do not would sit at two different heights. A kitchen with
             no dish photography is the ordinary case, not the broken one. */}
-        <FoodPhoto height={CHIP_PHOTO} width={CHIP_PHOTO} radius={CHIP_PHOTO / 2} uri={photo} />
+        {mosaic && mosaic.length >= 4 ? (
+          <View style={[styles.mosaic, { width: CHIP_PHOTO, height: CHIP_PHOTO, borderRadius: CHIP_PHOTO / 2 }]}>
+            {mosaic.slice(0, 4).map((uri) => (
+              <FoodPhoto key={uri} height={CHIP_PHOTO / 2} width={CHIP_PHOTO / 2} radius={0} uri={uri} />
+            ))}
+          </View>
+        ) : (
+          <FoodPhoto height={CHIP_PHOTO} width={CHIP_PHOTO} radius={CHIP_PHOTO / 2} uri={photo ?? mosaic?.[0]} />
+        )}
         <Text
           variant={active ? 'bodyStrong' : 'body'}
           numberOfLines={1}
@@ -564,8 +579,9 @@ function RailChip({
 
 const styles = StyleSheet.create({
   viewport: { flexDirection: 'row', overflow: 'hidden' },
+  mosaic: { flexDirection: 'row', flexWrap: 'wrap', overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'flex-start' },
-  /* Sized to the photo discs beside it, so the amber tile sits on the rail's
+  /* Sized to the photo discs beside it, so the yellow tile sits on the rail's
      baseline rather than inventing its own. */
   cheapDisc: {
     width: CHIP_PHOTO,

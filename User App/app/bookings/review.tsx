@@ -96,10 +96,13 @@ export default function RateStayScreen() {
                     accessibilityLabel={`${n} star${n === 1 ? '' : 's'}`}
                     hitSlop={8}
                   >
+                    {/* A picked star is the rating star the student has seen on
+                        every card: solid logo yellow, outlined in its ochre. */}
                     <Icon
                       name="star"
                       size={28}
-                      color={n <= rating ? colors.brand : colors.borderInput}
+                      color={n <= rating ? colors.deal.ink : colors.borderInput}
+                      fill={n <= rating ? colors.deal.base : undefined}
                     />
                   </Pressable>
                 ))}

@@ -64,3 +64,46 @@ export const stampWords = (iso: string | null | undefined): string => {
     minute: "2-digit",
   });
 };
+
+/* ── Calendar dates and wall-clock times, as dine-in sends them ───────────
+   A table booking arrives with its day and time already in words
+   (`dayLabel`, `timeLabel`), and those are what a card shows. A BLOCKED day
+   does not — the settings answer carries `"2026-10-08"` and `"19:30"` bare —
+   so these write them the way the server writes a booking's, and build the
+   `YYYY-MM-DD` it expects back from what a picker returns.
+
+   Built from the date's own parts rather than `toISOString`, which is UTC:
+   a date picked before 05:30 in India would otherwise be sent as yesterday. */
+
+const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** A picked date as the server's `YYYY-MM-DD`, on this device's calendar. */
+export const dayKey = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+/** `YYYY-MM-DD` back into a local midnight, for a picker's starting value. */
+export const fromDayKey = (key: string): Date => {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+};
+
+/** "Today", "Tomorrow" or "Thu 8 Oct" — the server's own words for a day. */
+export const dayWords = (key: string): string => {
+  const d = fromDayKey(key);
+  if (Number.isNaN(d.getTime())) return key;
+  const today = new Date();
+  if (dayKey(today) === key) return "Today";
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  if (dayKey(tomorrow) === key) return "Tomorrow";
+  return `${WEEKDAY[d.getDay()]} ${d.getDate()} ${MONTH[d.getMonth()]}`;
+};
+
+/** "19:30" → "7:30 pm", as the server writes a booking's time. */
+export const slotWords = (hhmm: string): string => {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(hhmm || "");
+  if (!match) return hhmm;
+  const h = Number(match[1]);
+  return `${((h + 11) % 12) + 1}:${match[2]} ${h >= 12 ? "pm" : "am"}`;
+};

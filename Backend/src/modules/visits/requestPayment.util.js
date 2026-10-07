@@ -10,7 +10,7 @@
 
      assisted_visit   BACHELOR, COLIVE, COMMERCIAL — a platform fee that buys
                       a VIEWING with a Lampose representative, priced by the
-                      layout picked (1 RK ₹299 … 5 BHK+ ₹2,499; Commercial
+                      layout picked (1 RK ₹199 … 5 BHK+ ₹2,499; Commercial
                       ₹1,999). The table is edited in the console — see
                       `modules/visitFees/visitFees.service.js`. Paying it
                       opens the slot picker; the address is released with

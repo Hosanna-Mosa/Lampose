@@ -3,13 +3,11 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Keyboard,
   Linking,
   Pressable,
   StyleSheet,
-  Text,
   TextInput,
   useWindowDimensions,
   View,
@@ -26,13 +24,23 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 
-import { Button, Icon, InlineAlert, OtpInput, type OtpState } from '@/components/ui';
+import {
+  Button,
+  Icon,
+  InlineAlert,
+  OtpInput,
+  Text,
+  useAlert,
+  type OtpState,
+} from '@/components/ui';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { useAppState } from '@/context/AppStateContext';
 import { useAuth } from '@/context/AuthContext';
+import { applyFont } from '@/constants/fonts';
 import { LEGAL_URLS } from '@/constants/legal';
 import { useFoodVisible } from '@/hooks/useAppEnv';
 import { LightThemeScope, useTheme } from '@/context/ThemeContext';
+import { useTypeScale } from '@/context/TypographyContext';
 import { isValidIndianMobile, phoneError, sendFailureCopy } from '@/types/auth';
 
 /**
@@ -57,6 +65,10 @@ export default function AuthRoute() {
 
 function AuthScreen() {
   const { colors } = useTheme();
+  /* The three inputs are bare `TextInput`s, which cannot be a `Text`; their
+     face comes from the same font file through `applyFont`. */
+  const face = useTypeScale().body.face;
+  const { alert: showAlert } = useAlert();
   const insets = useSafeAreaInsets();
   const foodVisible = useFoodVisible();
   const router = useRouter();
@@ -234,7 +246,9 @@ function AuthScreen() {
       setOtpState('idle');
       /* Applied, expired, used, someone else's — the server's own sentence.
          Absent when no code was entered. */
-      if (result.referralMessage) Alert.alert('Invite code', result.referralMessage);
+      if (result.referralMessage) {
+        void showAlert({ title: 'Invite code', message: result.referralMessage });
+      }
       await completeOnboardingStep('auth');
 
       /* A held action (from `requireSignIn`) wins over the ordinary
@@ -511,7 +525,7 @@ function AuthScreen() {
                       than that sentence, so the moment anything is typed the
                       size goes back up and the number is set at full size.
                     */
-                    style={[styles.phoneInput, digits.length === 0 && styles.phoneInputEmpty]}
+                    style={applyFont(face, [styles.phoneInput, digits.length === 0 && styles.phoneInputEmpty])}
                     selectionColor="#0A5A41"
                   />
                 </Pressable>
@@ -522,7 +536,9 @@ function AuthScreen() {
 
                 {showInvite ? (
                   <View style={[styles.phoneInputContainer, { marginTop: 12 }]}>
-                    <Icon name="offer" size={18} color="#0A5A41" />
+                    {/* An invite code is a reward, so its gift mark is the
+                        logo's yellow ink rather than the screen's green. */}
+                    <Icon name="offer" size={18} color={colors.deal.ink} />
                     <TextInput
                       value={inviteCode}
                       onChangeText={(v) => setInviteCode(v.replace(/\s/g, '').slice(0, 20))}
@@ -531,7 +547,7 @@ function AuthScreen() {
                       autoCapitalize="characters"
                       autoCorrect={false}
                       maxLength={20}
-                      style={[styles.phoneInput, styles.phoneInputEmpty]}
+                      style={applyFont(face, [styles.phoneInput, styles.phoneInputEmpty])}
                       selectionColor="#0A5A41"
                       accessibilityLabel="Invite code, optional"
                     />
@@ -542,7 +558,7 @@ function AuthScreen() {
                     accessibilityRole="button"
                     style={{ marginTop: 10, alignSelf: 'flex-start', paddingVertical: 4 }}
                   >
-                    <Text style={{ color: '#0A5A41', fontSize: 13, fontWeight: '600' }}>
+                    <Text style={{ color: '#0A5A41', fontSize: 13, lineHeight: 18, fontWeight: '600' }}>
                       Have an invite code?
                     </Text>
                   </Pressable>
@@ -639,7 +655,7 @@ function AuthScreen() {
               </Text>
               <Text style={styles.subtitle}>
                 {usesPassword ? 'Signing in to' : `We sent ${config.otpLength} digits to`}{'\n'}
-                <Text style={{ fontWeight: '700', color: '#141A24' }}>
+                <Text style={{ fontSize: 15, lineHeight: 22, fontWeight: '700', color: '#141A24' }}>
                   {pendingPhoneMasked ?? pendingPhone ?? 'your phone'}
                 </Text>.
               </Text>
@@ -676,7 +692,7 @@ function AuthScreen() {
                         textContentType="password"
                         autoComplete="password"
                         returnKeyType="go"
-                        style={styles.phoneInput}
+                        style={applyFont(face, styles.phoneInput)}
                         selectionColor="#0A5A41"
                         accessibilityLabel="Password"
                       />
@@ -779,7 +795,7 @@ function AuthScreen() {
           numberOfLines={1}
           adjustsFontSizeToFit
           minimumFontScale={0.75}
-          style={styles.footerScriptText}
+          style={styles.footerText}
         >
           Better Stays  <Text style={styles.footerPipe}>|</Text>  {foodVisible ? (
             <>
@@ -818,7 +834,14 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.7)',
   },
-  skipButtonText: { fontSize: 13, fontWeight: '600', color: '#3D4247' },
+  /*
+   * Every string here is a `Text`, so its family is the stay face and each
+   * `fontWeight` below picks that face's file for the weight. A nested `Text`
+   * sets its own size and line height rather than inheriting them, so the
+   * spans inside a sentence (`textGreen`, `termsLink`, `footerPipe`) repeat
+   * their parent's.
+   */
+  skipButtonText: { fontSize: 13, lineHeight: 18, fontWeight: '600', color: '#3D4247' },
 
   rootContainer: {
     flex: 1,
@@ -867,20 +890,27 @@ const styles = StyleSheet.create({
   textGreen: {
     color: '#0A5E44',
     fontSize: 30,
+    lineHeight: 40,
+    letterSpacing: -0.5,
     fontWeight: '800',
   },
   textGreenLight: {
     color: '#4FA97B',
     fontSize: 27,
+    lineHeight: 40,
+    letterSpacing: -0.5,
     fontWeight: '600',
   },
   resendCountdownText: {
     fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '400',
     color: '#94A3B8',
     textAlign: 'center',
   },
   subtitle: {
     fontSize: 15,
+    fontWeight: '400',
     color: '#7C808C',
     textAlign: 'center',
     marginTop: 10,
@@ -923,6 +953,7 @@ const styles = StyleSheet.create({
   },
   countryCodeText: {
     fontSize: 15,
+    lineHeight: 20,
     fontWeight: '700',
     color: '#141A24',
     marginLeft: 6,
@@ -950,6 +981,8 @@ const styles = StyleSheet.create({
   errorText: {
     color: '#EF4444',
     fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '400',
     marginTop: 8,
     alignSelf: 'flex-start',
     marginLeft: 20,
@@ -984,11 +1017,13 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     color: '#FFFFFF',
     fontSize: 17,
+    lineHeight: 22,
     fontWeight: '700',
   },
   termsText: {
     textAlign: 'center',
     fontSize: 12,
+    fontWeight: '400',
     color: '#8E95A2',
     lineHeight: 19,
     marginTop: 20,
@@ -996,6 +1031,8 @@ const styles = StyleSheet.create({
   },
   termsLink: {
     color: '#0A5A41',
+    fontSize: 12,
+    lineHeight: 19,
     fontWeight: '700',
   },
   footer: {
@@ -1005,10 +1042,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     zIndex: 1,
   },
-  footerScriptText: {
-    fontFamily: 'DancingScript_600SemiBold',
+  footerText: {
     fontSize: 15,
     lineHeight: 22,
+    fontWeight: '600',
     color: '#18583E',
     textAlign: 'center',
     letterSpacing: 0.2,
@@ -1016,6 +1053,8 @@ const styles = StyleSheet.create({
   footerPipe: {
     color: '#CBD5E1',
     fontSize: 13,
+    lineHeight: 22,
+    fontWeight: '400',
     marginHorizontal: 8,
   },
 });

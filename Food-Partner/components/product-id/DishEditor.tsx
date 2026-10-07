@@ -13,11 +13,9 @@
    dish at speed.
    ══════════════════════════════════════════════════════════════════════════ */
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
 import React, { useState } from "react";
 import { Image, StyleSheet, TouchableOpacity, View } from "react-native";
 
-import { SAMPLE_JPEG } from "@/components/common/utils/formStyles";
 import {
   ActionTile,
   Button,
@@ -27,11 +25,13 @@ import {
   IconButton,
   InfoNote,
   ListRow,
+  PhotoGrid,
   SectionHeader,
   SegmentedControl,
   TextField,
   ToggleSwitch,
   Txt,
+  usePhotoPicker,
 } from "@/components/ui";
 import { ALLERGENS, PRODUCT_TAGS, SPICE_LEVELS, VEG_LABELS, VEG_TYPES } from "@/constants/partner";
 import { dietColor } from "@/lib/diet";
@@ -41,6 +41,9 @@ import { font, ms, radius, size, ui } from "@/theme/ui";
 
 /** Digits only — the same cleaning `NumberField` does for a price or a count. */
 const digits = (raw: string) => raw.replace(/\D/g, "");
+
+/** Photos beyond the main one. A dish is a few angles, not an album. */
+const MAX_DISH_EXTRA_PHOTOS = 4;
 
 const SPICE_LABELS: Record<(typeof SPICE_LEVELS)[number], string> = {
   none: "None",
@@ -138,6 +141,19 @@ export function DishEditor({
         />
 
         <DishPhoto value={draft.productImage} onChange={(v) => set("productImage", v)} />
+
+        <Field
+          label="More photos"
+          optional
+          hint="Other angles, a close-up, the portion size. Diners swipe through them on the dish."
+        >
+          <PhotoGrid
+            title="More dish photos"
+            photos={draft.galleryImages}
+            max={MAX_DISH_EXTRA_PHOTOS}
+            onChange={(next) => set("galleryImages", next)}
+          />
+        </Field>
       </Section>
 
       <Section title="Pricing">
@@ -320,31 +336,21 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-/** The dish photo: a dashed "Add photo" tile, or the photo with Replace and Remove. */
+/**
+ * The dish photo: a dashed "Add photo" tile, or the photo with Replace and
+ * Remove. Taken with the camera or chosen from the gallery — a real photo of
+ * this dish, never a sample.
+ */
 function DishPhoto({ value, onChange }: { value: Attachment | null; onChange: (next: Attachment | null) => void }) {
   const label = "Item photo";
-  const pick = async () => {
-    try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) return;
-      const result = await ImagePicker.launchImageLibraryAsync({
-        quality: 0.85,
-        allowsEditing: true,
-        aspect: [16, 9],
-      });
-      if (result.canceled || !result.assets?.length) return;
-      const a = result.assets[0];
-      onChange({ name: a.fileName || `${label}.jpg`, uri: a.uri, size: a.fileSize, mimeType: "image/jpeg" });
-    } catch {
-      /* Declining the picker is a normal outcome, not an error worth a banner. */
-    }
-  };
+  const picker = usePhotoPicker();
+  const pick = () => picker.open({ title: "Dish photo", aspect: [16, 9], onPicked: ([photo]) => onChange(photo) });
 
   return (
     <Field label={label} hint="The single biggest thing that decides whether a dish is ordered.">
       <View style={styles.photoRow}>
         {value?.uri ? (
-          <TouchableOpacity onPress={pick} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel={`Choose ${label}`}>
+          <TouchableOpacity onPress={pick} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel={`Replace ${label}`}>
             <Image source={{ uri: value.uri }} style={styles.photo} resizeMode="cover" />
           </TouchableOpacity>
         ) : (
@@ -363,27 +369,17 @@ function DishPhoto({ value, onChange }: { value: Attachment | null; onChange: (n
               </View>
             </>
           ) : (
-            <View style={styles.pair}>
-              <Button
-                title="Choose"
-                variant="secondary"
-                size="sm"
-                onPress={pick}
-                icon={<Ionicons name="image-outline" size={16} color={ui.text} />}
-              />
-              {__DEV__ && (
-                <Button
-                  title="Sample"
-                  variant="secondary"
-                  size="sm"
-                  onPress={() => onChange({ name: `${label}.jpg`, uri: SAMPLE_JPEG, mimeType: "image/jpeg", size: 160 })}
-                  icon={<Ionicons name="sparkles-outline" size={16} color={ui.brandInk} />}
-                />
-              )}
-            </View>
+            <Button
+              title="Take or choose"
+              variant="secondary"
+              size="sm"
+              onPress={pick}
+              icon={<Ionicons name="camera-outline" size={16} color={ui.text} />}
+            />
           )}
         </View>
       </View>
+      {picker.sheet}
     </Field>
   );
 }

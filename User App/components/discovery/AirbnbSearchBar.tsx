@@ -18,7 +18,9 @@ import Animated, {
 import * as Haptics from 'expo-haptics';
 
 import { Icon, Text } from '@/components/ui';
+import { applyFont } from '@/constants/fonts';
 import { useTheme } from '@/context/ThemeContext';
+import { useTypeScale } from '@/context/TypographyContext';
 import { withAlpha } from '@/utils/color';
 
 export type AirbnbSearchBarProps = {
@@ -51,6 +53,7 @@ export function AirbnbSearchBar({
   style,
 }: AirbnbSearchBarProps) {
   const { colors, radius, mode } = useTheme();
+  const face = useTypeScale().body.face;
   const inputRef = useRef<TextInput>(null);
   const [isFocused, setIsFocused] = useState(false);
   /*
@@ -185,7 +188,7 @@ export function AirbnbSearchBar({
               returnKeyType="search"
               autoCorrect={false}
               style={[
-                styles.textInput,
+                applyFont(face, styles.textInput),
                 {
                   color: colors.textPrimary,
                 },

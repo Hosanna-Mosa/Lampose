@@ -387,8 +387,11 @@ function Dropdown({
               gap: space[2],
               opacity: disabled ? 0.45 : pressed ? 0.7 : 1,
               backgroundColor: colors.surface,
-              borderColor: open ? colors.brand : selected ? colors.brand : colors.borderInput,
-              borderWidth: open || selected ? 1.5 : StyleSheet.hairlineWidth,
+              /* Blue while it is open — on listing detail blue marks what the
+                 student is choosing, green their action. An answered field
+                 says so with its value in full-strength text. */
+              borderColor: open ? colors.link.base : colors.borderInput,
+              borderWidth: open ? 1.5 : StyleSheet.hairlineWidth,
             },
           ]}
         >
@@ -403,7 +406,7 @@ function Dropdown({
             ) : null}
           </View>
           <View style={open ? styles.chevronUp : styles.chevronDown}>
-            <Icon name="chevronRight" size={20} color={open ? colors.brand : colors.textTertiary} />
+            <Icon name="chevronRight" size={20} color={colors.textTertiary} />
           </View>
         </Pressable>
       </View>
@@ -441,20 +444,18 @@ function Dropdown({
                     paddingVertical: space[2],
                     gap: space[2],
                     opacity: option.disabled ? 0.7 : 1,
-                    backgroundColor: active
-                      ? colors.brandTint
-                      : pressed
-                        ? colors.surfaceSunken
-                        : 'transparent',
+                    /* The tick marks the chosen row; the row itself stays
+                       neutral rather than turning green as well. */
+                    backgroundColor: active || pressed ? colors.surfaceSunken : 'transparent',
                   },
                 ]}
               >
                 <View style={styles.flex}>
-                  <Text variant="bodyStrong" color={active ? 'brand' : 'primary'} numberOfLines={1}>
+                  <Text variant="bodyStrong" color="primary" numberOfLines={1}>
                     {option.label}
                   </Text>
                   {option.price || option.meta ? (
-                    <Text variant="numMeta" color={active ? 'brand' : 'secondary'} numberOfLines={1}>
+                    <Text variant="numMeta" color="secondary" numberOfLines={1}>
                       {option.unavailable
                         ? option.price
                         : [option.price, option.meta].filter(Boolean).join(' · ')}
@@ -466,7 +467,7 @@ function Dropdown({
                     </Text>
                   ) : null}
                 </View>
-                {active ? <Icon name="check" size={16} color={colors.brand} /> : null}
+                {active ? <Icon name="check" size={16} color={colors.link.base} /> : null}
               </Pressable>
             );
           })}
@@ -558,8 +559,9 @@ function JoinDateField({
               gap: space[2],
               opacity: pressed ? 0.7 : 1,
               backgroundColor: colors.surface,
-              borderColor: value ? colors.brand : colors.borderInput,
-              borderWidth: value ? 1.5 : StyleSheet.hairlineWidth,
+              /* Same rule as `Dropdown`: blue while the picker is open. */
+              borderColor: open ? colors.link.base : colors.borderInput,
+              borderWidth: open ? 1.5 : StyleSheet.hairlineWidth,
             },
           ]}
         >
@@ -734,21 +736,21 @@ export function StayIntentSelector({
 
   return (
     <View style={{ gap: space[4] }}>
-      {/* The one block on this page where the student ANSWERS rather than
-          reads, so it wears the accent — the same signal the chosen fields
-          below it carry, and the button at the bottom that acts on them. */}
+      {/* Set like every other section heading on the page: a neutral glyph
+          and the title in plain ink. The colour on this screen goes to what
+          it means — see the note on the offer card in `app/listing/[id]`. */}
       <View style={[styles.headingRow, { gap: space[2] }]}>
         <View
           style={[
             styles.headingChip,
             {
-              width: 30, height: 30, borderRadius: radius.chip, backgroundColor: colors.brandTint,
+              width: 30, height: 30, borderRadius: radius.chip, backgroundColor: colors.surfaceSunken,
             },
           ]}
         >
-          <Icon name="search" size={16} color={colors.brandInk} />
+          <Icon name="search" size={16} color={colors.textPrimary} />
         </View>
-        <Text variant="title2" style={{ color: colors.brandInk }}>
+        <Text variant="title2" color="primary">
           Are you looking for
         </Text>
       </View>
@@ -872,7 +874,7 @@ export function StayIntentSelector({
             <Icon
               name={mess.available ? 'mess' : 'close'}
               size={20}
-              color={mess.available ? colors.brandInk : colors.textTertiary}
+              color={mess.available ? colors.success.ink : colors.textTertiary}
             />
             <View style={styles.flex}>
               <Text variant="bodyStrong" color={mess.available ? 'primary' : 'secondary'}>

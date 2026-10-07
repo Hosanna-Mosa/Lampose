@@ -1,13 +1,9 @@
 import React from 'react';
-import { Text as RNText, StyleSheet, type TextProps as RNTextProps, type TextStyle } from 'react-native';
+import { Text as RNText, type TextProps as RNTextProps, type TextStyle } from 'react-native';
 
 import { useTheme } from '@/context/ThemeContext';
-import {
-  maxFontSizeMultiplier,
-  resolveFontFamily,
-  type ThemeColors,
-  type TypeVariant,
-} from '@/constants/tokens';
+import { applyFont } from '@/constants/fonts';
+import { maxFontSizeMultiplier, type ThemeColors, type TypeVariant } from '@/constants/tokens';
 import { useTypeScale } from '@/context/TypographyContext';
 
 /**
@@ -21,6 +17,7 @@ export type TextColor =
   | 'secondary'
   | 'tertiary'
   | 'brand'
+  | 'link'
   | 'onGraphite'
   | 'onGraphiteMuted'
   | 'success'
@@ -39,6 +36,8 @@ function resolveColor(colors: ThemeColors, color: TextColor): string | undefined
       return colors.textTertiary;
     case 'brand':
       return colors.brand;
+    case 'link':
+      return colors.link.ink;
     case 'onGraphite':
       return colors.onGraphite;
     case 'onGraphiteMuted':
@@ -76,21 +75,25 @@ export type TextProps = Omit<RNTextProps, 'style'> & {
  * miss: the per-face cap on OS font scaling, and tabular figures on every
  * numeric variant so a changing rupee amount or countdown never reflows the
  * layout around it.
+ *
+ * The family is never the caller's: it comes from `constants/fonts.ts` through
+ * `applyFont`. A `fontWeight` in `style` selects that weight's file of the same
+ * family — on Android a bare `fontWeight: '700'` would otherwise draw Roboto
+ * Bold — and a `fontFamily` in `style` is ignored.
  */
 export function Text({ variant = 'body', color = 'primary', style, ...rest }: TextProps) {
   const { colors } = useTheme();
   /*
    * Which scale, decided by where this sits in the tree.
    *
-   * Stays gets one family and four sizes; food keeps the original three-family
-   * scale. Everything below reads `token` and does not care which it got —
-   * see `TypographyScope`.
+   * Both are the same family; stays gets four sizes and food keeps its own
+   * denser scale. Everything below reads `token` and does not care which it
+   * got — see `TypographyScope`.
    */
   const scale = useTypeScale();
   const token = scale[variant];
 
   const resolved: TextStyle = {
-    fontFamily: resolveFontFamily(token.face, token.weight),
     fontSize: token.size,
     lineHeight: token.lineHeight,
     letterSpacing: token.letterSpacing,
@@ -111,7 +114,7 @@ export function Text({ variant = 'body', color = 'primary', style, ...rest }: Te
     <RNText
       allowFontScaling={!noScale}
       maxFontSizeMultiplier={noScale ? undefined : maxFontSizeMultiplier[token.face]}
-      style={StyleSheet.flatten([resolved, style])}
+      style={applyFont(token.face, [resolved, style], token.weight)}
       {...rest}
     />
   );

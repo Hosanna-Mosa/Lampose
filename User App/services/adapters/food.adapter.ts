@@ -24,7 +24,7 @@
  * weekday, both of which only the server can weigh. So it sends its own
  * answer as `isCurrentlyOpen`, carried across untouched — see `FoodKitchen`.
  */
-import { type Diet, type Dish, type Kitchen } from '@/types/food';
+import { type Diet, type DineInFloor, type Dish, type Kitchen } from '@/types/food';
 import { formatRupees } from '@/utils/money';
 
 /* ------------------------------------------------------------------ *
@@ -42,6 +42,8 @@ export type BackendKitchen = {
   cuisineTypes?: string[];
   logoImage?: BackendFoodImage;
   coverBannerImage?: BackendFoodImage;
+  /** The restaurant's own photos. On the detail response only. */
+  galleryImages?: BackendFoodImage[];
   address?: { line1?: string; line2?: string; city?: string; state?: string; pincode?: string; landmark?: string };
   openingHours?: BackendOpeningHour[];
   isCurrentlyOpen?: boolean;
@@ -64,6 +66,31 @@ export type BackendKitchen = {
   ratingCount?: number;
   /** Only present when the feed was asked with coordinates. */
   distanceKm?: number;
+  /** Feed rows only: taking table bookings right now. */
+  dineInAvailable?: boolean;
+  /** Detail only: the floor, or null when it takes no table bookings. */
+  dineIn?: BackendDineIn | null;
+};
+
+/** `dineIn` as `foodDiscovery.controller.js` projects it — see `DineInFloor`. */
+export type BackendDineIn = {
+  available?: boolean;
+  paused?: boolean;
+  seatingCapacity?: number;
+  tableCount?: number;
+  tableTypes?: { seats?: number; count?: number }[];
+  maxPartySize?: number;
+  acSeating?: string | null;
+  indoorSeating?: boolean;
+  outdoorSeating?: boolean;
+  familySeating?: boolean;
+  coupleSeating?: boolean;
+  smoking?: string | null;
+  wheelchairAccessible?: boolean;
+  parkingAvailable?: boolean;
+  valetParking?: boolean;
+  kidsFriendly?: boolean;
+  petFriendly?: boolean;
 };
 
 export type BackendDish = {
@@ -107,6 +134,14 @@ const url = (image: BackendFoodImage | undefined): string | undefined => {
      broken tile on every device except the one that uploaded it, and a missing
      photo is a case every food layout already handles properly. */
   return value && /^https?:\/\//.test(value) ? value : undefined;
+};
+
+/** Every real link in a list, once each, in order. */
+const urls = (images: readonly BackendFoodImage[] | undefined): string[] => {
+  const seen = new Set<string>();
+  return (images ?? [])
+    .map(url)
+    .filter((value): value is string => !!value && !seen.has(value) && !!seen.add(value));
 };
 
 /**
@@ -200,8 +235,69 @@ export type FoodKitchen = Kitchen & {
    * optional and read through `packagingChargeOf` below.
    */
   packagingCharge?: number;
-
+  /**
+   * Taking table bookings right now. From the feed row, or — once the
+   * kitchen's own page has been read — from its floor's `available`, which is
+   * the same rule on the server. Absent on a row from before the field.
+   */
+  dineInAvailable?: boolean;
+  /**
+   * The floor. Detail responses only: null is "takes no table bookings",
+   * undefined is "only the feed row has been read" — read through `dineInOf`.
+   */
+  dineIn?: DineInFloor | null;
 };
+
+/** Whether the "Dine-in" filter keeps this kitchen. Nobody saying is a no. */
+export function takesTableBookings(kitchen: FoodKitchen): boolean {
+  return kitchen.dineInAvailable === true;
+}
+
+/**
+ * The floor, null when there is none, undefined when it has not been read.
+ *
+ * Those two are kept apart for the same reason `packagingChargeOf` keeps its
+ * two apart: a kitchen known only from the feed has not said it takes no
+ * bookings, and a page that hid "Book a table" on that would hide it from
+ * every kitchen past the first page of menus.
+ */
+export function dineInOf(kitchen: FoodKitchen): DineInFloor | null | undefined {
+  return kitchen.dineIn;
+}
+
+const AC_SEATING: readonly NonNullable<DineInFloor['acSeating']>[] = ['ac', 'non_ac', 'both'];
+const SMOKING: readonly NonNullable<DineInFloor['smoking']>[] = ['non_smoking', 'smoking_area'];
+
+/**
+ * The floor, carried across. Null for a kitchen that takes no bookings —
+ * which is what the server sends — and for anything that is not an object.
+ */
+export function toDineInFloor(raw: BackendDineIn | null | undefined): DineInFloor | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const tableTypes = (raw.tableTypes ?? [])
+    .map((type) => ({ seats: num(type?.seats) ?? 0, count: num(type?.count) ?? 0 }))
+    .filter((type) => type.seats > 0 && type.count > 0);
+
+  return {
+    available: raw.available === true,
+    paused: raw.paused === true,
+    seatingCapacity: num(raw.seatingCapacity) ?? 0,
+    tableCount: num(raw.tableCount) ?? 0,
+    tableTypes,
+    maxPartySize: num(raw.maxPartySize) ?? 0,
+    acSeating: AC_SEATING.find((value) => value === raw.acSeating) ?? null,
+    indoorSeating: raw.indoorSeating === true,
+    outdoorSeating: raw.outdoorSeating === true,
+    familySeating: raw.familySeating === true,
+    coupleSeating: raw.coupleSeating === true,
+    smoking: SMOKING.find((value) => value === raw.smoking) ?? null,
+    wheelchairAccessible: raw.wheelchairAccessible === true,
+    parkingAvailable: raw.parkingAvailable === true,
+    valetParking: raw.valetParking === true,
+    kidsFriendly: raw.kidsFriendly === true,
+    petFriendly: raw.petFriendly === true,
+  };
+}
 
 /** The server's open/closed answer, or undefined when none travelled. */
 export function openNowOf(kitchen: FoodKitchen): boolean | undefined {
@@ -274,6 +370,7 @@ export function toKitchen(raw: BackendKitchen, sections: readonly string[] = [])
   const rating = num(raw.ratingAvg) ?? 0;
   const ratingCount = num(raw.ratingCount) ?? 0;
   const delivery = deliveryRuleOf(raw);
+  const floor = toDineInFloor(raw.dineIn);
 
   return {
     id: raw.restaurantId,
@@ -320,9 +417,21 @@ export function toKitchen(raw: BackendKitchen, sections: readonly string[] = [])
        which is the one case a screen falls back to the hours for. */
     ...(typeof raw.isCurrentlyOpen === 'boolean' ? { openNow: raw.isCurrentlyOpen } : null),
     ...(raw.contactNumber?.trim() ? { contactNumber: raw.contactNumber.trim() } : null),
+    /* Dine-in: the feed row says yes or no; the kitchen's own page carries
+       the floor, whose `available` is the same answer. Neither is invented
+       for a response that carried neither. */
+    ...(raw.dineIn !== undefined ? { dineIn: floor } : null),
+    ...(typeof raw.dineInAvailable === 'boolean'
+      ? { dineInAvailable: raw.dineInAvailable }
+      : raw.dineIn !== undefined
+        ? { dineInAvailable: floor?.available === true }
+        : null),
     ...(url(raw.coverBannerImage) || url(raw.logoImage)
       ? { photo: url(raw.coverBannerImage) ?? url(raw.logoImage) }
       : null),
+    ...(url(raw.coverBannerImage) ? { cover: url(raw.coverBannerImage) } : null),
+    ...(url(raw.logoImage) ? { logo: url(raw.logoImage) } : null),
+    ...(urls(raw.galleryImages).length ? { gallery: urls(raw.galleryImages) } : null),
   };
 }
 
@@ -433,6 +542,9 @@ export function toDish(raw: BackendDish, kitchenId: string): Dish {
     spiceFixed: true,
     ...(raw.isAvailable === false ? { soldOut: true } : null),
     ...(url(raw.productImage) ? { photo: url(raw.productImage) } : null),
+    ...(urls([raw.productImage ?? null, ...(raw.galleryImages ?? [])]).length > 1
+      ? { photos: urls([raw.productImage ?? null, ...(raw.galleryImages ?? [])]) }
+      : null),
   };
 }
 

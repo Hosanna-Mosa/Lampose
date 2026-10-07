@@ -8,9 +8,9 @@
    category alone, because a shop has no layout. PG / Hostel is free and a
    Hotel pays for its stay — neither ever reaches this file.
 
-     1 RK            ₹299     also "Single Private Room"
-     1 BHK           ₹499
-     2 BHK           ₹999
+     1 RK            ₹199     also "Single Private Room"
+     1 BHK           ₹299
+     2 BHK           ₹699
      3 BHK           ₹1,499
      4 BHK           ₹1,999
      5 BHK and above ₹2,499
@@ -45,9 +45,9 @@ const { normaliseCategory } = require('../../shared/constants/categories');
 
 /** The tiers, in the order the console lists them. Defaults are in PAISE. */
 const TIERS = Object.freeze([
-  { key: '1RK', label: '1 RK', note: 'Also Single Private Room', defaultPaise: 29900 },
-  { key: '1BHK', label: '1 BHK', note: '', defaultPaise: 49900 },
-  { key: '2BHK', label: '2 BHK', note: '', defaultPaise: 99900 },
+  { key: '1RK', label: '1 RK', note: 'Also Single Private Room', defaultPaise: 19900 },
+  { key: '1BHK', label: '1 BHK', note: '', defaultPaise: 29900 },
+  { key: '2BHK', label: '2 BHK', note: '', defaultPaise: 69900 },
   { key: '3BHK', label: '3 BHK', note: '', defaultPaise: 149900 },
   { key: '4BHK', label: '4 BHK', note: '', defaultPaise: 199900 },
   { key: '5BHK', label: '5 BHK and above', note: '', defaultPaise: 249900 },

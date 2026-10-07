@@ -1,67 +1,164 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import Animated, {
+  cancelAnimation,
+  Easing,
   runOnJS,
   type SharedValue,
   useAnimatedStyle,
-  useDerivedValue,
   useSharedValue,
+  withDelay,
+  withRepeat,
   withSequence,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
 
-import { Icon, Text, type IconName } from '@/components/ui';
+import { Icon, Text, type IconName, type IconSize } from '@/components/ui';
 import { component, easing } from '@/constants/motion';
-import { elevation } from '@/constants/tokens';
+import type { ThemeColors } from '@/constants/tokens';
 import { useBottomBar } from '@/context/BottomBarContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { withAlpha } from '@/utils/color';
 
 /**
- * How far the raised disc stands proud of the bar's top edge.
- *
- * Read by two places that must not drift: `styles.raisedDisc` lifts the disc
- * by it, and the slide-away transform travels it ON TOP of the bar's own
- * height. Translating by the height alone leaves the disc's crown parked on
- * the bottom edge of the screen — the one part of the bar that is not inside
- * the bar.
+ * THE BAR'S SIZE, in one place. A tab cell is `TAB_HEIGHT` tall — the bubble
+ * fills it — and everything else (the bar's height, the door) is derived from
+ * these, so growing or shrinking the bar is a change here and nowhere else.
  */
-const RAISED_LIFT = 26;
+const TAB_HEIGHT = 40;
 
-/** Slack on top of that for the disc's shadow, which spills past its bounds
- *  and would otherwise be the last thing still visible. */
-const RAISED_SHADOW = 8;
+/** A tab at rest: an outline glyph over a small name. */
+const REST_ICON: IconSize = 18;
+const REST_LABEL = 10;
+const REST_GAP = 2;
+
+/** The selected tab: a solid glyph BESIDE a bold name, inside the bubble. */
+const ACTIVE_ICON: IconSize = 18;
+const ACTIVE_LABEL = 13;
+const ACTIVE_GAP = 6;
+/** Room between the bubble's rounded ends and what it carries. */
+const ACTIVE_PAD_X = 13;
+
+/** The bar's own padding around the row of tabs. */
+const BAR_PAD_X = 8;
+const BAR_PAD_Y = 5;
+const BAR_HEIGHT = TAB_HEIGHT + BAR_PAD_Y * 2 + 2;
+
+/** Space left between the bubble and its cell's edges, either side. */
+const BUBBLE_GAP = 3;
+const BUBBLE_RADIUS = TAB_HEIGHT / 2;
+
+/** Everything a selected cell needs on top of its glyph-and-name row. */
+const ACTIVE_CHROME = (ACTIVE_PAD_X + BUBBLE_GAP) * 2;
+
+/**
+ * The narrowest a resting tab is squeezed to while another one is selected —
+ * enough for its glyph and a short name. The selected tab is capped so the
+ * others never go below this, and its name ellipsizes instead.
+ */
+const MIN_REST = 40;
+
+/**
+ * The door — the `raised` tab — is its own rounded-square button BESIDE the
+ * bar, a touch taller than it, so it stands proud of the pill.
+ */
+const DOOR_SIZE = BAR_HEIGHT + 4;
+const DOOR_RADIUS = 18;
+const DOOR_GAP = 8;
+const DOOR_ICON: IconSize = 20;
+/** The Food door's scooter is a busier drawing than a glyph, so it gets more room. */
+const DOOR_SCOOTER: IconSize = 24;
+const DOOR_LABEL = 11;
+
+/** How far the door's glow and shadow spill past it. The slide-away travels
+ *  this on top of the bar's height, or the glow would be the last thing left
+ *  on screen. */
+const DOOR_GLOW = 14;
+
+/**
+ * The bar's palette. Fixed rather than themed: the bar is a dark green pill in
+ * both modes, so every ink on it is chosen against that green, not against the
+ * page.
+ */
+const BAR_COLORS = {
+  fill: '#112019',
+  restGlyph: '#DCE7E1',
+  restLabel: '#B9C7C0',
+  /** The stay side's bubble, and the dark green drawn on it. */
+  lime: '#D9EE87',
+  onLime: '#112019',
+};
+
+/** The Food door's burnt orange, with white on it. */
+const EMBER = { base: '#C8441E', on: '#FFFFFF', ink: '#C8441E' };
+
+/**
+ * The bar's glyphs: an outline at rest and the SOLID shape when the tab is
+ * active, from one icon family (Ionicons) so every pair is drawn to match.
+ *
+ * `food` is not in here: it is the delivery scooter drawn by `ScooterGlyph`,
+ * which rides — wheels turning, body bobbing — on the Food door.
+ */
+const TAB_GLYPHS = {
+  home: ['home-outline', 'home'],
+  saved: ['heart-outline', 'heart'],
+  bookings: ['calendar-clear-outline', 'calendar-clear'],
+  stays: ['bed-outline', 'bed'],
+  orders: ['receipt-outline', 'receipt'],
+  dinein: ['restaurant-outline', 'restaurant'],
+} as const satisfies Record<string, readonly [
+  keyof typeof Ionicons.glyphMap,
+  keyof typeof Ionicons.glyphMap,
+]>;
+
+export type TabGlyph = keyof typeof TAB_GLYPHS | 'food';
 
 export type TabItem = {
   id: string;
   label: string;
+  /** The line icon, used where no `glyph` is given. */
   icon: IconName;
+  /** An outline / solid pair from the bar's own set — preferred over `icon`. */
+  glyph?: TabGlyph;
   /** A number badge. 1–9 render as-is; anything above shows 9+. */
   badge?: number;
   /** A bare dot: "something changed", with no count to report. */
   dot?: boolean;
   /**
-   * Renders as a filled disc lifted above the bar's top edge — the one
-   * sanctioned break from "tabs are peers". A raised tab is a door to another
-   * module, not a fourth sibling screen, and the highlight has to read at rest:
-   * a module door matters most when it is NOT the active tab.
+   * The DOOR: drawn as its own filled button beside the bar instead of as a
+   * tab inside it — the one sanctioned break from "tabs are peers". A raised
+   * tab is a door to another module, not another sibling screen, and the
+   * highlight has to read at rest: a module door matters most when it is NOT
+   * the active tab. One per set; the bar carries only the others.
    */
   raised?: boolean;
   /**
-   * Palette of the raised disc. The Food module ships in the caution set.
-   *
-   * It was the DANGER set until the Dock repaint, and that was always a borrow
-   * rather than a choice — the old palette simply had no third colour to spend.
-   * It is untenable now: Dock's danger is a true red at #B3261E, and painting
-   * the door to a module in the one colour reserved for a failed payment and a
-   * cancelled booking teaches the wrong thing about red. Caution's burnt orange
-   * is a real role in this palette, reads warm next to food, and is nowhere
-   * near the accent teal it has to be told apart from.
+   * A soft ring that swells out of the door and fades, every few seconds — the
+   * "look here" on the Food door. Off under reduced motion, and on a collapsed
+   * bar, where the door is the only thing left and needs no pointing at.
    */
-  tone?: 'brand' | 'caution';
+  glow?: boolean;
+  /**
+   * The door's fill: the Food door and the way back out of Food are both
+   * `ember` (Food's burnt orange), and the glyph and name on it take that set's
+   * `on` ink — never white by assumption. Tabs inside the bar ignore it: they
+   * are drawn in the bar's own palette.
+   */
+  tone?: TabTone;
 };
+
+export type TabTone = 'brand' | 'caution' | 'deal' | 'orange' | 'ember' | 'link' | 'danger';
+
+/**
+ * The colour the selected tab wears, per module: the lime bubble on the stay
+ * side, Food's burnt orange (`ember`, the Food door's own colour) inside Food.
+ */
+export type TabAccent = 'brand' | 'deal' | 'ember';
 
 export type TabBarProps = {
   tabs: readonly TabItem[];
@@ -73,18 +170,15 @@ export type TabBarProps = {
    * Food is a place, not a fourth sibling screen. Once you are inside it,
    * Explore / Saved / Bookings are not peers to flick between — they are the
    * app you stepped out of, and a bar still offering all three says the
-   * opposite. So the chrome goes: surface, top border and the other tabs, all
-   * of it, leaving one button to bring you back.
+   * opposite. So the chrome goes: the pill and the other tabs, all of it,
+   * leaving one button to bring you back.
    *
-   * The button keeps the ACTIVE tab's slot, so the door out appears exactly
-   * where the door in was — tap the red Food disc at the right-hand end and it
-   * becomes a green Explore disc without moving a pixel.
+   * The button takes the door's place beside the bar, so the door out appears
+   * exactly where the door in was.
    *
-   * The bar keeps its footprint rather than dropping out of layout. The disc
-   * is a floating control with a text label under it, and content scrolling
-   * beneath that label is the one thing that would make it unreadable; the
-   * band it leaves is plain page background, which is what "the bar is gone"
-   * looks like. The measured height is still reported either way, so the
+   * The bar keeps its footprint rather than dropping out of layout: the band
+   * it leaves is plain page background, which is what "the bar is gone" looks
+   * like. The measured height is still reported either way, so the
    * snackbar and the waiting pill read one number whichever state it is in.
    */
   collapsedTo?: TabItem | null;
@@ -94,13 +188,14 @@ export type TabBarProps = {
    * A change here, and only a change here, plays the swap. It cannot be
    * inferred from `tabs`: that array is rebuilt whenever a badge or a dot
    * changes, and animating the whole bar because an order went live would be
-   * movement with nothing behind it. A string the caller controls says
-   * "this is a different set of places" and nothing else does.
+   * movement with nothing behind it.
    *
-   * Leave it undefined and the bar behaves exactly as it did before — every
-   * change is a straight cut.
+   * Leave it undefined and every change is a straight cut.
    */
   setId?: string;
+  /** The selected tab's bubble and ink. Defaults to the stay side's lime;
+   *  Food passes `ember`. */
+  accent?: TabAccent;
 };
 
 /** Everything needed to draw one frame of the bar, so an outgoing set can be
@@ -110,46 +205,65 @@ type BarFrame = {
   activeId: string;
   collapsedTo: TabItem | null;
   setId?: string;
+  accent: TabAccent;
 };
 
 /**
- * The bottom tab bar. 56pt of content plus the safe-area inset.
+ * Where a set's selection is: `at` is a tab INDEX (fractional while the bubble
+ * travels) and `engaged` is 1 with a tab selected, 0 with none.
+ */
+type Placement = {
+  at: SharedValue<number>;
+  engaged: SharedValue<number>;
+};
+
+/**
+ * The bottom tab bar: a dark green pill of tabs with the module door beside it.
  *
- * Labels are always visible. An icon-only bar asks a first-time user to guess,
- * and this audience has never seen the app before — the icon set cannot carry
- * "Bookings" versus "Explore" on its own.
+ * ## The bubble
  *
- * There is deliberately no sliding pill or underline. Tabs are peers, not
- * points on a line: Explore is not nearer to Bookings than it is to Profile,
- * and a travelling indicator asserts an adjacency and a direction that a
- * lateral move does not have. A pill also animates position during a screen
- * swap, so a stuttering swap leaves it stranded between two tabs.
+ * The selected tab sits in a lime bubble (orange inside Food) and reads as a
+ * chip — solid glyph and bold name side by side — while the others stay a
+ * quiet outline glyph over a small name. The selected cell is as wide as its
+ * own chip needs and the others share what is left, so "Bookings" fits as
+ * well as "Home" does.
+ *
+ * Everything runs off one number, the selection's tab index: on a press it
+ * springs to the new tab, and the cells' widths, the bubble's position and
+ * each tab's chip-versus-outline crossfade are all read from it on the UI
+ * thread. So the bubble slides, the cells make room for it as it goes, and
+ * nothing can drift out of step. The chip widths themselves are measured off
+ * screen (`Ruler`) rather than guessed, so a font or a font scale never
+ * leaves a name clipped.
+ *
+ * ## The door sits beside the bar
+ *
+ * The `raised` tab — Food on the stay side, the way back out inside Food — is
+ * not one of the bar's tabs. It is its own rounded-square button to the right
+ * of the pill, in its own colour, so the door to the other module stands apart
+ * from the screens of the one you are in. During a set swap the outgoing tabs
+ * slide toward it and the incoming ones slide out of it.
  *
  * ## It floats, and it gets out of the way
  *
  * The bar is positioned over the screen rather than sitting in the column
  * below it, and slides off the bottom edge while a feed is being read down —
- * see `BottomBarContext` for the gesture that decides it. Two consequences
- * that are easy to get wrong: every scrollable under it has to pad its content
- * by `height` from that context, because there is no longer a bar in the
- * layout holding the last card clear of the edge; and the height is reported
- * to BOTH the bottom-edge registry (so the snackbar clears it) and the bar
- * context (so the screens can pad by it), which are two different questions
- * that happen to have the same answer.
+ * see `BottomBarContext`. Every scrollable under it pads its content by
+ * `height` from that context, and the height is reported to BOTH the
+ * bottom-edge registry (so the snackbar clears it) and the bar context (so the
+ * screens can pad by it).
  */
-export function TabBar({ tabs, activeId, onChange, collapsedTo, setId }: TabBarProps) {
-  const { colors, space, layout, mode } = useTheme();
+export function TabBar({ tabs, activeId, onChange, collapsedTo, setId, accent = 'brand' }: TabBarProps) {
+  const { mode } = useTheme();
   const insets = useSafeAreaInsets();
   const reduceMotion = useReduceMotion();
 
-  const live: BarFrame = { tabs, activeId, collapsedTo: collapsedTo ?? null, setId };
+  const live: BarFrame = { tabs, activeId, collapsedTo: collapsedTo ?? null, setId, accent };
 
   /*
-   * The set that is on its way out, kept mounted until the swap finishes.
-   *
+   * The set that is on its way out, kept mounted until the swap finishes —
    * React would otherwise unmount it the instant the props changed, and there
-   * would be nothing left to animate away — the whole point of the transition
-   * is that both sets are on screen at once for 280ms.
+   * would be nothing left to animate away.
    */
   const [outgoing, setOutgoing] = useState<BarFrame | null>(null);
   /** The frame the previous render drew, which is the one that has to leave. */
@@ -157,8 +271,22 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId }: TabBarP
 
   /** 0 at the start of a swap, 1 at rest. */
   const swap = useSharedValue(1);
-  /** The bar's own width, so a cell's travel is measured, never guessed. */
+  /** The whole bar's width, so a cell's travel to the door is measured. */
   const barWidth = useSharedValue(360);
+  /** The row the tabs share, inside the pill's padding. */
+  const rowWidth = useSharedValue(0);
+
+  const collapsedNow = resolveCollapsed(live);
+  const liveFlat = flatTabsOf(live);
+  const activeIndex = liveFlat.findIndex((tab) => tab.id === live.activeId);
+  const selected = !collapsedNow && activeIndex >= 0;
+
+  const at = useSharedValue(Math.max(0, activeIndex));
+  const engaged = useSharedValue(selected ? 1 : 0);
+  /* The outgoing set's selection, frozen where it was when the swap began. */
+  const outAt = useSharedValue(0);
+  const outEngaged = useSharedValue(0);
+  const placedSet = useRef(setId);
 
   const settled = useCallback(() => setOutgoing(null), []);
 
@@ -167,6 +295,10 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId }: TabBarP
 
     // No set named, or the same set — a badge changed, not the destinations.
     if (!setId || !before.setId || before.setId === setId) return;
+
+    const beforeIndex = flatTabsOf(before).findIndex((tab) => tab.id === before.activeId);
+    outAt.value = Math.max(0, beforeIndex);
+    outEngaged.value = beforeIndex >= 0 && !resolveCollapsed(before) ? 1 : 0;
 
     setOutgoing(before);
     swap.value = 0;
@@ -186,32 +318,52 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId }: TabBarP
 
   /*
    * Remember what was just drawn — every render, and deliberately declared
-   * AFTER the swap effect so it runs after it on the same commit.
-   *
-   * Updating this inside the swap effect instead would only refresh it on the
-   * renders that swapped, so the frame animating out would be whatever the bar
-   * looked like at the last swap rather than a moment ago: leave Food from
-   * Orders and you would watch Home slide away.
+   * AFTER the swap effect so it runs after it on the same commit, so the
+   * frame animating out is what the bar looked like a moment ago.
    */
   useEffect(() => {
     lastFrame.current = live;
   });
 
   /*
+   * Move the selection. A slide only between tabs of the same set while one
+   * was already selected; arriving from "nothing selected", or in a new set,
+   * is a placement, not a move — the bubble must not sweep in from tab one.
+   */
+  useEffect(() => {
+    if (activeIndex < 0) return;
+    const jump = reduceMotion || engaged.value === 0 || placedSet.current !== setId;
+    placedSet.current = setId;
+    at.value = jump ? activeIndex : withSpring(activeIndex, component.tabBubble);
+  }, [activeIndex, setId, reduceMotion, at, engaged]);
+
+  useEffect(() => {
+    const target = selected ? 1 : 0;
+    engaged.value = reduceMotion ? target : withTiming(target, { duration: 160, easing: easing.standard });
+  }, [selected, reduceMotion, engaged]);
+
+  /* Each tab's chip width, measured once by the ruler and kept by id. */
+  const [faceWidths, setFaceWidths] = useState<Record<string, number>>({});
+  const rememberFace = useCallback((key: string, width: number) => {
+    setFaceWidths((prev) => (Math.abs((prev[key] ?? -1) - width) < 0.5 ? prev : { ...prev, [key]: width }));
+  }, []);
+  const liveKeys = liveFlat.map(faceKey).join('\n');
+  const outgoingKeys = outgoing ? flatTabsOf(outgoing).map(faceKey).join('\n') : '';
+  const liveFaces = useMemo(() => facesFor(liveKeys, faceWidths), [liveKeys, faceWidths]);
+  const outgoingFaces = useMemo(() => facesFor(outgoingKeys, faceWidths), [outgoingKeys, faceWidths]);
+
+  /*
    * The bar owns the bottom edge, so the floating request pill sits above it
    * rather than over the tabs. Measured rather than assumed — the height is
-   * 56pt plus a safe-area inset that differs on every device, and a pill
-   * placed with a guessed number lands on the tabs on half the fleet.
+   * the bar plus a safe-area inset that differs on every device.
    */
   const { reserveBottom, releaseBottom } = usePendingRequest();
   useEffect(() => () => releaseBottom('tabbar'), [releaseBottom]);
 
-  /* How far off the bottom edge the bar currently is, and how far off it is
-     when fully gone. `height` is a plain number, so the style rebuilds on the
-     one render where it changes rather than being read from the UI thread. */
+  /* How far off the bottom edge the bar currently is. */
   const { hidden, height, setHeight } = useBottomBar();
   const slide = useAnimatedStyle(() => ({
-    transform: [{ translateY: hidden.value * (height + RAISED_LIFT + RAISED_SHADOW + 20) }],
+    transform: [{ translateY: hidden.value * (height + DOOR_GLOW + 20) }],
   }));
 
   const measure = (event: LayoutChangeEvent) => {
@@ -220,12 +372,11 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId }: TabBarP
     barWidth.value = event.nativeEvent.layout.width;
   };
 
-  /* Reduced motion keeps the crossfade and drops the travel and the scale.
-     The user still learns that one set replaced another; they are just not
-     moved to learn it. */
+  /* Reduced motion keeps the crossfades and drops the travel and the scale. */
   const moves = !reduceMotion;
-  const collapsedNow = resolveCollapsed(live);
-  const gap = space[1] + 1;
+
+  /* A collapsed bar's lone button stands where the door stands. */
+  const door = collapsedNow ?? doorOf(live);
 
   return (
     <Animated.View
@@ -237,309 +388,813 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId }: TabBarP
           /* The floor is what carries a device where `insets.bottom` under-
              reports the system nav (a stale measurement on first layout, or
              an Android bar the OS drew without telling `SafeAreaContext` in
-             time) — on those, the bar was sitting close enough to the edge to
-             read as under the system's buttons/gesture pill. Raised from 12
-             to clear that case without moving anything on a device reporting
-             a real, larger inset, where this floor never applies at all. */
+             time), so the bar never sits under the system's buttons. */
           paddingBottom: Math.max(insets.bottom, 20) + 4,
         },
         slide,
       ]}
       pointerEvents="box-none"
     >
-      <View
-        style={[
-          styles.bar,
-          collapsedNow
-            ? styles.barCollapsed
-            : [
-                styles.floatingBar,
-                {
-                  backgroundColor: mode === 'dark' ? '#121E1A' : '#FFFFFF',
-                  borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
-                  shadowColor: '#000000',
-                  shadowOpacity: mode === 'dark' ? 0.45 : 0.12,
-                },
-              ],
-        ]}
-      >
-        {/*
-          The three flat tabs on their way out, converging on the disc.
+      <View style={styles.dock} pointerEvents="box-none">
+        <View
+          style={[
+            styles.bar,
+            collapsedNow
+              ? styles.barCollapsed
+              : [
+                  styles.floatingBar,
+                  {
+                    backgroundColor: BAR_COLORS.fill,
+                    /* On a dark page the pill needs an edge to stand off it. */
+                    borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.10)' : BAR_COLORS.fill,
+                    shadowOpacity: mode === 'dark' ? 0.5 : 0.22,
+                  },
+                ],
+          ]}
+        >
+          <Ruler tabs={liveFlat} onMeasure={rememberFace} />
 
-          `pointerEvents="none"` and never the other way round: the motion rules
-          forbid an animation gating an interaction, so the arriving tabs are
-          tappable from their first frame while these are already untouchable.
-        */}
-        {outgoing ? (
+          {/*
+            The tabs on their way out, sliding toward the door. Never tappable:
+            the arriving tabs take touches from their first frame.
+          */}
+          {outgoing ? (
+            <View
+              pointerEvents="none"
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={styles.overlayRow}
+            >
+              <FlatCells
+                frame={outgoing}
+                mode="leaving"
+                progress={swap}
+                barWidth={barWidth}
+                rowWidth={rowWidth}
+                moves={moves}
+                onChange={onChange}
+                placement={{ at: outAt, engaged: outEngaged }}
+                faces={outgoingFaces}
+              />
+            </View>
+          ) : null}
+
+          {/* The bubble, under the live tabs. */}
+          {!collapsedNow ? (
+            <Bubble
+              count={liveFlat.length}
+              placement={{ at, engaged }}
+              rowWidth={rowWidth}
+              faces={liveFaces}
+              swap={swap}
+              accent={live.accent}
+            />
+          ) : null}
+
+          {/* The live tabs. The row's fixed height is what gives the bar its
+              height — every cell in it is positioned absolutely. */}
           <View
-            pointerEvents="none"
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            style={styles.overlayRow}
+            style={styles.row}
+            onLayout={(event) => {
+              rowWidth.value = event.nativeEvent.layout.width;
+            }}
           >
             <FlatCells
-              frame={outgoing}
-              mode="leaving"
+              frame={live}
+              mode="arriving"
               progress={swap}
               barWidth={barWidth}
+              rowWidth={rowWidth}
               moves={moves}
               onChange={onChange}
-              gap={gap}
+              placement={{ at, engaged }}
+              faces={liveFaces}
             />
           </View>
-        ) : null}
+        </View>
 
-        {/* The live three. In normal flow, so this row is what gives the bar its
-            height — the overlays above and below it are all absolute. */}
-        <View style={styles.row}>
-          <FlatCells
-            frame={live}
-            mode="arriving"
-            progress={swap}
-            barWidth={barWidth}
-            moves={moves}
-            onChange={onChange}
-            gap={gap}
+        {door ? (
+          <DoorButton
+            tab={door}
+            active={!collapsedNow && door.id === live.activeId}
+            collapsed={!!collapsedNow}
+            accent={live.accent}
+            onPress={() => onChange(door.id)}
           />
-        </View>
-
-        {/*
-          The disc, and only the disc — stationary, and drawn last so the flat
-          tabs pass UNDERNEATH it on their way in and out. That is the whole
-          illusion: they are going into the door, not past it.
-
-          It swaps its icon and its tone the instant it is pressed rather than
-          crossfading. Two filled discs of different colours dissolved through
-          each other spend 100ms as a muddy brown, and an instant change on the
-          thing under the thumb reads as a response to the press.
-
-          `box-none` so only the disc itself catches a touch; the empty slots
-          beside it let taps fall through to the live row underneath.
-        */}
-        <View pointerEvents="box-none" style={styles.overlayRow}>
-          <RaisedCell frame={live} onChange={onChange} gap={gap} />
-        </View>
+        ) : null}
       </View>
     </Animated.View>
   );
 }
 
-/** Which slot the lone button inherits. Guarded rather than assumed: an
- *  `activeId` that is not in `tabs` (Profile, which lost its tab to Food and is
- *  now reached from the header) has no slot to hold, and collapsing onto slot
- *  -1 would silently park the button on the left edge. */
-function collapsedSlotOf(frame: BarFrame): number {
-  return frame.collapsedTo ? frame.tabs.findIndex((tab) => tab.id === frame.activeId) : -1;
-}
-
+/** The lone button a collapsed bar shows, if it is collapsed. Guarded rather
+ *  than assumed: only an `activeId` the bar actually carries collapses it. */
 function resolveCollapsed(frame: BarFrame): TabItem | null {
-  return collapsedSlotOf(frame) >= 0 ? frame.collapsedTo : null;
+  return frame.collapsedTo && frame.tabs.some((tab) => tab.id === frame.activeId)
+    ? frame.collapsedTo
+    : null;
+}
+
+/** The set's door — drawn beside the bar, never in it. */
+function doorOf(frame: BarFrame): TabItem | null {
+  return frame.tabs.find((tab) => tab.raised) ?? null;
+}
+
+/** The tabs the bar itself carries: everything but the door. */
+function flatTabsOf(frame: BarFrame): readonly TabItem[] {
+  return frame.tabs.filter((tab) => !tab.raised);
+}
+
+/** A measured chip is kept per tab AND label, so a renamed tab re-measures. */
+function faceKey(tab: TabItem): string {
+  return `${tab.id}|${tab.label}`;
+}
+
+function facesFor(keys: string, widths: Record<string, number>): number[] {
+  return keys ? keys.split('\n').map((key) => widths[key] ?? 0) : [];
+}
+
+/** A tone's fill, the ink drawn ON that fill, and its readable-as-text ink. */
+function toneSetOf(colors: ThemeColors, tone: TabTone) {
+  switch (tone) {
+    case 'deal':
+      return colors.deal;
+    case 'caution':
+      return colors.warning;
+    case 'orange':
+      return colors.orange;
+    case 'ember':
+      return EMBER;
+    case 'link':
+      return colors.link;
+    case 'danger':
+      return colors.danger;
+    case 'brand':
+      return { base: colors.brand, on: colors.onBrand, ink: colors.brandInk };
+  }
+}
+
+/** The selected tab's bubble fill and the ink drawn on it. */
+function accentOf(colors: ThemeColors, accent: TabAccent) {
+  return accent === 'ember'
+    ? { fill: EMBER.base, ink: EMBER.on }
+    : accent === 'deal'
+      ? { fill: colors.deal.base, ink: colors.deal.on }
+      : { fill: BAR_COLORS.lime, ink: BAR_COLORS.onLime };
 }
 
 /**
- * Which slot holds the raised disc — the one cell that never moves.
- *
- * In a collapsed bar the lone button IS the raised one, so the two ideas
- * resolve to the same slot and the rest of the bar is empty either way.
+ * How selected tab `index` is, 0 to 1: fully at the selection's index, fading
+ * to nothing a whole tab away. While the selection travels, the two tabs it is
+ * between share it.
  */
-function raisedSlotOf(frame: BarFrame): number {
-  const collapsedSlot = collapsedSlotOf(frame);
-  if (collapsedSlot >= 0) return collapsedSlot;
-  return frame.tabs.findIndex((tab) => tab.raised);
-}
-
-/** An empty cell. It exists to hold a position, so it must never take a touch. */
-function Spacer() {
-  return <View pointerEvents="none" style={styles.cell} />;
+function focusOf(index: number, at: number, engaged: number, count: number): number {
+  'worklet';
+  const p = Math.min(Math.max(at, 0), Math.max(count - 1, 0));
+  return engaged * Math.max(0, 1 - Math.abs(p - index));
 }
 
 /**
- * The flat tabs of one set, each carrying its own distance to the disc.
+ * Every cell's left edge and width for a selection at `at`.
  *
- * Every slot is rendered — the raised one as an empty spacer — because the
- * four flex:1 cells are the only thing keeping the three sets (leaving, live,
- * disc) in the same columns as each other.
+ * A selected cell is as wide as its chip (`faces`, plus `ACTIVE_CHROME`) — but
+ * never narrower than an even share, and never so wide the others drop below
+ * `MIN_REST`. The rest split what is left evenly. Each cell blends between
+ * its resting and selected width by its focus, so as the selection travels
+ * the widths always add up to the row.
+ */
+function layoutCells(count: number, at: number, engaged: number, row: number, faces: readonly number[]) {
+  'worklet';
+  const lefts: number[] = [];
+  const widths: number[] = [];
+  const focus: number[] = [];
+  if (count === 0 || row <= 0) return { lefts, widths, focus };
+
+  const share = row / count;
+  const cap = Math.max(share, row - (count - 1) * MIN_REST);
+  const full: number[] = [];
+  let pull = 0;
+  let want = 0;
+  for (let k = 0; k < count; k++) {
+    const t = focusOf(k, at, engaged, count);
+    const a = Math.min(Math.max((faces[k] ?? 0) + ACTIVE_CHROME, share), cap);
+    focus.push(t);
+    full.push(a);
+    pull += t;
+    want += t * a;
+  }
+  const rest = count - pull > 0.0001 ? (row - want) / (count - pull) : share;
+
+  let x = 0;
+  for (let k = 0; k < count; k++) {
+    const w = focus[k] * full[k] + (1 - focus[k]) * rest;
+    lefts.push(x);
+    widths.push(w);
+    x += w;
+  }
+  return { lefts, widths, focus };
+}
+
+/**
+ * The selection bubble, sliding with the selection.
+ *
+ * Its box is the focus-weighted blend of the cells it is between, so it lands
+ * exactly on the selected cell and carries that cell's width with it. It
+ * stands aside for a set swap — the arriving tabs carry their own bubble out
+ * of the door (see `SlidingCell`) — and takes over the moment the swap lands,
+ * at the same place and size, so the handover is invisible.
+ */
+function Bubble({
+  count,
+  placement,
+  rowWidth,
+  faces,
+  swap,
+  accent,
+}: {
+  count: number;
+  placement: Placement;
+  rowWidth: SharedValue<number>;
+  faces: readonly number[];
+  swap: SharedValue<number>;
+  accent: TabAccent;
+}) {
+  const { colors } = useTheme();
+  const { at, engaged } = placement;
+
+  const style = useAnimatedStyle(() => {
+    const box = layoutCells(count, at.value, engaged.value, rowWidth.value, faces);
+    let sum = 0;
+    let left = 0;
+    let width = 0;
+    for (let k = 0; k < box.focus.length; k++) {
+      const t = box.focus[k];
+      sum += t;
+      left += t * box.lefts[k];
+      width += t * box.widths[k];
+    }
+    if (sum <= 0) return { opacity: 0, width: 0, transform: [{ translateX: 0 }] };
+    return {
+      opacity: swap.value < 1 ? 0 : engaged.value,
+      width: Math.max(0, width / sum - BUBBLE_GAP * 2),
+      transform: [{ translateX: BAR_PAD_X + left / sum + BUBBLE_GAP }],
+    };
+  });
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[styles.bubble, { backgroundColor: accentOf(colors, accent).fill }, style]}
+    />
+  );
+}
+
+/**
+ * The bar's tabs for one set, each carrying its own distance to the door.
+ * A collapsed bar draws none: the row's fixed height keeps its footprint.
  */
 function FlatCells({
   frame,
   mode,
   progress,
   barWidth,
+  rowWidth,
   moves,
   onChange,
-  gap,
+  placement,
+  faces,
 }: {
   frame: BarFrame;
   mode: 'leaving' | 'arriving';
   progress: SharedValue<number>;
   barWidth: SharedValue<number>;
+  rowWidth: SharedValue<number>;
   moves: boolean;
   onChange: (id: string) => void;
-  gap: number;
+  placement: Placement;
+  faces: readonly number[];
 }) {
-  const raisedSlot = raisedSlotOf(frame);
-  const collapsed = resolveCollapsed(frame);
-  const count = frame.tabs.length || 1;
+  const { colors } = useTheme();
+  if (resolveCollapsed(frame)) return null;
+
+  const flat = flatTabsOf(frame);
+  const hasDoor = doorOf(frame) !== null;
+  const count = flat.length;
+  const fill = accentOf(colors, frame.accent).fill;
 
   return (
     <>
-      {frame.tabs.map((tab, index) => {
-        // The disc's own slot, and every slot of a collapsed bar, stays empty
-        // here — a collapsed bar has no flat tabs to fly anywhere.
-        if (index === raisedSlot || collapsed) return <Spacer key={tab.id} />;
-
-        return (
-          <SlidingCell
-            key={tab.id}
-            mode={mode}
-            progress={progress}
-            barWidth={barWidth}
-            moves={moves}
-            /* Cells are equal width, so the gap from this slot's centre to the
-               disc's is exactly this fraction of the bar. */
-            offsetRatio={(raisedSlot - index) / count}
-          >
-            <TabButton
-              tab={tab}
-              active={tab.id === frame.activeId}
-              onPress={() => onChange(tab.id)}
-              gap={gap}
-            />
-          </SlidingCell>
-        );
-      })}
-    </>
-  );
-}
-
-/** The raised disc of one set, in its slot, with the rest of the row empty. */
-function RaisedCell({
-  frame,
-  onChange,
-  gap,
-}: {
-  frame: BarFrame;
-  onChange: (id: string) => void;
-  gap: number;
-}) {
-  const raisedSlot = raisedSlotOf(frame);
-  const collapsed = resolveCollapsed(frame);
-
-  return (
-    <>
-      {frame.tabs.map((tab, index) => {
-        if (index !== raisedSlot) return <Spacer key={tab.id} />;
-
-        /* Keyed by the SLOT, not by the button in it. Keyed by the button,
-           `explore` would collide with the empty first slot — and the swap
-           would also tear down the node it is replacing, losing the disc that
-           is standing in exactly that spot. */
-        return collapsed ? (
+      {flat.map((tab, index) => (
+        <SlidingCell
+          key={tab.id}
+          index={index}
+          count={count}
+          mode={mode}
+          progress={progress}
+          barWidth={barWidth}
+          rowWidth={rowWidth}
+          moves={moves}
+          /* The door stands just past the bar's right end — roughly one more
+             cell along — so this is the fraction of the whole width between
+             this tab and it. */
+          offsetRatio={hasDoor ? (count - index) / (count + 1) : 0}
+          placement={placement}
+          faces={faces}
+          patchColor={fill}
+        >
           <TabButton
-            key={tab.id}
-            tab={collapsed}
-            active={false}
-            emphasised
-            role="button"
-            onPress={() => onChange(collapsed.id)}
-            gap={gap}
-          />
-        ) : (
-          <TabButton
-            key={tab.id}
             tab={tab}
+            index={index}
+            count={count}
+            placement={placement}
             active={tab.id === frame.activeId}
             onPress={() => onChange(tab.id)}
-            gap={gap}
+            accent={frame.accent}
           />
-        );
-      })}
+        </SlidingCell>
+      ))}
     </>
   );
 }
 
 /**
- * One flat tab, travelling to or from the disc.
+ * One tab's cell: placed by `layoutCells`, and travelling to or from the door
+ * during a set swap.
  *
  * A component rather than a loop of `useAnimatedStyle` calls, because hooks
  * cannot be called per item of a list whose length is not fixed.
  *
- * The distance is read from `barWidth` inside the worklet rather than passed in
- * as a number, so a rotation mid-transition lands the cell in the right place
- * instead of the place the old width implied.
+ * The `patch` is the bubble's stand-in during a swap: drawn inside the cell, it
+ * slides and scales with it, where the bar's own bubble would sit still.
  */
 function SlidingCell({
+  index,
+  count,
   mode,
   progress,
   barWidth,
+  rowWidth,
   moves,
   offsetRatio,
+  placement,
+  faces,
+  patchColor,
   children,
 }: {
+  index: number;
+  count: number;
   mode: 'leaving' | 'arriving';
   progress: SharedValue<number>;
   barWidth: SharedValue<number>;
+  rowWidth: SharedValue<number>;
   moves: boolean;
   offsetRatio: number;
+  placement: Placement;
+  faces: readonly number[];
+  patchColor: string;
   children: React.ReactNode;
 }) {
   const { scaleFrom } = component.tabSetSwap;
+  const { at, engaged } = placement;
 
   const style = useAnimatedStyle(() => {
+    const box = layoutCells(count, at.value, engaged.value, rowWidth.value, faces);
     const settledness = progress.value;
-    // 1 while the cell is at the disc, 0 once it is home.
+    // 1 while the cell is at the door, 0 once it is home.
     const away = mode === 'leaving' ? settledness : 1 - settledness;
     const distance = moves ? barWidth.value * offsetRatio * away : 0;
     const scale = moves ? 1 - (1 - scaleFrom) * away : 1;
 
     return {
+      left: box.lefts[index] ?? 0,
+      width: box.widths[index] ?? 0,
       opacity: mode === 'leaving' ? 1 - settledness : settledness,
       transform: [{ translateX: distance }, { scale }],
     };
   });
 
-  return <Animated.View style={[styles.cell, style]}>{children}</Animated.View>;
+  const patchStyle = useAnimatedStyle(() => {
+    const swapping = mode === 'leaving' || progress.value < 1;
+    return { opacity: swapping ? focusOf(index, at.value, engaged.value, count) : 0 };
+  });
+
+  return (
+    <Animated.View style={[styles.cell, style]}>
+      <Animated.View pointerEvents="none" style={[styles.patch, { backgroundColor: patchColor }, patchStyle]} />
+      {children}
+    </Animated.View>
+  );
+}
+
+/**
+ * A tab's glyph: the delivery scooter for `food`, an Ionicons outline / solid
+ * pair for the other bar glyphs, or the app's line icon as a fallback.
+ */
+function TabGlyphIcon({
+  tab,
+  solid,
+  size,
+  color,
+  cut,
+  riding = false,
+}: {
+  tab: TabItem;
+  solid: boolean;
+  size: IconSize;
+  color: string;
+  /** The colour behind the glyph, for the details cut out of a solid shape. */
+  cut?: string;
+  /** Animate the scooter. Only the door asks; everywhere else it is still. */
+  riding?: boolean;
+}) {
+  if (tab.glyph === 'food') return <ScooterGlyph size={size} color={color} cut={cut} riding={riding} />;
+  if (tab.glyph) return <Ionicons name={TAB_GLYPHS[tab.glyph][solid ? 1 : 0]} size={size} color={color} />;
+  return <Icon name={tab.icon} size={size} color={color} fill={solid ? withAlpha(color, 0.2) : undefined} />;
+}
+
+/** The scooter is drawn in a 28 × 24 box: wider than tall, like a scooter. */
+const SCOOTER_W = 28;
+const SCOOTER_H = 24;
+/** Its two wheels: centre and outer radius, in that box. */
+const REAR_WHEEL = { cx: 6.5, cy: 18.6 };
+const FRONT_WHEEL = { cx: 22.4, cy: 18.6 };
+const WHEEL_R = 3.1;
+
+/**
+ * A delivery scooter, riding — the Food door's glyph.
+ *
+ * Facing right: a rider leaning in to the handlebar, the delivery box behind
+ * them, the seat and body, the steering column, a headlight, and two spoked
+ * wheels. While `riding`:
+ *
+ *   - the wheels TURN, spokes and all, so it is plainly moving;
+ *   - rider and body BOB on the suspension over a bumpy road, unevenly,
+ *     while the wheels stay on the ground — which is what sells it as a ride
+ *     rather than an icon that wobbles;
+ *   - two speed lines stream off behind it and fade.
+ *
+ * Built from separate pieces (a body and two wheels) rather than one path, so
+ * each can move on its own. `size` is the HEIGHT; the scooter is a little
+ * wider than that. Still under reduced motion — the caller decides.
+ */
+function ScooterGlyph({
+  size,
+  color,
+  cut,
+  riding,
+}: {
+  size: number;
+  color: string;
+  cut?: string;
+  riding: boolean;
+}) {
+  const unit = size / SCOOTER_H;
+  const spin = useSharedValue(0);
+  const bob = useSharedValue(0);
+  const wind = useSharedValue(0);
+
+  useEffect(() => {
+    if (!riding) {
+      cancelAnimation(spin);
+      cancelAnimation(bob);
+      cancelAnimation(wind);
+      spin.value = 0;
+      bob.value = 0;
+      wind.value = 0;
+      return;
+    }
+    spin.value = 0;
+    spin.value = withRepeat(withTiming(1, { duration: 520, easing: Easing.linear }), -1, false);
+    /* Two bumps, a big one and a small one, then a beat of smooth road. */
+    bob.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 140, easing: easing.inOut }),
+        withTiming(0, { duration: 160, easing: easing.inOut }),
+        withTiming(0.45, { duration: 110, easing: easing.inOut }),
+        withTiming(0, { duration: 130, easing: easing.inOut }),
+        withDelay(260, withTiming(0, { duration: 0 })),
+      ),
+      -1,
+      false,
+    );
+    wind.value = 0;
+    wind.value = withRepeat(withTiming(1, { duration: 760, easing: Easing.linear }), -1, false);
+    return () => {
+      cancelAnimation(spin);
+      cancelAnimation(bob);
+      cancelAnimation(wind);
+    };
+  }, [riding, spin, bob, wind]);
+
+  const wheelStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${spin.value * 360}deg` }] }));
+  const bodyStyle = useAnimatedStyle(() => ({ transform: [{ translateY: -bob.value * 1.2 * unit }] }));
+  /* Two streaks half a cycle apart, each sliding back and fading out. */
+  const streakA = useAnimatedStyle(() => ({
+    opacity: riding ? 0.85 * (1 - wind.value) : 0,
+    transform: [{ translateX: -wind.value * 6 * unit }],
+  }));
+  const streakB = useAnimatedStyle(() => {
+    const t = (wind.value + 0.5) % 1;
+    return {
+      opacity: riding ? 0.85 * (1 - t) : 0,
+      transform: [{ translateX: -t * 6 * unit }],
+    };
+  });
+
+  const detail = cut ?? 'transparent';
+  const width = SCOOTER_W * unit;
+
+  return (
+    <View style={{ width, height: size }}>
+      {/* Speed lines, behind the box. */}
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.streak,
+          { backgroundColor: color, left: -2.5 * unit, top: 7.4 * unit, width: 4.5 * unit, height: 1.5 * unit },
+          streakA,
+        ]}
+      />
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.streak,
+          { backgroundColor: color, left: -1.5 * unit, top: 12.6 * unit, width: 3.5 * unit, height: 1.5 * unit },
+          streakB,
+        ]}
+      />
+
+      {/* The body, on its suspension. */}
+      <Animated.View style={[StyleSheet.absoluteFill, bodyStyle]}>
+        <Svg width={width} height={size} viewBox={`0 0 ${SCOOTER_W} ${SCOOTER_H}`} fill="none">
+          {/* Delivery box, with its lid line. */}
+          <Rect x={2} y={5.6} width={7.6} height={6.6} rx={1.4} fill={color} />
+          <Line x1={2.6} y1={8.2} x2={9} y2={8.2} stroke={detail} strokeWidth={1.1} strokeLinecap="round" />
+          {/* The rider: head, and a body leaning in to the handlebar. */}
+          <Circle cx={15.6} cy={3.2} r={2} fill={color} />
+          <Path
+            d="M12.6 10.6 15 6.2M15.4 6.8 18.6 7.6"
+            stroke={color}
+            strokeWidth={2.3}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {/* Body, and the seat on it. */}
+          <Path d="M3 12.1H16.4c1.2 0 1.9 1 1.6 2.1l-.2.6H4.6C3.7 14.8 3 14.1 3 13.2Z" fill={color} />
+          <Rect x={10.2} y={10.4} width={5.6} height={2.2} rx={1.1} fill={color} />
+          {/* Footboard, steering column and fork down to the front wheel. */}
+          <Path
+            d="M16.8 14.8H21.4M19.6 6.8 22.4 18.6"
+            stroke={color}
+            strokeWidth={2.1}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {/* Handlebar and headlight. */}
+          <Line x1={18.4} y1={6.6} x2={21.4} y2={6.6} stroke={color} strokeWidth={2.1} strokeLinecap="round" />
+          <Circle cx={22} cy={10} r={1} fill={color} />
+        </Svg>
+      </Animated.View>
+
+      {/* The wheels, turning, and not bobbing: they are on the road. */}
+      {[REAR_WHEEL, FRONT_WHEEL].map((wheel, i) => (
+        <Animated.View
+          key={i}
+          style={[
+            styles.wheel,
+            {
+              left: (wheel.cx - WHEEL_R) * unit,
+              top: (wheel.cy - WHEEL_R) * unit,
+              width: WHEEL_R * 2 * unit,
+              height: WHEEL_R * 2 * unit,
+            },
+            wheelStyle,
+          ]}
+        >
+          <Svg width={WHEEL_R * 2 * unit} height={WHEEL_R * 2 * unit} viewBox={`0 0 ${WHEEL_R * 2} ${WHEEL_R * 2}`}>
+            <Circle cx={WHEEL_R} cy={WHEEL_R} r={WHEEL_R - 0.8} stroke={color} strokeWidth={1.4} fill="none" />
+            <Path
+              d={`M${WHEEL_R - 1.6} ${WHEEL_R}H${WHEEL_R + 1.6}M${WHEEL_R} ${WHEEL_R - 1.6}V${WHEEL_R + 1.6}`}
+              stroke={color}
+              strokeWidth={0.8}
+              strokeLinecap="round"
+            />
+            <Circle cx={WHEEL_R} cy={WHEEL_R} r={0.6} fill={color} />
+          </Svg>
+        </Animated.View>
+      ))}
+    </View>
+  );
+}
+
+/** A glyph with the tab's badge or dot pinned to its corner. */
+function Marked({ tab, children }: { tab: TabItem; children: React.ReactNode }) {
+  const { colors } = useTheme();
+  const badgeLabel = tab.badge ? (tab.badge > 9 ? '9+' : String(tab.badge)) : undefined;
+
+  return (
+    <View>
+      {children}
+      {badgeLabel ? (
+        <View style={[styles.badge, { backgroundColor: colors.danger.base, borderColor: BAR_COLORS.fill }]}>
+          {/* A badge sits inside an 18pt disc on a 20pt icon, so it cannot take
+              the 11pt floor — the same count is stated in words elsewhere. */}
+          <Text variant="numMeta" style={{ color: colors.danger.on, fontSize: 10, lineHeight: 12 }}>
+            {badgeLabel}
+          </Text>
+        </View>
+      ) : tab.dot ? (
+        <View style={[styles.dot, { backgroundColor: colors.danger.base, borderColor: BAR_COLORS.fill }]} />
+      ) : null}
+    </View>
+  );
+}
+
+/** The selected tab's chip: solid glyph and bold name, side by side. */
+function ActiveFace({
+  tab,
+  ink,
+  onWidth,
+}: {
+  tab: TabItem;
+  ink: string;
+  onWidth?: (width: number) => void;
+}) {
+  return (
+    <View
+      style={styles.activeRow}
+      onLayout={onWidth ? (event) => onWidth(event.nativeEvent.layout.width) : undefined}
+    >
+      <Marked tab={tab}>
+        <TabGlyphIcon tab={tab} solid size={ACTIVE_ICON} color={ink} />
+      </Marked>
+      <Text
+        variant="caption"
+        numberOfLines={1}
+        style={{ color: ink, fontSize: ACTIVE_LABEL, lineHeight: ACTIVE_LABEL + 4, fontWeight: '700', flexShrink: 1 }}
+      >
+        {tab.label}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * Measures every chip at its natural width, off screen and invisible. A
+ * selected cell is sized from these, so a long name ("Bookings") gets the
+ * room it needs at whatever font scale the phone is set to.
+ */
+function Ruler({ tabs, onMeasure }: { tabs: readonly TabItem[]; onMeasure: (key: string, width: number) => void }) {
+  return (
+    <View
+      pointerEvents="none"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={styles.ruler}
+    >
+      {tabs.map((tab) => (
+        <ActiveFace
+          key={faceKey(tab)}
+          tab={tab}
+          ink={BAR_COLORS.onLime}
+          onWidth={(width) => onMeasure(faceKey(tab), width)}
+        />
+      ))}
+    </View>
+  );
+}
+
+/**
+ * The door: a filled rounded-square button beside the bar, its glyph and its
+ * name both inside it.
+ *
+ * Its fill is its tone (the burnt orange for Food), and everything on it takes
+ * that tone's `on` ink. With `glow`, a ring of the same colour swells out of it
+ * and fades, then rests for a beat before the next one, so it draws the eye
+ * without nagging.
+ */
+function DoorButton({
+  tab,
+  active,
+  collapsed,
+  accent,
+  onPress,
+}: {
+  tab: TabItem;
+  active: boolean;
+  /** The lone way out of a collapsed bar, rather than one of a set. */
+  collapsed: boolean;
+  accent: TabAccent;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  const reduceMotion = useReduceMotion();
+  const scale = useSharedValue(1);
+  const pulse = useSharedValue(0);
+  const glows = !!tab.glow && !collapsed && !reduceMotion;
+
+  useEffect(() => {
+    if (!glows) {
+      cancelAnimation(pulse);
+      pulse.value = 0;
+      return;
+    }
+    pulse.value = 0;
+    pulse.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1400, easing: easing.enter }),
+        /* Back behind the button, invisibly, after a rest. */
+        withDelay(1600, withTiming(0, { duration: 0 })),
+      ),
+      -1,
+      false,
+    );
+    return () => cancelAnimation(pulse);
+  }, [glows, pulse]);
+
+  const handlePress = () => {
+    if (!reduceMotion) {
+      scale.value = withSequence(
+        withTiming(0.92, { duration: 120, easing: easing.settle }),
+        withTiming(1, { duration: 120, easing: easing.settle }),
+      );
+    }
+    onPress();
+  };
+
+  const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const ringStyle = useAnimatedStyle(() => ({
+    opacity: 0.5 * (1 - pulse.value),
+    transform: [{ scale: 1 + pulse.value * 0.32 }],
+  }));
+
+  const toneSet = toneSetOf(colors, tab.tone ?? accent);
+
+  return (
+    <Pressable
+      onPress={handlePress}
+      accessibilityRole={collapsed ? 'button' : 'tab'}
+      accessibilityState={collapsed ? undefined : { selected: active }}
+      /* The label alone would announce "Explore" on a screen that is not
+         Explore. Said in full, it is the one thing this control does. */
+      accessibilityLabel={collapsed ? `Back to ${tab.label}` : tab.label}
+      hitSlop={6}
+      style={styles.doorPress}
+    >
+      {glows ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.doorRing, { backgroundColor: toneSet.base }, ringStyle]}
+        />
+      ) : null}
+      <Animated.View
+        style={[styles.door, { backgroundColor: toneSet.base, shadowColor: toneSet.base }, pressStyle]}
+      >
+        <TabGlyphIcon
+          tab={tab}
+          solid
+          size={tab.glyph === 'food' ? DOOR_SCOOTER : DOOR_ICON}
+          color={toneSet.on}
+          cut={toneSet.base}
+          riding={!reduceMotion && !collapsed}
+        />
+        <Text
+          variant="caption"
+          numberOfLines={1}
+          style={{ color: toneSet.on, fontSize: DOOR_LABEL, lineHeight: DOOR_LABEL + 3, fontWeight: '700' }}
+        >
+          {tab.label}
+        </Text>
+      </Animated.View>
+    </Pressable>
+  );
 }
 
 function TabButton({
   tab,
+  index,
+  count,
+  placement,
   active,
   onPress,
-  gap,
-  /**
-   * Wear the active label treatment without being the selected tab.
-   *
-   * The collapsed button is never "selected" — the module is. But it is the
-   * only control left on the bar, and a tertiary-grey name under a filled
-   * brand disc reads as something switched off.
-   */
-  emphasised = false,
-  /** A collapsed bar holds a way out, not one of several destinations. */
-  role = 'tab',
+  accent,
 }: {
   tab: TabItem;
+  index: number;
+  count: number;
+  placement: Placement;
   active: boolean;
   onPress: () => void;
-  gap: number;
-  emphasised?: boolean;
-  role?: 'tab' | 'button';
+  accent: TabAccent;
 }) {
-  const { colors, mode } = useTheme();
+  const { colors } = useTheme();
   const reduceMotion = useReduceMotion();
   const scale = useSharedValue(1);
-
-  const progress = useDerivedValue(
-    () =>
-      withTiming(active || emphasised ? 1 : 0, {
-        duration: reduceMotion ? 100 : 160,
-        easing: easing.standard,
-      }),
-    [active, emphasised, reduceMotion],
-  );
+  const { at, engaged } = placement;
 
   const handlePress = () => {
-    // The dip lands where the finger did. It is a press acknowledgement, not
-    // an entrance, so it never runs on the tab that is already active.
+    // A press acknowledgement, not an entrance, so it never runs on the tab
+    // that is already active.
     if (!reduceMotion && !active) {
       scale.value = withSequence(
         withTiming(0.92, { duration: 120, easing: easing.settle }),
@@ -549,113 +1204,43 @@ function TabButton({
     onPress();
   };
 
-  const iconStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-  const restLabelStyle = useAnimatedStyle(() => ({ opacity: 1 - progress.value }));
-  const activeLabelStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
+  /* The chip and the resting face crossfade on the tab's focus, so the name
+     turns into a chip exactly as the bubble arrives under it. */
+  const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const restStyle = useAnimatedStyle(() => ({ opacity: 1 - focusOf(index, at.value, engaged.value, count) }));
+  const activeStyle = useAnimatedStyle(() => ({ opacity: focusOf(index, at.value, engaged.value, count) }));
 
-  const badgeLabel = tab.badge ? (tab.badge > 9 ? '9+' : String(tab.badge)) : undefined;
-  const accessibilityLabel =
-    role === 'button'
-      ? // The label alone would announce "Explore" on a screen that is not
-        // Explore. Said in full, it is the one thing this control does.
-        `Back to ${tab.label}`
-      : badgeLabel
-        ? `${tab.label}, ${tab.badge} new`
-        : tab.dot
-          ? `${tab.label}, updated`
-          : tab.label;
-
-  /* The raised disc is a solid fill, so its glyph takes the `on` ink of its
-     tone — never white by assumption; both flip between modes. The active
-     label follows the same tone so the door and its name agree. */
-  const discBg = tab.tone === 'caution' ? colors.warning.base : colors.brand;
-  const discInk = tab.tone === 'caution' ? colors.warning.on : colors.onBrand;
-  const activeInk = tab.tone === 'caution' ? colors.warning.ink : colors.brandInk;
+  const accessibilityLabel = tab.badge
+    ? `${tab.label}, ${tab.badge} new`
+    : tab.dot
+      ? `${tab.label}, updated`
+      : tab.label;
 
   return (
     <Pressable
       onPress={handlePress}
-      accessibilityRole={role}
-      accessibilityState={role === 'tab' ? { selected: active } : undefined}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
       accessibilityLabel={accessibilityLabel}
-      style={[
-        styles.tab,
-        { gap },
-      ]}
+      style={styles.tab}
     >
-      <Animated.View
-        style={[
-          iconStyle,
-          tab.raised
-            ? [styles.raisedDisc, { backgroundColor: discBg, borderColor: colors.surface }, elevation.float]
-            : null,
-        ]}
-      >
-        {/*
-          The active glyph gains a WASH, not a solid fill.
-
-          Tint alone was carrying the selected state on the icon, and at 24pt a
-          teal outline against a grey one is a difference you have to look for
-          — on a bar read at a glance, mid-scroll, with a thumb over half of
-          it. A wash of the active ink behind the stroke gives the glyph body
-          at a glance without the failure a solid fill has here: `calendar` is
-          a rectangle with its date rules drawn INSIDE it, so filling it solid
-          in the stroke colour swallows them and leaves a blob with two nubs.
-          At a fifth alpha every line survives and the shape still reads
-          heavier than its neighbours.
-
-          Only lucide glyphs take it; the custom ones (`food`, `mess`) draw
-          their own `fill: none` and ignore it — see `Icon`. The raised disc is
-          already a solid fill and stays outlined, or the glyph would disappear
-          into its own disc.
-        */}
-        <Icon
-          name={tab.icon}
-          size={24}
-          color={tab.raised ? discInk : active ? activeInk : colors.textSecondary}
-          fill={!tab.raised && active ? withAlpha(activeInk, 0.2) : undefined}
-        />
-        {badgeLabel ? (
-          <View style={[styles.badge, { backgroundColor: colors.danger.base, borderColor: colors.surface }]}>
-            {/* The one deliberate override left. A badge sits inside a 16pt
-                disc on a 24pt icon, so it cannot take the 11pt floor — and it
-                is exempt from it for the reason the accessibility pass allows:
-                the same count is stated in words on the Alerts row in Profile,
-                so nothing is only available here. */}
-            <Text variant="numMeta" style={{ color: colors.danger.on, fontSize: 10, lineHeight: 12 }}>
-              {badgeLabel}
-            </Text>
-          </View>
-        ) : tab.dot ? (
-          <View style={[styles.dot, { backgroundColor: colors.danger.base, borderColor: colors.surface }]} />
-        ) : null}
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, pressStyle]}>
+        <Animated.View style={[styles.restFace, restStyle]}>
+          <Marked tab={tab}>
+            <TabGlyphIcon tab={tab} solid={false} size={REST_ICON} color={BAR_COLORS.restGlyph} />
+          </Marked>
+          <Text
+            variant="caption"
+            numberOfLines={1}
+            style={{ color: BAR_COLORS.restLabel, fontSize: REST_LABEL, lineHeight: REST_LABEL + 3, fontWeight: '500' }}
+          >
+            {tab.label}
+          </Text>
+        </Animated.View>
+        <Animated.View style={[styles.activeFace, activeStyle]}>
+          <ActiveFace tab={tab} ink={accentOf(colors, accent).ink} />
+        </Animated.View>
       </Animated.View>
-
-      {/* Two overlaid label nodes with opposing opacity. fontWeight cannot be
-          interpolated in React Native — it snaps between discrete weights, so
-          a single animated node pops in the middle of the crossfade.
-
-          The WIDER copy defines the layout box, and here that is the 600 one
-          despite being the smaller point size: `label` is UPPERCASE with 1.1pt
-          of tracking, so "BOOKINGS" at 11pt runs about 65pt against roughly
-          46pt for "Bookings" at 11.5pt. Comparing point sizes alone gets this
-          backwards — uppercasing and tracking are part of the width. */}
-      <View>
-        <Animated.View style={activeLabelStyle}>
-          <Text variant="label" style={{ color: activeInk, letterSpacing: 0, fontSize: 11, fontWeight: '700' }}>
-            {tab.label}
-          </Text>
-        </Animated.View>
-        {/* Secondary rather than tertiary, matching the resting glyph above
-            it. Tertiary is the app's "this is switched off" ink, and an
-            unselected tab is not disabled — it is the next place you might
-            go, and it has to be readable enough to choose. */}
-        <Animated.View style={[StyleSheet.absoluteFill, styles.restLabel, restLabelStyle]}>
-          <Text variant="caption" color="secondary" style={{ fontSize: 11, fontWeight: '500' }}>
-            {tab.label}
-          </Text>
-        </Animated.View>
-      </View>
     </Pressable>
   );
 }
@@ -667,79 +1252,120 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bar: {
+  /* The bar and the door, side by side. */
+  dock: {
     width: '100%',
-    maxWidth: 420,
-    borderRadius: 36,
-    paddingVertical: 5,
-    paddingHorizontal: 8,
+    maxWidth: 420 + DOOR_GAP + DOOR_SIZE,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: DOOR_GAP,
+  },
+  bar: {
+    flex: 1,
+    height: BAR_HEIGHT,
+    borderRadius: BAR_HEIGHT / 2,
+    paddingVertical: BAR_PAD_Y,
+    paddingHorizontal: BAR_PAD_X,
     borderWidth: 1,
     position: 'relative',
   },
   floatingBar: {
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 18,
-    elevation: 12,
-  },
-  /* One set of tabs. Two of these exist during a swap, stacked. */
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-  },
-  /*
-     A row stacked over the live one — the leaving tabs, and the disc.
-
-     Pinned to the top of the bar's content box rather than stretched with
-     `absoluteFill`: that would give it the bar's full height INCLUDING the
-     safe-area padding, and its cells — `flex: 1` in a row, so stretched on the
-     cross axis — would sit taller and lower than the ones they line up with.
-     Every layer has to be pixel-aligned or the swap reads as a jump.
-  */
-  overlayRow: {
-    position: 'absolute',
-    left: 8,
-    right: 8,
-    top: 5,
-    bottom: 5,
-    flexDirection: 'row',
-    alignItems: 'center',
+    shadowColor: '#0B1A13',
+    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 20,
+    elevation: 14,
   },
   /* The whole bar, minus the bar: no fill and no edge, so what is left is the
      page showing through and one button standing on it. */
   barCollapsed: { backgroundColor: 'transparent', borderWidth: 0 },
+  /* One set of tabs. Its cells are absolute, so it holds the height itself. */
+  row: {
+    height: TAB_HEIGHT,
+  },
+  /* The outgoing set, laid exactly over the live row. */
+  overlayRow: {
+    position: 'absolute',
+    left: BAR_PAD_X,
+    right: BAR_PAD_X,
+    top: BAR_PAD_Y,
+    height: TAB_HEIGHT,
+  },
+  /* Wide enough that no chip is ever squeezed while it is measured. */
+  ruler: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 1000,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    opacity: 0,
+  },
+  cell: {
+    position: 'absolute',
+    top: 0,
+    height: TAB_HEIGHT,
+  },
   tab: {
     flex: 1,
-    minHeight: 52,
-    paddingVertical: 4,
+  },
+  restFace: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 22,
+    gap: REST_GAP,
   },
-  activeTabPill: {
-    borderRadius: 22,
-    paddingVertical: 4,
-    marginHorizontal: 2,
-  },
-  /*
-     The cell a tab sits in, and the thing that gets translated.
-
-     It holds the column and NOTHING else — no `alignItems: 'center'`. Centring
-     here would size the button to its own text instead of stretching it across
-     the cell, quietly shrinking a 97pt touch target to the width of the word
-     "Bookings". The button already centres its own contents.
-  */
-  cell: { flex: 1, minHeight: 52, justifyContent: 'center' },
-  /* 46pt disc lifted `RAISED_LIFT` above the bar, ringed in `surface` so it
-     reads as punched through the edge rather than pasted on top of it. */
-  raisedDisc: {
-    width: 44,
-    height: 44,
-    borderRadius: 999,
-    borderWidth: 2.5,
-    marginTop: -16,
+  activeFace: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: ACTIVE_PAD_X + BUBBLE_GAP,
+  },
+  activeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: ACTIVE_GAP,
+    flexShrink: 1,
+  },
+  bubble: {
+    position: 'absolute',
+    left: 0,
+    top: BAR_PAD_Y,
+    height: TAB_HEIGHT,
+    borderRadius: BUBBLE_RADIUS,
+  },
+  patch: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: BUBBLE_GAP,
+    right: BUBBLE_GAP,
+    borderRadius: BUBBLE_RADIUS,
+  },
+  /* The door's touch area: the button plus room for its press dip. */
+  doorPress: { width: DOOR_SIZE, height: DOOR_SIZE, alignItems: 'center', justifyContent: 'center' },
+  /* Shadowed in its own colour, so it glows rather than sinks. */
+  door: {
+    width: DOOR_SIZE,
+    height: DOOR_SIZE,
+    borderRadius: DOOR_RADIUS,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 14,
+    elevation: 10,
+  },
+  /* The scooter's moving parts — see `ScooterGlyph`. */
+  wheel: { position: 'absolute' },
+  streak: { position: 'absolute', borderRadius: 999 },
+  /* The glow: the same shape, behind the door, scaled out and faded. */
+  doorRing: {
+    position: 'absolute',
+    width: DOOR_SIZE,
+    height: DOOR_SIZE,
+    borderRadius: DOOR_RADIUS,
   },
   badge: {
     position: 'absolute',
@@ -762,5 +1388,4 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1.5,
   },
-  restLabel: { alignItems: 'center', justifyContent: 'center' },
 });

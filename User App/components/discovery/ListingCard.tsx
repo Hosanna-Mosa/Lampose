@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import {
   Image,
   Pressable,
@@ -329,25 +329,6 @@ function CardBody({
       ? '/month'
       : '/bed/month';
 
-  // Real data-driven scarcity: only show urgency if real inventory records <= 3 beds
-  const scarceBedCount = useMemo(() => {
-    if (listing.availability.kind === 'BEDS' || listing.availability.kind === 'TONIGHT') {
-      if (listing.availability.count > 0 && listing.availability.count <= 3) {
-        return listing.availability.count;
-      }
-    }
-    const optionsWithBeds = listing.sharingOptions?.filter(
-      (opt) => typeof opt.availableBeds === 'number',
-    );
-    if (optionsWithBeds && optionsWithBeds.length > 0) {
-      const total = optionsWithBeds.reduce((sum, opt) => sum + (opt.availableBeds ?? 0), 0);
-      if (total > 0 && total <= 3) {
-        return total;
-      }
-    }
-    return null;
-  }, [listing.availability, listing.sharingOptions]);
-
   return (
     <Pressable
       onPress={onPress}
@@ -363,7 +344,9 @@ function CardBody({
 
         {hasRating ? (
           <View style={styles.ratingStarsRow}>
-            <Icon name="star" size={14} color="#F59E0B" fill="#F59E0B" />
+            {/* The logo's yellow, outlined in its ochre ink so it reads on
+                white — every rating star in the app, stays and food alike. */}
+            <Icon name="star" size={14} color={colors.deal.ink} fill={colors.deal.base} />
             <Text style={[styles.ratingNumber, { color: colors.textPrimary }]}>
               {(listing.averageRating as number).toFixed(1)}
             </Text>
@@ -395,7 +378,8 @@ function CardBody({
         ) : null}
       </View>
 
-      {/* Row 3: Price & Limited Beds Urgency Badge (Only shown if genuinely scarce) */}
+      {/* Row 3: the price — and "Unavailable" when nothing is free. The card
+          carries no bed count: "Only N beds left" is not shown on cards. */}
       <View style={styles.priceUrgencyRow}>
         <View style={styles.priceGroup}>
           <Text style={[styles.priceNumber, { color: mode === 'dark' ? '#34D399' : '#0B473A' }]}>
@@ -418,13 +402,6 @@ function CardBody({
             <Icon name="alert" size={14} color={colors.warning.ink} />
             <Text style={[styles.urgencyText, { color: colors.warning.ink }]}>
               Unavailable · No beds free
-            </Text>
-          </View>
-        ) : scarceBedCount !== null ? (
-          <View style={styles.urgencyBadge}>
-            <Icon name="flame" size={14} color="#DC2626" fill="#DC2626" />
-            <Text style={styles.urgencyText}>
-              {scarceBedCount === 1 ? 'Only 1 bed left' : `Only ${scarceBedCount} beds left`}
             </Text>
           </View>
         ) : null}
@@ -765,15 +742,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#64748B',
     fontWeight: '500',
-  },
-  urgencyBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FEE2E2',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 4,
   },
   unavailableBadge: {
     flexDirection: 'row',

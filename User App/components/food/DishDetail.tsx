@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { PhotoGallery } from '@/components/discovery/PhotoGallery';
 import { BottomSheet, Checkbox, Icon, Radio, Text } from '@/components/ui';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 import { isPortionOption } from '@/services/adapters/food.adapter';
+import { useDish } from '@/services/hooks/useFood';
 import type { Dish, Kitchen, SpiceLevel } from '@/types/food';
 import { SPICE_LABEL } from '@/types/food';
 import { formatRupees } from '@/utils/money';
@@ -72,6 +74,71 @@ export function useDishChoices(dish: Dish, kitchen: Kitchen, open: boolean) {
 
 type Choices = ReturnType<typeof useDishChoices>;
 
+const PHOTO_HEIGHT = 160;
+
+/**
+ * The dish's photos — the kitchen's own, never a stand-in.
+ *
+ * One photo is drawn as it always was. When the kitchen has added more, they
+ * swipe, with a counter, and a tap opens them full screen. A menu row carries
+ * only the main photo, so the rest are read from the dish's own response — the
+ * same cache entry the dish page uses, so a dish already opened costs nothing.
+ */
+function DishPhotos({ dish }: { dish: Dish }) {
+  const { colors, space, radius } = useTheme();
+  const more = useDish(dish.photos ? null : dish.id);
+  const photos = dish.photos ?? more.data?.dish.photos ?? [];
+  const [width, setWidth] = useState(0);
+  const [page, setPage] = useState(0);
+  const [openAt, setOpenAt] = useState<number | null>(null);
+
+  if (photos.length < 2) {
+    return <FoodPhoto height={PHOTO_HEIGHT} radius={radius.card} uri={dish.photo} label="photo coming from the kitchen" />;
+  }
+
+  return (
+    <View
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+      style={{ height: PHOTO_HEIGHT, borderRadius: radius.card, overflow: 'hidden' }}
+    >
+      {width > 0 ? (
+        <ScrollView
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={(event) => setPage(Math.round(event.nativeEvent.contentOffset.x / width))}
+        >
+          {photos.map((uri, index) => (
+            <Pressable
+              key={uri}
+              onPress={() => setOpenAt(index)}
+              accessibilityRole="imagebutton"
+              accessibilityLabel={`${dish.name}, photo ${index + 1} of ${photos.length}. Open full screen.`}
+            >
+              <FoodPhoto uri={uri} width={width} height={PHOTO_HEIGHT} radius={0} />
+            </Pressable>
+          ))}
+        </ScrollView>
+      ) : null}
+      <View
+        pointerEvents="none"
+        style={[styles.photoCount, { backgroundColor: colors.scrim, borderRadius: radius.pill, paddingHorizontal: space[2] }]}
+      >
+        <Text variant="numMeta" style={{ color: colors.onGraphite }}>
+          {page + 1} / {photos.length}
+        </Text>
+      </View>
+      <PhotoGallery
+        visible={openAt !== null}
+        onClose={() => setOpenAt(null)}
+        groups={[{ id: 'dish', label: dish.name, count: photos.length, uris: photos }]}
+        provenance="Photos from the kitchen"
+        initialIndex={openAt ?? 0}
+      />
+    </View>
+  );
+}
+
 /** Everything above the committing bar. Meant to sit inside a scroll view. */
 export function DishDetailContent({ dish, open, choices }: { dish: Dish; open: boolean; choices: Choices }) {
   const { colors, space, radius } = useTheme();
@@ -86,7 +153,7 @@ export function DishDetailContent({ dish, open, choices }: { dish: Dish; open: b
 
   return (
     <>
-      <FoodPhoto height={160} radius={radius.card} uri={dish.photo} label="photo coming from the kitchen" />
+      <DishPhotos dish={dish} />
 
       <View style={{ gap: space[2] }}>
         <View style={styles.titleRow}>
@@ -399,7 +466,7 @@ function Review({ name, stars, when, body }: { name: string; stars: number; when
         <Text variant="title3">{name}</Text>
         <View style={styles.stars}>
           {Array.from({ length: stars }).map((_, index) => (
-            <Icon key={index} name="star" size={16} color={colors.warning.base} />
+            <Icon key={index} name="star" size={16} color={colors.deal.ink} fill={colors.deal.base} />
           ))}
         </View>
         <Text variant="numMeta" color="tertiary">
@@ -414,6 +481,7 @@ function Review({ name, stars, when, body }: { name: string; stars: number; when
 }
 
 const styles = StyleSheet.create({
+  photoCount: { position: 'absolute', right: 10, bottom: 10, paddingVertical: 2 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   group: { borderWidth: StyleSheet.hairlineWidth },

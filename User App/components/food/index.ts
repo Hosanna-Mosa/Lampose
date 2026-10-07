@@ -8,6 +8,7 @@
  */
 
 export { DietMark, FoodPhoto, RatingPill, VegOnlyToggle, type FoodPhotoProps } from './FoodMarks';
+export { FoodPhotoStrip, type FoodPhotoStripProps } from './FoodPhotoStrip';
 export { AddControl, type AddControlProps } from './AddControl';
 export { KitchenCard, type KitchenCardProps } from './KitchenCard';
 export { DishRow, DishTile, type DishRowProps } from './DishRow';
@@ -52,6 +53,14 @@ export { FoodWaitPromo } from './FoodWaitPromo';
 export { CuisineRail, type CuisineRailProps } from './CuisineRail';
 export { CuisineSheet, type CuisineSheetProps } from './CuisineSheet';
 export { RestaurantListCard, type RestaurantListCardProps } from './RestaurantListCard';
+/* Dine-in — a kitchen's floor on its page, and the diner's table bookings. */
+export { DineInCard, DineInFacilities, floorFacilities } from './DineInFloor';
+export {
+  TableBookingCard,
+  TableBookingStatusChip,
+  TableBookingsPanel,
+  tableBookingStatus,
+} from './TableBookings';
 
 export { FoodHome } from './FoodHome';
 export { FoodSearch, SUGGESTIONS } from './FoodSearch';

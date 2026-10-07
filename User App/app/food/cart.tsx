@@ -229,10 +229,12 @@ export default function CartScreen() {
           <View
             style={[
               styles.couponChip,
-              { backgroundColor: colors.warning.tint, borderRadius: radius.chip, paddingHorizontal: space[2] },
+              /* Coupons are the logo's yellow, never the caution amber that
+                 means "waiting on somebody". */
+              { backgroundColor: colors.deal.tint, borderRadius: radius.chip, paddingHorizontal: space[2] },
             ]}
           >
-            <Text variant="numMeta" style={{ color: colors.warning.ink }}>
+            <Text variant="numMeta" style={{ color: colors.deal.ink }}>
               Coupons
             </Text>
           </View>

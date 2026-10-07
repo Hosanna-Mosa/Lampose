@@ -1,7 +1,10 @@
 import React from 'react';
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
 import {
+  Accessibility,
   AirVent,
+  Armchair,
+  Baby,
   AlertTriangle,
   Archive,
   ArrowRight,
@@ -15,6 +18,9 @@ import {
   Car,
   Cctv,
   Check,
+  Cigarette,
+  CigaretteOff,
+  CircleParking,
   // Aliased: `react-native-svg` also exports a `Circle`, and the custom glyphs
   // below draw with it.
   Circle as CircleGlyph,
@@ -24,8 +30,10 @@ import {
   CupSoda,
   Droplets,
   Dumbbell,
+  Fan,
   FileText,
   Footprints,
+  HeartHandshake,
   House,
   IndianRupee,
   LampDesk,
@@ -33,6 +41,7 @@ import {
   LogOut,
   MapPin,
   Crosshair,
+  PawPrint,
   Phone,
   Refrigerator,
   RotateCcw,
@@ -42,6 +51,7 @@ import {
   SlidersHorizontal,
   SprayCan,
   Star,
+  Trees,
   Tv,
   User,
   UserCheck,
@@ -316,6 +326,21 @@ const LUCIDE_GLYPHS = {
   expired: Ban,
   rupee: IndianRupee,
   agreement: FileText,
+
+  // Batch 5 — a restaurant's dine-in floor, on the kitchen page. Only the
+  // facilities with no glyph already in the set: AC is `ac`, family seating
+  // `sharing`, valet `commute`. `parking` above is a two-wheeler stand for a
+  // PG, so a car park gets its own mark rather than a bicycle.
+  nonAc: Fan,
+  indoor: Armchair,
+  outdoor: Trees,
+  couple: HeartHandshake,
+  smokingArea: Cigarette,
+  noSmoking: CigaretteOff,
+  wheelchair: Accessibility,
+  carPark: CircleParking,
+  kids: Baby,
+  pets: PawPrint,
 
   /* The appearance toggle in the Explore header. The glyph names the mode you
      are switching TO, not the one you are in — a sun on a dark screen means

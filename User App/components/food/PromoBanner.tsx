@@ -32,6 +32,7 @@ import Animated, {
 import { Text } from '@/components/ui';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { withAlpha } from '@/utils/color';
+import { useFoodPaused } from './FoodPaused';
 
 /**
  * Where steam rises out of a slide's artwork, in fractions of the card.
@@ -342,6 +343,8 @@ export function PromoBanner({ slides, height, width: widthProp }: PromoBannerPro
   const { width: screenWidth } = useWindowDimensions();
   const width = widthProp ?? screenWidth;
   const reduceMotion = useReduceMotion();
+  /* Off screen behind a stay tab — see `FoodPaused`. */
+  const paused = useFoodPaused();
   const [index, setIndex] = useState(0);
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const scrollX = useSharedValue(0);
@@ -409,11 +412,11 @@ export function PromoBanner({ slides, height, width: widthProp }: PromoBannerPro
      somewhere new. Its completion calls `advance`, so the bar finishing IS
      the timer rather than a second one running alongside it. */
   useEffect(() => {
-    if (slides.length <= 1 || reduceMotion) return undefined;
+    if (slides.length <= 1 || reduceMotion || paused) return undefined;
     startFill();
     return () => cancelAnimation(fill);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index, slides.length, reduceMotion]);
+  }, [index, slides.length, reduceMotion, paused]);
 
   const handleScrollEnd = (event: { nativeEvent: { contentOffset: { x: number } } }) => {
     const wasDrag = dragging.current;
@@ -730,6 +733,7 @@ function Rider({
   reduceMotion: boolean;
 }) {
   const p = useSharedValue(RIDER_REST);
+  const paused = useFoodPaused();
   const w = spec.size * width;
   const h = w / spec.aspect;
 
@@ -750,7 +754,7 @@ function Rider({
   }, [spec.path]);
 
   useEffect(() => {
-    if (reduceMotion || !active) {
+    if (reduceMotion || !active || paused) {
       p.value = RIDER_REST;
       return undefined;
     }
@@ -763,7 +767,7 @@ function Rider({
       false,
     );
     return () => cancelAnimation(p);
-  }, [active, reduceMotion, spec.durationMs, p]);
+  }, [active, paused, reduceMotion, spec.durationMs, p]);
 
   const style = useAnimatedStyle(() => {
     const t = p.value;
@@ -1095,8 +1099,10 @@ function Puff({
   peak: number;
 }) {
   const t = useSharedValue(0);
+  const paused = useFoodPaused();
 
   useEffect(() => {
+    if (paused) return undefined;
     /* `Easing.out` — steam leaves the food quickly and slows as it thins,
        which is what makes the top of the column feel like it is dissipating
        rather than being switched off. */
@@ -1105,7 +1111,7 @@ function Puff({
       withRepeat(withTiming(1, { duration: PUFF_MS, easing: Easing.out(Easing.quad) }), -1, false),
     );
     return () => cancelAnimation(t);
-  }, [t, delay]);
+  }, [t, delay, paused]);
 
   const style = useAnimatedStyle(() => ({
     /* Still a taper, not a flat ramp: the puff spends most of its climb well
@@ -1159,11 +1165,13 @@ function Puff({
  */
 function Shine({ width, height, ink }: { width: number; height: number; ink: string }) {
   const sweep = useSharedValue(0);
+  const paused = useFoodPaused();
 
   useEffect(() => {
+    if (paused) return undefined;
     sweep.value = withRepeat(withTiming(1, { duration: SHINE_MS, easing: Easing.linear }), -1, false);
     return () => cancelAnimation(sweep);
-  }, [sweep]);
+  }, [sweep, paused]);
 
   const style = useAnimatedStyle(() => ({
     transform: [
@@ -1284,15 +1292,17 @@ function useDrift(
   peakScale: number,
 ) {
   const drift = useSharedValue(0);
+  const paused = useFoodPaused();
 
   useEffect(() => {
+    if (paused) return undefined;
     drift.value = withRepeat(
       withTiming(1, { duration: period, easing: Easing.inOut(Easing.sin) }),
       -1,
       true,
     );
     return () => cancelAnimation(drift);
-  }, [drift, period]);
+  }, [drift, period, paused]);
 
   return useAnimatedStyle(() => ({
     transform: [

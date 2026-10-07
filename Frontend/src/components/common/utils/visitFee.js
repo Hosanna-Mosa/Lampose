@@ -8,7 +8,7 @@
 
      visitFeeFor(listing, label)   paise for that layout, or the listing's
                                    single fee when it has no layouts
-     visitFeeLabel(listing)        "₹999", or "from ₹299" when layouts differ
+     visitFeeLabel(listing)        "₹699", or "from ₹199" when layouts differ
    ══════════════════════════════════════════════════════════════════════════ */
 
 const inr = (paise) => `₹${Math.round((Number(paise) || 0) / 100).toLocaleString('en-IN')}`;

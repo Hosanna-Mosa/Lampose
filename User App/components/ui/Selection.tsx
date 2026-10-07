@@ -10,6 +10,7 @@ import Animated, {
 import { Icon } from './Icon';
 import { Text } from './Text';
 import { easing } from '@/constants/motion';
+import type { ThemeColors } from '@/constants/tokens';
 import { usePressAnimation } from '@/hooks/usePressAnimation';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 
@@ -18,6 +19,19 @@ const FILL = { duration: 90 };
 
 /** `Checkbox size="sm"` draws at this and buys the 44pt target back with hitSlop. */
 const SM_ROW_HEIGHT = 28;
+
+/**
+ * Which colour marks a control as chosen. `brand` everywhere by default;
+ * `link` (blue) on a screen that gives green to its action and good news
+ * alone — listing detail.
+ */
+export type SelectionAccent = 'brand' | 'link';
+
+function accentColors(colors: ThemeColors, accent: SelectionAccent) {
+  return accent === 'link'
+    ? { base: colors.link.base, tint: colors.link.tint, on: colors.link.on }
+    : { base: colors.brand, tint: colors.brandTint, on: colors.onBrand };
+}
 
 /* ------------------------------------------------------------------ *
  * Checkbox
@@ -54,13 +68,16 @@ export type CheckboxProps = {
    * as the loudest thing in the block.
    */
   size?: 'md' | 'sm';
+  /** The colour of a ticked box — see `SelectionAccent`. */
+  accent?: SelectionAccent;
 };
 
 /** A 44pt row around a 22px box (18px at `sm`) — the row is the target, not the box. */
-export function Checkbox({ label, labelNode, checked, onChange, indeterminate = false, disabled = false, note, size = 'md' }: CheckboxProps) {
+export function Checkbox({ label, labelNode, checked, onChange, indeterminate = false, disabled = false, note, size = 'md', accent = 'brand' }: CheckboxProps) {
   const { colors, space, touch } = useTheme();
   const on = indeterminate || checked;
   const small = size === 'sm';
+  const tone = accentColors(colors, accent);
 
   const progress = useDerivedValue(() => withTiming(on ? 1 : 0, FILL), [on]);
 
@@ -68,10 +85,10 @@ export function Checkbox({ label, labelNode, checked, onChange, indeterminate = 
     () => ({
       backgroundColor: disabled
         ? colors.surfaceSunken
-        : interpolateColor(progress.value, [0, 1], [colors.surface, colors.brand]),
-      borderColor: disabled ? colors.border : on ? colors.brand : colors.textTertiary,
+        : interpolateColor(progress.value, [0, 1], [colors.surface, tone.base]),
+      borderColor: disabled ? colors.border : on ? tone.base : colors.textTertiary,
     }),
-    [disabled, on, colors],
+    [disabled, on, colors, tone.base],
   );
 
   return (
@@ -94,11 +111,11 @@ export function Checkbox({ label, labelNode, checked, onChange, indeterminate = 
             style={[
               styles.dash,
               small ? styles.dashSm : null,
-              { backgroundColor: disabled ? colors.textTertiary : colors.onBrand },
+              { backgroundColor: disabled ? colors.textTertiary : tone.on },
             ]}
           />
         ) : checked ? (
-          <Icon name="check" size={small ? 12 : 16} color={disabled ? colors.textTertiary : colors.onBrand} />
+          <Icon name="check" size={small ? 12 : 16} color={disabled ? colors.textTertiary : tone.on} />
         ) : null}
       </Animated.View>
       {labelNode ? (
@@ -354,6 +371,9 @@ export type SegmentedControlProps<T extends string> = {
   onChange: (value: T) => void;
   /** Announced to screen readers as the group's purpose. */
   accessibilityLabel?: string;
+  /** The active label's colour: plain ink (default), or blue where a screen
+   *  marks what is picked in blue — see `SelectionAccent`. */
+  accent?: 'neutral' | 'link';
 };
 
 /**
@@ -368,8 +388,10 @@ export function SegmentedControl<T extends string>({
   value,
   onChange,
   accessibilityLabel,
+  accent = 'neutral',
 }: SegmentedControlProps<T>) {
   const { colors, space, radius, touch } = useTheme();
+  const activeInk = accent === 'link' ? colors.link.ink : colors.textPrimary;
 
   return (
     <View
@@ -427,7 +449,7 @@ export function SegmentedControl<T extends string>({
               <Text
                 variant="bodyStrong"
                 numberOfLines={1}
-                style={{ opacity: active ? 1 : 0, color: colors.textPrimary }}
+                style={{ opacity: active ? 1 : 0, color: activeInk }}
               >
                 {option}
               </Text>
@@ -567,6 +589,8 @@ export type OptionCardProps = {
   leading?: React.ReactNode;
   /** Single choice (default) or a multi-select list. */
   role?: 'radio' | 'checkbox';
+  /** The colour of a chosen card's edge, tint and tick — see `SelectionAccent`. */
+  accent?: SelectionAccent;
   /** Overrides the composed default, which is label + description + trailing. */
   accessibilityLabel?: string;
   accessibilityHint?: string;
@@ -617,6 +641,7 @@ export function OptionCard({
   layout = 'row',
   leading,
   role = 'radio',
+  accent = 'brand',
   accessibilityLabel,
   accessibilityHint,
   style,
@@ -624,6 +649,7 @@ export function OptionCard({
 }: OptionCardProps) {
   const { colors, space, radius, touch } = useTheme();
   const reduceMotion = useReduceMotion();
+  const tone = accentColors(colors, accent);
 
   const on = selected && !unavailable;
   const progress = useDerivedValue(() => withTiming(on ? 1 : 0, TICK), [on]);
@@ -646,8 +672,8 @@ export function OptionCard({
        tint does all the work, and the tint is the signal that a colour-blind
        user does not get. */
     borderWidth: on ? 1.5 : 1,
-    borderColor: unavailable ? colors.borderSubtle : on ? colors.brand : colors.border,
-    backgroundColor: unavailable ? colors.surfaceSunken : on ? colors.brandTint : colors.surface,
+    borderColor: unavailable ? colors.borderSubtle : on ? tone.base : colors.border,
+    backgroundColor: unavailable ? colors.surfaceSunken : on ? tone.tint : colors.surface,
   };
 
   const text = (
@@ -675,7 +701,7 @@ export function OptionCard({
           /* The ring is `borderInput`, not `border`: an unanswered control needs
              3:1 against the surface it sits on, and the decorative hairline is a
              fifth of that. Same rule as an empty text field. */
-          borderColor: on ? colors.brand : colors.borderInput,
+          borderColor: on ? tone.base : colors.borderInput,
           borderWidth: on ? 0 : 1.75,
         },
       ]}
@@ -685,10 +711,10 @@ export function OptionCard({
           StyleSheet.absoluteFill,
           discStyle,
           styles.optionDisc,
-          { borderRadius: radius.pill, backgroundColor: colors.brand },
+          { borderRadius: radius.pill, backgroundColor: tone.base },
         ]}
       >
-        <Icon name="check" size={16} color={colors.onBrand} />
+        <Icon name="check" size={16} color={tone.on} />
       </Animated.View>
     </View>
   );

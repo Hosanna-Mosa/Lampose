@@ -63,6 +63,9 @@ const {
   registerFoodPartnerDevice, unregisterFoodPartnerDevice,
 } = require('../notifications/device.controller');
 const { listRestaurants, getRestaurant, getProduct } = require('./foodDiscovery.controller');
+/* Table bookings — its own module, mounted here because both of its
+   audiences (the restaurant's session and the diner's) already are. */
+const dineIn = require('../dineIn/dineIn.controller');
 const {
   uploadFoodPartnerImages, FOOD_UPLOAD_LIMITS,
 } = require('./foodUpload.controller');
@@ -294,6 +297,19 @@ router.get('/me/orders', session, listMyOrders);
 router.get('/me/orders/:orderNumber', session, getMyOrder);
 router.patch('/me/orders/:orderNumber/status', session, setOrderStatus);
 
+/* ── Dine-in: the restaurant's side ──────────────────────────────────────
+   The floor it offers, the switch that pauses bookings, days and slots it
+   closes by hand, and the requests it has fifteen minutes to answer. See
+   `modules/dineIn/`. */
+
+router.get('/me/dine-in', session, dineIn.getDineInSettings);
+router.put('/me/dine-in', session, dineIn.saveDineInSettings);
+router.patch('/me/dine-in/paused', session, dineIn.setDineInPaused);
+router.post('/me/dine-in/blocks', session, dineIn.blockDineIn);
+router.post('/me/dine-in/blocks/remove', session, dineIn.unblockDineIn);
+router.get('/me/table-bookings', session, dineIn.listRestaurantTableBookings);
+router.post('/me/table-bookings/:reference/:action', session, dineIn.actOnTableBooking);
+
 /* ── Orders: the diner's side ─────────────────────────────────────────────
    A DIFFERENT identity system — `app_customers`, not the restaurant's own
    session — which is why these sit on their own middleware and in their own
@@ -310,6 +326,20 @@ router.get('/orders/:orderNumber', customer, getCustomerOrder);
 router.patch('/orders/:orderNumber/cancel', customer, cancelMyOrder);
 /* "Delivered" — the diner says a website order has reached them. See the handler. */
 router.patch('/orders/:orderNumber/delivered', customer, confirmMyDelivery);
+
+/* ── Dine-in: the diner's side ───────────────────────────────────────────
+   Booking is behind the diner's session; a booking is only ever read or
+   cancelled by the account that made it. Rate-limited per IP because each
+   request rings a restaurant. */
+router.post(
+  '/table-bookings',
+  byIp('dine-in-book', 15 * 60 * 1000, 20),
+  ...customer,
+  dineIn.bookTable,
+);
+router.get('/table-bookings', customer, dineIn.listMyTableBookings);
+router.get('/table-bookings/:reference', customer, dineIn.getMyTableBooking);
+router.post('/table-bookings/:reference/cancel', customer, dineIn.cancelMyTableBooking);
 
 /* ── Paying for one ───────────────────────────────────────────────────────
    Both behind the diner's own session and scoped to their own order, because
@@ -354,6 +384,8 @@ router.post(
    reader and belt-and-braces is right there. */
 router.get('/restaurants', requireLamposeDb, listRestaurants);
 router.get('/restaurants/:restaurantId', requireLamposeDb, getRestaurant);
+/* The table slots a diner picks from — public, like the rest of discovery. */
+router.get('/restaurants/:restaurantId/dine-in/slots', requireLamposeDb, dineIn.getSlots);
 router.get('/products/:productId', requireLamposeDb, getProduct);
 
 module.exports = router;

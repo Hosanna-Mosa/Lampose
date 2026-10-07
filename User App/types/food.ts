@@ -120,8 +120,21 @@ export type Kitchen = {
    * it — roughly half of what onboarding collects from kitchens this size is
    * missing or unusable, so a missing photo is the normal case, not the error
    * case.
+   *
+   * The card's one picture: the cover, else the logo. `cover` and `logo` are
+   * the two on their own, for the kitchen's page, which shows both.
    */
   photo?: string;
+  /** The wide picture across the top of the kitchen's page. */
+  cover?: string;
+  /** The square mark beside the name. */
+  logo?: string;
+  /**
+   * The restaurant's own photographs — its food, its room, its counter — in
+   * the order it chose. Only on the kitchen's own page (the feed row does not
+   * carry them), and only real uploads.
+   */
+  gallery?: readonly string[];
 };
 
 export type AddOn = { id: string; label: string; price: number };
@@ -145,6 +158,12 @@ export type Dish = {
   spiceFixed?: boolean;
   /** Dish photo. Same rule as the kitchen's: the row must work without it. */
   photo?: string;
+  /**
+   * Every photo of the dish, the main one first, then the kitchen's other
+   * angles. Set only when there is more than the one — the dish's own page
+   * (`GET /products/:id`) carries the rest; a menu row never does.
+   */
+  photos?: readonly string[];
 };
 
 /* ------------------------------------------------------------------ *
@@ -436,3 +455,154 @@ export function vegModeOf(preferences: Pick<FoodPreferences, 'vegOnly' | 'vegRes
 }
 
 export const ALLERGENS = ['Peanut', 'Dairy', 'Gluten', 'Soy', 'Shellfish', 'Onion, garlic'] as const;
+
+/* ------------------------------------------------------------------ *
+ * Dine-in
+ * ------------------------------------------------------------------ */
+
+/**
+ * A restaurant's floor, as a diner is told about it.
+ *
+ * `dineIn` on a kitchen's own page — null when it takes no table bookings at
+ * all. The feed row carries only whether it is taking them right now (see
+ * `takesTableBookings`), because a card needs a yes and a filter, not a floor
+ * plan.
+ *
+ * Every fixed rule (half-hour slots, a 90-minute sitting, seven days ahead,
+ * fifteen minutes for the restaurant to answer) lives on the server. Nothing
+ * here computes a slot: the grid a diner picks from is the server's answer.
+ */
+export type DineInFloor = {
+  /** Taking bookings this minute: switched on, not paused, has tables. */
+  available: boolean;
+  /** Switched on but paused by the restaurant — show it, do not book it. */
+  paused: boolean;
+  seatingCapacity: number;
+  tableCount: number;
+  tableTypes: readonly { seats: number; count: number }[];
+  /** The largest party the app may book. Bigger ones are asked to call. */
+  maxPartySize: number;
+  acSeating: 'ac' | 'non_ac' | 'both' | null;
+  indoorSeating: boolean;
+  outdoorSeating: boolean;
+  familySeating: boolean;
+  coupleSeating: boolean;
+  smoking: 'non_smoking' | 'smoking_area' | null;
+  wheelchairAccessible: boolean;
+  parkingAvailable: boolean;
+  valetParking: boolean;
+  kidsFriendly: boolean;
+  petFriendly: boolean;
+};
+
+/**
+ * Seven states, and the server decides which one a booking is in.
+ *
+ * `requested` whose answer window has closed already arrives as `expired`
+ * — the server reads it that way before any sweep has run — so this app never
+ * compares `respondBy` with the clock to decide a status, only to draw the
+ * countdown.
+ */
+export type TableBookingStatus =
+  | 'requested'
+  | 'confirmed'
+  | 'declined'
+  | 'expired'
+  | 'cancelled'
+  | 'arrived'
+  | 'no_show';
+
+export type SeatingPreference = 'ac' | 'non_ac';
+export type AreaPreference = 'indoor' | 'outdoor';
+
+export type TableBooking = {
+  /** "TB-7KQ2MZ" — read down a phone line to the restaurant. */
+  reference: string;
+  restaurantId: string;
+  restaurantName: string;
+  restaurantPhone: string;
+  restaurantAddress: string;
+  partySize: number;
+  /** The table the party was given — a couple may sit at a four. */
+  tableSeats: number | null;
+  /** "A3" — null on a booking made before tables had numbers. */
+  tableNumber: string | null;
+  /** The diner picked this table, rather than taking any free one. */
+  tableChosen: boolean;
+  /** India's calendar date, `YYYY-MM-DD`, and wall-clock `HH:MM`. */
+  date: string;
+  time: string;
+  /** "Today", "Tomorrow", "Thu 8 Oct" and "7:30 pm" — the server's words. */
+  dayLabel: string;
+  timeLabel: string;
+  startsAt: string;
+  endsAt: string;
+  guestName: string;
+  guestPhone: string;
+  forSomeoneElse: boolean;
+  /** A wish the restaurant may not be able to meet — never a promise. */
+  preference: { seating: SeatingPreference | null; area: AreaPreference | null };
+  note: string;
+  status: TableBookingStatus;
+  /** When the restaurant's fifteen minutes to answer run out. */
+  respondBy: string;
+  /** The restaurant's words on a decline, or whoever cancelled. */
+  reason: string;
+  cancelledBy: 'customer' | 'restaurant' | 'system' | null;
+  createdAt: string;
+  /** The server's answer to "may I still cancel" — never worked out here. */
+  canCancel: boolean;
+};
+
+export type TableSlot = { time: string; label: string; available: boolean };
+
+/**
+ * A table the party may pick at one time: one that seats it with at most two
+ * seats to spare, and whether it is free for the whole sitting.
+ */
+export type TableOption = { number: string; seats: number; available: boolean };
+
+/**
+ * Why a day has nothing to book. `FULL` is the one case with slots in it —
+ * every one of them taken.
+ */
+export type TableSlotsReason =
+  | 'NOT_OFFERED'
+  | 'PAUSED'
+  | 'OUT_OF_RANGE'
+  | 'BAD_PARTY'
+  | 'PARTY_TOO_LARGE'
+  | 'CLOSED_THAT_DAY'
+  | 'NO_SLOTS'
+  | 'FULL';
+
+/** One day's grid for one party size, with the floor and the dates beside it. */
+export type TableSlots = {
+  restaurantId: string;
+  restaurantName: string;
+  contactNumber: string;
+  dineIn: DineInFloor | null;
+  dates: readonly { date: string; label: string }[];
+  date: string;
+  guests: number;
+  slots: readonly TableSlot[];
+  reason: TableSlotsReason | null;
+  /** The time `tables` is for — set only when one was asked about. */
+  time: string | null;
+  tables: readonly TableOption[];
+};
+
+export const SEATING_LABEL: Record<SeatingPreference, string> = { ac: 'AC', non_ac: 'Non-AC' };
+export const AREA_LABEL: Record<AreaPreference, string> = { indoor: 'Indoor', outdoor: 'Outdoor' };
+
+/**
+ * Still to happen: asked for or confirmed, and the sitting not over.
+ *
+ * `arrived` is not upcoming — the party is at the table, and the booking has
+ * done its job.
+ */
+export function isUpcomingTableBooking(booking: TableBooking, now: number = Date.now()): boolean {
+  if (booking.status !== 'requested' && booking.status !== 'confirmed') return false;
+  const ends = new Date(booking.endsAt).getTime();
+  return !Number.isFinite(ends) || ends > now;
+}

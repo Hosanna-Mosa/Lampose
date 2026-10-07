@@ -1,17 +1,20 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { metaLine, walkLabel } from '@/services/adapters/food.adapter';
+import { dineInOf, metaLine, walkLabel } from '@/services/adapters/food.adapter';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Animated, Pressable, RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { Icon, SearchField, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
 import {
   DietMark,
+  DineInCard,
   DockedCartBar,
   FoodEmptyState,
   FoodMenuSkeleton,
   FoodNotice,
+  FoodPhoto,
+  FoodPhotoStrip,
   RatingPill,
   DishRow,
 } from '@/components/food';
@@ -28,9 +31,11 @@ import { useKitchen } from '@/services/hooks/useFood';
 /**
  * A kitchen, with its menu.
  *
- * There is no photo hero. The screen opens on the kitchen's own name, its
- * distance and how long it takes — not on a slow-loading picture of a
- * counter.
+ * The kitchen's own photographs, and only those: its cover across the top,
+ * its logo beside the name, and its restaurant photos in a row under the
+ * identity block. Each is drawn over the photo well, so a slow or missing one
+ * never moves the page, and a kitchen without one simply has none — there is
+ * no stand-in picture. The name, distance and time stay the first words read.
  *
  * The kitchen is named ONCE, in the identity block, and the header bar
  * carries no title: it used to hold the name as well, which printed it twice
@@ -183,6 +188,25 @@ export default function KitchenScreen() {
       : null;
 
   const open = kitchen ? kitchenOpen(kitchen) : false;
+
+  /*
+   * The dine-in floor travels on the kitchen's OWN response, not the feed
+   * row. A listed kitchen whose menu the catalogue has not fanned out to yet
+   * has not said either way, so it is read by id — the same cache entry the
+   * catalogue would fill, so a kitchen already read costs nothing.
+   */
+  const knownFloor = kitchen ? dineInOf(kitchen) : undefined;
+  const floorRead = useKitchen(kitchen && knownFloor === undefined ? id : null);
+  const floor = knownFloor !== undefined
+    ? knownFloor
+    : floorRead.data
+      ? dineInOf(floorRead.data.kitchen)
+      : undefined;
+  /* The restaurant's photos ride on the same response as the floor: a kitchen
+     whose own page has been read carries them, and one that has not is read
+     above. */
+  const gallery = (knownFloor !== undefined ? kitchen?.gallery : floorRead.data?.kitchen.gallery) ?? [];
+  const { width: screenWidth } = useWindowDimensions();
 
   /* `menuFor` is rebuilt whenever dishes arrive, so it belongs in here beside
      the kitchen: without it this menu is whatever had loaded on the render the
@@ -345,7 +369,20 @@ export default function KitchenScreen() {
             what the header bar says because the bar's copy is one line that
             truncates — this is where the kitchen is actually named. */}
         <View style={{ paddingHorizontal: layout.gutter, gap: space[3], paddingTop: space[2] }}>
+          {/* The kitchen's cover, as uploaded. Dimmed while it is closed, as
+              on its card in the feed. */}
+          {kitchen.cover ? (
+            <FoodPhoto
+              uri={kitchen.cover}
+              height={Math.round((screenWidth - layout.gutter * 2) / 2.4)}
+              radius={radius.card}
+              muted={!open}
+            />
+          ) : null}
           <View style={styles.identityRow}>
+            {kitchen.logo ? (
+              <FoodPhoto uri={kitchen.logo} width={52} height={52} radius={radius.button} />
+            ) : null}
             <Text variant="display1" numberOfLines={2} style={{ flex: 1 }}>
               {kitchen.name}
             </Text>
@@ -404,7 +441,19 @@ export default function KitchenScreen() {
               body="Read the menu now — ordering opens the moment the kitchen does."
             />
           ) : null}
+
+          {/* Dine-in, when this kitchen takes table bookings at all. Booking
+              does not wait on the kitchen being open now — a table is for
+              later — so it sits beside the closed notice, not behind it. */}
+          {floor ? <DineInCard floor={floor} onBook={() => router.push(foodHref.bookTable(kitchen.id))} /> : null}
         </View>
+
+        <FoodPhotoStrip
+          title="Photos"
+          uris={gallery}
+          gutter={layout.gutter}
+          provenance={`Photos from ${kitchen.name}`}
+        />
 
         {/* The search field and the section chips, in the flow of the page.
             Once they scroll out of sight the overlay copy below takes over —

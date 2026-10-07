@@ -701,7 +701,7 @@ export default function ListingDetail() {
               {listing.name}
             </Text>
             <View style={[styles.row, { gap: 6, alignItems: 'center' }]}>
-              <Icon name="mapPin" size={16} color={colors.brand} />
+              <Icon name="mapPin" size={16} color={colors.textSecondary} />
               <Text variant="body" color="secondary" style={{ fontWeight: '500' }}>
                 {listing.locality}
                 {listing.localityNote ? ` · ${listing.localityNote}` : ''}
@@ -723,13 +723,27 @@ export default function ListingDetail() {
             `onLayout`) rather than guessed, because the block above it
             changes height with the rent's digit count and whether the
             locality note wraps.
+
+            Colour by job, the way a marketplace product page does it: this
+            screen gives each colour ONE meaning rather than painting every
+            accent green.
+
+              green   the brand's action (Request a bed) and good news —
+                      available, cheaper, mess on site, pay at visit
+              blue    links, and whatever the student has picked
+              yellow  the logo's O — a badge that sells (Zero Brokerage)
+              red     a saved heart; unavailable
+              black   the price, headings and icons
+
+            So the offer card is a pale blue panel with the rent in plain ink
+            and the one yellow badge on it.
           */}
           <View
             style={[
               styles.priceStudioCard,
               {
-                backgroundColor: isDark ? 'rgba(15, 118, 110, 0.18)' : '#F0FDF4',
-                borderColor: colors.brand,
+                backgroundColor: colors.link.tint,
+                borderColor: colors.link.border,
               },
             ]}
           >
@@ -750,7 +764,7 @@ export default function ListingDetail() {
                     `groupIndian`). */}
                 <Text
                   variant="priceHero"
-                  style={{ color: colors.brand, fontSize: 28, lineHeight: 34, marginTop: 2 }}
+                  style={{ color: colors.textPrimary, fontSize: 28, lineHeight: 34, marginTop: 2 }}
                 >
                   {/* Words, not "₹—", when there is no figure — and no unit
                       after a price that is not there. */}
@@ -771,9 +785,14 @@ export default function ListingDetail() {
                   brokerage, but a student reading "zero" and then being asked
                   for ₹199 feels misled. Said only where nothing is charged. */}
               {listing.visitToken?.required ? null : (
-                <View style={[styles.zeroBrokeragePill, { backgroundColor: colors.brand }]}>
-                  <Icon name="check" size={12} color="#FFFFFF" />
-                  <Text variant="caption" style={{ color: '#FFFFFF', fontWeight: '700', marginLeft: 4 }}>
+                <View
+                  style={[
+                    styles.zeroBrokeragePill,
+                    { backgroundColor: colors.deal.base, borderColor: colors.deal.base },
+                  ]}
+                >
+                  <Icon name="check" size={12} color={colors.deal.on} />
+                  <Text variant="caption" style={{ color: colors.deal.on, fontWeight: '700', marginLeft: 4 }}>
                     Zero Brokerage
                   </Text>
                 </View>
@@ -793,7 +812,7 @@ export default function ListingDetail() {
 
             <View style={styles.priceStudioBottom}>
               <View style={styles.priceMetaItem}>
-                <Icon name="security" size={14} color={colors.brand} />
+                <Icon name="security" size={14} color={colors.textSecondary} />
                 <Text variant="caption" color="secondary" style={{ marginLeft: 6 }}>
                   Deposit:{' '}
                   <Text variant="caption" style={{ color: colors.textPrimary, fontWeight: '700' }}>
@@ -810,7 +829,7 @@ export default function ListingDetail() {
               style={[
                 styles.ticketNotch,
                 styles.ticketNotchLeft,
-                { top: ticketSeamY - TICKET_NOTCH_RADIUS, backgroundColor: colors.bg, borderColor: colors.brand },
+                { top: ticketSeamY - TICKET_NOTCH_RADIUS, backgroundColor: colors.bg, borderColor: colors.link.border },
               ]}
             />
             <View
@@ -818,7 +837,7 @@ export default function ListingDetail() {
               style={[
                 styles.ticketNotch,
                 styles.ticketNotchRight,
-                { top: ticketSeamY - TICKET_NOTCH_RADIUS, backgroundColor: colors.bg, borderColor: colors.brand },
+                { top: ticketSeamY - TICKET_NOTCH_RADIUS, backgroundColor: colors.bg, borderColor: colors.link.border },
               ]}
             />
           </View>
@@ -834,7 +853,7 @@ export default function ListingDetail() {
                   gap: space[2],
                 }}
               >
-                <Text variant="bodyStrong">Unavailable right now</Text>
+                <Text variant="bodyStrong" color="danger">Unavailable right now</Text>
                 <Text variant="caption" color="secondary">
                   {availabilityLabel(listing.availability)}. You cannot request a bed here at the
                   moment — check back later, as the owner may free one up.
@@ -871,8 +890,8 @@ export default function ListingDetail() {
               ]}
             >
               <View style={styles.stayConfigHeader}>
-                <View style={[styles.stayConfigIconWrap, { backgroundColor: colors.brandTint }]}>
-                  <Icon name="calendar" size={18} color={colors.brand} />
+                <View style={[styles.stayConfigIconWrap, { backgroundColor: colors.surfaceSunken }]}>
+                  <Icon name="calendar" size={18} color={colors.textPrimary} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text variant="bodyStrong" style={{ color: colors.textPrimary, fontWeight: '700' }}>
@@ -919,8 +938,8 @@ export default function ListingDetail() {
               ]}
             >
               <View style={styles.stayConfigHeader}>
-                <View style={[styles.stayConfigIconWrap, { backgroundColor: colors.brandTint }]}>
-                  <Icon name="bed" size={18} color={colors.brand} />
+                <View style={[styles.stayConfigIconWrap, { backgroundColor: colors.surfaceSunken }]}>
+                  <Icon name="bed" size={18} color={colors.textPrimary} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text variant="bodyStrong" style={{ color: colors.textPrimary, fontWeight: '700' }}>
@@ -950,7 +969,7 @@ export default function ListingDetail() {
               <SectionHeading
                 icon="home"
                 title="About this place"
-                tint={colors.surfaceRaised}
+                tint={colors.surfaceSunken}
                 ink={colors.textPrimary}
               />
               <Text
@@ -966,7 +985,7 @@ export default function ListingDetail() {
                   onPress={() => setDescriptionExpanded(!descriptionExpanded)}
                   style={styles.readMoreBtn}
                 >
-                  <Text variant="bodyStrong" style={{ color: colors.brand, fontWeight: '600' }}>
+                  <Text variant="bodyStrong" color="link" style={{ fontWeight: '600' }}>
                     {descriptionExpanded ? 'Show less ⌃' : 'Read more ⌄'}
                   </Text>
                 </Pressable>
@@ -987,11 +1006,11 @@ export default function ListingDetail() {
                 <SectionHeading
                   icon="security"
                   title="Amenities & Facilities"
-                  tint={colors.brandTint}
-                  ink={colors.brand}
+                  tint={colors.surfaceSunken}
+                  ink={colors.textPrimary}
                 />
-                <View style={[styles.amenitiesCountPill, { backgroundColor: colors.brandTint }]}>
-                  <Text variant="caption" style={{ color: colors.brand, fontWeight: '700' }}>
+                <View style={[styles.amenitiesCountPill, { backgroundColor: colors.link.tint }]}>
+                  <Text variant="caption" color="link" style={{ fontWeight: '700' }}>
                     {listing.amenities.length} {listing.amenities.length === 1 ? 'amenity' : 'amenities'}
                   </Text>
                 </View>
@@ -1000,12 +1019,13 @@ export default function ListingDetail() {
             </View>
           ) : null}
 
-          {/* Legal Consent Gate */}
+          {/* Legal Consent Gate — the checkbox's own tick says it is done; the
+              box around it no longer turns green as well. */}
           <View
             style={{
-              backgroundColor: consented ? colors.brandTint : colors.surface,
-              borderColor: consented ? colors.brand : colors.border,
-              borderWidth: consented ? 1.5 : StyleSheet.hairlineWidth,
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              borderWidth: StyleSheet.hairlineWidth,
               borderRadius: BOX_RADIUS,
               paddingHorizontal: 10,
               paddingVertical: 6,
@@ -1017,6 +1037,7 @@ export default function ListingDetail() {
               checked={consented}
               onChange={setConsented}
               size="sm"
+              accent="link"
             />
             {/* Indented past the box and its gap (16 + 6 at `size="sm"`), so
                 the links line up with the sentence they belong to. */}
@@ -1034,7 +1055,7 @@ export default function ListingDetail() {
                   accessibilityRole="link"
                   accessibilityLabel={`Read the ${doc.label}`}
                 >
-                  <Text variant="caption" color="brand" style={styles.underline}>
+                  <Text variant="caption" color="link" style={styles.underline}>
                     {doc.label}
                   </Text>
                 </Pressable>
@@ -1195,9 +1216,9 @@ export default function ListingDetail() {
  * tinted glyph and a rule in its own hue, so the eye can find "what's here"
  * without reading the words.
  *
- * The hues are the palette's own semantic families, not new colours: accent
- * for the thing being chosen, caution for meals and ratings (the warm pair),
- * ink for the owner's own words. Every text/tint pairing here is one the
+ * The headings are ink now: colour on this screen is spent by meaning (see the
+ * note on the offer card) — blue for what is chosen, the logo's yellow for
+ * meals, ratings and perks, green for the action. Every text/tint pairing here is one the
  * token file already documents a contrast ratio for — see `constants/tokens`.
  * Colour is never the only signal: the glyph and the words carry it too, which
  * is the rule the palette's own header sets out.
@@ -1309,6 +1330,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   /* The "tear line" between what it costs and what you get — dashed, like
      the perforation a real coupon splits along at its own die-cut notches. */

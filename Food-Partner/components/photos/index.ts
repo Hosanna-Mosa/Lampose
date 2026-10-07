@@ -1,0 +1,1 @@
+export { PhotosScreen } from "./PhotosScreen";

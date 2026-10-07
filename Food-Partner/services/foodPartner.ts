@@ -205,6 +205,8 @@ export type ServerRestaurant = {
   cuisineTypes?: string[];
   logoImage?: ServerImage;
   coverBannerImage?: ServerImage;
+  /** The restaurant's own photos — food, the room, the counter — in the partner's order. */
+  galleryImages?: { url?: string; publicId?: string }[];
   address?: Record<string, string>;
   /** GeoJSON — `[longitude, latitude]`. Absent until a pin is dropped. */
   location?: { type?: "Point"; coordinates?: [number, number] };

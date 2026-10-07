@@ -9,7 +9,7 @@ import { Anchor, Bold, Box, Heading, Inline, List, ListItem, PlainButton, Strong
 
    The owner has replied AVAILABLE. From here the flow is a single product:
    an assisted visit, paid in one shot, priced by the layout asked about
-   (₹299 for a 1 RK up to ₹2,499 for a 5 BHK; ₹1,999 for Commercial). The
+   (₹199 for a 1 RK up to ₹2,499 for a 5 BHK; ₹1,999 for Commercial). The
    amount is the one frozen on the request — never re-derived here — and it
    is shown as ONE total; the old "₹100 representative + ₹99 fee" split is
    retired, as are the ₹99 contact unlock and the ₹20 token before it.

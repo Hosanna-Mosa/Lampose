@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, TextInput, View, type TextInputProps, type ViewS
 
 import { Icon } from './Icon';
 import { Text } from './Text';
-import { resolveFontFamily } from '@/constants/tokens';
+import { resolveFontFamily } from '@/constants/fonts';
 import { useTypeScale } from '@/context/TypographyContext';
 import { useTheme } from '@/context/ThemeContext';
 
@@ -132,8 +132,8 @@ export function TextField({
             styles.input,
             {
               color: inert ? colors.textSecondary : colors.textPrimary,
-              /* Family AND size from the SCOPED scale — a stay field is
-                 Manrope, a food field is Source Sans. `TextInput` cannot be
+              /* Family AND size from the SCOPED scale — a stay field is the
+                 stay face, a food field is the food body face. `TextInput` cannot be
                  wrapped in <Text>, so this is the one place that reads a token
                  by hand, and the file's own history says it is the one place a
                  scale change silently misses. */

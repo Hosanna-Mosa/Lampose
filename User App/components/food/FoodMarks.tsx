@@ -124,15 +124,26 @@ export function RatingPill({
     );
   }
 
+  /* A rating wears the logo's yellow (`deal`): a pale pill, a solid star
+     outlined in the set's ochre ink so it still reads on white, and the figure
+     in that ink. It was a brand-green pill with a caution-orange star — two
+     colours that both mean something else in this app. */
   return (
     <View
       style={[
         styles.ratingPill,
-        { backgroundColor: colors.brandTint, borderRadius: radius.chip, paddingHorizontal: space[2] - 2, gap: 3 },
+        {
+          backgroundColor: colors.deal.tint,
+          borderColor: colors.deal.border,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderRadius: radius.chip,
+          paddingHorizontal: space[2] - 2,
+          gap: 3,
+        },
       ]}
     >
-      <Icon name="star" size={16} color={colors.warning.base} />
-      <Text variant="numMeta" style={{ color: colors.brandInk }}>
+      <Icon name="star" size={16} color={colors.deal.ink} fill={colors.deal.base} />
+      <Text variant="numMeta" style={{ color: colors.deal.ink }}>
         {rating.toFixed(1)}
         {showCount && count !== undefined ? ` · ${count}` : ''}
       </Text>

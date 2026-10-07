@@ -131,6 +131,7 @@ export {
   onSupportEvent,
   onStayRequestEvent,
   onBookingEvent,
+  onTableBookingEvent,
   referenceOf,
   watchTicket,
   watchOrder,
@@ -138,6 +139,7 @@ export {
   type SupportSocketEvent,
   type StayEvent,
   type FoodOrderLocationEvent,
+  type TableBookingEvent,
 } from './support.socket';
 
 export type {

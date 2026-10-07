@@ -27,7 +27,7 @@ export function visitFeePaise(listing: Listing | undefined, optionId?: string | 
   return token.amountPaise ?? null;
 }
 
-/** "₹999", or "from ₹299" when layouts differ and none is picked yet. */
+/** "₹699", or "from ₹199" when layouts differ and none is picked yet. */
 export function visitFeeLabel(listing: Listing | undefined, optionId?: string | null): string | null {
   const exact = visitFeePaise(listing, optionId);
   if (exact) return formatRupees(exact / 100);

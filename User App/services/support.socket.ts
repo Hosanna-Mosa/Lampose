@@ -74,7 +74,7 @@ export type SupportSocketEvent = {
  * void` was fine while only one shape existed; keeping it that way once a
  * second one does would make every stay-side subscription an unsound cast
  * instead of a plain function. Every PUBLIC function below (`onSupportEvent`,
- * `watchTicket`, `onStayRequestEvent`, `onBookingEvent`) is still fully typed
+ * `watchTicket`, `onStayRequestEvent`, `onBookingEvent`, `onTableBookingEvent`) is still fully typed
  * on its own payload — only the shared plumbing between them is not.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -343,6 +343,32 @@ export function onStayRequestEvent(handler: (event: StayEvent) => void): () => v
 export function onBookingEvent(handler: (event: StayEvent) => void): () => void {
   attach('booking_updated', handler);
   return () => detach('booking_updated', handler);
+}
+
+/* ------------------------------------------------------------------ *
+ * Table bookings
+ * ------------------------------------------------------------------ *
+ *
+ * The same `customer:<id>` room again. A table request gives the restaurant
+ * fifteen minutes to answer, and a diner watching that countdown should see
+ * "confirmed" the moment it is pressed rather than at the next poll. The
+ * payload is a nudge — the reference and the new status — and the hooks
+ * re-read the booking itself rather than trusting it.
+ */
+
+export type TableBookingEvent = {
+  reference?: string;
+  status?: string;
+  date?: string;
+  time?: string;
+  partySize?: number;
+  respondBy?: string;
+};
+
+/** A table booking of this diner's changed: confirmed, declined, expired, cancelled. */
+export function onTableBookingEvent(handler: (event: TableBookingEvent) => void): () => void {
+  attach('table_booking_updated', handler);
+  return () => detach('table_booking_updated', handler);
 }
 
 /* ------------------------------------------------------------------ *

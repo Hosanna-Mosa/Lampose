@@ -271,6 +271,23 @@ export function DashHome() {
         </Animated.View>
       )}
 
+      {/* No cover means diners see a plain card with the Lampose mark on it;
+          no photos means a restaurant page with nothing to look at. */}
+      {!!me && (!me.coverBannerImage?.url || !me.galleryImages?.some((image) => !!image.url)) && (
+        <Animated.View entering={fadeInUp(35)} style={styles.banner}>
+          <ListRow
+            card
+            icon="camera-outline"
+            iconColor={ui.brandInk}
+            iconBackground={ui.brandSkin}
+            label={!me.coverBannerImage?.url ? "Add a cover photo" : "Add photos of your restaurant"}
+            description="Diners choose by what they can see. Take real photos of your food and your place, or pick them from your gallery."
+            descriptionLines={3}
+            onPress={() => router.push("/photos")}
+          />
+        </Animated.View>
+      )}
+
       {/* ── Taking orders ────────────────────────────────────────────────── */}
       <Animated.View entering={fadeInUp(40)} style={styles.banner}>
         <Card bordered elevationLevel="sm" style={styles.statusCard}>
@@ -394,6 +411,16 @@ export function DashHome() {
             color={ui.info}
             background={ui.infoSkin}
             onPress={() => router.push("/support")}
+          />
+        </View>
+        <View style={[styles.row, styles.rowGap]}>
+          <ActionTile icon="images" label="Photos" onPress={() => router.push("/photos")} />
+          <ActionTile
+            icon="settings"
+            label="Dine-in setup"
+            color={ui.warning}
+            background={ui.warningSkin}
+            onPress={() => router.push("/dine-in")}
           />
         </View>
       </Animated.View>

@@ -3,10 +3,10 @@ import { useStayRequest } from '@/services';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Icon, Text, TextField } from '@/components/ui';
+import { Button, Icon, Text, TextField, useAlert } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
 import { cancellationReasons } from '@/data/bookings';
 import { useTheme } from '@/context/ThemeContext';
@@ -43,6 +43,7 @@ export default function CancelBooking() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { confirm } = useAlert();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { booking } = useBooking(id);
 
@@ -234,19 +235,20 @@ export default function CancelBooking() {
             loading={submitting}
             disabled={!canSubmit}
             /* Asked once — it cannot be undone, and the button sat right under
-               the reasons a student was still reading. */
-            onPress={() =>
-              Alert.alert(
-                'Cancel this booking?',
-                refundable
+               the reasons a student was still reading. The app's own dialog
+               rather than the OS one, so it is set in the app's face. */
+            onPress={async () => {
+              const ok = await confirm({
+                title: 'Cancel this booking?',
+                message: refundable
                   ? `This cannot be undone. Your refund of ${formatRupees(paid)} goes to the account you entered.`
                   : 'This cannot be undone.',
-                [
-                  { text: 'Keep it', style: 'cancel' },
-                  { text: 'Cancel booking', style: 'destructive', onPress: () => { void submit(); } },
-                ],
-              )
-            }
+                confirmLabel: 'Cancel booking',
+                cancelLabel: 'Keep it',
+                destructive: true,
+              });
+              if (ok) void submit();
+            }}
           />
           <View style={{ marginTop: space[2] }}>
             <Button label="Keep my booking" variant="ghost" fullWidth onPress={() => router.back()} />

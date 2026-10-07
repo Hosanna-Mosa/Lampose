@@ -41,6 +41,18 @@ export type TimeFieldProps = {
   maxHour: number;
   /** `HH:MM`. Earlier times are pulled forward to it — for today's leftovers. */
   minTime?: string | null;
+  /**
+   * `HH:MM`. Later times are pulled back to it, and when set it is the ceiling
+   * instead of `maxHour` — for a last slot on the half hour, which a whole
+   * closing hour cannot express.
+   */
+  maxTime?: string | null;
+  /**
+   * Step the iOS wheel in these minutes (a table booking uses 30). Android's
+   * clock face cannot step, so a caller that needs a step still rounds what
+   * comes back.
+   */
+  minuteInterval?: 1 | 2 | 3 | 4 | 5 | 6 | 10 | 12 | 15 | 20 | 30;
   accessibilityLabel: string;
   disabled?: boolean;
   style?: ViewStyle;
@@ -75,6 +87,8 @@ export function TimeField({
   minHour,
   maxHour,
   minTime = null,
+  maxTime = null,
+  minuteInterval,
   accessibilityLabel,
   disabled = false,
   style,
@@ -84,7 +98,7 @@ export function TimeField({
   const [draft, setDraft] = useState<Date | null>(null);
 
   const floor = Math.max(minHour * 60, minutesOf(minTime) ?? 0);
-  const ceiling = maxHour * 60;
+  const ceiling = minutesOf(maxTime) ?? maxHour * 60;
 
   /* What the clock opens on. The chosen time, or the first minute anybody
      could actually pick — never midnight, which is outside the window and
@@ -180,6 +194,7 @@ export function TimeField({
                 value={draft ?? openOn}
                 mode="time"
                 display="spinner"
+                minuteInterval={minuteInterval}
                 onChange={(unused, next) => next && setDraft(next)}
               />
               <View style={{ gap: space[2] }}>

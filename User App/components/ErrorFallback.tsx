@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { reloadAppAsync } from 'expo';
@@ -36,11 +36,6 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
     }
     return details;
   };
-
-  // A raw stack trace uses the platform monospace face rather than the design
-  // system's numeric face: this screen renders when something has already gone
-  // wrong, which may include the font load itself.
-  const monoFont = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg, padding: space[6] }]}>
@@ -158,7 +153,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
                 >
                   <Text
                     variant="caption"
-                    style={{ color: colors.textPrimary, fontFamily: monoFont }}
+                    style={{ color: colors.textPrimary }}
                     selectable
                   >
                     {formatErrorDetails()}

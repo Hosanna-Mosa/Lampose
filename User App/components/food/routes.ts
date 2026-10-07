@@ -24,6 +24,16 @@ export const foodHref = {
     pathname: '/food/order/[id]' as const,
     params: placed ? { id, placed: '1' } : { id },
   }),
+  /** Dine-in: pick a day, a time and a party size at this kitchen. */
+  bookTable: (restaurantId: string) => ({
+    pathname: '/food/book-table/[id]' as const,
+    params: { id: restaurantId },
+  }),
+  /** One table booking, by its reference — every status draws here. */
+  tableBooking: (reference: string) => ({
+    pathname: '/food/table-booking/[reference]' as const,
+    params: { reference },
+  }),
   cart: '/food/cart' as const,
   /* Replaced the slot picker. See app/food/address.tsx for why. */
   address: '/food/address' as const,

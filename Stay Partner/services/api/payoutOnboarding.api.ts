@@ -118,19 +118,3 @@ export function refreshPayoutOnboarding(signal?: AbortSignal): Promise<PayoutOnb
   return api.post<Envelope>(endpoints.payoutOnboardingRefresh, undefined, { signal })
     .then((r) => r.data);
 }
-
-/**
- * DEVELOPMENT ONLY — mark this owner payable without Razorpay.
- *
- * Until RazorpayX is configured on the server no fund account can be created,
- * and nothing downstream of this gate can be reached. The server refuses this
- * unless it allows it (`devActivateAllowed`), and the fund account id it
- * writes is deliberately fake, so a real payout against it fails loudly at
- * RazorpayX rather than looking genuine.
- *
- * Delete this and the button that calls it once Route is live.
- */
-export function devActivatePayout(signal?: AbortSignal): Promise<PayoutOnboarding> {
-  return api.post<Envelope>(endpoints.payoutOnboardingDevActivate, undefined, { signal })
-    .then((r) => r.data);
-}

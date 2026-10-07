@@ -343,7 +343,7 @@ export default function OwnerConfirmation() {
    * ── The assisted visit, on the one tap that continues ───────────────────
    *
    * Bachelor, co-live and commercial charge a visit fee once the owner
-   * confirms — priced by the layout asked about (₹299 for a 1 RK up to
+   * confirms — priced by the layout asked about (₹199 for a 1 RK up to
    * ₹2,499 for 5 BHK+) and frozen on the request, so `amountPaise` is the
    * only figure this screen shows. Rather than
    * a separate panel to find, the payment sits on the button that was

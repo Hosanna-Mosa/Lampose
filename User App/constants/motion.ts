@@ -151,6 +151,21 @@ export const component = {
    */
   tabSetSwap: { duration: 280, easing: easing.standard, scaleFrom: 0.86, reducedDuration: 160 },
   /**
+   * The glass bubble travelling from one tab to the next.
+   *
+   * Under-damped on purpose — a small settle at the far end is what makes it
+   * read as a bubble rather than a cursor. It runs on the tab INDEX (0, 1, 2…),
+   * multiplied out to points by the bar's measured width, so the rest
+   * thresholds are scaled to those units for the same reason as below.
+   */
+  tabBubble: {
+    damping: 17,
+    stiffness: 210,
+    mass: 0.8,
+    restDisplacementThreshold: 0.001,
+    restSpeedThreshold: 0.01,
+  },
+  /**
    * The bottom bar getting out of the way of a feed, and coming back.
    *
    * A SPRING rather than a duration, which is the one place in this file that

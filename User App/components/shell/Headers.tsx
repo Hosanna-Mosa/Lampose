@@ -611,7 +611,9 @@ function HeaderDisc({
     [discFrom, discTo, ringFrom, ringTo, start, end],
   );
 
-  const glyph = active ? colors.brandInk : colors.textPrimary;
+  /* A saved heart is red — the colour everyone already reads a filled heart
+     in — rather than a third use of the brand on the listing screen. */
+  const glyph = active ? colors.danger.base : colors.textPrimary;
 
   return (
     <Pressable
