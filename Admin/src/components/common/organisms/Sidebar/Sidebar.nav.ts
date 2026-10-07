@@ -136,6 +136,10 @@ export const NAV_GROUPS: NavGroup[] = [
          would be a grant to remember for a distinction nobody in operations
          makes. */
       { id: 'drivers', label: 'Delivery Riders', icon: Bike },
+      /* A rider's wallet, asked for and not yet sent — the riders' twin of
+         Restaurant Payouts, badged for the same reason. Only a Super Admin may
+         record one as paid or refuse it; the page hides those controls. */
+      { id: 'rider-withdrawals', label: 'Rider Withdrawals', icon: Wallet },
     ],
   },
   {

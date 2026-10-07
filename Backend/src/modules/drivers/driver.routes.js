@@ -72,7 +72,8 @@ const {
 } = require('./driverUpload.controller');
 const {
   getMyOffer, acceptOrder, declineOrder, getActiveOrder,
-  setOrderStatus, startUpiCollection, getCollection, getMyCash, releaseOrder, listMyOrders,
+  setOrderStatus, startUpiCollection, getCollection, getMyCash, getMyWallet, releaseOrder, listMyOrders,
+  startRepayment, getRepayment, requestWithdrawal, listMyWithdrawals,
 } = require('./driverOrder.controller');
 const { AUDIENCES } = require('../accountDeletion/accountDeletion.audiences');
 const {
@@ -215,6 +216,32 @@ router.patch(
 router.get('/me/earnings', working, getEarnings);
 /* Cash from cash-on-delivery orders not yet handed back to Lampose. */
 router.get('/me/cash', working, getMyCash);
+/* Wallet, outstanding and the ledger behind both — riderLedger.service.js. */
+router.get('/me/wallet', working, getMyWallet);
+/* Paying the outstanding by UPI — riderRepayment.service.js. A link per tap,
+   so 20 per 15 minutes is generous; the status check runs while the rider
+   is in their UPI app and coming back, like the doorstep QR poll. */
+router.post(
+  '/me/repayments',
+  ...working,
+  byDriver('driver-repayment', 15 * 60 * 1000, 20),
+  startRepayment,
+);
+router.get(
+  '/me/repayments/:repaymentId',
+  ...working,
+  byDriver('driver-repayment-poll', 60 * 1000, 60),
+  getRepayment,
+);
+/* Asking for the wallet to be paid out — riderWithdrawal.service.js. A Super
+   Admin pays it from the console. */
+router.post(
+  '/me/withdrawals',
+  ...working,
+  byDriver('driver-withdrawal', 15 * 60 * 1000, 10),
+  requestWithdrawal,
+);
+router.get('/me/withdrawals', working, listMyWithdrawals);
 
 /* ── Orders ──────────────────────────────────────────────────────────────── */
 

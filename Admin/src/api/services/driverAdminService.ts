@@ -96,6 +96,10 @@ const normalizeRow = (raw: any): DriverRow => {
 
   return {
     cashInHandPaise: num(raw?.cashInHandPaise),
+    ledgerOpened: raw?.ledgerOpened === true,
+    walletPaise: num(raw?.walletPaise),
+    outstandingPaise: num(raw?.outstandingPaise),
+    codBlocked: raw?.codBlocked === true,
     driverId: str(raw?.driverId),
     name: str(raw?.name),
     phone: str(raw?.phone),
@@ -224,6 +228,7 @@ export const driverAdminService = {
           ? payload.recentDeliveries.map((d: any) => ({ ...d, collectionMethod: str(d?.collectionMethod) }))
           : [],
         cash: normalizeCash(payload?.cash),
+        wallet: payload?.wallet && typeof payload.wallet === 'object' ? payload.wallet : null,
       },
     };
   },

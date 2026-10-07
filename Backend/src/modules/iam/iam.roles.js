@@ -73,6 +73,13 @@ const CAPABILITIES = Object.freeze({
     roles: ['Super Admin', 'Admin', 'Food Admin'],
     label: 'record cash a rider has handed over',
   },
+  /* Writing a rider's wallet or outstanding by hand, or moving the cash
+     limit. Super Admin, like every other route that changes what somebody is
+     owed — see riderLedger.service.js. */
+  'riders.ledger': {
+    roles: SUPER,
+    label: 'correct a rider’s wallet or outstanding, or change the cash limit',
+  },
 
   /* ── Queues ──────────────────────────────────────────────────────────── */
   'food.decide': { roles: ['Super Admin', 'Admin', 'Food Admin'], label: 'approve or refuse a restaurant' },

@@ -99,6 +99,13 @@ const FoodOrder = require('../foodpartners/foodOrder.model');
 const FoodRestaurant = require('../foodpartners/foodRestaurant.model');
 const Driver = require('./driver.model');
 const { findCandidatesWithinRadius, dutyCount } = require('./driverMatch.service');
+const riderLedger = require('./riderLedger.service');
+
+/* The rider will take cash at the door — cash on delivery, not yet paid.
+   Such an order skips riders at or over the cash limit (driverMatch). The
+   same test as `doorstepCollection.owesAtDoor`, which cannot be required
+   here: it requires this file. */
+const collectsCash = (order) => order.paymentMode === 'cod' && order.paymentStatus !== 'paid';
 const realtime = require('../../infrastructure/realtime/realtime');
 const notifier = require('./dispatch.notifier');
 
@@ -382,7 +389,7 @@ async function widen(orderNumber) {
   const widerRadius = currentRadius + WIDEN_STEP_METERS;
 
   const found = await findCandidatesWithinRadius({
-    pickup, radiusMeters: widerRadius, exclude: alreadyAsked,
+    pickup, radiusMeters: widerRadius, exclude: alreadyAsked, cashOrder: collectsCash(order),
   });
 
   order.dispatch.radiusMeters = widerRadius;
@@ -500,7 +507,7 @@ async function startDispatch(orderNumber, { reason = 'accepted' } = {}) {
     const radiusMeters = Math.max(radiusFromMinutes(order.promisedMinutes), order.dispatch.radiusMeters || 0);
 
     const candidates = await findCandidatesWithinRadius({
-      pickup, radiusMeters, exclude: alreadyAsked,
+      pickup, radiusMeters, exclude: alreadyAsked, cashOrder: collectsCash(order),
     });
 
     order.dispatch.attempts += 1;
@@ -654,6 +661,21 @@ async function acceptOffer(orderNumber, driver) {
       code: 'ALREADY_ON_A_JOB',
       message: `Finish ${driver.currentOrderNumber} before taking another delivery.`,
     };
+  }
+
+  /* Over the cash limit and this is a cash order: refused here too, for an
+     offer made before the rider crossed it. One extra read, and only for a
+     rider who is over. */
+  if (await riderLedger.isCodBlocked(driver.driverId).catch(() => false)) {
+    const target = await FoodOrder.findOne({ orderNumber: number })
+      .select('paymentMode paymentStatus').lean();
+    if (target && collectsCash(target)) {
+      return {
+        ok: false,
+        code: 'CASH_LIMIT',
+        message: 'You are holding too much cash to take a cash order. Pay your dues in Earnings to get cash orders again.',
+      };
+    }
   }
 
   const now = new Date();

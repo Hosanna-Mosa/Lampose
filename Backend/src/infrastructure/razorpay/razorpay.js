@@ -295,6 +295,53 @@ const createPaymentLink = async ({
   return json;
 };
 
+const linkError = async (response, fallback) => {
+  const json = await response.json().catch(() => ({}));
+  const error = new Error(json?.error?.description || `${fallback} (${response.status}).`);
+  error.code = 'RAZORPAY_LINK_FAILED';
+  error.status = response.status;
+  return error;
+};
+
+/**
+ * One payment link as Razorpay has it now — `status` (`created`, `paid`,
+ * `expired`, `cancelled`, `partially_paid`) and its `payments` list. How a
+ * missed or late `payment_link.paid` webhook is caught up.
+ */
+const fetchPaymentLink = async (linkId) => {
+  if (!isConfigured()) {
+    const error = new Error('Payments are not configured on this server.');
+    error.code = 'RAZORPAY_NOT_CONFIGURED';
+    throw error;
+  }
+  const response = await fetch(`${LINKS_URL}/${encodeURIComponent(linkId)}`, {
+    headers: { Authorization: authHeader() },
+  });
+  if (!response.ok) throw await linkError(response, 'Razorpay would not read the payment link');
+  return response.json();
+};
+
+/**
+ * Cancel a payment link so it can no longer take money. A link that is
+ * already paid, expired or cancelled is refused by Razorpay with a 400 —
+ * returned as-is rather than thrown, since "it cannot be paid now" is the
+ * outcome asked for (and a paid one is settled by the caller's own check).
+ */
+const cancelPaymentLink = async (linkId) => {
+  if (!isConfigured()) {
+    const error = new Error('Payments are not configured on this server.');
+    error.code = 'RAZORPAY_NOT_CONFIGURED';
+    throw error;
+  }
+  const response = await fetch(`${LINKS_URL}/${encodeURIComponent(linkId)}/cancel`, {
+    method: 'POST',
+    headers: { Authorization: authHeader() },
+  });
+  if (response.ok) return response.json();
+  if (response.status === 400) return { id: linkId, status: 'not_cancellable' };
+  throw await linkError(response, 'Razorpay would not cancel the payment link');
+};
+
 /* ── UPI QR codes — a rider collecting at the door ──────────────────────────
  *
  * A cash-on-delivery diner who would rather pay by UPI scans a QR on the
@@ -616,6 +663,7 @@ const verifyPayoutWebhook = ({ rawBody, signature }) => {
 
 module.exports = {
   isConfigured, createOrder, refundPayment, createPaymentLink, verifySignature, verifyWebhook,
+  fetchPaymentLink, cancelPaymentLink,
   createQrCode, closeQrCode, fetchQrPayments,
   isPayoutConfigured, createContact, createFundAccount, createPayout,
   fetchPayout, verifyPayoutWebhook,

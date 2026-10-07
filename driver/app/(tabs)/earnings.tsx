@@ -2,10 +2,12 @@ import React, { useEffect, useMemo } from "react";
 import { ScrollView, StyleSheet, Text as RNText, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { formatOnline } from "@/app/(tabs)/index";
+import { WalletPanel } from "@/components/WalletPanel";
 import { Btn, Icon, Notice, Seg, Sheet, Toast, TopBar } from "@/components/ui";
 import { PERIODS_LIST, type PeriodData } from "@/constants/lampose";
 import { useCashInHand } from "@/hooks/useCashInHand";
 import { useSheet } from "@/hooks/useSheet";
+import { useWallet } from "@/hooks/useWallet";
 import { useDriverStore } from "@/store/driverStore";
 import { useFlowStore } from "@/store/flowStore";
 import { layout, radius, space } from "@/theme";
@@ -21,6 +23,10 @@ export default function EarningsScreen() {
   const error = useDriverStore((s) => s.earningsError);
   const fetchEarnings = useDriverStore((s) => s.fetchEarnings);
   const cash = useCashInHand();
+  const { wallet, setWallet } = useWallet();
+  /* The wallet replaces the cash-in-hand notice once Lampose has switched the
+     rider ledger on; until then the old notice is still the truth. */
+  const ledgerOn = !!wallet?.opened;
 
   useEffect(() => {
     fetchEarnings().catch(() => {});
@@ -117,7 +123,9 @@ export default function EarningsScreen() {
 
         {/* Cash from cash-on-delivery orders is Lampose's money, not earnings.
             Shown apart from them, and only while there is some to hand over. */}
-        {!!cash && cash.inHandPaise > 0 && (
+        {ledgerOn && wallet && <WalletPanel wallet={wallet} onChange={setWallet} />}
+
+        {!ledgerOn && !!cash && cash.inHandPaise > 0 && (
           <Notice
             tone="warning"
             glyph="rupee"
@@ -202,9 +210,9 @@ export default function EarningsScreen() {
             <RNText style={styles.infoTitle}>Getting paid</RNText>
           </View>
           <RNText style={styles.infoBody}>
-            These are what your delivered orders have earned. Lampose pays them into the
-            account you gave when you signed up; the app itself does not move money. If a
-            payment has not arrived, or has arrived short, raise it in Help under "Payout".
+            {ledgerOn
+              ? "Orders paid online or by UPI at the door go into your wallet. On a cash order you keep your earning from the cash, and the rest is what you owe Lampose — your wallet pays it off first. Withdraw your wallet to the bank account or UPI id in Bank details. If a payment has not arrived, raise it in Help under \"Payout\"."
+              : "These are what your delivered orders have earned. Lampose pays them into the account you gave when you signed up; the app itself does not move money. If a payment has not arrived, or has arrived short, raise it in Help under \"Payout\"."}
           </RNText>
         </View>
       </ScrollView>
