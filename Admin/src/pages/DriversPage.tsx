@@ -73,6 +73,7 @@ import { DocumentTally } from '../components/drivers/molecules/DocumentTally';
 import { DutyCell } from '../components/drivers/molecules/DutyCell';
 import { DocumentPanel } from '../components/drivers/organisms/DocumentPanel';
 import { CashPanel } from '../components/drivers/organisms/CashPanel';
+import { RiderMoneyPanel } from '../components/drivers/organisms/RiderMoneyPanel';
 import { day, ago } from '../components/drivers/utils';
 import { Box } from '../components/common/atoms/Box';
 import { Inline } from '../components/common/atoms/Inline';
@@ -120,6 +121,8 @@ const VEHICLE_LABEL: Record<string, string> = {
 /** Roles the backend lets decide. Mirrored here only to hide a button that
  *  would 403 — `driverAdmin.routes.js` is the real guard. */
 const DECIDING_ROLES = new Set(['Super Admin', 'Admin', 'Food Admin']);
+/** `riders.ledger` — correcting a rider's wallet or outstanding. Super Admin. */
+const LEDGER_ROLES = new Set(['Super Admin']);
 
 const dash = (value: unknown): string => {
   if (value === null || value === undefined || value === '') return '—';
@@ -331,7 +334,9 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
                 <Th>Documents</Th>
                 <Th>Duty</Th>
                 <Th>Status</Th>
-                <Th className="text-right">Cash in hand</Th>
+                {/* Once the rider ledger is open, what they OWE (cash less the
+                    earning they kept) replaces the raw cash in hand. */}
+                <Th className="text-right">{rows.some((r) => r.ledgerOpened) ? 'Outstanding' : 'Cash in hand'}</Th>
                 <Th>Applied</Th>
                 <Th />
               </Tr>
@@ -358,14 +363,29 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
                   <Td>
                     <Badge tone={STATUS_TONE[row.status]}>{STATUS_LABEL[row.status]}</Badge>
                   </Td>
-                  <Td
-                    className={cx(
-                      'text-right tabular',
-                      row.cashInHandPaise > 0 ? 'font-medium text-warn' : 'text-ink-3'
-                    )}
-                  >
-                    {row.cashInHandPaise > 0 ? money(row.cashInHandPaise / 100) : '—'}
-                  </Td>
+                  {row.ledgerOpened ? (
+                    <Td
+                      className={cx(
+                        'text-right tabular',
+                        row.codBlocked ? 'font-semibold text-crit' : row.outstandingPaise > 0 ? 'font-medium text-warn' : 'text-ink-3'
+                      )}
+                    >
+                      {row.outstandingPaise > 0 ? money(row.outstandingPaise / 100) : '—'}
+                      {row.codBlocked && <Text className="text-label text-crit">cash paused</Text>}
+                      {row.walletPaise > 0 && (
+                        <Text className="text-label text-ink-3">wallet {money(row.walletPaise / 100)}</Text>
+                      )}
+                    </Td>
+                  ) : (
+                    <Td
+                      className={cx(
+                        'text-right tabular',
+                        row.cashInHandPaise > 0 ? 'font-medium text-warn' : 'text-ink-3'
+                      )}
+                    >
+                      {row.cashInHandPaise > 0 ? money(row.cashInHandPaise / 100) : '—'}
+                    </Td>
+                  )}
                   <Td className="text-label text-ink-3">{day(row.createdAt)}</Td>
                   <Td className="text-right">
                     <Button variant="ghost" icon={ChevronRight} onClick={() => setOpenId(row.driverId)}>
@@ -567,16 +587,30 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
               <DataRow label="UPI" value={dash(open.payout.upiId)} mono />
             </Section>
 
-            <CashPanel
-              driverId={open.driverId}
-              cash={open.cash}
-              canRecord={canDecide}
-              onRecorded={() => {
-                detail.reload();
-                queue.reload();
-              }}
-              onToast={setToast}
-            />
+            {open.wallet?.opened ? (
+              <RiderMoneyPanel
+                driverId={open.driverId}
+                wallet={open.wallet}
+                canRecord={canDecide}
+                canCorrect={LEDGER_ROLES.has(user?.role ?? '')}
+                onChanged={() => {
+                  detail.reload();
+                  queue.reload();
+                }}
+                onToast={setToast}
+              />
+            ) : (
+              <CashPanel
+                driverId={open.driverId}
+                cash={open.cash}
+                canRecord={canDecide}
+                onRecorded={() => {
+                  detail.reload();
+                  queue.reload();
+                }}
+                onToast={setToast}
+              />
+            )}
 
             <Section title="What they have carried">
               <DataRow label="Orders assigned" value={String(open.lifetime.assigned)} />

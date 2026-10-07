@@ -4,6 +4,8 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatCard } from "@/app/(tabs)/index";
 import { Btn, Icon, Text, Toast, TopBar } from "@/components/ui";
+import { useWallet } from "@/hooks/useWallet";
+import { paiseToRupees } from "@/services/wallet";
 import { useDriverStore } from "@/store/driverStore";
 import { useFlowStore } from "@/store/flowStore";
 import { colors, layout, radius, space } from "@/theme";
@@ -35,6 +37,13 @@ export default function CompleteScreen() {
   const { toast } = useFlowStore();
   const last = useDriverStore((s) => s.history[0]);
   const earnings = useDriverStore((s) => s.earnings);
+  const { wallet } = useWallet();
+  /* Where this job's money went, from the ledger row the server wrote for it.
+     Nothing is said until that row is there — and nothing at all while the
+     ledger is not switched on. */
+  const posted = wallet?.opened
+    ? wallet.entries.find((e) => e.orderNumber === last?.orderNumber && (e.kind === "earning" || e.kind === "cash_order"))
+    : undefined;
 
   const backHome = () => router.replace("/");
 
@@ -69,6 +78,19 @@ export default function CompleteScreen() {
           <Text variant="numMeta" color="secondary" style={{ marginTop: space[2] }}>
             Delivery fee for {last?.orderNumber ?? "this order"}
           </Text>
+          {posted?.kind === "earning" && (
+            <Text variant="caption" color="secondary" style={styles.whereMoney}>
+              Added to your wallet
+            </Text>
+          )}
+          {posted?.kind === "cash_order" && (
+            <Text variant="caption" color="secondary" style={styles.whereMoney}>
+              {`Earned in cash — keep it from the ${paiseToRupees(posted.collectedPaise)} you collected. `}
+              {posted.outstandingPaise > 0
+                ? `${paiseToRupees(posted.outstandingPaise)} added to what you owe Lampose.`
+                : ""}
+            </Text>
+          )}
         </View>
 
         <View style={styles.statGrid}>
@@ -126,4 +148,5 @@ const styles = StyleSheet.create({
   },
 
   statGrid: { flexDirection: "row", gap: space[2] },
+  whereMoney: { marginTop: space[2], textAlign: "center" },
 });

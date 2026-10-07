@@ -55,6 +55,8 @@
     "verify:addresses": "node scripts/verify-addresses.js",
     "verify:support": "node scripts/verify-support.js",
     "deletions:process": "node scripts/process-account-deletions.js",
+    "rider-ledger:open": "node scripts/open-rider-ledger.js",
+    "rider-ledger:adjust": "node scripts/rider-ledger-adjust.js",
     "review-accounts:ensure": "node scripts/ensure-review-accounts.js",
     "verify:access": "node scripts/verify-access.js",
     "verify:food-favourites": "node scripts/verify-food-favourites.js",

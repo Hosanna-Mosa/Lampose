@@ -41,6 +41,7 @@ const Driver = require('./driver.model');
 const DriverCashDeposit = require('./driverCashDeposit.model');
 const FoodOrder = require('../foodpartners/foodOrder.model');
 const { cashInHandFor, cashLedgerFor } = require('./cashInHand.service');
+const riderLedger = require('./riderLedger.service');
 const accountNotifier = require('./driverAccount.notifier');
 
 const {
@@ -193,11 +194,24 @@ const listDrivers = async (req, res, next) => {
 
     /* Cash each rider on this page is holding — two aggregations for the whole
        page, not one per row. */
-    const cash = await cashInHandFor(rows.map((row) => row.driverId));
-    let data = rows.map((row) => ({
-      ...queueRow(row),
-      cashInHandPaise: (cash.get(row.driverId) || { inHandPaise: 0 }).inHandPaise,
-    }));
+    const ids = rows.map((row) => row.driverId);
+    const [cash, balances, ledgerSettings] = await Promise.all([
+      cashInHandFor(ids),
+      riderLedger.balancesFor(ids),
+      riderLedger.getSettings(),
+    ]);
+    let data = rows.map((row) => {
+      const balance = balances.get(row.driverId) || { walletPaise: 0, outstandingPaise: 0 };
+      return {
+        ...queueRow(row),
+        cashInHandPaise: (cash.get(row.driverId) || { inHandPaise: 0 }).inHandPaise,
+        /* The rider ledger, once it is open — riderLedger.service.js. */
+        ledgerOpened: Boolean(ledgerSettings.startedAt),
+        walletPaise: balance.walletPaise,
+        outstandingPaise: balance.outstandingPaise,
+        codBlocked: Boolean(ledgerSettings.startedAt) && balance.outstandingPaise >= ledgerSettings.codLimitPaise,
+      };
+    });
 
     /* Filtered AFTER `queueRow`, not in the Mongo query, and only ever over
        the page already fetched. `documents` is a normalised five-row list
@@ -267,6 +281,7 @@ const getDriver = async (req, res, next) => {
       ]),
       cashLedgerFor(driver.driverId),
     ]);
+    const wallet = await riderLedger.statementFor(driver.driverId, { limit: 50 });
 
     const byStatus = tally.reduce((acc, row) => ({ ...acc, [row._id]: row }), {});
     const delivered = byStatus.delivered || { n: 0, earnings: 0 };
@@ -286,6 +301,9 @@ const getDriver = async (req, res, next) => {
         /* Cash collected at doors, what has been handed over, and the rest. */
         cash,
         cashInHandPaise: cash.inHandPaise,
+        /* Wallet, outstanding and the ledger behind them — the console shows this
+           instead of the cash panel once the ledger is open (`wallet.opened`). */
+        wallet,
         recentDeliveries: recent.map((order) => ({
           orderNumber: order.orderNumber,
           status: order.status,
@@ -558,22 +576,45 @@ const recordCashDeposit = async (req, res, next) => {
       return fail(res, 400, 'INVALID_METHOD', `"method" must be one of: ${DriverCashDeposit.DEPOSIT_METHODS.join(', ')}.`);
     }
 
-    const { inHandPaise } = (await cashInHandFor([driverId])).get(driverId);
-    if (amountPaise > inHandPaise) {
-      return fail(
-        res, 409, 'MORE_THAN_IN_HAND',
-        `${driver.name || driverId} is holding ₹${(inHandPaise / 100).toFixed(2)}. `
-        + 'A hand-over cannot be more than that.',
-      );
+    const recordedBy = req.admin?.name || req.admin?.email || 'admin';
+    const reference = String(body.reference || '').trim().slice(0, 120);
+    const note = String(body.note || '').trim().slice(0, 500);
+    const depositId = new mongoose.Types.ObjectId();
+
+    /* Once the rider ledger is open, the hand-over comes off what the rider
+       owes there, and the check is made at the write (riderLedger.post), so
+       two hand-overs entered at once cannot both pass. Before it opens, the
+       old read-then-check against cash in hand. */
+    const { startedAt } = await riderLedger.getSettings();
+    if (startedAt) {
+      try {
+        await riderLedger.recordDeposit(driverId, {
+          amountPaise, depositId: String(depositId), method, reference, note, by: recordedBy,
+        });
+      } catch (error) {
+        if (error instanceof riderLedger.LedgerRefusal) {
+          return fail(res, error.status, error.code, `${driver.name || driverId}: ${error.message}`);
+        }
+        throw error;
+      }
+    } else {
+      const { inHandPaise } = (await cashInHandFor([driverId])).get(driverId);
+      if (amountPaise > inHandPaise) {
+        return fail(
+          res, 409, 'MORE_THAN_IN_HAND',
+          `${driver.name || driverId} is holding ₹${(inHandPaise / 100).toFixed(2)}. `
+          + 'A hand-over cannot be more than that.',
+        );
+      }
     }
 
-    const recordedBy = req.admin?.name || req.admin?.email || 'admin';
     await DriverCashDeposit.create({
+      _id: depositId,
       driverId,
       amountPaise,
       method,
-      reference: String(body.reference || '').trim().slice(0, 120),
-      note: String(body.note || '').trim().slice(0, 500),
+      reference,
+      note,
       recordedBy,
     });
 

@@ -671,6 +671,11 @@ const foodOrderSchema = new mongoose.Schema(
          same way `partnerPayout` is: the rate can be renegotiated and a
          historical order must keep the one it settled at. */
       earnings: { type: Number, default: 0, min: 0 },
+      /* When this delivery was written to the rider's ledger (wallet or
+         outstanding) — see `drivers/riderLedger.service.js`. Null on a
+         delivery the ledger has not taken yet; the server's sweep looks for
+         exactly those. */
+      ledgerPostedAt: { type: Date, default: null },
       /* Metres from the rider to the restaurant when they accepted. Kept
          because it is the one number that says whether the matcher is
          actually choosing near riders. */
@@ -850,6 +855,8 @@ foodOrderSchema.index({ placedAt: -1 });
 foodOrderSchema.index({ paymentStatus: 1, paymentMode: 1, status: 1, placedAt: 1 });
 /* A rider's cash in hand is summed off this — see `drivers/cashInHand.service.js`. */
 foodOrderSchema.index({ 'collection.collectedBy': 1, 'collection.method': 1, 'collection.collectedAt': -1 });
+/* Deliveries not yet on a rider's ledger — `riderLedger.sweepUnposted`. */
+foodOrderSchema.index({ status: 1, 'delivery.ledgerPostedAt': 1, 'delivery.deliveredAt': 1 });
 
 /* "Open far too long", and the count of what is open at all. `status` alone is
    already indexed above, and this is that index plus the range the stuck filter

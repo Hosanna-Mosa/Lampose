@@ -47,6 +47,10 @@ const realtime = require('../../infrastructure/realtime/realtime');
 const notifier = require('./dispatch.notifier');
 const collection = require('./doorstepCollection.service');
 const { cashLedgerFor } = require('./cashInHand.service');
+const riderLedger = require('./riderLedger.service');
+const repayments = require('./riderRepayment.service');
+const RiderRepayment = require('./riderRepayment.model');
+const withdrawals = require('./riderWithdrawal.service');
 const config = require('../../config/env');
 
 /** Wrong guesses allowed at one hand-over code before the order locks. */
@@ -479,6 +483,11 @@ const setOrderStatus = async (req, res, next) => {
         `🛵 [dispatch] ${orderNumber} DELIVERED by ${req.driver.driverId} `
         + `· ₹${order.delivery.earnings} earned`,
       );
+      /* The rider's wallet / outstanding. Never fails the delivery — the
+         sweep in server.js posts anything this misses. */
+      await riderLedger.postDelivery(order).catch((error) => {
+        console.error(`[rider-ledger] ${orderNumber} not posted yet (the sweep will retry): ${error.message}`);
+      });
     }
 
     realtime.toOrderParties(order, 'dispatch_update', dispatch.dispatchUpdate(order));
@@ -594,6 +603,124 @@ const getMyCash = async (req, res, next) => {
   }
 };
 
+/* ── GET /me/wallet ───────────────────────────────────────────────────────*/
+
+/* Wallet (owed to the rider), outstanding (owed by the rider), whether cash
+   orders are paused at the limit, and the newest ledger rows. `?before=<seq>`
+   pages back through the history. */
+const getMyWallet = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+    const before = Number.parseInt(req.query.before, 10);
+    const limit = Number.parseInt(req.query.limit, 10) || 30;
+    const [statement, recent] = await Promise.all([
+      riderLedger.statementFor(req.driver.driverId, {
+        limit, beforeSeq: Number.isFinite(before) ? before : undefined,
+      }),
+      withdrawals.withdrawalsFor(req.driver.driverId, { limit: 5 }),
+    ]);
+    return res.json({ success: true, data: { ...statement, withdrawals: recent } });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/* ── POST /me/repayments ──────────────────────────────────────────────────
+   ── GET  /me/repayments/:repaymentId ────────────────────────────────────── */
+
+/* Paying what the rider owes, by UPI — see `riderRepayment.service.js`. The
+   POST answers a Razorpay payment link for the app to open; the GET is the
+   app's check when the rider comes back from their UPI app, and asks
+   Razorpay directly at most every RECHECK_MS per repayment. */
+const startRepayment = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+    const body = req.body || {};
+    const rupees = body.amount == null || body.amount === '' ? null : Number(body.amount);
+    if (rupees != null && !Number.isFinite(rupees)) {
+      return fail(res, 400, 'INVALID_AMOUNT', 'Enter the amount in rupees, e.g. 470 or 470.50.');
+    }
+    const data = await repayments.startRepayment(req.driver, {
+      amountPaise: rupees == null ? undefined : Math.round(rupees * 100),
+    });
+    return res.status(201).json({ success: true, data });
+  } catch (error) {
+    if (error instanceof riderLedger.LedgerRefusal) return fail(res, error.status, error.code, error.message);
+    if (error.code === 'RAZORPAY_LINK_FAILED') {
+      console.error(`[rider] repayment link for ${req.driver.driverId} failed: ${error.message}`);
+      return fail(res, 502, 'LINK_FAILED', 'We could not start the UPI payment just now. Try again in a moment.');
+    }
+    return next(error);
+  }
+};
+
+const getRepayment = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+    let row = await RiderRepayment.findOne({
+      repaymentId: String(req.params.repaymentId || '').trim().toUpperCase(),
+      driverId: req.driver.driverId,
+    }).lean();
+    if (!row) return fail(res, 404, 'NOT_FOUND', 'We could not find that payment.');
+
+    const key = `repay:${row.repaymentId}`;
+    const due = Date.now() - (lastRecheck.get(key) || 0) >= RECHECK_MS;
+    if (due && row.status !== 'paid') {
+      lastRecheck.set(key, Date.now());
+      row = await repayments.reconcileRepayment(row).catch((error) => {
+        console.error(`[rider] repayment recheck for ${row.repaymentId} failed: ${error.message}`);
+        return row;
+      });
+    }
+    if (row.status === 'paid') lastRecheck.delete(key);
+
+    return res.json({
+      success: true,
+      data: {
+        repayment: repayments.repaymentView(row),
+        wallet: await riderLedger.statementFor(req.driver.driverId, { limit: 10 }),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/* ── POST /me/withdrawals ─────────────────────────────────────────────────
+   ── GET  /me/withdrawals ────────────────────────────────────────────────── */
+
+/* Asking for the wallet to be paid out — see `riderWithdrawal.service.js`.
+   The whole wallet by default, or `amount` rupees. */
+const requestWithdrawal = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+    const body = req.body || {};
+    const rupees = body.amount == null || body.amount === '' ? null : Number(body.amount);
+    if (rupees != null && !Number.isFinite(rupees)) {
+      return fail(res, 400, 'INVALID_AMOUNT', 'Enter the amount in rupees, e.g. 500.');
+    }
+    const withdrawal = await withdrawals.requestWithdrawal(req.driver.driverId, {
+      amountPaise: rupees == null ? undefined : Math.round(rupees * 100),
+    });
+    return res.status(201).json({
+      success: true,
+      data: { withdrawal, wallet: await riderLedger.statementFor(req.driver.driverId, { limit: 10 }) },
+    });
+  } catch (error) {
+    if (error instanceof riderLedger.LedgerRefusal) return fail(res, error.status, error.code, error.message);
+    return next(error);
+  }
+};
+
+const listMyWithdrawals = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+    return res.json({ success: true, data: await withdrawals.withdrawalsFor(req.driver.driverId, { limit: 50 }) });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 /* ── POST /orders/:orderNumber/release ────────────────────────────────────*/
 
 /**
@@ -689,6 +816,11 @@ module.exports = {
   startUpiCollection,
   getCollection,
   getMyCash,
+  getMyWallet,
+  startRepayment,
+  getRepayment,
+  requestWithdrawal,
+  listMyWithdrawals,
   releaseOrder,
   listMyOrders,
 };

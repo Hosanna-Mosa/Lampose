@@ -798,6 +798,13 @@ export interface DriverPayout {
 export interface DriverRow {
   /** Cash from cash-on-delivery orders not yet handed back, in paise. */
   cashInHandPaise: number;
+  /** The rider ledger (wallet / outstanding), once Lampose has opened it.
+   *  Paise. While `ledgerOpened` is false the cash figure above is the truth. */
+  ledgerOpened: boolean;
+  walletPaise: number;
+  outstandingPaise: number;
+  /** At or over the cash limit — not offered cash-on-delivery orders. */
+  codBlocked: boolean;
   driverId: string;
   name: string;
   phone: string;
@@ -879,11 +886,51 @@ export interface DriverCashLedger {
   }[];
 }
 
+/** One row of a rider's ledger — see Backend riderLedgerEntry.model.js. Paise, signed. */
+export interface RiderLedgerEntry {
+  id: string;
+  seq: number;
+  kind:
+    | 'opening'
+    | 'earning'
+    | 'cash_order'
+    | 'auto_adjust'
+    | 'cash_deposit'
+    | 'repayment'
+    | 'withdrawal'
+    | 'withdrawal_reversed'
+    | 'correction';
+  walletPaise: number;
+  outstandingPaise: number;
+  walletAfterPaise: number;
+  outstandingAfterPaise: number;
+  orderNumber: string;
+  earningPaise: number;
+  collectedPaise: number;
+  reference: string;
+  note: string;
+  by: string;
+  at: string;
+}
+
+/** A rider's wallet and outstanding, with the cash limit and recent rows. */
+export interface RiderWallet {
+  opened: boolean;
+  walletPaise: number;
+  outstandingPaise: number;
+  codLimitPaise: number;
+  codBlocked: boolean;
+  minWithdrawalPaise: number;
+  entries: RiderLedgerEntry[];
+}
+
 export interface DriverDetail extends DriverRow {
   /** From the order ledger, not a counter on the rider. */
   lifetime: { assigned: number; delivered: number; cancelled: number; earnings: number };
   recentDeliveries: DriverDelivery[];
   cash: DriverCashLedger;
+  /** Null against a server from before the ledger. */
+  wallet: RiderWallet | null;
 }
 
 export interface DriverQueueCounts {

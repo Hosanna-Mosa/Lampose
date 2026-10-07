@@ -321,7 +321,9 @@ const EMPTY_EARNINGS: EarningsSummary = {
 const BASE = "/api/v2/drivers";
 
 /** Accept refusals that mean the offer itself is over, not that the call failed. */
-const OFFER_OVER_CODES = new Set(["TAKEN", "OFFER_EXPIRED", "ORDER_CLOSED", "NOT_FOUND"]);
+/* CASH_LIMIT: the rider owes too much to take a cash order — this offer is
+   over for them, and the server's message says how to get cash orders back. */
+const OFFER_OVER_CODES = new Set(["TAKEN", "OFFER_EXPIRED", "ORDER_CLOSED", "NOT_FOUND", "CASH_LIMIT"]);
 
 /** How often the poll fallback asks, while online and holding nothing. */
 const OFFER_POLL_MS = 4000;
