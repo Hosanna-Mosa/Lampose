@@ -28,6 +28,7 @@ import { ProductsPage } from './pages/ProductsPage';
 import { FoodRestaurantsPage } from './pages/FoodRestaurantsPage';
 import { FoodOrdersPage } from './pages/FoodOrdersPage';
 import { FoodPayoutsPage } from './pages/FoodPayoutsPage';
+import { RiderWithdrawalsPage } from './pages/RiderWithdrawalsPage';
 import { StaffAccessPage } from './pages/StaffAccessPage';
 import { DriversPage } from './pages/DriversPage';
 import { MonitorPage } from './pages/MonitorPage';
@@ -49,6 +50,7 @@ import { foodOrderService } from './api/services/foodOrderService';
 import { foodAdminService } from './api/services/foodAdminService';
 import { driverAdminService } from './api/services/driverAdminService';
 import { foodPayoutService } from './api/services/foodPayoutService';
+import { riderWithdrawalService } from './api/services/riderWithdrawalService';
 import { restaurantAdminService } from './api/services/restaurantAdminService';
 import type { ApiResponse, UserEntity } from './api/types';
 import { useFetch } from './lib/useFetch';
@@ -74,6 +76,7 @@ const VALID_TABS = [
   'food-orders',
   'food-payouts',
   'drivers',
+  'rider-withdrawals',
   'support',
   'monitor',
   'partner-payouts',
@@ -447,6 +450,16 @@ const AppContent: React.FC = () => {
     [isAuthenticated, activeTab, user?.role]
   );
 
+  /* Riders waiting to be paid out — the same terms as restaurant payouts. */
+  const pendingWithdrawals = useFetch<number>(
+    async () => {
+      if (!tabAllowedFor('rider-withdrawals', user?.role)) return zero();
+      const res = await riderWithdrawalService.list({ status: 'requested' });
+      return { ...res, data: res.data?.counts?.requested?.count ?? 0 };
+    },
+    [isAuthenticated, activeTab, user?.role]
+  );
+
   const pendingDrivers = useFetch<number>(
     async () => {
       if (!tabAllowedFor('drivers', user?.role)) return zero();
@@ -474,6 +487,7 @@ const AppContent: React.FC = () => {
     ...(pendingRestaurants.data ? { 'food-restaurants': pendingRestaurants.data } : {}),
     ...(pendingDrivers.data ? { drivers: pendingDrivers.data } : {}),
     ...(pendingPayouts.data ? { 'food-payouts': pendingPayouts.data } : {}),
+    ...(pendingWithdrawals.data ? { 'rider-withdrawals': pendingWithdrawals.data } : {}),
   };
 
   const renderPage = () => {
@@ -532,6 +546,13 @@ const AppContent: React.FC = () => {
       case 'food-payouts':
         return tabAllowedFor('food-payouts', user?.role) ? (
           <FoodPayoutsPage search={search} role={user?.role} />
+        ) : (
+          <Dashboard setActiveTab={setActiveTab as (t: string) => void} />
+        );
+      /* The riders' twin of food-payouts above, on the same terms. */
+      case 'rider-withdrawals':
+        return tabAllowedFor('rider-withdrawals', user?.role) ? (
+          <RiderWithdrawalsPage search={search} role={user?.role} />
         ) : (
           <Dashboard setActiveTab={setActiveTab as (t: string) => void} />
         );

@@ -84,6 +84,8 @@ const v1OrderLinkRoutes = require('../src/modules/foodpartners/orderLink.routes'
    settles by hand. A FOURTH router in the food module; see its header. */
 const v1FoodPayoutAdminRoutes = require('../src/modules/foodpartners/foodPayoutAdmin.routes');
 const v1DriverAdminRoutes = require('../src/modules/drivers/driverAdmin.routes');
+const v1RiderWithdrawalAdminRoutes = require('../src/modules/drivers/riderWithdrawalAdmin.routes');
+const v1RiderLedgerAdminRoutes = require('../src/modules/drivers/riderLedgerAdmin.routes');
 const v1SupportAdminRoutes = require('../src/modules/support/supportAdmin.routes');
 const v1SalesAdminRoutes = require('../src/modules/sales/salesAdmin.routes');
 
@@ -173,6 +175,10 @@ const V1_GROUPS = [
      the only way one ever gets on the road. Same identity, same roles and the
      same reasoning as the restaurant queue above. */
   ['/admin/drivers', v1DriverAdminRoutes, 'rider applications: the approval queue, suspensions, and the roster'],
+  /* A rider's wallet paid out: the queue, and marking one paid or refused
+     (money.release). Nothing here moves money — see riderWithdrawal.model.js. */
+  ['/admin/rider-withdrawals', v1RiderWithdrawalAdminRoutes, 'rider wallet withdrawals: the queue, and marking one paid'],
+  ['/admin/rider-ledger', v1RiderLedgerAdminRoutes, 'rider wallet/outstanding: one rider’s history, corrections, and the cash limit'],
   /* The support queue, spanning all three apps. Every ticket a diner, rider
      or restaurant files arrives here; the three app-facing routers under v2
      can only ever read their own author's threads. */

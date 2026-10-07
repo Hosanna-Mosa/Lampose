@@ -35,6 +35,11 @@
                        person twice, whether they declined, are still holding
                        an earlier offer, or already lost the job to somebody
                        else.
+     owes too much     on a CASH order only: a rider whose outstanding (cash
+                       collected, not yet paid back) is at or over the limit
+                       — ₹2,000 by default — is not handed more cash until
+                       they pay some back. See `riderLedger.codBlockedDriverIds`.
+                       Online and already-paid orders still reach them.
 
    ## Distance is the gateway's, not ours
 
@@ -47,6 +52,7 @@ const mongoose = require('mongoose');
 
 const Driver = require('./driver.model');
 const { DRIVER_ID: REVIEW_DRIVER_ID } = require('../reviewAccounts/reviewAccounts.service');
+const { codBlockedDriverIds } = require('./riderLedger.service');
 
 const { LOCATION_MAX_AGE_MS } = Driver;
 
@@ -70,13 +76,15 @@ const MAX_BROADCAST = 40;
  * @param {number} input.radiusMeters how far out to look.
  * @param {string[]} [input.exclude] driverIds this order has already offered.
  * @param {string} [input.service] the kind of work. Only 'food' exists.
+ * @param {boolean} [input.cashOrder] the rider will collect cash at the door —
+ *   leave out riders at or over the cash limit.
  * @returns {Promise<Array<{ driverId, distanceMeters, name, phone, vehicle }>>}
  *   Nearest first (the gateway sorts it that way regardless), empty when
  *   nobody qualifies — a normal answer, not an error: at 4am it is the true
  *   one.
  */
 const findCandidatesWithinRadius = async ({
-  pickup, radiusMeters, exclude = [], service = 'food',
+  pickup, radiusMeters, exclude = [], service = 'food', cashOrder = false,
 }) => {
   if (!Array.isArray(pickup) || pickup.length !== 2
     || !Number.isFinite(pickup[0]) || !Number.isFinite(pickup[1])) {
@@ -110,6 +118,18 @@ const findCandidatesWithinRadius = async ({
   /* The Play review rider can go online but is never offered real work — see
      reviewAccounts.service.js. */
   predicate.driverId = { $nin: [...exclude, REVIEW_DRIVER_ID] };
+
+  /* A cash order is not offered to a rider already holding too much cash.
+     If the ledger cannot be read, nobody is left out: a missed limit is a
+     rider holding a little more cash for one order, a wrongly-empty
+     shortlist is a diner with no food. */
+  if (cashOrder) {
+    const blocked = await codBlockedDriverIds().catch((error) => {
+      console.error(`[dispatch] cash-limit check failed, not applied: ${error.message}`);
+      return [];
+    });
+    if (blocked.length) predicate.driverId.$nin.push(...blocked);
+  }
 
   const near = { type: 'Point', coordinates: [Number(pickup[0]), Number(pickup[1])] };
 

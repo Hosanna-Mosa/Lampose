@@ -385,6 +385,22 @@ const startServer = async () => {
         }
       })
       .catch((error) => console.error('[dine-in] sweep failed:', error.message));
+    /* Deliveries the rider's "delivered" call did not get onto their ledger. */
+    // eslint-disable-next-line global-require
+    require('./src/modules/drivers/riderLedger.service').sweepUnposted()
+      .then(({ posted, failed }) => {
+        if (posted || failed) console.log(`📒 [rider-ledger] sweep posted ${posted}, ${failed} failed`);
+      })
+      .catch((error) => console.error('[rider-ledger] sweep failed:', error.message));
+
+    /* Rider UPI repayments a webhook did not finish: paid but not posted, or
+       a link past its expiry nobody has asked Razorpay about. */
+    // eslint-disable-next-line global-require
+    require('./src/modules/drivers/riderRepayment.service').sweepRepayments()
+      .then(({ posted, settled, expired }) => {
+        if (posted || settled) console.log(`💸 [rider-repayment] sweep posted ${posted}, settled ${settled}, expired ${expired}`);
+      })
+      .catch((error) => console.error('[rider-repayment] sweep failed:', error.message));
   };
 
   const firstSweep = setTimeout(runSweeps, 20000);

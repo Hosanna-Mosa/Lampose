@@ -326,6 +326,34 @@ const razorpayWebhook = async (req, res) => {
   if (event === 'qr_code.credited') return ack('qr code without a doorstep order');
 
   /*
+   * ── A rider paying back what they owe ──────────────────────────────────
+   *
+   * A payment link the rider opened from their wallet screen, told apart by
+   * its `purpose` note. It carries no food order or visit id, so without
+   * this branch it would fall through to "no visit request" and the rider's
+   * money would go unrecorded. See `drivers/riderRepayment.service.js`.
+   */
+  const repayment = [entity.notes, paymentEntity.notes]
+    .find((notes) => notes && notes.purpose === 'rider_repayment');
+  if (repayment && repayment.riderRepaymentId) {
+    const repaymentId = String(repayment.riderRepaymentId).trim().toUpperCase();
+    try {
+      // eslint-disable-next-line global-require
+      const { settleRepayment } = require('../drivers/riderRepayment.service');
+      const out = await settleRepayment(repaymentId, {
+        paymentId: paymentEntity.id || null,
+        amountPaise: Number(paymentEntity.amount ?? entity.amount_paid),
+      });
+      return ack(`rider repayment ${repaymentId}: ${out.settled ? 'paid' : out.reason}`);
+    } catch (error) {
+      /* Acknowledged anyway: the app's status check and the sweep both ask
+         Razorpay directly and settle it from there. */
+      console.error(`[razorpay-webhook] rider repayment ${repaymentId} failed: ${error.message}`);
+      return ack(`rider repayment ${repaymentId} failed`);
+    }
+  }
+
+  /*
    * A food order's payment arrives through the SAME webhook, and is told apart
    * by the note it carries — never by the route.
    *

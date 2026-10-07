@@ -56,6 +56,12 @@ const AUDIT_ACTIONS = [
   /* Guest refunds, paid by a person making a bank transfer. */
   'refund.marked_paid',
   'refund.rejected',
+  /* A rider's wallet paid out by hand, and the rider ledger changed by a
+     person — see drivers/riderWithdrawal.service.js and riderLedger.service.js. */
+  'rider_withdrawal.marked_paid',
+  'rider_withdrawal.rejected',
+  'rider_ledger.corrected',
+  'rider_ledger.settings_changed',
   /* Policy */
   'cancellation_policy.changed',
   /* The assisted-visit fee table (visitFees.service.js). */
