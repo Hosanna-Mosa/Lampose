@@ -244,7 +244,39 @@ export function PropertyCategoryFields({
 
   const pgFields = () => {
     const selectedMeals: string[] = Array.isArray(details.mealsProvided) ? details.mealsProvided : [];
-    const sharingTypes: string[] = Array.isArray(details.sharingTypes) ? details.sharingTypes : [];
+    /*
+     * The room types this PG already has, read the way the server reads them.
+     *
+     * PG rows store the list under `sharingTypes` OR the older `roomTypes`
+     * (Backend categories.js OCCUPANCY_KEYS: sharingTypes first, then
+     * roomTypes), and onboarding wrote labels like "Double Sharing" that are
+     * not among the chips below. Reading only `sharingTypes` showed a listing
+     * with two room types as having none, so its owner saw an empty choice
+     * and every rent/bed box for those rooms was hidden.
+     */
+    const legacy: string[] = Array.isArray(details.roomTypes) ? (details.roomTypes as string[]) : [];
+    const sharingTypes: string[] = Array.isArray(details.sharingTypes) && details.sharingTypes.length
+      ? details.sharingTypes
+      : legacy;
+    const sharingChips: string[] = [
+      ...SHARING_TYPES,
+      ...sharingTypes.filter((t) => !(SHARING_TYPES as readonly string[]).includes(t)),
+    ];
+    /* Edits go to `sharingTypes`, starting from what is shown. Where the list
+       came from `roomTypes`, that key is kept in step too — otherwise clearing
+       every chip would leave the server falling back to the stale old list. */
+    const toggleSharing = (type: string) => {
+      const has = sharingTypes.includes(type);
+      const list = has ? sharingTypes.filter((t) => t !== type) : [...sharingTypes, type];
+      let next: Details = { ...details, sharingTypes: list };
+      if (legacy.length) next = { ...next, roomTypes: list };
+      if (has) {
+        ['sharingPrices', 'sharingAC', 'sharingAcPrices', 'sharingBeds'].forEach((mapKey) => {
+          next = dropMapEntry(mapKey, type, next);
+        });
+      }
+      onChange(next);
+    };
 
     return (
       <View>
@@ -289,12 +321,12 @@ export function PropertyCategoryFields({
         <View style={styles.field}>
           <FieldLabel optional>Sharing options available</FieldLabel>
           <ChipRow>
-            {SHARING_TYPES.map((type) => (
+            {sharingChips.map((type) => (
               <Chip
                 key={type}
                 label={type}
                 selected={sharingTypes.includes(type)}
-                onPress={() => toggleArrayItem('sharingTypes', type, ['sharingPrices', 'sharingAC', 'sharingAcPrices', 'sharingBeds'])}
+                onPress={() => toggleSharing(type)}
               />
             ))}
           </ChipRow>

@@ -41,6 +41,7 @@ export const styles = StyleSheet.create({
 
   sectionTitle: { fontSize: 13, marginBottom: -6 },
   list: { borderWidth: 1, borderRadius: radius.card, overflow: 'hidden' },
+  emptyList: { padding: 16, lineHeight: 20 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   rowBody: { flex: 1, gap: 2 },
   rowName: { ...boldLabel },

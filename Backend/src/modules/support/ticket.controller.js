@@ -157,7 +157,13 @@ const notFound = (res) => res.status(404).json({
  * rather than mid-word, and the full text is still the first message.
  */
 const subjectFrom = (body) => {
-  const flat = String(body).replace(/\s+/g, ' ').trim();
+  /* The first LINE before the first sentence. Stay Partner's guest report
+     sends "summary\n\nPriority: …\nProperty: …\n\nwhat happened", and a
+     summary with no full stop ("Guest late on rent") used to run on into the
+     priority and property lines once the newlines were flattened. A message
+     typed as one paragraph has one line, so it is cut exactly as before. */
+  const firstLine = String(body).split(/\n/).map((line) => line.trim()).find(Boolean) || '';
+  const flat = firstLine.replace(/\s+/g, ' ').trim();
   const firstSentence = flat.split(/(?<=[.!?])\s/)[0] || flat;
   if (firstSentence.length <= 90) return firstSentence;
   const cut = firstSentence.slice(0, 90);
