@@ -88,7 +88,10 @@ export default function TabsLayout() {
      still somebody waiting — the dot has to outlast the badge. */
   /* The fallback counts what is counting DOWN — app requests. A website
      lead waiting on a WhatsApp reply is not one this tab can answer. */
-  const waiting = unread || groups.pending.filter((r) => r.channel === 'app').length;
+  /* The larger of the two, not "unread if any": with one request opened and
+     one new, `unread` was 1 while two students were counting down, and the
+     badge under-reported the people waiting. */
+  const waiting = Math.max(unread, groups.pending.filter((r) => r.channel === 'app').length);
 
   const tab = (name: IconName) =>
     ({ color, focused }: { color: string; focused: boolean }) => (

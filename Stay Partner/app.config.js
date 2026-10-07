@@ -63,6 +63,10 @@ export default {
       bundleIdentifier: 'com.lampose.staypartner.com',
       infoPlist: {
         UIBackgroundModes: ['remote-notification'],
+        /* Only the system's standard HTTPS — no encryption of its own — so it
+           is exempt from export documentation, and App Store Connect does not
+           hold each TestFlight build until the question is answered by hand. */
+        ITSAppUsesNonExemptEncryption: false,
       },
     },
     android: {
@@ -111,6 +115,8 @@ export default {
        */
       'expo-router',
       'expo-font',
+      /* EAS builds this app at ".../Stay Partner" — see the plugin. */
+      './plugins/withQuotedBundleScript',
       /* The crosshair on the address forms. Foreground only — nothing here
          tracks anybody; the permission is asked at the moment somebody taps
          "use my location" and the fix is used once to fill a form. */

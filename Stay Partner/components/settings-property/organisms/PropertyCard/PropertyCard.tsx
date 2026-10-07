@@ -1,4 +1,5 @@
 import { Box, Tappable } from '@/components/common';
+import { categoryLabel } from '@/lib/format';
 import { Text, Card, Badge, Button, DetailRow, Icon, Switch } from '@/components/common';
 import { type BackendListing, type PropertyInventoryItem } from '@/services';
 import { FreeBedsRow } from '@/components/FreeBedsRow';
@@ -147,7 +148,7 @@ export function PropertyCard({
             value={`${property.clickCount.toLocaleString('en-IN')} ${property.clickCount === 1 ? 'click' : 'clicks'}`}
           />
         ) : null}
-        <DetailRow label="Category" value={dash(property.category)} />
+        <DetailRow label="Category" value={dash(categoryLabel(property.category))} />
         <DetailRow label="Area" value={dash(property.locality ?? property.place)} />
         <DetailRow label="Rent" value={money(property.rent)} />
         <DetailRow label="Deposit" value={money(property.deposit)} />

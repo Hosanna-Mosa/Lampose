@@ -196,6 +196,15 @@ export function ReferAndEarnScreen() {
         Your referrals
       </Text>
       <Box style={[styles.list, { borderColor: c.borderCard, backgroundColor: c.surface }]}>
+        {/* An empty card under a heading read as a list that failed to load.
+            Before the first answer arrives (`refInfo` still null) it stays
+            blank rather than claiming there are none. */}
+        {combinedList.length === 0 && refInfo ? (
+          <Text variant="body" color="textSecondary" style={styles.emptyList}>
+            No referrals yet. Share your code with another hostel, PG or room owner to earn
+            {' '}{POINTS_PER_REFERRAL} points when they join.
+          </Text>
+        ) : null}
         {combinedList.map((r, i) => (
           <Box key={r.id}>
             {i > 0 ? <Divider /> : null}
