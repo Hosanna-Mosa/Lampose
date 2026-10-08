@@ -40,8 +40,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Pressable, StyleSheet, View, type TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Icon, Text, TextField } from '@/components/ui';
@@ -130,6 +130,11 @@ export default function EditAddressScreen() {
   /* Under the Pincode box, not at the foot of the form — the one field the
      server refuses on its own shape should say so where it is typed. */
   const [pincodeError, setPincodeError] = useState('');
+  /* The one required field says so under itself, and is jumped to — see
+     `save`. A sentence at the foot of a form this long was off screen. */
+  const [line1Error, setLine1Error] = useState('');
+  const line1Ref = useRef<TextInput>(null);
+  const pincodeRef = useRef<TextInput>(null);
 
   /*
     The pin, and the crosshair that fetches it.
@@ -230,15 +235,19 @@ export default function EditAddressScreen() {
   const save = async () => {
     if (loadFailed) return;
     if (!line1.trim()) {
-      setError('The first line of the address is needed.');
+      setLine1Error('Add your house, flat or room number and street.');
+      /* Focusing scrolls the form to it and opens the keyboard on it. */
+      line1Ref.current?.focus();
       return;
     }
     if (pincode.trim() && !PINCODE.test(pincode.trim())) {
       setPincodeError('That pincode does not look right. It is six digits.');
+      pincodeRef.current?.focus();
       return;
     }
     setError('');
     setPincodeError('');
+    setLine1Error('');
     setSaving(true);
 
     const input: AddressInput = {
@@ -429,10 +438,16 @@ export default function EditAddressScreen() {
               placeholder="Home, Block C, Mum's place"
             />
             <TextField
+              ref={line1Ref}
               label="Address line 1"
+              required
               value={line1}
               maxLength={120}
-              onChangeText={setLine1}
+              onChangeText={(v) => {
+                setLine1(v);
+                if (v.trim()) setLine1Error('');
+              }}
+              error={line1Error || undefined}
               placeholder="Block C, Room 214"
             />
             <TextField
@@ -457,6 +472,7 @@ export default function EditAddressScreen() {
               placeholder="Rajahmundry"
             />
             <TextField
+              ref={pincodeRef}
               label="Pincode"
               value={pincode}
               onChangeText={(v) => {
@@ -490,7 +506,7 @@ export default function EditAddressScreen() {
             />
 
             <Text variant="caption" color="tertiary">
-              Only the first line is required. Everything else helps the rider find you.
+              Fields marked * are required. Everything else helps the rider find you.
             </Text>
           </>
         )}

@@ -1,5 +1,6 @@
+import { StatusBar } from 'expo-status-bar';
 import React, { useEffect } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, View, useWindowDimensions } from 'react-native';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -11,36 +12,45 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { Text } from '@/components/ui';
-import { easing } from '@/constants/motion';
-import { useReduceMotion, useTheme } from '@/context/ThemeContext';
+import { useReduceMotion } from '@/context/ThemeContext';
 
 /**
- * The entry sequence — 940 ms to first content, and cancellable.
+ * The entry sequence — the script logo writes itself, about 3.3 s.
  *
- *   t=0    ink ground, already painted by the native splash so there is no
- *          flash of white between the two
- *   t=0    the dot lands, 240 ms on the settle curve
- *   t=140  the wordmark arrives, opacity and 6 pt of travel, 240 ms
- *   t=660  hold — the token check and the server-time offset fetch run here
- *   t=940  exit, the lockup scaling 1 → 1.04 as it fades into the app
+ *   t=0     the logo's green, already painted by the native launch screen
+ *           (`app.config.js` → `BRAND.launch`, which shows ONLY the green), so
+ *           there is no flash and no logo that vanishes to be redrawn
+ *   t=200   "Lampose" is revealed left to right, like a pen stroke, with a soft
+ *           light riding the tip, 1.5 s
+ *   t=1700  the finished word settles with a small breath
+ *   t=1900  "a company that connects us" opens out from the centre
+ *   t=3000  hold ends — the token check and server-time fetch ran during it
+ *   t=3000  exit, 300 ms: the screen fades into the app
  *
- * If the token check finishes early the splash still plays out: a 300 ms flash
- * is worse than a 900 ms beat. If it takes longer than 1200 ms a 2 pt line
- * appears and the exit waits.
+ * The artwork is the logo itself (`assets/images/logo-wordmark.png` and
+ * `logo-tagline.png`, cut from the brand file), never a font standing in for it.
  *
- * NOTE — the dot travel is deliberately absent. Batch 5 specified the dot
- * sliding from the centre into its resting place after the E at t=380, and the
- * Batch 12 audit cut it: it explains nothing (the user is waiting for a token
- * check, not learning where a square belongs) and it delays first content by
- * 280 ms on the slowest hardware. The dot lands where it belongs.
+ * If the token check finishes early the splash still plays out; if it outlasts
+ * `SLOW_CHECK_AT` a thin line appears and the exit waits. Under reduced motion
+ * nothing is drawn on: the logo and the line fade in, same timing.
  */
 
-const DOT_IN = 240;
-const WORDMARK_AT = 140;
-const EXIT_AT = 940;
-const EXIT_DURATION = 200;
+const LOGO_GREEN = '#0A714E';
+const CREAM = '#F9F6EF';
+
+const WORDMARK = require('@/assets/images/logo-wordmark.png');
+const TAGLINE = require('@/assets/images/logo-tagline.png');
+/* The two pieces' own proportions, from the cut files. */
+const WORDMARK_RATIO = 1097 / 422;
+const TAGLINE_RATIO = 1138 / 81;
+
+const WRITE_AT = 200;
+const WRITE_FOR = 1500;
+const TAGLINE_AT = 1900;
+const EXIT_AT = 3000;
+const EXIT_DURATION = 300;
 /** Past this, the check is slow enough that the user deserves to be told. */
-export const SLOW_CHECK_AT = 1200;
+export const SLOW_CHECK_AT = EXIT_AT + 500;
 
 export type SplashSequenceProps = {
   /** Fires once the exit has played. The caller navigates from here. */
@@ -50,84 +60,111 @@ export type SplashSequenceProps = {
 };
 
 export function SplashSequence({ onFinish, waiting = false }: SplashSequenceProps) {
-  const { colors, space } = useTheme();
-  const reduceMotion = useReduceMotion();
+  const still = useReduceMotion();
+  const { width: screen } = useWindowDimensions();
 
-  const dot = useSharedValue(reduceMotion ? 1 : 0);
-  const wordmark = useSharedValue(0);
-  const lockup = useSharedValue(1);
-  const fade = useSharedValue(1);
+  /* The word across about three quarters of the screen, never wider than 320. */
+  const wordWidth = Math.min(320, Math.round(screen * 0.74));
+  const wordHeight = Math.round(wordWidth / WORDMARK_RATIO);
+  const tagWidth = Math.round(wordWidth * 1.05);
+  const tagHeight = Math.round(tagWidth / TAGLINE_RATIO);
+
+  const write = useSharedValue(still ? 1 : 0);
+  const settle = useSharedValue(0);
+  const tagOpen = useSharedValue(still ? 1 : 0);
+  const tagWords = useSharedValue(0);
+  const fadeIn = useSharedValue(still ? 0 : 1);
+  const exit = useSharedValue(0);
   const [slow, setSlow] = React.useState(false);
 
   useEffect(() => {
-    if (reduceMotion) {
-      // Movement is removed; the timing contract is not. Same 940 ms beat.
-      wordmark.value = withTiming(1, { duration: 200 });
-      dot.value = withTiming(1, { duration: 200 });
+    if (still) {
+      fadeIn.value = withTiming(1, { duration: 300 });
+      tagWords.value = withTiming(1, { duration: 300 });
     } else {
-      dot.value = withTiming(1, { duration: DOT_IN, easing: easing.settle });
-      wordmark.value = withDelay(
-        WORDMARK_AT,
-        withTiming(1, { duration: 240, easing: easing.enter }),
+      write.value = withDelay(WRITE_AT, withTiming(1, { duration: WRITE_FOR, easing: Easing.inOut(Easing.sin) }));
+      settle.value = withDelay(
+        WRITE_AT + WRITE_FOR,
+        withSequence(
+          withTiming(1, { duration: 180, easing: Easing.out(Easing.quad) }),
+          withTiming(0, { duration: 260, easing: Easing.inOut(Easing.quad) }),
+        ),
       );
+      tagOpen.value = withDelay(TAGLINE_AT, withTiming(1, { duration: 650, easing: Easing.out(Easing.cubic) }));
+      tagWords.value = withDelay(TAGLINE_AT + 250, withTiming(1, { duration: 450, easing: Easing.out(Easing.cubic) }));
     }
-
     const slowTimer = setTimeout(() => setSlow(true), SLOW_CHECK_AT);
     return () => clearTimeout(slowTimer);
-  }, [reduceMotion, dot, wordmark]);
+  }, [still, write, settle, tagOpen, tagWords, fadeIn]);
 
   useEffect(() => {
     if (waiting) return;
     /* Both timers are cleared on unmount — the inner one used to survive it,
        and called `onFinish` (a navigation) on a splash that had already gone. */
     let finishTimer: ReturnType<typeof setTimeout> | null = null;
-    const timer = setTimeout(
-      () => {
-        if (!reduceMotion) {
-          lockup.value = withTiming(1.04, { duration: EXIT_DURATION, easing: easing.exit });
-        }
-        fade.value = withTiming(0, { duration: EXIT_DURATION, easing: easing.exit });
-        finishTimer = setTimeout(() => onFinish?.(), EXIT_DURATION);
-      },
-      Math.max(0, EXIT_AT),
-    );
+    const timer = setTimeout(() => {
+      exit.value = withTiming(1, { duration: EXIT_DURATION, easing: Easing.in(Easing.cubic) });
+      finishTimer = setTimeout(() => onFinish?.(), EXIT_DURATION);
+    }, EXIT_AT);
     return () => {
       clearTimeout(timer);
       if (finishTimer) clearTimeout(finishTimer);
     };
-  }, [waiting, reduceMotion, lockup, fade, onFinish]);
+  }, [waiting, exit, onFinish]);
 
-  const dotStyle = useAnimatedStyle(() => ({
-    opacity: dot.value,
-    transform: [{ scale: reduceMotion ? 1 : dot.value }],
+  const hostStyle = useAnimatedStyle(() => ({ opacity: 1 - exit.value }));
+
+  /* The pen: the word is uncovered from the left as `write` runs 0 → 1. */
+  const inkStyle = useAnimatedStyle(() => ({ width: wordWidth * write.value }));
+  const wordStyle = useAnimatedStyle(() => ({
+    opacity: fadeIn.value,
+    transform: [{ scale: 1 + 0.03 * settle.value }],
+  }));
+  /* The light on the pen's tip — there while it writes, gone when it lifts. */
+  const tipStyle = useAnimatedStyle(() => ({
+    opacity: write.value > 0 && write.value < 1 ? 0.9 : 0,
+    transform: [{ translateX: wordWidth * write.value - 14 }],
   }));
 
-  const wordmarkStyle = useAnimatedStyle(() => ({
-    opacity: wordmark.value,
-    transform: [{ translateY: reduceMotion ? 0 : 6 - wordmark.value * 6 }],
+  /* The tagline opens out from its centre. */
+  const tagStyle = useAnimatedStyle(() => ({
+    width: tagWidth * tagOpen.value,
+    opacity: Math.min(1, tagOpen.value * 3),
   }));
-
-  const lockupStyle = useAnimatedStyle(() => ({
-    opacity: fade.value,
-    transform: [{ scale: lockup.value }],
-  }));
+  const tagWordsStyle = useAnimatedStyle(() => ({ opacity: 0.35 + 0.65 * tagWords.value }));
 
   return (
-    <View style={[styles.host, { backgroundColor: colors.graphite }]}>
-      <Animated.View style={[styles.lockup, lockupStyle, { gap: space[2] }]}>
-        <Animated.View style={wordmarkStyle}>
-          <Text variant="display2" style={{ color: colors.onGraphite, letterSpacing: 2 }}>
-            LAMPOSE
-          </Text>
+    <Animated.View style={[styles.host, { backgroundColor: LOGO_GREEN }, hostStyle]}>
+      <StatusBar style="light" />
+
+      <View
+        style={styles.stack}
+        accessible
+        accessibilityRole="header"
+        accessibilityLabel="Lampose. A company that connects us."
+      >
+        <Animated.View style={[{ width: wordWidth, height: wordHeight }, wordStyle]}>
+          <Animated.View style={[styles.ink, { height: wordHeight }, inkStyle]}>
+            <Image source={WORDMARK} style={{ width: wordWidth, height: wordHeight }} resizeMode="contain" />
+          </Animated.View>
+          {still ? null : (
+            <Animated.View pointerEvents="none" style={[styles.tip, { top: wordHeight * 0.42 }, tipStyle]} />
+          )}
         </Animated.View>
-        {/* The one mark in the identity. It lands; it does not travel. */}
+
         <Animated.View
-          style={[styles.dot, dotStyle, { backgroundColor: colors.brandOnDark }]}
-        />
-      </Animated.View>
+          style={[styles.tagWindow, { height: tagHeight, marginTop: Math.round(wordHeight * 0.16) }, tagStyle]}
+        >
+          <Animated.Image
+            source={TAGLINE}
+            style={[styles.tagImage, { width: tagWidth, height: tagHeight, marginLeft: -tagWidth / 2 }, tagWordsStyle]}
+            resizeMode="contain"
+          />
+        </Animated.View>
+      </View>
 
       {slow && waiting ? <SlowCheckLine /> : null}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -140,7 +177,6 @@ export function SplashSequence({ onFinish, waiting = false }: SplashSequenceProp
  * and under reduced motion it stops and the word carries it.
  */
 function SlowCheckLine() {
-  const { colors, space } = useTheme();
   const reduceMotion = useReduceMotion();
   const travel = useSharedValue(0);
 
@@ -161,16 +197,12 @@ function SlowCheckLine() {
   }));
 
   return (
-    <View style={[styles.slowHost, { bottom: space[8] }]}>
-      <View style={[styles.track, { backgroundColor: colors.graphiteRaised }]}>
-        {reduceMotion ? (
-          <View style={[styles.bar, { backgroundColor: colors.brandOnDark }]} />
-        ) : (
-          <Animated.View style={[styles.bar, style, { backgroundColor: colors.brandOnDark }]} />
-        )}
+    <View style={styles.slowHost}>
+      <View style={styles.track}>
+        {reduceMotion ? <View style={styles.bar} /> : <Animated.View style={[styles.bar, style]} />}
       </View>
       {reduceMotion ? (
-        <Text variant="numMeta" style={{ color: colors.onGraphiteMuted }}>
+        <Text variant="numMeta" style={{ color: CREAM, opacity: 0.7 }}>
           Checking your session
         </Text>
       ) : null}
@@ -179,10 +211,26 @@ function SlowCheckLine() {
 }
 
 const styles = StyleSheet.create({
-  host: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  lockup: { flexDirection: 'row', alignItems: 'center' },
-  dot: { width: 10, height: 10, borderRadius: 2 },
-  slowHost: { position: 'absolute', alignItems: 'center', gap: 8 },
-  track: { width: 160, height: 2, overflow: 'hidden' },
-  bar: { width: 60, height: 2 },
+  host: { flex: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  stack: { alignItems: 'center' },
+  /* Clips the word to what the pen has written so far. */
+  ink: { position: 'absolute', left: 0, top: 0, overflow: 'hidden' },
+  tip: {
+    position: 'absolute',
+    left: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.55)',
+    shadowColor: '#FFFFFF',
+    shadowOpacity: 0.9,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  /* Centred, and clipping the tagline as it widens from the middle. */
+  tagWindow: { overflow: 'hidden', alignSelf: 'center' },
+  tagImage: { position: 'absolute', left: '50%', top: 0 },
+  slowHost: { position: 'absolute', bottom: 64, alignItems: 'center', gap: 8 },
+  track: { width: 160, height: 2, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.15)' },
+  bar: { width: 60, height: 2, backgroundColor: CREAM },
 });

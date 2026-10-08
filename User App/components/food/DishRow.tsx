@@ -31,7 +31,7 @@ export type DishRowProps = {
    * Add control, because the kitchen is the screen they are already on.
    */
   layout?: 'feed' | 'menu';
-  /** "Sri Sai Tiffins · 6 min walk" on the feed; the description on a menu. */
+  /** The kitchen's name on the feed; the description on a menu. */
   meta?: string;
   qty: number;
   onQtyChange: (qty: number) => void;

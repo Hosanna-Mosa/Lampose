@@ -23,6 +23,10 @@ export type TextFieldProps = Omit<TextInputProps, 'style' | 'maxLength'> & {
   /** Renders as read-only with an explanation rather than a dead grey box. */
   readOnly?: boolean;
   optional?: boolean;
+  /** Marks the label with a red asterisk — the field must be filled to save. */
+  required?: boolean;
+  /** The input itself, so a form can focus the field it is pointing at. */
+  ref?: React.Ref<TextInput>;
   containerStyle?: ViewStyle;
 };
 
@@ -44,6 +48,8 @@ export function TextField({
   disabled = false,
   readOnly = false,
   optional = false,
+  required = false,
+  ref,
   containerStyle,
   value,
   ...rest
@@ -86,6 +92,7 @@ export function TextField({
         */}
         <Text variant="label" color={inert ? 'tertiary' : 'secondary'}>
           {label}
+          {required ? <Text variant="label" style={{ color: colors.danger.base }}> *</Text> : null}
         </Text>
         {optional ? (
           <Text variant="caption" color="tertiary">
@@ -120,6 +127,7 @@ export function TextField({
         ) : null}
 
         <TextInput
+          ref={ref}
           value={value}
           editable={!inert}
           multiline={multiline}

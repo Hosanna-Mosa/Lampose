@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { deliveryLabel, metaLine, walkLabel } from '@/services/adapters/food.adapter';
+import { deliveryLabel, metaLine } from '@/services/adapters/food.adapter';
 
 import { Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
@@ -93,7 +93,7 @@ export function KitchenCard({
         </View>
 
         <Text variant="caption" color="tertiary" numberOfLines={1}>
-          {metaLine(kitchen.cuisine, locality, walkLabel(kitchen))}
+          {metaLine(kitchen.cuisine, locality)}
         </Text>
 
         {/* The fee facts are true of the kitchen whether or not it is open

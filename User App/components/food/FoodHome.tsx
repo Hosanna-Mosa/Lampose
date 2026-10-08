@@ -11,7 +11,13 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, {
+  useAnimatedRef,
+  useAnimatedStyle,
+  useScrollOffset,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 
 import { Icon, Text } from '@/components/ui';
@@ -77,6 +83,19 @@ import { useFoodPaused } from './FoodPaused';
  * four pieces of artwork, which is why this is the cheap side of the trade.
  */
 const HEADER_STICK_AT = HEADER_HEIGHT / 2;
+
+/**
+ * How far the cuisine rail is pulled up under the banner.
+ *
+ * The rail keeps 24pt of headroom at its top for the tiles that ride UP at
+ * either end of its arc, and the feed puts its 16pt gap above it too — 40pt
+ * of nothing, which read as a white band between the banner and the rail.
+ * 32 takes the whole gap and most of the headroom back: the centre tiles sit
+ * 8pt under the banner, and the risen end tiles rise into the banner's own
+ * curved bottom edge, which is page-coloured at the corners
+ * (`BANNER_CURVE_DEPTH`), so they never cover the artwork.
+ */
+const RAIL_TUCK = 32;
 
 /**
  * And how far from the top the chrome goes back to floating on the artwork.
@@ -233,11 +252,46 @@ export function FoodHome({
 
       /* And coming back is direction-gated — see `HEADER_RELEASE_AT`. */
       if (y <= HEADER_STICK_AT || (goingUp && y < HEADER_RELEASE_AT)) setOnArtwork(true);
+
+      /* The pinned rail takes touches only while it is showing. */
+      const pinned = y > pinAtRef.current;
+      if (pinned !== railPinnedRef.current) {
+        railPinnedRef.current = pinned;
+        setRailPinned(pinned);
+      }
     },
     [barScroll, setOnArtwork],
   );
 
   const bandFillStyle = useAnimatedStyle(() => ({ opacity: bandSolid.value }));
+
+  /*
+   * The cuisine rail sticks under the search band once the feed has carried
+   * it up there, the way the band itself stays put.
+   *
+   * Drawn TWICE, as the kitchen screen does with its chips: once in the feed,
+   * and once pinned just under the band, shown from the moment the feed's own
+   * copy reaches it. The pinned copy is a sibling of the ScrollView, so —
+   * like the band — nothing ever moves it. Moving the feed's copy against the
+   * scroll instead shook: the content moves on the native scroll and the
+   * correction lands a frame later, every frame.
+   *
+   * Shown on the UI thread from the scroll offset, so the swap is exact;
+   * whether it takes TOUCHES is React state, set only on the crossing.
+   */
+  const feedRef = useAnimatedRef<Animated.ScrollView>();
+  const scrollY = useScrollOffset(feedRef);
+  /* The band's bottom edge on screen, and the rail's top inside the feed. */
+  const [bandBottom, setBandBottom] = useState(0);
+  const [railTop, setRailTop] = useState(0);
+  const pinAt = railTop - bandBottom;
+  const pinAtRef = useRef(pinAt);
+  pinAtRef.current = bandBottom > 0 ? pinAt : Number.POSITIVE_INFINITY;
+  const [railPinned, setRailPinned] = useState(false);
+  const railPinnedRef = useRef(false);
+  const pinnedRailStyle = useAnimatedStyle(() => ({
+    opacity: bandBottom > 0 && scrollY.value > pinAt ? 1 : 0,
+  }));
 
   const areaLabel = locality?.name ?? 'your area';
   const vegMode = vegModeOf(preferences);
@@ -475,9 +529,23 @@ export function FoodHome({
   const openKitchen = (id: string) => router.push(foodHref.kitchen(id));
   const openDish = (id: string) => router.push(foodHref.dish(id));
 
+  /* One element, drawn in the feed and again pinned — see `pinnedRailStyle`. */
+  const cuisineRail = (
+    <CuisineRail
+      cuisines={cuisineOptions}
+      allPhotos={allPhotos}
+      active={cuisineFilter}
+      onChange={setCuisineFilter}
+      cheapActive={cheapOnly}
+      onToggleCheap={() => setCheapOnly((current) => !current)}
+      onSeeAll={() => setBrowseOpen(true)}
+    />
+  );
+
   return (
     <>
-    <ScrollView
+    <Animated.ScrollView
+      ref={feedRef}
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingBottom: space[8] + barHeight, gap: space[4] }}
       onScroll={reportScroll}
@@ -530,16 +598,11 @@ export function FoodHome({
           instead, which is the difference between a rail that sits close
           under the banner and one that floats. Tuned to leave the risen end
           tiles a few points clear of the banner's own bottom edge. */}
-      <View style={{ marginTop: -space[3] }}>
-        <CuisineRail
-          cuisines={cuisineOptions}
-          allPhotos={allPhotos}
-          active={cuisineFilter}
-          onChange={setCuisineFilter}
-          cheapActive={cheapOnly}
-          onToggleCheap={() => setCheapOnly((current) => !current)}
-          onSeeAll={() => setBrowseOpen(true)}
-        />
+      <View onLayout={(event) => setRailTop(event.nativeEvent.layout.y)}
+        /* The veg-mode note, when it shows, sits between the banner and the
+           rail, so the rail only tucks under the banner without it. */
+        style={{ marginTop: vegMode === 'off' ? -RAIL_TUCK : -space[3] }}>
+        {cuisineRail}
       </View>
 
       {/* The order in flight, mirrored here so it is not something you have to
@@ -773,7 +836,7 @@ export function FoodHome({
         Ready times are the kitchen&apos;s estimate
       </Text>
 
-    </ScrollView>
+    </Animated.ScrollView>
 
     {/*
       The search band — pinned, and the reason it is out here.
@@ -794,6 +857,7 @@ export function FoodHome({
     */}
     <View
       pointerEvents="box-none"
+      onLayout={(event) => setBandBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height)}
       style={[
         styles.stickyBand,
         {
@@ -849,6 +913,23 @@ export function FoodHome({
         onPressVeg={pressVegButton}
       />
     </View>
+
+    {/* The rail's pinned copy, just under the band. Its ground and hairline
+        continue the band's, so the two read as one piece of chrome. */}
+    <Animated.View
+      pointerEvents={railPinned ? 'auto' : 'none'}
+      style={[
+        styles.pinnedRail,
+        {
+          top: bandBottom,
+          backgroundColor: colors.surface,
+          borderBottomColor: colors.borderSubtle,
+        },
+        pinnedRailStyle,
+      ]}
+    >
+      {cuisineRail}
+    </Animated.View>
 
     <CuisineSheet
       visible={browseOpen}
@@ -1109,6 +1190,7 @@ const styles = StyleSheet.create({
   /* Pinned over the feed. `top` is supplied by the caller, which is the only
      place that knows the safe-area inset. */
   stickyBand: { position: 'absolute', left: 0, right: 0 },
+  pinnedRail: { position: 'absolute', left: 0, right: 0, borderBottomWidth: StyleSheet.hairlineWidth },
   heroSearchRow: { flexDirection: 'row', alignItems: 'center' },
   heroSearch: { flex: 1, flexDirection: 'row', alignItems: 'center', minHeight: 48 },
   filterRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },

@@ -399,6 +399,8 @@ export type FoodAddress = {
   instructions?: string;
   /** From the stay booking. It cannot be removed, only corrected upstream. */
   fromBooking?: boolean;
+  /** The book's default — the one the cart picks when nothing is chosen yet. */
+  isDefault?: boolean;
   deliveryFee?: number;
   /**
    * Where this actually is, so a rider can be searched for around it.

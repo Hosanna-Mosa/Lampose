@@ -18,6 +18,7 @@ import type { StayCategory } from '@/constants/tokens';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { AirbnbSearchBar, type AirbnbSearchBarProps } from './AirbnbSearchBar';
 import { CategoryGlassBar } from './CategoryGlassBar';
+import { HERO_SCENE_HEIGHT, HeroScene3D } from './HeroScene3D';
 
 export type StayHeroSectionProps = {
   locality: string;
@@ -58,7 +59,8 @@ function greetingFor(hour: number): string {
  * dark ink, so nothing needs a scrim or a text shadow to be read.
  *
  * In order: where you are looking and your two header buttons, a greeting and
- * the line, the search bar, and the categories. The filter chips are not part
+ * the line over a 3D street — the category's building on the right, a road
+ * across the whole hero with traffic and students walking in (`HeroScene3D`), the search bar, and the categories. The filter chips are not part
  * of the hero and are untouched — they follow it in the feed.
  */
 export function StayHeroSection({
@@ -204,8 +206,15 @@ export function StayHeroSection({
           </View>
         </View>
 
-        {/* The greeting and the line. */}
-        <View style={styles.headline}>
+        {/* The greeting and the line, over the street: the category's
+            building on the right and a road across the whole hero. The scene
+            sits behind the type, edge to edge, and takes no touches. */}
+        <View style={[styles.headline, styles.stage]}>
+          <HeroScene3D
+            category={category ?? 'PG_HOSTEL'}
+            width={screenWidth}
+            style={{ position: 'absolute', left: -layout.gutter, bottom: -6 }}
+          />
           <Text variant="caption" color="secondary">
             {firstName ? `${greeting}, ${firstName}` : greeting}
           </Text>
@@ -349,5 +358,8 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   headline: { gap: 2 },
+  /* The street scene's height, less the 6 pt it tucks under the search bar:
+     the building on the right, the road edge to edge along the bottom. */
+  stage: { minHeight: HERO_SCENE_HEIGHT - 6 },
   title: { fontSize: 25, lineHeight: 31, letterSpacing: -0.4 },
 });

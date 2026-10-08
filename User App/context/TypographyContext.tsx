@@ -1,9 +1,18 @@
-import React, { createContext, useContext, useMemo } from 'react';
+import React, { createContext, useContext } from 'react';
 
-import { staysTypeScale, typeScale } from '@/constants/tokens';
+import { staysTypeScale } from '@/constants/tokens';
 
 /**
  * Which module's typography a subtree is in.
+ *
+ * ## ONE scale now
+ *
+ * Food used to keep its own denser scale (`typeScale` — 11.5pt body, 12pt
+ * card titles). It now draws in the stay side's four sizes too, so the two
+ * modules read as one app: same family, same sizes. The scope is kept so the
+ * places that mark a food subtree still say so, and so a food-only scale can
+ * come back in one line if it is ever wanted — but today both answer the
+ * same. The history below is why the scope exists at all.
  *
  * ## Why this exists at all
  *
@@ -33,22 +42,18 @@ import { staysTypeScale, typeScale } from '@/constants/tokens';
  */
 export type TypographyModule = 'stays' | 'food';
 
-type Scale = typeof typeScale | typeof staysTypeScale;
+type Scale = typeof staysTypeScale;
 
 const TypographyContext = createContext<Scale>(staysTypeScale);
 
 export function TypographyScope({
-  module,
   children,
 }: {
+  /** Which module this subtree is. Both answer the stay scale today. */
   module: TypographyModule;
   children: React.ReactNode;
 }) {
-  /* Both scales are frozen module constants, so the only thing that can change
-     is which one — no need to rebuild anything below on every render. */
-  const value = useMemo(() => (module === 'food' ? typeScale : staysTypeScale), [module]);
-
-  return <TypographyContext.Provider value={value}>{children}</TypographyContext.Provider>;
+  return <TypographyContext.Provider value={staysTypeScale}>{children}</TypographyContext.Provider>;
 }
 
 /** The scale in force here. Read by `Text`, and by nothing else. */

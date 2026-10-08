@@ -10,7 +10,6 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
@@ -125,12 +124,10 @@ export type OngoingStripProps = {
 
 export function OngoingStrip({ items, onPress }: OngoingStripProps) {
   const { space, radius, colors } = useTheme();
-  const insets = useSafeAreaInsets();
   const { reservedBottom } = usePendingRequest();
-  const { hidden, height: barHeight } = useBottomBar();
+  const { height: barHeight } = useBottomBar();
 
   const effectiveBarHeight = barHeight > 0 ? barHeight : reservedBottom || 80;
-  const bottomInset = Math.max(insets.bottom, 8);
 
   /* Radar Pulse Animation for Icon Glow */
   const radarScale = useSharedValue(1);
@@ -173,20 +170,10 @@ export function OngoingStrip({ items, onPress }: OngoingStripProps) {
   }));
 
   /*
-   * When the bottom bar hides on scroll (hidden.value === 1), this strip slides down
-   * to sit smoothly at the very bottom edge of the screen.
-   * When the bottom bar is shown (hidden.value === 0), this strip sits right above the tab bar.
+   * The strip stays put above the bar's slot even when the bar hides on
+   * scroll: the pill slides away, but the module door stays at the bottom
+   * edge (tucked right), so sliding the strip down would land it on the door.
    */
-  const animatedStyle = useAnimatedStyle(() => {
-    const travelDistance = Math.max(0, effectiveBarHeight - bottomInset);
-    return {
-      transform: [
-        {
-          translateY: hidden.value * travelDistance,
-        },
-      ],
-    };
-  });
 
   if (!items.length) return null;
 
@@ -290,7 +277,6 @@ export function OngoingStrip({ items, onPress }: OngoingStripProps) {
       pointerEvents="box-none"
       style={[
         styles.band,
-        animatedStyle,
         {
           paddingBottom: effectiveBarHeight + (space[2] || 8),
         },

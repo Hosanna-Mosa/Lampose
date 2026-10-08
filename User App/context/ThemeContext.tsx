@@ -48,7 +48,10 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useColorScheme();
-  const [preference, setPreferenceState] = useState<ThemePreference>('system');
+  /* Light until somebody chooses otherwise in Profile → Appearance. A new
+     install or a new account no longer follows the phone's dark mode; only
+     an explicit "System" choice does. */
+  const [preference, setPreferenceState] = useState<ThemePreference>('light');
   const [reduceMotion, setReduceMotion] = useState(false);
   /* The stored choice is read before anything draws — a dark-mode user saw
      the light theme flash on every launch while it loaded. */
@@ -63,7 +66,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
           setPreferenceState(stored);
         }
       })
-      /* Unreadable storage is "follow the system", not an unhandled rejection. */
+      /* Unreadable storage is the light default, not an unhandled rejection. */
       .catch(() => {})
       .finally(() => {
         if (active) setLoaded(true);

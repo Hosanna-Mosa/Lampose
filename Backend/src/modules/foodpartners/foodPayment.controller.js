@@ -111,6 +111,43 @@ async function confirmPayment(order, { paymentId, amountPaise }) {
   if (order.paymentStatus === 'paid') return { alreadyPaid: true, notified: false };
 
   /*
+   * Money for an order the diner has since switched to cash.
+   *
+   * They backed out of the gateway, chose to pay the rider instead, and then
+   * the payment they abandoned went through anyway. The order stays a CASH
+   * order — the kitchen already has it, and on a cash order `paymentStatus`
+   * is the rider's collection, which this must not mark done. The payment is
+   * recorded against it and flagged in the history as owed back, loudly, for
+   * the same hand refund `markForRefund` hands every other one to.
+   */
+  if (order.paymentMode !== 'online') {
+    const now = new Date();
+    await FoodOrder.updateOne(
+      { _id: order._id },
+      {
+        $set: {
+          'razorpay.paymentId': String(paymentId || ''),
+          'razorpay.paidAt': now,
+          ...(Number.isFinite(amountPaise) ? { 'razorpay.amountPaise': amountPaise } : null),
+        },
+        $push: {
+          statusHistory: {
+            status: order.status,
+            at: now,
+            by: 'system',
+            note: 'Paid online after switching to cash on delivery — refund this payment',
+          },
+        },
+      },
+    );
+    console.error(
+      `${BADGE} [Paid After Cash Switch] ${order.orderNumber} · ${paymentId} — owed back; `
+      + 'refund it from the Razorpay dashboard',
+    );
+    return { alreadyPaid: false, notified: false, closed: true };
+  }
+
+  /*
    * One conditional write, not read-then-save.
    *
    * Two confirmations arriving together — the app's verify and the webhook,

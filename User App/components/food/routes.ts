@@ -24,6 +24,15 @@ export const foodHref = {
     pathname: '/food/order/[id]' as const,
     params: placed ? { id, placed: '1' } : { id },
   }),
+  /** An online order whose payment was not completed: pay again, pay in
+   *  cash instead, or cancel. Where the checkout lands when it was not paid. */
+  paymentIncomplete: (id: string) => ({ pathname: '/food/payment-incomplete' as const, params: { id } }),
+  /** "Hurray!" — shown once an order has really gone to the kitchen, then on
+   *  to tracking. `from: 'order'` when it was paid from the order's own screen. */
+  orderPlaced: (id: string, from?: 'order') => ({
+    pathname: '/food/order-placed' as const,
+    params: from ? { id, from } : { id },
+  }),
   /** Dine-in: pick a day, a time and a party size at this kitchen. */
   bookTable: (restaurantId: string) => ({
     pathname: '/food/book-table/[id]' as const,

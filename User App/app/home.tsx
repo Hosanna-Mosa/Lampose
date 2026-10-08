@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { startTransition, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   InteractionManager,
@@ -11,16 +11,19 @@ import {
   ScrollView,
   StyleSheet,
   View,
+  useWindowDimensions,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
 import Animated, {
+  Easing,
   interpolate,
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
+  withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Haptics from 'expo-haptics';
 
 import {
   Button, Icon, OfflineBanner, SearchField, Snackbar, Text, useAlert,
@@ -32,7 +35,6 @@ import {
   AirbnbSearchBar,
   CategoryTabs,
   CATEGORY_LABEL,
-  DraggableMapPill,
   FilterChipRow,
   FilterSheet,
   type FilterChip,
@@ -56,7 +58,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useFood, type FoodTab } from '@/context/FoodContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useOngoing } from '@/hooks/useOngoing';
-import { useTheme, type ThemePreference } from '@/context/ThemeContext';
+import { useReduceMotion, useTheme, type ThemePreference } from '@/context/ThemeContext';
 import type { StayCategory } from '@/constants/tokens';
 import { fromRealBooking, segmentOf, type BookingSegment } from '@/data/bookings';
 import {
@@ -128,8 +130,8 @@ const FOOD_WARM_UP_MS = 1200;
  * while you read a mess menu. In their place the SAME bar, in the same
  * position, carries the module's own three screens, and the round button
  * beside it stays put: the button you pressed to get in is the button you press to
- * get out. It stays in the module's orange, like the rest of the bar in here —
- * Food is the orange side of the app, and the door out is still inside it.
+ * get out. It wears the brand green rather than the module's orange: it leads
+ * back to the green side of the app, so it carries that side's colour.
  *
  * The button takes a bed — rooms, the stay side — rather than Explore's
  * magnifier, because Food has a search of its own and one bar cannot carry two
@@ -147,7 +149,7 @@ const FOOD_EXIT: TabItem = {
   icon: 'search',
   glyph: 'stays',
   raised: true,
-  tone: 'ember',
+  tone: 'brand',
 };
 
 const FOOD_TAB_IDS = {
@@ -210,7 +212,7 @@ export default function Home() {
   const { onScroll: barScroll, height: barHeight, showBar } = useBottomBar();
   /* The bottom bar belongs to this screen, so while Food is open this screen is
      the one that has to know which of the module's screens is showing. */
-  const { foodTab, setFoodTab, liveOrder, foodUnread } = useFood();
+  const { foodTab, setFoodTab, liveOrder, foodUnread, count: cartCount } = useFood();
 
   /*
    * Which tab a caller asked for, if any.
@@ -584,6 +586,18 @@ export default function Home() {
   const spec = filterSpecFor(category);
 
   const quickChips: readonly FilterChip[] = [
+    /* Sort rides in the chip row, first after Filters, rather than on a row
+       of its own above the feed. It opens the same dropdown it always did. */
+    {
+      id: 'sort',
+      label:
+        query.sort === 'rentLow'
+          ? 'Price: Low–High'
+          : query.sort === 'depositLow'
+            ? 'Deposit: Low–High'
+            : 'Sort',
+      active: query.sort !== 'recommended',
+    },
     /* Gender only where it is a rule. A "Gender" chip on Hotels opened a sheet
        with no gender control in it. */
     ...(spec.gender
@@ -671,6 +685,60 @@ export default function Home() {
    * bar collapses to the way out instead of offering three dead destinations.
    */
   const inFoodModule = tab === 'food' && FOOD_MODE === 'dev';
+
+  /*
+   * The side move between the two modules.
+   *
+   * Stays and Food are two PAGES side by side: crossing into Food pushes the
+   * stay page out to the left as Food comes in from the right, and coming
+   * back is the same move reversed. Both pages are on screen for the whole
+   * move, each on its own ground, so there is never a gap of bare background
+   * between them — that was the "white paper" a slide of the new page alone
+   * left behind.
+   *
+   * The stay page goes on drawing the stay tab you left (`pageTab`) until the
+   * move ends; outside a move only the page on show is drawn, exactly as
+   * before. Explore, Saved and Bookings still switch in place. No move under
+   * reduced motion, or on the first trip into a Food that is still building.
+   */
+  const { width: screenWidth } = useWindowDimensions();
+  const reduceMotion = useReduceMotion();
+  const lastStayTab = useRef(tab === 'food' ? 'explore' : tab);
+  if (tab !== 'food') lastStayTab.current = tab;
+  const moduleSide = tab === 'food' ? 'food' : 'stay';
+  const lastSide = useRef(moduleSide);
+  const [sliding, setSliding] = useState(false);
+  /* 0 with the stay page in view, 1 with the food page in view. */
+  const pagePosition = useSharedValue(moduleSide === 'food' ? 1 : 0);
+  useLayoutEffect(() => {
+    if (lastSide.current === moduleSide) return;
+    lastSide.current = moduleSide;
+    const target = moduleSide === 'food' ? 1 : 0;
+    if (reduceMotion || !foodBuilt || !foodMounted) {
+      pagePosition.value = target;
+      return;
+    }
+    setSliding(true);
+    pagePosition.value = withTiming(
+      target,
+      { duration: 320, easing: Easing.out(Easing.cubic) },
+      (finished) => {
+        if (finished) runOnJS(setSliding)(false);
+      },
+    );
+  }, [moduleSide, reduceMotion, foodBuilt, foodMounted, pagePosition]);
+  const stayPageStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: -pagePosition.value * screenWidth }],
+  }));
+  const foodPageStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: (1 - pagePosition.value) * screenWidth }],
+  }));
+  /* Which stay tab the stay page draws — the one being left, mid-move. */
+  const pageTab = tab === 'food' && sliding ? lastStayTab.current : tab;
+  const foodPageReady = foodBuilt && foodMounted;
+  const showStayPage = tab !== 'food' || sliding || !foodPageReady;
+  const showFoodPage = tab === 'food' || sliding;
+
   /* Only Food HOME puts artwork under the header. Search and Orders have an
      ordinary page background, so the bar stays in flow there and this screen
      behaves exactly as it always did. */
@@ -774,24 +842,6 @@ export default function Home() {
     userName: user?.name,
   };
 
-  const sortDisplayLabel = useMemo(() => {
-    switch (query.sort) {
-      case 'rentLow':
-        return 'Price: Low to High';
-      case 'depositLow':
-        return 'Deposit: Low to High';
-      default:
-        return 'Newest';
-    }
-  }, [query.sort]);
-
-  const handleToggleSortDropdown = useCallback(() => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {}
-    setActiveDropdown((curr) => (curr === 'sort' ? null : 'sort'));
-  }, []);
-
   const headerLocality = everywhere
     ? 'All locations'
     : locality?.name ?? 'Choose an area';
@@ -854,6 +904,15 @@ export default function Home() {
   });
 
   const header = <ExploreHeader {...headerProps} variant={headerOverlay ? 'overlay' : 'surface'} />;
+  /* The food page keeps its own header through a move, decided by the
+     module's own tab rather than the app's, so it does not change shape
+     while it slides out. */
+  const foodHeader = (
+    <ExploreHeader
+      {...headerProps}
+      variant={foodTab === 'home' && bannerUnderHeader ? 'overlay' : 'surface'}
+    />
+  );
 
   const exploreHero = (
     <View
@@ -908,7 +967,10 @@ export default function Home() {
           would stack two bars in the same place — two localities, two
           profile marks, and a banner pushed down by a bar that is not
           supposed to occupy any height there. */}
-      {inFoodHome ? null : tab === 'explore' ? null : header}
+      <View style={styles.pages}>
+      {showStayPage ? (
+      <Animated.View style={[styles.stayPage, { backgroundColor: colors.bg }, stayPageStyle]}>
+      {pageTab === 'explore' || (pageTab === 'food' && inFoodHome) ? null : header}
 
       {/* Persistent, and it always states the age of what is on screen — a
           stale rent is the dangerous case. The age is only claimed while the
@@ -916,7 +978,7 @@ export default function Home() {
           age worth stating. */}
       <OfflineBanner offline={offline} ageLabel={listings.length ? 'last loaded copy' : undefined} />
 
-      {tab === 'explore' ? (
+      {pageTab === 'explore' ? (
         <View style={{ flex: 1 }}>
           {/* Docked Sticky Header: stays pinned at the very top of the screen when scrolling through listings */}
           <Animated.View
@@ -1074,50 +1136,6 @@ export default function Home() {
               )
             ) : (
               <View style={{ paddingHorizontal: layout.gutter, gap: space[4] }}>
-                {/* Results Count & Sort Dropdown matching the photo */}
-                <View style={styles.resultsSortHeader}>
-                  <Text
-                    style={[styles.resultsCountText, { color: colors.textPrimary }]}
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {total} {category === 'PG_HOSTEL' ? 'PG / hostel' : category === 'BACHELOR' ? 'bachelor room' : category === 'HOTEL' ? 'hotel' : 'house'}
-                    {total === 1 ? '' : 's'} in {scopeLabel}
-                  </Text>
-                  <Pressable
-                    onPress={handleToggleSortDropdown}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    style={({ pressed }) => [
-                      styles.sortDropdownButton,
-                      { opacity: pressed ? 0.6 : 1 },
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Sort by ${sortDisplayLabel}`}
-                  >
-                    <Text style={[styles.sortPrefixText, { color: colors.textSecondary }]}>Sort by </Text>
-                    <Text
-                      style={[
-                        styles.sortActiveText,
-                        { color: activeDropdown === 'sort' ? colors.brand : colors.textPrimary },
-                      ]}
-                    >
-                      {sortDisplayLabel}
-                    </Text>
-                    <View
-                      style={{
-                        marginLeft: 3,
-                        transform: [{ rotate: activeDropdown === 'sort' ? '-90deg' : '90deg' }],
-                      }}
-                    >
-                      <Icon
-                        name="chevronRight"
-                        size={12}
-                        color={activeDropdown === 'sort' ? colors.brand : colors.textSecondary}
-                      />
-                    </View>
-                  </Pressable>
-                </View>
-
                 {canWiden ? (
                   <Button
                     label={`See all ${cityTotal} in ${locality?.city}`}
@@ -1147,20 +1165,10 @@ export default function Home() {
             )}
           </ScrollView>
 
-          {/* Floating Airbnb-Style Map Pill Button — draggable, because it
-              floats over the feed and whichever card it covers is somebody's.
-              See `DraggableMapPill`. */}
-          {total > 0 && !feedLoading ? (
-            <DraggableMapPill
-              /* Named for what it does. It said "Map" and opened the area
-                 picker — there is no map view to open. */
-              label="Change area"
-              onPress={() => router.push('/(entry)/locality')}
-              bottomInset={barHeight + space[3]}
-            />
-          ) : null}
+          {/* The floating "Change area" pill is gone for good: the area is
+              changed from the hero's "Looking in" pill. */}
         </View>
-      ) : tab === 'saved' ? (
+      ) : pageTab === 'saved' ? (
         <ScrollView
           contentContainerStyle={{
             flexGrow: 1,
@@ -1224,7 +1232,7 @@ export default function Home() {
             </>
           )}
         </ScrollView>
-      ) : tab === 'food' ? (
+      ) : pageTab === 'food' ? (
         /* The Food module, behind its environment gate: production gets the
            promise, dev gets the work in progress. The gate lives in
            constants/food.ts and defaults to production — a missing env value
@@ -1241,7 +1249,7 @@ export default function Home() {
         ) : (
           <FoodComingSoon onExplore={() => setTab('explore')} />
         )
-      ) : tab === 'profile' ? (
+      ) : pageTab === 'profile' ? (
         /* Screen 64. Every row carries its current value, so most visits here
            end without a tap. */
         <ScrollView
@@ -1550,6 +1558,8 @@ export default function Home() {
 
         </ScrollView>
       )}
+      </Animated.View>
+      ) : null}
 
       {/*
         The Food module, kept mounted once built — see `foodMounted`.
@@ -1564,32 +1574,37 @@ export default function Home() {
         route, so it never passes through that layout and would otherwise
         inherit the stay scale.
       */}
-      {foodBuilt && foodMounted ? (
-        <View
-          style={tab === 'food' ? styles.foodHost : styles.foodHidden}
+      {foodPageReady ? (
+        <Animated.View
+          style={[
+            showFoodPage ? styles.foodPage : styles.foodHidden,
+            { backgroundColor: colors.bg },
+            foodPageStyle,
+          ]}
           accessibilityElementsHidden={tab !== 'food'}
           importantForAccessibility={tab === 'food' ? 'auto' : 'no-hide-descendants'}
+          pointerEvents={tab === 'food' ? 'auto' : 'none'}
         >
-          <TypographyScope module="food">
-            <FoodModule onBannerUnderHeader={setBannerUnderHeader} active={tab === 'food'} />
-          </TypographyScope>
-        </View>
+          {foodTab === 'home' ? null : foodHeader}
+          <OfflineBanner offline={offline} />
+          <View style={styles.foodHost}>
+            <TypographyScope module="food">
+              <FoodModule onBannerUnderHeader={setBannerUnderHeader} active={tab === 'food'} />
+            </TypographyScope>
+          </View>
+          {/* Pinned over the banner on Food Home, so the artwork runs to the
+              top of the screen. After the content, because render order is
+              the one way to paint over the banner on both platforms without
+              leaning on `zIndex`; `box-none` so the artwork underneath still
+              takes taps wherever the bar's own controls do not. */}
+          {foodTab === 'home' ? (
+            <View style={styles.pinnedHeader} pointerEvents="box-none">
+              {foodHeader}
+            </View>
+          ) : null}
+        </Animated.View>
       ) : null}
-
-      {/* Rendered HERE, after the content, rather than up where the in-flow
-          header goes: it has to paint over the banner, and render order is
-          the one way to guarantee that on both platforms without leaning on
-          `zIndex`, which Android resolves through `elevation` and not always
-          the way the tree reads.
-
-          `box-none` so the artwork underneath still takes taps everywhere
-          the bar's own controls do not — the "Order Now" painted into the
-          picture sits directly under this. */}
-      {inFoodHome ? (
-        <View style={styles.pinnedHeader} pointerEvents="box-none">
-          {header}
-        </View>
-      ) : null}
+      </View>
 
       {/* Whatever is half-finished, in the layout directly above the bar —
           see `OngoingStrip`. Hidden inside Food, which is a different module
@@ -1639,6 +1654,10 @@ export default function Home() {
           setId={tab === 'food' ? 'food' : 'stay'}
           /* Lime on the stay side, the Food door's orange inside Food. */
           accent={tab === 'food' ? 'ember' : 'brand'}
+          /* No edge tab while an active strip is on screen — the cart bar
+             inside Food, the ongoing strip on the stay side — because it would
+             sit on the strip. The door in the bar stays. */
+          hideEdgeTab={inFoodModule ? cartCount > 0 : ongoing.length > 0}
         />
       </View>
 
@@ -1715,36 +1734,15 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   pinnedHeader: { position: 'absolute', top: 0, left: 0, right: 0 },
+  /* The two module pages: stay in flow, food laid over it, so both can be on
+     screen while one slides out and the other in. */
+  pages: { flex: 1, overflow: 'hidden' },
+  stayPage: { flex: 1 },
+  foodPage: { ...StyleSheet.absoluteFillObject },
   foodHost: { flex: 1 },
   foodHidden: { display: 'none' },
   dockedBar: { position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center' },
   identity: { flexDirection: 'row', alignItems: 'center' },
   avatar: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
   couponCard: { padding: 16, gap: 2 },
-  resultsSortHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
-  },
-  resultsCountText: {
-    flex: 1,
-    fontSize: 13.5,
-    fontWeight: '700',
-    marginRight: 8,
-  },
-  sortDropdownButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 4,
-    paddingHorizontal: 0,
-  },
-  sortPrefixText: {
-    fontSize: 13,
-    fontWeight: '400',
-  },
-  sortActiveText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
 });

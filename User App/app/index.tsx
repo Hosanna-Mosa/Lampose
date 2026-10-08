@@ -12,12 +12,13 @@ import { useAuth } from '@/context/AuthContext';
  * and first-run flags hydrate, then hands over:
  *
  *   still hydrating           → wait
- *   first run (`onboarding`)  → sign-in, then categories, then locality —
- *                               every step, in order, for every new install
+ *   first run (`onboarding`)  → sign-in, then categories — every step, in
+ *                               order, for every new install
  *   no category yet           → the category choice, which is REQUIRED and
  *                               filters everything after it
- *   no locality yet           → the one-time location screen
- *   otherwise                 → home
+ *   otherwise                 → home, with or without an area chosen; the
+ *                               area is picked from home's header, never
+ *                               asked for on the way in
  *
  * ## The first run is a walk-through, not a set of blanks
  *
@@ -76,7 +77,7 @@ let splashPlayed = false;
 
 export default function Index() {
   const { status } = useAuth();
-  const { hydrating, locality, category, onboarding } = useAppState();
+  const { hydrating, category, onboarding } = useAppState();
   const [splashDone, setSplashDone] = useState(splashPlayed);
 
   const ready = status !== 'hydrating' && !hydrating;
@@ -102,7 +103,9 @@ export default function Index() {
   if (onboarding === 'auth' || onboarding === 'category') {
     return <Redirect href="/(entry)/categories" />;
   }
-  if (onboarding === 'locality') return <Redirect href="/(entry)/locality" />;
+  /* The location screen is no longer a step: the app opens straight into
+     home, whose header ("Choose an area") is where an area is picked. An
+     install whose walk-through stopped at that step simply goes home. */
 
   // Guest or signed in, both browse — see the header. Anything else
   // ('hydrating' cannot reach here past `ready` above; 'awaitingCode' means
@@ -113,6 +116,5 @@ export default function Index() {
   // screen. It is also the input the location screen below is filtered by —
   // see the note above.
   if (!category) return <Redirect href="/(entry)/categories" />;
-  if (!locality) return <Redirect href="/(entry)/locality" />;
   return <Redirect href="/home" />;
 }

@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
-import { metaLine, walkLabel } from '@/services/adapters/food.adapter';
+import { metaLine } from '@/services/adapters/food.adapter';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Chip, IconButton, SearchField, Text } from '@/components/ui';
@@ -47,11 +47,6 @@ type PriceBand = 'any' | 'under80' | 'under150';
 export function FoodSearch({ onBack }: { onBack?: () => void }) {
   const { dishes: allDishes, findKitchen, kitchensFor, kitchens, kitchenOpen } = useFoodCatalogue();
 
-  /* Walking times exist only when the feed was asked with the student's
-     coordinates. With none, every kitchen reads 0 and a "under 10 min walk"
-     filter would match all of them — a control that appears to narrow and
-     does nothing is worse than one that is not offered. */
-  const haveDistances = kitchens.some((kitchen) => kitchen.walkMinutes > 0);
   const { colors, space, layout, radius } = useTheme();
   /* The bar floats over this screen and gets out of the way while it is read
      down — see `BottomBarContext`. */
@@ -62,7 +57,6 @@ export function FoodSearch({ onBack }: { onBack?: () => void }) {
 
   const [query, setQuery] = useState('');
   const [price, setPrice] = useState<PriceBand>('any');
-  const [nearbyOnly, setNearbyOnly] = useState(false);
   /* Starts EMPTY — the user's own searches only. "biryani" and "filter coffee"
      were seeded in as if this person had searched them. */
   const [recent, setRecent] = useState<readonly string[]>([]);
@@ -95,7 +89,6 @@ export function FoodSearch({ onBack }: { onBack?: () => void }) {
         if (!kitchen) return false;
         if (preferences.vegOnly && dish.diet !== 'veg') return false;
         if (dish.price > ceiling) return false;
-        if (haveDistances && nearbyOnly && kitchen.walkMinutes > 10) return false;
         if (!term) return true;
         return (
           dish.name.toLowerCase().includes(term) ||
@@ -105,7 +98,7 @@ export function FoodSearch({ onBack }: { onBack?: () => void }) {
         );
       })
       .sort((a, b) => a.price - b.price);
-  }, [allDishes, term, ceiling, nearbyOnly, preferences.vegOnly]);
+  }, [allDishes, term, ceiling, preferences.vegOnly]);
 
   const matchingKitchens = useMemo(() => {
     if (!term) return [];
@@ -115,7 +108,7 @@ export function FoodSearch({ onBack }: { onBack?: () => void }) {
   }, [term, kitchensFor]);
 
   const activeFilters =
-    (price !== 'any' ? 1 : 0) + (haveDistances && nearbyOnly ? 1 : 0) + (preferences.vegOnly ? 1 : 0);
+    (price !== 'any' ? 1 : 0) + (preferences.vegOnly ? 1 : 0);
   /**
    * Whether there is anything on THIS row for the summary chip to clear.
    *
@@ -126,7 +119,7 @@ export function FoodSearch({ onBack }: { onBack?: () => void }) {
    * no veg-only toggle to put back, so a tap here can only ever clear price
    * and the nearby toggle.
    */
-  const rowFiltersActive = price !== 'any' || (haveDistances && nearbyOnly);
+  const rowFiltersActive = price !== 'any';
 
   const setDishQty = (dish: Dish, next: number) => {
     /* The row shows the TOTAL across this dish's lines (one per set of
@@ -214,14 +207,10 @@ export function FoodSearch({ onBack }: { onBack?: () => void }) {
             disabled={!rowFiltersActive}
             onPress={() => {
               setPrice('any');
-              setNearbyOnly(false);
             }}
           />
           <Chip label={`Under ${formatRupees(80)}`} selected={price === 'under80'} onPress={() => setPrice(price === 'under80' ? 'any' : 'under80')} />
           <Chip label={`Under ${formatRupees(150)}`} selected={price === 'under150'} onPress={() => setPrice(price === 'under150' ? 'any' : 'under150')} />
-          {haveDistances && (
-            <Chip label="Under 10 min walk" selected={nearbyOnly} onPress={() => setNearbyOnly(!nearbyOnly)} />
-          )}
         </ScrollView>
       </View>
 
@@ -241,7 +230,6 @@ export function FoodSearch({ onBack }: { onBack?: () => void }) {
           onPrimary={() => {
             if (term) setQuery('');
             setPrice('any');
-            setNearbyOnly(false);
           }}
         />
       ) : (
@@ -262,7 +250,7 @@ export function FoodSearch({ onBack }: { onBack?: () => void }) {
                   key={dish.id}
                   dish={dish}
                   layout="feed"
-                  meta={metaLine(kitchen?.name, kitchen ? walkLabel(kitchen) : null)}
+                  meta={kitchen?.name ?? ''}
                   qty={qtyOf(dish.id)}
                   onQtyChange={(next) => setDishQty(dish, next)}
                   onPress={() => router.push(foodHref.dish(dish.id))}
@@ -309,7 +297,7 @@ export function FoodSearch({ onBack }: { onBack?: () => void }) {
                 <View style={{ flex: 1 }}>
                   <Text variant="title3">{kitchen.name}</Text>
                   <Text variant="caption" color="tertiary" numberOfLines={1}>
-                    {metaLine(kitchen.cuisine, walkLabel(kitchen))}
+                    {kitchen.cuisine}
                   </Text>
                 </View>
                 <RatingPill rating={kitchen.rating} count={kitchen.ratingCount} />

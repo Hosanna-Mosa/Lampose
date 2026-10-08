@@ -56,6 +56,18 @@ const { markForRefund } = require('./foodPayment.controller');
 const { calculateOrderPricing, calculateDeliveryFee, FOOD_PRICING_CONFIG } = require('./foodPricing');
 const { BADGE, logError, startTimer } = require('./foodPartner.log');
 
+/**
+ * The most an order may come to and still be paid in cash at the door, in
+ * rupees. Above it the diner pays online. Checked when an order is placed as
+ * cash, and again when an unpaid online order is switched to cash — the app
+ * hides the option past this too, but the server is the one that decides.
+ */
+const COD_LIMIT_RUPEES = 2000;
+
+function codLimitMessage() {
+  return `Cash on delivery is available for orders up to ₹${COD_LIMIT_RUPEES.toLocaleString('en-IN')}. Please pay online.`;
+}
+
 const {
   makeOrderNumber, makeHandoverCode, customerView, restaurantSnapshot, restaurantArrangedDelivery, PAYMENT_MODES,
 } = FoodOrder;
@@ -387,6 +399,10 @@ const placeOrder = async (req, res, next) => {
      */
     const pricing = pricingFor(restaurant, itemsTotal, dropLocation);
     const grandTotal = pricing.customerPayable;
+
+    if (paymentMode === 'cod' && grandTotal > COD_LIMIT_RUPEES) {
+      return fail(res, 409, 'COD_LIMIT', codLimitMessage());
+    }
 
     /* Every order is a delivery, so it needs somewhere to go. An empty
        address was stored as '' and a rider was dispatched to nowhere. */
@@ -875,10 +891,105 @@ const confirmMyDelivery = async (req, res, next) => {
   }
 };
 
+// @route   PATCH /api/v2/food-partners/orders/:orderNumber/cash
+// @desc    Pay for a held online order in cash instead
+// @access  Customer session (owner only)
+//
+// The diner who backed out of the online payment. Their order exists, priced
+// and held — the kitchen has not been told about it — and rather than leave it
+// to expire they can choose to pay the rider at the door. It then goes exactly
+// where a cash order goes on placement: the kitchen is rung and the diner told.
+//
+// Only while it is still held: unpaid, not yet cancelled or expired, under the
+// cash limit, at a kitchen that takes cash. The switch is one conditional
+// write on those same facts, so a payment verifying in the same instant
+// cannot leave an order both paid online and owed in cash.
+const switchMyOrderToCash = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+
+    const order = await FoodOrder.findOne({
+      customerId: req.customer.customerId,
+      orderNumber: String(req.params.orderNumber || '').trim().toUpperCase(),
+    });
+    if (!order) return fail(res, 404, 'NOT_FOUND', 'We could not find that order.');
+
+    /* Asked twice — a double tap — is the same answer, not an error. */
+    if (order.paymentMode === 'cod') {
+      return res.json({ success: true, data: customerView(order), nextStep: 'track', notified: false });
+    }
+    if (order.paymentStatus === 'paid') {
+      return fail(res, 409, 'ALREADY_PAID', 'This order is already paid for. Nothing more is owed.');
+    }
+    if (order.status !== 'placed') {
+      return fail(res, 409, 'ORDER_CLOSED', 'This order is no longer waiting for payment. Please place it again.');
+    }
+    if (order.grandTotal > COD_LIMIT_RUPEES) {
+      return fail(res, 409, 'COD_LIMIT', codLimitMessage());
+    }
+
+    const restaurant = await FoodRestaurant.findOne({ restaurantId: order.restaurantId }).lean();
+    if (!restaurant || restaurant.acceptsCod === false) {
+      return fail(res, 409, 'COD_UNAVAILABLE', 'This restaurant is not taking cash on delivery.');
+    }
+
+    const now = new Date();
+    const switched = await FoodOrder.findOneAndUpdate(
+      {
+        _id: order._id,
+        paymentMode: 'online',
+        paymentStatus: { $in: ['pending', 'failed'] },
+        status: 'placed',
+      },
+      {
+        $set: { paymentMode: 'cod', paymentStatus: 'pending' },
+        $push: {
+          statusHistory: {
+            status: 'placed',
+            at: now,
+            by: 'customer',
+            note: 'Switched to cash on delivery after the online payment was not completed',
+          },
+        },
+      },
+      { new: true },
+    );
+
+    if (!switched) {
+      /* Something moved underneath — say what it moved to. */
+      const fresh = await FoodOrder.findById(order._id).lean();
+      if (fresh && fresh.paymentStatus === 'paid') {
+        return fail(res, 409, 'ALREADY_PAID', 'Your online payment just came through, so this order is paid.');
+      }
+      return fail(res, 409, 'ORDER_CLOSED', 'This order is no longer waiting for payment. Please place it again.');
+    }
+
+    console.log(`${BADGE} [Switched to Cash] ${switched.orderNumber} · ₹${switched.grandTotal}`);
+
+    /* Now it is a cash order, and a cash order rings the kitchen on placement. */
+    const placed = switched.toObject();
+    const alert = await notifyRestaurantOfOrder(placed);
+    await notifyCustomerOfOrder(placed);
+
+    return res.json({
+      success: true,
+      message: 'Your order is with the kitchen. Pay the rider at your door.',
+      data: customerView(switched),
+      nextStep: 'track',
+      notified: alert.sent > 0,
+    });
+  } catch (error) {
+    logError('switching an order to cash', error);
+    return next(error);
+  }
+};
+
 module.exports = {
   quoteOrder,
-  placeOrder, listMyOrders, getMyOrder, cancelMyOrder, confirmMyDelivery,
+  placeOrder, listMyOrders, getMyOrder, cancelMyOrder, confirmMyDelivery, switchMyOrderToCash,
 };
+
+module.exports.COD_LIMIT_RUPEES = COD_LIMIT_RUPEES;
 
 /* Exported for the website's tracking page (`foodweb/orders.controller.js`),
    which needs the same answer the app gets and must not grow a second copy of

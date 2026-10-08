@@ -17,6 +17,7 @@ import {
   quoteFoodOrder,
   type PlaceOrderLine,
   startFoodPayment,
+  switchFoodOrderToCash,
   type PaymentIntent,
   type ServerFoodOrder,
 } from '@/services/api/foodOrders.api';
@@ -274,6 +275,8 @@ export type FoodContextValue = {
    */
   startPayment: (id: string) => Promise<PaymentIntent>;
   cancelOrder: (id: string, reason: string) => Promise<void>;
+  /** Pay a held online order in cash at the door instead. Throws the server's refusal. */
+  payOrderInCash: (id: string) => Promise<void>;
   /** Close a restaurant-delivered order: "it reached me". See `confirmFoodDelivery`. */
   confirmDelivered: (id: string) => Promise<void>;
 
@@ -1050,6 +1053,7 @@ function toFoodAddress(row: SavedAddress): FoodAddress {
     title: addressTitle(row),
     detail: addressLine(row),
     instructions: row.instructions || undefined,
+    isDefault: row.isDefault,
     ...(row.location ? { lng: row.location[0], lat: row.location[1] } : null),
   };
 }
@@ -1378,7 +1382,9 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
     if (!held) return;
     const order = orders.find((entry) => entry.id === held.id);
     if (!order) return;
-    if (order.paymentLabel === 'Paid online') {
+    /* Paid online, or switched to cash after the payment was abandoned —
+       either way the kitchen has it now and the cart is spent. */
+    if (order.paymentLabel === 'Paid online' || order.paymentLabel === 'Cash on delivery') {
       if (held.signature === cartSignature) clear();
       setHeld(null);
     } else if (order.status === 'cancelled' || order.status === 'rejected') {
@@ -1601,6 +1607,23 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
        the status was patched before, so the payment label stayed "Paid" over a
        refund-owed order, and the timeline and money lines kept their pre-cancel
        state until something else happened to re-read it. */
+    setOrders((current) =>
+      current.map((entry) =>
+        entry.id === id
+          ? {
+            ...toAppOrder(row, row.restaurant?.name || entry.kitchenName, new Date()),
+            placedLabel: entry.placedLabel,
+          }
+          : entry,
+      ),
+    );
+  }, []);
+
+  /* Same shape as `cancelOrder`. The returned row is now a cash order, which
+     is what the held-order effect above reads to empty the cart. */
+  const payOrderInCash = useCallback(async (id: string) => {
+    const row = await switchFoodOrderToCash(id);
+    if (!row) return;
     setOrders((current) =>
       current.map((entry) =>
         entry.id === id
@@ -1852,6 +1875,7 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       refreshOrder,
       startPayment,
       cancelOrder,
+      payOrderInCash,
       confirmDelivered,
       foodUnread,
       markFoodNotificationsSeen,
@@ -1906,6 +1930,7 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       refreshOrder,
       startPayment,
       cancelOrder,
+      payOrderInCash,
       confirmDelivered,
       foodUnread,
       markFoodNotificationsSeen,

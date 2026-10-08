@@ -20,8 +20,10 @@ const googleServicesPath = path.join(__dirname, 'google-services.json');
 const googleServicesFile = process.env.GOOGLE_SERVICES_JSON
   || (fs.existsSync(googleServicesPath) ? './google-services.json' : undefined);
 
-const adaptiveIconPath = path.join(__dirname, 'assets/images/adaptive-icon.png');
-const adaptiveIcon = fs.existsSync(adaptiveIconPath) ? './assets/images/adaptive-icon.png' : undefined;
+/* The script "Lampose" logo (Oct 2026), white on transparent and inside the
+   adaptive icon's 66% safe zone; its plate is `BRAND.launch`. */
+const adaptiveIconPath = path.join(__dirname, 'assets/images/adaptive-icon-foreground.png');
+const adaptiveIcon = fs.existsSync(adaptiveIconPath) ? './assets/images/adaptive-icon-foreground.png' : undefined;
 
 /**
  * Brand colours for the NATIVE chrome — keep in sync with `constants/tokens.ts`.
@@ -34,9 +36,11 @@ const adaptiveIcon = fs.existsSync(adaptiveIconPath) ? './assets/images/adaptive
  * every cold start opened on a navy launch screen and handed over to a green
  * one, and every push notification arrived tinted purple.
  *
- * GROUND rather than INK for the launch background, so the hand-off to the
- * first React screen is invisible: the splash and `colors.bg` are now the same
- * value. The old dark background was a visible flash against a light app.
+ * LAUNCH is the logo's own green, the colour the animated splash
+ * (`components/auth/SplashSequence.tsx`) opens on, so the hand-off from the
+ * OS's launch screen to the first React frame is invisible. The splash then
+ * fades the whole screen out into the app, which is where the light `colors.bg`
+ * takes over — that fade is the transition, so there is no hard flash.
  *
  * ACCENT is the notification tint — the one place the colour is seen outside
  * the app entirely, in the shade next to other apps' icons.
@@ -50,6 +54,10 @@ const BRAND = {
   // explains: a launch screen out of sync with the first React frame is a
   // visible flash on cold start.
   background: '#FFFFFF',
+  // The new logo's green, sampled from the logo artwork. Kept equal to
+  // `LOGO.green` in `components/auth/SplashSequence.tsx`, so the launch
+  // screen hands over to the animated splash with no change of colour.
+  launch: '#0A714E',
 };
 
 export default {
@@ -58,14 +66,16 @@ export default {
     slug: 'lampose',
     version: '1.0.3',
     orientation: 'portrait',
-    icon: './assets/images/icon.jpeg',
+    icon: './assets/images/app-icon.png',
     scheme: 'lampose',
     userInterfaceStyle: 'automatic',
     newArchEnabled: true,
+    /* Only the green: the animated splash writes the logo in, so the OS must
+       not show it first and have it vanish. */
     splash: {
-      image: './assets/images/icon.jpeg',
+      image: './assets/images/splash-blank.png',
       resizeMode: 'contain',
-      backgroundColor: BRAND.background,
+      backgroundColor: BRAND.launch,
     },
     ios: {
       supportsTablet: false,
@@ -104,8 +114,8 @@ export default {
       versionCode: 5,
       ...(googleServicesFile ? { googleServicesFile } : {}),
       adaptiveIcon: {
-        foregroundImage: adaptiveIcon || './assets/images/icon.jpeg',
-        backgroundColor: BRAND.background,
+        foregroundImage: adaptiveIcon || './assets/images/app-icon.png',
+        backgroundColor: BRAND.launch,
       },
       permissions: [
         'POST_NOTIFICATIONS',
@@ -127,7 +137,7 @@ export default {
       color: BRAND.accent,
     },
     web: {
-      favicon: './assets/images/icon.jpeg',
+      favicon: './assets/images/app-icon.png',
       bundler: 'metro',
     },
     plugins: [

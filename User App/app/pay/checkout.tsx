@@ -8,6 +8,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Spinner, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
 import { API_BASE_URL } from '@/services/api/config';
+import { foodHref } from '@/components/food/routes';
+import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
 
 /**
@@ -55,15 +57,39 @@ export default function PaymentCheckout() {
     from?: string;
   }>();
 
+  const { refreshOrder } = useFood();
   const [failed, setFailed] = useState(false);
   /* Bumped by "Try again" to open the browser once more. */
   const [attempt, setAttempt] = useState(0);
   /* Guards the navigation away, so it happens once. */
   const done = useRef(false);
 
-  const leave = useCallback(() => {
+  const leave = useCallback(async () => {
     if (done.current) return;
     done.current = true;
+
+    /*
+      A food order that is still unpaid — the browser was closed, or the
+      payment was abandoned — goes to the screen that says so and offers
+      to pay again, to pay in cash instead, or to cancel. It used to land on
+      the tracking screen, which read as the order having gone through.
+
+      Asked of the SERVER, since closing the browser proves nothing. A read
+      that fails falls through to the order screen, as before, which polls.
+    */
+    if (foodToken && orderNumber) {
+      const fresh = await refreshOrder(String(orderNumber));
+      const settled = fresh?.paymentLabel === 'Paid online' || fresh?.paymentLabel === 'Cash on delivery';
+      if (fresh && !settled) {
+        router.replace(foodHref.paymentIncomplete(String(orderNumber)));
+        return;
+      }
+      /* Paid: the celebration first, which goes on to the order itself. */
+      if (fresh && settled) {
+        router.replace(foodHref.orderPlaced(String(orderNumber), from === 'order' ? 'order' : undefined));
+        return;
+      }
+    }
 
     /*
       A food order gets REPLACED onto its tracking screen rather than popped.
@@ -90,7 +116,7 @@ export default function PaymentCheckout() {
        it re-checks the payment with the server when it regains focus. */
     if (router.canGoBack()) router.back();
     else router.replace((returnTo as never) ?? ('/home' as never));
-  }, [router, returnTo, foodToken, orderNumber, from]);
+  }, [router, returnTo, foodToken, orderNumber, from, refreshOrder]);
 
   /* Built here rather than passed in, so this screen can only ever open our
      own API with our own redirect. */
@@ -113,7 +139,7 @@ export default function PaymentCheckout() {
            when the student closes the browser (cancel/dismiss). Either way the
            server is the one that knows whether it was paid. */
         await WebBrowser.openAuthSessionAsync(url, PAYMENT_RETURN_URL);
-        if (!cancelled) leave();
+        if (!cancelled) void leave();
       } catch {
         /* No browser could be opened at all. Nothing has been charged. */
         if (!cancelled) setFailed(true);

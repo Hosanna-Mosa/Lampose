@@ -29,6 +29,11 @@ export type BillBreakdownProps = {
   totalLabel: string;
   /** Small print under the total — what the total does and does not include. */
   footnote?: string;
+  /**
+   * Drawn inside a card that prints the total itself — the cart's folded
+   * "To pay" row. No card of its own, and no total row to print it twice.
+   */
+  embedded?: boolean;
 };
 
 /**
@@ -45,16 +50,20 @@ export type BillBreakdownProps = {
  * and a student comparing a receipt against a cart they remember will find that
  * disagreement before anyone else does.
  */
-export function BillBreakdown({ lines, total, totalLabel, footnote }: BillBreakdownProps) {
+export function BillBreakdown({ lines, total, totalLabel, footnote, embedded }: BillBreakdownProps) {
   const { colors, space, radius } = useTheme();
   const [open, setOpen] = useState<Record<string, boolean>>({});
 
   return (
     <View
-      style={[
-        styles.card,
-        { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, padding: space[4] },
-      ]}
+      style={
+        embedded
+          ? null
+          : [
+              styles.card,
+              { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, padding: space[4] },
+            ]
+      }
     >
       {lines.map((line) => {
         if (line.group && !open[line.group]) return null;
@@ -100,14 +109,16 @@ export function BillBreakdown({ lines, total, totalLabel, footnote }: BillBreakd
         );
       })}
 
-      <View style={[styles.rule, { borderTopColor: colors.borderSubtle, marginTop: space[1], paddingTop: space[3] }]}>
-        <View style={styles.row}>
-          <Text variant="title2" style={{ flex: 1 }}>
-            {totalLabel}
-          </Text>
-          <Text variant="priceHero">{formatRupees(total)}</Text>
+      {embedded ? null : (
+        <View style={[styles.rule, { borderTopColor: colors.borderSubtle, marginTop: space[1], paddingTop: space[3] }]}>
+          <View style={styles.row}>
+            <Text variant="title2" style={{ flex: 1 }}>
+              {totalLabel}
+            </Text>
+            <Text variant="priceHero">{formatRupees(total)}</Text>
+          </View>
         </View>
-      </View>
+      )}
 
       {footnote ? (
         <Text variant="caption" color="tertiary" style={{ marginTop: space[2] }}>
