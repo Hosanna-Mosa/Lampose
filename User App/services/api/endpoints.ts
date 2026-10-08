@@ -260,6 +260,9 @@ export const endpoints = {
     `${V2}/food-partners/orders/${encodeURIComponent(orderNumber)}`,
   foodOrderCancel: (orderNumber: string) =>
     `${V2}/food-partners/orders/${encodeURIComponent(orderNumber)}/cancel`,
+  /** An unpaid online order, paid in cash at the door instead. */
+  foodOrderCash: (orderNumber: string) =>
+    `${V2}/food-partners/orders/${encodeURIComponent(orderNumber)}/cash`,
   /** The diner confirms a RESTAURANT-arranged delivery reached them. A Lampose
       rider's delivery is closed by the PIN at the door instead. */
   foodOrderDelivered: (orderNumber: string) =>

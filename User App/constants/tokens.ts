@@ -490,6 +490,13 @@ const darkColors: ThemeColors = {
 
 export const palettes = { light: lightColors, dark: darkColors };
 
+/**
+ * Food's burnt orange — the Food tab bar, the cart strip, and the food
+ * module's pay buttons. One value in both themes: it is the module's mark,
+ * and white reads on it either way.
+ */
+export const FOOD_EMBER = { base: '#C8441E', pressed: '#A8381A', on: '#FFFFFF', ink: '#C8441E' } as const;
+
 /* ------------------------------------------------------------------ *
  * Typography
  * ------------------------------------------------------------------ */

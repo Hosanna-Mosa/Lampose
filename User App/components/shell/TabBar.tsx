@@ -19,7 +19,7 @@ import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
 
 import { Icon, Text, type IconName, type IconSize } from '@/components/ui';
 import { component, easing } from '@/constants/motion';
-import type { ThemeColors } from '@/constants/tokens';
+import { FOOD_EMBER, type ThemeColors } from '@/constants/tokens';
 import { useBottomBar } from '@/context/BottomBarContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
@@ -79,6 +79,11 @@ const DOOR_LABEL = 11;
  *  this on top of the bar's height, or the glow would be the last thing left
  *  on screen. */
 const DOOR_GLOW = 14;
+/** How far right the door slides while the bar is hidden: past the dock's
+    16 pt side padding and its own width, so it is wholly off screen. */
+const DOOR_TUCK = 16 + DOOR_SIZE + 24;
+/** The tab that stands in for the door at the screen's edge. */
+const EDGE_TAB_WIDTH = 62;
 
 /**
  * The bar's palette. Fixed rather than themed: the bar is a dark green pill in
@@ -95,7 +100,8 @@ const BAR_COLORS = {
 };
 
 /** The Food door's burnt orange, with white on it. */
-const EMBER = { base: '#C8441E', on: '#FFFFFF', ink: '#C8441E' };
+/** Food's burnt orange (`FOOD_EMBER`). Exported so the food cart strip wears the same one. */
+export const EMBER = { base: FOOD_EMBER.base, on: FOOD_EMBER.on, ink: FOOD_EMBER.ink };
 
 /**
  * The bar's glyphs: an outline at rest and the SOLID shape when the tab is
@@ -196,6 +202,13 @@ export type TabBarProps = {
   /** The selected tab's bubble and ink. Defaults to the stay side's lime;
    *  Food passes `ember`. */
   accent?: TabAccent;
+  /**
+   * No edge tab while the bar is hidden on scroll. Set while an active strip
+   * (the food cart, a stay request in progress) owns the bottom of the
+   * screen, where the tab would sit on it. The door beside the bar is
+   * unaffected and comes back with the bar.
+   */
+  hideEdgeTab?: boolean;
 };
 
 /** Everything needed to draw one frame of the bar, so an outgoing set can be
@@ -253,8 +266,8 @@ type Placement = {
  * bottom-edge registry (so the snackbar clears it) and the bar context (so the
  * screens can pad by it).
  */
-export function TabBar({ tabs, activeId, onChange, collapsedTo, setId, accent = 'brand' }: TabBarProps) {
-  const { mode } = useTheme();
+export function TabBar({ tabs, activeId, onChange, collapsedTo, setId, accent = 'brand', hideEdgeTab = false }: TabBarProps) {
+  const { mode, colors } = useTheme();
   const insets = useSafeAreaInsets();
   const reduceMotion = useReduceMotion();
 
@@ -360,10 +373,23 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId, accent = 
   const { reserveBottom, releaseBottom } = usePendingRequest();
   useEffect(() => () => releaseBottom('tabbar'), [releaseBottom]);
 
-  /* How far off the bottom edge the bar currently is. */
+  /*
+   * How far the bar is hidden on scroll, 0 to 1. The pill slides off the
+   * bottom edge, and so does the door — off the RIGHT edge — while a small
+   * tab slides in against that edge in its place: the door's colour, an arrow
+   * and its name, as Zomato does with "Delivery". The other module stays one
+   * tap away however far down the feed somebody has read, in Stays and in
+   * Food alike.
+   */
   const { hidden, height, setHeight } = useBottomBar();
   const slide = useAnimatedStyle(() => ({
     transform: [{ translateY: hidden.value * (height + DOOR_GLOW + 20) }],
+  }));
+  const tuck = useAnimatedStyle(() => ({
+    transform: [{ translateX: hidden.value * DOOR_TUCK }],
+  }));
+  const edgeTab = useAnimatedStyle(() => ({
+    transform: [{ translateX: (1 - hidden.value) * (EDGE_TAB_WIDTH + 12) }],
   }));
 
   const measure = (event: LayoutChangeEvent) => {
@@ -391,13 +417,13 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId, accent = 
              time), so the bar never sits under the system's buttons. */
           paddingBottom: Math.max(insets.bottom, 20) + 4,
         },
-        slide,
       ]}
       pointerEvents="box-none"
     >
       <View style={styles.dock} pointerEvents="box-none">
-        <View
+        <Animated.View
           style={[
+            slide,
             styles.bar,
             collapsedNow
               ? styles.barCollapsed
@@ -471,18 +497,30 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId, accent = 
               faces={liveFaces}
             />
           </View>
-        </View>
+        </Animated.View>
 
         {door ? (
-          <DoorButton
-            tab={door}
-            active={!collapsedNow && door.id === live.activeId}
-            collapsed={!!collapsedNow}
-            accent={live.accent}
-            onPress={() => onChange(door.id)}
-          />
+          <Animated.View style={tuck}>
+            <DoorButton
+              tab={door}
+              active={!collapsedNow && door.id === live.activeId}
+              collapsed={!!collapsedNow}
+              accent={live.accent}
+              onPress={() => onChange(door.id)}
+            />
+          </Animated.View>
         ) : null}
       </View>
+
+      {door && !hideEdgeTab ? (
+        <EdgeTab
+          tab={door}
+          tone={toneSetOf(colors, door.tone ?? live.accent)}
+          bottom={Math.max(insets.bottom, 20) + 4}
+          style={edgeTab}
+          onPress={() => onChange(door.id)}
+        />
+      ) : null}
     </Animated.View>
   );
 }
@@ -1065,6 +1103,45 @@ function Ruler({ tabs, onMeasure }: { tabs: readonly TabItem[]; onMeasure: (key:
 }
 
 /**
+ * The door's stand-in while the bar is hidden: a tab against the right edge
+ * with an arrow and the door's name. It does what the door does.
+ */
+function EdgeTab({
+  tab,
+  tone,
+  bottom,
+  style,
+  onPress,
+}: {
+  tab: TabItem;
+  tone: { base: string; on: string };
+  bottom: number;
+  style: React.ComponentProps<typeof Animated.View>['style'];
+  onPress: () => void;
+}) {
+  return (
+    <Animated.View style={[styles.edgeTab, { bottom, backgroundColor: tone.base }, style]}>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`Go to ${tab.label}`}
+        hitSlop={6}
+        style={StyleSheet.absoluteFill}
+      />
+      <Ionicons name="arrow-forward" size={18} color={tone.on} pointerEvents="none" />
+      <Text
+        variant="caption"
+        numberOfLines={1}
+        pointerEvents="none"
+        style={{ color: tone.on, fontSize: DOOR_LABEL, lineHeight: DOOR_LABEL + 3, fontWeight: '700' }}
+      >
+        {tab.label}
+      </Text>
+    </Animated.View>
+  );
+}
+
+/**
  * The door: a filled rounded-square button beside the bar, its glyph and its
  * name both inside it.
  *
@@ -1341,6 +1418,23 @@ const styles = StyleSheet.create({
     left: BUBBLE_GAP,
     right: BUBBLE_GAP,
     borderRadius: BUBBLE_RADIUS,
+  },
+  /* Flush to the right edge, rounded on its open side. */
+  edgeTab: {
+    position: 'absolute',
+    right: 0,
+    width: EDGE_TAB_WIDTH,
+    height: DOOR_SIZE,
+    borderTopLeftRadius: DOOR_RADIUS,
+    borderBottomLeftRadius: DOOR_RADIUS,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    shadowColor: '#000000',
+    shadowOffset: { width: -2, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
   },
   /* The door's touch area: the button plus room for its press dip. */
   doorPress: { width: DOOR_SIZE, height: DOOR_SIZE, alignItems: 'center', justifyContent: 'center' },

@@ -349,17 +349,6 @@ export function deliveryLabel(kitchen: FoodKitchen): string {
   return `Delivery from ${formatRupees(kitchen.deliveryFee)}`;
 }
 
-/**
- * "8 min walk", or nothing.
- *
- * Null when the feed was asked without coordinates, because then the distance
- * is genuinely unknown and `walkMinutes` is 0 — and "0 min walk" printed on a
- * card reads as a kitchen next door rather than as a missing measurement.
- * Every screen that shows a walking time goes through this.
- */
-export function walkLabel(kitchen: Pick<Kitchen, 'walkMinutes'>): string | null {
-  return kitchen.walkMinutes > 0 ? `${kitchen.walkMinutes} min walk` : null;
-}
 
 /** Join the parts we actually have, so a missing one leaves no stray separator. */
 export function metaLine(...parts: (string | null | undefined)[]): string {

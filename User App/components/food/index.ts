@@ -27,6 +27,8 @@ export { ActiveOrderCard, FoodStatusChip, FoodTimeline, timelineIndex } from './
 export { FoodNotice, FoodSectionHeader, OfferStrip, type FoodNoticeTone } from './FoodNotices';
 export { FoodEmptyState, FoodFeedSkeleton, FoodMenuSkeleton, type FoodEmptyStateProps } from './FoodStates';
 export { CartSwitchSheet, type CartSwitchSheetProps } from './CartSwitchSheet';
+export { AddressSheet, type AddressSheetProps } from './AddressSheet';
+export { CancellationPolicy } from './CancellationPolicy';
 export { VegModeSheet, type VegModeSheetProps } from './VegModeSheet';
 export { VegModeTransition, type VegModeTransitionProps } from './VegModeTransition';
 export { VegModeButton, type VegModeButtonProps } from './VegModeButton';

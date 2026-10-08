@@ -10,3 +10,11 @@
  * than the change.
  */
 export { FOOD_MODE, type FoodMode } from './env';
+
+/**
+ * The most an order may come to and still be paid in cash at the door, in
+ * rupees. The server enforces it (`COD_LIMIT_RUPEES` in the backend's
+ * `foodCustomerOrder.controller.js`); this copy only decides what to offer,
+ * so the two must be changed together.
+ */
+export const COD_LIMIT_RUPEES = 2000;

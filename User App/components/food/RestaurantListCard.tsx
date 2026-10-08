@@ -6,7 +6,7 @@ import { Icon, Text } from '@/components/ui';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { pressScale, usePressAnimation } from '@/hooks/usePressAnimation';
 import type { Dish, Kitchen } from '@/types/food';
-import { metaLine, takesTableBookings, walkLabel } from '@/services/adapters/food.adapter';
+import { metaLine, takesTableBookings } from '@/services/adapters/food.adapter';
 import { formatRupees } from '@/utils/money';
 
 import { FavouriteHeart } from './FavouriteHeart';
@@ -183,11 +183,13 @@ export function RestaurantListCard({
               {open ? <RatingPill rating={kitchen.rating} count={kitchen.ratingCount} /> : null}
             </View>
 
-            {timeLabel || walkLabel(kitchen) ? (
+            {/* The ready time only. A walking time used to follow it, and on a
+                delivery-only service it said nothing anybody needed. */}
+            {timeLabel ? (
               <View style={[styles.metaRow, { gap: space[1] + 2 }]}>
                 <Icon name="clock" size={16} color={colors.textTertiary} />
                 <Text variant="caption" color="tertiary" numberOfLines={1}>
-                  {metaLine(timeLabel, walkLabel(kitchen))}
+                  {timeLabel}
                 </Text>
               </View>
             ) : null}

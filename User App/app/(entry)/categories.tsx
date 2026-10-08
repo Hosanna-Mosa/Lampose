@@ -71,37 +71,28 @@ function CategoryChoice() {
   const { colors, space, radius, layout, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { locality, setCategory, onboarding, completeOnboardingStep } = useAppState();
+  const { setCategory, onboarding, completeOnboardingStep } = useAppState();
 
   const [picked, setPicked] = useState<StayCategory | null>(null);
 
   const finish = async () => {
     if (!picked) return;
-    /* Read before it moves: during the first-run walk-through the location
-       screen comes next EVERY time, even when a locality is already stored. */
+    /* Read before it moves. */
     const firstRun = onboarding !== 'done';
     await setCategory(picked);
     await completeOnboardingStep('category');
+    /* The area is no longer asked for on the way in — it is picked from
+       home's header — so the walk-through ends here. */
+    if (firstRun) await completeOnboardingStep('locality');
     /*
-     * Two destinations, and deliberately two different VERBS.
-     *
-     * Going on to the area question is a `push`, because the student has to be
-     * able to come back and change what they just picked. `dismissTo` and
-     * `replace` both destroy this screen on the way out, which is what left
-     * the area screen with a dead back arrow and no way to revise a mis-tap on
-     * the very first thing the app asks. A push during the first-run chain is
-     * safe: the duplicate-screen bug this flow had was never about pushing, it
-     * was about REPLACING onto a route that was already in the stack.
-     *
-     * Going back to the feed is `dismissTo`, because `/home` is already behind
+     * Into the feed with `dismissTo`, because `/home` is already behind
      * this screen whenever the category is being changed rather than answered.
      * `replace` there would pop this and push a SECOND home on top of the
      * first — that is the duplication, and `dismissTo` returns to the existing
      * one instead. It still falls back to a replace when no home is in the
      * stack, so it is safe on either path.
      */
-    if (locality && !firstRun) router.dismissTo('/home');
-    else router.push('/(entry)/locality');
+    router.dismissTo('/home');
   };
 
   return (

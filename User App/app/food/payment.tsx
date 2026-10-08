@@ -1,13 +1,13 @@
 import { useRouter } from 'expo-router';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 import { StatusBar } from 'expo-status-bar';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
-import { BillBreakdown, FoodEmptyState, FoodNotice, type BillLine } from '@/components/food';
+import { BillBreakdown, CancellationPolicy, FoodEmptyState, FoodNotice, type BillLine } from '@/components/food';
 import { foodHref } from '@/components/food/routes';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -15,6 +15,7 @@ import { formatRupees } from '@/utils/money';
 import { foodBillLines } from '@/components/food/foodBill';
 import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
 import { useAuth } from '@/context/AuthContext';
+import { COD_LIMIT_RUPEES } from '@/constants/food';
 
 type Method = { id: string; label: string; detail: string; disabled?: boolean };
 
@@ -67,7 +68,13 @@ export default function PaymentScreen() {
   const takesOnline = kitchen?.acceptsOnline !== false;
   const takesCash = kitchen?.acceptsCod !== false;
   const isOpen = kitchen ? kitchenOpen(kitchen) : false;
-  const [method, setMethod] = useState<string>(takesOnline ? 'online' : 'cash');
+  /* Cash only up to the limit — the server refuses above it (`COD_LIMIT`). */
+  const cashOverLimit = toPay > COD_LIMIT_RUPEES;
+  const [method, setMethod] = useState<string>(takesOnline || cashOverLimit ? 'online' : 'cash');
+  /* A cart that grows past the limit while cash is chosen moves to online. */
+  useEffect(() => {
+    if (cashOverLimit && method === 'cash') setMethod('online');
+  }, [cashOverLimit, method]);
 
   /* Every order needs somewhere to go. This used to be scoped to the mode,
      because a collection order has no address to want — collection is no
@@ -102,7 +109,10 @@ export default function PaymentScreen() {
     {
       id: 'cash',
       label: 'Cash on delivery',
-      detail: 'Pay the rider at your door',
+      detail: cashOverLimit
+        ? `Only for orders up to ${formatRupees(COD_LIMIT_RUPEES)}`
+        : 'Pay the rider at your door',
+      disabled: cashOverLimit,
     },
   ];
 
@@ -167,7 +177,7 @@ export default function PaymentScreen() {
       placedId = order.id;
 
       if (nextStep === 'track') {
-        router.replace(foodHref.order(order.id, true));
+        router.replace(foodHref.orderPlaced(order.id));
         return;
       }
 
@@ -283,11 +293,8 @@ export default function PaymentScreen() {
           }
         />
 
-        <FoodNotice
-          tone="good"
-          title="We never see your UPI PIN"
-          body="Approving happens inside your bank's app. The kitchen starts as soon as the payment clears."
-        />
+        <CancellationPolicy />
+
 
         {/*
           ── The refusal, in the SERVER'S words ─────────────────────────────
@@ -365,8 +372,9 @@ export default function PaymentScreen() {
           }
           loading={state === 'paying'}
           loadingLabel={method === 'cash' ? 'Sending to the kitchen' : 'Opening your payment'}
+          variant="food"
           fullWidth
-          disabled={needsAddress || !isOpen || (method === 'cash' ? !takesCash : !takesOnline)}
+          disabled={needsAddress || !isOpen || (method === 'cash' ? !takesCash || cashOverLimit : !takesOnline)}
           /* Through the sign-in gate. `attemptPay` was written for exactly this
              and never wired: a guest pressed Pay straight into a placement the
              server refused, instead of being asked to sign in first. */

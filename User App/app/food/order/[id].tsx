@@ -831,9 +831,8 @@ export default function OrderScreen() {
             <Text variant="caption" style={{ color: colors.onGraphiteMuted }}>
               {order.fulfilment === 'pickup'
                 /* The order's OWN address (the first part — its title), not the
-                   cart's current one; and no "0 min walk" when the distance is
-                   unknown. */
-                ? `${kitchen?.landmark ?? 'the counter'}${kitchen?.walkMinutes ? ` · ${kitchen.walkMinutes} min walk` : ''}`
+                   cart's current one. */
+                ? (kitchen?.landmark ?? 'the counter')
                 : (order.deliveryAddress?.split(' · ')[0] || address?.title || 'your address')}
             </Text>
 

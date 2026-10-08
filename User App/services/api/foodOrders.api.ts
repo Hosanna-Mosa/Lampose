@@ -331,6 +331,17 @@ export async function confirmFoodDelivery(orderNumber: string): Promise<ServerFo
   return res?.data ?? null;
 }
 
+/**
+ * Pay for a held online order in cash instead — the diner backed out of the
+ * gateway. The server rings the kitchen as it would for a cash order, and
+ * refuses (in its own words) one that has been paid, has expired, is over the
+ * cash limit, or is at a kitchen that does not take cash.
+ */
+export async function switchFoodOrderToCash(orderNumber: string): Promise<ServerFoodOrder | null> {
+  const res = await api.patch<Envelope<ServerFoodOrder>>(endpoints.foodOrderCash(orderNumber), {});
+  return res?.data ?? null;
+}
+
 /** Cancel, while the kitchen has not started. Refused after that, by the server. */
 export async function cancelFoodOrder(orderNumber: string, reason?: string): Promise<ServerFoodOrder | null> {
   const res = await api.patch<Envelope<ServerFoodOrder>>(endpoints.foodOrderCancel(orderNumber), { reason });

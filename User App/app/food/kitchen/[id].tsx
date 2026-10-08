@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { dineInOf, metaLine, walkLabel } from '@/services/adapters/food.adapter';
+import { dineInOf, metaLine } from '@/services/adapters/food.adapter';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Pressable, RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 
@@ -400,7 +400,7 @@ export default function KitchenScreen() {
             <View style={styles.identityMeta}>
               <Icon name="mapPin" size={16} color={colors.textTertiary} />
               <Text variant="caption" color="secondary" numberOfLines={1} style={{ flex: 1 }}>
-                {metaLine(walkLabel(kitchen), kitchen.landmark || locality?.name)}
+                {kitchen.landmark || locality?.name}
               </Text>
             </View>
 

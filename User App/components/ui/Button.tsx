@@ -13,6 +13,7 @@ import Animated, {
 import { Icon, type IconName } from './Icon';
 import { Text } from './Text';
 import { ambient } from '@/constants/motion';
+import { FOOD_EMBER } from '@/constants/tokens';
 import { usePressAnimation } from '@/hooks/usePressAnimation';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 
@@ -30,7 +31,8 @@ import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 const ON_IMAGE_DISC = '#FFFFFF';
 const ON_IMAGE_INK = '#1A1917';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive';
+/** `food` is `primary` in Food's orange — the food module's pay buttons. */
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive' | 'food';
 export type ButtonSize = 'lg' | 'md' | 'sm' | 'xs';
 
 export type ButtonProps = {
@@ -132,6 +134,7 @@ export function Button({
   // heaviest thing on screen.
   const fills: Record<ButtonVariant, { rest: string; pressed: string }> = {
     primary: { rest: colors.brand, pressed: colors.brandPressed },
+    food: { rest: FOOD_EMBER.base, pressed: FOOD_EMBER.pressed },
     secondary: { rest: 'transparent', pressed: colors.surfaceSunken },
     ghost: { rest: 'transparent', pressed: colors.surfaceSunken },
     destructive: { rest: 'transparent', pressed: colors.danger.tint },
@@ -139,6 +142,7 @@ export function Button({
 
   const borders: Record<ButtonVariant, { color: string; width: number }> = {
     primary: { color: 'transparent', width: 0 },
+    food: { color: 'transparent', width: 0 },
     secondary: { color: colors.textPrimary, width: 1.5 },
     ghost: { color: 'transparent', width: 0 },
     destructive: { color: colors.danger.base, width: 1.5 },
@@ -146,6 +150,7 @@ export function Button({
 
   const labelColors: Record<ButtonVariant, string> = {
     primary: colors.onBrand,
+    food: FOOD_EMBER.on,
     secondary: colors.textPrimary,
     ghost: colors.brandInk,
     destructive: colors.danger.ink,

@@ -54,6 +54,7 @@ const {
 const { listMyOrders, getMyOrder, setOrderStatus } = require('./foodOrder.controller');
 const {
   placeOrder, quoteOrder, listMyOrders: listCustomerOrders, getMyOrder: getCustomerOrder, cancelMyOrder, confirmMyDelivery,
+  switchMyOrderToCash,
 } = require('./foodCustomerOrder.controller');
 const {
   startPayment, verifyPayment, renderCheckout, checkoutCallback,
@@ -324,6 +325,8 @@ router.post('/orders', customer, placeOrder);
 router.get('/orders', customer, listCustomerOrders);
 router.get('/orders/:orderNumber', customer, getCustomerOrder);
 router.patch('/orders/:orderNumber/cancel', customer, cancelMyOrder);
+/* An unpaid online order, paid in cash at the door instead. See the handler. */
+router.patch('/orders/:orderNumber/cash', customer, switchMyOrderToCash);
 /* "Delivered" — the diner says a website order has reached them. See the handler. */
 router.patch('/orders/:orderNumber/delivered', customer, confirmMyDelivery);
 
