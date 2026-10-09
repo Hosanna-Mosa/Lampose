@@ -23,7 +23,7 @@ export default {
   expo: {
     name: 'Lampose Partner',
     slug: 'lampose-food-partner',
-    version: '1.0.0',
+    version: '1.0.2',
     orientation: 'portrait',
     icon: './assets/images/icon.png',
     scheme: 'lamposepartner',
@@ -44,7 +44,7 @@ export default {
          tracked, so the Gradle file is what builds, but `expo prebuild`
          regenerates it from HERE and a stale value would be a version Play
          has already taken. */
-      versionCode: 3,
+      versionCode: 5,
       ...(googleServicesFile ? { googleServicesFile } : {}),
       adaptiveIcon: {
         foregroundImage: './assets/images/adaptive-icon.png',
