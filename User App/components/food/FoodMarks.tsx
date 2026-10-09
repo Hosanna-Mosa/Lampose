@@ -300,10 +300,9 @@ export type FoodPhotoProps = {
   brandFallback?: boolean;
 };
 
-/* The logo artwork is white on this exact green, so the well is filled with it
-   and the logo's own edges disappear into it. */
-const LOGO_GREEN = '#0C4D35';
-const LOGO = require('@/assets/images/lampose-logo-badge.png');
+/* The "lampose." logo, on transparent, sitting on the logo's own green. */
+const LOGO_GREEN = '#027C33';
+const LOGO = require('@/assets/images/logo-full.png');
 
 /**
  * A dish or kitchen photo, and the well it sits in.
@@ -401,6 +400,6 @@ const styles = StyleSheet.create({
   photoLabel: { marginBottom: 6 },
   mutedPhoto: { opacity: 0.45 },
   logoWell: { backgroundColor: LOGO_GREEN, alignItems: 'center', justifyContent: 'center' },
-  logo: { width: '62%', aspectRatio: 762 / 216 },
+  logo: { width: '62%', aspectRatio: 917 / 231 },
   logoSmall: { width: '88%' },
 });

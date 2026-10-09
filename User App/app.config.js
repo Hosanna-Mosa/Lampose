@@ -20,8 +20,8 @@ const googleServicesPath = path.join(__dirname, 'google-services.json');
 const googleServicesFile = process.env.GOOGLE_SERVICES_JSON
   || (fs.existsSync(googleServicesPath) ? './google-services.json' : undefined);
 
-/* The script "Lampose" logo (Oct 2026), white on transparent and inside the
-   adaptive icon's 66% safe zone; its plate is `BRAND.launch`. */
+/* The "lampose." logo (Oct 2026) on transparent, inside the adaptive icon's
+   66% safe zone; its plate is `BRAND.launch`. */
 const adaptiveIconPath = path.join(__dirname, 'assets/images/adaptive-icon-foreground.png');
 const adaptiveIcon = fs.existsSync(adaptiveIconPath) ? './assets/images/adaptive-icon-foreground.png' : undefined;
 
@@ -57,7 +57,7 @@ const BRAND = {
   // The new logo's green, sampled from the logo artwork. Kept equal to
   // `LOGO.green` in `components/auth/SplashSequence.tsx`, so the launch
   // screen hands over to the animated splash with no change of colour.
-  launch: '#0A714E',
+  launch: '#027C33',
 };
 
 export default {
@@ -70,10 +70,12 @@ export default {
     scheme: 'lampose',
     userInterfaceStyle: 'automatic',
     newArchEnabled: true,
-    /* Only the green: the animated splash writes the logo in, so the OS must
-       not show it first and have it vanish. */
+    /* The logo on its green — the same picture the animated splash starts
+       from (`components/auth/SplashSequence.tsx`), so the hand-over does not
+       jump. The checked-in `android/` project carries the same image as
+       `splashscreen_logo` at every density. */
     splash: {
-      image: './assets/images/splash-blank.png',
+      image: './assets/images/splash-logo.png',
       resizeMode: 'contain',
       backgroundColor: BRAND.launch,
     },
@@ -133,7 +135,8 @@ export default {
       },
     },
     notification: {
-      icon: './assets/images/icon.jpeg',
+      /* The logo's shape, white on transparent — Android draws only its alpha. */
+      icon: './assets/images/notification-icon.png',
       color: BRAND.accent,
     },
     web: {
@@ -171,7 +174,7 @@ export default {
       [
         'expo-notifications',
         {
-          icon: './assets/images/icon.png',
+          icon: './assets/images/notification-icon.png',
           color: BRAND.accent,
           defaultChannel: 'stay-requests',
         },

@@ -22,8 +22,8 @@
 
       `SystemNavigationBar` sets this properly once React is up, keyed to the
       resolved theme, and that is the value that lasts. This is only the
-      default for the frames before JS has run — where the splash screen is
-      already white (`splashscreen_background`), so light glyphs would be
+      default for the frames before JS has run — where the first screen is
+      white, so light glyphs would be
       white-on-white until the app boots.
     -->
     <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
@@ -38,7 +38,8 @@
     <item name="android:windowSplashScreenBehavior">icon_preferred</item>
     <!-- Repeated rather than inherited: this theme's parent is
          `Theme.SplashScreen`, not `AppTheme`, so it does not pick the
-         attribute above up. Same reason — the splash ground is white. -->
-    <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
+         attribute above up. The splash ground is the logo's green
+         (`splashscreen_background`), so the glyphs on it are LIGHT. -->
+    <item name="android:windowLightNavigationBar" tools:targetApi="27">false</item>
   </style>
 </resources>

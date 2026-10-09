@@ -1,3 +1,4 @@
+import * as NativeSplash from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect } from 'react';
 import { Image, StyleSheet, View, useWindowDimensions } from 'react-native';
@@ -15,39 +16,49 @@ import { Text } from '@/components/ui';
 import { useReduceMotion } from '@/context/ThemeContext';
 
 /**
- * The entry sequence — the script logo writes itself, about 3.3 s.
+ * The entry sequence — the logo grows in and its full stop hops, about 2.6 s.
  *
- *   t=0     the logo's green, already painted by the native launch screen
- *           (`app.config.js` → `BRAND.launch`, which shows ONLY the green), so
- *           there is no flash and no logo that vanishes to be redrawn
- *   t=200   "Lampose" is revealed left to right, like a pen stroke, with a soft
- *           light riding the tip, 1.5 s
- *   t=1700  the finished word settles with a small breath
- *   t=1900  "a company that connects us" opens out from the centre
- *   t=3000  hold ends — the token check and server-time fetch ran during it
- *   t=3000  exit, 300 ms: the screen fades into the app
+ *   t=0     the native launch screen's picture, exactly: the logo on its green,
+ *           180dp wide (`splashscreen_logo`, `NATIVE_LOGO_DP`), so the hand-over
+ *           from the OS to this screen does not jump
+ *   t=0     it grows to full size, 600 ms
+ *   t=750   the full stop hops up, lands with a squash and bounces once — the
+ *           logo's own punctuation, said with a little weight
+ *   t=1500  the finished logo takes one small breath
+ *   t=2300  hold ends — the token check and server-time fetch ran during it
+ *   t=2300  exit, 300 ms: the screen fades into the app
  *
- * The artwork is the logo itself (`assets/images/logo-wordmark.png` and
- * `logo-tagline.png`, cut from the brand file), never a font standing in for it.
+ * The artwork is the logo itself (`assets/images/logo-word.png` and
+ * `logo-dot.png`, cut from the brand file), never a font standing in for it.
  *
  * If the token check finishes early the splash still plays out; if it outlasts
  * `SLOW_CHECK_AT` a thin line appears and the exit waits. Under reduced motion
- * nothing is drawn on: the logo and the line fade in, same timing.
+ * nothing moves: the logo is shown at full size, same timing.
  */
 
-const LOGO_GREEN = '#0A714E';
+const LOGO_GREEN = '#027C33';
 const CREAM = '#F9F6EF';
 
-const WORDMARK = require('@/assets/images/logo-wordmark.png');
-const TAGLINE = require('@/assets/images/logo-tagline.png');
-/* The two pieces' own proportions, from the cut files. */
-const WORDMARK_RATIO = 1097 / 422;
-const TAGLINE_RATIO = 1138 / 81;
+const WORD = require('@/assets/images/logo-word.png');
+const DOT = require('@/assets/images/logo-dot.png');
 
-const WRITE_AT = 200;
-const WRITE_FOR = 1500;
-const TAGLINE_AT = 1900;
-const EXIT_AT = 3000;
+/*
+ * Where the pieces sit in the whole logo, from the brand file: the logo is
+ * 917 × 231, the word 852 wide from its left edge, and the full stop 65 × 87
+ * starting at x 853, y 110.
+ */
+const LOGO = { width: 917, height: 231 };
+const WORD_W = 852;
+const DOT_BOX = { x: 853, y: 110, width: 65, height: 87 };
+
+/** How wide the native launch screen draws the logo (`splashscreen_logo` in the
+    Android project, `assets/images/splash-logo.png` in app.config.js). */
+const NATIVE_LOGO_DP = 180;
+
+const GROW_FOR = 600;
+const DOT_AT = 750;
+const BREATH_AT = 1500;
+const EXIT_AT = 2300;
 const EXIT_DURATION = 300;
 /** Past this, the check is slow enough that the user deserves to be told. */
 export const SLOW_CHECK_AT = EXIT_AT + 500;
@@ -63,42 +74,83 @@ export function SplashSequence({ onFinish, waiting = false }: SplashSequenceProp
   const still = useReduceMotion();
   const { width: screen } = useWindowDimensions();
 
-  /* The word across about three quarters of the screen, never wider than 320. */
-  const wordWidth = Math.min(320, Math.round(screen * 0.74));
-  const wordHeight = Math.round(wordWidth / WORDMARK_RATIO);
-  const tagWidth = Math.round(wordWidth * 1.05);
-  const tagHeight = Math.round(tagWidth / TAGLINE_RATIO);
+  /* The logo across about three quarters of the screen, never wider than 320. */
+  const logoWidth = Math.min(320, Math.round(screen * 0.74));
+  const k = logoWidth / LOGO.width;
+  const logoHeight = Math.round(LOGO.height * k);
+  const wordWidth = Math.round(WORD_W * k);
+  const dot = {
+    left: Math.round(DOT_BOX.x * k),
+    top: Math.round(DOT_BOX.y * k),
+    width: Math.round(DOT_BOX.width * k),
+    height: Math.round(DOT_BOX.height * k),
+  };
 
-  const write = useSharedValue(still ? 1 : 0);
-  const settle = useSharedValue(0);
-  const tagOpen = useSharedValue(still ? 1 : 0);
-  const tagWords = useSharedValue(0);
-  const fadeIn = useSharedValue(still ? 0 : 1);
+  /* Starts at the native launch screen's size, so nothing jumps. */
+  const startScale = Math.min(1, NATIVE_LOGO_DP / logoWidth);
+  const grow = useSharedValue(still ? 1 : 0);
+  /* How high the full stop is, 0 at rest. */
+  const hop = useSharedValue(0);
+  const squash = useSharedValue(0);
+  const breath = useSharedValue(0);
   const exit = useSharedValue(0);
   const [slow, setSlow] = React.useState(false);
+  /*
+   * Nothing plays until this screen is actually on the glass.
+   *
+   * The animation used to start on mount, while the phone's own launch screen
+   * was hidden separately — by the root layout, the moment the fonts loaded. The
+   * two rarely lined up: the grow and the hop could run out underneath the
+   * launch screen, or finish before this screen's first frame, and what was
+   * left on view was a still logo. Now this screen hides the launch screen
+   * itself once it has laid out, and starts everything — the motion and the
+   * exit timer — a frame after that.
+   */
+  const [started, setStarted] = React.useState(false);
+  const onStage = React.useCallback(() => {
+    NativeSplash.hideAsync()
+      .catch(() => {})
+      .finally(() => requestAnimationFrame(() => setStarted(true)));
+  }, []);
 
   useEffect(() => {
-    if (still) {
-      fadeIn.value = withTiming(1, { duration: 300 });
-      tagWords.value = withTiming(1, { duration: 300 });
-    } else {
-      write.value = withDelay(WRITE_AT, withTiming(1, { duration: WRITE_FOR, easing: Easing.inOut(Easing.sin) }));
-      settle.value = withDelay(
-        WRITE_AT + WRITE_FOR,
+    if (!started) return undefined;
+    if (!still) {
+      grow.value = withTiming(1, { duration: GROW_FOR, easing: Easing.out(Easing.cubic) });
+      /* Up, down, a small bounce, settled. */
+      hop.value = withDelay(
+        DOT_AT,
         withSequence(
-          withTiming(1, { duration: 180, easing: Easing.out(Easing.quad) }),
-          withTiming(0, { duration: 260, easing: Easing.inOut(Easing.quad) }),
+          withTiming(1, { duration: 230, easing: Easing.out(Easing.quad) }),
+          withTiming(0, { duration: 230, easing: Easing.in(Easing.quad) }),
+          withTiming(0.18, { duration: 120, easing: Easing.out(Easing.quad) }),
+          withTiming(0, { duration: 120, easing: Easing.in(Easing.quad) }),
         ),
       );
-      tagOpen.value = withDelay(TAGLINE_AT, withTiming(1, { duration: 650, easing: Easing.out(Easing.cubic) }));
-      tagWords.value = withDelay(TAGLINE_AT + 250, withTiming(1, { duration: 450, easing: Easing.out(Easing.cubic) }));
+      /* A squash at each touch-down. */
+      squash.value = withDelay(
+        DOT_AT + 460,
+        withSequence(
+          withTiming(1, { duration: 70 }),
+          withTiming(0, { duration: 120 }),
+          withDelay(120, withTiming(0.5, { duration: 60 })),
+          withTiming(0, { duration: 110 }),
+        ),
+      );
+      breath.value = withDelay(
+        BREATH_AT,
+        withSequence(
+          withTiming(1, { duration: 200, easing: Easing.out(Easing.quad) }),
+          withTiming(0, { duration: 280, easing: Easing.inOut(Easing.quad) }),
+        ),
+      );
     }
     const slowTimer = setTimeout(() => setSlow(true), SLOW_CHECK_AT);
     return () => clearTimeout(slowTimer);
-  }, [still, write, settle, tagOpen, tagWords, fadeIn]);
+  }, [started, still, grow, hop, squash, breath]);
 
   useEffect(() => {
-    if (waiting) return;
+    if (waiting || !started) return;
     /* Both timers are cleared on unmount — the inner one used to survive it,
        and called `onFinish` (a navigation) on a splash that had already gone. */
     let finishTimer: ReturnType<typeof setTimeout> | null = null;
@@ -110,58 +162,39 @@ export function SplashSequence({ onFinish, waiting = false }: SplashSequenceProp
       clearTimeout(timer);
       if (finishTimer) clearTimeout(finishTimer);
     };
-  }, [waiting, exit, onFinish]);
+  }, [waiting, started, exit, onFinish]);
 
   const hostStyle = useAnimatedStyle(() => ({ opacity: 1 - exit.value }));
-
-  /* The pen: the word is uncovered from the left as `write` runs 0 → 1. */
-  const inkStyle = useAnimatedStyle(() => ({ width: wordWidth * write.value }));
-  const wordStyle = useAnimatedStyle(() => ({
-    opacity: fadeIn.value,
-    transform: [{ scale: 1 + 0.03 * settle.value }],
+  const logoStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: (startScale + (1 - startScale) * grow.value) * (1 + 0.035 * breath.value) }],
   }));
-  /* The light on the pen's tip — there while it writes, gone when it lifts. */
-  const tipStyle = useAnimatedStyle(() => ({
-    opacity: write.value > 0 && write.value < 1 ? 0.9 : 0,
-    transform: [{ translateX: wordWidth * write.value - 14 }],
+  /* The full stop's hop: up about its own height and a half, then home. */
+  const rise = dot.height * 1.6;
+  const dotStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: -rise * hop.value + dot.height * 0.12 * squash.value },
+      { scaleX: 1 + 0.22 * squash.value },
+      { scaleY: 1 - 0.24 * squash.value },
+    ],
   }));
-
-  /* The tagline opens out from its centre. */
-  const tagStyle = useAnimatedStyle(() => ({
-    width: tagWidth * tagOpen.value,
-    opacity: Math.min(1, tagOpen.value * 3),
-  }));
-  const tagWordsStyle = useAnimatedStyle(() => ({ opacity: 0.35 + 0.65 * tagWords.value }));
 
   return (
-    <Animated.View style={[styles.host, { backgroundColor: LOGO_GREEN }, hostStyle]}>
+    <Animated.View style={[styles.host, { backgroundColor: LOGO_GREEN }, hostStyle]} onLayout={onStage}>
       <StatusBar style="light" />
 
-      <View
-        style={styles.stack}
+      <Animated.View
+        style={[{ width: logoWidth, height: logoHeight }, logoStyle]}
         accessible
         accessibilityRole="header"
-        accessibilityLabel="Lampose. A company that connects us."
+        accessibilityLabel="Lampose"
       >
-        <Animated.View style={[{ width: wordWidth, height: wordHeight }, wordStyle]}>
-          <Animated.View style={[styles.ink, { height: wordHeight }, inkStyle]}>
-            <Image source={WORDMARK} style={{ width: wordWidth, height: wordHeight }} resizeMode="contain" />
-          </Animated.View>
-          {still ? null : (
-            <Animated.View pointerEvents="none" style={[styles.tip, { top: wordHeight * 0.42 }, tipStyle]} />
-          )}
-        </Animated.View>
-
-        <Animated.View
-          style={[styles.tagWindow, { height: tagHeight, marginTop: Math.round(wordHeight * 0.16) }, tagStyle]}
-        >
-          <Animated.Image
-            source={TAGLINE}
-            style={[styles.tagImage, { width: tagWidth, height: tagHeight, marginLeft: -tagWidth / 2 }, tagWordsStyle]}
-            resizeMode="contain"
-          />
-        </Animated.View>
-      </View>
+        <Image source={WORD} style={[styles.word, { width: wordWidth, height: logoHeight }]} resizeMode="contain" />
+        <Animated.Image
+          source={DOT}
+          style={[styles.dot, { left: dot.left, top: dot.top, width: dot.width, height: dot.height }, dotStyle]}
+          resizeMode="contain"
+        />
+      </Animated.View>
 
       {slow && waiting ? <SlowCheckLine /> : null}
     </Animated.View>
@@ -212,25 +245,9 @@ function SlowCheckLine() {
 
 const styles = StyleSheet.create({
   host: { flex: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  stack: { alignItems: 'center' },
-  /* Clips the word to what the pen has written so far. */
-  ink: { position: 'absolute', left: 0, top: 0, overflow: 'hidden' },
-  tip: {
-    position: 'absolute',
-    left: 0,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.55)',
-    shadowColor: '#FFFFFF',
-    shadowOpacity: 0.9,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 0 },
-  },
-  /* Centred, and clipping the tagline as it widens from the middle. */
-  tagWindow: { overflow: 'hidden', alignSelf: 'center' },
-  tagImage: { position: 'absolute', left: '50%', top: 0 },
+  word: { position: 'absolute', left: 0, top: 0 },
+  dot: { position: 'absolute' },
   slowHost: { position: 'absolute', bottom: 64, alignItems: 'center', gap: 8 },
   track: { width: 160, height: 2, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.15)' },
-  bar: { width: 60, height: 2, backgroundColor: CREAM },
+  bar: { width: 60, height: 2, backgroundColor: '#FCDD44' },
 });
