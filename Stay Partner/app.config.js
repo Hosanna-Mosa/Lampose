@@ -47,7 +47,7 @@ export default {
   expo: {
     name: 'Lampose Stay Partner',
     slug: 'lampose-stay-partner',
-    version: '1.0.0',
+    version: '1.0.1',
     orientation: 'portrait',
     icon: './assets/images/icon.jpeg',
     scheme: 'lamposepartner',
@@ -75,7 +75,7 @@ export default {
          tracked, so the Gradle file is what actually builds — but a future
          `expo prebuild` regenerates it from HERE, and a stale 1 would come
          back as a version Play has already taken. */
-      versionCode: 2,
+      versionCode: 4,
       adaptiveIcon: {
         foregroundImage: adaptiveIcon || './assets/images/icon.png',
         backgroundColor: BRAND.background,
