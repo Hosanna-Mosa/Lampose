@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import Animated, {
   cancelAnimation,
@@ -284,6 +284,27 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId, accent = 
 
   /** 0 at the start of a swap, 1 at rest. */
   const swap = useSharedValue(1);
+  /*
+   * The door was pressed and the other module's tabs are on their way.
+   *
+   * The swap can only start once the screen has re-rendered with the new set,
+   * and the page above has already begun to slide by then — so the bar answers
+   * the press itself, on the UI thread: the current tabs dim and draw in a
+   * little at once, and the swap takes it from there.
+   */
+  const leaving = useSharedValue(0);
+  const leavingStyle = useAnimatedStyle(() => ({
+    opacity: 1 - 0.55 * leaving.value,
+    transform: [{ scale: 1 - 0.05 * leaving.value }],
+  }));
+  const pressDoor = (id: string) => {
+    if (!reduceMotion) leaving.value = withTiming(1, { duration: 120, easing: easing.exit });
+    onChange(id);
+    /* Should the set not change after all, the tabs come back regardless. */
+    setTimeout(() => {
+      leaving.value = withTiming(0, { duration: 160 });
+    }, 700);
+  };
   /** The whole bar's width, so a cell's travel to the door is measured. */
   const barWidth = useSharedValue(360);
   /** The row the tabs share, inside the pill's padding. */
@@ -303,7 +324,13 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId, accent = 
 
   const settled = useCallback(() => setOutgoing(null), []);
 
-  useEffect(() => {
+  /*
+   * A LAYOUT effect, so the swap is set up before the new set is painted.
+   * As a plain effect it ran after: the new tabs were drawn once at rest, then
+   * snapped back to the start of the swap — a flicker, and a swap that began a
+   * frame late behind the page slide it is meant to move with.
+   */
+  useLayoutEffect(() => {
     const before = lastFrame.current;
 
     // No set named, or the same set — a badge changed, not the destinations.
@@ -314,6 +341,8 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId, accent = 
     outEngaged.value = beforeIndex >= 0 && !resolveCollapsed(before) ? 1 : 0;
 
     setOutgoing(before);
+    /* The new set arrives at full strength; the swap is its entrance. */
+    leaving.value = 0;
     swap.value = 0;
     swap.value = withTiming(
       1,
@@ -327,7 +356,7 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId, accent = 
     );
     // `live` is rebuilt every render; the set name is the only real dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setId, reduceMotion, swap, settled]);
+  }, [setId, reduceMotion, swap, settled, leaving]);
 
   /*
    * Remember what was just drawn — every render, and deliberately declared
@@ -467,20 +496,22 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId, accent = 
 
           {/* The bubble, under the live tabs. */}
           {!collapsedNow ? (
-            <Bubble
-              count={liveFlat.length}
-              placement={{ at, engaged }}
-              rowWidth={rowWidth}
-              faces={liveFaces}
-              swap={swap}
-              accent={live.accent}
-            />
+            <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, leavingStyle]}>
+              <Bubble
+                count={liveFlat.length}
+                placement={{ at, engaged }}
+                rowWidth={rowWidth}
+                faces={liveFaces}
+                swap={swap}
+                accent={live.accent}
+              />
+            </Animated.View>
           ) : null}
 
           {/* The live tabs. The row's fixed height is what gives the bar its
               height — every cell in it is positioned absolutely. */}
-          <View
-            style={styles.row}
+          <Animated.View
+            style={[styles.row, leavingStyle]}
             onLayout={(event) => {
               rowWidth.value = event.nativeEvent.layout.width;
             }}
@@ -496,7 +527,7 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId, accent = 
               placement={{ at, engaged }}
               faces={liveFaces}
             />
-          </View>
+          </Animated.View>
         </Animated.View>
 
         {door ? (
@@ -506,7 +537,7 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId, accent = 
               active={!collapsedNow && door.id === live.activeId}
               collapsed={!!collapsedNow}
               accent={live.accent}
-              onPress={() => onChange(door.id)}
+              onPress={() => pressDoor(door.id)}
             />
           </Animated.View>
         ) : null}
@@ -518,7 +549,7 @@ export function TabBar({ tabs, activeId, onChange, collapsedTo, setId, accent = 
           tone={toneSetOf(colors, door.tone ?? live.accent)}
           bottom={Math.max(insets.bottom, 20) + 4}
           style={edgeTab}
-          onPress={() => onChange(door.id)}
+          onPress={() => pressDoor(door.id)}
         />
       ) : null}
     </Animated.View>

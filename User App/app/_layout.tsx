@@ -128,10 +128,18 @@ export default function RootLayout() {
      the first frame. */
   const [fontsLoaded, fontError] = useFonts({ ...fontAssets, ...Ionicons.font });
 
+  /*
+   * The launch screen is hidden by the animated splash itself, once it is on
+   * screen (`components/auth/SplashSequence.tsx`), so its animation is seen
+   * from the first frame. This is only the fallback, for a launch that never
+   * shows the splash — a deep link straight to a screen.
+   */
   useEffect(() => {
-    if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
-    }
+    if (!fontsLoaded && !fontError) return undefined;
+    const fallback = setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => {});
+    }, 1500);
+    return () => clearTimeout(fallback);
   }, [fontsLoaded, fontError]);
 
   if (!fontsLoaded && !fontError) return null;

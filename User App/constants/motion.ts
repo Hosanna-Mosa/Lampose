@@ -149,7 +149,10 @@ export const component = {
    * merely sliding: something coming out of a 46pt circle should be small when
    * it leaves it.
    */
-  tabSetSwap: { duration: 280, easing: easing.standard, scaleFrom: 0.86, reducedDuration: 160 },
+  /* Matched to the page slide between Stays and Food (`slideTo` in
+     app/home.tsx — 340ms, ease-out cubic), so the bar's tabs and the page
+     above them move as one gesture. */
+  tabSetSwap: { duration: 340, easing: Easing.out(Easing.cubic), scaleFrom: 0.86, reducedDuration: 160 },
   /**
    * The glass bubble travelling from one tab to the next.
    *

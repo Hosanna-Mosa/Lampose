@@ -1,6 +1,15 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  startTransition,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   ActivityIndicator,
   InteractionManager,
@@ -18,7 +27,6 @@ import {
 import Animated, {
   Easing,
   interpolate,
-  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -689,55 +697,75 @@ export default function Home() {
   /*
    * The side move between the two modules.
    *
-   * Stays and Food are two PAGES side by side: crossing into Food pushes the
-   * stay page out to the left as Food comes in from the right, and coming
-   * back is the same move reversed. Both pages are on screen for the whole
-   * move, each on its own ground, so there is never a gap of bare background
-   * between them — that was the "white paper" a slide of the new page alone
-   * left behind.
+   * Stays and Food are two PAGES side by side, and BOTH stay mounted: the one
+   * not in view is parked a screen-width off to its side. Crossing into Food
+   * slides the stay page out to the left as Food comes in from the right;
+   * coming back is the same move reversed.
    *
-   * The stay page goes on drawing the stay tab you left (`pageTab`) until the
-   * move ends; outside a move only the page on show is drawn, exactly as
-   * before. Explore, Saved and Bookings still switch in place. No move under
-   * reduced motion, or on the first trip into a Food that is still building.
+   * It used to mount and unmount them around the move. The render right after
+   * the tap then had neither page settled — a frame of bare background, the
+   * "white paper" — and the stay feed was rebuilt from nothing on the way back,
+   * which was the lag. Now nothing mounts on a switch, and the move starts on
+   * the UI thread the instant the door is tapped (`changeTab` → `slideTo`),
+   * before React has re-rendered anything.
+   *
+   * While Food is in view the stay page keeps the stay tab you left
+   * (`pageTab`), so coming back lands exactly where you were. On the first
+   * trip into a Food that is still building, the stay page shows its skeleton
+   * in place and nothing moves. No move under reduced motion.
    */
   const { width: screenWidth } = useWindowDimensions();
   const reduceMotion = useReduceMotion();
   const lastStayTab = useRef(tab === 'food' ? 'explore' : tab);
   if (tab !== 'food') lastStayTab.current = tab;
-  const moduleSide = tab === 'food' ? 'food' : 'stay';
-  const lastSide = useRef(moduleSide);
-  const [sliding, setSliding] = useState(false);
+  const foodPageReady = foodBuilt && foodMounted;
   /* 0 with the stay page in view, 1 with the food page in view. */
-  const pagePosition = useSharedValue(moduleSide === 'food' ? 1 : 0);
+  const pageTarget = tab === 'food' && foodPageReady ? 1 : 0;
+  const pagePosition = useSharedValue(pageTarget);
+  /* Where the pages are heading. A ref, so a tap can start the move before
+     the render that changes `tab`, and that render does not start it twice. */
+  const headingTo = useRef(pageTarget);
+  const slideTo = useCallback(
+    (target: 0 | 1) => {
+      if (headingTo.current === target) return;
+      headingTo.current = target;
+      pagePosition.value = reduceMotion
+        ? target
+        : withTiming(target, { duration: 340, easing: Easing.out(Easing.cubic) });
+    },
+    [reduceMotion, pagePosition],
+  );
+  /* Every other way the module changes — a deep link, a screen calling
+     `setTab`, Food finishing its build while you wait — gets the same move. */
   useLayoutEffect(() => {
-    if (lastSide.current === moduleSide) return;
-    lastSide.current = moduleSide;
-    const target = moduleSide === 'food' ? 1 : 0;
-    if (reduceMotion || !foodBuilt || !foodMounted) {
-      pagePosition.value = target;
-      return;
-    }
-    setSliding(true);
-    pagePosition.value = withTiming(
-      target,
-      { duration: 320, easing: Easing.out(Easing.cubic) },
-      (finished) => {
-        if (finished) runOnJS(setSliding)(false);
-      },
-    );
-  }, [moduleSide, reduceMotion, foodBuilt, foodMounted, pagePosition]);
+    slideTo(pageTarget);
+  }, [pageTarget, slideTo]);
   const stayPageStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: -pagePosition.value * screenWidth }],
   }));
   const foodPageStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: (1 - pagePosition.value) * screenWidth }],
   }));
-  /* Which stay tab the stay page draws — the one being left, mid-move. */
-  const pageTab = tab === 'food' && sliding ? lastStayTab.current : tab;
-  const foodPageReady = foodBuilt && foodMounted;
-  const showStayPage = tab !== 'food' || sliding || !foodPageReady;
-  const showFoodPage = tab === 'food' || sliding;
+  /* Which tab the stay page draws: the stay tab you left while Food is in view,
+     or Food's own placeholder while Food is still building. */
+  const pageTab = tab === 'food' && foodPageReady ? lastStayTab.current : tab;
+  const stayInView = pageTarget === 0;
+
+  /*
+   * The bottom bar's own copy of the tab, so a tap can redraw the bar alone.
+   *
+   * `tab` lives here, and this component draws BOTH modules' pages — the stay
+   * feed with every listing card, and the whole Food module. Re-rendering all
+   * of that before the bar could show its new tabs was the lag in the bar: the
+   * page slide runs on the UI thread and never waited, the tabs did. Now a tap
+   * writes this store first (only `ModuleTabBar` re-renders — a few
+   * milliseconds), and the heavy re-render follows as a transition React can
+   * schedule around it. Kept in step with `tab` for every other way it changes.
+   */
+  const [barStore] = useState(() => createTabStore(tab));
+  useLayoutEffect(() => {
+    barStore.set(tab);
+  }, [tab, barStore]);
 
   /* Only Food HOME puts artwork under the header. Search and Orders have an
      ordinary page background, so the bar stays in flow there and this screen
@@ -800,7 +828,14 @@ export default function Home() {
       setFoodTab(next.slice('food:'.length) as FoodTab);
       return;
     }
-    setTab(next);
+    /* Crossing between the modules: start the slide now, on the UI thread,
+       rather than after the re-render the tab change causes. */
+    if ((next === 'food') !== (tab === 'food')) {
+      slideTo(next === 'food' && foodPageReady ? 1 : 0);
+    }
+    /* The bar now, the pages after — see `barStore`. */
+    barStore.set(next);
+    startTransition(() => setTab(next));
   };
 
   /**
@@ -968,8 +1003,12 @@ export default function Home() {
           profile marks, and a banner pushed down by a bar that is not
           supposed to occupy any height there. */}
       <View style={styles.pages}>
-      {showStayPage ? (
-      <Animated.View style={[styles.stayPage, { backgroundColor: colors.bg }, stayPageStyle]}>
+      <Animated.View
+        style={[styles.stayPage, { backgroundColor: colors.bg }, stayPageStyle]}
+        pointerEvents={stayInView ? 'auto' : 'none'}
+        accessibilityElementsHidden={!stayInView}
+        importantForAccessibility={stayInView ? 'auto' : 'no-hide-descendants'}
+      >
       {pageTab === 'explore' || (pageTab === 'food' && inFoodHome) ? null : header}
 
       {/* Persistent, and it always states the age of what is on screen — a
@@ -1559,15 +1598,14 @@ export default function Home() {
         </ScrollView>
       )}
       </Animated.View>
-      ) : null}
 
       {/*
         The Food module, kept mounted once built — see `foodMounted`.
 
-        It sits in the slot the chain above leaves empty on the Food tab, so
-        it lays out exactly where the conditional render used to put it. Off
-        that tab it is `display: none`: no layout, nothing drawn, nothing a
-        screen reader can reach, and its loops paused through `active`.
+        Laid over the stay page and parked a screen-width to the right while
+        a stay tab is showing (see `pagePosition`), so it is already drawn
+        when the door is tapped. Off its tab it takes no touches, nothing a
+        screen reader can reach, and its loops pause through `active`.
 
         The second of the two food typography boundaries — the other is
         app/food/_layout.tsx. This module is reached as a TAB rather than a
@@ -1576,11 +1614,7 @@ export default function Home() {
       */}
       {foodPageReady ? (
         <Animated.View
-          style={[
-            showFoodPage ? styles.foodPage : styles.foodHidden,
-            { backgroundColor: colors.bg },
-            foodPageStyle,
-          ]}
+          style={[styles.foodPage, { backgroundColor: colors.bg }, foodPageStyle]}
           accessibilityElementsHidden={tab !== 'food'}
           importantForAccessibility={tab === 'food' ? 'auto' : 'no-hide-descendants'}
           pointerEvents={tab === 'food' ? 'auto' : 'none'}
@@ -1643,21 +1677,15 @@ export default function Home() {
         belongs to whatever is behind it.
       */}
       <View style={styles.dockedBar} pointerEvents="box-none">
-        <TabBar
-          tabs={inFoodModule ? FOOD_TABS : stayTabs}
-          activeId={inFoodModule ? FOOD_TAB_IDS[foodTab] : tab}
+        <ModuleTabBar
+          store={barStore}
+          stayTabs={stayTabs}
+          foodTabs={FOOD_TABS}
+          foodTabId={FOOD_TAB_IDS[foodTab]}
+          foodBuilt={FOOD_MODE === 'dev'}
           onChange={changeTab}
-          collapsedTo={tab === 'food' && !inFoodModule ? FOOD_EXIT : null}
-          /* Which set is in the bar, so it can animate the handover. Switching
-             between the module's own screens keeps the same name and gets no
-             transition — only crossing between the stay side and Food does. */
-          setId={tab === 'food' ? 'food' : 'stay'}
-          /* Lime on the stay side, the Food door's orange inside Food. */
-          accent={tab === 'food' ? 'ember' : 'brand'}
-          /* No edge tab while an active strip is on screen — the cart bar
-             inside Food, the ongoing strip on the stay side — because it would
-             sit on the strip. The door in the bar stays. */
-          hideEdgeTab={inFoodModule ? cartCount > 0 : ongoing.length > 0}
+          stayStrip={ongoing.length > 0}
+          foodStrip={cartCount > 0}
         />
       </View>
 
@@ -1740,9 +1768,84 @@ const styles = StyleSheet.create({
   stayPage: { flex: 1 },
   foodPage: { ...StyleSheet.absoluteFillObject },
   foodHost: { flex: 1 },
-  foodHidden: { display: 'none' },
   dockedBar: { position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center' },
   identity: { flexDirection: 'row', alignItems: 'center' },
   avatar: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
   couponCard: { padding: 16, gap: 2 },
 });
+
+/* ── The bottom bar, redrawn on its own ─────────────────────────────────── */
+
+type TabStore = {
+  get: () => string;
+  set: (next: string) => void;
+  subscribe: (listener: () => void) => () => void;
+};
+
+/** A one-value store: the tab the bottom bar shows. See `barStore`. */
+function createTabStore(initial: string): TabStore {
+  let value = initial;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => value,
+    set: (next) => {
+      if (next === value) return;
+      value = next;
+      listeners.forEach((listener) => listener());
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+/**
+ * The bottom bar, reading its tab from `store` rather than from the screen's
+ * state, so it can show the new module's tabs the instant one is tapped.
+ */
+function ModuleTabBar({
+  store,
+  stayTabs,
+  foodTabs,
+  foodTabId,
+  foodBuilt,
+  onChange,
+  stayStrip,
+  foodStrip,
+}: {
+  store: TabStore;
+  stayTabs: readonly TabItem[];
+  foodTabs: readonly TabItem[];
+  /** The Food module's own selected screen, as a bar id. */
+  foodTabId: string;
+  /** False on the "coming soon" build, where the bar collapses to the way out. */
+  foodBuilt: boolean;
+  onChange: (id: string) => void;
+  /** An active strip is on screen on that side — see `hideEdgeTab`. */
+  stayStrip: boolean;
+  foodStrip: boolean;
+}) {
+  const barTab = useSyncExternalStore(store.subscribe, store.get, store.get);
+  const inFood = barTab === 'food' && foodBuilt;
+  return (
+    <TabBar
+      tabs={inFood ? foodTabs : stayTabs}
+      activeId={inFood ? foodTabId : barTab}
+      onChange={onChange}
+      collapsedTo={barTab === 'food' && !foodBuilt ? FOOD_EXIT : null}
+      /* Which set is in the bar, so it can animate the handover. Switching
+         between the module's own screens keeps the same name and gets no
+         transition — only crossing between the stay side and Food does. */
+      setId={barTab === 'food' ? 'food' : 'stay'}
+      /* Lime on the stay side, the Food door's orange inside Food. */
+      accent={barTab === 'food' ? 'ember' : 'brand'}
+      /* No edge tab while an active strip is on screen — the cart bar inside
+         Food, the ongoing strip on the stay side — because it would sit on the
+         strip. The door in the bar stays. */
+      hideEdgeTab={inFood ? foodStrip : stayStrip}
+    />
+  );
+}

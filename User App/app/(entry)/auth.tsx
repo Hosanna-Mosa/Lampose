@@ -447,7 +447,7 @@ function AuthScreen() {
           {/* Authentic Logo Header (zero cutting) */}
           <View style={styles.logoHeader}>
             <Image
-              source={require('@/assets/images/lampose-logo-script.png')}
+              source={require('@/assets/images/lampose-logo-mark.png')}
               style={styles.logoBadge}
               resizeMode="contain"
             />
@@ -866,11 +866,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 28,
   },
-  /* The script logo on its own green — 1277 × 562 artwork. */
+  /* The "lampose." logo on its own green — 1057 × 343 artwork. */
   logoBadge: {
     width: 200,
-    height: 88,
-    borderRadius: 16,
+    height: 65,
+    borderRadius: 14,
   },
   flipContainer: {
     width: '100%',
