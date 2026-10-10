@@ -119,6 +119,10 @@ import { DataRow } from '../components/common/molecules/DataRow';
 import { EmptyState } from '../components/common/molecules/EmptyState';
 import { ErrorState } from '../components/common/molecules/ErrorState';
 import { Field } from '../components/common/molecules/Field';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import type { FilterChipOption } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
 import { PageHeader } from '../components/common/molecules/PageHeader';
 import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
 import { Modal } from '../components/common/organisms/Modal';
@@ -262,6 +266,14 @@ const FINAL_CODES = new Set<FoodRefundCode>([
 
 
 
+/** "Online (12)" in a select — left bare while the count is not known. */
+const withCount = (label: string, n: number | undefined): string =>
+  n == null ? label : `${label} (${n.toLocaleString('en-IN')})`;
+
+/** Summed over a facet's values; undefined while the facets are not in. */
+const sumOf = (facet: Partial<Record<string, number>> | undefined, keys?: readonly string[]) =>
+  facet ? (keys ?? Object.keys(facet)).reduce((acc, key) => acc + (facet[key] ?? 0), 0) : undefined;
+
 const metres = (value: number): string => {
   if (!Number.isFinite(value) || value <= 0) return '—';
   return value >= 1000 ? `${(value / 1000).toFixed(1)} km` : `${Math.round(value)} m`;
@@ -350,6 +362,30 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
   );
 
   const queue = useFetch(() => foodOrderService.list(query), [query]);
+
+  /*
+   * The number on every chip and in every select: how many orders that choice
+   * would show with the other filters left as they are. Counted by the server
+   * (`/facets`), because the queue is paged and a count over one page would be
+   * a count of one page. Keyed on the query WITHOUT the page, so turning a
+   * page does not ask again.
+   */
+  const facetQuery: FoodOrderQuery = useMemo(
+    () => ({
+      needs,
+      fulfilment,
+      status: statusParam(status),
+      paymentStatus,
+      paymentMode,
+      dispatchState,
+      from,
+      to,
+      q,
+    }),
+    [needs, fulfilment, status, paymentStatus, paymentMode, dispatchState, from, to, q]
+  );
+  const facetsFetch = useFetch(() => foodOrderService.facets(facetQuery), [facetQuery]);
+  const facets = facetsFetch.data;
 
   const detail = useFetch<FoodOrderDetail | null>(
     () =>
@@ -466,6 +502,7 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
      this page's strip AND the sidebar's badge. */
   const refreshAll = () => {
     queue.reload();
+    facetsFetch.reload();
     reloadCounts();
   };
 
@@ -796,6 +833,38 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
     setTo('');
   };
 
+  /* "Clear" beside the result count goes all the way to every order — the
+     fault filter included — which is the one thing Reset does not do. */
+  const clearEverything = () => {
+    clearFilters();
+    setNeeds('');
+  };
+
+  const statusChips: FilterChipOption<StatusFilter>[] = [
+    { id: 'all', label: 'Any status', count: sumOf(facets?.status) },
+    { id: 'open', label: 'Still open', count: sumOf(facets?.status, FOOD_ORDER_OPEN_STATUSES), tone: 'brand' },
+    ...FOOD_ORDER_STATUSES.map((value) => ({
+      id: value as StatusFilter,
+      label: STATUS_META[value].label,
+      count: facets ? (facets.status[value] ?? 0) : undefined,
+      tone: STATUS_META[value].tone,
+    })),
+  ];
+
+  const paymentChips: FilterChipOption<FoodOrderPaymentStatus | 'all'>[] = [
+    { id: 'all', label: 'Any payment', count: sumOf(facets?.paymentStatus) },
+    ...FOOD_PAYMENT_STATUSES.map((value) => ({
+      id: value as FoodOrderPaymentStatus | 'all',
+      label: PAYMENT_META[value].label,
+      count: facets ? (facets.paymentStatus[value] ?? 0) : undefined,
+      tone: PAYMENT_META[value].tone,
+    })),
+  ];
+
+  /* A select option's count — zero only once the facets are known. */
+  const facetCount = (facet: 'paymentMode' | 'dispatchState' | 'fulfilment', key: string) =>
+    facets ? (facets[facet][key] ?? 0) : undefined;
+
   const emptyDescription = (): string => {
     if (q && needs !== '') {
       /* Almost always the real reason: the order is here and it is fine. Say
@@ -886,42 +955,33 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
       )}
 
       <Card>
-        {/* The search for an order is the header's box — see `q` above. */}
+        {/* The search for an order is the header's box — see `q` above. Every
+            count here is the server's, under the other filters — see `facets`. */}
+        <Box className="space-y-3 mb-4">
+          <FilterBar
+            summary={
+              <ResultCount
+                shown={queue.data?.total ?? facets?.matching ?? 0}
+                total={facets?.everything ?? queue.data?.total ?? 0}
+                noun="orders"
+                onClear={clearEverything}
+              />
+            }
+          >
+            <FilterChips label="Status" options={statusChips} value={status} onChange={setStatus} />
+          </FilterBar>
+          <FilterChips label="Payment" options={paymentChips} value={paymentStatus} onChange={setPaymentStatus} />
+        </Box>
+
         <Box className="flex flex-wrap items-end gap-3">
-          <Field label="Status" className="w-44">
-            <Select value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)}>
-              <Option value="all">Any status</Option>
-              <Option value="open">Still open</Option>
-              {FOOD_ORDER_STATUSES.map((value) => (
-                <Option key={value} value={value}>
-                  {STATUS_META[value].label}
-                </Option>
-              ))}
-            </Select>
-          </Field>
-
-          <Field label="Payment" className="w-40">
-            <Select
-              value={paymentStatus}
-              onChange={(e) => setPaymentStatus(e.target.value as FoodOrderPaymentStatus | 'all')}
-            >
-              <Option value="all">Any</Option>
-              {FOOD_PAYMENT_STATUSES.map((value) => (
-                <Option key={value} value={value}>
-                  {PAYMENT_META[value].label}
-                </Option>
-              ))}
-            </Select>
-          </Field>
-
           <Field label="Paid by" className="w-40">
             <Select
               value={paymentMode}
               onChange={(e) => setPaymentMode(e.target.value as FoodOrderPaymentMode | 'all')}
             >
               <Option value="all">Either</Option>
-              <Option value="online">Online</Option>
-              <Option value="cod">Cash</Option>
+              <Option value="online">{withCount('Online', facetCount('paymentMode', 'online'))}</Option>
+              <Option value="cod">{withCount('Cash', facetCount('paymentMode', 'cod'))}</Option>
             </Select>
           </Field>
 
@@ -944,8 +1004,8 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
               }}
             >
               <Option value="all">Either</Option>
-              <Option value="delivery">Delivery</Option>
-              <Option value="pickup">Pickup (withdrawn)</Option>
+              <Option value="delivery">{withCount('Delivery', facetCount('fulfilment', 'delivery'))}</Option>
+              <Option value="pickup">{withCount('Pickup (withdrawn)', facetCount('fulfilment', 'pickup'))}</Option>
             </Select>
           </Field>
 
@@ -957,7 +1017,7 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
               <Option value="all">Any</Option>
               {FOOD_DISPATCH_STATES.map((value) => (
                 <Option key={value} value={value}>
-                  {DISPATCH_META[value].label}
+                  {withCount(DISPATCH_META[value].label, facetCount('dispatchState', value))}
                 </Option>
               ))}
             </Select>
@@ -1014,7 +1074,11 @@ export const FoodOrdersPage: React.FC<FoodOrdersPageProps> = ({
         ) : rows.length === 0 ? (
           <EmptyState
             icon={ReceiptIndianRupee}
-            title={needs === 'human' ? 'Nothing needs a human' : 'Nothing here'}
+            title={
+              needs === 'human' && !filtersTouched && !q
+                ? 'Nothing needs a human'
+                : 'No orders match these filters'
+            }
             description={emptyDescription()}
             action={
               needs !== '' ? (

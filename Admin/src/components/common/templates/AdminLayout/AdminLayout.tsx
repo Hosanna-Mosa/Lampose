@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityPanel } from '../../organisms/ActivityPanel';
 import { Header } from '../../organisms/Header';
 import { ALL_NAV_ITEMS, Sidebar } from '../../organisms/Sidebar';
@@ -6,6 +6,7 @@ import { insightsService } from '../../../../api/services/insightsService';
 import { useFetch } from '../../../../lib/useFetch';
 import { formatDateTime } from '../../../../lib/format';
 import { useAuth } from '../../../../context/AuthContext';
+import { HeaderSearchContext } from '../../../../context/headerSearch';
 import type { ApiResponse, ActivityEntity, HealthEntity } from '../../../../api/types';
 import { Box } from '../../atoms/Box';
 import { Footer } from '../../atoms/Footer';
@@ -28,8 +29,8 @@ const HEALTH_POLL_MS = 60_000;
 
 /** Pages backed by a record list get the header filter. */
 const SEARCH_PLACEHOLDERS: Record<string, string> = {
-  properties: 'Filter by name, place, owner or agent',
-  verifications: 'Filter by mobile, token, property or error',
+  properties: 'Filter by name, place, owner, mobile or agent',
+  verifications: 'Filter by mobile, property, verifier or status',
   'onboarding-team': 'Filter by employee email',
   users: 'Filter by name, email or role',
   'visit-requests': 'Filter by property, customer or owner mobile',
@@ -40,6 +41,15 @@ const SEARCH_PLACEHOLDERS: Record<string, string> = {
   'food-orders': "Find an order by number, diner's phone or Razorpay id",
   'food-payouts': 'Find by restaurant, payout id, account or reference',
   'food-staff-access': 'Find by restaurant name, id or the number signed in with',
+  'food-restaurants': 'Find a restaurant by name, owner, phone, area, pincode or FSSAI',
+  drivers: 'Find a rider by name, phone, vehicle or city',
+  'rider-withdrawals': 'Find by rider, phone, account or reference',
+  monitor: 'Find by guest, property, owner or booking id',
+  'partner-payouts': 'Find by owner, property, account or reference',
+  refunds: 'Find by guest, phone, property, booking or reference',
+  permissions: 'Filter by employee, property, owner or reason',
+  'sales-tracking': 'Find a sales rep by name or email',
+  support: 'Find a ticket by reference, name, phone or subject',
   /* The restaurant console's own two searchable lists. */
   'restaurant-orders': "Find an order by number, diner's name or phone",
   'restaurant-menu': 'Filter dishes by name, section or tag',
@@ -59,6 +69,12 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   setSearch,
   navCounts,
 }) => {
+  /* Lets a page's "Clear" empty the header box too — see context/headerSearch. */
+  const headerSearch = useMemo(
+    () => ({ search, set: setSearch, clear: () => setSearch('') }),
+    [search, setSearch],
+  );
+
   /*
    * Which console this is.
    *
@@ -153,7 +169,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
             <Inline aria-hidden>/</Inline>
             <Inline className="text-ink-2">{currentNav?.label ?? 'Overview'}</Inline>
           </Nav>
-          {children}
+          <HeaderSearchContext.Provider value={headerSearch}>{children}</HeaderSearchContext.Provider>
         </Main>
 
         <Footer className="border-t border-line px-4 sm:px-6 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-2">

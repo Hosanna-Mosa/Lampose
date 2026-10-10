@@ -504,7 +504,10 @@ export interface PayoutOverview {
   balance: PayoutBalance;
   /** The floor, from the server, so the button and the API agree. */
   minimum: number;
+  /** The newest fifty requests. */
   history: FoodPayout[];
+  /** Requests per state over ALL of them, not just `history`. Absent from an older server. */
+  historyCounts?: Partial<Record<FoodPayoutStatus, number>>;
 }
 
 /* ── The shop record ──────────────────────────────────────────────────── */
@@ -647,8 +650,11 @@ export const restaurantAdminService = {
    * `status` accepts a comma-joined list because the console's tabs are
    * groups rather than single states — "In the kitchen" is
    * `accepted,preparing`. The server takes the same two shapes.
+   *
+   * `q` narrows the rows AND the per-status `counts` (number, diner, phone,
+   * dish), so a tab's count while searching is how many matches it holds.
    */
-  async orders(params: { status?: string; limit?: number } = {}): Promise<ApiResponse<OrderList>> {
+  async orders(params: { status?: string; limit?: number; q?: string } = {}): Promise<ApiResponse<OrderList>> {
     const res = await api.get<{ data: RestaurantOrder[]; counts: OrderStatusCounts }>(
       `${BASE}/orders`,
       params

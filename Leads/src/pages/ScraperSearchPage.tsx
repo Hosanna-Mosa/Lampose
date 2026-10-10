@@ -11,7 +11,7 @@ export const ScraperSearchPage: React.FC<ScraperSearchPageProps> = ({ onJobStart
   const [query, setQuery] = useState('');
   const [location, setLocation] = useState('');
   const [landmark, setLandmark] = useState('');
-  const [source, setSource] = useState<'GoogleMaps' | 'JustDial' | 'Web'>('GoogleMaps');
+  const [source, setSource] = useState<'GoogleMaps'>('GoogleMaps');
   const [depth, setDepth] = useState(15);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -131,9 +131,10 @@ export const ScraperSearchPage: React.FC<ScraperSearchPageProps> = ({ onJobStart
               onChange={(e: any) => setSource(e.target.value)}
               className="w-full px-4 py-3 rounded-xl bg-white border border-slate-200 text-sm text-slate-900 focus:outline-none focus:border-cyan-500 transition cursor-pointer"
             >
+              {/* Google Maps is the only source the server's scraper implements.
+                  JustDial and "General Web" were offered here but started jobs
+                  that extracted nothing, so they are gone until they exist. */}
               <Option value="GoogleMaps">Google Maps Scraper</Option>
-              <Option value="JustDial">JustDial Directory</Option>
-              <Option value="Web">General Web Listings</Option>
             </Select>
           </Box>
 

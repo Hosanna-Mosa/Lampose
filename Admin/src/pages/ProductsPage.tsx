@@ -24,6 +24,9 @@ import { Form } from '../components/common/atoms/Form';
 import { Inline } from '../components/common/atoms/Inline';
 import { PlainTd, PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
 import { Text } from '../components/common/atoms/Text';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
 import { filterBySearch } from '../components/common/utils';
 
 interface ProductsPageProps {
@@ -37,6 +40,8 @@ interface ProductForm {
   inStock: boolean;
 }
 
+type StockFilter = 'All' | 'in' | 'out';
+
 const EMPTY_FORM: ProductForm = { name: '', description: '', price: '0', inStock: true };
 
 const toForm = (p: ProductEntity): ProductForm => ({
@@ -47,6 +52,7 @@ const toForm = (p: ProductEntity): ProductForm => ({
 });
 
 export const ProductsPage: React.FC<ProductsPageProps> = ({ search }) => {
+  const [stock, setStock] = useState<StockFilter>('All');
   const [toast, setToast] = useState<ToastState | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -62,10 +68,20 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ search }) => {
 
   const { data, loading, error, refreshing, reload } = useFetch(() => productService.getProducts(), []);
 
-  const products = useMemo(
+  /* Search first, then availability — the chips count the searched list, so
+     "Out of stock 3" means three would show if that chip were picked. */
+  const searched = useMemo(
     () => filterBySearch(data ?? [], search, (p, q) => `${p.name} ${p.description}`.toLowerCase().includes(q)),
     [data, search]
   );
+  const products = useMemo(
+    () => (stock === 'All' ? searched : searched.filter((p) => p.inStock === (stock === 'in'))),
+    [searched, stock]
+  );
+  const inStockCount = useMemo(() => searched.filter((p) => p.inStock).length, [searched]);
+
+  const total = data?.length ?? 0;
+  const filtered = stock !== 'All' || !!search.trim();
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -150,6 +166,33 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ search }) => {
         }
       />
 
+      <Card padded={false} className="p-3">
+        <FilterBar
+          summary={
+            loading ? undefined : (
+              <ResultCount
+                shown={products.length}
+                total={total}
+                noun="products"
+                filtered={filtered}
+                onClear={stock !== 'All' ? () => setStock('All') : undefined}
+              />
+            )
+          }
+        >
+          <FilterChips
+            label="Availability"
+            value={stock}
+            onChange={setStock}
+            options={[
+              { id: 'All', label: 'All', count: loading ? null : searched.length },
+              { id: 'in', label: 'In stock', count: loading ? null : inStockCount, tone: 'good' },
+              { id: 'out', label: 'Out of stock', count: loading ? null : searched.length - inStockCount, tone: 'crit' },
+            ]}
+          />
+        </FilterBar>
+      </Card>
+
       {error ? (
         <ErrorState message={error} onRetry={reload} />
       ) : (
@@ -171,8 +214,15 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ search }) => {
                   <PlainTd colSpan={4}>
                     <EmptyState
                       icon={Package}
-                      title={search ? 'No matching products' : 'No products yet'}
-                      description={search ? 'Try a different search.' : 'Create the first product record.'}
+                      title={filtered ? 'No products match these filters' : 'No products yet'}
+                      description={filtered ? 'Try a different search or availability.' : 'Create the first product record.'}
+                      action={
+                        stock !== 'All' ? (
+                          <Button size="sm" variant="ghost" onClick={() => setStock('All')}>
+                            Show all products
+                          </Button>
+                        ) : undefined
+                      }
                     />
                   </PlainTd>
                 </PlainTr>

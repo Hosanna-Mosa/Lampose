@@ -20,6 +20,7 @@ import {
   useBooking, useListing, useStayRequest,
 } from '@/services';
 
+import { ApiError } from '@/services/api/client';
 import { formatRupees } from '@/utils/money';
 import { useDepositMark } from '@/components/ui/DepositMark';
 import { bookingStatus, phaseColors } from '@/constants/tokens';
@@ -153,8 +154,15 @@ export default function BookingDetail() {
   const stored = real.booking ? fromRealBooking(real.booking) : fixture;
 
   /* Still trying — a real fetch in flight, or (on the legacy path) the stay
-     request it depends on not yet hydrated. Neither is "not found" yet. */
-  const resolving = real.loading || (isLegacyId && (stay.isHydrating || (!stay.request && !fixture)));
+     request it depends on not yet hydrated. Neither is "not found" yet.
+
+     Hydration is the whole of the legacy wait. This also counted "hydrated,
+     and found no request" as still resolving — and that never changes:
+     `useStayRequest` falls back to the server only for a LIVE request, and
+     the request behind a booking is terminal. On a fresh install or a second
+     phone the screen said "Loading…" for ever. Nothing found is an answer,
+     and it is drawn below. */
+  const resolving = real.loading || (isLegacyId && stay.isHydrating);
 
   const entryPin = real.booking?.entryPin ?? stay.request?.entryPin ?? null;
   const canReview = real.booking?.status === 'completed' && real.booking?.reviewed === false;
@@ -292,6 +300,24 @@ export default function BookingDetail() {
         <StandardHeader title="Booking" onBack={() => router.back()} />
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <Text variant="body" color="tertiary">Loading…</Text>
+        </View>
+      </View>
+    );
+  }
+
+  /* A booking that could not be FETCHED is not a booking that does not exist.
+     Offline, or the server down, says so and offers another go; only a 404
+     (or nothing to fetch at all) falls through to "not here anymore". */
+  const fetchFailure = real.error instanceof ApiError && real.error.status !== 404 ? real.error : null;
+  if (!stored && fetchFailure) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <StandardHeader title="Booking" onBack={() => router.back()} />
+        <View style={{ flex: 1, justifyContent: 'center', gap: space[3], padding: space[5] }}>
+          <Text variant="title1">We could not load this booking</Text>
+          <Text variant="bodyLg" color="secondary">{fetchFailure.displayMessage}</Text>
+          <Button label="Try again" onPress={() => { real.refetch(); }} fullWidth />
         </View>
       </View>
     );

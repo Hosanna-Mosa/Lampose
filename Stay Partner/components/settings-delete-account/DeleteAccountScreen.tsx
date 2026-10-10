@@ -26,6 +26,7 @@ import {
 } from '@/services/api/accountDeletion.api';
 import { ApiError, setAuthToken } from '@/services';
 import { useAuth } from '@/context/AuthContext';
+import { SUPPORT_EMAIL } from '@/constants/support';
 import { fonts } from '@/constants/typography';
 import { useColors } from '@/hooks/useColors';
 
@@ -116,7 +117,7 @@ export function DeleteAccountScreen() {
   };
 
   const legacyRequest = state?.status === 'requested';
-  const support = state?.supportEmail || 'contact@lampose.com';
+  const support = state?.supportEmail || SUPPORT_EMAIL;
 
   return (
     <Screen header={<TopHeader title="Delete account" showBack />} background="bg">

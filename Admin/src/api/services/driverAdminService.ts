@@ -184,6 +184,17 @@ const normalizeCash = (raw: any): DriverCashLedger => ({
   })),
 });
 
+/** The queue counted under the filters already chosen — each dimension
+ *  counted with every OTHER filter applied, so a chip's number is what that
+ *  chip would show. Absent on a server older than the facets. */
+export interface DriverQueueFacets {
+  status?: Partial<Record<DriverStatus | 'all', number>>;
+  vehicle?: Record<string, number>;
+  online?: number;
+  /** Every rider the current filters match; the list stops at 100. */
+  matching?: number;
+}
+
 export const driverAdminService = {
   /** The queue and the roster. `status: 'all'` or omitted returns everybody. */
   async getDrivers(params?: {
@@ -192,8 +203,10 @@ export const driverAdminService = {
     /** `pending` / `rejected` / `incomplete` — filtered server-side over the page. */
     documents?: 'pending' | 'rejected' | 'incomplete';
     online?: boolean;
+    /** `bike` / `scooter` / `cycle` / `auto`. */
+    vehicle?: string;
     limit?: number;
-  }): Promise<ApiResponse<DriverRow[]> & { counts?: DriverQueueCounts }> {
+  }): Promise<ApiResponse<DriverRow[]> & { counts?: DriverQueueCounts; facets?: DriverQueueFacets }> {
     const query = { ...params };
     /* `status: 'all'` is this console's word for "no filter", and the backend
        reads an absent parameter the same way. Sending the literal string would
@@ -206,6 +219,7 @@ export const driverAdminService = {
       ...res,
       data: unwrapList(res.data).map(normalizeRow),
       counts: res.data?.counts as DriverQueueCounts | undefined,
+      facets: res.data?.facets as DriverQueueFacets | undefined,
     };
   },
 

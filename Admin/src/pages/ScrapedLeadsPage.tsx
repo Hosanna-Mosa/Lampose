@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ListChecks, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { ListChecks, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { Badge } from '../components/common/atoms/Badge';
 import { Button } from '../components/common/atoms/Button';
 import { Card } from '../components/common/atoms/Card';
@@ -25,6 +25,10 @@ import { Inline } from '../components/common/atoms/Inline';
 import { Option } from '../components/common/atoms/Option';
 import { PlainTd, PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
 import { Text } from '../components/common/atoms/Text';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
+import { filterBySearch, filterSelectClass } from '../components/common/utils';
 
 interface ScrapedLeadsPageProps {
   search: string;
@@ -41,6 +45,62 @@ interface LeadForm {
   city: string;
   leadStatus: LeadStatus;
 }
+
+type ContactFilter = 'All' | 'phone' | 'email' | 'website' | 'noPhone';
+
+interface LeadFilters {
+  leadStatus: string;
+  source: string;
+  city: string;
+  category: string;
+  contact: ContactFilter;
+  /** 'All', 'none' for unassigned, or an assignee's userId. */
+  assignee: string;
+}
+
+const NO_FILTERS: LeadFilters = {
+  leadStatus: 'All',
+  source: 'All',
+  city: 'All',
+  category: 'All',
+  contact: 'All',
+  assignee: 'All',
+};
+
+const CONTACT_OPTIONS: { id: ContactFilter; label: string }[] = [
+  { id: 'All', label: 'Any contact' },
+  { id: 'phone', label: 'Has phone' },
+  { id: 'email', label: 'Has email' },
+  { id: 'website', label: 'Has website' },
+  { id: 'noPhone', label: 'No phone' },
+];
+
+const hasContact = (l: ScrapedLeadEntity, c: ContactFilter) => {
+  if (c === 'phone') return !!l.phone;
+  if (c === 'email') return !!l.email;
+  if (c === 'website') return l.hasWebsite;
+  if (c === 'noPhone') return !l.phone;
+  return true;
+};
+
+/* Blank cities/categories share one bucket rather than vanishing from the
+   counts — a lead with no city is still a lead someone may want to find. */
+const NONE = '__none__';
+const cityOf = (l: ScrapedLeadEntity) => l.city.trim() || NONE;
+const categoryOf = (l: ScrapedLeadEntity) => l.category.trim() || NONE;
+const assigneeOf = (l: ScrapedLeadEntity) => l.assignedTo.userId || 'none';
+
+/* One predicate per dimension, so each control's counts are taken over the
+   list narrowed by every OTHER control: "Interested 12" means twelve leads
+   would show if that chip were picked, with city, source and the rest left
+   as they are. */
+const matches = (l: ScrapedLeadEntity, f: LeadFilters, skip?: keyof LeadFilters) =>
+  (skip === 'leadStatus' || f.leadStatus === 'All' || l.leadStatus === f.leadStatus) &&
+  (skip === 'source' || f.source === 'All' || l.source === f.source) &&
+  (skip === 'city' || f.city === 'All' || cityOf(l) === f.city) &&
+  (skip === 'category' || f.category === 'All' || categoryOf(l) === f.category) &&
+  (skip === 'contact' || hasContact(l, f.contact)) &&
+  (skip === 'assignee' || f.assignee === 'All' || assigneeOf(l) === f.assignee);
 
 const EMPTY_FORM: LeadForm = {
   businessName: '',
@@ -67,7 +127,9 @@ const toForm = (l: ScrapedLeadEntity): LeadForm => ({
 });
 
 export const ScrapedLeadsPage: React.FC<ScrapedLeadsPageProps> = ({ search }) => {
-  const [leadStatus, setLeadStatus] = useState('All');
+  const [filters, setFilters] = useState<LeadFilters>(NO_FILTERS);
+  const setFilter = <K extends keyof LeadFilters>(key: K, value: LeadFilters[K]) =>
+    setFilters((f) => ({ ...f, [key]: value }));
   const [toast, setToast] = useState<ToastState | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -81,12 +143,72 @@ export const ScrapedLeadsPage: React.FC<ScrapedLeadsPageProps> = ({ search }) =>
   const [pendingDelete, setPendingDelete] = useState<ScrapedLeadEntity | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const { data, loading, error, refreshing, reload } = useFetch(
-    () => scraperLeadService.getLeads({ ...(leadStatus !== 'All' && { leadStatus }), ...(search && { search }) }),
-    [leadStatus, search]
+  /* The whole collection, once: GET /admin/scriper-leads is not paged, so
+     filtering here is exact and every control can carry a true count without
+     a round trip per keystroke. Search covers the same fields the server's
+     own `search` param does, plus the assignee. */
+  const { data, loading, error, refreshing, reload } = useFetch(() => scraperLeadService.getLeads(), []);
+
+  const searched = useMemo(
+    () =>
+      filterBySearch(data ?? [], search, (l, q) =>
+        `${l.businessName} ${l.city} ${l.category} ${l.phone} ${l.email} ${l.address} ${l.landmark} ${l.assignedTo.name ?? ''}`
+          .toLowerCase()
+          .includes(q)
+      ),
+    [data, search]
   );
 
-  const leads = data ?? [];
+  const leads = useMemo(() => searched.filter((l) => matches(l, filters)), [searched, filters]);
+
+  const counts = useMemo(() => {
+    const tally = (skip: keyof LeadFilters, keys: (l: ScrapedLeadEntity) => string[]) => {
+      const out: Record<string, number> = { All: 0 };
+      for (const l of searched) {
+        if (!matches(l, filters, skip)) continue;
+        out.All += 1;
+        for (const k of keys(l)) out[k] = (out[k] ?? 0) + 1;
+      }
+      return out;
+    };
+    return {
+      leadStatus: tally('leadStatus', (l) => [l.leadStatus]),
+      source: tally('source', (l) => [l.source]),
+      city: tally('city', (l) => [cityOf(l)]),
+      category: tally('category', (l) => [categoryOf(l)]),
+      /* Not exclusive — a lead with a phone and an email counts under both. */
+      contact: tally('contact', (l) => CONTACT_OPTIONS.filter((o) => o.id !== 'All' && hasContact(l, o.id)).map((o) => o.id)),
+      assignee: tally('assignee', (l) => [assigneeOf(l)]),
+    };
+  }, [searched, filters]);
+
+  /* Select choices come from the whole collection, not the narrowed list, so
+     picking one never makes the others disappear from under the cursor. */
+  const choices = useMemo(() => {
+    const cities = new Set<string>();
+    const categories = new Set<string>();
+    const assignees = new Map<string, string>();
+    for (const l of data ?? []) {
+      cities.add(cityOf(l));
+      categories.add(categoryOf(l));
+      if (l.assignedTo.userId) assignees.set(l.assignedTo.userId, l.assignedTo.name || l.assignedTo.email || 'Unnamed');
+    }
+    const sorted = (set: Set<string>) =>
+      [...set].sort((a, b) => (a === NONE ? 1 : b === NONE ? -1 : a.localeCompare(b)));
+    return {
+      cities: sorted(cities),
+      categories: sorted(categories),
+      assignees: [...assignees.entries()].sort((a, b) => a[1].localeCompare(b[1])),
+    };
+  }, [data]);
+
+  const total = data?.length ?? 0;
+  const filtersActive = (Object.keys(NO_FILTERS) as (keyof LeadFilters)[]).some((k) => filters[k] !== NO_FILTERS[k]);
+  const filtered = filtersActive || !!search.trim();
+  const clearFilters = () => setFilters(NO_FILTERS);
+  /* Unknown while loading — left off rather than shown as 0. */
+  const countOf = (dim: keyof typeof counts, id: string) => (loading ? null : (counts[dim][id] ?? 0));
+  const withCount = (label: string, n: number | null) => (n == null ? label : `${label} (${n.toLocaleString('en-IN')})`);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -179,25 +301,100 @@ export const ScrapedLeadsPage: React.FC<ScrapedLeadsPageProps> = ({ search }) =>
         }
       />
 
-      <Card padded={false} className="p-3">
-        <Box className="flex flex-wrap items-center gap-2.5">
-          <Select value={leadStatus} onChange={(e) => setLeadStatus(e.target.value)} className="w-auto min-w-40">
-            <Option value="All">All statuses</Option>
-            {LEAD_STATUSES.map((s) => (
+      <Card padded={false} className="p-3 space-y-2.5">
+        <FilterChips
+          label="Lead status"
+          value={filters.leadStatus}
+          onChange={(v) => setFilter('leadStatus', v)}
+          options={[
+            { id: 'All', label: 'All', count: countOf('leadStatus', 'All') },
+            ...LEAD_STATUSES.map((s) => ({
+              id: s,
+              label: leadStatusMeta(s).label,
+              count: countOf('leadStatus', s),
+              tone: leadStatusMeta(s).tone,
+            })),
+          ]}
+        />
+        <FilterBar
+          summary={
+            loading ? undefined : (
+              <ResultCount
+                shown={leads.length}
+                total={total}
+                noun="leads"
+                filtered={filtered}
+                onClear={filtersActive ? clearFilters : undefined}
+              />
+            )
+          }
+        >
+          <Select
+            aria-label="Source"
+            value={filters.source}
+            onChange={(e) => setFilter('source', e.target.value)}
+            className={filterSelectClass}
+          >
+            <Option value="All">{withCount('All sources', countOf('source', 'All'))}</Option>
+            {SCRAPE_SOURCES.map((s) => (
               <Option key={s} value={s}>
-                {leadStatusMeta(s).label}
+                {withCount(s, countOf('source', s))}
               </Option>
             ))}
           </Select>
-          {leadStatus !== 'All' && (
-            <Button size="sm" variant="ghost" icon={X} onClick={() => setLeadStatus('All')}>
-              Clear
-            </Button>
-          )}
-          <Inline className="text-label text-ink-3 ml-auto tabular">
-            {loading ? 'Loading…' : `${leads.length} lead${leads.length === 1 ? '' : 's'}`}
-          </Inline>
-        </Box>
+          <Select
+            aria-label="City"
+            value={filters.city}
+            onChange={(e) => setFilter('city', e.target.value)}
+            className={filterSelectClass}
+          >
+            <Option value="All">{withCount('All cities', countOf('city', 'All'))}</Option>
+            {choices.cities.map((c) => (
+              <Option key={c} value={c}>
+                {withCount(c === NONE ? 'No city' : c, countOf('city', c))}
+              </Option>
+            ))}
+          </Select>
+          <Select
+            aria-label="Category"
+            value={filters.category}
+            onChange={(e) => setFilter('category', e.target.value)}
+            className={filterSelectClass}
+          >
+            <Option value="All">{withCount('All categories', countOf('category', 'All'))}</Option>
+            {choices.categories.map((c) => (
+              <Option key={c} value={c}>
+                {withCount(c === NONE ? 'No category' : c, countOf('category', c))}
+              </Option>
+            ))}
+          </Select>
+          <Select
+            aria-label="Contact details"
+            value={filters.contact}
+            onChange={(e) => setFilter('contact', e.target.value as ContactFilter)}
+            className={filterSelectClass}
+          >
+            {CONTACT_OPTIONS.map((o) => (
+              <Option key={o.id} value={o.id}>
+                {withCount(o.label, countOf('contact', o.id))}
+              </Option>
+            ))}
+          </Select>
+          <Select
+            aria-label="Assigned to"
+            value={filters.assignee}
+            onChange={(e) => setFilter('assignee', e.target.value)}
+            className={filterSelectClass}
+          >
+            <Option value="All">{withCount('Anyone', countOf('assignee', 'All'))}</Option>
+            <Option value="none">{withCount('Unassigned', countOf('assignee', 'none'))}</Option>
+            {choices.assignees.map(([id, name]) => (
+              <Option key={id} value={id}>
+                {withCount(name, countOf('assignee', id))}
+              </Option>
+            ))}
+          </Select>
+        </FilterBar>
       </Card>
 
       {error ? (
@@ -223,8 +420,19 @@ export const ScrapedLeadsPage: React.FC<ScrapedLeadsPageProps> = ({ search }) =>
                   <PlainTd colSpan={6}>
                     <EmptyState
                       icon={ListChecks}
-                      title={search || leadStatus !== 'All' ? 'No matching leads' : 'No leads yet'}
-                      description="Leads found by a scrape job — or added here directly — will appear in this list."
+                      title={filtered ? 'No leads match these filters' : 'No leads yet'}
+                      description={
+                        filtered
+                          ? 'Try a different search or loosen a filter.'
+                          : 'Leads found by a scrape job — or added here directly — will appear in this list.'
+                      }
+                      action={
+                        filtersActive ? (
+                          <Button size="sm" variant="ghost" onClick={clearFilters}>
+                            Clear filters
+                          </Button>
+                        ) : undefined
+                      }
                     />
                   </PlainTd>
                 </PlainTr>

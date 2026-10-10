@@ -53,6 +53,9 @@ import { Table, Td, Th, Tr } from '../../../common/atoms/Table';
 import { Text } from '../../../common/atoms/Text';
 import { EmptyState } from '../../../common/molecules/EmptyState';
 import { ErrorState } from '../../../common/molecules/ErrorState';
+import { FilterBar } from '../../../common/molecules/FilterBar';
+import { FilterChips } from '../../../common/molecules/FilterChips';
+import { ResultCount } from '../../../common/molecules/ResultCount';
 import { Modal } from '../../../common/organisms/Modal';
 import { Toast } from '../../../common/organisms/Toast';
 import type { ToastState } from '../../../common/organisms/Toast';
@@ -68,6 +71,8 @@ const STATUS_LOOK: Record<FoodPayoutStatus, { label: string; tone: BadgeTone; ic
   rejected: { label: 'Refused', tone: 'crit', icon: Ban },
 };
 
+type HistoryFilter = 'all' | FoodPayoutStatus;
+
 const masked = (last4?: string): string => (last4 ? `•••• ${last4}` : '—');
 
 export const PayoutRequest: React.FC = () => {
@@ -82,6 +87,7 @@ export const PayoutRequest: React.FC = () => {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all');
 
   const data = overview.data;
   const balance = data?.balance;
@@ -135,6 +141,21 @@ export const PayoutRequest: React.FC = () => {
 
   const blocked = blockedBecause();
   const history = data?.history ?? [];
+
+  /* The chip counts are the server's, over every request — the history itself
+     is the newest fifty, and counting that would undercount an old shop. An
+     older server sends no tally, and then the chips carry no number rather
+     than a wrong one. No search box: a payout is found by its state and date,
+     and there are rarely enough of them to need more. */
+  const tally = data?.historyCounts;
+  const tallyOf = (id: HistoryFilter): number | null => {
+    if (!tally) return null;
+    if (id === 'all') return Object.values(tally).reduce((n: number, v) => n + (v || 0), 0);
+    return tally[id] ?? 0;
+  };
+  const shownHistory =
+    historyFilter === 'all' ? history : history.filter((row) => row.status === historyFilter);
+  const historyTotal = tallyOf(historyFilter) ?? shownHistory.length;
   const chosenAccount: PayoutAccount | undefined = accounts.find((a) => a.accountId === chosen);
 
   return (
@@ -226,6 +247,32 @@ export const PayoutRequest: React.FC = () => {
         <Heading level={2} className="text-label uppercase text-ink-3 mb-2">
           Payout requests
         </Heading>
+        {history.length > 0 && (
+          <FilterBar
+            className="mb-2.5"
+            summary={
+              <ResultCount
+                shown={shownHistory.length}
+                total={Math.max(historyTotal, shownHistory.length)}
+                noun="requests"
+                filtered={historyFilter !== 'all' || shownHistory.length < historyTotal}
+                onClear={historyFilter !== 'all' ? () => setHistoryFilter('all') : undefined}
+              />
+            }
+          >
+            <FilterChips<HistoryFilter>
+              label="Payout state"
+              value={historyFilter}
+              onChange={setHistoryFilter}
+              options={[
+                { id: 'all', label: 'All', count: tallyOf('all') },
+                { id: 'pending', label: STATUS_LOOK.pending.label, count: tallyOf('pending'), tone: 'warn' },
+                { id: 'paid', label: STATUS_LOOK.paid.label, count: tallyOf('paid'), tone: 'good' },
+                { id: 'rejected', label: STATUS_LOOK.rejected.label, count: tallyOf('rejected'), tone: 'crit' },
+              ]}
+            />
+          </FilterBar>
+        )}
         <Card>
           <Table>
             <TableHead>
@@ -248,8 +295,23 @@ export const PayoutRequest: React.FC = () => {
                     />
                   </PlainTd>
                 </PlainTr>
+              ) : shownHistory.length === 0 ? (
+                <PlainTr>
+                  <PlainTd colSpan={5}>
+                    <EmptyState
+                      icon={Banknote}
+                      title="No payouts match these filters"
+                      description="None of your recent requests are in this state."
+                      action={
+                        <Button size="sm" variant="secondary" onClick={() => setHistoryFilter('all')}>
+                          Show all requests
+                        </Button>
+                      }
+                    />
+                  </PlainTd>
+                </PlainTr>
               ) : (
-                history.map((row) => {
+                shownHistory.map((row) => {
                   const look = STATUS_LOOK[row.status] ?? STATUS_LOOK.pending;
                   return (
                     <Tr key={row.payoutId}>

@@ -233,6 +233,22 @@ export default function OwnerConfirmation() {
    */
   const sent = useRef(false);
 
+  /*
+   * Whether this visit to the screen may send a request at all.
+   *
+   * Only the listing's "Request this bed" may: it is the one caller that
+   * carries the consent tick, and the server refuses every request without
+   * it (CONSENT_REQUIRED). Every other way in — a push, an alert row, the
+   * strip on Home, "Pay to confirm" on a booking — comes to LOOK at a request
+   * that already exists. When that request could not be found (a fresh
+   * install, a declined or expired one the server no longer calls live), the
+   * screen used to fall through to the auto-send, which fired a request with
+   * no consent and put a 422 in front of somebody who had only tapped an
+   * alert. A named `requestId` is checked as well, so arriving from a
+   * notification never sends, whatever else is in the URL.
+   */
+  const mayAutoSend = consented === '1' && !requestId;
+
   useEffect(() => {
     /*
      * Never over a request that already exists — checked three ways.
@@ -250,7 +266,7 @@ export default function OwnerConfirmation() {
      * owner a notification and tells a student something untrue.
      */
     if (stay.isHydrating || stay.phase !== 'idle' || stay.request) return;
-    if (!sendPayload || sent.current) return;
+    if (!sendPayload || sent.current || !mayAutoSend) return;
     /* Defence in depth: `listing/[id].tsx`'s "Request this bed" is the only
        real way here, and it already sends a guest to sign in first via
        `requireSignIn`. A guest reaching this screen some other way (a stale
@@ -274,7 +290,7 @@ export default function OwnerConfirmation() {
     /* Narrow deps on purpose: `stay` is a fresh object every render, so
        depending on it would re-run this effect constantly. Only the things
        the guard actually reads matter. */
-  }, [sendPayload, stay.isHydrating, stay.phase, stay.request, stay.send, status, couponsPending, waitsForCoupon]);
+  }, [sendPayload, stay.isHydrating, stay.phase, stay.request, stay.send, status, couponsPending, waitsForCoupon, mayAutoSend]);
 
   /* The profile form's "Save and send request" — same payload, a fresh
      attempt. `sent.current` is left alone: it already guards against the
@@ -518,6 +534,29 @@ export default function OwnerConfirmation() {
           The owner of {listing.name} needs to know who is asking.
         </Text>
         <Button label="Sign in" onPress={() => router.push('/(entry)/auth' as never)} fullWidth />
+      </View>
+    );
+  }
+
+  /* Came to look, and there is nothing to look at: the named request could
+     not be read (gone, or the phone is offline), or none was named and this
+     phone has none live for the listing. Without the auto-send, `idle` would
+     otherwise draw the "sending" spinner over a request nobody is sending. */
+  if (!mayAutoSend && stay.phase === 'idle' && !stay.request) {
+    return (
+      <View style={[styles.flex, styles.centre, { backgroundColor: colors.bg, padding: 24, gap: 12 }]}>
+        <Text variant="title1" style={{ textAlign: 'center' }}>We could not open this request</Text>
+        <Text variant="body" color="secondary" style={{ textAlign: 'center' }}>
+          It may have closed, or you may be offline. Nothing has been sent or charged.
+        </Text>
+        {requestId ? (
+          <Button label="Try again" variant="secondary" onPress={() => { stay.refresh(); }} fullWidth />
+        ) : null}
+        <Button
+          label={`Open ${listing.name}`}
+          onPress={() => router.replace(`/listing/${String(id)}` as never)}
+          fullWidth
+        />
       </View>
     );
   }
@@ -852,6 +891,13 @@ export default function OwnerConfirmation() {
   };
 
   const askAgain = () => {
+    /* Asking again IS the auto-send, re-armed — which this visit may not do
+       (see `mayAutoSend`). The listing is where the consent is given, so a
+       second request starts there rather than failing here. */
+    if (!mayAutoSend) {
+      leaveEnded(`/listing/${String(id)}`);
+      return;
+    }
     stay.reset();
     clearPill();
     sent.current = false;

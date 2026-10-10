@@ -1,5 +1,6 @@
 import React from 'react';
 import { Property } from '../../../../api/propertyApi';
+import { categoryChip, categoryLabel } from '../../../../api/propertyCategories';
 import { MapPin, Phone, User, Eye, Trash2, Home, Sparkles } from 'lucide-react';
 import { Box, Heading, Image, Inline, PlainButton } from '../../../common/atoms';
 
@@ -10,21 +11,6 @@ interface PropertyCardProps {
 }
 
 export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onViewDetails, onDelete }) => {
-  const getCategoryBadgeClass = (cat: string) => {
-    switch (cat) {
-      case 'PG':
-        return 'bg-purple-100 text-purple-700 border-purple-200';
-      case 'Hostel':
-        return 'bg-cyan-100 text-cyan-700 border-cyan-200';
-      case 'Dormitory':
-        return 'bg-amber-100 text-amber-700 border-amber-200';
-      case 'Bachelor Room':
-        return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-      default:
-        return 'bg-slate-100 text-slate-600 border-slate-300';
-    }
-  };
-
   const formattedRent = property.rent ? `₹${property.rent.toLocaleString()}` : 'Price on Call';
 
   return (
@@ -39,8 +25,8 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, onViewDeta
         <Box className="absolute inset-0 bg-gradient-to-t from-slate-900/85 via-slate-900/25 to-transparent" />
 
         <Box className="absolute top-3 left-3 flex items-center gap-2">
-          <Inline className={`px-3 py-1 rounded-full text-xs font-extrabold border backdrop-blur-md ${getCategoryBadgeClass(property.category)}`}>
-            {property.category}
+          <Inline className={`px-3 py-1 rounded-full text-xs font-extrabold border backdrop-blur-md ${categoryChip(property.category)}`}>
+            {categoryLabel(property.category)}
           </Inline>
           <Inline className="px-2.5 py-1 rounded-full text-3xs font-bold bg-slate-900/60 text-white backdrop-blur-md">
             {property.stayType || 'Long Stay'}

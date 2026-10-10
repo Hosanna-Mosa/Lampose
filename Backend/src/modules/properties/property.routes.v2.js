@@ -6,7 +6,7 @@ const {
   deleteProperty,
 } = require('./property.controller');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
-const { protect } = require('../../shared/middleware/authMiddleware');
+const { protect, protectRole } = require('../../shared/middleware/authMiddleware');
 
 const router = express.Router();
 
@@ -22,7 +22,13 @@ const router = express.Router();
    nothing. Checking the connection first turns it into an immediate 503. */
 router.get('/', requireLamposeDb, getProperties);
 router.get('/:id', requireLamposeDb, getPropertyById);
-router.post('/', requireLamposeDb, protect, createProperty);
-router.delete('/:id', requireLamposeDb, protect, deleteProperty);
+/* ADMIN only. `protect` alone let any `scriper_users` token write here —
+   including an onboarding agent's, which `/api/v2/auth/onboarding-login`
+   issues from the same collection — so a field agent could publish or delete
+   a live listing with no verification chain and no v1 permission grant. The
+   leads panel shows the Properties tab to ADMINs only (Sidebar.tsx); this is
+   that rule, enforced where it counts. */
+router.post('/', requireLamposeDb, protect, protectRole('ADMIN'), createProperty);
+router.delete('/:id', requireLamposeDb, protect, protectRole('ADMIN'), deleteProperty);
 
 module.exports = router;

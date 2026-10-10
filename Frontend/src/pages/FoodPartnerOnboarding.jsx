@@ -1247,6 +1247,6 @@ import { ComingSoon } from '../components/common/organisms/ComingSoon/ComingSoon
 // 
 
 export function FoodPartnerOnboarding() {
-  return <ComingSoon />;
+  return <ComingSoon page="food-partner-onboarding" />;
 }
 

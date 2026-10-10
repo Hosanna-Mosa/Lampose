@@ -272,6 +272,21 @@ const placeOrder = async (req, res, next) => {
     const requestKey = String(body.clientRequestId || req.get('Idempotency-Key') || '').trim().slice(0, 64);
     if (requestKey && customerId) {
       const existing = await FoodOrder.findOne({ customerId, clientRequestId: requestKey });
+      /* Same attempt, but the diner has since picked CASH for the online
+         order they abandoned. Replaying it answered `payment` and opened
+         Razorpay again. It is the payment-incomplete screen's "Pay in cash"
+         by another door, so it goes through that one handler — with its
+         cash limit, the restaurant's `acceptsCod`, and the race against a
+         payment that lands meanwhile. */
+      if (
+        existing
+        && body.paymentMode === 'cod'
+        && existing.paymentMode === 'online'
+        && existing.paymentStatus !== 'paid'
+      ) {
+        req.params.orderNumber = existing.orderNumber;
+        return switchMyOrderToCash(req, res, next);
+      }
       if (existing) return replayOrder(res, existing);
     }
 

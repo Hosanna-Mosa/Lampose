@@ -66,12 +66,17 @@ import { PageHeader } from '../components/common/molecules/PageHeader';
 import { Modal } from '../components/common/organisms/Modal';
 import { Toast } from '../components/common/organisms/Toast';
 import type { ToastState } from '../components/common/organisms/Toast';
-import { cx } from '../components/common/utils';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import type { FilterChipOption } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
+import { cx, filterSelectClass } from '../components/common/utils';
 import {
   supportService,
   type QueueQuery,
   type RequesterKind,
   type SupportThread,
+  type TicketPriority,
   type TicketStatus,
 } from '../api/services/supportService';
 import {
@@ -84,7 +89,7 @@ import {
   untrackTicket,
 } from '../lib/supportSocket';
 import { useAuth } from '../context/AuthContext';
-import { useFetch } from '../lib/useFetch';
+import { useDebounced, useFetch } from '../lib/useFetch';
 
 import { QueueRow } from '../components/support/molecules/QueueRow';
 import { AUDIENCE_LABEL, STATUS_TONE, STATUS_LABEL, since, clockTime } from '../components/support/utils';
@@ -103,13 +108,38 @@ interface SupportPageProps {
  * Vocabulary
  * ------------------------------------------------------------------ */
 
+type StatusFilter = TicketStatus | 'active' | '';
+type AssignedFilter = 'me' | 'unassigned' | 'any' | '';
 
+/* `active` (open + waiting on them) is where the queue rests; `''` is every
+   thread ever filed. The facet keys are the same words, with `all` for ''. */
+const STATUS_FILTERS: { id: StatusFilter; label: string; tone?: FilterChipOption['tone'] }[] = [
+  { id: 'active', label: 'Still to do', tone: 'warn' },
+  { id: 'open', label: 'Open', tone: 'warn' },
+  { id: 'awaiting_customer', label: 'Waiting on them', tone: 'brand' },
+  { id: 'resolved', label: 'Resolved', tone: 'good' },
+  { id: 'closed', label: 'Closed' },
+  { id: '', label: 'Everything' },
+];
 
+const KIND_FILTERS: { id: 'ticket' | 'report' | ''; label: string; tone?: FilterChipOption['tone'] }[] = [
+  { id: '', label: 'All' },
+  { id: 'ticket', label: 'Tickets' },
+  { id: 'report', label: 'Safety reports', tone: 'crit' },
+];
 
+const AUDIENCES: RequesterKind[] = ['customer', 'driver', 'restaurant', 'partner'];
+const PRIORITIES: TicketPriority[] = ['urgent', 'high', 'normal', 'low'];
+const PRIORITY_LABEL: Record<TicketPriority, string> = {
+  urgent: 'Urgent',
+  high: 'High',
+  normal: 'Normal',
+  low: 'Low',
+};
 
-
-
-
+/** "Rider (12)" — a native <option> cannot hold a pill. */
+const withCount = (label: string, n: number | null | undefined) =>
+  n == null ? label : `${label} (${n.toLocaleString('en-IN')})`;
 
 export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
   const { user } = useAuth();
@@ -118,9 +148,12 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
   const canAnswer = ['Super Admin', 'Admin', 'Support'].includes(String(user?.role));
 
   const [audience, setAudience] = useState<RequesterKind | ''>('');
-  const [status, setStatus] = useState<TicketStatus | 'active' | ''>('active');
-  const [assigned, setAssigned] = useState<'me' | 'unassigned' | 'any' | ''>('');
+  const [status, setStatus] = useState<StatusFilter>('active');
+  const [assigned, setAssigned] = useState<AssignedFilter>('');
   const [kind, setKind] = useState<'ticket' | 'report' | ''>('');
+  const [priority, setPriority] = useState<TicketPriority | ''>('');
+  /* The header box types straight into this; every keystroke is not a query. */
+  const q = useDebounced(search.trim(), 300);
 
   const [selected, setSelected] = useState<string | null>(null);
   const [thread, setThread] = useState<SupportThread | null>(null);
@@ -135,13 +168,27 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
   const [live, setLive] = useState(false);
 
   const query: QueueQuery = useMemo(() => ({
-    audience, status, assigned, kind, q: search, limit: 60,
-  }), [audience, status, assigned, kind, search]);
+    audience, status, assigned, kind, priority, q, limit: 60,
+  }), [audience, status, assigned, kind, priority, q]);
 
   const queue = useFetch(() => supportService.list(query), [query]);
   const stats = useFetch(() => supportService.stats(), []);
 
   const rows = queue.data?.rows ?? [];
+  const facets = queue.data?.facets;
+  /* `null` while unknown, so a chip shows no number rather than a false 0. */
+  const facet = (group: Record<string, number | undefined> | undefined, key: string) =>
+    group ? group[key] ?? 0 : null;
+
+  /* "Still to do" is where the queue rests, not a filter somebody chose. */
+  const filtersActive = !!q || status !== 'active' || !!audience || !!kind || !!assigned || !!priority;
+  const clearFilters = () => {
+    setStatus('');
+    setAudience('');
+    setKind('');
+    setAssigned('');
+    setPriority('');
+  };
 
   /* Reload without the closure staleness: the socket handlers below live for
      the life of the component and would otherwise capture the first `reload`. */
@@ -399,32 +446,80 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
         </Box>
       )}
 
+      <Card padded={false} className="p-3 space-y-2">
+        <FilterBar
+          summary={
+            queue.loading || !queue.data || !counts ? undefined : (
+              <ResultCount
+                shown={queue.data.total}
+                total={Object.values(counts.statuses).reduce((a, b) => a + b, 0)}
+                noun="threads"
+                onClear={clearFilters}
+              />
+            )
+          }
+        >
+          <FilterChips
+            label="Status"
+            value={status}
+            onChange={setStatus}
+            options={STATUS_FILTERS.map((f) => ({ ...f, count: facet(facets?.status, f.id || 'all') }))}
+          />
+        </FilterBar>
+        <Box className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <FilterChips
+            label="Ticket or report"
+            value={kind}
+            onChange={setKind}
+            options={KIND_FILTERS.map((f) => ({ ...f, count: facet(facets?.kind, f.id || 'all') }))}
+          />
+          <Select
+            aria-label="From"
+            value={audience}
+            onChange={(e) => setAudience(e.target.value as RequesterKind | '')}
+            className={filterSelectClass}
+          >
+            <Option value="">{withCount('From any app', facet(facets?.audience, 'all'))}</Option>
+            {AUDIENCES.map((k) => (
+              <Option key={k} value={k}>
+                {withCount(AUDIENCE_LABEL[k], facet(facets?.audience, k))}
+              </Option>
+            ))}
+          </Select>
+          <Select
+            aria-label="Assigned to"
+            value={assigned}
+            onChange={(e) => setAssigned(e.target.value as AssignedFilter)}
+            className={filterSelectClass}
+          >
+            <Option value="">{withCount("Anyone's", facets?.assigned?.all)}</Option>
+            <Option value="me">{withCount('Mine', facets?.assigned?.me)}</Option>
+            <Option value="unassigned">{withCount("Nobody's", facets?.assigned?.unassigned)}</Option>
+          </Select>
+          <Select
+            aria-label="Priority"
+            value={priority}
+            onChange={(e) => setPriority(e.target.value as TicketPriority | '')}
+            className={filterSelectClass}
+          >
+            <Option value="">{withCount('Any priority', facet(facets?.priority, 'all'))}</Option>
+            {PRIORITIES.map((p) => (
+              <Option key={p} value={p}>
+                {withCount(PRIORITY_LABEL[p], facet(facets?.priority, p))}
+              </Option>
+            ))}
+          </Select>
+        </Box>
+      </Card>
+
       <Box className="grid gap-4 lg:grid-cols-[minmax(320px,380px)_1fr]">
         {/* ── The queue ─────────────────────────────────────────────── */}
         <Card padded={false} className="overflow-hidden">
-          <Box className="flex flex-wrap gap-2 border-b border-line p-3">
-            <Select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as TicketStatus | 'active' | '')}
-              className="flex-1"
-            >
-              <Option value="active">Still to do</Option>
-              <Option value="open">Open</Option>
-              <Option value="awaiting_customer">Waiting on them</Option>
-              <Option value="resolved">Resolved</Option>
-              <Option value="closed">Closed</Option>
-              <Option value="">Everything</Option>
-            </Select>
-            <Select
-              value={assigned}
-              onChange={(e) => setAssigned(e.target.value as 'me' | 'unassigned' | 'any' | '')}
-              className="flex-1"
-            >
-              <Option value="">Anyone's</Option>
-              <Option value="me">Mine</Option>
-              <Option value="unassigned">Nobody's</Option>
-            </Select>
-          </Box>
+          {queue.data && queue.data.total > rows.length && (
+            <Text className="border-b border-line px-3 py-2 text-label text-ink-3">
+              Listing the first {rows.length} of {queue.data.total.toLocaleString('en-IN')} — narrow the filters to reach the rest.
+            </Text>
+          )}
 
           <Box className="max-h-[70vh] overflow-y-auto">
             {queue.loading && !rows.length ? (
@@ -436,11 +531,20 @@ export const SupportPage: React.FC<SupportPageProps> = ({ search }) => {
             ) : !rows.length ? (
               <EmptyState
                 icon={Inbox}
-                title="Nothing waiting"
+                title={filtersActive ? 'No threads match these filters' : 'Nothing waiting'}
                 description={
-                  search
-                    ? 'No thread matches that search.'
-                    : 'Every ticket in this view has been dealt with.'
+                  q
+                    ? 'No thread matches that search — clear it in the header, or widen the filters.'
+                    : filtersActive
+                      ? 'Widen the filters to see more of the queue.'
+                      : 'Every ticket in this view has been dealt with.'
+                }
+                action={
+                  filtersActive && (status !== '' || audience || kind || assigned || priority) ? (
+                    <Button variant="secondary" size="sm" onClick={clearFilters}>
+                      Clear filters
+                    </Button>
+                  ) : undefined
                 }
               />
             ) : (

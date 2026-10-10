@@ -299,50 +299,43 @@ const createStayRequest = async ({
    * the bed was taken by them. The most specific true answer wins, so the
    * question "do you already have this?" is asked before "is there room?".
    */
-  const existing = await VisitRequest.findOne({
+  const sameListing = {
     channel: 'app',
     customerId: customer.customerId,
     listingId: String(property._id),
-    $or: [
-      { status: 'pending_owner', expiresAt: { $gt: new Date() } },
-      { status: 'confirmed' },
-    ],
-  }).lean();
+  };
 
   /*
    * "Already booked" only while that booking is still a stay. A confirmed
    * request outlives its booking — the booking is cancelled or checked out,
    * the request stays `confirmed` as the record of the decision — and this
    * used to refuse the student at that property for ever after.
+   *
+   * Every confirmation is checked, not just the first one found: there can be
+   * an older, ended one and a newer, live one at the same listing. And the
+   * two questions are asked separately, because a single `findOne` over both
+   * statuses used to return the ended confirmation, skip the live pending
+   * request behind it, and then refuse an ended booking as "a request
+   * waiting" — the "for ever after" bug again, by a different route.
    */
-  if (existing && existing.status === 'confirmed' && !(await stillHolds(existing))) {
-    /* Ended. Look again for a confirmation that is still live — there can be
-       an older one and a newer one at the same listing. */
-    const others = await VisitRequest.find({
-      channel: 'app',
-      customerId: customer.customerId,
-      listingId: String(property._id),
-      status: 'confirmed',
-      _id: { $ne: existing._id },
-    }).lean();
-    for (const other of others) {
-      // eslint-disable-next-line no-await-in-loop
-      if (await stillHolds(other)) {
-        throw new StayRequestError(
-          'ALREADY_BOOKED',
-          'You already have a confirmed booking at this property.',
-          409,
-        );
-      }
+  const confirmations = await VisitRequest.find({ ...sameListing, status: 'confirmed' }).lean();
+  for (const confirmed of confirmations) {
+    // eslint-disable-next-line no-await-in-loop
+    if (await stillHolds(confirmed)) {
+      throw new StayRequestError(
+        'ALREADY_BOOKED',
+        'You already have a confirmed booking at this property.',
+        409,
+      );
     }
-  } else if (existing && existing.status === 'confirmed') {
-    throw new StayRequestError(
-      'ALREADY_BOOKED',
-      'You already have a confirmed booking at this property.',
-      409,
-    );
   }
-  if (existing) {
+
+  const waiting = await VisitRequest.exists({
+    ...sameListing,
+    status: 'pending_owner',
+    expiresAt: { $gt: new Date() },
+  });
+  if (waiting) {
     throw new StayRequestError(
       'ALREADY_REQUESTED',
       'You already have a request waiting on this property.',

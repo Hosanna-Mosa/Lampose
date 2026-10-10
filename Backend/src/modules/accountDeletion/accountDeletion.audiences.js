@@ -101,7 +101,11 @@ const AUDIENCES = {
     phoneOf: (doc) => doc.phone,
     activeWork: async (doc) => {
       const FoodOrder = require('../foodpartners/foodOrder.model');
-      const orders = await FoodOrder.countDocuments({ 'dispatch.driverId': doc.driverId, status: OPEN_ORDER });
+      /* `delivery.driverId` is the rider carrying it. There is no
+         `dispatch.driverId` (offers live in `dispatch.offers[]`), and counting
+         on it answered 0 for every rider — so the archive said "no open
+         orders" for a rider deleted with the food in hand. */
+      const orders = await FoodOrder.countDocuments({ 'delivery.driverId': doc.driverId, status: OPEN_ORDER });
       return { activeOrders: orders };
     },
   },

@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { Activity, Cpu, Database, HardDrive, RefreshCw, Table2 } from 'lucide-react';
 import { Badge } from '../components/common/atoms/Badge';
+import { Button } from '../components/common/atoms/Button';
 import { Card } from '../components/common/atoms/Card';
 import { IconButton } from '../components/common/atoms/IconButton';
 import { Skeleton } from '../components/common/atoms/Skeleton';
@@ -10,7 +11,10 @@ import { DataRow } from '../components/common/molecules/DataRow';
 import { EmptyState } from '../components/common/molecules/EmptyState';
 import { ErrorState } from '../components/common/molecules/ErrorState';
 import { PageHeader } from '../components/common/molecules/PageHeader';
-import { cx } from '../components/common/utils';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
+import { cx, filterBySearch } from '../components/common/utils';
 import { RankedBars } from '../components/common/organisms/RankedBars';
 import { insightsService } from '../api/services/insightsService';
 import { useFetch } from '../lib/useFetch';
@@ -22,8 +26,39 @@ import { Inline } from '../components/common/atoms/Inline';
 import { PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
 import { Text } from '../components/common/atoms/Text';
 
+type FillFilter = 'all' | 'filled' | 'empty';
+
 export const SystemPage: React.FC = () => {
   const { data, loading, error, refreshing, reload } = useFetch(() => insightsService.getSystem(), []);
+
+  /* The header search is off on this tab, so the collection list carries its
+     own box — the database has enough collections that scanning for one by
+     eye is slow. */
+  const [collectionQuery, setCollectionQuery] = useState('');
+  const [fill, setFill] = useState<FillFilter>('all');
+
+  const allCollections = useMemo(() => data?.database.collections ?? [], [data]);
+  const searched = useMemo(
+    () => filterBySearch(allCollections, collectionQuery, (c, q) => c.name.toLowerCase().includes(q)),
+    [allCollections, collectionQuery]
+  );
+  const fillCounts = useMemo(
+    () => ({
+      all: searched.length,
+      filled: searched.filter((c) => c.documents > 0).length,
+      empty: searched.filter((c) => c.documents === 0).length,
+    }),
+    [searched]
+  );
+  const collections = useMemo(
+    () =>
+      fill === 'all' ? searched : searched.filter((c) => (fill === 'empty' ? c.documents === 0 : c.documents > 0)),
+    [searched, fill]
+  );
+  const clearCollectionFilters = () => {
+    setCollectionQuery('');
+    setFill('all');
+  };
 
   return (
     <Box className="space-y-5">
@@ -90,7 +125,49 @@ export const SystemPage: React.FC = () => {
                   icon={Table2}
                 />
               </Box>
-              {data.database.collections.length ? (
+              {allCollections.length > 0 && (
+                <Box className="px-5 pb-3">
+                  <FilterBar
+                    search={{
+                      value: collectionQuery,
+                      onChange: setCollectionQuery,
+                      placeholder: 'Find a collection',
+                    }}
+                    summary={
+                      <ResultCount
+                        shown={collections.length}
+                        total={allCollections.length}
+                        noun="collections"
+                        onClear={clearCollectionFilters}
+                      />
+                    }
+                  >
+                    <FilterChips
+                      label="Documents"
+                      value={fill}
+                      onChange={setFill}
+                      options={[
+                        { id: 'all', label: 'All', count: fillCounts.all },
+                        { id: 'filled', label: 'Has documents', count: fillCounts.filled, tone: 'good' },
+                        { id: 'empty', label: 'Empty', count: fillCounts.empty, tone: 'warn' },
+                      ]}
+                    />
+                  </FilterBar>
+                </Box>
+              )}
+              {!allCollections.length ? (
+                <EmptyState icon={Table2} title="No collections reported" />
+              ) : !collections.length ? (
+                <EmptyState
+                  icon={Table2}
+                  title="No collections match these filters"
+                  action={
+                    <Button size="sm" variant="secondary" onClick={clearCollectionFilters}>
+                      Clear filters
+                    </Button>
+                  }
+                />
+              ) : (
                 <Table>
                   <TableHead>
                     <PlainTr>
@@ -99,7 +176,7 @@ export const SystemPage: React.FC = () => {
                     </PlainTr>
                   </TableHead>
                   <TableBody>
-                    {data.database.collections.map((c) => (
+                    {collections.map((c) => (
                       <Tr key={c.name}>
                         <Td className="text-ink font-mono">{c.name}</Td>
                         <Td className="text-right text-ink tabular">
@@ -109,8 +186,6 @@ export const SystemPage: React.FC = () => {
                     ))}
                   </TableBody>
                 </Table>
-              ) : (
-                <EmptyState icon={Table2} title="No collections reported" />
               )}
             </Card>
 

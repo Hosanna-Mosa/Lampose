@@ -122,8 +122,11 @@ async function confirmPayment(order, { paymentId, amountPaise }) {
    */
   if (order.paymentMode !== 'online') {
     const now = new Date();
-    await FoodOrder.updateOne(
-      { _id: order._id },
+    /* Conditional on `paidAt` still being empty: the in-app verify and the
+       webhook both arrive for one payment, and the second must not stamp a
+       second "refund this" line into the history. */
+    const recorded = await FoodOrder.updateOne(
+      { _id: order._id, 'razorpay.paidAt': null },
       {
         $set: {
           'razorpay.paymentId': String(paymentId || ''),
@@ -140,9 +143,10 @@ async function confirmPayment(order, { paymentId, amountPaise }) {
         },
       },
     );
+    if (!recorded.modifiedCount) return { alreadyPaid: true, notified: false, closed: true };
     console.error(
       `${BADGE} [Paid After Cash Switch] ${order.orderNumber} · ${paymentId} — owed back; `
-      + 'refund it from the Razorpay dashboard',
+      + 'listed in the console\'s refund queue',
     );
     return { alreadyPaid: false, notified: false, closed: true };
   }
@@ -598,15 +602,20 @@ async function handleFoodOrderWebhook({ orderNumber, paymentId, amountPaise }) {
   }
   if (order.paymentStatus === 'paid') return true;
 
-  /* A cash-on-delivery order is never confirmed here: `confirmPayment` tells
-     the kitchen about a NEW order. Money on one arrives through the rider's
-     doorstep QR and is settled by that flow, which the webhook routes to by
-     the QR's `purpose` note. Anything else is logged for a human. */
+  /* A cash-on-delivery order is never confirmed as paid here. Money on one
+     normally arrives through the rider's doorstep QR, which the webhook
+     routes away by its `purpose` note BEFORE reaching this function — so a
+     payment that gets here carrying `foodOrderNumber` is the online checkout
+     the diner abandoned before switching to cash, captured late. It used to
+     be logged and dropped, which left the diner paying twice with no trace in
+     the console. `confirmPayment` records it against the order as owed back
+     (it never marks a cash order paid or rings the kitchen). */
   if (order.paymentMode !== 'online') {
     console.warn(
-      `${BADGE} [Webhook] payment ${paymentId} for cash-on-delivery order ${order.orderNumber} `
-      + 'did not come through a doorstep QR. NOT applied — check it in the dashboard.',
+      `${BADGE} [Webhook] online payment ${paymentId} for cash-on-delivery order ${order.orderNumber} `
+      + '— recorded as owed back.',
     );
+    await confirmPayment(order, { paymentId, amountPaise });
     return true;
   }
 

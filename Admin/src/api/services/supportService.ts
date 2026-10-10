@@ -121,11 +121,22 @@ export interface QueueQuery {
   limit?: number;
 }
 
+/** How many threads each chip would show — every dimension counted under
+ *  the OTHER filters, search included. Absent on an older server. */
+export interface QueueFacets {
+  status?: Partial<Record<TicketStatus | 'active' | 'all', number>>;
+  audience?: Partial<Record<RequesterKind | 'all', number>>;
+  kind?: Partial<Record<'ticket' | 'report' | 'all', number>>;
+  priority?: Partial<Record<TicketPriority | 'all', number>>;
+  assigned?: { all?: number; me?: number; unassigned?: number };
+}
+
 export interface QueuePage {
   rows: SupportRow[];
   total: number;
   page: number;
   pages: number;
+  facets?: QueueFacets;
 }
 
 /* ------------------------------------------------------------------ *
@@ -215,6 +226,7 @@ export const supportService = {
         total: Number(raw?.total) || 0,
         page: Number(raw?.page) || 1,
         pages: Number(raw?.pages) || 1,
+        facets: raw?.facets as QueueFacets | undefined,
       },
     };
   },

@@ -62,6 +62,8 @@ const fail = (res, status, code, message) => res.status(status).json({
 
 const LIST_LIMIT = 100;
 
+const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 router.use(tagFoodPartnerRequest);
 router.use(verifyAdminToken);
 router.use(requireLamposeDb);
@@ -84,9 +86,30 @@ router.get('/', async (req, res) => {
     }
     if (req.query.restaurantId) query.restaurantId = String(req.query.restaurantId).trim();
 
+    /* Everything but the status: the console's search box and its "requested
+       in the last N days". Kept apart so `matchCounts` can count every status
+       under them — the number on each chip. */
+    const narrowed = {};
+    const q = String(req.query.q || '').trim();
+    if (q) {
+      const rx = new RegExp(escapeRegex(q), 'i');
+      narrowed.$or = [
+        { payoutId: rx },
+        { restaurantName: rx },
+        { restaurantId: rx },
+        { reference: rx },
+        { 'account.accountLast4': rx },
+      ];
+    }
+    const days = Number(req.query.days);
+    if (Number.isFinite(days) && days > 0) {
+      narrowed.requestedAt = { $gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) };
+    }
+    Object.assign(query, narrowed);
+
     const limit = Math.min(Number(req.query.limit) || LIST_LIMIT, LIST_LIMIT);
 
-    const [rows, grouped] = await Promise.all([
+    const [rows, grouped, matched] = await Promise.all([
       FoodPayout.find(query).sort({ requestedAt: -1 }).limit(limit).lean(),
       /* The tab badges, computed UNFILTERED so a number cannot depend on
          which tab is open. `owed` is the one somebody opens this page for:
@@ -94,16 +117,25 @@ router.get('/', async (req, res) => {
       FoodPayout.aggregate([
         { $group: { _id: '$status', n: { $sum: 1 }, amount: { $sum: '$amount' } } },
       ]),
+      FoodPayout.aggregate([
+        { $match: { ...narrowed, ...(query.restaurantId ? { restaurantId: query.restaurantId } : {}) } },
+        { $group: { _id: '$status', n: { $sum: 1 } } },
+      ]),
     ]);
 
     const counts = {};
     const amounts = {};
     grouped.forEach((row) => { counts[row._id] = row.n; amounts[row._id] = row.amount; });
+    const matchCounts = Object.fromEntries(FoodPayout.PAYOUT_STATUSES.map((s) => [s, 0]));
+    matched.forEach((row) => { matchCounts[row._id] = row.n; });
 
     return res.json({
       success: true,
       count: rows.length,
       counts,
+      /* Per status under the search and period — the chips. `counts` above
+         stays the whole queue, for the summary cards and the nav badge. */
+      matchCounts,
       /* What is owed right now, in one number, for the nav badge and the
          top of the page. */
       owed: amounts.pending || 0,

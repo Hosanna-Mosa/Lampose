@@ -1,7 +1,7 @@
 /* ══════════════════════════════════════════════════════════════════════════
    /api/v1/admin/rider-withdrawals — the staff side of a rider's withdrawal.
 
-     GET  /                    the queue (?status=requested|paid|rejected|all)
+     GET  /                    the queue (?status=requested|paid|rejected|all&search=&method=bank|upi)
      GET  /:withdrawalId       one request — with the full account number for
                                the person who may pay it
      POST /:withdrawalId/paid    { reference }   the transfer was made
@@ -46,7 +46,11 @@ router.use(requireLamposeDb);
 
 router.get('/', answer(async (req, res) => {
   const status = String(req.query.status || 'requested');
-  const data = await withdrawals.listWithdrawals({ status });
+  const data = await withdrawals.listWithdrawals({
+    status,
+    search: String(req.query.search || ''),
+    method: String(req.query.method || ''),
+  });
   return res.json({ success: true, data });
 }));
 

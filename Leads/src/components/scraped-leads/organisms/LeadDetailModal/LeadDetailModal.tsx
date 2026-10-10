@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrapedLead } from '../../../../api/scraperApi';
+import { ScrapedLead, leadSourceLabel } from '../../../../api/scraperApi';
 import { MapLocationButton } from '../../../common/molecules/MapLocationButton';
 import { X, Building2, Phone, Mail, Globe, MapPin, Star, Tag, Calendar, ShieldCheck, UserPlus } from 'lucide-react';
 import { Box, Heading, Inline, Link, PlainButton, Text } from '../../../common/atoms';
@@ -27,8 +27,12 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({ lead, onClose 
           <Box>
             <Heading level={2} className="text-xl font-bold text-slate-900">{lead.businessName}</Heading>
             <Box className="flex items-center gap-2 mt-1 text-xs text-slate-500">
-              <Inline className="px-2 py-0.5 rounded-md bg-cyan-50 text-cyan-600 font-semibold border border-cyan-200">
-                {lead.source}
+              <Inline
+                className={lead.source === 'Website'
+                  ? 'px-2 py-0.5 rounded-md bg-violet-50 text-violet-600 font-semibold border border-violet-200'
+                  : 'px-2 py-0.5 rounded-md bg-cyan-50 text-cyan-600 font-semibold border border-cyan-200'}
+              >
+                {leadSourceLabel(lead.source)}
               </Inline>
               <Inline>•</Inline>
               <Inline>{lead.category || 'General Business'}</Inline>
@@ -114,7 +118,7 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({ lead, onClose 
         )}
 
         <Box className="flex items-center justify-between pt-2 text-xs text-slate-400">
-          <Inline>{lead.addedBy?.name ? 'Added' : 'Scraped'} Date: {lead.scrapedAt ? new Date(lead.scrapedAt).toLocaleString() : 'Recent'}</Inline>
+          <Inline>{lead.source === 'Website' ? 'Signed Up' : lead.addedBy?.name ? 'Added' : 'Scraped'} Date: {lead.scrapedAt ? new Date(lead.scrapedAt).toLocaleString() : 'Recent'}</Inline>
           <Inline>Job ID: {lead.jobId}</Inline>
         </Box>
       </Box>

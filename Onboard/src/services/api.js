@@ -305,6 +305,36 @@ export const deleteProperty = (id) =>
 /* ── Photo upload ──────────────────────────────────────────────────────── */
 
 /**
+ * The largest file the upload routes accept: multer's `limits.fileSize` in
+ * Backend property.routes.v1.js. Keep the two in step — a file over this is
+ * refused with a 413 only after it has crossed the network, so it is cheaper
+ * to catch here than to spend the agent's mobile data finding out.
+ */
+export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+const MAX_UPLOAD_LABEL = '15 MB';
+
+const megabytes = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+/** Why this file cannot be uploaded at all, or '' when it can. */
+export const oversizeReason = (file) =>
+  (file && file.size > MAX_UPLOAD_BYTES
+    ? `${megabytes(file.size)} — larger than the ${MAX_UPLOAD_LABEL} the server accepts`
+    : '');
+
+/**
+ * One failed upload's reason, in words an agent can act on. The server's own
+ * text wins: the Cloudinary route answers `{ error: 'Cloudinary Upload
+ * Failed', message: <Cloudinary's reason> }`, so both halves are kept.
+ */
+const uploadFailureReason = (data) => {
+  if (data?.status === 413) return `larger than the ${MAX_UPLOAD_LABEL} the server accepts`;
+  const parts = [data?.error, data?.message].filter(Boolean);
+  const unique = parts.filter((part, idx) => parts.indexOf(part) === idx);
+  if (unique.length) return unique.join(' — ');
+  return data?.status ? `the server answered ${data.status}` : 'the upload did not go through';
+};
+
+/**
  * Push the chosen photos to Cloudinary through the backend and return the
  * final URL list, in the order the agent arranged them.
  *
@@ -319,16 +349,29 @@ export const deleteProperty = (id) =>
  * newer of the two, and an onboarding session that fails at the last step
  * loses a form the agent filled in while standing in someone's doorway.
  *
+ * A photo that does not upload is reported in `failed`, never quietly left
+ * out — the caller decides whether a listing short of a photo may go ahead.
+ *
  * @param {(File|{file?: File, url?: string})[]} items
  * @param {(stage: string) => void} [onStage] Progress, for the submit button.
+ * @returns {Promise<{urls: string[], failed: {name: string, reason: string}[]}>}
  */
 export const uploadPropertyImages = async (items = [], onStage = () => { }) => {
-  const list = items
+  const all = items
     .map((item) => (item instanceof File ? { file: item } : item))
     .filter((item) => item && (item.file || item.url));
 
+  /* Oversized files are refused here rather than sent: multer would only
+     answer 413 after the whole file had been uploaded. */
+  const failed = [];
+  const list = all.filter((item) => {
+    const reason = item.file ? oversizeReason(item.file) : '';
+    if (reason) failed.push({ name: item.file.name || 'photo', reason });
+    return !reason;
+  });
+
   const files = list.filter((item) => item.file);
-  if (files.length === 0) return list.map((item) => item.url).filter(Boolean);
+  if (files.length === 0) return { urls: list.map((item) => item.url).filter(Boolean), failed };
 
   onStage(`Uploading ${files.length} photo(s) to Cloudinary CDN...`);
 
@@ -346,7 +389,10 @@ export const uploadPropertyImages = async (items = [], onStage = () => { }) => {
 
     if (data?.success && Array.isArray(data.urls) && data.urls.length === files.length) {
       let next = 0;
-      return list.map((item) => (item.file ? data.urls[next++] : item.url)).filter(Boolean);
+      return {
+        urls: list.map((item) => (item.file ? data.urls[next++] : item.url)).filter(Boolean),
+        failed,
+      };
     }
   } catch (error) {
     console.warn('[api] batch upload unavailable, uploading one at a time:', error?.message);
@@ -368,8 +414,9 @@ export const uploadPropertyImages = async (items = [], onStage = () => { }) => {
     // eslint-disable-next-line no-await-in-loop
     const data = await api.post('/properties/upload-image', form).then(ok).catch(fail);
     if (data?.success && data.url) urls.push(data.url);
+    else failed.push({ name: item.file.name || `photo ${i + 1}`, reason: uploadFailureReason(data) });
   }
-  return urls;
+  return { urls, failed };
 };
 
 /**
@@ -382,11 +429,13 @@ export const uploadPropertyImages = async (items = [], onStage = () => { }) => {
  *
  * @param {Record<string, {file?: File, url?: string}[]>} mapOfLabelToItems
  * @param {(stage: string) => void} [onStage]
- * @returns {Promise<Record<string, string[]>>} label -> uploaded URLs, only
- *   for labels that actually had something to upload.
+ * @returns {Promise<{images: Record<string, string[]>, failed: object[]}>}
+ *   `images` is label -> uploaded URLs, only for labels that actually had
+ *   something to upload; `failed` names each photo that did not make it.
  */
 export const uploadSharingImages = async (mapOfLabelToItems = {}, onStage = () => { }) => {
   const out = {};
+  const failed = [];
   const labels = Object.keys(mapOfLabelToItems);
 
   for (let i = 0; i < labels.length; i += 1) {
@@ -396,11 +445,12 @@ export const uploadSharingImages = async (mapOfLabelToItems = {}, onStage = () =
 
     onStage(`Uploading photos for "${label}" (${i + 1}/${labels.length})...`);
     // eslint-disable-next-line no-await-in-loop
-    const urls = await uploadPropertyImages(items, () => { });
-    if (urls.length) out[label] = urls;
+    const result = await uploadPropertyImages(items, () => { });
+    if (result.urls.length) out[label] = result.urls;
+    result.failed.forEach((f) => failed.push({ ...f, name: `${f.name} (${label})` }));
   }
 
-  return out;
+  return { images: out, failed };
 };
 
 /**
@@ -438,14 +488,24 @@ export const updatePropertyImages = (id, images) =>
  * 'authenticated'` and serving signed URLs, which is a backend change. Until
  * then, treat these as sensitive and do not paste the URLs anywhere.
  *
+ * A document that does not upload is reported in `failed` with its `kind`,
+ * not dropped: a missing PAN must read as "the PAN did not upload", not as
+ * the server's "documents are required".
+ *
  * @param {{kind: string, docType?: string, file: File}[]} items
  * @param {(stage: string) => void} [onStage]
+ * @returns {Promise<{documents: object[], failed: {name: string, kind: string, reason: string}[]}>}
  */
 export const uploadPropertyDocuments = async (items = [], onStage = () => { }) => {
-  const list = items.filter((item) => item && item.file);
-  if (list.length === 0) return [];
-
   const out = [];
+  const failed = [];
+  const list = items.filter((item) => {
+    if (!item || !item.file) return false;
+    const reason = oversizeReason(item.file);
+    if (reason) failed.push({ name: item.file.name || item.kind, kind: item.kind, reason });
+    return !reason;
+  });
+
   for (let i = 0; i < list.length; i += 1) {
     const item = list[i];
     onStage(`Uploading document ${i + 1} of ${list.length}...`);
@@ -462,9 +522,11 @@ export const uploadPropertyDocuments = async (items = [], onStage = () => { }) =
         url: data.url,
         name: item.file.name || '',
       });
+    } else {
+      failed.push({ name: item.file.name || item.kind, kind: item.kind, reason: uploadFailureReason(data) });
     }
   }
-  return out;
+  return { documents: out, failed };
 };
 
 /* ── Leads ─────────────────────────────────────────────────────────────── */

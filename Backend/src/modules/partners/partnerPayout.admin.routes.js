@@ -53,10 +53,20 @@ router.get('/', async (req, res) => {
       id: String(p._id),
       ownerName: nameOf.get(p.partnerPhoneDigits) || '',
     }));
+    /* How many requests sit in each status, across the whole collection and
+       regardless of `?status` — the console puts these on its filter chips so
+       "Awaiting payment 4" is visible from the "Paid" tab. One aggregate. */
+    const grouped = await PartnerPayout.aggregate([{ $group: { _id: '$status', n: { $sum: 1 } } }]);
+    const counts = { All: 0, pending: 0, processing: 0, completed: 0, failed: 0 };
+    grouped.forEach((g) => {
+      if (g._id) counts[g._id] = g.n;
+      counts.All += g.n;
+    });
+
     /* Which rail this deployment is on, so the console can label its button
        honestly rather than keeping its own copy of the same setting. */
     return res.json({
-      success: true, count: data.length, data, manualPayouts: config.razorpayx.manualPayouts,
+      success: true, count: data.length, data, counts, manualPayouts: config.razorpayx.manualPayouts,
     });
   } catch (error) {
     console.error('❌ [GET /api/admin/partner-payouts Error]:', error.message);

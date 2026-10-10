@@ -1,5 +1,6 @@
 import React from 'react';
 import { Property } from '../../../../api/propertyApi';
+import { categoryLabel, normaliseCategory } from '../../../../api/propertyCategories';
 import { X, MapPin, Phone, User, Home, Shield, DollarSign, CheckCircle2, Building2 } from 'lucide-react';
 import { Box, Heading, Image, Inline, PlainButton, Text } from '../../../common/atoms';
 
@@ -10,6 +11,11 @@ interface PropertyDetailModalProps {
 
 export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ property, onClose }) => {
   const cd = property.categoryDetails || {};
+  /* Stored values are codes or legacy spellings — see propertyCategories.ts.
+     PG and Hostel are one category now, so a PG_HOSTEL row shows both blocks:
+     legacy PGs carry the food fields and legacy hostels the warden fields. */
+  const code = normaliseCategory(property.category);
+  const label = categoryLabel(property.category);
 
   return (
     <Box className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-center justify-center z-50 p-4">
@@ -33,7 +39,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ proper
           <Box className="absolute bottom-4 left-4 right-4 flex justify-between items-end">
             <Box>
               <Inline className="px-3 py-1 rounded-full text-xs font-bold bg-cyan-500 text-white shadow-lg">
-                {property.category}
+                {label}
               </Inline>
               <Heading level={2} className="text-xl font-extrabold text-slate-900 mt-1.5">{property.name}</Heading>
               <Box className="flex items-center gap-1.5 text-xs text-slate-600 mt-1">
@@ -79,11 +85,11 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ proper
         <Box className="space-y-3">
           <Heading level={3} className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
             <Building2 className="w-4 h-4 text-cyan-600" />
-            <Inline>Category Specific Information ({property.category})</Inline>
+            <Inline>Category Specific Information ({label})</Inline>
           </Heading>
 
           <Box className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs">
-            {property.category === 'PG' && (
+            {code === 'PG_HOSTEL' && (
               <>
                 <Box>
                   <Inline className="text-slate-500">Food Included:</Inline>
@@ -104,7 +110,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ proper
               </>
             )}
 
-            {property.category === 'Hostel' && (
+            {code === 'PG_HOSTEL' && (
               <>
                 <Box>
                   <Inline className="text-slate-500">Hostel Type:</Inline>
@@ -125,7 +131,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ proper
               </>
             )}
 
-            {property.category === 'Dormitory' && (
+            {code === 'HOTEL' && (
               <>
                 <Box>
                   <Inline className="text-slate-500">Total Bunk Beds:</Inline>
@@ -146,7 +152,7 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({ proper
               </>
             )}
 
-            {property.category === 'Bachelor Room' && (
+            {(code === 'BACHELOR' || code === 'COLIVE') && (
               <>
                 <Box>
                   <Inline className="text-slate-500">Room Type:</Inline>

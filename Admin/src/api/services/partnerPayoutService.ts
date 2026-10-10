@@ -107,12 +107,19 @@ export type PayoutQueue = {
    * manual deployment returns a refusal, not a payout.
    */
   manualPayouts: boolean;
+  /** Requests per status across the whole queue, whatever the filter. Null
+      from a server that predates the field — the chips then show no number. */
+  counts: Record<PartnerPayoutStatus | 'All', number> | null;
 };
 
 export const partnerPayoutService = {
   /** The queue, newest first. `status` narrows it; omit for everything. */
   async list(status?: PartnerPayoutStatus | 'All'): Promise<PayoutQueue> {
-    const res = await api.get<{ data: PartnerPayout[]; manualPayouts?: boolean }>(
+    const res = await api.get<{
+      data: PartnerPayout[];
+      manualPayouts?: boolean;
+      counts?: Record<PartnerPayoutStatus | 'All', number>;
+    }>(
       BASE,
       status && status !== 'All' ? { status } : undefined,
     );
@@ -122,6 +129,7 @@ export const partnerPayoutService = {
       /* Defaults to manual: assuming automatic on an older API would offer a
          button that cannot work. */
       manualPayouts: res.data?.manualPayouts !== false,
+      counts: res.data?.counts ?? null,
     };
   },
 

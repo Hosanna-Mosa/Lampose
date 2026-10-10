@@ -87,6 +87,9 @@ const CAPABILITIES = Object.freeze({
   'riders.decide': { roles: ['Super Admin', 'Admin', 'Food Admin'], label: 'approve, refuse or suspend a rider' },
   'support.answer': { roles: ['Super Admin', 'Admin', 'Support'], label: 'answer support tickets' },
   'messaging.send': { roles: ADMINS, label: 'send WhatsApp messages from the console' },
+  /* A sales-rep login is a live-location feed into the console; a Viewer
+     "changes nothing", so creating one is Admin and up. */
+  'sales.manage': { roles: ADMINS, label: 'create, deactivate or reset sales-rep tracker accounts' },
 
   /* ── Raw collections ─────────────────────────────────────────────────── */
   'database.manage': { roles: SUPER, label: 'edit raw collections (visit requests, leads panel, products)' },

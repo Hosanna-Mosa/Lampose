@@ -45,13 +45,23 @@ export interface RiderWithdrawalQueue {
   items: RiderWithdrawalRow[];
   /** Per status, unfiltered, with the paise in each. */
   counts: Partial<Record<RiderWithdrawalStatus, { count: number; amountPaise: number }>>;
+  /** Each dimension counted under the OTHER filters (search included), so a
+   *  chip's number is what that chip would show. Absent on an older server. */
+  facets?: {
+    status?: Partial<Record<RiderWithdrawalStatus | 'all', number>>;
+    method?: { all?: number; bank?: number; upi?: number };
+    /** Every request the filters match; the list itself stops at 100. */
+    matching?: number;
+  };
 }
 
 const EMPTY: RiderWithdrawalQueue = { items: [], counts: {} };
 
 export const riderWithdrawalService = {
-  /** `status`: requested | paid | rejected | all. */
-  async list(params: { status?: string } = {}): Promise<ApiResponse<RiderWithdrawalQueue>> {
+  /** `status`: requested | paid | rejected | all. `method`: bank | upi. */
+  async list(
+    params: { status?: string; search?: string; method?: string } = {}
+  ): Promise<ApiResponse<RiderWithdrawalQueue>> {
     const res = await api.get<{ data: RiderWithdrawalQueue }>(BASE, params);
     return res.success ? { ...res, data: res.data?.data ?? EMPTY } : { ...res, data: EMPTY };
   },

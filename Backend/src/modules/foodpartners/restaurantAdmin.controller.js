@@ -1252,13 +1252,21 @@ const listPayouts = async (req, res, next) => {
 
     const { restaurantId } = req.restaurantAdmin;
 
-    const [balance, rows] = await Promise.all([
+    const [balance, rows, grouped] = await Promise.all([
       payouts.availableFor(restaurantId),
       FoodPayout.find({ restaurantId })
         .sort({ requestedAt: -1 })
         .limit(PAYOUT_HISTORY_LIMIT)
         .lean(),
+      /* A tally per state over EVERY request, not the capped history, so the
+         console's "Paid 12 · Refused 1" chips count what exists rather than
+         what fitted on the page. One grouped count on (restaurantId, status). */
+      FoodPayout.aggregate([
+        { $match: { restaurantId } },
+        { $group: { _id: '$status', n: { $sum: 1 } } },
+      ]),
     ]);
+    const historyCounts = grouped.reduce((acc, row) => ({ ...acc, [row._id]: row.n }), {});
 
     return res.json({
       success: true,
@@ -1268,6 +1276,7 @@ const listPayouts = async (req, res, next) => {
            and the server cannot disagree about when it is pressable. */
         minimum: payouts.MIN_REQUEST,
         history: rows.map(payouts.present),
+        historyCounts,
       },
     });
   } catch (error) {

@@ -60,6 +60,7 @@ const FoodOrder = require('./foodOrder.model');
 const FoodRestaurant = require('./foodRestaurant.model');
 const { markForRefund } = require('./foodPayment.controller');
 const { logError } = require('./foodPartner.log');
+const { escapeRegex } = require('../../shared/utils/text');
 const foodDelivery = require('./foodDelivery.service');
 
 const {
@@ -108,7 +109,23 @@ const listMyOrders = async (req, res, next) => {
     if (!isUp()) return dbDown(res);
 
     const { restaurantId } = req.foodPartner;
-    const filter = visibleToKitchen(restaurantId);
+
+    /* `?q=` — the console's search box. Applied to the list AND the tab
+       counts below, so "New 2" while searching means two new orders match,
+       not two new orders exist. Matches what the kitchen already sees on the
+       row (number, diner, phone, dish), so it reveals nothing the list does
+       not. Optional: the app never sends it and gets exactly what it did. */
+    const q = String(req.query.q || '').trim().slice(0, 80);
+    const scope = visibleToKitchen(restaurantId);
+    if (q) {
+      const rx = new RegExp(escapeRegex(q), 'i');
+      scope.$and = [{
+        $or: [
+          { orderNumber: rx }, { customerName: rx }, { customerPhone: rx }, { 'lines.productName': rx },
+        ],
+      }];
+    }
+    const filter = { ...scope };
 
     /* Two shapes accepted, because the app's tabs are groups rather than
        single states: `?status=accepted` and `?status=placed,accepted`. */
@@ -127,7 +144,7 @@ const listMyOrders = async (req, res, next) => {
        same predicate as the list above, so a badge cannot count an order the
        tab it labels will not show. */
     const grouped = await FoodOrder.aggregate([
-      { $match: visibleToKitchen(restaurantId) },
+      { $match: scope },
       { $group: { _id: '$status', n: { $sum: 1 } } },
     ]);
     const counts = grouped.reduce((acc, row) => ({ ...acc, [row._id]: row.n }), {});

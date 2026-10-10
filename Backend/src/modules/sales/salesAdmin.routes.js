@@ -6,19 +6,20 @@
    from a sales rep's own session. `verifyAdminToken` is the same middleware
    every other admin surface uses.
 
-   Open to any signed-in administrator, including the POST — the same posture
-   `driverAdmin.routes.js` takes for its own roster ("any signed-in
-   administrator may look at the queue"). There is nothing to decide here:
-   no approval, no money, just a map and an account an admin types in
-   themselves. If that changes, a capability belongs in `iam/iam.roles.js`
-   the way `riders.decide` does for the driver queue — not invented ahead of
-   a reason to gate on it.
+   Reading (the roster and a rep's path) is open to any signed-in
+   administrator, the same posture `driverAdmin.routes.js` takes for its own
+   roster. CREATING, deactivating or resetting a rep is `sales.manage` (Admin and up): it mints a working
+   login whose live location then shows in the console, and a Viewer is the
+   role that "reads everything and changes nothing".
    ══════════════════════════════════════════════════════════════════════════ */
 const express = require('express');
 
 const verifyAdminToken = require('../analytics/verifyAdminToken.middleware');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
-const { createSalesRep, listSalesReps, getSalesRepPath } = require('./salesAdmin.controller');
+const { can } = require('../iam/iam.middleware');
+const {
+  createSalesRep, listSalesReps, getSalesRepPath, setSalesRepStatus, resetSalesRepPassword,
+} = require('./salesAdmin.controller');
 
 const router = express.Router();
 
@@ -26,7 +27,9 @@ router.use(verifyAdminToken);
 router.use(requireLamposeDb);
 
 router.get('/', listSalesReps);
-router.post('/', createSalesRep);
+router.post('/', can('sales.manage'), createSalesRep);
 router.get('/:salesRepId/path', getSalesRepPath);
+router.patch('/:salesRepId', can('sales.manage'), setSalesRepStatus);
+router.put('/:salesRepId/password', can('sales.manage'), resetSalesRepPassword);
 
 module.exports = router;

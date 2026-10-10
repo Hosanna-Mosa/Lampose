@@ -19,6 +19,9 @@ import { colors, layout, radius, space } from "@/theme";
 export function AuthScreen() {
   const insets = useSafeAreaInsets();
   const signIn = useAuthStore((s) => s.signIn);
+  /* Set when an admin deactivated or deleted this account mid-session —
+     the session was ended for the rep, so this is where they learn why. */
+  const accountClosed = useAuthStore((s) => s.accountClosed);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -87,6 +90,13 @@ export function AuthScreen() {
               autoCapitalize="none"
             />
           </Field>
+
+          {!!accountClosed && !error && (
+            <Note tone="bad">
+              {accountClosed} You&apos;ve been signed out and location sharing has stopped. Contact your
+              admin if you think this is a mistake.
+            </Note>
+          )}
 
           {!!error && <Note tone="bad">{error}</Note>}
 

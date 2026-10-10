@@ -1,15 +1,30 @@
 import { useState } from 'react';
 import { Icon } from '../../atoms/Icon/Icon';
 import { Box, Form, Heading, Inline, Input, Label, PlainButton, Strong, Text } from '../../atoms';
+import { interestApi } from '../../../../api/interestApi';
 
-export function ComingSoon() {
+/* `page` names where the form is shown ('food-partner' or
+   'food-partner-onboarding'); the sign-up is stored as a website lead for the
+   leads panel. The success card only appears once the server has said 2xx —
+   a failure keeps the typed address and says why. */
+export function ComingSoon({ page }) {
   const [email, setEmail] = useState('');
   const [subscribed, setSubscribed] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [problem, setProblem] = useState('');
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (email.trim()) {
+    if (!email.trim() || sending) return;
+    setSending(true);
+    setProblem('');
+    try {
+      await interestApi.signUp(email, page);
       setSubscribed(true);
+    } catch (err) {
+      setProblem(err?.message || 'Something went wrong. Please try again.');
+    } finally {
+      setSending(false);
     }
   };
 
@@ -71,14 +86,21 @@ export function ComingSoon() {
                   placeholder="Enter your email address..."
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  disabled={sending}
+                  aria-invalid={problem ? true : undefined}
+                  aria-describedby={problem ? 'cs-email-error' : undefined}
                   required
                 />
-                <PlainButton type="submit" className="cs-anim-btn">
-                  <Inline>Notify Me</Inline>
+                <PlainButton type="submit" className="cs-anim-btn" disabled={sending} aria-busy={sending}>
+                  <Inline>{sending ? 'Sending…' : 'Notify Me'}</Inline>
                   <Icon name="arrowR" className="cs-btn-arrow" />
                   <Box className="cs-btn-shine" />
                 </PlainButton>
               </Box>
+
+              {problem && (
+                <Text id="cs-email-error" className="cs-anim-error" role="alert">{problem}</Text>
+              )}
             </Form>
           )}
         </Box>

@@ -46,7 +46,7 @@ const express = require('express');
 const verifyAdminToken = require('../analytics/verifyAdminToken.middleware');
 const { requireLamposeDb } = require('../../shared/middleware/requireDb');
 const {
-  listOrders, getCounts, getOrder, markDelivered, issueRefund, recordSettledRefund,
+  listOrders, getCounts, getFacets, getOrder, markDelivered, issueRefund, recordSettledRefund,
   cancelOrder, redispatchOrder,
 } = require('./foodOrderAdmin.controller');
 const { tagFoodPartnerRequest } = require('./foodPartner.log');
@@ -76,6 +76,7 @@ router.use(requireLamposeDb);
    bearing: Express matches in order, and a parameterised route declared first
    would swallow the badge as a lookup for an order numbered "counts". */
 router.get('/counts', getCounts);
+router.get('/facets', getFacets);
 router.get('/', listOrders);
 router.get('/:orderNumber', getOrder);
 

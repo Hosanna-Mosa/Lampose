@@ -7,6 +7,16 @@ interface AdminTeamOverviewProps {
   onNavigateToLeads: () => void;
 }
 
+/** Up to two initials from a display name, e.g. "John Doe" -> "JD". */
+const initialsOf = (name?: string) =>
+  (name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('') || '?';
+
 export const AdminTeamOverview: React.FC<AdminTeamOverviewProps> = ({ onNavigateToLeads }) => {
   const [teamStats, setTeamStats] = useState<TeamStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -99,11 +109,21 @@ export const AdminTeamOverview: React.FC<AdminTeamOverviewProps> = ({ onNavigate
             {teamStats.teamBreakdown.map((item) => (
               <Box key={item.user.userId} className="glass-panel p-6 rounded-3xl space-y-5 shadow-2xl relative overflow-hidden">
                 <Box className="flex items-center gap-3">
-                  <Image
-                    src={item.user.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
-                    alt={item.user.name}
-                    className="w-12 h-12 rounded-2xl object-cover border border-cyan-200"
-                  />
+                  {item.user.avatar ? (
+                    <Image
+                      src={item.user.avatar}
+                      alt={item.user.name}
+                      className="w-12 h-12 rounded-2xl object-cover border border-cyan-200"
+                    />
+                  ) : (
+                    /* No photo on file: their initials, not a stranger's stock portrait. */
+                    <Box
+                      aria-hidden="true"
+                      className="w-12 h-12 rounded-2xl border border-cyan-200 bg-cyan-50 text-cyan-700 text-sm font-extrabold flex items-center justify-center shrink-0"
+                    >
+                      {initialsOf(item.user.name)}
+                    </Box>
+                  )}
                   <Box>
                     <Heading level={3} className="text-base font-bold text-slate-900">{item.user.name}</Heading>
                     <Text className="text-xs text-slate-500 font-mono">{item.user.email}</Text>

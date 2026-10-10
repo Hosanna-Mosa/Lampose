@@ -118,40 +118,224 @@ const LIST_PROJECTION = [
   'deliveryRadiusKm', 'minOrderValue', 'createdAt', 'verifiedAt',
 ].join(' ');
 
+/* ── The queue's filters ──────────────────────────────────────────────────
+   Every filter on the console's Restaurant Approvals screen is a named
+   DIMENSION here: what choosing a value narrows to (`match`), and how the
+   dimension is counted (`facet`). Each dimension is counted under the search
+   and every OTHER chosen dimension, never its own — so the number beside
+   "Pune" is exactly how many rows picking Pune would show, and the numbers
+   beside the cities still read as a choice between them. One aggregate with
+   a `$facet` per dimension does all of it. */
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The value a list filter uses for "this field is empty". */
+const NONE = '__none';
+
+/** "Pune" finds "pune " and "PUNE": these fields are typed by hand in the app. */
+const exactly = (value) => new RegExp(`^\\s*${escapeRegex(value)}\\s*$`, 'i');
+
+/** Missing, null and '' all read as "not given". */
+const blank = (path) => ({ [path]: { $in: ['', null] } });
+const given = (path) => ({ [path]: { $nin: ['', null] } });
+const lengthOf = (path) => ({ $strLenCP: { $ifNull: [path, ''] } });
+
+/** Distinct values of a hand-typed field, case folded, busiest first. */
+const groupText = (expr) => [
+  {
+    $group: {
+      _id: { $toLower: { $trim: { input: { $ifNull: [expr, ''] } } } },
+      label: { $first: { $trim: { input: { $ifNull: [expr, ''] } } } },
+      n: { $sum: 1 },
+    },
+  },
+  { $sort: { n: -1, _id: 1 } },
+  { $limit: 200 },
+];
+
+/** Overlapping yes/no buckets ("has a licence", "licence expired") in one pass. */
+const bucketFacet = (buckets) => {
+  const ids = Object.keys(buckets);
+  return [
+    {
+      $group: ids.reduce(
+        (acc, id, i) => ({ ...acc, [`b${i}`]: { $sum: { $cond: [buckets[id], 1, 0] } } }),
+        { _id: null },
+      ),
+    },
+    { $project: { _id: 0, rows: ids.map((id, i) => ({ id, n: `$b${i}` })) } },
+    { $unwind: '$rows' },
+    { $replaceRoot: { newRoot: { _id: '$rows.id', n: '$rows.n' } } },
+  ];
+};
+
+const textDimension = (path) => ({
+  valid: (v) => v.length <= 80,
+  match: (v) => (v === NONE ? blank(path) : { [path]: exactly(v) }),
+  facet: () => groupText(`$${path}`),
+  list: true,
+});
+
+const APPLIED_DAYS = { 1: 1, 7: 7, 30: 30, 90: 90 };
+
+const RESTAURANT_DIMENSIONS = {
+  status: {
+    valid: (v) => VERIFICATION_STATUSES.includes(v),
+    match: (v) => ({ verificationStatus: v }),
+    facet: () => [{ $group: { _id: '$verificationStatus', n: { $sum: 1 } } }],
+  },
+  /* Live or paused — `isActive`, which only means anything once approved. */
+  listing: {
+    valid: (v) => ['live', 'paused'].includes(v),
+    match: (v) => ({ isActive: v === 'live' ? true : { $ne: true } }),
+    facet: () => [{ $group: { _id: { $cond: [{ $eq: ['$isActive', true] }, 'live', 'paused'] }, n: { $sum: 1 } } }],
+  },
+  city: textDimension('address.city'),
+  state: textDimension('address.state'),
+  cuisine: {
+    valid: (v) => v.length <= 80,
+    match: (v) => (v === NONE
+      ? { $or: [{ cuisineTypes: { $exists: false } }, { cuisineTypes: { $size: 0 } }] }
+      : { cuisineTypes: exactly(v) }),
+    facet: () => [
+      { $project: { c: { $cond: [{ $gt: [{ $size: { $ifNull: ['$cuisineTypes', []] } }, 0] }, '$cuisineTypes', ['']] } } },
+      { $unwind: '$c' },
+      ...groupText('$c'),
+    ],
+    list: true,
+  },
+  /* When the application arrived, as a window ending now. */
+  applied: {
+    valid: (v) => v in APPLIED_DAYS,
+    match: (v, ctx) => ({ createdAt: { $gte: new Date(ctx.now - APPLIED_DAYS[v] * DAY_MS) } }),
+    facet: (ctx) => bucketFacet(Object.fromEntries(Object.entries(APPLIED_DAYS)
+      .map(([id, days]) => [id, { $gte: ['$createdAt', new Date(ctx.now - days * DAY_MS)] }]))),
+  },
+  /* The licence an approver checks on FoSCoS before anything else. */
+  fssai: {
+    valid: (v) => ['has', 'missing', 'expired'].includes(v),
+    match: (v, ctx) => (v === 'has' ? given('fssaiLicenseNumber')
+      : v === 'missing' ? blank('fssaiLicenseNumber')
+        : { fssaiExpiry: { $ne: null, $lt: new Date(ctx.now) } }),
+    facet: (ctx) => bucketFacet({
+      has: { $gt: [lengthOf('$fssaiLicenseNumber'), 0] },
+      missing: { $eq: [lengthOf('$fssaiLicenseNumber'), 0] },
+      expired: {
+        $and: [
+          { $ne: [{ $ifNull: ['$fssaiExpiry', null] }, null] },
+          { $lt: ['$fssaiExpiry', new Date(ctx.now)] },
+        ],
+      },
+    }),
+  },
+  /* Whether there is anywhere to send the kitchen's money. */
+  payout: {
+    valid: (v) => ['has', 'missing'].includes(v),
+    match: (v) => (v === 'has'
+      ? { $or: [given('payout.accountLast4'), given('payout.upiId')] }
+      : { $and: [blank('payout.accountLast4'), blank('payout.upiId')] }),
+    facet: () => {
+      const has = { $or: [{ $gt: [lengthOf('$payout.accountLast4'), 0] }, { $gt: [lengthOf('$payout.upiId'), 0] }] };
+      return bucketFacet({ has, missing: { $not: [has] } });
+    },
+  },
+  /* A kitchen with no map pin cannot be dispatched to — see verify:food-dispatch. */
+  pin: {
+    valid: (v) => ['pinned', 'unpinned'].includes(v),
+    match: (v) => ({ 'location.coordinates.1': { $exists: v === 'pinned' } }),
+    facet: () => {
+      const pinned = { $eq: [{ $size: { $ifNull: ['$location.coordinates', []] } }, 2] };
+      return bucketFacet({ pinned, unpinned: { $not: [pinned] } });
+    },
+  },
+  /* An application with no dishes is rarely a real one. */
+  menu: {
+    valid: (v) => ['has', 'none'].includes(v),
+    match: (v, ctx) => ({ restaurantId: { [v === 'has' ? '$in' : '$nin']: ctx.withMenu } }),
+    facet: (ctx) => {
+      const has = { $in: ['$restaurantId', ctx.withMenu] };
+      return bucketFacet({ has, none: { $not: [has] } });
+    },
+  },
+  dineIn: {
+    valid: (v) => ['on', 'off'].includes(v),
+    match: (v) => ({ 'dineIn.enabled': v === 'on' ? true : { $ne: true } }),
+    facet: () => {
+      const on = { $eq: ['$dineIn.enabled', true] };
+      return bucketFacet({ on, off: { $not: [on] } });
+    },
+  },
+};
+
 // @route   GET /api/v1/admin/food-restaurants
-// @desc    The approval queue — every application, filterable by status
+// @desc    The approval queue — every application, filterable by status,
+//          place, cuisine, age and readiness, with a count for every choice
 // @access  Admin console (verifyAdminToken)
 const listRestaurants = async (req, res, next) => {
   try {
     if (!isUp()) return dbDown(res);
 
-    const filter = {};
+    /* The search on its own, kept apart so the facets below can count every
+       choice under it. */
+    const searched = {};
 
-    const status = String(req.query.status || '').trim();
-    if (status && status !== 'all') {
-      if (!VERIFICATION_STATUSES.includes(status)) {
-        return fail(res, 400, 'BAD_INPUT', `"status" must be one of: ${VERIFICATION_STATUSES.join(', ')}.`);
-      }
-      filter.verificationStatus = status;
-    }
-
-    const search = String(req.query.search || '').trim();
+    const search = String(req.query.search || '').trim().slice(0, 80);
     if (search) {
       const rx = new RegExp(escapeRegex(search), 'i');
-      filter.$or = [
+      searched.$or = [
         { restaurantName: rx },
+        { restaurantId: rx },
         { ownerName: rx },
         { ownerEmail: rx },
-        { restaurantId: rx },
+        { ownerPhone: rx },
+        { contactNumber: rx },
+        { cuisineTypes: rx },
+        { fssaiLicenseNumber: rx },
+        { 'address.line1': rx },
+        { 'address.line2': rx },
+        { 'address.landmark': rx },
         { 'address.city': rx },
+        { 'address.district': rx },
+        { 'address.state': rx },
+        { 'address.pincode': rx },
       ];
     }
 
+    /* `menu` needs to know which kitchens have a dish; one distinct beats a
+       lookup per application. */
+    const ctx = { now: Date.now(), withMenu: await FoodProduct.distinct('restaurantId') };
+
+    const chosen = {};
+    for (const [name, dim] of Object.entries(RESTAURANT_DIMENSIONS)) {
+      const value = String(req.query[name] || '').trim();
+      if (!value || value === 'all') continue;
+      if (!dim.valid(value)) {
+        return fail(res, 400, 'BAD_INPUT', `"${name}" has a value this list does not know: ${value.slice(0, 40)}.`);
+      }
+      chosen[name] = dim.match(value, ctx);
+    }
+
+    const allBut = (skip) => {
+      const parts = Object.entries(chosen).filter(([name]) => name !== skip).map(([, m]) => m);
+      return parts.length ? { $and: parts } : {};
+    };
+
+    const filter = { ...searched, ...allBut(null) };
+
     const limit = Math.min(Number(req.query.limit) || LIST_LIMIT, LIST_LIMIT);
 
-    const [rows, tally] = await Promise.all([
+    const [rows, tally, faceted] = await Promise.all([
       FoodRestaurant.find(filter).select(LIST_PROJECTION).sort({ createdAt: -1 }).limit(limit).lean(),
       FoodRestaurant.aggregate([{ $group: { _id: '$verificationStatus', n: { $sum: 1 } } }]),
+      FoodRestaurant.aggregate([
+        { $match: searched },
+        {
+          $facet: Object.fromEntries(Object.entries(RESTAURANT_DIMENSIONS).map(([name, dim]) => [
+            name,
+            [{ $match: allBut(name) }, ...dim.facet(ctx)],
+          ])),
+        },
+      ]),
     ]);
 
     /* The menu size is what an approver glances at to judge whether an
@@ -170,10 +354,30 @@ const listRestaurants = async (req, res, next) => {
       { pending: 0, approved: 0, rejected: 0 },
     );
 
+    /* Lists ("Pune 12") for the hand-typed fields, `{ value: n }` for the rest. */
+    const raw = faceted[0] || {};
+    const facets = Object.fromEntries(Object.entries(RESTAURANT_DIMENSIONS).map(([name, dim]) => {
+      const groups = raw[name] || [];
+      return [name, dim.list
+        ? groups.map((g) => ({ value: g._id || NONE, label: g.label || '', n: g.n }))
+        : groups.reduce((acc, g) => ({ ...acc, [g._id]: g.n }), {})];
+    }));
+
+    /* Kept for anything still reading the earlier shape. */
+    const matchCounts = {
+      pending: facets.status.pending || 0,
+      approved: facets.status.approved || 0,
+      rejected: facets.status.rejected || 0,
+      live: facets.listing.live || 0,
+      paused: facets.listing.paused || 0,
+    };
+
     return res.json({
       success: true,
       count: rows.length,
       counts,
+      matchCounts,
+      facets,
       data: rows.map((r) => ({ ...r, menuItemCount: byId[r.restaurantId] || 0 })),
     });
   } catch (error) {

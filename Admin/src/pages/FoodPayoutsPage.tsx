@@ -44,9 +44,7 @@ import type { BadgeTone } from '../components/common/atoms/Badge';
 import { Box } from '../components/common/atoms/Box';
 import { Button } from '../components/common/atoms/Button';
 import { Card } from '../components/common/atoms/Card';
-import { Inline } from '../components/common/atoms/Inline';
 import { Input } from '../components/common/atoms/Input';
-import { PlainButton } from '../components/common/atoms/PlainButton';
 import { PlainTd, PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
 import { Strong } from '../components/common/atoms/Strong';
 import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
@@ -55,17 +53,23 @@ import { Textarea } from '../components/common/atoms/Textarea';
 import { EmptyState } from '../components/common/molecules/EmptyState';
 import { ErrorState } from '../components/common/molecules/ErrorState';
 import { Field } from '../components/common/molecules/Field';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import type { FilterChipOption } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
+import { Select } from '../components/common/atoms/Select';
+import { Option } from '../components/common/atoms/Option';
 import { PageHeader } from '../components/common/molecules/PageHeader';
 import { StatCard } from '../components/common/molecules/StatCard';
 import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
 import { Modal } from '../components/common/organisms/Modal';
 import { Toast } from '../components/common/organisms/Toast';
 import type { ToastState } from '../components/common/organisms/Toast';
-import { cx } from '../components/common/utils';
+import { filterSelectClass } from '../components/common/utils';
 import { foodPayoutService } from '../api/services/foodPayoutService';
 import type { FoodPayoutRow, FoodPayoutStatus } from '../api/services/foodPayoutService';
 import type { AdminRole } from '../api/types';
-import { useFetch } from '../lib/useFetch';
+import { useDebounced, useFetch } from '../lib/useFetch';
 import { formatDate, formatDateTime, rupees } from '../lib/format';
 
 interface FoodPayoutsPageProps {
@@ -82,12 +86,23 @@ const STATUS_LOOK: Record<FoodPayoutStatus, { label: string; tone: BadgeTone; ic
   rejected: { label: 'Refused', tone: 'crit', icon: Ban },
 };
 
-const TABS: { id: string; label: string; status: string }[] = [
-  { id: 'pending', label: 'Waiting', status: 'pending' },
-  { id: 'paid', label: 'Paid', status: 'paid' },
-  { id: 'rejected', label: 'Refused', status: 'rejected' },
+const TABS: { id: string; label: string; status: string; tone?: BadgeTone }[] = [
+  { id: 'pending', label: 'Waiting', status: 'pending', tone: 'warn' },
+  { id: 'paid', label: 'Paid', status: 'paid', tone: 'good' },
+  { id: 'rejected', label: 'Refused', status: 'rejected', tone: 'crit' },
   { id: 'all', label: 'Everything', status: 'all' },
 ];
+
+/** "Requested in the last …" — days, or '' for any time. */
+const PERIODS: { id: string; label: string }[] = [
+  { id: '', label: 'Any time' },
+  { id: '7', label: 'Last 7 days' },
+  { id: '30', label: 'Last 30 days' },
+  { id: '90', label: 'Last 90 days' },
+];
+
+const sum = (tally: Partial<Record<FoodPayoutStatus, number>>): number =>
+  (tally.pending ?? 0) + (tally.paid ?? 0) + (tally.rejected ?? 0);
 
 const masked = (last4?: string): string => (last4 ? `•••• ${last4}` : '—');
 
@@ -95,7 +110,20 @@ export const FoodPayoutsPage: React.FC<FoodPayoutsPageProps> = ({ search, role }
   const [tabId, setTabId] = useState('pending');
   const tab = TABS.find((t) => t.id === tabId) ?? TABS[0];
 
-  const queue = useFetch(() => foodPayoutService.list({ status: tab.status }), [tab.status]);
+  const [period, setPeriod] = useState('');
+  /* The header's box is searched by the server, so the chip counts below are
+     counts of what the search found — debounced, one request per pause. */
+  const q = useDebounced(search.trim(), 300);
+
+  const queue = useFetch(
+    () =>
+      foodPayoutService.list({
+        status: tab.status,
+        q: q || undefined,
+        days: period ? Number(period) : undefined,
+      }),
+    [tab.status, q, period]
+  );
   const [toast, setToast] = useState<ToastState | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -109,16 +137,38 @@ export const FoodPayoutsPage: React.FC<FoodPayoutsPageProps> = ({ search, role }
   const counts = queue.data?.counts ?? {};
   const owed = queue.data?.owed ?? 0;
 
-  const rows = useMemo(() => {
-    const all = queue.data?.rows ?? [];
-    const needle = search.trim().toLowerCase();
-    if (!needle) return all;
-    return all.filter((row) =>
-      [row.payoutId, row.restaurantName, row.restaurantId, row.account?.accountLast4, row.reference]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(needle))
-    );
-  }, [queue.data, search]);
+  const rows = queue.data?.rows ?? [];
+
+  /* Counted by the server under the search and the period, never from
+     `rows` — the list is capped at a hundred and the count is not. */
+  const matched = queue.data?.matchCounts;
+
+  const tabChips: FilterChipOption<string>[] = useMemo(
+    () =>
+      TABS.map((item) => ({
+        id: item.id,
+        label: item.label,
+        tone: item.tone,
+        count: matched
+          ? item.status === 'all'
+            ? sum(matched)
+            : (matched[item.status as FoodPayoutStatus] ?? 0)
+          : undefined,
+      })),
+    [matched]
+  );
+
+  const shown = matched
+    ? tab.status === 'all'
+      ? sum(matched)
+      : (matched[tab.status as FoodPayoutStatus] ?? 0)
+    : rows.length;
+  const total = sum(counts);
+  const filtered = Boolean(q) || Boolean(period) || tabId !== 'pending';
+  const clearFilters = () => {
+    setTabId('all');
+    setPeriod('');
+  };
 
   const openPay = (row: FoodPayoutRow) => {
     setReference('');
@@ -241,29 +291,31 @@ export const FoodPayoutsPage: React.FC<FoodPayoutsPageProps> = ({ search, role }
         </Box>
       )}
 
-      <Box role="tablist" aria-label="Payout states" className="flex flex-wrap gap-1.5">
-        {TABS.map((item) => {
-          const active = item.id === tabId;
-          const n = item.status === 'all' ? undefined : counts[item.status as FoodPayoutStatus];
-          return (
-            <PlainButton
-              key={item.id}
-              role="tab"
-              aria-selected={active}
-              onClick={() => setTabId(item.id)}
-              className={cx(
-                'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-control border text-label transition-colors duration-120',
-                active
-                  ? 'bg-brand-soft border-brand-border text-brand-ink font-medium'
-                  : 'bg-surface border-line text-ink-2 hover:bg-surface-inset hover:text-ink'
-              )}
-            >
-              {item.label}
-              {typeof n === 'number' && n > 0 && <Inline className="tabular text-ink-3">{n}</Inline>}
-            </PlainButton>
-          );
-        })}
-      </Box>
+      <FilterBar
+        summary={
+          <ResultCount
+            shown={shown}
+            total={total}
+            noun="payouts"
+            filtered={shown !== total}
+            onClear={tabId !== 'all' || period ? clearFilters : undefined}
+          />
+        }
+      >
+        <FilterChips label="Payout states" options={tabChips} value={tabId} onChange={setTabId} />
+        <Select
+          aria-label="Requested"
+          className={filterSelectClass}
+          value={period}
+          onChange={(e) => setPeriod(e.target.value)}
+        >
+          {PERIODS.map((p) => (
+            <Option key={p.id} value={p.id}>
+              {p.label}
+            </Option>
+          ))}
+        </Select>
+      </FilterBar>
 
       {queue.error && <ErrorState message={queue.error} onRetry={queue.reload} />}
 
@@ -288,18 +340,25 @@ export const FoodPayoutsPage: React.FC<FoodPayoutsPageProps> = ({ search, role }
                   <EmptyState
                     icon={BadgeIndianRupee}
                     title={
-                      search.trim()
-                        ? 'Nothing matches that'
+                      q || period
+                        ? 'No payouts match these filters'
                         : tabId === 'pending'
                           ? 'No payouts waiting'
                           : 'Nothing here'
                     }
                     description={
-                      search.trim()
-                        ? 'Clear the filter in the header.'
-                        : tabId === 'pending'
+                      q
+                        ? 'Nothing matches that search — clear the box in the header to see the rest.'
+                        : tabId === 'pending' && !period
                           ? 'Restaurants with a balance can request a payout from their own console. Requests appear here.'
                           : undefined
+                    }
+                    action={
+                      filtered && (tabId !== 'all' || period) ? (
+                        <Button variant="secondary" onClick={clearFilters}>
+                          Clear filters
+                        </Button>
+                      ) : undefined
                     }
                   />
                 </PlainTd>

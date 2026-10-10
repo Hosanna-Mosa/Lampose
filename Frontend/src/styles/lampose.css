@@ -10871,6 +10871,26 @@ footer {
   transition: transform 0.2s ease;
 }
 
+.cs-anim-btn:disabled {
+  cursor: progress;
+  opacity: 0.75;
+  transform: none;
+  box-shadow: 0 4px 14px rgba(16, 18, 20, 0.2);
+}
+
+.cs-anim-error {
+  width: 100%;
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  background: #fdf2f2;
+  border: 1px solid #f6d6d6;
+  border-radius: 10px;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: #a52020;
+  text-align: left;
+}
+
 .cs-anim-success {
   display: flex;
   align-items: center;

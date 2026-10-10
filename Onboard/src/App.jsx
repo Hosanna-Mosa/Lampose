@@ -17,6 +17,7 @@ import {
   deleteProperty,
   fetchProperties,
   onboardProperty,
+  oversizeReason,
   uploadPropertyDocuments,
   uploadPropertyImages,
   uploadSharingImages,
@@ -563,11 +564,34 @@ export function App() {
 
     try {
       const localImages = Array.isArray(formData.localImages) ? formData.localImages : [];
+      const localDocs = (formData.categoryDetails || {}).localDocuments || {};
+      const localSharingImages = (formData.categoryDetails || {}).localSharingImages || {};
+
+      /* Oversized files first, before a single byte is uploaded: the server
+         refuses anything over its multer limit, and finding that out one
+         file at a time on mobile data is the slow way to learn it. */
+      const oversized = [
+        ...localImages,
+        ...Object.values(localDocs),
+        ...Object.values(localSharingImages).flat(),
+      ]
+        .filter((item) => item && item.file && oversizeReason(item.file))
+        .map((item) => ({ name: item.file.name || 'file', reason: oversizeReason(item.file) }));
+      if (oversized.length > 0) {
+        setSubmitError({
+          kind: 'rejected',
+          title: 'Some files are too large to upload — nothing was submitted',
+          detail: 'Remove these files or pick smaller copies, then press Submit again. Everything else you typed is still here.',
+          files: oversized,
+        });
+        return;
+      }
 
       /* Photos go through the one API caller, which owns the base URL, the
          batch-then-single fallback and the ordering rules. This block used to
          re-derive its own endpoints from a second copy of VITE_API_URL. */
-      const finalUrls = await uploadPropertyImages(localImages, setSubmitStage);
+      const photoUpload = await uploadPropertyImages(localImages, setSubmitStage);
+      const finalUrls = photoUpload.urls;
 
       // If no photos were chosen, apply default brand splash fallback
       const resolvedImages = finalUrls.length > 0 ? finalUrls : ['/lampose-logo-splash.png'];
@@ -580,20 +604,42 @@ export function App() {
        * browsing the site. Nothing in the public projection touches
        * `documents`.
        */
-      const localDocs = (formData.categoryDetails || {}).localDocuments || {};
       const pendingDocs = Object.entries(localDocs)
         .filter(([, doc]) => doc && doc.file)
         .map(([kind, doc]) => ({ kind, docType: doc.docType || '', file: doc.file }));
 
-      const uploadedDocs = await uploadPropertyDocuments(pendingDocs, setSubmitStage);
+      const docUpload = await uploadPropertyDocuments(pendingDocs, setSubmitStage);
+      const uploadedDocs = docUpload.documents;
 
       /* Per-layout photos — "1 BHK" and "2 BHK" each get their own set,
          staged under categoryDetails.localSharingImages by CategoryFieldsStep
          and uploaded here the same way the whole-property gallery and the
          hotel documents above already are: to URLs, before the property is
          ever created. */
-      const localSharingImages = (formData.categoryDetails || {}).localSharingImages || {};
-      const sharingImages = await uploadSharingImages(localSharingImages, setSubmitStage);
+      const sharingUpload = await uploadSharingImages(localSharingImages, setSubmitStage);
+      const sharingImages = sharingUpload.images;
+
+      /* Any file that did not upload stops the submit HERE, before the POST.
+         Going ahead would create the listing without it — a hotel without its
+         PAN fails with a misleading "documents required", a gallery that lost
+         every photo ships the brand splash — and either way the owner has
+         already been sent the WhatsApp. Nothing is saved yet, so the form
+         stays as it is and the agent can retry or remove the file. */
+      const failedUploads = [
+        ...photoUpload.failed,
+        ...docUpload.failed,
+        ...sharingUpload.failed,
+      ];
+      if (failedUploads.length > 0) {
+        console.error('❌ [Upload Failed]:', failedUploads);
+        setSubmitError({
+          kind: 'rejected',
+          title: `${failedUploads.length} file(s) did not upload — nothing was submitted`,
+          detail: 'Press Submit to try again, or remove the file(s) below. Everything you typed is still here.',
+          files: failedUploads,
+        });
+        return;
+      }
 
       setSubmitStage('Saving accommodation to MongoDB database...');
 
@@ -1113,6 +1159,13 @@ export function App() {
                         <Text style={{ color: inkSoft, fontSize: '0.82rem', margin: '3px 0 0' }}>
                           {submitError.detail}
                         </Text>
+
+                        {/* Which files, and why — set only by an upload failure. */}
+                        {Array.isArray(submitError.files) && submitError.files.map((f, idx) => (
+                          <Text key={`${f.name}_${idx}`} style={{ color: inkSoft, fontSize: '0.8rem', margin: '4px 0 0' }}>
+                            <Strong style={{ color: ink }}>{f.name}</Strong>: {f.reason}
+                          </Text>
+                        ))}
 
                         {/* The way out of an ambiguous save is to LOOK, not to
                             press Submit again. So the only button offered is

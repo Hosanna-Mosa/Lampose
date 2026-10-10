@@ -93,6 +93,7 @@ const v2ListingRoutes = require('../src/modules/listings/listing.routes');
 const v2VisitRequestRoutes = require('../src/modules/visits/visitRequest.routes');
 const v2PaymentWebhookRoutes = require('../src/modules/visits/paymentWebhook.routes');
 const v2PropertyRoutes = require('../src/modules/properties/property.routes.v2');
+const v2WebsiteInterestRoutes = require('../src/modules/scraper/websiteInterest.routes');
 const v2AuthRoutes = require('../src/modules/auth/auth.routes');
 const v2UserRoutes = require('../src/modules/users/user.routes');
 const v2ScraperRoutes = require('../src/modules/scraper/scraper.routes');
@@ -201,6 +202,8 @@ const V2_GROUPS = [
   ['/auth', v2AuthRoutes, 'leads panel + onboarding employee login'],
   ['/users', v2UserRoutes, 'leads panel team management'],
   ['/scraper', v2ScraperRoutes, 'Google Maps lead scraping, leads, exports'],
+  /* Public: the site's "Notify me" form, filed as a lead for the panel. */
+  ['/interest', v2WebsiteInterestRoutes, 'public "notify me" sign-ups, filed as Website leads'],
   /* The mobile app's own accounts — students, in `app_customers`. A THIRD
      identity system, and separate from /auth above on purpose: that one is
      staff, with an email, a password and a role. See customer.model.js. */

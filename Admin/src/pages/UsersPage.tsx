@@ -28,7 +28,10 @@ import { Inline } from '../components/common/atoms/Inline';
 import { Option } from '../components/common/atoms/Option';
 import { PlainTd, PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
 import { Text } from '../components/common/atoms/Text';
-import { filterBySearch } from '../components/common/utils';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
+import { filterBySearch, filterSelectClass } from '../components/common/utils';
 
 interface UsersPageProps {
   search: string;
@@ -60,19 +63,50 @@ export const UsersPage: React.FC<UsersPageProps> = ({ search }) => {
   const [pendingDelete, setPendingDelete] = useState<UserEntity | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const { data, loading, error, refreshing, reload } = useFetch(
+  /* The whole admins collection in one request — it is a handful of rows and
+     the route does not paginate — so role and status filter what is already
+     loaded and every chip can say how many accounts it would show. */
+  const { data, loading, error, refreshing, reload } = useFetch(() => userService.getUsers(), []);
+
+  const searched = useMemo(
     () =>
-      userService.getUsers({
-        ...(status !== 'All' && { status }),
-        ...(role !== 'All' && { role }),
-      }),
-    [status, role]
+      filterBySearch(data?.items ?? [], search, (u, q) =>
+        `${u.name} ${u.email} ${u.role} ${u.status}`.toLowerCase().includes(q)
+      ),
+    [data, search]
   );
 
   const users = useMemo(
-    () => filterBySearch(data?.items ?? [], search, (u, q) => `${u.name} ${u.email} ${u.role}`.toLowerCase().includes(q)),
-    [data, search]
+    () => searched.filter((u) => (role === 'All' || u.role === role) && (status === 'All' || u.status === status)),
+    [searched, role, status]
   );
+
+  /* Each dimension is counted with search and the OTHER filter applied, so
+     "Inactive 2" means two accounts would show if that chip were picked. */
+  const counts = useMemo(() => {
+    const byStatus: Record<string, number> = {};
+    const byRole: Record<string, number> = {};
+    let statusAll = 0;
+    let roleAll = 0;
+    for (const u of searched) {
+      if (role === 'All' || u.role === role) {
+        statusAll += 1;
+        byStatus[u.status] = (byStatus[u.status] ?? 0) + 1;
+      }
+      if (status === 'All' || u.status === status) {
+        roleAll += 1;
+        byRole[u.role] = (byRole[u.role] ?? 0) + 1;
+      }
+    }
+    return { byStatus, byRole, statusAll, roleAll };
+  }, [searched, role, status]);
+
+  const total = data?.items.length ?? 0;
+  const filtered = !!search.trim() || role !== 'All' || status !== 'All';
+  const clearFilters = () => {
+    setRole('All');
+    setStatus('All');
+  };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -160,43 +194,49 @@ export const UsersPage: React.FC<UsersPageProps> = ({ search }) => {
       />
 
       <Card padded={false} className="p-3">
-        <Box className="flex flex-wrap items-center gap-2.5">
-          <Select value={role} onChange={(e) => setRole(e.target.value)} className="w-auto min-w-36">
-            <Option value="All">All roles</Option>
+        <FilterBar
+          summary={
+            loading ? undefined : (
+              <ResultCount
+                shown={users.length}
+                total={total}
+                noun="accounts"
+                filtered={filtered}
+                onClear={role !== 'All' || status !== 'All' ? clearFilters : undefined}
+              />
+            )
+          }
+        >
+          <FilterChips
+            label="Status"
+            value={status}
+            onChange={setStatus}
+            options={[
+              { id: 'All', label: 'All', count: loading ? null : counts.statusAll },
+              ...ADMIN_STATUSES.map((s) => ({
+                id: s,
+                label: s,
+                count: loading ? null : (counts.byStatus[s] ?? 0),
+                tone: adminStatusMeta(s).tone,
+              })),
+            ]}
+          />
+
+          <Select
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            className={filterSelectClass}
+            aria-label="Role"
+          >
+            <Option value="All">All roles{loading ? '' : ` (${counts.roleAll})`}</Option>
             {ADMIN_ROLES.map((r) => (
               <Option key={r} value={r}>
                 {r}
+                {loading ? '' : ` (${counts.byRole[r] ?? 0})`}
               </Option>
             ))}
           </Select>
-
-          <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-auto min-w-36">
-            <Option value="All">All statuses</Option>
-            {ADMIN_STATUSES.map((s) => (
-              <Option key={s} value={s}>
-                {s}
-              </Option>
-            ))}
-          </Select>
-
-          {(role !== 'All' || status !== 'All') && (
-            <Button
-              size="sm"
-              variant="ghost"
-              icon={X}
-              onClick={() => {
-                setRole('All');
-                setStatus('All');
-              }}
-            >
-              Clear
-            </Button>
-          )}
-
-          <Inline className="text-label text-ink-3 ml-auto tabular">
-            {loading ? 'Loading…' : `${users.length} account${users.length === 1 ? '' : 's'}`}
-          </Inline>
-        </Box>
+        </FilterBar>
       </Card>
 
       {error ? (
@@ -222,11 +262,18 @@ export const UsersPage: React.FC<UsersPageProps> = ({ search }) => {
                   <PlainTd colSpan={6}>
                     <EmptyState
                       icon={Users}
-                      title={search || role !== 'All' || status !== 'All' ? 'No matching accounts' : 'No administrators'}
+                      title={filtered ? 'No administrators match these filters' : 'No administrators'}
                       description={
-                        search || role !== 'All' || status !== 'All'
-                          ? 'Try clearing the filters above.'
+                        filtered
+                          ? 'Try a different search, role or status.'
                           : 'Create the first administrator account to grant console access.'
+                      }
+                      action={
+                        role !== 'All' || status !== 'All' ? (
+                          <Button variant="secondary" icon={X} onClick={clearFilters}>
+                            Clear filters
+                          </Button>
+                        ) : undefined
                       }
                     />
                   </PlainTd>

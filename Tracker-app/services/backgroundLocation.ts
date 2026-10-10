@@ -37,11 +37,12 @@
    boot receiver crashes the app. A force-stop from system settings also
    ends it; nothing an app does survives that.
    ══════════════════════════════════════════════════════════════════════════ */
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 
-import { ApiError, API_URL } from "./api";
-import { getSecret } from "./secureStore";
+import { ACCOUNT_CLOSED_CODES, ApiError, API_URL } from "./api";
+import { deleteSecret, getSecret } from "./secureStore";
 import { sendLocation } from "./tracking";
 
 /** Registered with the OS under this name. Changing it orphans a task that a
@@ -50,6 +51,23 @@ export const DUTY_LOCATION_TASK = "lampose-sales-duty-location";
 
 /** `persist`'s name in `store/authStore.ts`, plus the one secret field. */
 const SESSION_SECRET_KEY = "lampose-tracker.session";
+
+/** Why the last session ended, when it was the account that closed — read by
+ *  `store/authStore.ts` on rehydrate so the sign-in screen can say so. Not a
+ *  secret, so plain AsyncStorage. */
+export const ACCOUNT_CLOSED_NOTICE_KEY = "lampose-tracker.accountClosed";
+
+/**
+ * The account was deactivated or deleted: stop tracking, drop the stored
+ * session, and leave the reason on disk. Done here, from storage, rather than
+ * through the store, because a headless relaunch has no rehydrated store —
+ * see the header. Never throws.
+ */
+export async function endClosedAccount(message: string): Promise<void> {
+  await stopDutyTracking();
+  await deleteSecret(SESSION_SECRET_KEY);
+  await AsyncStorage.setItem(ACCOUNT_CLOSED_NOTICE_KEY, message).catch(() => {});
+}
 
 /** The rep's session, read the way a headless context has to read it. */
 async function readSession(): Promise<{ token: string | null; onDuty: boolean }> {
@@ -92,11 +110,20 @@ TaskManager.defineTask(DUTY_LOCATION_TASK, async ({ data, error }) => {
   try {
     await sendLocation(token, last.coords.latitude, last.coords.longitude, last.coords.accuracy);
   } catch (err) {
-    const status = (err as ApiError)?.status;
+    const { status, code, message } = (err ?? {}) as ApiError;
+    /* 403 ACCOUNT_INACTIVE / 401 ACCOUNT_GONE: an admin closed the account.
+       Without this the task would retry every fix, forever, against a server
+       that will never accept it — and the stored session would bring it
+       straight back on the next launch. */
+    if (code && ACCOUNT_CLOSED_CODES.has(code)) {
+      await endClosedAccount(message);
+      return;
+    }
     /* 409 NOT_ON_DUTY: the server says this rep is offline (turned off from
-       another device, say). 401: the session is dead. Either way nobody is
-       listening for these fixes, so the notification and the GPS drain end. */
-    if (status === 409 || status === 401) {
+       another device, say). 401: the session is dead. 403: refused outright.
+       Either way nobody is listening for these fixes, so the notification and
+       the GPS drain end. */
+    if (status === 409 || status === 401 || status === 403) {
       await stopDutyTracking();
     }
     /* Anything else — a lift, a basement, a dropped connection — is

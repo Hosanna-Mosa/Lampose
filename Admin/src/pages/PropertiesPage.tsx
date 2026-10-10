@@ -19,6 +19,7 @@ import {
   X,
 } from 'lucide-react';
 import { Badge } from '../components/common/atoms/Badge';
+import type { BadgeTone } from '../components/common/atoms/Badge';
 import { Button } from '../components/common/atoms/Button';
 import { Card } from '../components/common/atoms/Card';
 import { IconButton } from '../components/common/atoms/IconButton';
@@ -35,7 +36,10 @@ import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
 import { Modal } from '../components/common/organisms/Modal';
 import { Toast } from '../components/common/organisms/Toast';
 import type { ToastState } from '../components/common/organisms/Toast';
-import { cx, filterBySearch } from '../components/common/utils';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
+import { cx, filterBySearch, filterSelectClass } from '../components/common/utils';
 import { propertyService } from '../api/services/propertyService';
 import { useFetch } from '../lib/useFetch';
 import { PROPERTY_CATEGORIES, propertyCategoryLabel, STAY_TYPES } from '../lib/domain';
@@ -44,6 +48,8 @@ import type { PropertyEntity } from '../api/types';
 
 import { Thumb } from '../components/properties/atoms/Thumb';
 import { KeyValueEditor } from '../components/properties/organisms/KeyValueEditor';
+import { PhotoManager } from '../components/properties/organisms/PhotoManager';
+import { realPhotos } from '../components/properties/utils/photos';
 import { BedAvailability } from '../components/properties/organisms/BedAvailability';
 import type { KVRow } from '../components/properties/organisms/KeyValueEditor';
 import { Aside } from '../components/common/atoms/Aside';
@@ -243,9 +249,58 @@ const rowsToObject = (rows: KVRow[]): Record<string, unknown> => {
 };
 
 
+type PropertyStage = 'live' | 'awaiting' | 'failed';
+
+/**
+ * Where a listing stands. Unverified listings split on their request: a
+ * WhatsApp message that failed to send needs a resend from here, while one
+ * that went out is just waiting on the owner or verifier.
+ */
+const propertyStage = (p: PropertyEntity): PropertyStage =>
+  p.isVerified ? 'live' : p.requestStatus === 'failed' ? 'failed' : 'awaiting';
+
+const STAGE_OPTIONS: { id: PropertyStage; label: string; tone: BadgeTone }[] = [
+  { id: 'live', label: 'Live', tone: 'good' },
+  { id: 'awaiting', label: 'Awaiting verification', tone: 'warn' },
+  { id: 'failed', label: 'Message failed', tone: 'crit' },
+];
+
+/** Place is free text from the onboarding form, so "Madhapur" and "madhapur " are one place. */
+const placeKey = (p: PropertyEntity): string => p.place.trim().toLowerCase();
+const agentKey = (p: PropertyEntity): string => p.employeeEmail.trim().toLowerCase();
+
+/** The backend's own stayType match is a case-insensitive "contains", so a
+ *  "Both Short & Long Stay" listing shows under either — kept as it was. */
+const matchesStayType = (p: PropertyEntity, stayType: string): boolean =>
+  p.stayType.toLowerCase().includes(stayType.toLowerCase());
+
+type PropertyFilters = { stage: string; category: string; stayType: string; place: string; agent: string };
+type PropertyDimension = keyof PropertyFilters;
+
+/** True when `p` passes every filter except `skip` — how each dimension's
+ *  counts are taken, so a count always matches what picking it would show. */
+const passesFilters = (p: PropertyEntity, f: PropertyFilters, skip?: PropertyDimension): boolean =>
+  (skip === 'stage' || f.stage === 'All' || propertyStage(p) === f.stage) &&
+  (skip === 'category' || f.category === 'All' || p.category === f.category) &&
+  (skip === 'stayType' || f.stayType === 'All' || matchesStayType(p, f.stayType)) &&
+  (skip === 'place' || f.place === 'All' || placeKey(p) === f.place) &&
+  (skip === 'agent' || f.agent === 'All' || agentKey(p) === f.agent);
+
+const tally = <K extends string>(list: PropertyEntity[], key: (p: PropertyEntity) => K): Map<K, number> => {
+  const counts = new Map<K, number>();
+  for (const p of list) counts.set(key(p), (counts.get(key(p)) ?? 0) + 1);
+  return counts;
+};
+
+/** " (12)" after an option label, or nothing while the list is loading. */
+const optionCount = (n: number | undefined, loading: boolean): string => (loading ? '' : ` (${n ?? 0})`);
+
 export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
+  const [stage, setStage] = useState('All');
   const [category, setCategory] = useState('All');
   const [stayType, setStayType] = useState('All');
+  const [place, setPlace] = useState('All');
+  const [agent, setAgent] = useState('All');
   const [view, setView] = useState<'grid' | 'table'>('grid');
   const [toast, setToast] = useState<ToastState | null>(null);
   const [selected, setSelected] = useState<PropertyEntity | null>(null);
@@ -256,19 +311,20 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [createImages, setCreateImages] = useState<string[]>([]);
+  /* True while a PhotoManager is uploading; both forms wait for it rather
+     than saving a listing without the photos somebody just added. */
+  const [photosBusy, setPhotosBusy] = useState(false);
 
   const [editing, setEditing] = useState<PropertyEntity | null>(null);
   const [editForm, setEditForm] = useState<typeof EMPTY_FORM & { description: string } | null>(null);
   const [editDetailRows, setEditDetailRows] = useState<KVRow[]>([]);
+  const [editImages, setEditImages] = useState<string[]>([]);
 
-  const { data, loading, error, refreshing, reload } = useFetch(
-    () =>
-      propertyService.getProperties({
-        ...(category !== 'All' && { category }),
-        ...(stayType !== 'All' && { stayType }),
-      }),
-    [category, stayType]
-  );
+  /* The whole list in one request — GET /properties does not paginate — so
+     every filter narrows what is already loaded and each option can say how
+     many listings it would show. */
+  const { data, loading, error, refreshing, reload } = useFetch(() => propertyService.getProperties(), []);
 
   /* Sorting by card clicks: off → most clicked first → least clicked first.
      Pending listings (no count yet) always sort last. */
@@ -277,12 +333,67 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
     setClickSort((s) => (s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none'));
 
   // The header filter narrows what is already loaded, so typing costs no request.
+  const searched = useMemo(
+    () =>
+      filterBySearch(data ?? [], search, (p, q) =>
+        [p.name, p.place, p.ownerName, p.ownerMobile, p.ownerAltMobile, p.address, p.employeeEmail, propertyCategoryLabel(p.category)]
+          .filter(Boolean)
+          .some((field) => field.toLowerCase().includes(q))
+      ),
+    [data, search]
+  );
+
+  const filters = useMemo<PropertyFilters>(
+    () => ({ stage, category, stayType, place, agent }),
+    [stage, category, stayType, place, agent]
+  );
+
+  /* Counts per dimension: the searched list with every OTHER filter applied. */
+  const counts = useMemo(() => {
+    const without = (dim: PropertyDimension) => searched.filter((p) => passesFilters(p, filters, dim));
+    const byStage = without('stage');
+    const byCategory = without('category');
+    const byStay = without('stayType');
+    return {
+      stageAll: byStage.length,
+      stage: tally(byStage, propertyStage),
+      categoryAll: byCategory.length,
+      category: tally(byCategory, (p) => p.category),
+      stayAll: byStay.length,
+      stay: new Map(STAY_TYPES.map((t) => [t, byStay.filter((p) => matchesStayType(p, t)).length])),
+      place: tally(without('place'), placeKey),
+      placeAll: without('place').length,
+      agent: tally(without('agent'), agentKey),
+      agentAll: without('agent').length,
+    };
+  }, [searched, filters]);
+
+  /* Places and agents come from the data itself — both are free text. Listed
+     busiest first, labelled with the spelling seen first. */
+  const placeOptions = useMemo(() => {
+    const labels = new Map<string, string>();
+    for (const p of data ?? []) if (placeKey(p) && !labels.has(placeKey(p))) labels.set(placeKey(p), p.place.trim());
+    const totals = tally(data ?? [], placeKey);
+    return [...labels].sort((a, b) => (totals.get(b[0]) ?? 0) - (totals.get(a[0]) ?? 0) || a[1].localeCompare(b[1]));
+  }, [data]);
+
+  const agentOptions = useMemo(() => {
+    const totals = tally(data ?? [], agentKey);
+    return [...totals.keys()].filter(Boolean).sort((a, b) => (totals.get(b) ?? 0) - (totals.get(a) ?? 0) || a.localeCompare(b));
+  }, [data]);
+
+  const filtersActive = stage !== 'All' || category !== 'All' || stayType !== 'All' || place !== 'All' || agent !== 'All';
+  const filtered = !!search.trim() || filtersActive;
+  const clearFilters = () => {
+    setStage('All');
+    setCategory('All');
+    setStayType('All');
+    setPlace('All');
+    setAgent('All');
+  };
+
   const properties = useMemo(() => {
-    const matched = filterBySearch(data ?? [], search, (p, q) =>
-      [p.name, p.place, p.ownerName, p.ownerMobile, p.address, p.employeeEmail]
-        .filter(Boolean)
-        .some((field) => field.toLowerCase().includes(q))
-    );
+    const matched = searched.filter((p) => passesFilters(p, filters));
     if (clickSort === 'none') return matched;
     const dir = clickSort === 'desc' ? -1 : 1;
     return [...matched].sort((a, b) => {
@@ -291,10 +402,11 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
       if (b.clickCount === null) return -1;
       return (a.clickCount - b.clickCount) * dir;
     });
-  }, [data, search, clickSort]);
+  }, [searched, filters, clickSort]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (photosBusy) return;
     setSaving(true);
     setFormError(null);
 
@@ -308,6 +420,8 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
       rent: Number(form.rent) || 0,
       deposit: Number(form.deposit) || 0,
       stayType: form.stayType,
+      /* Left out when empty, so the route's own default still applies. */
+      ...(createImages.length ? { images: createImages, imageUrl: createImages[0] } : {}),
     });
 
     setSaving(false);
@@ -315,6 +429,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
     if (res.success) {
       setCreateOpen(false);
       setForm(EMPTY_FORM);
+      setCreateImages([]);
       setToast({ tone: 'good', message: `“${res.data?.name}” added to the properties collection.` });
       reload();
     } else {
@@ -393,6 +508,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
       description: p.description,
     });
     setEditDetailRows(objectToRows(p.categoryDetails));
+    setEditImages(realPhotos(p.images));
   };
 
   const setEditField =
@@ -401,8 +517,14 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editing || !editForm) return;
+    if (!editing || !editForm || photosBusy) return;
     setSaving(true);
+
+    /* Photos are sent only when they changed, so an edit to the rent never
+       rewrites a listing's photo list (or drops its stand-in image). The
+       cover is the first photo; `imageUrl` is kept equal to it for the
+       readers that still use it. */
+    const photosChanged = editImages.join('\n') !== realPhotos(editing.images).join('\n');
 
     const res = await propertyService.updateProperty(editing.id, {
       name: editForm.name.trim(),
@@ -416,6 +538,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
       deposit: Number(editForm.deposit) || 0,
       description: editForm.description.trim(),
       categoryDetails: rowsToObject(editDetailRows),
+      ...(photosChanged ? { images: editImages, imageUrl: editImages[0] || '' } : {}),
     });
 
     setSaving(false);
@@ -453,64 +576,122 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
       />
 
       {/* Filters — one row above the content */}
-      <Card padded={false} className="p-3">
-        <Box className="flex flex-wrap items-center gap-2.5">
-          <Select value={category} onChange={(e) => setCategory(e.target.value)} className="w-auto min-w-36">
-            <Option value="All">All categories</Option>
+      <Card padded={false} className="p-3 space-y-2.5">
+        <FilterBar
+          summary={
+            <Box className="flex items-center gap-3">
+              {!loading && (
+                <ResultCount
+                  shown={properties.length}
+                  total={data?.length ?? 0}
+                  noun="properties"
+                  filtered={filtered}
+                  onClear={filtersActive ? clearFilters : undefined}
+                />
+              )}
+              <Box className="flex items-center gap-0.5 p-0.5 rounded-control bg-surface-inset">
+                {([
+                  ['grid', LayoutGrid, 'Grid view'],
+                  ['table', List, 'Table view'],
+                ] as const).map(([mode, Icon, label]) => (
+                  <PlainButton
+                    key={mode}
+                    onClick={() => setView(mode)}
+                    title={label}
+                    aria-label={label}
+                    aria-pressed={view === mode}
+                    className={cx(
+                      'grid place-items-center size-7 rounded-[6px] transition-colors',
+                      view === mode ? 'bg-surface text-ink shadow-[var(--shadow-sm)]' : 'text-ink-3 hover:text-ink'
+                    )}
+                  >
+                    <Icon className="size-4" strokeWidth={1.75} />
+                  </PlainButton>
+                ))}
+              </Box>
+            </Box>
+          }
+        >
+          <FilterChips
+            label="Status"
+            value={stage}
+            onChange={setStage}
+            options={[
+              { id: 'All', label: 'All', count: loading ? null : counts.stageAll },
+              ...STAGE_OPTIONS.map((o) => ({
+                ...o,
+                count: loading ? null : (counts.stage.get(o.id) ?? 0),
+              })),
+            ]}
+          />
+        </FilterBar>
+
+        <Box className="flex flex-wrap items-center gap-2">
+          <Select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className={filterSelectClass}
+            aria-label="Category"
+          >
+            <Option value="All">All categories{optionCount(counts.categoryAll, loading)}</Option>
             {PROPERTY_CATEGORIES.map((c) => (
               <Option key={c} value={c}>
                 {propertyCategoryLabel(c)}
+                {optionCount(counts.category.get(c), loading)}
               </Option>
             ))}
           </Select>
 
-          <Select value={stayType} onChange={(e) => setStayType(e.target.value)} className="w-auto min-w-36">
-            <Option value="All">All stay types</Option>
-            {STAY_TYPES.map((s) => (
-              <Option key={s} value={s}>
-                {s}
+          <Select
+            value={stayType}
+            onChange={(e) => setStayType(e.target.value)}
+            className={filterSelectClass}
+            aria-label="Stay type"
+          >
+            <Option value="All">All stay types{optionCount(counts.stayAll, loading)}</Option>
+            {STAY_TYPES.map((t) => (
+              <Option key={t} value={t}>
+                {t}
+                {optionCount(counts.stay.get(t), loading)}
               </Option>
             ))}
           </Select>
 
-          {(category !== 'All' || stayType !== 'All') && (
-            <Button
-              size="sm"
-              variant="ghost"
-              icon={X}
-              onClick={() => {
-                setCategory('All');
-                setStayType('All');
-              }}
-            >
-              Clear
-            </Button>
-          )}
-
-          <Inline className="text-label text-ink-3 ml-auto tabular">
-            {loading ? 'Loading…' : `${properties.length} of ${data?.length ?? 0} shown`}
-          </Inline>
-
-          <Box className="flex items-center gap-0.5 p-0.5 rounded-control bg-surface-inset">
-            {([
-              ['grid', LayoutGrid, 'Grid view'],
-              ['table', List, 'Table view'],
-            ] as const).map(([mode, Icon, label]) => (
-              <PlainButton
-                key={mode}
-                onClick={() => setView(mode)}
-                title={label}
-                aria-label={label}
-                aria-pressed={view === mode}
-                className={cx(
-                  'grid place-items-center size-7 rounded-[6px] transition-colors',
-                  view === mode ? 'bg-surface text-ink shadow-[var(--shadow-sm)]' : 'text-ink-3 hover:text-ink'
-                )}
-              >
-                <Icon className="size-4" strokeWidth={1.75} />
-              </PlainButton>
+          <Select
+            value={place}
+            onChange={(e) => setPlace(e.target.value)}
+            className={filterSelectClass}
+            aria-label="Place"
+          >
+            <Option value="All">All places{optionCount(counts.placeAll, loading)}</Option>
+            {placeOptions.map(([key, label]) => (
+              <Option key={key} value={key}>
+                {label}
+                {optionCount(counts.place.get(key), loading)}
+              </Option>
             ))}
-          </Box>
+            {counts.place.has('') && (
+              <Option value="">Place not recorded{optionCount(counts.place.get(''), loading)}</Option>
+            )}
+          </Select>
+
+          <Select
+            value={agent}
+            onChange={(e) => setAgent(e.target.value)}
+            className={filterSelectClass}
+            aria-label="Onboarded by"
+          >
+            <Option value="All">All agents{optionCount(counts.agentAll, loading)}</Option>
+            {agentOptions.map((email) => (
+              <Option key={email} value={email}>
+                {email}
+                {optionCount(counts.agent.get(email), loading)}
+              </Option>
+            ))}
+            {counts.agent.has('') && (
+              <Option value="">Agent not recorded{optionCount(counts.agent.get(''), loading)}</Option>
+            )}
+          </Select>
         </Box>
       </Card>
 
@@ -554,16 +735,22 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
         <Card>
           <EmptyState
             icon={Building2}
-            title={search || category !== 'All' || stayType !== 'All' ? 'No matching properties' : 'No properties yet'}
+            title={filtered ? 'No properties match these filters' : 'No properties yet'}
             description={
-              search || category !== 'All' || stayType !== 'All'
+              filtered
                 ? 'Try clearing the filters or the search box above.'
                 : 'Listings onboarded through the field app will appear here.'
             }
             action={
-              <Button variant="primary" icon={Plus} onClick={() => setCreateOpen(true)}>
-                Add the first property
-              </Button>
+              filtersActive ? (
+                <Button variant="secondary" icon={X} onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              ) : filtered ? undefined : (
+                <Button variant="primary" icon={Plus} onClick={() => setCreateOpen(true)}>
+                  Add the first property
+                </Button>
+              )
             }
           />
         </Card>
@@ -934,7 +1121,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
             <Button variant="ghost" onClick={() => setCreateOpen(false)}>
               Cancel
             </Button>
-            <Button variant="primary" form="create-property" type="submit" loading={saving}>
+            <Button variant="primary" form="create-property" type="submit" loading={saving} disabled={photosBusy}>
               Create property
             </Button>
           </>
@@ -1021,6 +1208,10 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
               />
             </Field>
           </Box>
+
+          <Field label="Photos" hint="Uploaded as you add them; attached to the listing when you create it.">
+            <PhotoManager images={createImages} onChange={setCreateImages} onBusyChange={setPhotosBusy} />
+          </Field>
         </Form>
       </Modal>
 
@@ -1039,7 +1230,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
             <Button variant="ghost" onClick={() => setEditing(null)}>
               Cancel
             </Button>
-            <Button variant="primary" form="edit-property" type="submit" loading={saving}>
+            <Button variant="primary" form="edit-property" type="submit" loading={saving} disabled={photosBusy}>
               Save changes
             </Button>
           </>
@@ -1049,6 +1240,13 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
           <Form id="edit-property" onSubmit={handleUpdate} className="space-y-4">
             <Field label="Property name" required>
               <Input required value={editForm.name} onChange={setEditField('name')} />
+            </Field>
+
+            <Field
+              label="Photos"
+              hint="Add, reorder, set the cover or remove. Nothing changes on the listing until you save."
+            >
+              <PhotoManager images={editImages} onChange={setEditImages} onBusyChange={setPhotosBusy} />
             </Field>
 
             <Box className="grid grid-cols-2 gap-3">

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Pencil, Plus, Radar, RefreshCw, Trash2, X } from 'lucide-react';
+import { Pencil, Plus, Radar, RefreshCw, Trash2 } from 'lucide-react';
 import { Badge } from '../components/common/atoms/Badge';
 import { Button } from '../components/common/atoms/Button';
 import { Card } from '../components/common/atoms/Card';
@@ -26,7 +26,10 @@ import { Inline } from '../components/common/atoms/Inline';
 import { Option } from '../components/common/atoms/Option';
 import { PlainTd, PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
 import { Text } from '../components/common/atoms/Text';
-import { filterBySearch } from '../components/common/utils';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
+import { filterBySearch, filterSelectClass } from '../components/common/utils';
 
 interface ScrapeJobsPageProps {
   search: string;
@@ -43,6 +46,25 @@ interface JobForm {
   statusMessage: string;
   resultCount: string;
 }
+
+type ResultsFilter = 'All' | 'with' | 'none';
+
+interface JobFilters {
+  status: string;
+  source: string;
+  results: ResultsFilter;
+}
+
+const NO_FILTERS: JobFilters = { status: 'All', source: 'All', results: 'All' };
+
+/* One predicate per dimension, so each control's counts can be taken over
+   the list narrowed by every OTHER control — "Completed 4" then means four
+   jobs would show if that chip were picked, with the source and results
+   choices left as they are. */
+const matches = (j: ScrapeJobEntity, f: JobFilters, skip?: keyof JobFilters) =>
+  (skip === 'status' || f.status === 'All' || j.status === f.status) &&
+  (skip === 'source' || f.source === 'All' || j.source === f.source) &&
+  (skip === 'results' || f.results === 'All' || (f.results === 'with' ? j.resultCount > 0 : j.resultCount === 0));
 
 const EMPTY_FORM: JobForm = {
   name: '',
@@ -69,7 +91,9 @@ const toForm = (j: ScrapeJobEntity): JobForm => ({
 });
 
 export const ScrapeJobsPage: React.FC<ScrapeJobsPageProps> = ({ search }) => {
-  const [status, setStatus] = useState('All');
+  const [filters, setFilters] = useState<JobFilters>(NO_FILTERS);
+  const setFilter = <K extends keyof JobFilters>(key: K, value: JobFilters[K]) =>
+    setFilters((f) => ({ ...f, [key]: value }));
   const [toast, setToast] = useState<ToastState | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -84,11 +108,42 @@ export const ScrapeJobsPage: React.FC<ScrapeJobsPageProps> = ({ search }) => {
 
   const { data, loading, error, refreshing, reload } = useFetch(() => scraperJobService.getScrapeJobs(), []);
 
-  const jobs = useMemo(() => {
-    let list = data ?? [];
-    if (status !== 'All') list = list.filter((j) => j.status === status);
-    return filterBySearch(list, search, (j, q) => `${j.name} ${j.query} ${j.location}`.toLowerCase().includes(q));
-  }, [data, search, status]);
+  const searched = useMemo(
+    () =>
+      filterBySearch(data ?? [], search, (j, q) =>
+        `${j.name} ${j.query} ${j.location} ${j.landmark} ${j.source} ${j.statusMessage}`.toLowerCase().includes(q)
+      ),
+    [data, search]
+  );
+
+  const jobs = useMemo(() => searched.filter((j) => matches(j, filters)), [searched, filters]);
+
+  const counts = useMemo(() => {
+    const tally = (skip: keyof JobFilters, key: (j: ScrapeJobEntity) => string) => {
+      const out: Record<string, number> = {};
+      let all = 0;
+      for (const j of searched) {
+        if (!matches(j, filters, skip)) continue;
+        all += 1;
+        const k = key(j);
+        out[k] = (out[k] ?? 0) + 1;
+      }
+      return { ...out, All: all };
+    };
+    return {
+      status: tally('status', (j) => j.status),
+      source: tally('source', (j) => j.source),
+      results: tally('results', (j) => (j.resultCount > 0 ? 'with' : 'none')),
+    };
+  }, [searched, filters]);
+
+  const total = data?.length ?? 0;
+  const filtersActive = filters.status !== 'All' || filters.source !== 'All' || filters.results !== 'All';
+  const filtered = filtersActive || !!search.trim();
+  const clearFilters = () => setFilters(NO_FILTERS);
+  /* Unknown while loading — left off rather than shown as 0. */
+  const countOf = (dim: keyof typeof counts, id: string) => (loading ? null : (counts[dim] as Record<string, number>)[id] ?? 0);
+  const withCount = (label: string, n: number | null) => (n == null ? label : `${label} (${n.toLocaleString('en-IN')})`);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -180,24 +235,57 @@ export const ScrapeJobsPage: React.FC<ScrapeJobsPageProps> = ({ search }) => {
       />
 
       <Card padded={false} className="p-3">
-        <Box className="flex flex-wrap items-center gap-2.5">
-          <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-auto min-w-36">
-            <Option value="All">All statuses</Option>
-            {SCRAPE_JOB_STATUSES.map((s) => (
+        <FilterBar
+          summary={
+            loading ? undefined : (
+              <ResultCount
+                shown={jobs.length}
+                total={total}
+                noun="jobs"
+                filtered={filtered}
+                onClear={filtersActive ? clearFilters : undefined}
+              />
+            )
+          }
+        >
+          <FilterChips
+            label="Status"
+            value={filters.status}
+            onChange={(v) => setFilter('status', v)}
+            options={[
+              { id: 'All', label: 'All', count: countOf('status', 'All') },
+              ...SCRAPE_JOB_STATUSES.map((s) => ({
+                id: s,
+                label: s.charAt(0).toUpperCase() + s.slice(1),
+                count: countOf('status', s),
+                tone: scrapeJobStatusMeta(s).tone,
+              })),
+            ]}
+          />
+          <Select
+            aria-label="Source"
+            value={filters.source}
+            onChange={(e) => setFilter('source', e.target.value)}
+            className={filterSelectClass}
+          >
+            <Option value="All">{withCount('All sources', countOf('source', 'All'))}</Option>
+            {SCRAPE_SOURCES.map((s) => (
               <Option key={s} value={s}>
-                {s}
+                {withCount(s, countOf('source', s))}
               </Option>
             ))}
           </Select>
-          {status !== 'All' && (
-            <Button size="sm" variant="ghost" icon={X} onClick={() => setStatus('All')}>
-              Clear
-            </Button>
-          )}
-          <Inline className="text-label text-ink-3 ml-auto tabular">
-            {loading ? 'Loading…' : `${jobs.length} job${jobs.length === 1 ? '' : 's'}`}
-          </Inline>
-        </Box>
+          <Select
+            aria-label="Results"
+            value={filters.results}
+            onChange={(e) => setFilter('results', e.target.value as ResultsFilter)}
+            className={filterSelectClass}
+          >
+            <Option value="All">{withCount('Any results', countOf('results', 'All'))}</Option>
+            <Option value="with">{withCount('Found leads', countOf('results', 'with'))}</Option>
+            <Option value="none">{withCount('No leads found', countOf('results', 'none'))}</Option>
+          </Select>
+        </FilterBar>
       </Card>
 
       {error ? (
@@ -223,8 +311,19 @@ export const ScrapeJobsPage: React.FC<ScrapeJobsPageProps> = ({ search }) => {
                   <PlainTd colSpan={6}>
                     <EmptyState
                       icon={Radar}
-                      title={search || status !== 'All' ? 'No matching jobs' : 'No scrape jobs yet'}
-                      description="Jobs started from the leads panel — or added here directly — will appear in this list."
+                      title={filtered ? 'No jobs match these filters' : 'No scrape jobs yet'}
+                      description={
+                        filtered
+                          ? 'Try a different search, status, source or results filter.'
+                          : 'Jobs started from the leads panel — or added here directly — will appear in this list.'
+                      }
+                      action={
+                        filtersActive ? (
+                          <Button size="sm" variant="ghost" onClick={clearFilters}>
+                            Clear filters
+                          </Button>
+                        ) : undefined
+                      }
                     />
                   </PlainTd>
                 </PlainTr>
