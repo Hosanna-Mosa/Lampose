@@ -486,8 +486,10 @@ const createPaymentOrder = async (req, res, next) => {
            authorise anything. */
         keyId: config.razorpay.keyId,
         propertyName: doc.propertyName,
-        customerName: doc.customer?.name || '',
-        customerPhone: doc.customer?.phone || '',
+        /* No `customerName` / `customerPhone`. This route needs only the
+           request id, and it used to hand the student's name and number to
+           anybody holding one. Razorpay's checkout asks for the contact
+           itself when there is no prefill. */
       },
     });
   } catch (error) {
@@ -722,7 +724,9 @@ const renderCheckout = async (req, res, next) => {
       currency: order.currency || 'INR',
       name: 'Lampose',
       description: `Assisted visit · ${doc.propertyName || ''}`.trim(),
-      prefill: { name: doc.customer?.name || '', contact: doc.customer?.phone || '' },
+      /* No prefill: this page is served to anybody holding the request id,
+         and the prefill wrote the student's name and number into its HTML.
+         Razorpay asks for the contact itself. */
       theme: { color: '#45855a' },
     };
 
@@ -799,6 +803,14 @@ const paymentCallback = async (req, res, next) => {
 
     if (!doc || !doc.payment?.orderId) {
       return res.type('html').send(bounce(redirect, 'error'));
+    }
+
+    /* Once paid, nothing this route receives can change that. It is
+       unauthenticated, and a POST with a bad signature used to mark a PAID
+       request `failed` — the app then offered "Pay ₹X" again and the student
+       paid twice. Same guard as `verifyPayment` and `recordPaymentFailure`. */
+    if (doc.payment.status === 'paid') {
+      return res.type('html').send(bounce(redirect, 'paid'));
     }
 
     const genuine = razorpay.verifySignature({

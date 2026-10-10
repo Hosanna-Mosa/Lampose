@@ -420,6 +420,45 @@ describe('one live request per listing', () => {
     assert.equal(second.request.status, 'pending_owner');
   });
 
+  /* A confirmation whose booking has ended is a record, not a hold. This used
+     to fall through to ALREADY_REQUESTED and refuse the student at that
+     property for ever after. */
+  const confirmWithBooking = async (request, property, status) => {
+    const { PartnerBooking } = require('../src/modules/partners/partnerDomains.model');
+    const booking = await PartnerBooking.create({
+      partnerPhoneDigits: '9000000000', propertyId: String(property._id), propertyName: property.name,
+      guestName: 'G', guestPhone: '+919811100099', roomNumber: '1', checkInDate: '2026-01-01',
+      totalAmount: 1000, paidAmount: 1000, status,
+    });
+    await VisitRequest.updateOne(
+      { _id: request._id },
+      { $set: { status: 'confirmed', decidedAt: new Date(), bookingId: String(booking._id) } },
+    );
+  };
+
+  it('asking again after the booking there was cancelled is allowed', async () => {
+    await makeOwner();
+    const student = await makeStudent();
+    const property = await makeProperty();
+
+    const { request } = await send(student, property);
+    await confirmWithBooking(request, property, 'cancelled');
+
+    const second = await send(student, property);
+    assert.equal(second.request.status, 'pending_owner');
+  });
+
+  it('but a booking that is still live there → refused as already booked', async () => {
+    await makeOwner();
+    const student = await makeStudent();
+    const property = await makeProperty();
+
+    const { request } = await send(student, property);
+    await confirmWithBooking(request, property, 'in_house');
+
+    await failsWith('ALREADY_BOOKED', () => send(student, property));
+  });
+
   it('a different student is unaffected', async () => {
     await makeOwner();
     const a = await makeStudent();

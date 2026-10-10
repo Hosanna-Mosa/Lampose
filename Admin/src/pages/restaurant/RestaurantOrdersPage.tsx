@@ -66,27 +66,29 @@ import { Badge } from '../../components/common/atoms/Badge';
 import { Box } from '../../components/common/atoms/Box';
 import { Button } from '../../components/common/atoms/Button';
 import { Card } from '../../components/common/atoms/Card';
-import { Inline } from '../../components/common/atoms/Inline';
 import { PlainButton } from '../../components/common/atoms/PlainButton';
 import { Strong } from '../../components/common/atoms/Strong';
 import { Table, Td, Th, Tr } from '../../components/common/atoms/Table';
 import { PlainTd, PlainTr, TableBody, TableHead } from '../../components/common/atoms/PlainTable';
 import { Text } from '../../components/common/atoms/Text';
+import type { BadgeTone } from '../../components/common/atoms/Badge';
 import { EmptyState } from '../../components/common/molecules/EmptyState';
 import { ErrorState } from '../../components/common/molecules/ErrorState';
+import { FilterBar } from '../../components/common/molecules/FilterBar';
+import { FilterChips } from '../../components/common/molecules/FilterChips';
+import { ResultCount } from '../../components/common/molecules/ResultCount';
 import { PageHeader } from '../../components/common/molecules/PageHeader';
 import { TableSkeleton } from '../../components/common/molecules/TableSkeleton';
 import { Modal } from '../../components/common/organisms/Modal';
 import { Toast } from '../../components/common/organisms/Toast';
 import type { ToastState } from '../../components/common/organisms/Toast';
-import { cx } from '../../components/common/utils';
 import { restaurantAdminService, PARTNER_TRANSITIONS } from '../../api/services/restaurantAdminService';
 import type {
   FoodOrderStatus,
   OrderStatusCounts,
   RestaurantOrder,
 } from '../../api/services/restaurantAdminService';
-import { useFetch } from '../../lib/useFetch';
+import { useDebounced, useFetch } from '../../lib/useFetch';
 import { relativeTime, rupees } from '../../lib/format';
 /* The words, the delivery picker, the order detail and the dialogs are shared with the page behind the
    link in the "new order" WhatsApp — see orderShared.tsx for why there is one of each. */
@@ -104,6 +106,8 @@ import { useOrderActions } from './useOrderActions';
 
 interface RestaurantOrdersPageProps {
   search: string;
+  /** Empties the header search — the "Clear" beside the result count. */
+  onClearSearch?: () => void;
   /** Refreshes the nav badge after a move, so the two never disagree. */
   reloadCounts?: () => void;
   /**
@@ -128,15 +132,17 @@ interface Tab {
   /** The states this tab shows. Empty means everything. */
   states: FoodOrderStatus[];
   icon: React.ElementType;
+  /** Colours the count: waiting orders amber, the ones that went wrong red. */
+  tone?: BadgeTone;
 }
 
 const TABS: Tab[] = [
-  { id: 'new', label: 'New', states: ['placed'], icon: Inbox },
+  { id: 'new', label: 'New', states: ['placed'], icon: Inbox, tone: 'warn' },
   { id: 'kitchen', label: 'In the kitchen', states: ['accepted', 'preparing'], icon: CookingPot },
   { id: 'ready', label: 'Ready', states: ['ready'], icon: PackageCheck },
   { id: 'out', label: 'On the way', states: ['picked_up'], icon: Truck },
-  { id: 'done', label: 'Delivered', states: ['delivered'], icon: CheckCircle2 },
-  { id: 'closed', label: 'Not fulfilled', states: ['rejected', 'cancelled'], icon: Ban },
+  { id: 'done', label: 'Delivered', states: ['delivered'], icon: CheckCircle2, tone: 'good' },
+  { id: 'closed', label: 'Not fulfilled', states: ['rejected', 'cancelled'], icon: Ban, tone: 'crit' },
   { id: 'all', label: 'Everything', states: [], icon: Utensils },
 ];
 
@@ -147,6 +153,7 @@ const tabCount = (tab: Tab, counts: OrderStatusCounts): number =>
 
 export const RestaurantOrdersPage: React.FC<RestaurantOrdersPageProps> = ({
   search,
+  onClearSearch,
   reloadCounts,
   focusOrder,
   onFocusHandled,
@@ -160,10 +167,17 @@ export const RestaurantOrdersPage: React.FC<RestaurantOrdersPageProps> = ({
 
   const tab = TABS.find((t) => t.id === tabId) ?? TABS[0];
   const statusParam = tab.states.join(',');
+  /* The search goes to the server too, debounced, so the tab counts are
+     counts of MATCHES — see the note on `rows` below. */
+  const q = useDebounced(search.trim());
 
   const queue = useFetch(
-    () => restaurantAdminService.orders(statusParam ? { status: statusParam } : {}),
-    [statusParam]
+    () =>
+      restaurantAdminService.orders({
+        ...(statusParam ? { status: statusParam } : {}),
+        ...(q ? { q } : {}),
+      }),
+    [statusParam, q]
   );
 
   const { reload } = queue;
@@ -241,12 +255,14 @@ export const RestaurantOrdersPage: React.FC<RestaurantOrdersPageProps> = ({
     return () => clearInterval(id);
   }, [reload, paused]);
 
-  const counts = queue.data?.counts ?? {};
+  const counts = queue.data?.counts;
 
-  /* The header filter, applied to what is already on screen. Deliberately
-     client-side: the server's list is capped at fifty of the newest rows for
-     one shop, which is the whole working set, and a round trip per keystroke
-     would make the queue feel slower than the kitchen it serves.
+  /* The header filter, applied twice on purpose. Here, to what is already on
+     screen, so the list answers the keystroke at once — a round trip per key
+     would make the queue feel slower than the kitchen it serves. And to the
+     server (`q`, debounced above), because the tab counts are the server's:
+     without it "New 4" would sit beside a search that matched one order, and
+     an order older than the fifty-row cap could never be found at all.
 
      Derived from `queue.data` rather than from an `orders` array built in the
      render body: `?? []` mints a new array every pass, which would make this
@@ -270,6 +286,12 @@ export const RestaurantOrdersPage: React.FC<RestaurantOrdersPageProps> = ({
   /** The buttons one row offers — the server's own list, or its general table. */
   const movesFor = (order: RestaurantOrder): FoodOrderStatus[] =>
     order.moves ?? PARTNER_TRANSITIONS[order.status] ?? [];
+
+  const searching = Boolean(search.trim());
+  /* What this tab holds by the server's count (already narrowed by the search).
+     Can exceed the rows on screen: the list is capped at fifty, and then the
+     line reads "Showing 50 of 140" rather than pretending 50 is all of them. */
+  const tabTotal = counts ? tabCount(tab, counts) : rows.length;
 
   return (
     <Box className="space-y-5">
@@ -297,32 +319,32 @@ export const RestaurantOrdersPage: React.FC<RestaurantOrdersPageProps> = ({
 
       {/* Tabs. Each carries its own count, from the same request as the rows
           below — one number, one source, so a tab cannot promise an order the
-          list then fails to show. */}
-      <Box role="tablist" aria-label="Order states" className="flex flex-wrap gap-1.5">
-        {TABS.map((item) => {
-          const Icon = item.icon;
-          const active = item.id === tabId;
-          const n = tabCount(item, counts);
-          return (
-            <PlainButton
-              key={item.id}
-              role="tab"
-              aria-selected={active}
-              onClick={() => setTabId(item.id)}
-              className={cx(
-                'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-control border text-label transition-colors duration-120',
-                active
-                  ? 'bg-brand-soft border-brand-border text-brand-ink font-medium'
-                  : 'bg-surface border-line text-ink-2 hover:bg-surface-inset hover:text-ink'
-              )}
-            >
-              <Icon className="size-3.5 shrink-0" strokeWidth={active ? 2 : 1.75} />
-              {item.label}
-              {n > 0 && <Inline className="tabular text-ink-3">{n}</Inline>}
-            </PlainButton>
-          );
-        })}
-      </Box>
+          list then fails to show. Left off until the first answer arrives. */}
+      <FilterBar
+        summary={
+          !queue.loading && (
+            <ResultCount
+              shown={rows.length}
+              total={Math.max(tabTotal, rows.length)}
+              noun="orders"
+              filtered={searching || rows.length < tabTotal}
+              onClear={searching ? onClearSearch : undefined}
+            />
+          )
+        }
+      >
+        <FilterChips
+          label="Order states"
+          value={tabId}
+          onChange={setTabId}
+          options={TABS.map((item) => ({
+            id: item.id,
+            label: item.label,
+            count: counts ? tabCount(item, counts) : null,
+            tone: item.tone,
+          }))}
+        />
+      </FilterBar>
 
       {queue.error && <ErrorState message={queue.error} onRetry={reload} />}
 
@@ -347,14 +369,21 @@ export const RestaurantOrdersPage: React.FC<RestaurantOrdersPageProps> = ({
                   <EmptyState
                     icon={tab.icon}
                     title={
-                      search.trim() ? 'Nothing matches that' : `No orders ${tab.label.toLowerCase()}`
+                      searching ? 'No orders match these filters' : `No orders ${tab.label.toLowerCase()}`
                     }
                     description={
-                      search.trim()
-                        ? 'Clear the filter in the header to see the whole queue.'
+                      searching
+                        ? 'Clear the search in the header, or try another tab — the counts above show where the matches are.'
                         : tab.id === 'new'
                           ? 'New orders land here the moment a diner places one. This page refreshes itself every few seconds.'
                           : 'Nothing in this state right now.'
+                    }
+                    action={
+                      searching && onClearSearch ? (
+                        <Button size="sm" variant="secondary" onClick={onClearSearch}>
+                          Clear search
+                        </Button>
+                      ) : undefined
                     }
                   />
                 </PlainTd>

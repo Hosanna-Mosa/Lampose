@@ -25,7 +25,10 @@ import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
 import { Modal } from '../components/common/organisms/Modal';
 import { Toast } from '../components/common/organisms/Toast';
 import type { ToastState } from '../components/common/organisms/Toast';
-import { cx, filterBySearch } from '../components/common/utils';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
+import { cx, filterBySearch, filterSelectClass } from '../components/common/utils';
 import { permissionService } from '../api/services/permissionService';
 import { useAuth } from '../context/AuthContext';
 import { useFetch } from '../lib/useFetch';
@@ -78,24 +81,52 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({ search }) => {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const { data, loading, error, refreshing, reload } = useFetch(
-    () =>
-      permissionService.getPermissions({
-        ...(status !== 'All' && { status }),
-        ...(action !== 'All' && { action }),
-      }),
-    [status, action]
-  );
+  /* Every request in one go — the route does not paginate — so status and
+     action filter what is already loaded, and each chip can count its rows.
+     It also keeps the summary cards above honest: they describe every
+     request, not whichever slice the filters happen to be showing. */
+  const { data, loading, error, refreshing, reload } = useFetch(() => permissionService.getPermissions(), []);
 
   // The header filter narrows what is already loaded, so typing costs no request.
-  const rows = useMemo(
+  const searched = useMemo(
     () => filterBySearch(data ?? [], search, (p, q) =>
-      [p.employeeEmail, p.propertyName, p.propertyPlace, p.reason, p.action, p.status]
+      [p.employeeEmail, p.propertyName, p.propertyPlace, p.propertyCategory, p.ownerName, p.reason, p.action, p.status]
         .filter(Boolean)
         .some((field) => String(field).toLowerCase().includes(q))
     ),
     [data, search]
   );
+
+  const rows = useMemo(
+    () => searched.filter((p) => (status === 'All' || p.status === status) && (action === 'All' || p.action === action)),
+    [searched, status, action]
+  );
+
+  /* Status chips count with the action filter applied and vice versa, so a
+     chip's number is exactly what picking it would show. */
+  const counts = useMemo(() => {
+    const byStatus: Record<string, number> = {};
+    const byAction: Record<string, number> = {};
+    let statusAll = 0;
+    let actionAll = 0;
+    for (const p of searched) {
+      if (action === 'All' || p.action === action) {
+        statusAll += 1;
+        byStatus[p.status] = (byStatus[p.status] ?? 0) + 1;
+      }
+      if (status === 'All' || p.status === status) {
+        actionAll += 1;
+        byAction[p.action] = (byAction[p.action] ?? 0) + 1;
+      }
+    }
+    return { byStatus, byAction, statusAll, actionAll };
+  }, [searched, status, action]);
+
+  const filtered = !!search.trim() || status !== 'All' || action !== 'All';
+  const clearFilters = () => {
+    setStatus('All');
+    setAction('All');
+  };
 
   const summary = useMemo(() => {
     const list = data ?? [];
@@ -186,43 +217,54 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({ search }) => {
       </Box>
 
       {/* Filters and the window a new grant opens for */}
-      <Card padded={false} className="p-3">
-        <Box className="flex flex-wrap items-center gap-2.5">
-          <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-auto min-w-36">
-            <Option value="All">All statuses</Option>
-            {PERMISSION_STATUSES.map((s) => (
-              <Option key={s} value={s}>
-                {permissionStatusMeta(s).label}
-              </Option>
-            ))}
-          </Select>
+      <Card padded={false} className="p-3 space-y-2.5">
+        <FilterBar
+          summary={
+            loading ? undefined : (
+              <ResultCount
+                shown={rows.length}
+                total={data?.length ?? 0}
+                noun="requests"
+                filtered={filtered}
+                onClear={status !== 'All' || action !== 'All' ? clearFilters : undefined}
+              />
+            )
+          }
+        >
+          <FilterChips
+            label="Status"
+            value={status}
+            onChange={setStatus}
+            options={[
+              { id: 'All', label: 'All', count: loading ? null : counts.statusAll },
+              ...PERMISSION_STATUSES.map((s) => ({
+                id: s,
+                label: permissionStatusMeta(s).label,
+                count: loading ? null : (counts.byStatus[s] ?? 0),
+                tone: permissionStatusMeta(s).tone,
+              })),
+            ]}
+          />
+        </FilterBar>
 
-          <Select value={action} onChange={(e) => setAction(e.target.value)} className="w-auto min-w-36">
-            <Option value="All">Both actions</Option>
-            <Option value="edit">Edit listing</Option>
-            <Option value="delete">Delete listing</Option>
-          </Select>
-
-          {(status !== 'All' || action !== 'All') && (
-            <Button
-              size="sm"
-              variant="ghost"
-              icon={X}
-              onClick={() => {
-                setStatus('All');
-                setAction('All');
-              }}
-            >
-              Clear
-            </Button>
-          )}
+        <Box className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <FilterChips
+            label="Requested action"
+            value={action}
+            onChange={setAction}
+            options={[
+              { id: 'All', label: 'Both actions', count: loading ? null : counts.actionAll },
+              { id: 'edit', label: 'Edit listing', count: loading ? null : (counts.byAction.edit ?? 0), tone: 'brand' },
+              { id: 'delete', label: 'Delete listing', count: loading ? null : (counts.byAction.delete ?? 0), tone: 'crit' },
+            ]}
+          />
 
           <Label className="flex items-center gap-2 ml-auto">
             <Inline className="text-label text-ink-3">Grants last</Inline>
             <Select
               value={windowHours}
               onChange={(e) => setWindowHours(Number(e.target.value))}
-              className="w-auto min-w-28"
+              className={filterSelectClass}
             >
               {WINDOW_OPTIONS.map((w) => (
                 <Option key={w.hours} value={w.hours}>
@@ -231,10 +273,6 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({ search }) => {
               ))}
             </Select>
           </Label>
-
-          <Inline className="text-label text-ink-3 tabular">
-            {loading ? 'Loading…' : `${rows.length} request${rows.length === 1 ? '' : 's'}`}
-          </Inline>
         </Box>
       </Card>
 
@@ -262,15 +300,18 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({ search }) => {
                   <PlainTd colSpan={7}>
                     <EmptyState
                       icon={KeyRound}
-                      title={
-                        search || status !== 'All' || action !== 'All'
-                          ? 'No matching requests'
-                          : 'No permission requests'
-                      }
+                      title={filtered ? 'No requests match these filters' : 'No permission requests'}
                       description={
-                        search || status !== 'All' || action !== 'All'
-                          ? 'Try clearing the filters above.'
+                        filtered
+                          ? 'Try a different search, status or action.'
                           : 'When a field agent taps “Ask Permission” on a listing, the request lands here for your decision.'
+                      }
+                      action={
+                        status !== 'All' || action !== 'All' ? (
+                          <Button variant="secondary" icon={X} onClick={clearFilters}>
+                            Clear filters
+                          </Button>
+                        ) : undefined
                       }
                     />
                   </PlainTd>

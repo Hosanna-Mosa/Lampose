@@ -16,7 +16,7 @@
    (`money.release`). So "Mark paid" fetches the one request fresh and shows
    it there — never in the list.
    ══════════════════════════════════════════════════════════════════════════ */
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import {
   AlertCircle,
   Ban,
@@ -34,9 +34,7 @@ import type { BadgeTone } from '../components/common/atoms/Badge';
 import { Box } from '../components/common/atoms/Box';
 import { Button } from '../components/common/atoms/Button';
 import { Card } from '../components/common/atoms/Card';
-import { Inline } from '../components/common/atoms/Inline';
 import { Input } from '../components/common/atoms/Input';
-import { PlainButton } from '../components/common/atoms/PlainButton';
 import { PlainTd, PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
 import { Strong } from '../components/common/atoms/Strong';
 import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
@@ -51,12 +49,17 @@ import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
 import { Modal } from '../components/common/organisms/Modal';
 import { Toast } from '../components/common/organisms/Toast';
 import type { ToastState } from '../components/common/organisms/Toast';
-import { cx } from '../components/common/utils';
+import { Option } from '../components/common/atoms/Option';
+import { Select } from '../components/common/atoms/Select';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
+import { filterSelectClass } from '../components/common/utils';
 import { riderWithdrawalService } from '../api/services/riderWithdrawalService';
 import { riderLedgerService } from '../api/services/riderLedgerService';
 import type { RiderWithdrawalRow, RiderWithdrawalStatus } from '../api/services/riderWithdrawalService';
 import type { AdminRole } from '../api/types';
-import { useFetch } from '../lib/useFetch';
+import { useDebounced, useFetch } from '../lib/useFetch';
 import { formatDate, formatDateTime, rupeesFromPaise } from '../lib/format';
 
 interface RiderWithdrawalsPageProps {
@@ -73,12 +76,20 @@ const STATUS_LOOK: Record<RiderWithdrawalStatus, { label: string; tone: BadgeTon
   rejected: { label: 'Refused', tone: 'crit', icon: Ban },
 };
 
-const TABS: { id: string; label: string; status: string }[] = [
-  { id: 'requested', label: 'Waiting', status: 'requested' },
-  { id: 'paid', label: 'Paid', status: 'paid' },
-  { id: 'rejected', label: 'Refused', status: 'rejected' },
-  { id: 'all', label: 'Everything', status: 'all' },
+type TabId = RiderWithdrawalStatus | 'all';
+
+const TABS: { id: TabId; label: string; tone?: BadgeTone }[] = [
+  { id: 'requested', label: 'Waiting', tone: 'warn' },
+  { id: 'paid', label: 'Paid', tone: 'good' },
+  { id: 'rejected', label: 'Refused', tone: 'crit' },
+  { id: 'all', label: 'Everything' },
 ];
+
+type MethodFilter = 'all' | 'bank' | 'upi';
+
+/** "UPI (4)" — a native <option> cannot hold a pill. */
+const withCount = (label: string, n: number | null | undefined) =>
+  n == null ? label : `${label} (${n.toLocaleString('en-IN')})`;
 
 const masked = (last4?: string): string => (last4 ? `•••• ${last4}` : '');
 
@@ -92,10 +103,21 @@ const payInto = (account: RiderWithdrawalRow['account']): string =>
     .join('  ·  ') || '—';
 
 export const RiderWithdrawalsPage: React.FC<RiderWithdrawalsPageProps> = ({ search, role }) => {
-  const [tabId, setTabId] = useState('requested');
-  const tab = TABS.find((t) => t.id === tabId) ?? TABS[0];
+  const [tabId, setTabId] = useState<TabId>('requested');
+  const [method, setMethod] = useState<MethodFilter>('all');
+  /* Searched on the server: the list stops at a page, and a search over one
+     page would quietly miss the request somebody is looking for. */
+  const q = useDebounced(search.trim(), 300);
 
-  const queue = useFetch(() => riderWithdrawalService.list({ status: tab.status }), [tab.status]);
+  const queue = useFetch(
+    () =>
+      riderWithdrawalService.list({
+        status: tabId,
+        search: q || undefined,
+        method: method === 'all' ? undefined : method,
+      }),
+    [tabId, q, method]
+  );
   const [toast, setToast] = useState<ToastState | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -140,17 +162,17 @@ export const RiderWithdrawalsPage: React.FC<RiderWithdrawalsPageProps> = ({ sear
     settings.reload();
   };
   const counts = queue.data?.counts ?? {};
+  const facets = queue.data?.facets;
+  const rows = queue.data?.items ?? [];
 
-  const rows = useMemo(() => {
-    const all = queue.data?.items ?? [];
-    const needle = search.trim().toLowerCase();
-    if (!needle) return all;
-    return all.filter((row) =>
-      [row.withdrawalId, row.driverId, row.driverName, row.driverPhone, row.account?.upiId, row.reference]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(needle))
-    );
-  }, [queue.data, search]);
+  /* Waiting is the queue's resting state, not a filter somebody chose. */
+  const filtersActive = !!q || tabId !== 'requested' || method !== 'all';
+  const clearFilters = () => {
+    setTabId('all');
+    setMethod('all');
+  };
+  const total = Object.values(counts).reduce((sum, c) => sum + (c?.count ?? 0), 0);
+  const matching = facets?.matching ?? rows.length;
 
   /* Fetched fresh: the list never carries the full account number. */
   const openPay = async (row: RiderWithdrawalRow) => {
@@ -303,29 +325,37 @@ export const RiderWithdrawalsPage: React.FC<RiderWithdrawalsPageProps> = ({ sear
         </Box>
       )}
 
-      <Box role="tablist" aria-label="Withdrawal states" className="flex flex-wrap gap-1.5">
-        {TABS.map((item) => {
-          const active = item.id === tabId;
-          const n = item.status === 'all' ? undefined : counts[item.status as RiderWithdrawalStatus]?.count;
-          return (
-            <PlainButton
-              key={item.id}
-              role="tab"
-              aria-selected={active}
-              onClick={() => setTabId(item.id)}
-              className={cx(
-                'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-control border text-label transition-colors duration-120',
-                active
-                  ? 'bg-brand-soft border-brand-border text-brand-ink font-medium'
-                  : 'bg-surface border-line text-ink-2 hover:bg-surface-inset hover:text-ink'
-              )}
-            >
-              {item.label}
-              {typeof n === 'number' && n > 0 && <Inline className="tabular text-ink-3">{n}</Inline>}
-            </PlainButton>
-          );
-        })}
-      </Box>
+      <Card padded={false} className="p-3">
+        <FilterBar
+          summary={
+            queue.loading ? undefined : (
+              <ResultCount shown={matching} total={total} noun="withdrawals" onClear={clearFilters} />
+            )
+          }
+        >
+          <FilterChips
+            label="Withdrawal state"
+            value={tabId}
+            onChange={setTabId}
+            options={TABS.map((t) => ({ ...t, count: facets?.status ? facets.status[t.id] ?? 0 : null }))}
+          />
+          <Select
+            aria-label="Paid into"
+            value={method}
+            onChange={(e) => setMethod(e.target.value as MethodFilter)}
+            className={filterSelectClass}
+          >
+            <Option value="all">{withCount('Bank or UPI', facets?.method?.all)}</Option>
+            <Option value="bank">{withCount('Bank account', facets?.method?.bank)}</Option>
+            <Option value="upi">{withCount('UPI', facets?.method?.upi)}</Option>
+          </Select>
+        </FilterBar>
+        {matching > rows.length && (
+          <Text className="text-label text-ink-3 mt-2">
+            Listing the first {rows.length} — search or narrow the filters to reach the rest.
+          </Text>
+        )}
+      </Card>
 
       {queue.error && <ErrorState message={queue.error} onRetry={queue.reload} />}
 
@@ -349,13 +379,26 @@ export const RiderWithdrawalsPage: React.FC<RiderWithdrawalsPageProps> = ({ sear
                 <PlainTd colSpan={6}>
                   <EmptyState
                     icon={Bike}
-                    title={search.trim() ? 'Nothing matches that' : tabId === 'requested' ? 'No withdrawals waiting' : 'Nothing here'}
-                    description={
-                      search.trim()
-                        ? 'Clear the filter in the header.'
+                    title={
+                      q || method !== 'all'
+                        ? 'No withdrawals match these filters'
                         : tabId === 'requested'
+                          ? 'No withdrawals waiting'
+                          : 'Nothing here'
+                    }
+                    description={
+                      q
+                        ? 'Clear the search in the header, or widen the filters.'
+                        : tabId === 'requested' && method === 'all'
                           ? 'Riders with money in their wallet can ask for it from the app. Requests appear here.'
                           : undefined
+                    }
+                    action={
+                      filtersActive && (tabId !== 'all' || method !== 'all') ? (
+                        <Button size="sm" variant="secondary" onClick={clearFilters}>
+                          Clear filters
+                        </Button>
+                      ) : undefined
                     }
                   />
                 </PlainTd>

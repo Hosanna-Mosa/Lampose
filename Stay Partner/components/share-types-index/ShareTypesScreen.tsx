@@ -147,16 +147,22 @@ export function ShareTypesScreen() {
     setSaving(true);
     setSaveError(null);
     try {
-      const changed = shareTypesList.filter((t) => draft[t.id] !== t.available);
+      /* EVERY row is written, not only the ones whose switch moved. Going
+         offline marks each open row `pausedByMaster`, and going online below
+         turns every row still carrying that mark back on. A row left off here
+         was never written, kept its mark, and so came back on anyway — the
+         owner's choice ignored. A per-row write clears the mark, so after this
+         each row is exactly what the owner left it as. */
+      const rows = shareTypesList;
       /* Every row, and every failure counted: `Promise.all` stopped at the
          first refusal and hid how many of the others had already saved. */
-      const results = await Promise.allSettled(changed.map((t) => setShareTypeAvailability(t.id, draft[t.id])));
+      const results = await Promise.allSettled(rows.map((t) => setShareTypeAvailability(t.id, draft[t.id])));
       const failed = results.filter((r) => r.status === 'rejected').length;
       if (failed) {
         setSaveError(
-          failed === changed.length
+          failed === rows.length
             ? 'Nothing was saved. Check your connection and try again.'
-            : `${failed} of ${changed.length} changes did not save. Try again.`,
+            : `${failed} of ${rows.length} room types did not save. Try again.`,
         );
         await loadShareTypes();
         return;

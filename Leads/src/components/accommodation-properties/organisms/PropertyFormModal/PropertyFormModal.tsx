@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { propertyApi, Property } from '../../../../api/propertyApi';
+import { PROPERTY_CATEGORIES, PropertyCategoryCode, categoryLabel } from '../../../../api/propertyCategories';
 import { X, CheckCircle2, Building2, MapPin, User, Phone, Home, DollarSign, Sparkles, Loader2 } from 'lucide-react';
 import { Box, Form, Heading, Inline, Input, Label, Option, PlainButton, Select, Text } from '../../../common/atoms';
 
@@ -14,7 +15,7 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({ onClose, o
   const [error, setError] = useState('');
 
   // Form State
-  const [category, setCategory] = useState<'PG' | 'Hostel' | 'Dormitory' | 'Bachelor Room'>('PG');
+  const [category, setCategory] = useState<PropertyCategoryCode>('PG_HOSTEL');
   const [name, setName] = useState('');
   const [place, setPlace] = useState('');
   const [ownerName, setOwnerName] = useState('');
@@ -70,14 +71,19 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({ onClose, o
     setError('');
 
     let categoryDetails: any = {};
-    if (category === 'PG') {
-      categoryDetails = { foodIncluded, foodType, sharingTypes, curfewTime };
-    } else if (category === 'Hostel') {
-      categoryDetails = { hostelType, wardenContact, canteenFacility, securityCCTV };
-    } else if (category === 'Dormitory') {
+    /* PG and Hostel are one category on the server, and its form asks the
+       union of what the two used to ask. */
+    if (category === 'PG_HOSTEL') {
+      categoryDetails = {
+        foodIncluded, foodType, sharingTypes, curfewTime,
+        hostelType, wardenContact, canteenFacility, securityCCTV
+      };
+    } else if (category === 'HOTEL') {
       categoryDetails = { totalBeds: Number(totalBeds || 0), bedType };
-    } else if (category === 'Bachelor Room') {
+    } else if (category === 'BACHELOR' || category === 'COLIVE') {
       categoryDetails = { roomType, furnishing, kitchenAvailable };
+    } else if (category === 'COMMERCIAL') {
+      categoryDetails = { furnishing };
     }
 
     const calculatedRent = rent !== '' ? Number(rent) : Number(monthlyPrice || dailyPrice || 0);
@@ -94,7 +100,9 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({ onClose, o
       rent: calculatedRent,
       deposit: Number(deposit || 0),
       address,
-      imageUrl: imageUrl.trim() || 'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=800&q=80',
+      /* Blank means no photo. A stock image here was being saved as the
+         property's real cover. */
+      imageUrl: imageUrl.trim(),
       amenities: selectedAmenities,
       categoryDetails
     };
@@ -108,7 +116,7 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({ onClose, o
         setError(res.message || 'Failed to onboard property.');
       }
     } catch (err: any) {
-      setError(err.message || 'Error creating property entry.');
+      setError(err.response?.data?.error || err.response?.data?.message || err.message || 'Error creating property entry.');
     } finally {
       setLoading(false);
     }
@@ -131,7 +139,7 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({ onClose, o
           </Box>
           <Box>
             <Heading level={2} className="text-xl font-extrabold text-slate-900">Onboard New Property</Heading>
-            <Text className="text-xs text-slate-500">Add PG, Hostel, Dormitory, or Bachelor Room listing</Text>
+            <Text className="text-xs text-slate-500">Add a PG / Hostel, Bachelor, Hotel, Co-live or Commercial listing</Text>
           </Box>
         </Box>
 
@@ -145,8 +153,8 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({ onClose, o
           {/* Step 1: Category Selector */}
           <Box className="space-y-2">
             <Label className="text-xs font-bold text-slate-600">1. Select Accommodation Category *</Label>
-            <Box className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {(['PG', 'Hostel', 'Dormitory', 'Bachelor Room'] as const).map((cat) => (
+            <Box className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              {PROPERTY_CATEGORIES.map(({ value: cat, label }) => (
                 <PlainButton
                   type="button"
                   key={cat}
@@ -158,7 +166,7 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({ onClose, o
                   }`}
                 >
                   <Home className="w-4 h-4" />
-                  <Inline>{cat}</Inline>
+                  <Inline>{label}</Inline>
                 </PlainButton>
               ))}
             </Box>
@@ -232,9 +240,9 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({ onClose, o
 
           {/* Step 3: Category Specific Fields */}
           <Box className="space-y-3 pt-2 border-t border-slate-200">
-            <Heading level={3} className="text-xs font-bold text-amber-600 uppercase tracking-wider">3. Category Specific Configurations ({category})</Heading>
+            <Heading level={3} className="text-xs font-bold text-amber-600 uppercase tracking-wider">3. Category Specific Configurations ({categoryLabel(category)})</Heading>
 
-            {category === 'PG' && (
+            {category === 'PG_HOSTEL' && (
               <Box className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-xs">
                 <Box>
                   <Label className="text-slate-500">Food Type</Label>
@@ -261,7 +269,7 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({ onClose, o
               </Box>
             )}
 
-            {category === 'Hostel' && (
+            {category === 'PG_HOSTEL' && (
               <Box className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-xs">
                 <Box>
                   <Label className="text-slate-500">Hostel Type</Label>
@@ -289,7 +297,7 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({ onClose, o
               </Box>
             )}
 
-            {category === 'Dormitory' && (
+            {category === 'HOTEL' && (
               <Box className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-xs">
                 <Box>
                   <Label className="text-slate-500">Total Bunk Beds</Label>
@@ -313,7 +321,7 @@ export const PropertyFormModal: React.FC<PropertyFormModalProps> = ({ onClose, o
               </Box>
             )}
 
-            {category === 'Bachelor Room' && (
+            {(category === 'BACHELOR' || category === 'COLIVE') && (
               <Box className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-xs">
                 <Box>
                   <Label className="text-slate-500">Room Format</Label>

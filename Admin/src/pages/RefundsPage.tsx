@@ -50,13 +50,18 @@ import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
 import { Modal } from '../components/common/organisms/Modal';
 import { Toast } from '../components/common/organisms/Toast';
 import type { ToastState } from '../components/common/organisms/Toast';
-import { RefundError, refundService, type Refund, type RefundStatus } from '../api/services/refundService';
+import {
+  RefundError, refundService, type Refund, type RefundCounts, type RefundStatus,
+} from '../api/services/refundService';
 import type { AdminRole } from '../api/types';
 import { Box } from '../components/common/atoms/Box';
 import { Inline } from '../components/common/atoms/Inline';
 import { TableBody, TableHead } from '../components/common/atoms/PlainTable';
 import { Text } from '../components/common/atoms/Text';
 import { filterBySearch } from '../components/common/utils';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
 
 const inr = (n: number) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
 
@@ -80,12 +85,19 @@ const STATUS: Record<RefundStatus, { label: string; tone: BadgeTone }> = {
   rejected: { label: 'Refused', tone: 'crit' },
 };
 
-const FILTERS: Array<{ id: RefundStatus | 'All'; label: string }> = [
-  { id: 'pending', label: 'Ready to send' },
+const FILTERS: Array<{ id: RefundStatus | 'All'; label: string; tone?: BadgeTone }> = [
+  { id: 'pending', label: 'Ready to send', tone: 'warn' },
   { id: 'awaiting_details', label: 'Waiting on guest' },
-  { id: 'paid', label: 'Refunded' },
-  { id: 'rejected', label: 'Refused' },
+  { id: 'paid', label: 'Refunded', tone: 'good' },
+  { id: 'rejected', label: 'Refused', tone: 'crit' },
   { id: 'All', label: 'Everything' },
+];
+
+type Who = 'All' | 'student' | 'owner';
+const WHO: Array<{ id: Who; label: string; tone?: BadgeTone }> = [
+  { id: 'All', label: 'Anyone cancelled' },
+  { id: 'student', label: 'Guest cancelled' },
+  { id: 'owner', label: 'Owner cancelled', tone: 'crit' },
 ];
 
 interface Props {
@@ -98,8 +110,9 @@ export const RefundsPage: React.FC<Props> = ({ search = '', role }) => {
   /* Who cancelled — the first thing the team looks at. A guest walking away
      and an owner cancelling on a guest are read differently even though
      both refund in full. */
-  const [who, setWho] = useState<'All' | 'student' | 'owner'>('All');
+  const [who, setWho] = useState<Who>('All');
   const [rows, setRows] = useState<Refund[]>([]);
+  const [counts, setCounts] = useState<RefundCounts | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -115,7 +128,9 @@ export const RefundsPage: React.FC<Props> = ({ search = '', role }) => {
     setLoading(true);
     setError(null);
     try {
-      setRows(await refundService.list(filter));
+      const queue = await refundService.list(filter);
+      setRows(queue.rows);
+      setCounts(queue.counts);
     } catch (err) {
       setError(err instanceof RefundError ? err.message : 'Could not load the refund queue.');
     } finally {
@@ -125,19 +140,35 @@ export const RefundsPage: React.FC<Props> = ({ search = '', role }) => {
 
   useEffect(() => { void load(); }, [load]);
 
-  const visible = useMemo(() => {
-    const byWho = who === 'All' ? rows : rows.filter((r) => r.cancelledBy === who);
-    /* `bank.accountNumber` is deliberately NOT case-folded, as it was not
-       before: an account number has no case to fold, and folding it here
-       would quietly change what this screen finds. */
-    return filterBySearch(byWho, search, (r, q) =>
-      (r.guestName || '').toLowerCase().includes(q)
-      || (r.guestPhone || '').toLowerCase().includes(q)
-      || (r.propertyName || '').toLowerCase().includes(q)
-      || (r.bank?.accountNumber || '').includes(q)
-      || (r.reference || '').toLowerCase().includes(q)
-      || r.bookingId.toLowerCase().includes(q));
-  }, [rows, search, who]);
+  /* `bank.accountNumber` is deliberately NOT case-folded, as it was not
+     before: an account number has no case to fold, and folding it here
+     would quietly change what this screen finds. */
+  const searched = useMemo(() => filterBySearch(rows, search, (r, q) =>
+    (r.guestName || '').toLowerCase().includes(q)
+    || (r.guestPhone || '').toLowerCase().includes(q)
+    || (r.propertyName || '').toLowerCase().includes(q)
+    || (r.bank?.accountNumber || '').includes(q)
+    || (r.bank?.accountName || '').toLowerCase().includes(q)
+    || (r.cancelReason || '').toLowerCase().includes(q)
+    || (r.reference || '').toLowerCase().includes(q)
+    || r.bookingId.toLowerCase().includes(q)), [rows, search]);
+
+  const visible = useMemo(
+    () => (who === 'All' ? searched : searched.filter((r) => r.cancelledBy === who)),
+    [searched, who],
+  );
+
+  /* Two sources, each the honest one for its row of chips. Status is filtered
+     on the server, so its counts come from there — across the whole queue,
+     for whoever is selected as having cancelled. Who-cancelled is filtered
+     here, over what is loaded and searched, so it is counted here. */
+  const whoCounts = useMemo(() => ({
+    All: searched.length,
+    student: searched.filter((r) => r.cancelledBy === 'student').length,
+    owner: searched.filter((r) => r.cancelledBy === 'owner').length,
+  }), [searched]);
+
+  const narrowed = Boolean(search.trim()) || who !== 'All';
 
   const owed = useMemo(
     () => rows.filter((r) => r.status === 'pending' || r.status === 'awaiting_details')
@@ -192,34 +223,44 @@ export const RefundsPage: React.FC<Props> = ({ search = '', role }) => {
         </Box>
         <Box>
           <Box className="text-label uppercase tracking-wide text-ink-3">Ready to send</Box>
-          <Box className="text-h2 font-semibold tabular-nums">{rows.filter((r) => r.status === 'pending').length}</Box>
+          <Box className="text-h2 font-semibold tabular-nums">{counts?.All.pending ?? rows.filter((r) => r.status === 'pending').length}</Box>
         </Box>
         <Box>
           <Box className="text-label uppercase tracking-wide text-ink-3">Waiting on guest</Box>
-          <Box className="text-h2 font-semibold tabular-nums">{rows.filter((r) => r.status === 'awaiting_details').length}</Box>
+          <Box className="text-h2 font-semibold tabular-nums">{counts?.All.awaiting_details ?? rows.filter((r) => r.status === 'awaiting_details').length}</Box>
         </Box>
         {!canAct && (
           <Box className="ml-auto max-w-md text-body text-ink-2">You can read this queue. Sending a refund is Super Admin only.</Box>
         )}
       </Card>
 
-      <Box className="flex flex-wrap items-center gap-2">
-        {FILTERS.map((f) => (
-          <Button key={f.id} variant={filter === f.id ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter(f.id)}>
-            {f.label}
-          </Button>
-        ))}
-        <Inline className="mx-1 h-5 w-px bg-line" aria-hidden="true" />
-        {([
-          { id: 'All', label: 'Anyone cancelled' },
-          { id: 'student', label: 'Guest cancelled' },
-          { id: 'owner', label: 'Owner cancelled' },
-        ] as const).map((f) => (
-          <Button key={f.id} variant={who === f.id ? 'primary' : 'secondary'} size="sm" onClick={() => setWho(f.id)}>
-            {f.label}
-          </Button>
-        ))}
-      </Box>
+      <Card padded={false} className="p-3">
+        <FilterBar
+          summary={loading || error ? undefined : (
+            <ResultCount
+              shown={visible.length}
+              total={rows.length}
+              noun="refunds"
+              filtered={narrowed}
+              onClear={who !== 'All' ? () => setWho('All') : undefined}
+            />
+          )}
+        >
+          <FilterChips
+            label="Status"
+            value={filter}
+            onChange={setFilter}
+            options={FILTERS.map((f) => ({ ...f, count: counts ? counts[who][f.id] ?? 0 : null }))}
+          />
+          <Inline className="h-5 w-px bg-line" aria-hidden="true" />
+          <FilterChips<Who>
+            label="Who cancelled"
+            value={who}
+            onChange={setWho}
+            options={WHO.map((f) => ({ ...f, count: loading ? null : whoCounts[f.id] }))}
+          />
+        </FilterBar>
+      </Card>
 
       <Card padded={false}>
         {loading ? (
@@ -227,11 +268,25 @@ export const RefundsPage: React.FC<Props> = ({ search = '', role }) => {
         ) : error ? (
           <EmptyState icon={AlertTriangle} title="Could not load the queue" description={error} action={<Button onClick={() => void load()}>Try again</Button>} />
         ) : visible.length === 0 ? (
-          <EmptyState
-            icon={RotateCcw}
-            title={filter === 'pending' ? 'Nothing to send' : 'Nothing here'}
-            description={filter === 'pending' ? 'Every refund with an account has been sent.' : 'No refunds match this filter.'}
-          />
+          narrowed ? (
+            <EmptyState
+              icon={RotateCcw}
+              title="No refunds match these filters"
+              description="Try a different search, or whoever cancelled."
+              action={who !== 'All'
+                ? <Button size="sm" variant="ghost" onClick={() => setWho('All')}>Clear filters</Button>
+                : undefined}
+            />
+          ) : (
+            <EmptyState
+              icon={RotateCcw}
+              title={filter === 'pending' ? 'Nothing to send' : 'Nothing here'}
+              description={filter === 'pending' ? 'Every refund with an account has been sent.' : 'No refunds have this status.'}
+              action={filter !== 'All'
+                ? <Button size="sm" variant="ghost" onClick={() => setFilter('All')}>Show everything</Button>
+                : undefined}
+            />
+          )
         ) : (
           <Table>
             <TableHead>

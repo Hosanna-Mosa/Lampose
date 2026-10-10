@@ -105,13 +105,22 @@ export function usePushRouting() {
          terminal since it was accepted, and none of these three change it.
          A checkout goes straight to the review prompt, since that is the one
          actionable thing the notification is telling them they can now do;
-         the other two land on the booking itself, in the fixture-id shape
-         `app/bookings/[id].tsx` still reads — see the note there on
-         `realBookingId` for why that screen's real actions (cancel, review)
-         work from a fixture-shaped route. */
+         the other two land on the booking itself.
+
+         By the REAL booking id, which the server puts on every one of these
+         (`stayRequest.notifier.js`). The `bkg-<listingId>` shape was used here
+         until now, and it is resolved through whichever request this phone
+         remembers for the listing — or, failing that, a LIVE one on the
+         server. A booking someone is being told about has a request that is
+         long past live, so after a reinstall or on a second phone nothing
+         resolved and the screen sat on "Loading…"; with an older request
+         stored for the same listing it opened the wrong booking. The legacy
+         shape is kept only for a payload that somehow carries no id. */
       if (isBookingPush(payload)) {
         if (payload.kind === 'booking.checkedOut' && payload.bookingId) {
           router.push(`/bookings/review?id=${payload.bookingId}` as never);
+        } else if (payload.bookingId) {
+          router.push({ pathname: '/bookings/[id]', params: { id: payload.bookingId } } as never);
         } else if (payload.listingId) {
           router.push(`/bookings/bkg-${payload.listingId}` as never);
         }

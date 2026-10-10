@@ -136,7 +136,8 @@ const STATUS_LABEL: Record<string, string> = {
  * would be reporting a hand-over that never happened.
  */
 
-/** Mirrors the server's rule, only to pick a button. The server decides. */
+/** Mirrors the server's rule, only to pick a button when the order carries no
+    `moves` (an older server) — see `nextMoveFor`. The server decides. */
 const NEXT_MOVE: Record<string, { status: string; label: string } | null> = {
   placed: { status: "accepted", label: "Accept the order" },
   accepted: { status: "preparing", label: "Start cooking" },
@@ -146,6 +147,29 @@ const NEXT_MOVE: Record<string, { status: string; label: string } | null> = {
   delivered: null,
   rejected: null,
   cancelled: null,
+};
+
+/** The button for each forward move the server may offer in `moves`. */
+const MOVE_LABEL: Record<string, string> = {
+  accepted: "Accept the order",
+  preparing: "Start cooking",
+  ready: "Mark as ready",
+  picked_up: "Handed to delivery",
+};
+
+/*
+ * The server's `moves` first, the table above only for an older server.
+ *
+ * The table cannot know who is delivering: an order the restaurant arranged
+ * itself (its own boy, or the desk's driver) has no rider account to mark it
+ * collected, so `partnerMovesFor` offers the kitchen `picked_up` at `ready`.
+ * Drawn from the table alone, that order sat at Ready with no button forever.
+ * `rejected` is not a forward move — it has its own button below.
+ */
+const nextMoveFor = (order: ServerOrder): { status: string; label: string } | null => {
+  if (!Array.isArray(order.moves)) return NEXT_MOVE[order.status] ?? null;
+  const status = order.moves.find((m) => m !== "rejected" && MOVE_LABEL[m]);
+  return status ? { status, label: MOVE_LABEL[status] } : null;
 };
 
 /*
@@ -492,8 +516,10 @@ export function DashOrders() {
         )}
 
         {orders.map((order, index) => {
-          const move_ = NEXT_MOVE[order.status];
-          const canReject = CAN_REJECT.has(order.status);
+          const move_ = nextMoveFor(order);
+          const canReject = Array.isArray(order.moves)
+            ? order.moves.includes("rejected")
+            : CAN_REJECT.has(order.status);
           /* A rejected or cancelled order is not going to be paid for. */
           const paying = order.status !== "rejected" && order.status !== "cancelled";
           const promised = prepFor[order.orderNumber] ?? standingPrep;

@@ -26,11 +26,16 @@ import { Inline } from '../components/common/atoms/Inline';
 import { Option } from '../components/common/atoms/Option';
 import { PlainTd, PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
 import { Text } from '../components/common/atoms/Text';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
 import { filterBySearch } from '../components/common/utils';
 
 interface ScriperUsersPageProps {
   search: string;
 }
+
+type RoleFilter = 'All' | ScriperUserRole;
 
 const EMPTY_FORM: { name: string; email: string; password: string; role: ScriperUserRole } = {
   name: '',
@@ -40,6 +45,7 @@ const EMPTY_FORM: { name: string; email: string; password: string; role: Scriper
 };
 
 export const ScriperUsersPage: React.FC<ScriperUsersPageProps> = ({ search }) => {
+  const [role, setRole] = useState<RoleFilter>('All');
   const [toast, setToast] = useState<ToastState | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -58,10 +64,21 @@ export const ScriperUsersPage: React.FC<ScriperUsersPageProps> = ({ search }) =>
 
   const { data, loading, error, refreshing, reload } = useFetch(() => scriperUserService.getScriperUsers(), []);
 
-  const users = useMemo(
+  /* Search first, then role — the role chips count the searched list, so
+     "Admin 2" always means two admins would show if that chip were picked. */
+  const searched = useMemo(
     () => filterBySearch(data ?? [], search, (u, q) => `${u.name} ${u.email} ${u.role}`.toLowerCase().includes(q)),
     [data, search]
   );
+  const users = useMemo(() => (role === 'All' ? searched : searched.filter((u) => u.role === role)), [searched, role]);
+
+  const roleCounts = useMemo(() => {
+    const admins = searched.filter((u) => u.role === 'ADMIN').length;
+    return { All: searched.length, ADMIN: admins, EMPLOYEE: searched.length - admins };
+  }, [searched]);
+
+  const total = data?.length ?? 0;
+  const filtered = !!search.trim() || role !== 'All';
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -149,6 +166,33 @@ export const ScriperUsersPage: React.FC<ScriperUsersPageProps> = ({ search }) =>
         }
       />
 
+      <Card padded={false} className="p-3">
+        <FilterBar
+          summary={
+            loading ? undefined : (
+              <ResultCount
+                shown={users.length}
+                total={total}
+                noun="accounts"
+                filtered={filtered}
+                onClear={role !== 'All' ? () => setRole('All') : undefined}
+              />
+            )
+          }
+        >
+          <FilterChips
+            label="Role"
+            value={role}
+            onChange={setRole}
+            options={[
+              { id: 'All', label: 'All', count: loading ? null : roleCounts.All },
+              { id: 'ADMIN', label: 'Admin', count: loading ? null : roleCounts.ADMIN, tone: 'brand' },
+              { id: 'EMPLOYEE', label: 'Employee', count: loading ? null : roleCounts.EMPLOYEE },
+            ]}
+          />
+        </FilterBar>
+      </Card>
+
       {error ? (
         <ErrorState message={error} onRetry={reload} />
       ) : (
@@ -170,9 +214,18 @@ export const ScriperUsersPage: React.FC<ScriperUsersPageProps> = ({ search }) =>
                   <PlainTd colSpan={4}>
                     <EmptyState
                       icon={Users}
-                      title={search ? 'No matching accounts' : 'No leads-panel accounts'}
+                      title={filtered ? 'No accounts match these filters' : 'No leads-panel accounts'}
                       description={
-                        search ? 'Try a different search.' : 'Create the first account to grant leads-panel access.'
+                        filtered
+                          ? 'Try a different search or role.'
+                          : 'Create the first account to grant leads-panel access.'
+                      }
+                      action={
+                        role !== 'All' ? (
+                          <Button size="sm" variant="ghost" onClick={() => setRole('All')}>
+                            Show all roles
+                          </Button>
+                        ) : undefined
                       }
                     />
                   </PlainTd>

@@ -111,6 +111,17 @@ const EDITABLE_PROPERTY_FIELDS = [
  */
 const RESENDABLE_STATUSES = [...PENDING_STATUSES, 'owner_approved'];
 
+/*
+ * The statuses a not-yet-live listing is SHOWN (and can be cancelled) in.
+ *
+ * `owner_approved` is the owner's YES, waiting on the verification team. It
+ * used to be left out, so a listing vanished from the agent's grid — and from
+ * the console — the moment its owner said yes, and came back only once a
+ * verifier acted. It is not EDITABLE in that state (see the PUT route): the
+ * team would be confirming details the owner never saw.
+ */
+const LISTED_STATUSES = [...PENDING_STATUSES, 'owner_approved'];
+
 const findPendingVerification = async (id, statuses = PENDING_STATUSES) => {
   if (!id) return null;
   const idStr = String(id).trim();
@@ -149,7 +160,7 @@ const updatePendingProperty = async (id, changes) => {
  *  Returns the snapshot that was cancelled, or null when `id` isn't a
  *  pending listing either. */
 const cancelPendingProperty = async (id) => {
-  const verification = await findPendingVerification(id);
+  const verification = await findPendingVerification(id, LISTED_STATUSES);
   if (!verification || !verification.pendingPropertyData) return null;
   await verification.deleteOne();
   return { ...verification.pendingPropertyData, verificationStatus: 'rejected', isVerified: false };
@@ -386,7 +397,7 @@ router.get('/', async (req, res) => {
     // 2. Fetch pending properties from VerificationRequests
     let pendingProps = [];
     if (includeUnverified !== 'true') {
-      const pendingQuery = { status: { $in: ['sent', 'pending', 'failed'] } };
+      const pendingQuery = { status: { $in: LISTED_STATUSES } };
       const pendingRequests = await VerificationRequest.find(pendingQuery).sort({ createdAt: -1 });
       
       pendingProps = pendingRequests
@@ -394,6 +405,10 @@ router.get('/', async (req, res) => {
         .map(r => ({
           ...r.pendingPropertyData,
           verificationStatus: 'pending',
+          // The request's own status (sent / pending / failed), so the console
+          // can tell a message that never reached the owner from one awaiting
+          // a reply. Additive — verificationStatus above stays 'pending'.
+          requestStatus: r.status,
           isVerified: false
         }));
 
@@ -474,7 +489,7 @@ router.get('/:id', async (req, res) => {
     }
 
     if (!property) {
-      const pendingReq = await findPendingVerification(id);
+      const pendingReq = await findPendingVerification(id, LISTED_STATUSES);
       if (pendingReq && pendingReq.pendingPropertyData) {
         property = {
           ...pendingReq.pendingPropertyData,
@@ -752,15 +767,6 @@ router.post('/', requireWriter, async (req, res) => {
        property. That means the id has to exist at send time. */
     const verificationId = new mongoose.Types.ObjectId();
 
-    // Trigger Twilio WhatsApp Verification
-    console.log(`   💬 [Twilio Verification] Sending verification WhatsApp to owner mobile: ${ownerMobile}...`);
-    // Full submission passed along so the template can show the owner
-    // everything the agent recorded (address, prices, mess, amenities).
-    const twilioResult = await sendVerificationMessage(
-      ownerMobile, ownerName, name, newPropertyData, String(verificationId)
-    );
-
-    // Create Verification Request
     const { formatWhatsAppNumber } = require('../../infrastructure/twilio/twilio');
     const ownerMobileE164 = formatWhatsAppNumber(ownerMobile) || ownerMobile;
     const token = crypto.randomBytes(16).toString('hex');
@@ -771,30 +777,73 @@ router.post('/', requireWriter, async (req, res) => {
       property: getIsInMemory() ? undefined : propertyId,
       ownerMobileE164,
       token,
-      status: twilioResult.success ? 'sent' : 'failed',
-      // Recorded rather than discarded: it identifies the exact outbound
-      // message, which is the fallback route back to this request if a reply
-      // ever arrives without a tagged payload.
-      outboundMessageSid: twilioResult.messageSid || '',
+      status: 'pending',
+      outboundMessageSid: '',
       contentSid: process.env.TWILIO_VERIFY_CONTENT_SID || '',
-      lastError: twilioResult.success ? '' : (twilioResult.error || 'Twilio send failed'),
+      lastError: '',
       attempts: 1,
-      sentAt: twilioResult.success ? new Date() : null,
+      sentAt: null,
       expiresAt,
       pendingPropertyData: property
     };
 
+    /* The request is SAVED before the owner is messaged, never after.
+       It used to be written after the send with its failure only logged, so a
+       write error still answered 201: the agent saw success, the owner got a
+       WhatsApp, and their YES found nothing to approve. Now a failed write
+       stops here — no message goes out and the agent is told to retry. The
+       webhook already matches `pending` (verification.routes.js), so a reply
+       that beats the status update below still finds this row. */
     if (!getIsInMemory()) {
       try {
         await VerificationRequest.create(verificationPayload);
         console.log(`   ✅ [Verification Created] Document saved in DB with pendingPropertyData.`);
       } catch (dbErr) {
         console.error(`   ❌ [Verification DB Error]: Failed to save verification request:`, dbErr.message);
+        return res.status(500).json({
+          success: false,
+          code: 'VERIFICATION_NOT_SAVED',
+          error: 'The listing could not be saved, so the owner was not messaged. Please submit it again.'
+        });
+      }
+    }
+
+    // Trigger Twilio WhatsApp Verification
+    console.log(`   💬 [Twilio Verification] Sending verification WhatsApp to owner mobile: ${ownerMobile}...`);
+    // Full submission passed along so the template can show the owner
+    // everything the agent recorded (address, prices, mess, amenities).
+    const twilioResult = await sendVerificationMessage(
+      ownerMobile, ownerName, name, newPropertyData, String(verificationId)
+    );
+
+    const sendOutcome = {
+      status: twilioResult.success ? 'sent' : 'failed',
+      // Recorded rather than discarded: it identifies the exact outbound
+      // message, which is the fallback route back to this request if a reply
+      // ever arrives without a tagged payload.
+      outboundMessageSid: twilioResult.messageSid || '',
+      lastError: twilioResult.success ? '' : (twilioResult.error || 'Twilio send failed'),
+      sentAt: twilioResult.success ? new Date() : null,
+    };
+
+    if (!getIsInMemory()) {
+      /* Only the send's outcome is written here. If this fails the request
+         still exists and the owner's tap still resolves by the id in its
+         payload, so it is logged rather than turned into an error. Only a
+         row still `pending` is touched, so a reply that already moved it on
+         is never rolled back. */
+      try {
+        await VerificationRequest.updateOne(
+          { _id: verificationId, status: 'pending' },
+          { $set: sendOutcome }
+        );
+      } catch (dbErr) {
+        console.error(`   ❌ [Verification DB Error]: Failed to record the send outcome:`, dbErr.message);
       }
     } else {
       global.pendingInMemoryProperties = global.pendingInMemoryProperties || [];
       global.pendingInMemoryProperties.push(property);
-      console.log(`   ℹ️ [In-Memory Mode] Verification request simulation:`, verificationPayload);
+      console.log(`   ℹ️ [In-Memory Mode] Verification request simulation:`, { ...verificationPayload, ...sendOutcome });
     }
 
     console.log(`========================================================================\n`);
@@ -1164,10 +1213,27 @@ router.put('/:id', requireWriter, async (req, res) => {
       return res.json({ success: true, message: 'Property updated successfully', data: merged });
     }
 
-    const property = await Property.findByIdAndUpdate(id, req.body, { new: true, runValidators: true });
+    /* Only the editable fields, the same list the pending branch above uses.
+       The whole body used to go to `findByIdAndUpdate`, so anybody holding an
+       edit grant could send `verificationStatus: 'verified'`, `isVerified` or
+       a different `employeeEmail` from devtools on a live listing. Both forms
+       that call this route send only fields on the list. */
+    const changes = {};
+    for (const field of EDITABLE_PROPERTY_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, field)) changes[field] = req.body[field];
+    }
+    const property = await Property.findByIdAndUpdate(id, changes, { new: true, runValidators: true });
     if (!property) {
       const pendingUpdate = await updatePendingProperty(id, req.body);
       if (!pendingUpdate) {
+        if (await findPendingVerification(id, ['owner_approved'])) {
+          return res.status(409).json({
+            success: false,
+            code: 'OWNER_APPROVED',
+            error: 'The owner has already approved these details and the verification team is checking them. '
+              + 'Edit the listing once it is live, or cancel it and submit it again.'
+          });
+        }
         return res.status(404).json({ success: false, error: 'Property not found' });
       }
       console.log(`   ✅ [MongoDB Updated] Pending property ID: ${id}`);

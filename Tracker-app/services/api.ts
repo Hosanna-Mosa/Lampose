@@ -19,19 +19,34 @@ const CLIENT_VERSION = String(Constants.expoConfig?.version ?? "1.0.0");
 
 /**
  * Told when a call carrying a bearer token comes back 401 for a reason that
- * means the TOKEN is dead — expired, malformed, the account gone, or issued
- * for a different session type — rather than the request being wrong.
+ * means the TOKEN is dead — expired, malformed, revoked, or issued for a
+ * different session type — rather than the request being wrong. A closed
+ * account is reported separately; see `ACCOUNT_CLOSED_CODES` below.
  * Reported once, centrally, matching the same pattern every other Lampose
  * app in this monorepo uses (see `Food-Partner/services/api.ts`), so no
  * screen has to recognise these codes for itself.
  */
 const SESSION_DEAD_CODES = new Set([
-  "TOKEN_EXPIRED", "BAD_TOKEN", "ACCOUNT_GONE", "WRONG_TOKEN_TYPE", "SESSION_REVOKED",
+  "TOKEN_EXPIRED", "BAD_TOKEN", "WRONG_TOKEN_TYPE", "SESSION_REVOKED",
 ]);
 let onSessionExpired: (() => void) | null = null;
 
 export function setSessionExpiredHandler(handler: (() => void) | null): void {
   onSessionExpired = handler;
+}
+
+/**
+ * The ACCOUNT, not just the token, is finished — an admin deactivated the rep
+ * (403, see `salesAuth.middleware.js`) or deleted them (401). Signing in
+ * again cannot fix either, so this is reported apart from the codes above:
+ * the session is cleared outright and the sign-in screen says why, rather
+ * than offering a "sign in again" that the server will refuse.
+ */
+export const ACCOUNT_CLOSED_CODES = new Set(["ACCOUNT_INACTIVE", "ACCOUNT_GONE"]);
+let onAccountClosed: ((message: string) => void) | null = null;
+
+export function setAccountClosedHandler(handler: ((message: string) => void) | null): void {
+  onAccountClosed = handler;
 }
 
 export class ApiError extends Error {
@@ -95,6 +110,9 @@ export async function api<T = unknown>(
 
       if (token && res.status === 401 && shape?.code && SESSION_DEAD_CODES.has(shape.code)) {
         onSessionExpired?.();
+      }
+      if (token && shape?.code && ACCOUNT_CLOSED_CODES.has(shape.code)) {
+        onAccountClosed?.(message);
       }
 
       throw new ApiError(message, res.status, shape?.code, payload);

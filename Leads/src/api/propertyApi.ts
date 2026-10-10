@@ -1,4 +1,5 @@
 import { apiClient } from './apiClient';
+import { PROPERTIES_PATH } from './config';
 
 export interface PropertyCategoryDetails {
   foodIncluded?: boolean;
@@ -36,7 +37,11 @@ export interface Property {
   place: string;
   ownerName: string;
   ownerMobile: string;
-  category: 'PG' | 'Hostel' | 'Dormitory' | 'Bachelor Room';
+  /* A code from propertyCategories.ts (PG_HOSTEL, BACHELOR, …) on anything
+     written since the switch, but rows were never migrated, so a legacy
+     spelling ('PG', 'Hostel', 'Dormitory', 'Bachelor Room') is still live.
+     Read it through `normaliseCategory`, never compare it directly. */
+  category: string;
   stayType?: 'Short Stay' | 'Long Stay' | 'Both Short & Long Stay';
   shortStayDuration?: string;
   dailyPrice?: number;
@@ -61,25 +66,25 @@ export interface FetchPropertiesFilters {
 export const propertyApi = {
   // Get all properties with optional filters
   async getProperties(filters: FetchPropertiesFilters = {}): Promise<{ success: boolean; count: number; data: Property[] }> {
-    const res = await apiClient.get('/properties', { params: filters });
+    const res = await apiClient.get(PROPERTIES_PATH, { params: filters });
     return res.data;
   },
 
   // Get single property by ID
   async getPropertyById(id: string): Promise<{ success: boolean; data: Property }> {
-    const res = await apiClient.get(`/properties/${id}`);
+    const res = await apiClient.get(`${PROPERTIES_PATH}/${id}`);
     return res.data;
   },
 
   // Onboard new property
   async createProperty(propertyData: Partial<Property>): Promise<{ success: boolean; message: string; data: Property }> {
-    const res = await apiClient.post('/properties', propertyData);
+    const res = await apiClient.post(PROPERTIES_PATH, propertyData);
     return res.data;
   },
 
   // Delete property
   async deleteProperty(id: string): Promise<{ success: boolean; message: string }> {
-    const res = await apiClient.delete(`/properties/${id}`);
+    const res = await apiClient.delete(`${PROPERTIES_PATH}/${id}`);
     return res.data;
   }
 };

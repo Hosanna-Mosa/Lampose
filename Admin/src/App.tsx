@@ -283,10 +283,11 @@ const RestaurantConsole: React.FC = () => {
             reloadCounts={summary.reload}
             focusOrder={focusOrder}
             onFocusHandled={() => setFocusOrder('')}
+            onClearSearch={() => setSearch('')}
           />
         );
       case 'restaurant-menu':
-        return <RestaurantMenuPage search={search} />;
+        return <RestaurantMenuPage search={search} onClearSearch={() => setSearch('')} />;
       /* Neither of these takes `search`: both are aggregates over a period,
          and Earnings carries the date range that is its real filter. */
       case 'restaurant-analytics':
@@ -590,9 +591,11 @@ const AppContent: React.FC = () => {
         return <VisitFeesPage role={user?.role} />;
       /* Read-only for every signed-in administrator, matching Monitor and the
          two payout queues above — nothing on this page decides anything, so
-         there is no role to gate it on. */
+         there is no role to gate it on. The account controls on it (add,
+         deactivate, reset password) are drawn for Super Admin and Admin only,
+         matching `sales.manage`, which the server enforces regardless. */
       case 'sales-tracking':
-        return <SalesTrackingPage search={search} />;
+        return <SalesTrackingPage search={search} role={user?.role} />;
       case 'support':
         return tabAllowedFor('support', user?.role) ? (
           <SupportPage search={search} />

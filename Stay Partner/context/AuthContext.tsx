@@ -16,6 +16,7 @@ import {
 } from '@/services/api/client';
 import { Platform } from 'react-native';
 import { useAlert } from '@/components/common/organisms/AlertProvider';
+import { SUPPORT_EMAIL, openSupportEmail } from '@/constants/support';
 
 import { registerDevice, unregisterDevice } from '@/services/api/devices.api';
 import { clearPushState, getPushToken } from '@/services/push/push';
@@ -539,26 +540,43 @@ export function useAuth(): AuthValue {
  */
 export function SessionExpiredWatcher() {
   const { sessionExpired, sessionEndCode, acknowledgeSessionExpired } = useAuth();
-  const { alert } = useAlert();
+  const { alert, confirm } = useAlert();
   const showing = useRef(false);
 
   useEffect(() => {
     if (!sessionExpired || showing.current) return;
     showing.current = true;
     (async () => {
-      const blocked = sessionEndCode === 'ACCOUNT_BLOCKED';
-      await alert({
-        title: blocked ? 'Account paused' : 'Session expired',
-        message: blocked
-          ? 'Lampose has paused this account, so it cannot be used right now. Please contact Lampose support.'
-          : 'Please log out and sign in again.',
-        tone: 'warning',
-        dismissLabel: 'Logout',
-      });
+      if (sessionEndCode === 'ACCOUNT_BLOCKED') {
+        /* The in-app support desk is behind sign-in, which this owner is now
+           refused at — so the way to support is offered here, not just named.
+           Either button still signs out. */
+        const wantsSupport = await confirm({
+          title: 'Account paused',
+          message: `Lampose has paused this account, so it cannot be used right now. Please contact Lampose support at ${SUPPORT_EMAIL}.`,
+          tone: 'warning',
+          confirmLabel: 'Email support',
+          cancelLabel: 'Logout',
+        });
+        if (wantsSupport && !(await openSupportEmail('Stay Partner — account paused'))) {
+          await alert({
+            title: 'No mail app found',
+            message: `Write to ${SUPPORT_EMAIL} from any email account.`,
+            dismissLabel: 'Logout',
+          });
+        }
+      } else {
+        await alert({
+          title: 'Session expired',
+          message: 'Please log out and sign in again.',
+          tone: 'warning',
+          dismissLabel: 'Logout',
+        });
+      }
       showing.current = false;
       await acknowledgeSessionExpired();
     })();
-  }, [sessionExpired, sessionEndCode, alert, acknowledgeSessionExpired]);
+  }, [sessionExpired, sessionEndCode, alert, confirm, acknowledgeSessionExpired]);
 
   return null;
 }

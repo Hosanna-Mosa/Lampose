@@ -94,11 +94,23 @@ const fail = (res: any, fallback: string): never => {
   throw new RefundError(body.message || res?.message || fallback, body.code || res?.code || 'FAILED', res?.status ?? 0);
 };
 
+/**
+ * How many refunds sit in each status, across the whole queue rather than the
+ * filtered page: `counts[who][status]`, `All` on both axes. Null from a server
+ * that predates the field, so the chips show no number rather than a wrong 0.
+ */
+export type RefundCounts = Record<'All' | 'student' | 'owner', Record<RefundStatus | 'All', number>>;
+
+export type RefundQueue = {
+  rows: Refund[];
+  counts: RefundCounts | null;
+};
+
 export const refundService = {
-  async list(status?: RefundStatus | 'All'): Promise<Refund[]> {
-    const res = await api.get<{ data: Refund[] }>(BASE, status && status !== 'All' ? { status } : undefined);
+  async list(status?: RefundStatus | 'All'): Promise<RefundQueue> {
+    const res = await api.get<{ data: Refund[]; counts?: RefundCounts }>(BASE, status && status !== 'All' ? { status } : undefined);
     if (!res.success) fail(res, 'Could not load the refund queue.');
-    return res.data?.data ?? [];
+    return { rows: res.data?.data ?? [], counts: res.data?.counts ?? null };
   },
 
   /** Record the transfer a person made. Refused until the guest has given an account. */

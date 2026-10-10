@@ -67,7 +67,10 @@ import { Table, Td, Th, Tr } from '../../components/common/atoms/Table';
 import { Text } from '../../components/common/atoms/Text';
 import { Textarea } from '../../components/common/atoms/Textarea';
 import { EmptyState } from '../../components/common/molecules/EmptyState';
+import { FilterBar } from '../../components/common/molecules/FilterBar';
+import { FilterChips } from '../../components/common/molecules/FilterChips';
 import { MenuFilterBar } from '../../components/common/molecules/MenuFilterBar';
+import { ResultCount } from '../../components/common/molecules/ResultCount';
 import { Pagination } from '../../components/common/molecules/Pagination';
 import { ErrorState } from '../../components/common/molecules/ErrorState';
 import { Field } from '../../components/common/molecules/Field';
@@ -84,11 +87,14 @@ import type {
   SpiceLevel,
 } from '../../api/services/restaurantAdminService';
 import { useFetch } from '../../lib/useFetch';
-import { PAGE_SIZES, hasActiveFilters, useMenuView } from '../../lib/menuFilter';
+import { PAGE_SIZES, filterMenu, hasActiveFilters, useMenuView } from '../../lib/menuFilter';
+import type { StockFilter } from '../../lib/menuFilter';
 import { rupees } from '../../lib/format';
 
 interface RestaurantMenuPageProps {
   search: string;
+  /** Empties the header search, so "Clear" undoes everything narrowing the list. */
+  onClearSearch?: () => void;
 }
 
 const VEG_LOOK: Record<IsVeg, { label: string; tone: 'good' | 'crit' | 'warn' }> = {
@@ -173,7 +179,7 @@ const payloadFrom = (form: FormState): MenuItemInput => ({
   isAvailable: form.isAvailable,
 });
 
-export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search }) => {
+export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search, onClearSearch }) => {
   const menu = useFetch(() => restaurantAdminService.menu(), []);
   const [toast, setToast] = useState<ToastState | null>(null);
 
@@ -200,6 +206,25 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search }
   const view = useMenuView(items, search, 20);
   const rows = view.pageItems;
   const filtering = Boolean(search.trim() || view.filters.search.trim()) || hasActiveFilters(view.filters);
+
+  /* Counts for the stock chips: every OTHER filter and both searches applied,
+     stock left open — so "Sold out 3" is how many dishes that chip would show
+     from where the owner is standing, not how many the menu has in total. The
+     chips and the Stock select are one piece of state, so they cannot disagree. */
+  const stockCounts = useMemo(() => {
+    const base = filterMenu(items, {
+      ...view.filters,
+      stock: 'all',
+      search: [search, view.filters.search].filter((s) => s.trim()).join(' ').trim(),
+    });
+    const inStock = base.filter((dish) => dish.isAvailable).length;
+    return { all: base.length, in: inStock, out: base.length - inStock };
+  }, [items, view.filters, search]);
+
+  const clearAll = () => {
+    view.resetFilters();
+    onClearSearch?.();
+  };
 
   /* The current PAGE, grouped by section, in the order the server returns —
      `category`, `displayOrder`, `createdAt`, which is the model's stated read
@@ -347,6 +372,31 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search }
         />
       )}
 
+      {items.length > 0 && (
+        <FilterBar
+          summary={
+            <ResultCount
+              shown={view.filtered.length}
+              total={items.length}
+              noun="dishes"
+              filtered={filtering}
+              onClear={clearAll}
+            />
+          }
+        >
+          <FilterChips<StockFilter>
+            label="Stock"
+            value={view.filters.stock}
+            onChange={(stock) => view.setFilters({ ...view.filters, stock })}
+            options={[
+              { id: 'all', label: 'All dishes', count: stockCounts.all },
+              { id: 'in', label: 'In stock', count: stockCounts.in, tone: 'good' },
+              { id: 'out', label: 'Sold out', count: stockCounts.out, tone: 'warn' },
+            ]}
+          />
+        </FilterBar>
+      )}
+
       <Card>
         <Table>
           <TableHead>
@@ -366,14 +416,18 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search }
                 <PlainTd colSpan={5}>
                   <EmptyState
                     icon={BookOpenText}
-                    title={filtering ? 'Nothing matches that' : 'No dishes yet'}
+                    title={filtering ? 'No dishes match these filters' : 'No dishes yet'}
                     description={
                       filtering
                         ? 'Change or clear the filters to see the whole menu.'
                         : 'Add your first dish — customers see it as soon as your restaurant is approved and open.'
                     }
                     action={
-                      filtering ? undefined : (
+                      filtering ? (
+                        <Button size="sm" variant="secondary" onClick={clearAll}>
+                          Clear filters
+                        </Button>
+                      ) : (
                         <Button variant="primary" icon={Plus} onClick={openCreate}>
                           Add a dish
                         </Button>

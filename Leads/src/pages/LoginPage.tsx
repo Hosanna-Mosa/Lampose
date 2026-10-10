@@ -1,18 +1,18 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Database, Lock, Mail, User as UserIcon, ShieldCheck, KeyRound, Sparkles, Loader2, ArrowRight } from 'lucide-react';
-import { Box, Form, Heading, Inline, Input, Label, Option, PlainButton, Select, Text } from '../components/common/atoms';
+import { Database, Lock, Mail, Loader2, ArrowRight } from 'lucide-react';
+import { Box, Form, Heading, Inline, Input, Label, PlainButton, Text } from '../components/common/atoms';
 
 export const LoginPage: React.FC = () => {
-  const { login, register } = useAuth();
-  const [isRegister, setIsRegister] = useState(false);
+  /* Sign-in only. There used to be a "Register Account" tab here, but the
+     server's register route is admin-only (protect + protectRole('ADMIN')),
+     so every signed-out visitor who used it got a 401. Accounts are created
+     by an admin from Manage Employees. */
+  const { login } = useAuth();
 
   // Form Fields
-  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'ADMIN' | 'EMPLOYEE'>('EMPLOYEE');
-  const [adminCode, setAdminCode] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -23,23 +23,8 @@ export const LoginPage: React.FC = () => {
     setLoading(true);
 
     try {
-      if (isRegister) {
-        if (!name.trim()) {
-          setError('Please enter your name.');
-          setLoading(false);
-          return;
-        }
-        if (role === 'ADMIN' && !adminCode.trim()) {
-          setError('Admin Security Key is required to register as an Admin.');
-          setLoading(false);
-          return;
-        }
-        const res = await register(name.trim(), email.trim(), password, role, adminCode.trim());
-        if (!res.success) setError(res.error || 'Registration failed.');
-      } else {
-        const res = await login(email.trim(), password);
-        if (!res.success) setError(res.error || 'Invalid credentials.');
-      }
+      const res = await login(email.trim(), password);
+      if (!res.success) setError(res.error || 'Invalid credentials.');
     } catch (err: any) {
       setError(err.message || 'Authentication failed.');
     } finally {
@@ -76,26 +61,6 @@ export const LoginPage: React.FC = () => {
 
         {/* Glass Card */}
         <Box className="glass-panel p-8 rounded-3xl border border-slate-200 shadow-2xl space-y-6">
-          {/* Tab Switcher */}
-          <Box className="flex p-1 rounded-xl bg-slate-100 border border-slate-200">
-            <PlainButton
-              onClick={() => { setIsRegister(false); setError(''); }}
-              className={`flex-1 py-2 text-xs font-bold rounded-lg transition ${
-                !isRegister ? 'bg-cyan-500 text-white shadow-md' : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              Sign In
-            </PlainButton>
-            <PlainButton
-              onClick={() => { setIsRegister(true); setError(''); }}
-              className={`flex-1 py-2 text-xs font-bold rounded-lg transition ${
-                isRegister ? 'bg-cyan-500 text-white shadow-md' : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              Register Account
-            </PlainButton>
-          </Box>
-
           {error && (
             <Box className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold text-center">
               {error}
@@ -104,23 +69,6 @@ export const LoginPage: React.FC = () => {
 
           {/* Form */}
           <Form onSubmit={handleSubmit} className="space-y-4">
-            {isRegister && (
-              <Box className="space-y-1">
-                <Label className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
-                  <UserIcon className="w-3.5 h-3.5 text-cyan-600" />
-                  <Inline>Full Name *</Inline>
-                </Label>
-                <Input
-                  type="text"
-                  placeholder="e.g. John Doe"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl bg-white border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-cyan-500 transition"
-                  required
-                />
-              </Box>
-            )}
-
             <Box className="space-y-1">
               <Label className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5 text-cyan-600" />
@@ -151,50 +99,13 @@ export const LoginPage: React.FC = () => {
               />
             </Box>
 
-            {isRegister && (
-              <>
-                <Box className="space-y-1">
-                  <Label className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-cyan-600" />
-                    <Inline>Select Account Role</Inline>
-                  </Label>
-                  <Select
-                    value={role}
-                    onChange={(e: any) => setRole(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl bg-white border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-cyan-500 transition cursor-pointer"
-                  >
-                    <Option value="EMPLOYEE">👤 Employee (Sales Rep)</Option>
-                    <Option value="ADMIN">👑 Admin (Manager)</Option>
-                  </Select>
-                </Box>
-
-                {role === 'ADMIN' && (
-                  <Box className="space-y-1 transition-all">
-                    <Label className="text-xs font-bold text-amber-600 flex items-center gap-1.5">
-                      <KeyRound className="w-3.5 h-3.5 text-amber-600" />
-                      <Inline>Admin Security Key *</Inline>
-                    </Label>
-                    <Input
-                      type="password"
-                      placeholder="Enter Admin Security Key"
-                      value={adminCode}
-                      onChange={(e) => setAdminCode(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl bg-amber-50/50 border border-amber-300 text-xs text-slate-900 focus:outline-none focus:border-amber-500 transition font-mono"
-                      required={role === 'ADMIN'}
-                    />
-                    <Text className="text-[10px] text-amber-600/80 font-medium">Required security passcode to authorize Admin privileges.</Text>
-                  </Box>
-                )}
-              </>
-            )}
-
             <PlainButton
               type="submit"
               disabled={loading}
               className="w-full py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-blue-500 text-white font-extrabold text-xs shadow-xl shadow-cyan-500/25 transition cursor-pointer flex items-center justify-center gap-2"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
-              <Inline>{isRegister ? 'Create Account & Access' : 'Sign In to Account'}</Inline>
+              <Inline>Sign In to Account</Inline>
             </PlainButton>
           </Form>
 

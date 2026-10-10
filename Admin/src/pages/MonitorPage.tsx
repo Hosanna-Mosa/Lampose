@@ -42,11 +42,13 @@ import { Button } from '../components/common/atoms/Button';
 import { Card } from '../components/common/atoms/Card';
 import { EmptyState } from '../components/common/molecules/EmptyState';
 import { PageHeader } from '../components/common/molecules/PageHeader';
-import { SearchInput } from '../components/common/molecules/SearchInput';
 import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
 import { Toast } from '../components/common/organisms/Toast';
 import type { ToastState } from '../components/common/organisms/Toast';
-import { cx } from '../components/common/utils';
+import { cx, filterBySearch } from '../components/common/utils';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
 import {
   MonitorError, monitorService,
   type CategoryResult, type MonitorRow, type MonitorSummary, type Settlement,
@@ -59,6 +61,7 @@ import { FreeTable } from '../components/monitor/organisms/FreeTable';
 import { CollectModal } from '../components/monitor/organisms/CollectModal';
 import { Stat } from '../components/monitor/molecules/Stat';
 import { inr } from '../components/monitor/utils';
+import { MONITOR_FILTERS, type MonitorDimension } from '../components/monitor/utils/filters';
 import { Box } from '../components/common/atoms/Box';
 import { Inline } from '../components/common/atoms/Inline';
 import { PlainButton } from '../components/common/atoms/PlainButton';
@@ -78,7 +81,6 @@ export const MonitorPage: React.FC<{ search?: string; role?: AdminRole }> = ({ s
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string>('');
   const [toast, setToast] = useState<Notice>(null);
-  const [query, setQuery] = useState('');
   const [collectFor, setCollectFor] = useState<MonitorRow | null>(null);
 
   /*
@@ -101,17 +103,59 @@ export const MonitorPage: React.FC<{ search?: string; role?: AdminRole }> = ({ s
 
   useEffect(() => { void load(slug); }, [slug, load]);
 
-  const term = (search || query).trim().toLowerCase();
-  const rows = useMemo(() => {
-    const all = result?.data ?? [];
-    if (!term) return all;
-    return all.filter((r) => [r.propertyName, r.guestName, r.guestPhone, r.ownerName, r.place]
-      .filter(Boolean).some((v) => String(v).toLowerCase().includes(term)));
-  }, [result, term]);
+  /* The two filter rows start over with each tab: their buckets differ by
+     shape, so a selection from one tab means nothing on the next. */
+  const [primary, setPrimary] = useState('All');
+  const [secondary, setSecondary] = useState('All');
+  const switchTab = (next: string) => {
+    setSlug(next);
+    setPrimary('All');
+    setSecondary('All');
+  };
 
   const isHotel = result?.category === 'HOTEL';
   /* Bachelor and Commercial share the assisted-visit table — see the header. */
   const isBachelor = result?.category === 'BACHELOR' || result?.category === 'COMMERCIAL';
+  const [dimA, dimB] = MONITOR_FILTERS[isHotel ? 'hotel' : isBachelor ? 'bachelor' : 'free'];
+
+  /* The header search, over everything a person ringing up might quote. */
+  const searched = useMemo(() => filterBySearch(result?.data ?? [], search, (r, q) =>
+    [
+      r.propertyName, r.guestName, r.guestPhone, r.ownerName, r.ownerPhone, r.place,
+      r.bookingId, r.requestId, r.paymentId, r.settlement?.payoutId, r.settlement?.utr,
+    ].some((v) => v != null && String(v).toLowerCase().includes(q))),
+  [result, search]);
+
+  /* Each row of chips is counted over the search and the OTHER row, so every
+     number is what pressing that chip would show. */
+  const { rows, chipsA, chipsB } = useMemo(() => {
+    const passA = (r: MonitorRow) => primary === 'All' || dimA.key(r) === primary;
+    const passB = (r: MonitorRow) => secondary === 'All' || dimB.key(r) === secondary;
+    const tally = (dim: MonitorDimension, list: MonitorRow[], active: string) => {
+      const n = new Map<string, number>();
+      list.forEach((r) => n.set(dim.key(r), (n.get(dim.key(r)) ?? 0) + 1));
+      /* Fixed buckets always show; open-ended ones show what the tab holds. */
+      const opts = dim.options ?? [...new Set([...(result?.data ?? []).map(dim.key), ...(active === 'All' ? [] : [active])])]
+        .sort()
+        .map((id) => dim.describe?.(id) ?? { id, label: id });
+      return [
+        { id: 'All', label: 'All', count: list.length },
+        ...opts.map((o) => ({ ...o, count: n.get(o.id) ?? 0 })),
+      ];
+    };
+    return {
+      rows: searched.filter((r) => passA(r) && passB(r)),
+      chipsA: tally(dimA, searched.filter(passB), primary),
+      chipsB: tally(dimB, searched.filter(passA), secondary),
+    };
+  }, [searched, result, dimA, dimB, primary, secondary]);
+
+  const total = result?.data.length ?? 0;
+  const narrowed = Boolean(search.trim()) || primary !== 'All' || secondary !== 'All';
+  const clearFilters = () => {
+    setPrimary('All');
+    setSecondary('All');
+  };
 
   /* ── Actions ─────────────────────────────────────────────────────────── */
 
@@ -192,7 +236,7 @@ export const MonitorPage: React.FC<{ search?: string; role?: AdminRole }> = ({ s
           <PlainButton
             key={tab.slug}
             type="button"
-            onClick={() => setSlug(tab.slug)}
+            onClick={() => switchTab(tab.slug)}
             className={cx(
               'flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition',
               slug === tab.slug
@@ -213,33 +257,47 @@ export const MonitorPage: React.FC<{ search?: string; role?: AdminRole }> = ({ s
       </Box>
 
       <Card padded={false}>
-        <Box className="flex items-center justify-between gap-3 border-b border-line p-3">
-          <Box className="text-sm text-ink-2">
-            {result?.label}
-            <Inline className="ml-2 text-ink-3">
-              {loading ? 'loading…' : `${rows.length} booking${rows.length === 1 ? '' : 's'}`}
-            </Inline>
-          </Box>
-          <SearchInput
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Property, guest, owner…"
-            className="w-64"
-          />
-        </Box>
+        {/* Search is the header's — see `search`. The chips are this tab's own. */}
+        <FilterBar
+          className="border-b border-line p-3"
+          summary={loading ? undefined : (
+            <ResultCount
+              shown={rows.length}
+              total={total}
+              noun={`${result?.label ?? ''} bookings`.trim()}
+              filtered={narrowed}
+              onClear={primary !== 'All' || secondary !== 'All' ? clearFilters : undefined}
+            />
+          )}
+        >
+          {!loading && (
+            <>
+              <FilterChips label={dimA.label} value={primary} onChange={setPrimary} options={chipsA} />
+              <Inline className="h-5 w-px bg-line" aria-hidden="true" />
+              <FilterChips label={dimB.label} value={secondary} onChange={setSecondary} options={chipsB} />
+            </>
+          )}
+        </FilterBar>
 
         {loading ? (
           <TableSkeleton cols={isHotel ? 8 : 6} />
         ) : rows.length === 0 ? (
-          <EmptyState
-            icon={Building2}
-            title="Nothing here yet"
-            description={
-              term
-                ? 'No booking matches that search.'
-                : `No ${result?.label ?? ''} bookings have been made yet.`
-            }
-          />
+          narrowed && total > 0 ? (
+            <EmptyState
+              icon={Building2}
+              title="No bookings match these filters"
+              description="Try a different search, or widen the filters above."
+              action={primary !== 'All' || secondary !== 'All'
+                ? <Button size="sm" variant="ghost" onClick={clearFilters}>Clear filters</Button>
+                : undefined}
+            />
+          ) : (
+            <EmptyState
+              icon={Building2}
+              title="Nothing here yet"
+              description={`No ${result?.label ?? ''} bookings have been made yet.`}
+            />
+          )
         ) : isHotel ? (
           <HotelTable
             rows={rows}

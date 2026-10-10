@@ -207,6 +207,8 @@ export const ScrapedLeadsDashboard: React.FC<ScrapedLeadsDashboardProps> = ({ cu
                 the `source` enum in scriper.model.js — a value the server
                 accepts and this list omits is a lead nobody can filter to. */}
             <Option value="Manual">Manually Added</Option>
+            {/* "Notify me" sign-ups from lampose.com (POST /api/v2/interest). */}
+            <Option value="Website">Website sign-up</Option>
           </Select>
         </Box>
 

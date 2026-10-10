@@ -26,7 +26,10 @@ import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
 import { Modal } from '../components/common/organisms/Modal';
 import { Toast } from '../components/common/organisms/Toast';
 import type { ToastState } from '../components/common/organisms/Toast';
-import { cx, filterBySearch } from '../components/common/utils';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
+import { cx, filterBySearch, filterSelectClass } from '../components/common/utils';
 import { verificationService } from '../api/services/verificationService';
 import { insightsService } from '../api/services/insightsService';
 import { useFetch } from '../lib/useFetch';
@@ -52,8 +55,13 @@ interface VerificationsPageProps {
 const isExpired = (v: VerificationEntity): boolean =>
   !!v.expiresAt && new Date(v.expiresAt).getTime() < Date.now() && v.status !== 'verified';
 
+/** Which verifier a request went to, or 'none' before the owner has said YES. */
+const verifierKey = (v: VerificationEntity): string => v.assignedVerifierMobileE164 || 'none';
+
 export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) => {
   const [status, setStatus] = useState('All');
+  /** 'All', 'none' (not yet forwarded to anyone) or a verifier's E.164 number. */
+  const [verifier, setVerifier] = useState('All');
   const [toast, setToast] = useState<ToastState | null>(null);
   const [selected, setSelected] = useState<VerificationEntity | null>(null);
   const [pendingDelete, setPendingDelete] = useState<VerificationEntity | null>(null);
@@ -62,21 +70,74 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
   const [editing, setEditing] = useState<VerificationEntity | null>(null);
   const [editStatus, setEditStatus] = useState<VerificationStatus>('pending');
 
-  const { data, loading, error, refreshing, reload } = useFetch(
-    () => verificationService.getVerifications({ ...(status !== 'All' && { status }) }),
-    [status]
-  );
+  /* Every request in one go — the route does not paginate — so the status
+     and verifier filters narrow what is loaded, every chip can count its
+     rows, and the summary cards describe all requests rather than whichever
+     status happens to be picked. */
+  const { data, loading, error, refreshing, reload } = useFetch(() => verificationService.getVerifications(), []);
 
   const verifiers = useFetch(() => insightsService.getVerifiers(), []);
 
-  const rows = useMemo(
+  const searched = useMemo(
     () => filterBySearch(data ?? [], search, (v, q) =>
-      [v.ownerMobileE164, v.token, v.lastError, v.property?.name, v.status]
+      [
+        v.ownerMobileE164,
+        v.token,
+        v.lastError,
+        v.property?.name,
+        v.property?.place,
+        v.property?.ownerName,
+        v.assignedVerifierMobileE164,
+        v.status,
+        verificationMeta(v.status).label,
+      ]
         .filter(Boolean)
         .some((f) => String(f).toLowerCase().includes(q))
     ),
     [data, search]
   );
+
+  const rows = useMemo(
+    () =>
+      searched.filter(
+        (v) => (status === 'All' || v.status === status) && (verifier === 'All' || verifierKey(v) === verifier)
+      ),
+    [searched, status, verifier]
+  );
+
+  /* Status chips count with the verifier filter applied and the verifier
+     list counts with the status filter applied, so each number is exactly
+     what picking it would show. */
+  const counts = useMemo(() => {
+    const byStatus: Record<string, number> = {};
+    const byVerifier = new Map<string, number>();
+    let statusAll = 0;
+    let verifierAll = 0;
+    for (const v of searched) {
+      if (verifier === 'All' || verifierKey(v) === verifier) {
+        statusAll += 1;
+        byStatus[v.status] = (byStatus[v.status] ?? 0) + 1;
+      }
+      if (status === 'All' || v.status === status) {
+        verifierAll += 1;
+        byVerifier.set(verifierKey(v), (byVerifier.get(verifierKey(v)) ?? 0) + 1);
+      }
+    }
+    return { byStatus, byVerifier, statusAll, verifierAll };
+  }, [searched, status, verifier]);
+
+  // Every verifier any request was ever forwarded to, from the loaded rows.
+  const verifierOptions = useMemo(
+    () =>
+      Array.from(new Set((data ?? []).map((v) => v.assignedVerifierMobileE164).filter(Boolean))).sort(),
+    [data]
+  );
+
+  const filtered = !!search.trim() || status !== 'All' || verifier !== 'All';
+  const clearFilters = () => {
+    setStatus('All');
+    setVerifier('All');
+  };
 
   const summary = useMemo(() => {
     const list = data ?? [];
@@ -256,26 +317,52 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
       </Card>
 
       <Card padded={false} className="p-3">
-        <Box className="flex flex-wrap items-center gap-2.5">
-          <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-auto min-w-36">
-            <Option value="All">All statuses</Option>
-            {VERIFICATION_STATUSES.map((s) => (
-              <Option key={s} value={s}>
-                {verificationMeta(s).label}
+        <FilterBar
+          summary={
+            loading ? undefined : (
+              <ResultCount
+                shown={rows.length}
+                total={data?.length ?? 0}
+                noun="requests"
+                filtered={filtered}
+                onClear={status !== 'All' || verifier !== 'All' ? clearFilters : undefined}
+              />
+            )
+          }
+        >
+          <FilterChips
+            label="Status"
+            value={status}
+            onChange={setStatus}
+            options={[
+              { id: 'All', label: 'All', count: loading ? null : counts.statusAll },
+              ...VERIFICATION_STATUSES.map((s) => ({
+                id: s,
+                label: verificationMeta(s).label,
+                count: loading ? null : (counts.byStatus[s] ?? 0),
+                tone: verificationMeta(s).tone,
+              })),
+            ]}
+          />
+
+          <Select
+            value={verifier}
+            onChange={(e) => setVerifier(e.target.value)}
+            className={filterSelectClass}
+            aria-label="Assigned verifier"
+          >
+            <Option value="All">All verifiers{loading ? '' : ` (${counts.verifierAll})`}</Option>
+            <Option value="none">
+              Not yet assigned{loading ? '' : ` (${counts.byVerifier.get('none') ?? 0})`}
+            </Option>
+            {verifierOptions.map((m) => (
+              <Option key={m} value={m}>
+                {m.replace(/^whatsapp:/, '')}
+                {loading ? '' : ` (${counts.byVerifier.get(m) ?? 0})`}
               </Option>
             ))}
           </Select>
-
-          {status !== 'All' && (
-            <Button size="sm" variant="ghost" icon={X} onClick={() => setStatus('All')}>
-              Clear
-            </Button>
-          )}
-
-          <Inline className="text-label text-ink-3 ml-auto tabular">
-            {loading ? 'Loading…' : `${rows.length} request${rows.length === 1 ? '' : 's'}`}
-          </Inline>
-        </Box>
+        </FilterBar>
       </Card>
 
       {error ? (
@@ -302,11 +389,18 @@ export const VerificationsPage: React.FC<VerificationsPageProps> = ({ search }) 
                   <PlainTd colSpan={7}>
                     <EmptyState
                       icon={ShieldCheck}
-                      title={search || status !== 'All' ? 'No matching requests' : 'No verification requests'}
+                      title={filtered ? 'No requests match these filters' : 'No verification requests'}
                       description={
-                        search || status !== 'All'
-                          ? 'Try clearing the filters above.'
+                        filtered
+                          ? 'Try a different search, status or verifier.'
                           : 'Requests are created when an owner is sent a confirmation message.'
+                      }
+                      action={
+                        status !== 'All' || verifier !== 'All' ? (
+                          <Button variant="secondary" icon={X} onClick={clearFilters}>
+                            Clear filters
+                          </Button>
+                        ) : undefined
                       }
                     />
                   </PlainTd>

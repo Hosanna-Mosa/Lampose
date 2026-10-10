@@ -55,7 +55,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
    old lines drawn underneath the current one. */
 import { GoogleMap, MarkerF, PolylineF, useJsApiLoader } from '@react-google-maps/api';
 import {
-  AlertTriangle, MapPinned, Plus, RefreshCw, Radio, WifiOff,
+  AlertTriangle, KeyRound, MapPinned, Plus, Power, RefreshCw, Radio, WifiOff,
 } from 'lucide-react';
 
 import { Badge } from '../components/common/atoms/Badge';
@@ -69,17 +69,23 @@ import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
 import { TableBody, TableHead } from '../components/common/atoms/PlainTable';
 import { Text } from '../components/common/atoms/Text';
 import { EmptyState } from '../components/common/molecules/EmptyState';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
 import { Field } from '../components/common/molecules/Field';
 import { PageHeader } from '../components/common/molecules/PageHeader';
 import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
 import { Modal } from '../components/common/organisms/Modal';
 import { Toast } from '../components/common/organisms/Toast';
 import type { ToastState } from '../components/common/organisms/Toast';
-import { filterBySearch } from '../components/common/utils';
+import { Option } from '../components/common/atoms/Option';
+import { Select } from '../components/common/atoms/Select';
+import { filterBySearch, filterSelectClass } from '../components/common/utils';
 import {
   salesTrackingService, type SalesRepPathPoint, type SalesRepPathRange, type SalesRepRow,
 } from '../api/services/salesTrackingService';
 import { useRoadSnappedPath } from '../lib/roadPath';
+import type { AdminRole } from '../api/types';
 
 const MAPS_API_KEY = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || '';
 
@@ -133,6 +139,9 @@ const PRESENCE_LABEL: Record<Presence, string> = {
   online: 'Online', lost: 'Signal lost', offline: 'Offline',
 };
 
+type PresenceFilter = 'all' | Presence;
+type AccountFilter = 'all' | 'active' | 'inactive';
+
 const ago = (iso: string | null): string => {
   if (!iso) return 'Never';
   const ms = Date.now() - new Date(iso).getTime();
@@ -159,15 +168,26 @@ const formatRange = (since: string | null, until: string | null): string | null 
 
 interface Props {
   search?: string;
+  /** Drives which account controls are drawn — `sales.manage` is Super Admin
+      and Admin on the server, which refuses anybody else regardless. */
+  role?: AdminRole;
 }
 
-export const SalesTrackingPage: React.FC<Props> = ({ search = '' }) => {
+/** The roles `sales.manage` covers in `Backend/src/modules/iam/iam.roles.js`. */
+const canManageSalesReps = (role?: AdminRole): boolean => role === 'Super Admin' || role === 'Admin';
+
+export const SalesTrackingPage: React.FC<Props> = ({ search = '', role }) => {
+  const canManage = canManageSalesReps(role);
+  const [statusTarget, setStatusTarget] = useState<SalesRepRow | null>(null);
+  const [passwordTarget, setPasswordTarget] = useState<SalesRepRow | null>(null);
   const [rows, setRows] = useState<SalesRepRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<SalesRepRow | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [presence, setPresence] = useState<PresenceFilter>('all');
+  const [account, setAccount] = useState<AccountFilter>('all');
 
   const loadRoster = useCallback(async () => {
     const res = await salesTrackingService.getSalesReps();
@@ -186,11 +206,49 @@ export const SalesTrackingPage: React.FC<Props> = ({ search = '' }) => {
     return () => window.clearInterval(timer);
   }, [loadRoster]);
 
-  const visible = useMemo(
+  const searched = useMemo(
     () => filterBySearch(rows, search, (r, q) =>
       r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q)),
     [rows, search],
   );
+
+  /* Each control counts the searched list narrowed by the OTHER control, so
+     "Online 3" means three reps would show if that chip were picked. The
+     roster is capped at 200 server-side and loaded whole, so these are exact. */
+  const visible = useMemo(
+    () => searched.filter((r) =>
+      (presence === 'all' || presenceOf(r) === presence) && (account === 'all' || r.status === account)),
+    [searched, presence, account],
+  );
+
+  const presenceCounts = useMemo(() => {
+    const out: Record<PresenceFilter, number> = { all: 0, online: 0, lost: 0, offline: 0 };
+    for (const r of searched) {
+      if (account !== 'all' && r.status !== account) continue;
+      out.all += 1;
+      out[presenceOf(r)] += 1;
+    }
+    return out;
+  }, [searched, account]);
+
+  const accountCounts = useMemo(() => {
+    const out: Record<AccountFilter, number> = { all: 0, active: 0, inactive: 0 };
+    for (const r of searched) {
+      if (presence !== 'all' && presenceOf(r) !== presence) continue;
+      out.all += 1;
+      out[r.status === 'inactive' ? 'inactive' : 'active'] += 1;
+    }
+    return out;
+  }, [searched, presence]);
+
+  const filtersActive = presence !== 'all' || account !== 'all';
+  const filtered = filtersActive || !!search.trim();
+  const clearFilters = () => {
+    setPresence('all');
+    setAccount('all');
+  };
+  /* Unknown until the first roster load — left off rather than shown as 0. */
+  const countOf = (n: number) => (loading ? null : n);
 
   const onlineCount = useMemo(() => rows.filter((r) => presenceOf(r) === 'online').length, [rows]);
   const lostCount = useMemo(() => rows.filter((r) => presenceOf(r) === 'lost').length, [rows]);
@@ -204,7 +262,9 @@ export const SalesTrackingPage: React.FC<Props> = ({ search = '' }) => {
         actions={(
           <>
             <Button icon={RefreshCw} onClick={() => void loadRoster()} disabled={loading}>Refresh</Button>
-            <Button variant="primary" icon={Plus} onClick={() => setAddOpen(true)}>Add sales rep</Button>
+            {canManage && (
+              <Button variant="primary" icon={Plus} onClick={() => setAddOpen(true)}>Add sales rep</Button>
+            )}
           </>
         )}
       />
@@ -226,6 +286,45 @@ export const SalesTrackingPage: React.FC<Props> = ({ search = '' }) => {
         </Box>
       </Card>
 
+      <Card padded={false} className="p-3">
+        <FilterBar
+          summary={loading ? undefined : (
+            <ResultCount
+              shown={visible.length}
+              total={rows.length}
+              noun="sales reps"
+              filtered={filtered}
+              onClear={filtersActive ? clearFilters : undefined}
+            />
+          )}
+        >
+          <FilterChips
+            label="Presence"
+            value={presence}
+            onChange={setPresence}
+            options={[
+              { id: 'all', label: 'All', count: countOf(presenceCounts.all) },
+              { id: 'online', label: PRESENCE_LABEL.online, count: countOf(presenceCounts.online), tone: 'good' },
+              { id: 'lost', label: PRESENCE_LABEL.lost, count: countOf(presenceCounts.lost), tone: 'warn' },
+              { id: 'offline', label: PRESENCE_LABEL.offline, count: countOf(presenceCounts.offline) },
+            ]}
+          />
+          <Select
+            aria-label="Account"
+            value={account}
+            onChange={(e) => setAccount(e.target.value as AccountFilter)}
+            className={filterSelectClass}
+          >
+            {(['all', 'active', 'inactive'] as const).map((id) => (
+              <Option key={id} value={id}>
+                {id === 'all' ? 'All accounts' : id === 'active' ? 'Active' : 'Inactive'}
+                {loading ? '' : ` (${accountCounts[id].toLocaleString('en-IN')})`}
+              </Option>
+            ))}
+          </Select>
+        </FilterBar>
+      </Card>
+
       <Card padded={false}>
         {loading ? (
           <TableSkeleton cols={4} />
@@ -236,12 +335,21 @@ export const SalesTrackingPage: React.FC<Props> = ({ search = '' }) => {
             description={error}
             action={<Button onClick={() => void loadRoster()}>Try again</Button>}
           />
+        ) : visible.length === 0 && rows.length > 0 ? (
+          <EmptyState
+            icon={MapPinned}
+            title="No sales reps match these filters"
+            description="Try a different search, presence or account filter."
+            action={filtersActive ? <Button size="sm" variant="ghost" onClick={clearFilters}>Clear filters</Button> : undefined}
+          />
         ) : visible.length === 0 ? (
           <EmptyState
             icon={MapPinned}
             title="No sales reps yet"
-            description="Add the first sales rep's account to get them started in the Tracker app."
-            action={<Button variant="primary" icon={Plus} onClick={() => setAddOpen(true)}>Add sales rep</Button>}
+            description={canManage
+              ? "Add the first sales rep's account to get them started in the Tracker app."
+              : 'A Super Admin or Admin adds sales rep accounts.'}
+            action={canManage ? <Button variant="primary" icon={Plus} onClick={() => setAddOpen(true)}>Add sales rep</Button> : undefined}
           />
         ) : (
           <Table>
@@ -265,15 +373,35 @@ export const SalesTrackingPage: React.FC<Props> = ({ search = '' }) => {
                     <Box className="mt-0.5 text-[11px] text-ink-3">{rep.email}</Box>
                   </Td>
                   <Td>
-                    <PresenceBadge rep={rep} />
+                    <Box className="flex flex-wrap items-center gap-1.5">
+                      <PresenceBadge rep={rep} />
+                      {rep.status === 'inactive' && <Badge tone="crit">Inactive</Badge>}
+                    </Box>
                   </Td>
                   <Td>
                     <Text className="text-ink-2">{ago(rep.locationUpdatedAt)}</Text>
                   </Td>
                   <Td className="text-right">
-                    <Button size="sm" icon={MapPinned} onClick={(e) => { e.stopPropagation(); setSelected(rep); }}>
-                      View map
-                    </Button>
+                    <Box className="inline-flex flex-wrap justify-end gap-2">
+                      <Button size="sm" icon={MapPinned} onClick={(e) => { e.stopPropagation(); setSelected(rep); }}>
+                        View map
+                      </Button>
+                      {canManage && (
+                        <>
+                          <Button size="sm" variant="ghost" icon={KeyRound} onClick={(e) => { e.stopPropagation(); setPasswordTarget(rep); }}>
+                            Reset password
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={rep.status === 'inactive' ? 'secondary' : 'danger'}
+                            icon={Power}
+                            onClick={(e) => { e.stopPropagation(); setStatusTarget(rep); }}
+                          >
+                            {rep.status === 'inactive' ? 'Reactivate' : 'Deactivate'}
+                          </Button>
+                        </>
+                      )}
+                    </Box>
                   </Td>
                 </Tr>
               ))}
@@ -297,10 +425,181 @@ export const SalesTrackingPage: React.FC<Props> = ({ search = '' }) => {
         />
       )}
 
+      {canManage && statusTarget && (
+        <SalesRepStatusModal
+          salesRep={statusTarget}
+          onClose={() => setStatusTarget(null)}
+          onDone={(rep) => {
+            setStatusTarget(null);
+            setToast({
+              tone: 'good',
+              message: rep.status === 'inactive'
+                ? `${rep.name} is deactivated and signed out of the Tracker app.`
+                : `${rep.name} is active again and can sign in.`,
+            });
+            void loadRoster();
+          }}
+        />
+      )}
+
+      {canManage && passwordTarget && (
+        <ResetSalesRepPasswordModal
+          salesRep={passwordTarget}
+          onClose={() => setPasswordTarget(null)}
+          onReset={(rep) => {
+            setToast({ tone: 'good', message: `${rep.name}'s password was reset and their phone signed out.` });
+            void loadRoster();
+          }}
+        />
+      )}
+
       <Toast toast={toast} onDismiss={() => setToast(null)} />
     </Box>
   );
 };
+
+/* ── Deactivate / reactivate a rep ───────────────────────────────────────── */
+
+function SalesRepStatusModal({
+  salesRep, onClose, onDone,
+}: { salesRep: SalesRepRow; onClose: () => void; onDone: (rep: SalesRepRow) => void }) {
+  const deactivating = salesRep.status !== 'inactive';
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const handleConfirm = async () => {
+    setSaving(true);
+    setFormError(null);
+    const next = deactivating ? 'inactive' : 'active';
+    const res = await salesTrackingService.setSalesRepStatus(salesRep.id, next);
+    setSaving(false);
+    if (res.success) {
+      onDone(res.data ?? { ...salesRep, status: next });
+    } else {
+      /* A 403 (a role below Admin) lands here too, with the server's message. */
+      setFormError(res.message || 'Could not change that account.');
+    }
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="sm"
+      title={deactivating ? `Deactivate ${salesRep.name}?` : `Reactivate ${salesRep.name}?`}
+      description={deactivating
+        ? 'Their phone will be signed out of the Tracker app right away and stop sharing location. They cannot sign in again until the account is reactivated.'
+        : 'They will be able to sign in to the Tracker app again with their existing email and password.'}
+      footer={(
+        <>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant={deactivating ? 'danger' : 'primary'} loading={saving} onClick={() => void handleConfirm()}>
+            {deactivating ? 'Deactivate' : 'Reactivate'}
+          </Button>
+        </>
+      )}
+    >
+      {formError && (
+        <Text className="text-sm text-crit bg-crit-soft border border-crit-border rounded-control px-3 py-2">
+          {formError}
+        </Text>
+      )}
+    </Modal>
+  );
+}
+
+/* ── Reset a rep's password ──────────────────────────────────────────────── */
+
+function ResetSalesRepPasswordModal({
+  salesRep, onClose, onReset,
+}: { salesRep: SalesRepRow; onClose: () => void; onReset: (rep: SalesRepRow) => void }) {
+  const [password, setPassword] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  /* Shown once, after the server accepts it, so the admin can hand it over —
+     the same "type it, hand it over" rule creating an account follows. */
+  const [issued, setIssued] = useState<string | null>(null);
+
+  const handleReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password.length < 6) {
+      setFormError('Password must be at least 6 characters.');
+      return;
+    }
+    setSaving(true);
+    setFormError(null);
+    const res = await salesTrackingService.resetSalesRepPassword(salesRep.id, password);
+    setSaving(false);
+    if (res.success) {
+      setIssued(password);
+      setPassword('');
+      onReset(res.data ?? salesRep);
+    } else {
+      /* A 403 (a role below Admin) lands here too, with the server's message. */
+      setFormError(res.message || 'Could not reset that password.');
+    }
+  };
+
+  if (issued) {
+    return (
+      <Modal
+        open
+        onClose={onClose}
+        title="Password reset"
+        description="Hand the rep these details now — the password is not shown again once this closes. Any phone they were signed in on has been signed out."
+        footer={<Button variant="primary" onClick={onClose}>Done</Button>}
+      >
+        <Box className="space-y-2 rounded-control border border-line px-3 py-2">
+          <Box>
+            <Box className="text-label uppercase tracking-wide text-ink-3">Email</Box>
+            <Box className="font-medium text-ink select-all">{salesRep.email}</Box>
+          </Box>
+          <Box>
+            <Box className="text-label uppercase tracking-wide text-ink-3">New password</Box>
+            <Box className="font-mono font-medium text-ink select-all">{issued}</Box>
+          </Box>
+        </Box>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Reset ${salesRep.name}'s password`}
+      description="Type the new password and hand it to the rep. Saving signs out every phone they are currently signed in on."
+      footer={(
+        <>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" form="reset-sales-rep-password" type="submit" loading={saving}>
+            Reset password
+          </Button>
+        </>
+      )}
+    >
+      <Form id="reset-sales-rep-password" onSubmit={handleReset} className="space-y-4">
+        {formError && (
+          <Text className="text-sm text-crit bg-crit-soft border border-crit-border rounded-control px-3 py-2">
+            {formError}
+          </Text>
+        )}
+
+        <Field label="New password" required hint="At least 6 characters. Give this to the rep.">
+          <Input
+            required
+            type="text"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            minLength={6}
+            autoComplete="new-password"
+            autoFocus
+          />
+        </Field>
+      </Form>
+    </Modal>
+  );
+}
 
 /* ── Add a sales rep ─────────────────────────────────────────────────────── */
 

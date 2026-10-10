@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { CalendarCheck, Pencil, RefreshCw, Trash2, X } from 'lucide-react';
+import { CalendarCheck, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import { Badge } from '../components/common/atoms/Badge';
 import { Button } from '../components/common/atoms/Button';
 import { Card } from '../components/common/atoms/Card';
@@ -27,6 +27,9 @@ import { Option } from '../components/common/atoms/Option';
 import { PlainTd, PlainTr, TableBody, TableHead } from '../components/common/atoms/PlainTable';
 import { Text } from '../components/common/atoms/Text';
 import { filterBySearch } from '../components/common/utils';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
 
 interface VisitRequestsPageProps {
   search: string;
@@ -44,6 +47,29 @@ type EditForm = {
   preferredTime: string;
 };
 
+/* When the ask was made. Windows rather than a date picker: the question
+   here is "what came in lately", not "what came in on the 14th". */
+type Age = 'All' | 'today' | 'week' | 'month';
+const AGES: Array<{ id: Age; label: string; days: number }> = [
+  { id: 'All', label: 'Any time', days: 0 },
+  { id: 'today', label: 'Today', days: 1 },
+  { id: 'week', label: '7 days', days: 7 },
+  { id: 'month', label: '30 days', days: 30 },
+];
+
+const withinAge = (v: VisitRequestEntity, age: Age, now: number) => {
+  if (age === 'All') return true;
+  if (!v.createdAt) return false;
+  const t = new Date(v.createdAt).getTime();
+  if (age === 'today') return new Date(t).toDateString() === new Date(now).toDateString();
+  const days = AGES.find((a) => a.id === age)?.days ?? 0;
+  return now - t <= days * 86_400_000;
+};
+
+/* The server caps a list at 500 — past that, say so rather than let the
+   counts pass for the whole collection. */
+const SERVER_CAP = 500;
+
 const toForm = (v: VisitRequestEntity): EditForm => ({
   status: v.status,
   propertyName: v.propertyName,
@@ -57,7 +83,8 @@ const toForm = (v: VisitRequestEntity): EditForm => ({
 });
 
 export const VisitRequestsPage: React.FC<VisitRequestsPageProps> = ({ search }) => {
-  const [status, setStatus] = useState('All');
+  const [status, setStatus] = useState<VisitRequestStatus | 'All'>('All');
+  const [age, setAge] = useState<Age>('All');
   const [toast, setToast] = useState<ToastState | null>(null);
 
   const [editing, setEditing] = useState<VisitRequestEntity | null>(null);
@@ -67,17 +94,48 @@ export const VisitRequestsPage: React.FC<VisitRequestsPageProps> = ({ search }) 
   const [pendingDelete, setPendingDelete] = useState<VisitRequestEntity | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  /* The whole list, once, and every filter applied here — an admin-sized
+     collection, and it is what lets each chip carry a true count. */
   const { data, loading, error, refreshing, reload } = useFetch(
-    () => visitRequestAdminService.getVisitRequests({ ...(status !== 'All' && { status }) }),
-    [status]
+    () => visitRequestAdminService.getVisitRequests(),
+    []
   );
 
-  const requests = useMemo(
+  const searched = useMemo(
     () => filterBySearch(data ?? [], search, (v, q) =>
-      `${v.propertyName} ${v.customer.name} ${v.customer.phone} ${v.ownerMobile}`.toLowerCase().includes(q)
+      `${v.propertyName} ${v.ownerName} ${v.customer.name} ${v.customer.phone} ${v.customer.email} ${v.ownerMobile}`
+        .toLowerCase()
+        .includes(q)
     ),
     [data, search]
   );
+
+  /* Each row of chips is counted over the search and the OTHER row, so a
+     number is exactly what pressing that chip would show. */
+  const { requests, statusCounts, ageCounts } = useMemo(() => {
+    const now = Date.now();
+    const byAge = searched.filter((v) => withinAge(v, age, now));
+    const byStatus = status === 'All' ? searched : searched.filter((v) => v.status === status);
+    const sc: Record<string, number> = { All: byAge.length };
+    byAge.forEach((v) => {
+      sc[v.status] = (sc[v.status] ?? 0) + 1;
+    });
+    const ac = Object.fromEntries(
+      AGES.map((a) => [a.id, byStatus.filter((v) => withinAge(v, a.id, now)).length])
+    ) as Record<Age, number>;
+    return {
+      requests: byAge.filter((v) => status === 'All' || v.status === status),
+      statusCounts: sc,
+      ageCounts: ac,
+    };
+  }, [searched, status, age]);
+
+  const total = data?.length ?? 0;
+  const filtered = Boolean(search.trim()) || status !== 'All' || age !== 'All';
+  const clearFilters = () => {
+    setStatus('All');
+    setAge('All');
+  };
 
   const openEdit = (v: VisitRequestEntity) => {
     setEditing(v);
@@ -143,26 +201,41 @@ export const VisitRequestsPage: React.FC<VisitRequestsPageProps> = ({ search }) 
       />
 
       <Card padded={false} className="p-3">
-        <Box className="flex flex-wrap items-center gap-2.5">
-          <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-auto min-w-40">
-            <Option value="All">All statuses</Option>
-            {VISIT_STATUSES.map((s) => (
-              <Option key={s} value={s}>
-                {visitStatusMeta(s).label}
-              </Option>
-            ))}
-          </Select>
-
-          {status !== 'All' && (
-            <Button size="sm" variant="ghost" icon={X} onClick={() => setStatus('All')}>
-              Clear
-            </Button>
-          )}
-
-          <Inline className="text-label text-ink-3 ml-auto tabular">
-            {loading ? 'Loading…' : `${requests.length} request${requests.length === 1 ? '' : 's'}`}
-          </Inline>
-        </Box>
+        <FilterBar
+          summary={
+            loading || error ? undefined : (
+              <ResultCount
+                shown={requests.length}
+                total={total}
+                noun={total >= SERVER_CAP ? 'requests (newest 500)' : 'requests'}
+                filtered={filtered}
+                onClear={status !== 'All' || age !== 'All' ? clearFilters : undefined}
+              />
+            )
+          }
+        >
+          <FilterChips<VisitRequestStatus | 'All'>
+            label="Status"
+            value={status}
+            onChange={setStatus}
+            options={[
+              { id: 'All', label: 'All', count: loading ? null : statusCounts.All },
+              ...VISIT_STATUSES.map((s) => ({
+                id: s,
+                label: visitStatusMeta(s).label,
+                count: loading ? null : (statusCounts[s] ?? 0),
+                tone: visitStatusMeta(s).tone,
+              })),
+            ]}
+          />
+          <Inline className="h-5 w-px bg-line" aria-hidden="true" />
+          <FilterChips<Age>
+            label="Requested"
+            value={age}
+            onChange={setAge}
+            options={AGES.map((a) => ({ id: a.id, label: a.label, count: loading ? null : ageCounts[a.id] }))}
+          />
+        </FilterBar>
       </Card>
 
       {error ? (
@@ -188,11 +261,18 @@ export const VisitRequestsPage: React.FC<VisitRequestsPageProps> = ({ search }) 
                   <PlainTd colSpan={6}>
                     <EmptyState
                       icon={CalendarCheck}
-                      title={search || status !== 'All' ? 'No matching requests' : 'No visit requests yet'}
+                      title={filtered ? 'No visit requests match these filters' : 'No visit requests yet'}
                       description={
-                        search || status !== 'All'
-                          ? 'Try clearing the filters above.'
+                        filtered
+                          ? 'Try a different search, status or time window.'
                           : 'Requests submitted through the public "Request a visit" flow will appear here.'
+                      }
+                      action={
+                        status !== 'All' || age !== 'All' ? (
+                          <Button size="sm" variant="ghost" onClick={clearFilters}>
+                            Clear filters
+                          </Button>
+                        ) : undefined
                       }
                     />
                   </PlainTd>

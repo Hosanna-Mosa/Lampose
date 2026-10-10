@@ -40,7 +40,23 @@ router.get('/', async (req, res, next) => {
     if (status && status !== 'All') query.status = status;
 
     const rows = await HotelRefund.find(query).sort({ createdAt: -1 }).limit(500);
-    return res.json({ success: true, count: rows.length, data: rows.map((r) => r.toAdmin()) });
+
+    /* Status counts for the console's filter chips, regardless of `?status`,
+       split by who cancelled so the chips stay right when that filter is on
+       too: `counts[who][status]`, with `All` on both axes. One aggregate. */
+    const grouped = await HotelRefund.aggregate([
+      { $group: { _id: { status: '$status', who: '$cancelledBy' }, n: { $sum: 1 } } },
+    ]);
+    const blank = () => ({ All: 0, awaiting_details: 0, pending: 0, paid: 0, rejected: 0 });
+    const counts = { All: blank(), student: blank(), owner: blank() };
+    grouped.forEach(({ _id: { status: s, who }, n }) => {
+      [counts.All, counts[who]].filter(Boolean).forEach((bucket) => {
+        bucket[s] = (bucket[s] || 0) + n;
+        bucket.All += n;
+      });
+    });
+
+    return res.json({ success: true, count: rows.length, data: rows.map((r) => r.toAdmin()), counts });
   } catch (error) {
     return next(error);
   }

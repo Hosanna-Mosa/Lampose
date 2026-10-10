@@ -1,11 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import { Briefcase, Building2, RefreshCw, X } from 'lucide-react';
 import { Badge } from '../components/common/atoms/Badge';
+import type { BadgeTone } from '../components/common/atoms/Badge';
+import { Button } from '../components/common/atoms/Button';
 import { Card } from '../components/common/atoms/Card';
 import { IconButton } from '../components/common/atoms/IconButton';
 import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
 import { EmptyState } from '../components/common/molecules/EmptyState';
 import { ErrorState } from '../components/common/molecules/ErrorState';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
 import { PageHeader } from '../components/common/molecules/PageHeader';
 import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
 import { cx, filterBySearch } from '../components/common/utils';
@@ -14,7 +19,7 @@ import { verificationService } from '../api/services/verificationService';
 import { useFetch } from '../lib/useFetch';
 import { propertyCategoryLabel, verificationMeta } from '../lib/domain';
 import { formatDate, formatDateTime, percent } from '../lib/format';
-import type { OnboarderEntity } from '../api/types';
+import type { OnboarderEntity, VerificationStatus } from '../api/types';
 import { Aside } from '../components/common/atoms/Aside';
 import { Box } from '../components/common/atoms/Box';
 import { Heading } from '../components/common/atoms/Heading';
@@ -27,15 +32,67 @@ interface OnboardingTeamPageProps {
   search: string;
 }
 
+type EmployeeFilter = 'all' | 'pending' | 'rejected' | 'failed' | 'unverified';
+
+/** Which employees each chip keeps — by what their funnel holds, since a row
+ *  is a person, not a single request. */
+const EMPLOYEE_FILTERS: { id: EmployeeFilter; label: string; tone?: BadgeTone; test: (o: OnboarderEntity) => boolean }[] = [
+  { id: 'all', label: 'All', test: () => true },
+  { id: 'pending', label: 'Awaiting an outcome', tone: 'warn', test: (o) => o.pending > 0 },
+  { id: 'rejected', label: 'Has rejections', tone: 'crit', test: (o) => o.rejected > 0 },
+  { id: 'failed', label: 'Failed or expired', tone: 'crit', test: (o) => o.failed + o.expired > 0 },
+  { id: 'unverified', label: 'None verified yet', tone: 'neutral', test: (o) => o.verified === 0 },
+];
+
+type AttemptFilter = 'all' | 'inflight' | 'verified' | 'rejected' | 'failed' | 'expired';
+
+/** The same buckets the row's columns use (see OnboarderEntity), so the
+ *  drawer's chip counts add up to the numbers on the row that opened it. */
+const ATTEMPT_FILTERS: { id: AttemptFilter; label: string; tone?: BadgeTone; statuses: VerificationStatus[] | null }[] = [
+  { id: 'all', label: 'All', statuses: null },
+  { id: 'inflight', label: 'In flight', tone: 'warn', statuses: ['pending', 'sent', 'delivered', 'owner_approved'] },
+  { id: 'verified', label: 'Verified', tone: 'good', statuses: ['verified'] },
+  { id: 'rejected', label: 'Rejected', tone: 'crit', statuses: ['rejected', 'verifier_rejected'] },
+  { id: 'failed', label: 'Failed', tone: 'crit', statuses: ['failed'] },
+  { id: 'expired', label: 'Expired', tone: 'neutral', statuses: ['expired'] },
+];
+
 export const OnboardingTeamPage: React.FC<OnboardingTeamPageProps> = ({ search }) => {
   const [selected, setSelected] = useState<OnboarderEntity | null>(null);
+  const [filter, setFilter] = useState<EmployeeFilter>('all');
+  // The drawer's own search and outcome filter, reset whenever a row opens.
+  const [attemptSearch, setAttemptSearch] = useState('');
+  const [attemptFilter, setAttemptFilter] = useState<AttemptFilter>('all');
+
+  const openEmployee = (o: OnboarderEntity) => {
+    setAttemptSearch('');
+    setAttemptFilter('all');
+    setSelected(o);
+  };
 
   const { data, loading, error, refreshing, reload } = useFetch(() => insightsService.getOnboarders(), []);
 
-  const rows = useMemo(
+  const searched = useMemo(
     () => filterBySearch(data ?? [], search, (o, q) => o.employeeEmail.toLowerCase().includes(q)),
     [data, search]
   );
+
+  const rows = useMemo(() => {
+    const test = EMPLOYEE_FILTERS.find((f) => f.id === filter)?.test ?? (() => true);
+    return searched.filter(test);
+  }, [searched, filter]);
+
+  // One dimension only, so each chip simply counts the searched employees it keeps.
+  const filterCounts = useMemo(
+    () =>
+      Object.fromEntries(EMPLOYEE_FILTERS.map((f) => [f.id, searched.filter(f.test).length])) as Record<
+        EmployeeFilter,
+        number
+      >,
+    [searched]
+  );
+
+  const filtered = !!search.trim() || filter !== 'all';
 
   const summary = useMemo(() => {
     const list = data ?? [];
@@ -67,6 +124,32 @@ export const OnboardingTeamPage: React.FC<OnboardingTeamPageProps> = ({ search }
     [selected?.employeeEmail]
   );
 
+  const attemptsSearched = useMemo(
+    () =>
+      filterBySearch(detail.data ?? [], attemptSearch, (v, q) =>
+        [v.property?.name, v.property?.place, v.property?.ownerName, v.ownerMobileE164, verificationMeta(v.status).label]
+          .filter(Boolean)
+          .some((f) => String(f).toLowerCase().includes(q))
+      ),
+    [detail.data, attemptSearch]
+  );
+
+  const attemptCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        ATTEMPT_FILTERS.map((f) => [
+          f.id,
+          f.statuses ? attemptsSearched.filter((v) => f.statuses?.includes(v.status)).length : attemptsSearched.length,
+        ])
+      ) as Record<AttemptFilter, number>,
+    [attemptsSearched]
+  );
+
+  const attempts = useMemo(() => {
+    const statuses = ATTEMPT_FILTERS.find((f) => f.id === attemptFilter)?.statuses;
+    return statuses ? attemptsSearched.filter((v) => statuses.includes(v.status)) : attemptsSearched;
+  }, [attemptsSearched, attemptFilter]);
+
   return (
     <Box className="space-y-5">
       <PageHeader
@@ -96,6 +179,34 @@ export const OnboardingTeamPage: React.FC<OnboardingTeamPageProps> = ({ search }
         ))}
       </Box>
 
+      <Card padded={false} className="p-3">
+        <FilterBar
+          summary={
+            loading ? undefined : (
+              <ResultCount
+                shown={rows.length}
+                total={data?.length ?? 0}
+                noun="employees"
+                filtered={filtered}
+                onClear={filter !== 'all' ? () => setFilter('all') : undefined}
+              />
+            )
+          }
+        >
+          <FilterChips
+            label="Funnel"
+            value={filter}
+            onChange={setFilter}
+            options={EMPLOYEE_FILTERS.map((f) => ({
+              id: f.id,
+              label: f.label,
+              count: loading ? null : filterCounts[f.id],
+              tone: f.tone,
+            }))}
+          />
+        </FilterBar>
+      </Card>
+
       {error ? (
         <ErrorState message={error} onRetry={reload} />
       ) : (
@@ -120,18 +231,25 @@ export const OnboardingTeamPage: React.FC<OnboardingTeamPageProps> = ({ search }
                   <PlainTd colSpan={7}>
                     <EmptyState
                       icon={Briefcase}
-                      title={search ? 'No matching employees' : 'No onboarding activity yet'}
+                      title={filtered ? 'No employees match these filters' : 'No onboarding activity yet'}
                       description={
-                        search
-                          ? 'Try a different search.'
+                        filtered
+                          ? 'Try a different search or funnel filter.'
                           : 'Rows appear here once an employee submits their first property for onboarding.'
+                      }
+                      action={
+                        filter !== 'all' ? (
+                          <Button variant="secondary" icon={X} onClick={() => setFilter('all')}>
+                            Clear filters
+                          </Button>
+                        ) : undefined
                       }
                     />
                   </PlainTd>
                 </PlainTr>
               ) : (
                 rows.map((o) => (
-                  <Tr key={o.employeeEmail} className="cursor-pointer" onClick={() => setSelected(o)}>
+                  <Tr key={o.employeeEmail} className="cursor-pointer" onClick={() => openEmployee(o)}>
                     <Td>
                       <Inline className="text-sm font-medium text-ink hover:text-brand-ink transition-colors">
                         {o.employeeEmail}
@@ -192,13 +310,50 @@ export const OnboardingTeamPage: React.FC<OnboardingTeamPageProps> = ({ search }
                   <Building2 className="size-3" strokeWidth={2} /> Onboarding attempts
                 </Heading>
 
+                {!detail.loading && !!detail.data?.length && (
+                  <Box className="space-y-2 mb-3">
+                    <FilterBar
+                      search={{
+                        value: attemptSearch,
+                        onChange: setAttemptSearch,
+                        placeholder: 'Search property, place, owner',
+                      }}
+                      summary={
+                        <ResultCount
+                          shown={attempts.length}
+                          total={detail.data.length}
+                          noun="attempts"
+                          local
+                          onClear={() => {
+                            setAttemptSearch('');
+                            setAttemptFilter('all');
+                          }}
+                        />
+                      }
+                    />
+                    <FilterChips
+                      label="Outcome"
+                      value={attemptFilter}
+                      onChange={setAttemptFilter}
+                      options={ATTEMPT_FILTERS.map((f) => ({
+                        id: f.id,
+                        label: f.label,
+                        count: attemptCounts[f.id],
+                        tone: f.tone,
+                      }))}
+                    />
+                  </Box>
+                )}
+
                 {detail.loading ? (
                   <Text className="text-sm text-ink-3">Loading…</Text>
                 ) : !detail.data?.length ? (
                   <Text className="text-sm text-ink-3">No attempts on record.</Text>
+                ) : !attempts.length ? (
+                  <Text className="text-sm text-ink-3">No attempts match these filters.</Text>
                 ) : (
                   <Box className="space-y-2">
-                    {detail.data.map((v) => {
+                    {attempts.map((v) => {
                       const meta = verificationMeta(v.status);
                       return (
                         <Box

@@ -179,14 +179,23 @@ export default function Notifications() {
                      Read is recorded BEFORE the push so the dot and the bell
                      count have already dropped by the time this screen is
                      returned to — see `markOneRead` for why a device-local
-                     record is the only per-alert mark available. */
+                     record is the only per-alert mark available.
+
+                     The request id rides along. Without it the confirm screen
+                     opened whatever this phone remembered for the LISTING —
+                     a different request, or, on a fresh install with this
+                     one declined or expired, none at all. The push path
+                     already passed it; this row is the same alert. */
                   onPress={() => {
                     markOneRead(item.id);
-                    router.push(
-                      (item.requestId
-                        ? `/confirm/${item.listingId}`
-                        : `/listing/${item.listingId}`) as never,
-                    );
+                    if (item.requestId) {
+                      router.push({
+                        pathname: '/confirm/[id]',
+                        params: { id: item.listingId, requestId: item.requestId },
+                      } as never);
+                    } else {
+                      router.push(`/listing/${item.listingId}` as never);
+                    }
                   }}
                 />
               ))}

@@ -310,6 +310,19 @@ describe('inside the app', () => {
     assert.equal(archive.openWork.activeBookings, 1);
   });
 
+  it('a rider deleted with an order in hand has it recorded', async () => {
+    const { doc, token, inApp } = await makers.driver(nextPhone());
+    const FoodOrder = require('../src/modules/foodpartners/foodOrder.model');
+    /* Raw: only the two fields the count reads matter here. */
+    await FoodOrder.collection.insertOne({
+      orderNumber: 'LO-DEL-RIDER', status: 'picked_up', delivery: { driverId: doc.driverId },
+    });
+
+    const deleted = await call('POST', inApp, { token });
+    assert.equal(deleted.status, 200, JSON.stringify(deleted.body));
+    assert.equal(deleted.body.data.openWork.activeOrders, 1);
+  });
+
   it('needs a session, and only its own app’s', async () => {
     const diner = await makers.customer(nextPhone());
     const rider = await makers.driver(nextPhone());

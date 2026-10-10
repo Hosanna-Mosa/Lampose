@@ -34,6 +34,7 @@ const normalize = (raw: any): PropertyEntity => {
     categoryDetails: raw.categoryDetails && typeof raw.categoryDetails === 'object' ? raw.categoryDetails : {},
     isVerified: raw.isVerified === true,
     verificationStatus: raw.verificationStatus || (raw.isVerified ? 'verified' : 'pending'),
+    requestStatus: raw.isVerified === true ? '' : raw.requestStatus || 'pending',
     createdAt: raw.createdAt || null,
     updatedAt: raw.updatedAt || null,
   };
@@ -96,6 +97,9 @@ export const propertyService = {
     deposit?: number;
     address?: string;
     stayType?: string;
+    /** Links from `uploadImages`; the first is the cover. */
+    images?: string[];
+    imageUrl?: string;
   }): Promise<ApiResponse<PropertyEntity | null>> {
     const res = await api.post<any>('/properties', payload);
     return res.success ? { ...res, data: normalize(res.data?.data || res.data) } : { ...res, data: null };
@@ -107,6 +111,28 @@ export const propertyService = {
   ): Promise<ApiResponse<PropertyEntity | null>> {
     const res = await api.put<any>(`/properties/${id}`, changes);
     return res.success ? { ...res, data: normalize(res.data?.data || res.data) } : { ...res, data: null };
+  },
+
+  /**
+   * Upload photos to Cloudinary and get their links back, in order.
+   *
+   * Nothing is attached to a listing here: the links go into the form, and
+   * the listing changes only when the form is saved — so a cancelled edit
+   * leaves the listing exactly as it was. The Content-Type is named so axios
+   * sends the files as a multipart body (its default JSON header would turn
+   * a FormData into JSON), and the timeout is long because ten phone photos
+   * over a slow connection take more than the usual fifteen seconds.
+   */
+  async uploadImages(files: File[]): Promise<ApiResponse<string[]>> {
+    const body = new FormData();
+    files.forEach((file) => body.append('images', file));
+    const res = await api.post<any>('/properties/upload-images', body, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120_000,
+    });
+    if (!res.success) return { ...res, data: [] };
+    const urls: unknown = res.data?.urls;
+    return { ...res, data: Array.isArray(urls) ? urls.filter((u): u is string => typeof u === 'string' && !!u) : [] };
   },
 
   async deleteProperty(id: string): Promise<ApiResponse<{ success: boolean }>> {

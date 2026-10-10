@@ -55,7 +55,7 @@ import { Toast } from '../components/common/organisms/Toast';
 import type { ToastState } from '../components/common/organisms/Toast';
 import {
   PartnerPayoutError, partnerPayoutService,
-  type PartnerPayout, type PartnerPayoutStatus,
+  type PartnerPayout, type PartnerPayoutStatus, type PayoutQueue,
 } from '../api/services/partnerPayoutService';
 import type { AdminRole } from '../api/types';
 import { Box } from '../components/common/atoms/Box';
@@ -63,6 +63,9 @@ import { Inline } from '../components/common/atoms/Inline';
 import { TableBody, TableHead } from '../components/common/atoms/PlainTable';
 import { Text } from '../components/common/atoms/Text';
 import { filterBySearch } from '../components/common/utils';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
 
 /** Rupees, written the way every other figure in the console is. */
 const inr = (n: number) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
@@ -88,12 +91,20 @@ const STATUS: Record<PartnerPayoutStatus, { label: string; tone: BadgeTone }> = 
   failed: { label: 'Not paid', tone: 'crit' },
 };
 
-const FILTERS: Array<{ id: PartnerPayoutStatus | 'All'; label: string }> = [
-  { id: 'pending', label: 'Awaiting payment' },
-  { id: 'completed', label: 'Paid' },
-  { id: 'failed', label: 'Refused' },
+/* `processing` only exists on the RazorpayX rail, so its chip appears only
+   while something is actually with the bank — see `statusOptions`. */
+const FILTERS: Array<{ id: PartnerPayoutStatus | 'All'; label: string; tone?: BadgeTone }> = [
+  { id: 'pending', label: 'Awaiting payment', tone: 'warn' },
+  { id: 'processing', label: 'With the bank', tone: 'brand' },
+  { id: 'completed', label: 'Paid', tone: 'good' },
+  { id: 'failed', label: 'Refused', tone: 'crit' },
   { id: 'All', label: 'Everything' },
 ];
+
+/** Which of the two kinds of money a request carries — see the header. */
+type Kind = 'All' | 'commission' | 'hotel';
+const hasCommission = (r: PartnerPayout) => (r.bookingIds?.length || 0) > 0;
+const hasHotel = (r: PartnerPayout) => (r.settlementCount || 0) > 0;
 
 interface Props {
   search?: string;
@@ -102,7 +113,9 @@ interface Props {
 
 export const PartnerPayoutsPage: React.FC<Props> = ({ search = '', role }) => {
   const [filter, setFilter] = useState<PartnerPayoutStatus | 'All'>('pending');
+  const [kind, setKind] = useState<Kind>('All');
   const [rows, setRows] = useState<PartnerPayout[]>([]);
+  const [counts, setCounts] = useState<PayoutQueue['counts']>(null);
   const [manual, setManual] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +136,7 @@ export const PartnerPayoutsPage: React.FC<Props> = ({ search = '', role }) => {
     try {
       const queue = await partnerPayoutService.list(filter);
       setRows(queue.rows);
+      setCounts(queue.counts);
       setManual(queue.manualPayouts);
     } catch (err) {
       setError(err instanceof PartnerPayoutError ? err.message : 'Could not load the payout queue.');
@@ -133,15 +147,41 @@ export const PartnerPayoutsPage: React.FC<Props> = ({ search = '', role }) => {
 
   useEffect(() => { void load(); }, [load]);
 
-  const visible = useMemo(
+  const searched = useMemo(
     () => filterBySearch(rows, search, (r, q) =>
       (r.ownerName || '').toLowerCase().includes(q)
       || r.partnerPhoneDigits?.toLowerCase().includes(q)
       || (r.bankAccount || '').toLowerCase().includes(q)
       || (r.razorpayReferenceId || '').toLowerCase().includes(q)
+      || (r.referenceId || '').toLowerCase().includes(q)
+      || (r.paidByAdminName || '').toLowerCase().includes(q)
       || r.id.toLowerCase().includes(q)),
     [rows, search]
   );
+
+  const visible = useMemo(
+    () => (kind === 'commission' ? searched.filter(hasCommission)
+      : kind === 'hotel' ? searched.filter(hasHotel)
+        : searched),
+    [searched, kind],
+  );
+
+  /* The kind chips count what is loaded — this status, searched — so each
+     number is what pressing that chip would show. A request carrying both
+     kinds of money counts under both. */
+  const kindCounts = useMemo(() => ({
+    All: searched.length,
+    commission: searched.filter(hasCommission).length,
+    hotel: searched.filter(hasHotel).length,
+  }), [searched]);
+
+  /* Status counts come from the server, across the whole queue: the list is
+     filtered by status there, so the page cannot count the other statuses. */
+  const statusOptions = FILTERS
+    .filter((f) => f.id !== 'processing' || filter === 'processing' || (counts?.processing ?? 0) > 0)
+    .map((f) => ({ ...f, count: counts ? counts[f.id] ?? 0 : null }));
+
+  const narrowed = Boolean(search.trim()) || kind !== 'All';
 
   /* What is actually waiting on somebody, regardless of the current filter. */
   const owed = useMemo(
@@ -212,7 +252,7 @@ export const PartnerPayoutsPage: React.FC<Props> = ({ search = '', role }) => {
         <Box>
           <Box className="text-label uppercase tracking-wide text-ink-3">Requests</Box>
           <Box className="text-h2 font-semibold tabular-nums">
-            {rows.filter((r) => r.status === 'pending').length}
+            {counts?.pending ?? rows.filter((r) => r.status === 'pending').length}
           </Box>
         </Box>
         <Box className="ml-auto max-w-md text-body text-ink-2">
@@ -224,18 +264,32 @@ export const PartnerPayoutsPage: React.FC<Props> = ({ search = '', role }) => {
         </Box>
       </Card>
 
-      <Box className="flex flex-wrap items-center gap-2">
-        {FILTERS.map((f) => (
-          <Button
-            key={f.id}
-            variant={filter === f.id ? 'primary' : 'secondary'}
-            size="sm"
-            onClick={() => setFilter(f.id)}
-          >
-            {f.label}
-          </Button>
-        ))}
-      </Box>
+      <Card padded={false} className="p-3">
+        <FilterBar
+          summary={loading || error ? undefined : (
+            <ResultCount
+              shown={visible.length}
+              total={rows.length}
+              noun="payouts"
+              filtered={narrowed}
+              onClear={kind !== 'All' ? () => setKind('All') : undefined}
+            />
+          )}
+        >
+          <FilterChips label="Status" value={filter} onChange={setFilter} options={statusOptions} />
+          <Inline className="h-5 w-px bg-line" aria-hidden="true" />
+          <FilterChips<Kind>
+            label="Includes"
+            value={kind}
+            onChange={setKind}
+            options={[
+              { id: 'All', label: 'Any money', count: loading ? null : kindCounts.All },
+              { id: 'commission', label: 'Booking commission', count: loading ? null : kindCounts.commission },
+              { id: 'hotel', label: 'Hotel stays', count: loading ? null : kindCounts.hotel },
+            ]}
+          />
+        </FilterBar>
+      </Card>
 
       <Card padded={false}>
         {loading ? (
@@ -248,15 +302,29 @@ export const PartnerPayoutsPage: React.FC<Props> = ({ search = '', role }) => {
             action={<Button onClick={() => void load()}>Try again</Button>}
           />
         ) : visible.length === 0 ? (
-          <EmptyState
-            icon={Wallet}
-            title={filter === 'pending' ? 'Nothing waiting' : 'Nothing here'}
-            description={
-              filter === 'pending'
-                ? 'Every payout an owner has asked for has been dealt with.'
-                : 'No payouts match this filter.'
-            }
-          />
+          narrowed ? (
+            <EmptyState
+              icon={Wallet}
+              title="No payouts match these filters"
+              description="Try a different search, or widen what the request includes."
+              action={kind !== 'All'
+                ? <Button size="sm" variant="ghost" onClick={() => setKind('All')}>Clear filters</Button>
+                : undefined}
+            />
+          ) : (
+            <EmptyState
+              icon={Wallet}
+              title={filter === 'pending' ? 'Nothing waiting' : 'Nothing here'}
+              description={
+                filter === 'pending'
+                  ? 'Every payout an owner has asked for has been dealt with.'
+                  : 'No payouts have this status.'
+              }
+              action={filter !== 'All'
+                ? <Button size="sm" variant="ghost" onClick={() => setFilter('All')}>Show everything</Button>
+                : undefined}
+            />
+          )
         ) : (
           <Table>
             <TableHead>

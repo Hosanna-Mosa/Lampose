@@ -14,12 +14,30 @@ export interface AssignedToUser {
   email: string | null;
 }
 
+/** Every `source` the server stores on a lead — kept in step with the enum in
+ *  scriper.model.js. */
+export type LeadSource = 'GoogleMaps' | 'JustDial' | 'Web' | 'Manual' | 'Website';
+
+/** How a lead's source is named on screen. An unknown value is shown as is. */
+export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
+  GoogleMaps: 'Google Maps',
+  JustDial: 'JustDial',
+  Web: 'Web',
+  Manual: 'Manually Added',
+  Website: 'Website sign-up',
+};
+
+export const leadSourceLabel = (source?: string): string =>
+  (source && LEAD_SOURCE_LABELS[source as LeadSource]) || source || 'Unknown';
+
 export interface ScrapedLead {
   _id: string;
   jobId: string;
   /** 'Manual' is a person typing, from the onboarding site's Add Lead form.
-   *  Not on StartScrapeParams below — you cannot scrape Manual. */
-  source: 'GoogleMaps' | 'JustDial' | 'Web' | 'Manual';
+   *  'Website' is a visitor's "Notify me" sign-up on lampose.com
+   *  (POST /api/v2/interest) — an email and nothing else.
+   *  Neither is on StartScrapeParams below — you cannot scrape them. */
+  source: LeadSource;
   businessName: string;
   phone?: string;
   email?: string;

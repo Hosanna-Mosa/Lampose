@@ -220,6 +220,11 @@ const lastRefundFailureOf = (order) => {
  */
 const owedState = (order) => {
   if (order.paymentMode !== 'online') {
+    /* The one cash order that IS owed: the diner abandoned the online
+       checkout, switched to cash, and the gateway captured that payment
+       anyway (`confirmPayment` records it with `razorpay.paidAt`). The rider
+       collects at the door as well, so the online money goes back in full. */
+    if (paidAfterCashSwitch(order)) return { owed: true, why: '' };
     return {
       owed: false,
       why: 'That order was paid in cash. There is nothing at the gateway to send back.',
@@ -276,6 +281,8 @@ const refundOwedFilter = () => ({
       $or: [
         { paymentStatus: 'refunded', paymentMode: 'online' },
         { paymentStatus: 'paid', paymentMode: 'online', status: { $in: ABORTED_STATUSES } },
+        /* `paidAfterCashSwitch`, as Mongo. */
+        { paymentMode: { $ne: 'online' }, 'razorpay.paidAt': { $ne: null }, 'razorpay.paymentId': { $ne: '' } },
       ],
     },
     refundNotRecordedFilter(),
@@ -283,6 +290,19 @@ const refundOwedFilter = () => ({
 });
 
 const isRefundOwed = (order) => owedState(order).owed && !refundRecordOf(order);
+
+/**
+ * A cash order that also carries a captured online payment.
+ *
+ * `razorpay.paidAt` is written only when the gateway captured money — a
+ * doorstep collection never moves it (`foodDelivery.service.js`) — so on a
+ * cash order it can only be the checkout the diner abandoned before switching.
+ * Kept beside `refundOwedFilter`, whose third branch is this as Mongo.
+ */
+function paidAfterCashSwitch(order) {
+  const rp = (order && order.razorpay) || {};
+  return order.paymentMode !== 'online' && Boolean(rp.paidAt) && Boolean(rp.paymentId);
+}
 
 /** Every rider said no, or dropped it, and the order is still live. */
 const dispatchFailedFilter = () => ({
@@ -606,6 +626,65 @@ const listOrders = async (req, res, next) => {
     });
   } catch (error) {
     logError('admin/food-orders', error);
+    return next(error);
+  }
+};
+
+/* ── GET /facets ──────────────────────────────────────────────────────────*/
+
+/*
+ * The number on every filter chip: how many orders each choice would show.
+ *
+ * Each dimension is counted with every OTHER filter applied and its own left
+ * out — so "Paid 12" next to "Cancelled" is the number you get by choosing
+ * Paid while Cancelled stays on, and the chip you are on still shows its
+ * siblings rather than zeroes. `needs`, the dates and the search narrow every
+ * dimension, because they are not facets themselves.
+ *
+ * Its own call rather than part of the list, because paging does not change
+ * it: the console asks once per filter change, not once per page.
+ */
+const FACETS = [
+  ['status', 'status'],
+  ['paymentStatus', 'paymentStatus'],
+  ['paymentMode', 'paymentMode'],
+  ['dispatchState', 'dispatch.state'],
+  ['fulfilment', 'fulfilment'],
+];
+
+// @route   GET /api/v1/admin/food-orders/facets
+// @desc    Per-value counts for each filter, under the other filters
+// @access  Admin console (any signed-in administrator)
+const getFacets = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+
+    const now = Date.now();
+    const built = filterFrom(req.query, now);
+    if (built.error) return fail(res, 400, 'BAD_INPUT', built.error);
+
+    const [matching, everything, ...grouped] = await Promise.all([
+      FoodOrder.countDocuments(built.filter),
+      FoodOrder.estimatedDocumentCount(),
+      ...FACETS.map(([param, field]) => FoodOrder.aggregate([
+        { $match: filterFrom({ ...req.query, [param]: '' }, now).filter },
+        { $group: { _id: `$${field}`, n: { $sum: 1 } } },
+      ])),
+    ]);
+
+    /* A row with no value (written before the field existed) is left out
+       rather than guessed into a bucket the filter would not find it in. */
+    const facets = {};
+    FACETS.forEach(([param], index) => {
+      facets[param] = grouped[index].reduce(
+        (acc, row) => (row._id ? { ...acc, [row._id]: row.n } : acc),
+        {},
+      );
+    });
+
+    return res.json({ success: true, data: { matching, everything, ...facets } });
+  } catch (error) {
+    logError('admin/food-orders/facets', error);
     return next(error);
   }
 };
@@ -1167,7 +1246,9 @@ const recordRefund = async (orderNumber, order, record) => FoodOrder.findOneAndU
   { orderNumber, ...refundNotRecordedFilter() },
   {
     $set: {
-      paymentStatus: 'refunded',
+      /* On a cash order `paymentStatus` is the rider's collection at the door,
+         which a refund of the abandoned ONLINE payment must not overwrite. */
+      ...(order.paymentMode === 'online' ? { paymentStatus: 'refunded' } : null),
       'razorpay.refundId': record.reference,
       'razorpay.refundAmountPaise': record.amountPaise,
       'razorpay.refundedAt': record.at,
@@ -1583,6 +1664,7 @@ const recordSettledRefund = async (req, res, next) => {
 module.exports = {
   listOrders,
   getCounts,
+  getFacets,
   getOrder,
   markDelivered,
   cancelOrder,

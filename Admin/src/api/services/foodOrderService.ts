@@ -438,6 +438,30 @@ const EMPTY_COUNTS: FoodOrderCounts = {
   byPaymentStatus: tally(null, FOOD_PAYMENT_STATUSES),
 };
 
+/**
+ * The number on each filter chip: how many orders that value would show with
+ * every OTHER filter left as it is. A value the server did not report is
+ * absent, not zero — the chip then shows no count rather than a false one.
+ */
+export interface FoodOrderFacets {
+  /** Orders the current filters match — the same figure as the list's `total`. */
+  matching: number;
+  /** Every order, unfiltered. */
+  everything: number;
+  status: Partial<Record<FoodOrderStatus, number>>;
+  paymentStatus: Partial<Record<FoodOrderPaymentStatus, number>>;
+  paymentMode: Partial<Record<string, number>>;
+  dispatchState: Partial<Record<string, number>>;
+  fulfilment: Partial<Record<string, number>>;
+}
+
+const facetOf = (raw: unknown): Record<string, number> => {
+  const source = obj(raw);
+  const acc: Record<string, number> = {};
+  Object.keys(source).forEach((key) => { acc[key] = num(source[key]); });
+  return acc;
+};
+
 /* ------------------------------------------------------------------ *
  * Query building
  * ------------------------------------------------------------------ */
@@ -590,6 +614,28 @@ export const foodOrderService = {
         openOrders: num(data.openOrders),
         byStatus: tally(data.byStatus, FOOD_ORDER_STATUSES),
         byPaymentStatus: tally(data.byPaymentStatus, FOOD_PAYMENT_STATUSES),
+      },
+    };
+  },
+
+  /** Per-value counts for the filter chips. `page` and `limit` are ignored. */
+  async facets(query: FoodOrderQuery = {}): Promise<ApiResponse<FoodOrderFacets | null>> {
+    const res = await api.get<unknown>(
+      `${BASE}/facets`,
+      paramsFrom({ ...query, page: undefined, limit: undefined })
+    );
+    if (!res.success) return { ...res, data: null };
+    const data = obj(obj(res.data).data);
+    return {
+      ...res,
+      data: {
+        matching: num(data.matching),
+        everything: num(data.everything),
+        status: facetOf(data.status),
+        paymentStatus: facetOf(data.paymentStatus),
+        paymentMode: facetOf(data.paymentMode),
+        dispatchState: facetOf(data.dispatchState),
+        fulfilment: facetOf(data.fulfilment),
       },
     };
   },

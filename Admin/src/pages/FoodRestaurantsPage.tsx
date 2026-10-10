@@ -31,6 +31,8 @@ import {
   XCircle,
 } from 'lucide-react';
 import { Badge } from '../components/common/atoms/Badge';
+import { Option } from '../components/common/atoms/Option';
+import { Select } from '../components/common/atoms/Select';
 import type { BadgeTone } from '../components/common/atoms/Badge';
 import { Button } from '../components/common/atoms/Button';
 import { Card } from '../components/common/atoms/Card';
@@ -38,6 +40,10 @@ import { Table, Td, Th, Tr } from '../components/common/atoms/Table';
 import { Textarea } from '../components/common/atoms/Textarea';
 import { DataRow } from '../components/common/molecules/DataRow';
 import { EmptyState } from '../components/common/molecules/EmptyState';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import type { FilterChipOption } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
 import { MenuFilterBar } from '../components/common/molecules/MenuFilterBar';
 import { Pagination } from '../components/common/molecules/Pagination';
 import { useMenuView } from '../lib/menuFilter';
@@ -48,10 +54,12 @@ import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
 import { Modal } from '../components/common/organisms/Modal';
 import { Toast } from '../components/common/organisms/Toast';
 import type { ToastState } from '../components/common/organisms/Toast';
-import { cx } from '../components/common/utils';
+import { cx, filterSelectClass } from '../components/common/utils';
 import { foodAdminService } from '../api/services/foodAdminService';
+import type { FoodQueueFacetValue, FoodQueueFilters } from '../api/services/foodAdminService';
+import { useHeaderSearch } from '../context/headerSearch';
 import { useAuth } from '../context/AuthContext';
-import { useFetch } from '../lib/useFetch';
+import { useDebounced, useFetch } from '../lib/useFetch';
 import type {
   FoodProductRow,
   FoodRestaurantDetail,
@@ -63,7 +71,6 @@ import { Inline } from '../components/common/atoms/Inline';
 import { Link } from '../components/common/atoms/Link';
 import { List } from '../components/common/atoms/List';
 import { ListItem } from '../components/common/atoms/ListItem';
-import { PlainButton } from '../components/common/atoms/PlainButton';
 import { TableBody, TableHead } from '../components/common/atoms/PlainTable';
 import { Text } from '../components/common/atoms/Text';
 
@@ -72,13 +79,99 @@ interface FoodRestaurantsPageProps {
 }
 
 type StatusFilter = FoodVerificationStatus | 'all';
+/** Whether an approved kitchen is listed right now — `isActive`. */
+type ListingFilter = 'all' | 'live' | 'paused';
 
-const FILTERS: { id: StatusFilter; label: string }[] = [
-  { id: 'pending', label: 'Awaiting review' },
-  { id: 'approved', label: 'Approved' },
-  { id: 'rejected', label: 'Rejected' },
+const FILTERS: { id: StatusFilter; label: string; tone?: BadgeTone }[] = [
+  { id: 'pending', label: 'Awaiting review', tone: 'warn' },
+  { id: 'approved', label: 'Approved', tone: 'good' },
+  { id: 'rejected', label: 'Rejected', tone: 'crit' },
   { id: 'all', label: 'All' },
 ];
+
+const LISTING_FILTERS: { id: ListingFilter; label: string; tone?: BadgeTone }[] = [
+  { id: 'all', label: 'Live or paused' },
+  { id: 'live', label: 'Live', tone: 'good' },
+  { id: 'paused', label: 'Paused', tone: 'neutral' },
+];
+
+/* ── The filters beyond status ───────────────────────────────────────────
+   Every one is applied and counted by the server (`listRestaurants`), each
+   count under the search and every OTHER filter, so "Pune (12)" is what
+   picking Pune shows. '' means not chosen. */
+
+type FilterKey = keyof FoodQueueFilters;
+
+const EMPTY_FILTERS: Required<FoodQueueFilters> = {
+  city: '',
+  state: '',
+  cuisine: '',
+  applied: '',
+  fssai: '',
+  payout: '',
+  pin: '',
+  menu: '',
+  dineIn: '',
+};
+
+/** The server's word for "left blank" in a hand-typed field. */
+const NONE = '__none';
+
+/** Fixed choices: [value, label], with '' as the "any" option. */
+const FIXED_FILTERS: {
+  key: Exclude<FilterKey, 'city' | 'state' | 'cuisine'>;
+  label: string;
+  options: [string, string][];
+}[] = [
+  {
+    key: 'applied',
+    label: 'Applied',
+    options: [['', 'Applied any time'], ['1', 'Last 24 hours'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['90', 'Last 90 days']],
+  },
+  {
+    key: 'fssai',
+    label: 'FSSAI licence',
+    options: [['', 'Any FSSAI'], ['has', 'Licence given'], ['missing', 'No licence'], ['expired', 'Licence expired']],
+  },
+  {
+    key: 'payout',
+    label: 'Payout account',
+    options: [['', 'Any payout'], ['has', 'Payout account added'], ['missing', 'No payout account']],
+  },
+  {
+    key: 'pin',
+    label: 'Map pin',
+    options: [['', 'Any map pin'], ['pinned', 'Pinned on map'], ['unpinned', 'No map pin']],
+  },
+  {
+    key: 'menu',
+    label: 'Menu',
+    options: [['', 'Any menu'], ['has', 'Has dishes'], ['none', 'No dishes yet']],
+  },
+  {
+    key: 'dineIn',
+    label: 'Dine-in',
+    options: [['', 'Delivery & dine-in'], ['on', 'Takes table bookings'], ['off', 'Delivery only']],
+  },
+];
+
+const withCount = (label: string, n: number | undefined) => (n === undefined ? label : `${label} (${n})`);
+
+/**
+ * A hand-typed field's choices ("Pune (12)"), from the server's facet. The
+ * chosen value is kept even when a search has left it with no rows, so the
+ * select never silently shows a different choice from the one applied.
+ */
+const placeOptions = (facet: FoodQueueFacetValue[] | undefined, chosen: string, blankLabel: string) => {
+  const list = (facet ?? []).map((f) => ({
+    value: f.value,
+    label: withCount(f.value === NONE ? blankLabel : f.label || f.value, f.n),
+  }));
+  if (chosen && !list.some((o) => o.value === chosen)) {
+    list.push({ value: chosen, label: withCount(chosen === NONE ? blankLabel : chosen, 0) });
+  }
+  return list;
+};
 
 const STATUS_TONE: Record<FoodVerificationStatus, BadgeTone> = {
   pending: 'warn',
@@ -206,6 +299,12 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
   const canDecide = DECIDING_ROLES.has(user?.role ?? '');
 
   const [status, setStatus] = useState<StatusFilter>('pending');
+  const [listing, setListing] = useState<ListingFilter>('all');
+  const [filters, setFilters] = useState<Required<FoodQueueFilters>>(EMPTY_FILTERS);
+  const setFilter = (key: FilterKey, value: string) => setFilters((prev) => ({ ...prev, [key]: value }));
+  /* The box beside the filters types into the header's search — one value,
+     two places to reach it. */
+  const headerSearch = useHeaderSearch();
   const [openId, setOpenId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -215,10 +314,22 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
   const [handoff, setHandoff] = useState<{ name: string; url: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const queue = useFetch(
-    () => foodAdminService.getRestaurants({ status, search: search || undefined }),
-    [status, search]
-  );
+  /* The header's box, debounced: each value is a request to the server. */
+  const q = useDebounced(search.trim(), 300);
+
+  /* `useFetch` keeps only `data`, so the two tallies ride inside it. */
+  const queue = useFetch(async () => {
+    const res = await foodAdminService.getRestaurants({
+      status,
+      search: q || undefined,
+      listing: status === 'approved' ? listing : undefined,
+      ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v)),
+    });
+    return {
+      ...res,
+      data: { rows: res.data ?? [], counts: res.counts, matchCounts: res.matchCounts, facets: res.facets },
+    };
+  }, [status, listing, q, filters]);
 
   const detail = useFetch<FoodRestaurantDetail | null>(
     () =>
@@ -234,8 +345,50 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
     [openId]
   );
 
-  const rows = queue.data ?? [];
-  const counts = (queue as { counts?: { pending: number; approved: number; rejected: number } }).counts;
+  const rows = queue.data?.rows ?? [];
+  /* The whole queue, for the summary cards. */
+  const counts = queue.data?.counts;
+  /* Under the search and the other filter — the numbers on the chips. */
+  const matched = queue.data?.matchCounts;
+  /* Every other filter's numbers, under the same rule. */
+  const facets = queue.data?.facets;
+
+  const pickStatus = (next: StatusFilter) => {
+    setStatus(next);
+    /* Live/paused only exists for approved kitchens; leaving it set on
+       another tab would narrow a list with no visible reason. */
+    if (next !== 'approved') setListing('all');
+  };
+
+  const statusChips: FilterChipOption<StatusFilter>[] = FILTERS.map((f) => ({
+    ...f,
+    count: matched
+      ? f.id === 'all'
+        ? matched.pending + matched.approved + matched.rejected
+        : matched[f.id]
+      : undefined,
+  }));
+
+  const listingChips: FilterChipOption<ListingFilter>[] = LISTING_FILTERS.map((f) => ({
+    ...f,
+    count: matched ? (f.id === 'all' ? matched.live + matched.paused : matched[f.id]) : undefined,
+  }));
+
+  /* What the list holds, counted by the server rather than from `rows` — the
+     list is capped at a hundred and the count is not. */
+  const shown = matched
+    ? status === 'all'
+      ? matched.pending + matched.approved + matched.rejected
+      : matched[status]
+    : rows.length;
+  const total = counts ? counts.pending + counts.approved + counts.rejected : rows.length;
+  const moreFilters = Object.values(filters).some(Boolean);
+  const filtered = Boolean(q) || status !== 'pending' || listing !== 'all' || moreFilters;
+  const clearFilters = () => {
+    setStatus('all');
+    setListing('all');
+    setFilters(EMPTY_FILTERS);
+  };
 
   const open = detail.data;
 
@@ -368,21 +521,82 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
         </Box>
       )}
 
-      <Box className="flex flex-wrap gap-1.5">
-        {FILTERS.map((f) => (
-          <PlainButton
-            key={f.id}
-            onClick={() => setStatus(f.id)}
-            className={cx(
-              'h-8 px-3 rounded-control text-body transition-colors',
-              status === f.id
-                ? 'bg-brand-soft text-brand-ink font-medium'
-                : 'text-ink-2 hover:bg-surface-inset'
-            )}
-          >
-            {f.label}
-          </PlainButton>
-        ))}
+      <FilterBar
+        summary={
+          <ResultCount
+            shown={shown}
+            total={total}
+            noun="restaurants"
+            filtered={shown !== total}
+            onClear={status !== 'all' || listing !== 'all' || moreFilters ? clearFilters : undefined}
+          />
+        }
+        search={{
+          value: search,
+          onChange: headerSearch.set,
+          placeholder: 'Search name, owner, phone, area, pincode or FSSAI',
+        }}
+      >
+        <FilterChips label="Status" options={statusChips} value={status} onChange={pickStatus} />
+        {status === 'approved' && (
+          <FilterChips label="Listing" options={listingChips} value={listing} onChange={setListing} />
+        )}
+      </FilterBar>
+
+      {/* Where it is, what it cooks, and how ready it is to go live. Each
+          option's number is what choosing it would leave in the list. */}
+      <Box className="flex flex-wrap items-center gap-2">
+        <Select
+          aria-label="City"
+          className={filterSelectClass}
+          value={filters.city}
+          onChange={(e) => setFilter('city', e.target.value)}
+        >
+          <Option value="">All cities</Option>
+          {placeOptions(facets?.city, filters.city, 'City not given').map((o) => (
+            <Option key={o.value} value={o.value}>{o.label}</Option>
+          ))}
+        </Select>
+        <Select
+          aria-label="State"
+          className={filterSelectClass}
+          value={filters.state}
+          onChange={(e) => setFilter('state', e.target.value)}
+        >
+          <Option value="">All states</Option>
+          {placeOptions(facets?.state, filters.state, 'State not given').map((o) => (
+            <Option key={o.value} value={o.value}>{o.label}</Option>
+          ))}
+        </Select>
+        <Select
+          aria-label="Cuisine"
+          className={filterSelectClass}
+          value={filters.cuisine}
+          onChange={(e) => setFilter('cuisine', e.target.value)}
+        >
+          <Option value="">All cuisines</Option>
+          {placeOptions(facets?.cuisine, filters.cuisine, 'No cuisine given').map((o) => (
+            <Option key={o.value} value={o.value}>{o.label}</Option>
+          ))}
+        </Select>
+        {FIXED_FILTERS.map((f) => {
+          const counts = facets?.[f.key] as Record<string, number> | undefined;
+          return (
+            <Select
+              key={f.key}
+              aria-label={f.label}
+              className={filterSelectClass}
+              value={filters[f.key]}
+              onChange={(e) => setFilter(f.key, e.target.value)}
+            >
+              {f.options.map(([value, label]) => (
+                <Option key={value} value={value}>
+                  {value ? withCount(label, counts ? counts[value] ?? 0 : undefined) : label}
+                </Option>
+              ))}
+            </Select>
+          );
+        })}
       </Box>
 
       <Card>
@@ -393,11 +607,20 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
         ) : rows.length === 0 ? (
           <EmptyState
             icon={UtensilsCrossed}
-            title="Nothing here"
+            title={filtered ? 'No restaurants match these filters' : 'Nothing here'}
             description={
-              status === 'pending'
-                ? 'No restaurant is waiting for a decision.'
-                : 'No application matches this filter.'
+              q
+                ? 'Nothing matches that search — clear it to see the rest.'
+                : status === 'pending'
+                  ? 'No restaurant is waiting for a decision.'
+                  : 'No application matches this filter.'
+            }
+            action={
+              status !== 'all' || listing !== 'all' || moreFilters ? (
+                <Button variant="secondary" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              ) : undefined
             }
           />
         ) : (

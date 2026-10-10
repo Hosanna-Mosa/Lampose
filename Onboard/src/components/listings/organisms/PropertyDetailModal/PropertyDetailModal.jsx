@@ -97,8 +97,12 @@ export function PropertyDetailModal({ property, onClose, onDelete, onUpdated }) 
     }
     setPhotoError('');
     try {
-      const urls = await uploadPropertyImages(files.map((file) => ({ file })), setPhotoBusy);
+      const { urls, failed } = await uploadPropertyImages(files.map((file) => ({ file })), setPhotoBusy);
       setPhotos((prev) => [...prev, ...urls]);
+      // The ones that did go up are kept; the rest are named, not dropped.
+      if (failed.length) {
+        setPhotoError(`Did not upload: ${failed.map((f) => `${f.name} (${f.reason})`).join('; ')}`);
+      }
     } catch (err) {
       setPhotoError(err?.message || 'That upload did not go through. Try again.');
     } finally {

@@ -90,6 +90,31 @@ export const salesTrackingService = {
     return { ...res, data: row ? normalizeRow(row) : null };
   },
 
+  /** Deactivate or reactivate a rep's account — `sales.manage` (Super Admin
+      and Admin) on the server. Deactivating also takes them off duty and
+      signs their phone out, so it stops sharing location. */
+  async setSalesRepStatus(
+    salesRepId: string,
+    status: SalesRepStatus,
+  ): Promise<ApiResponse<SalesRepRow | null>> {
+    const res = await api.patch<any>(`${BASE}/${salesRepId}`, { status });
+    if (!res.success) return { ...res, data: null };
+    const row = res.data?.data?.salesRep;
+    return { ...res, data: row ? normalizeRow(row) : null };
+  },
+
+  /** Set a new password the admin hands over by hand — `sales.manage`, and
+      it signs out every existing session of that rep. */
+  async resetSalesRepPassword(
+    salesRepId: string,
+    password: string,
+  ): Promise<ApiResponse<SalesRepRow | null>> {
+    const res = await api.put<any>(`${BASE}/${salesRepId}/password`, { password });
+    if (!res.success) return { ...res, data: null };
+    const row = res.data?.data?.salesRep;
+    return { ...res, data: row ? normalizeRow(row) : null };
+  },
+
   /** One rep's fixes in a chosen window, oldest first — a polyline is drawn
       in the order it was walked. With no `range`, the backend defaults to
       the rep's current duty session (or today, if they are offline). */

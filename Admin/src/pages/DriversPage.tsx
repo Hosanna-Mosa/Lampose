@@ -57,14 +57,18 @@ import { TableSkeleton } from '../components/common/molecules/TableSkeleton';
 import { Modal } from '../components/common/organisms/Modal';
 import { Toast } from '../components/common/organisms/Toast';
 import type { ToastState } from '../components/common/organisms/Toast';
-import { cx } from '../components/common/utils';
+import { Select } from '../components/common/atoms/Select';
+import { Option } from '../components/common/atoms/Option';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
+import { cx, filterSelectClass } from '../components/common/utils';
 import { driverAdminService } from '../api/services/driverAdminService';
 import { useAuth } from '../context/AuthContext';
-import { useFetch } from '../lib/useFetch';
+import { useDebounced, useFetch } from '../lib/useFetch';
 import type {
   DriverDetail,
   DriverDocumentKind,
-  DriverQueueCounts,
   DriverStatus,
 } from '../api/types';
 
@@ -87,11 +91,11 @@ interface DriversPageProps {
 
 type StatusFilter = DriverStatus | 'all';
 
-const FILTERS: { id: StatusFilter; label: string }[] = [
-  { id: 'pending', label: 'Awaiting approval' },
-  { id: 'approved', label: 'Approved' },
-  { id: 'suspended', label: 'Suspended' },
-  { id: 'rejected', label: 'Rejected' },
+const FILTERS: { id: StatusFilter; label: string; tone?: BadgeTone }[] = [
+  { id: 'pending', label: 'Awaiting approval', tone: 'warn' },
+  { id: 'approved', label: 'Approved', tone: 'good' },
+  { id: 'suspended', label: 'Suspended', tone: 'crit' },
+  { id: 'rejected', label: 'Rejected', tone: 'crit' },
   { id: 'all', label: 'All riders' },
 ];
 
@@ -117,6 +121,11 @@ const VEHICLE_LABEL: Record<string, string> = {
   cycle: 'Bicycle',
   auto: 'Auto',
 };
+const VEHICLES = Object.keys(VEHICLE_LABEL);
+
+/** "Scooter (12)" — a native <option> cannot hold a pill. */
+const withCount = (label: string, n: number | null | undefined) =>
+  n == null ? label : `${label} (${n.toLocaleString('en-IN')})`;
 
 /** Roles the backend lets decide. Mirrored here only to hide a button that
  *  would 403 — `driverAdmin.routes.js` is the real guard. */
@@ -143,20 +152,29 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
 
   const [status, setStatus] = useState<StatusFilter>('pending');
   const [onlineOnly, setOnlineOnly] = useState(false);
+  const [vehicle, setVehicle] = useState('all');
+  /* The header box types straight into this; every keystroke is not a query. */
+  const q = useDebounced(search.trim(), 300);
   const [openId, setOpenId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [docNotes, setDocNotes] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
 
+  /* `useFetch` keeps `data` and nothing else, so the counts that ride beside
+     the rows are folded into it here — read off the hook they were always
+     undefined, and the summary cards never drew. */
   const queue = useFetch(
-    () =>
-      driverAdminService.getDrivers({
+    async () => {
+      const res = await driverAdminService.getDrivers({
         status,
-        search: search || undefined,
+        search: q || undefined,
         online: onlineOnly || undefined,
-      }),
-    [status, search, onlineOnly]
+        vehicle: vehicle === 'all' ? undefined : vehicle,
+      });
+      return { ...res, data: { rows: res.data ?? [], counts: res.counts, facets: res.facets } };
+    },
+    [status, q, onlineOnly, vehicle]
   );
 
   const detail = useFetch<DriverDetail | null>(
@@ -167,9 +185,22 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
     [openId]
   );
 
-  const rows = queue.data ?? [];
-  const counts = (queue as { counts?: DriverQueueCounts }).counts;
+  const rows = queue.data?.rows ?? [];
+  const counts = queue.data?.counts;
+  const facets = queue.data?.facets;
   const open = detail.data;
+
+  /* Pending is the queue's resting state, not a filter somebody chose. */
+  const filtersActive = !!q || status !== 'pending' || onlineOnly || vehicle !== 'all';
+  const clearFilters = () => {
+    setStatus('all');
+    setOnlineOnly(false);
+    setVehicle('all');
+  };
+  const total = counts
+    ? (counts.pending ?? 0) + (counts.approved ?? 0) + (counts.rejected ?? 0) + (counts.suspended ?? 0)
+    : null;
+  const matching = facets?.matching ?? rows.length;
 
   const closeDrawer = () => {
     setOpenId(null);
@@ -278,37 +309,75 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
         </Box>
       )}
 
-      <Box className="flex flex-wrap items-center gap-1.5">
-        {FILTERS.map((f) => (
+      <Card padded={false} className="p-3">
+        <FilterBar
+          summary={
+            queue.loading || total == null ? undefined : (
+              <ResultCount
+                shown={matching}
+                total={total}
+                noun="riders"
+                onClear={clearFilters}
+              />
+            )
+          }
+        >
+          <FilterChips
+            label="Status"
+            value={status}
+            onChange={setStatus}
+            options={FILTERS.map((f) => ({ ...f, count: facets?.status ? facets.status[f.id] ?? 0 : null }))}
+          />
+          {/* Duty is orthogonal to approval — an approved rider is usually
+              offline — so this is its own toggle rather than a sixth status. */}
           <PlainButton
-            key={f.id}
-            onClick={() => setStatus(f.id)}
+            aria-pressed={onlineOnly}
+            onClick={() => setOnlineOnly((v) => !v)}
             className={cx(
-              'h-8 px-3 rounded-control text-body transition-colors',
-              status === f.id
-                ? 'bg-brand-soft text-brand-ink font-medium'
-                : 'text-ink-2 hover:bg-surface-inset'
+              'h-8 px-3 rounded-control border text-body transition-colors inline-flex items-center gap-1.5',
+              onlineOnly
+                ? 'bg-brand-soft text-brand-ink border-brand-border font-medium'
+                : 'bg-surface text-ink-2 border-line hover:bg-surface-inset'
             )}
           >
-            {f.label}
+            <Truck className="size-3.5" />
+            On duty now
+            {facets?.online != null && (
+              <Inline
+                className={cx(
+                  'min-w-5 px-1.5 rounded-full text-label tabular text-center',
+                  onlineOnly ? 'bg-brand text-white' : 'bg-good-soft text-good'
+                )}
+              >
+                {facets.online.toLocaleString('en-IN')}
+              </Inline>
+            )}
           </PlainButton>
-        ))}
-        <Inline className="w-px h-5 bg-line mx-1" aria-hidden />
-        {/* Duty is orthogonal to approval — an approved rider is usually
-            offline — so this is its own toggle rather than a sixth status. */}
-        <PlainButton
-          onClick={() => setOnlineOnly((v) => !v)}
-          className={cx(
-            'h-8 px-3 rounded-control text-body transition-colors inline-flex items-center gap-1.5',
-            onlineOnly
-              ? 'bg-brand-soft text-brand-ink font-medium'
-              : 'text-ink-2 hover:bg-surface-inset'
-          )}
-        >
-          <Truck className="size-3.5" />
-          On duty now
-        </PlainButton>
-      </Box>
+          <Select
+            aria-label="Vehicle"
+            value={vehicle}
+            onChange={(e) => setVehicle(e.target.value)}
+            className={filterSelectClass}
+          >
+            <Option value="all">
+              {withCount(
+                'Any vehicle',
+                facets?.vehicle ? Object.values(facets.vehicle).reduce((a, b) => a + b, 0) : null
+              )}
+            </Option>
+            {VEHICLES.map((v) => (
+              <Option key={v} value={v}>
+                {withCount(VEHICLE_LABEL[v], facets?.vehicle ? facets.vehicle[v] ?? 0 : null)}
+              </Option>
+            ))}
+          </Select>
+        </FilterBar>
+        {matching > rows.length && (
+          <Text className="text-label text-ink-3 mt-2">
+            Listing the newest {rows.length} — search or narrow the filters to reach the rest.
+          </Text>
+        )}
+      </Card>
 
       <Card>
         {queue.loading ? (
@@ -318,11 +387,18 @@ export const DriversPage: React.FC<DriversPageProps> = ({ search }) => {
         ) : rows.length === 0 ? (
           <EmptyState
             icon={Bike}
-            title="Nothing here"
+            title={filtersActive ? 'No riders match these filters' : 'Nothing here'}
             description={
-              status === 'pending'
-                ? 'No rider is waiting for a decision.'
-                : 'No rider matches this filter.'
+              filtersActive
+                ? 'Try a different search, or clear the filters to see every rider.'
+                : 'No rider is waiting for a decision.'
+            }
+            action={
+              filtersActive ? (
+                <Button variant="ghost" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              ) : undefined
             }
           />
         ) : (

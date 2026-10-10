@@ -112,6 +112,52 @@ const filterFrom = (query, admin) => {
   return filter;
 };
 
+/** The filter with one dimension taken out — what that dimension's chips count under. */
+const without = (filter, key) => {
+  const copy = { ...filter };
+  delete copy[key];
+  return copy;
+};
+
+const tallyBy = async (match, field) => {
+  const rows = await Ticket.aggregate([{ $match: match }, { $group: { _id: `$${field}`, n: { $sum: 1 } } }]);
+  return rows.reduce((acc, row) => {
+    acc[row._id == null ? 'none' : String(row._id)] = row.n;
+    return acc;
+  }, {});
+};
+
+const sum = (counts) => Object.values(counts).reduce((a, b) => a + b, 0);
+
+/**
+ * The number on every filter chip.
+ *
+ * Each dimension is counted with every OTHER filter applied — search
+ * included — so "Resolved 12" is how many rows Resolved would show next to
+ * the audience and assignee already chosen. `stats` answers a different
+ * question (the whole active queue) and is left as it is.
+ */
+const facetsFor = async (filter, admin) => {
+  const [status, audience, kind, priority, assignees] = await Promise.all([
+    tallyBy(without(filter, 'status'), 'status'),
+    tallyBy(without(filter, 'requester.kind'), 'requester.kind'),
+    tallyBy(without(filter, 'kind'), 'kind'),
+    tallyBy(without(filter, 'priority'), 'priority'),
+    tallyBy(without(filter, 'assignedToId'), 'assignedToId'),
+  ]);
+  return {
+    status: { ...status, active: (status.open || 0) + (status.awaiting_customer || 0), all: sum(status) },
+    audience: { ...audience, all: sum(audience) },
+    kind: { ...kind, all: sum(kind) },
+    priority: { ...priority, all: sum(priority) },
+    assigned: {
+      all: sum(assignees),
+      me: assignees[String(admin._id)] || 0,
+      unassigned: assignees.none || 0,
+    },
+  };
+};
+
 // @route   GET /api/v1/admin/support/tickets
 // @desc    The queue
 // @access  Any signed-in administrator
@@ -138,9 +184,10 @@ const listTickets = async (req, res, next) => {
     const active = !filter.status || filter.status.$in;
     const sort = active ? { lastActivityAt: 1 } : { lastActivityAt: -1 };
 
-    const [rows, total] = await Promise.all([
+    const [rows, total, facets] = await Promise.all([
       Ticket.find(filter).sort(sort).skip((page - 1) * limit).limit(limit),
       Ticket.countDocuments(filter),
+      facetsFor(filter, req.admin),
     ]);
 
     return res.json({
@@ -149,6 +196,7 @@ const listTickets = async (req, res, next) => {
       total,
       page,
       pages: Math.max(1, Math.ceil(total / limit)),
+      facets,
       data: rows.map((row) => row.toAdminSummary()),
     });
   } catch (error) {

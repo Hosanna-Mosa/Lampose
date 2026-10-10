@@ -160,6 +160,10 @@ export interface PropertyEntity {
    *  backend falls back to editing/cancelling that snapshot transparently. */
   isVerified: boolean;
   verificationStatus: string;
+  /** For an unverified listing, its VerificationRequest's status — 'sent',
+   *  'pending' or 'failed' (the WhatsApp message never got through). '' on a
+   *  verified listing. */
+  requestStatus: string;
   createdAt: string | null;
   updatedAt: string | null;
 }

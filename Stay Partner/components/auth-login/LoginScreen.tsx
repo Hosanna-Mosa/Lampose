@@ -27,6 +27,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { Icon } from '@/components/common/atoms/Icon';
 import { OTPInput } from '@/components/common/molecules/OTPInput';
+import { SUPPORT_EMAIL, openSupportEmail } from '@/constants/support';
 import { useAuth } from '@/context/AuthContext';
 import { isValidIndianMobile, phoneError, sendFailureCopy } from './authHelpers';
 
@@ -224,6 +225,16 @@ export function LoginScreen() {
     setMode(next);
     setPwError(undefined);
     setTouched(false);
+  };
+
+  // Set when no mail app took the support link, so the address is shown instead.
+  const [supportUnavailable, setSupportUnavailable] = useState(false);
+
+  const contactSupport = async () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    setSupportUnavailable(!(await openSupportEmail()));
   };
 
   const submitOtp = async (value: string) => {
@@ -586,6 +597,24 @@ export function LoginScreen() {
                   </Text>
                 </Pressable>
 
+                {/* The way to support for an owner who cannot get in — a paused
+                    account is refused at both doors above, and the in-app
+                    support desk is behind sign-in. */}
+                <Pressable
+                  onPress={contactSupport}
+                  style={styles.supportLink}
+                  accessibilityRole="link"
+                >
+                  <Text style={styles.supportLinkText}>
+                    Trouble signing in? <Text style={styles.termsLink}>Contact support</Text>
+                  </Text>
+                </Pressable>
+                {supportUnavailable ? (
+                  <Text style={styles.supportFallbackText} selectable>
+                    No mail app found. Write to {SUPPORT_EMAIL} from any email account.
+                  </Text>
+                ) : null}
+
                 {/* Terms and Privacy Policy */}
                 <Text style={styles.termsText}>
                   By continuing, you agree to our{'\n'}
@@ -736,7 +765,9 @@ const styles = StyleSheet.create({
   flipContainer: {
     width: '100%',
     position: 'relative',
-    minHeight: 380,
+    // Both faces are absolute, so this is what reserves their height — it
+    // includes the support link under the form.
+    minHeight: 412,
   },
   cardSide: {
     alignItems: 'center',
@@ -907,6 +938,22 @@ const styles = StyleSheet.create({
     color: '#0A5A41',
     fontSize: 14,
     fontWeight: '600',
+  },
+  supportLink: {
+    paddingVertical: 6,
+    alignItems: 'center',
+    width: '100%',
+  },
+  supportLinkText: {
+    fontSize: 13,
+    color: '#8E95A2',
+    textAlign: 'center',
+  },
+  supportFallbackText: {
+    fontSize: 12,
+    color: '#7C808C',
+    textAlign: 'center',
+    marginTop: 4,
   },
   termsText: {
     textAlign: 'center',

@@ -10,7 +10,7 @@
    Read-only, Super Admin and Admin. The backend enforces both; the nav hides
    the page from every other role.
    ══════════════════════════════════════════════════════════════════════════ */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Ban,
   ChevronDown,
@@ -33,16 +33,60 @@ import { Strong } from '../components/common/atoms/Strong';
 import { Text } from '../components/common/atoms/Text';
 import { EmptyState } from '../components/common/molecules/EmptyState';
 import { ErrorState } from '../components/common/molecules/ErrorState';
+import { FilterBar } from '../components/common/molecules/FilterBar';
+import { FilterChips } from '../components/common/molecules/FilterChips';
+import type { FilterChipOption } from '../components/common/molecules/FilterChips';
+import { ResultCount } from '../components/common/molecules/ResultCount';
+import { Select } from '../components/common/atoms/Select';
+import { Option } from '../components/common/atoms/Option';
 import { PageHeader } from '../components/common/molecules/PageHeader';
-import { cx } from '../components/common/utils';
+import { cx, filterSelectClass } from '../components/common/utils';
 import { staffAccessService } from '../api/services/staffAccessService';
 import type { StaffAccessSession } from '../api/services/staffAccessService';
-import { useFetch } from '../lib/useFetch';
+import { useDebounced, useFetch } from '../lib/useFetch';
 import { formatDateTime } from '../lib/format';
 
 interface StaffAccessPageProps {
   search: string;
 }
+
+type DoorFilter = 'all' | StaffAccessSession['surface'];
+type ActivityFilter = 'all' | 'changed' | 'looked' | 'blocked';
+type PeriodFilter = 'all' | '1' | '7' | '30';
+
+const DOORS: { id: DoorFilter; label: string }[] = [
+  { id: 'all', label: 'Either door' },
+  { id: 'app', label: 'Food-Partner app' },
+  { id: 'console', label: 'Web console' },
+];
+
+const ACTIVITIES: { id: ActivityFilter; label: string; tone?: FilterChipOption['tone'] }[] = [
+  { id: 'all', label: 'Any activity' },
+  { id: 'changed', label: 'Changed something', tone: 'brand' },
+  { id: 'looked', label: 'Only looked' },
+  { id: 'blocked', label: 'Had a blocked attempt', tone: 'crit' },
+];
+
+const PERIODS: { id: PeriodFilter; label: string }[] = [
+  { id: 'all', label: 'Any time' },
+  { id: '1', label: 'Last 24 hours' },
+  { id: '7', label: 'Last 7 days' },
+  { id: '30', label: 'Last 30 days' },
+];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const byDoor = (session: StaffAccessSession, door: DoorFilter) => door === 'all' || session.surface === door;
+
+const byActivity = (session: StaffAccessSession, activity: ActivityFilter) => {
+  if (activity === 'changed') return session.changeCount > 0;
+  if (activity === 'looked') return session.changeCount === 0 && session.blockedCount === 0;
+  if (activity === 'blocked') return session.blockedCount > 0;
+  return true;
+};
+
+const byPeriod = (session: StaffAccessSession, period: PeriodFilter, now: number) =>
+  period === 'all' || now - new Date(session.at).getTime() <= Number(period) * DAY_MS;
 
 const timeOf = (at: string) =>
   new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -142,8 +186,49 @@ function SessionCard({ session }: { session: StaffAccessSession }) {
 }
 
 export function StaffAccessPage({ search }: StaffAccessPageProps) {
-  const log = useFetch(() => staffAccessService.list({ q: search.trim() || undefined, limit: 100 }), [search]);
-  const sessions = log.data?.sessions ?? [];
+  /* The header's box is matched by the server (restaurant id, name, the
+     number typed), debounced so each keystroke is not a request. */
+  const q = useDebounced(search.trim(), 300);
+  const log = useFetch(() => staffAccessService.list({ q: q || undefined, limit: 100 }), [q]);
+  const sessions = useMemo(() => log.data?.sessions ?? [], [log.data]);
+
+  const [door, setDoor] = useState<DoorFilter>('all');
+  const [activity, setActivity] = useState<ActivityFilter>('all');
+  const [period, setPeriod] = useState<PeriodFilter>('all');
+
+  /*
+   * The rest is filtered here: the server sends the newest hundred sign-ins
+   * whole, so every count below is a count of what is loaded — each one under
+   * the search and the OTHER filters, so a chip says what pressing it shows.
+   */
+  const view = useMemo(() => {
+    const now = Date.now();
+    const keep = (session: StaffAccessSession, skip: 'door' | 'activity' | 'period' | null) =>
+      (skip === 'door' || byDoor(session, door))
+      && (skip === 'activity' || byActivity(session, activity))
+      && (skip === 'period' || byPeriod(session, period, now));
+
+    const forDoor = sessions.filter((session) => keep(session, 'door'));
+    const forActivity = sessions.filter((session) => keep(session, 'activity'));
+    const forPeriod = sessions.filter((session) => keep(session, 'period'));
+
+    return {
+      shown: sessions.filter((session) => keep(session, null)),
+      doors: DOORS.map((d) => ({ ...d, count: forDoor.filter((session) => byDoor(session, d.id)).length })),
+      activities: ACTIVITIES.map((a) => ({
+        ...a,
+        count: forActivity.filter((session) => byActivity(session, a.id)).length,
+      })),
+      periods: PERIODS.map((p) => ({ ...p, count: forPeriod.filter((session) => byPeriod(session, p.id, now)).length })),
+    };
+  }, [sessions, door, activity, period]);
+
+  const filtersOn = door !== 'all' || activity !== 'all' || period !== 'all';
+  const clearFilters = () => {
+    setDoor('all');
+    setActivity('all');
+    setPeriod('all');
+  };
 
   return (
     <Box className="space-y-5">
@@ -170,23 +255,64 @@ export function StaffAccessPage({ search }: StaffAccessPageProps) {
 
       {log.error && <ErrorState message={log.error} onRetry={log.reload} />}
 
+      {sessions.length > 0 && (
+        <FilterBar
+          summary={
+            <ResultCount
+              shown={view.shown.length}
+              total={sessions.length}
+              noun="sign-ins"
+              onClear={filtersOn ? clearFilters : undefined}
+            />
+          }
+        >
+          <FilterChips label="Door" options={view.doors} value={door} onChange={setDoor} />
+          <FilterChips label="Activity" options={view.activities} value={activity} onChange={setActivity} />
+          <Select
+            aria-label="Signed in"
+            className={filterSelectClass}
+            value={period}
+            onChange={(e) => setPeriod(e.target.value as PeriodFilter)}
+          >
+            {view.periods.map((p) => (
+              <Option key={p.id} value={p.id}>
+                {p.label} ({p.count})
+              </Option>
+            ))}
+          </Select>
+        </FilterBar>
+      )}
+
       {log.loading ? (
         <Text className="text-sm text-ink-3">Loading…</Text>
       ) : sessions.length === 0 ? (
         <Card>
           <EmptyState
             icon={KeyRound}
-            title={search.trim() ? 'Nothing matches that' : 'No staff sign-ins yet'}
+            title={q ? 'No sign-ins match that search' : 'No staff sign-ins yet'}
             description={
-              search.trim()
-                ? 'Clear the filter in the header.'
+              q
+                ? 'Clear the box in the header.'
                 : 'When someone signs in to a restaurant with the staff password, it appears here.'
+            }
+          />
+        </Card>
+      ) : view.shown.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon={KeyRound}
+            title="No sign-ins match these filters"
+            description="Try another door, activity or period."
+            action={
+              <Button variant="secondary" onClick={clearFilters}>
+                Clear filters
+              </Button>
             }
           />
         </Card>
       ) : (
         <Box className="space-y-2.5">
-          {sessions.map((session) => (
+          {view.shown.map((session) => (
             <SessionCard key={session.sessionId} session={session} />
           ))}
         </Box>

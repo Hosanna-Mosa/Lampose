@@ -11,15 +11,18 @@ const BASE = "/api/v2/sales";
 
 type DutyResponse = { success: true; data: { salesRep: SalesRep } };
 
-/** Turning ON requires a starting fix; turning OFF does not. */
+/** Turning ON requires a starting fix; turning OFF does not. `timeoutMs`
+ *  is for sign-out, which must not sit on a dead connection. */
 export async function setDuty(
   token: string,
   onDuty: boolean,
   coords?: { lat: number; lng: number; accuracy?: number | null },
+  timeoutMs?: number,
 ) {
   const res = await api<DutyResponse>(`${BASE}/me/duty`, {
     method: "PATCH",
     token,
+    timeoutMs,
     body: onDuty
       ? { onDuty: true, lat: coords?.lat, lng: coords?.lng, accuracy: coords?.accuracy ?? undefined }
       : { onDuty: false },

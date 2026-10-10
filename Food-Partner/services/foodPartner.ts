@@ -311,6 +311,13 @@ export type ServerOrder = {
   pickupCode?: string;
   promisedMinutes?: number;
   rejectionReason?: string;
+  /**
+   * What this restaurant may move the order to right now — the server's own
+   * `partnerMovesFor`. Wider than the fixed table on one order: one the
+   * restaurant is delivering itself may be marked `picked_up` from `ready`.
+   * Optional so an older server's answer still types.
+   */
+  moves?: string[];
   placedAt: string;
 };
 

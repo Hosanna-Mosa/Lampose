@@ -251,18 +251,61 @@ const withdrawalsFor = async (driverId, { limit = 20 } = {}) => {
   return rows.map((row) => withdrawalView(row));
 };
 
-/** The console's queue: by status, oldest request first for `requested`. */
-const listWithdrawals = async ({ status = 'requested', limit = 100 } = {}) => {
-  const filter = status && status !== 'all' ? { status } : {};
+/** The console's queue: by status, oldest request first for `requested`.
+ *
+ *  `search` (rider, phone, reference, UPI id) and `method` (`bank` / `upi`)
+ *  narrow it on the server, because the list stops at a page and a search over
+ *  one page silently misses the rest. `counts` stays the whole collection —
+ *  the stat cards; `facets` counts each dimension under the OTHER filters, so
+ *  a chip's number is what that chip would show. */
+const listWithdrawals = async ({ status = 'requested', search = '', method = '', limit = 100 } = {}) => {
+  const clauses = {};
+  if (status && status !== 'all') clauses.status = { status };
+  const q = String(search || '').trim();
+  if (q) {
+    const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    clauses.search = {
+      $or: [
+        { withdrawalId: rx }, { driverId: rx }, { driverName: rx }, { driverPhone: rx },
+        { 'account.upiId': rx }, { 'account.accountHolderName': rx }, { reference: rx },
+      ],
+    };
+  }
+  /* A request can carry both; it then counts under both. */
+  if (method === 'bank') clauses.method = { 'account.accountLast4': { $nin: ['', null] } };
+  else if (method === 'upi') clauses.method = { 'account.upiId': { $nin: ['', null] } };
+
+  const where = (...skip) => {
+    const parts = Object.entries(clauses).filter(([k]) => !skip.includes(k)).map(([, v]) => v);
+    return parts.length ? { $and: parts } : {};
+  };
+  const byMethod = where('method');
+
   const sort = status === 'requested' ? { requestedAt: 1 } : { requestedAt: -1 };
-  const [rows, counts] = await Promise.all([
-    RiderWithdrawal.find(filter).sort(sort).limit(Math.min(limit, 200)).lean(),
+  const [rows, counts, statusFacet, anyMethod, bank, upi, matching] = await Promise.all([
+    RiderWithdrawal.find(where()).sort(sort).limit(Math.min(limit, 200)).lean(),
     RiderWithdrawal.aggregate([
       { $group: { _id: '$status', n: { $sum: 1 }, paise: { $sum: '$amountPaise' } } },
     ]),
+    RiderWithdrawal.aggregate([{ $match: where('status') }, { $group: { _id: '$status', n: { $sum: 1 } } }]),
+    RiderWithdrawal.countDocuments(byMethod),
+    RiderWithdrawal.countDocuments({ ...byMethod, 'account.accountLast4': { $nin: ['', null] } }),
+    RiderWithdrawal.countDocuments({ ...byMethod, 'account.upiId': { $nin: ['', null] } }),
+    RiderWithdrawal.countDocuments(where()),
   ]);
   const byStatus = Object.fromEntries(counts.map((c) => [c._id, { count: c.n, amountPaise: c.paise }]));
-  return { items: rows.map((row) => withdrawalView(row)), counts: byStatus };
+  return {
+    items: rows.map((row) => withdrawalView(row)),
+    counts: byStatus,
+    facets: {
+      status: {
+        ...Object.fromEntries(statusFacet.map((c) => [c._id, c.n])),
+        all: statusFacet.reduce((sum, c) => sum + c.n, 0),
+      },
+      method: { all: anyMethod, bank, upi },
+      matching,
+    },
+  };
 };
 
 /** One request; `full` (the payer) includes the account number. */

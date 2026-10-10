@@ -45,7 +45,7 @@ const riderLedger = require('./riderLedger.service');
 const accountNotifier = require('./driverAccount.notifier');
 
 const {
-  DRIVER_STATUSES, DOCUMENT_KINDS, DOCUMENT_LABELS, DOCUMENT_STATUSES,
+  DRIVER_STATUSES, VEHICLE_TYPES, DOCUMENT_KINDS, DOCUMENT_LABELS, DOCUMENT_STATUSES,
   hasFreshLocation, documentChecklist, onboardingProgress,
 } = Driver;
 
@@ -157,11 +157,15 @@ const listDrivers = async (req, res, next) => {
   try {
     if (!isUp()) return dbDown(res);
 
-    const filter = {};
+    /* Each filter dimension is kept as its own clause so the facet counts
+       below can apply "everything except me" — the number on the Approved
+       chip is how many riders Approved would show under the search, duty and
+       vehicle already chosen, not a count of the whole collection. */
+    const clauses = {};
     const asked = String(req.query.status || '').trim();
     if (asked) {
       const wanted = asked.split(',').map((s) => s.trim()).filter((s) => DRIVER_STATUSES.includes(s));
-      if (wanted.length) filter.status = { $in: wanted };
+      if (wanted.length) clauses.status = { status: { $in: wanted } };
     }
 
     const search = String(req.query.search || '').trim();
@@ -169,28 +173,57 @@ const listDrivers = async (req, res, next) => {
       /* Escaped before it becomes a regex — an operator pasting a phone number
          with a `+` in it must not build a pattern. */
       const safe = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      filter.$or = [
-        { name: new RegExp(safe, 'i') },
-        { phone: new RegExp(safe, 'i') },
-        { driverId: new RegExp(safe, 'i') },
-      ];
+      clauses.search = {
+        $or: [
+          { name: new RegExp(safe, 'i') },
+          { phone: new RegExp(safe, 'i') },
+          { driverId: new RegExp(safe, 'i') },
+          { 'vehicle.plate': new RegExp(safe, 'i') },
+          { city: new RegExp(safe, 'i') },
+        ],
+      };
     }
 
     /* "Show me who is actually on the road right now." Its own filter rather
        than a status, because duty and approval are orthogonal — an approved
        rider is usually offline, and an operator chasing a stuck order wants
        the small live set, not the roster. */
-    if (String(req.query.online || '') === 'true') filter.isOnline = true;
+    if (String(req.query.online || '') === 'true') clauses.online = { isOnline: true };
+
+    const vehicle = String(req.query.vehicle || '').trim();
+    if (VEHICLE_TYPES.includes(vehicle)) clauses.vehicle = { 'vehicle.type': vehicle };
+
+    const where = (...skip) => {
+      const parts = Object.entries(clauses).filter(([k]) => !skip.includes(k)).map(([, v]) => v);
+      return parts.length ? { $and: parts } : {};
+    };
+    const filter = where();
 
     const limit = Math.min(Number(req.query.limit) || LIST_LIMIT, LIST_LIMIT);
 
-    const [rows, grouped, onlineCount] = await Promise.all([
+    const [rows, grouped, onlineCount, byStatus, byVehicle, onlineHere, matching] = await Promise.all([
       Driver.find(filter).sort({ createdAt: -1 }).limit(limit).lean(),
       Driver.aggregate([{ $group: { _id: '$status', n: { $sum: 1 } } }]),
       Driver.countDocuments({ isOnline: true }),
+      Driver.aggregate([{ $match: where('status') }, { $group: { _id: '$status', n: { $sum: 1 } } }]),
+      Driver.aggregate([{ $match: where('vehicle') }, { $group: { _id: '$vehicle.type', n: { $sum: 1 } } }]),
+      /* What the duty toggle would leave: the other filters, plus on duty. */
+      Driver.countDocuments({ ...where('online'), isOnline: true }),
+      Driver.countDocuments(filter),
     ]);
 
+    /* `counts` is the whole collection (the summary cards); `facets` is the
+       same question asked under the other filters (the chips). */
     const counts = grouped.reduce((acc, row) => ({ ...acc, [row._id]: row.n }), {});
+    const tally = (list) => list.reduce((acc, row) => ({ ...acc, [row._id || 'unset']: row.n }), {});
+    const statusFacet = tally(byStatus);
+    const facets = {
+      status: { ...statusFacet, all: Object.values(statusFacet).reduce((a, b) => a + b, 0) },
+      vehicle: tally(byVehicle),
+      online: onlineHere,
+      /* Every rider these filters match — the list itself stops at LIST_LIMIT. */
+      matching,
+    };
 
     /* Cash each rider on this page is holding — two aggregations for the whole
        page, not one per row. */
@@ -228,6 +261,7 @@ const listDrivers = async (req, res, next) => {
       success: true,
       count: data.length,
       counts: { ...counts, online: onlineCount },
+      facets,
       data,
     });
   } catch (error) {

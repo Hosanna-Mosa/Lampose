@@ -167,6 +167,73 @@ const getSalesRepPath = async (req, res) => {
   }
 };
 
+/**
+ * Deactivate or reactivate a rep.
+ *
+ * Deactivating takes them off duty and bumps `sessionVersion`, so the phone's
+ * token stops working on its next call (`salesAuth.middleware.js` answers
+ * ACCOUNT_INACTIVE, which the Tracker app treats as "signed out, stop
+ * sharing location"). Their path history is kept. Before this route the only
+ * way to stop a rep was editing the database.
+ *
+ * @route PATCH /api/v1/admin/sales-reps/:salesRepId   body: { status }
+ */
+const setSalesRepStatus = async (req, res) => {
+  if (!isUp()) return dbDown(res);
+  try {
+    const status = String((req.body || {}).status || '');
+    if (!['active', 'inactive'].includes(status)) {
+      return fail(res, 400, 'VALIDATION', 'Send status as "active" or "inactive".');
+    }
+
+    const update = status === 'inactive'
+      ? { $set: { status, onDuty: false, dutyStartedAt: null }, $inc: { sessionVersion: 1 } }
+      : { $set: { status } };
+    const rep = await SalesRep.findOneAndUpdate(
+      { salesRepId: String(req.params.salesRepId || '') },
+      update,
+      { new: true },
+    );
+    if (!rep) return fail(res, 404, 'NOT_FOUND', 'No sales rep with that id.');
+
+    console.log(`🧭 [sales-admin] ${rep.salesRepId} set ${status} by ${req.admin?.email || 'an administrator'}`);
+    return res.json({ success: true, data: { salesRep: rep.toAdminSummary() } });
+  } catch (error) {
+    console.error('❌ [sales-admin] setSalesRepStatus failed:', error.message);
+    return fail(res, 500, 'FAILED', 'Could not change that account.');
+  }
+};
+
+/**
+ * Set a new password for a rep — the admin types it and hands it over, the
+ * same way `createSalesRep` works. Every existing session is signed out.
+ *
+ * @route PUT /api/v1/admin/sales-reps/:salesRepId/password   body: { password }
+ */
+const resetSalesRepPassword = async (req, res) => {
+  if (!isUp()) return dbDown(res);
+  try {
+    const password = String((req.body || {}).password || '');
+    if (password.length < 6) {
+      return fail(res, 400, 'WEAK_PASSWORD', 'Password must be at least 6 characters.');
+    }
+
+    const passwordHash = await SalesRep.hashPassword(password);
+    const rep = await SalesRep.findOneAndUpdate(
+      { salesRepId: String(req.params.salesRepId || '') },
+      { $set: { passwordHash }, $inc: { sessionVersion: 1 } },
+      { new: true },
+    );
+    if (!rep) return fail(res, 404, 'NOT_FOUND', 'No sales rep with that id.');
+
+    console.log(`🧭 [sales-admin] ${rep.salesRepId} password reset by ${req.admin?.email || 'an administrator'}`);
+    return res.json({ success: true, data: { salesRep: rep.toAdminSummary() } });
+  } catch (error) {
+    console.error('❌ [sales-admin] resetSalesRepPassword failed:', error.message);
+    return fail(res, 500, 'FAILED', 'Could not reset that password.');
+  }
+};
+
 module.exports = {
-  createSalesRep, listSalesReps, getSalesRepPath,
+  createSalesRep, listSalesReps, getSalesRepPath, setSalesRepStatus, resetSalesRepPassword,
 };

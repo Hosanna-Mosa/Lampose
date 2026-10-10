@@ -31,6 +31,54 @@ import type {
 /* The versioned path, spelled once. `axiosInstance` supplies the `/api` base. */
 const BASE = '/v1/admin/food-restaurants';
 
+/**
+ * The queue's numbers under the current search (and the other filter), for
+ * the chips. `live`/`paused` split by `isActive`. `counts` stays the whole
+ * queue for the summary cards.
+ */
+export interface FoodQueueMatchCounts extends FoodQueueCounts {
+  live: number;
+  paused: number;
+}
+
+/** One value of a hand-typed field ("Pune") and how many applications carry it. `__none` = left blank. */
+export interface FoodQueueFacetValue {
+  value: string;
+  label: string;
+  n: number;
+}
+
+/**
+ * A count for every choice on the queue's filters, each counted under the
+ * search and every OTHER filter — what clicking it would show.
+ */
+export interface FoodQueueFacets {
+  status: Partial<Record<FoodVerificationStatus, number>>;
+  listing: Partial<Record<'live' | 'paused', number>>;
+  city: FoodQueueFacetValue[];
+  state: FoodQueueFacetValue[];
+  cuisine: FoodQueueFacetValue[];
+  applied: Partial<Record<'1' | '7' | '30' | '90', number>>;
+  fssai: Partial<Record<'has' | 'missing' | 'expired', number>>;
+  payout: Partial<Record<'has' | 'missing', number>>;
+  pin: Partial<Record<'pinned' | 'unpinned', number>>;
+  menu: Partial<Record<'has' | 'none', number>>;
+  dineIn: Partial<Record<'on' | 'off', number>>;
+}
+
+/** The queue's filters beyond status. '' or 'all' = not chosen. */
+export interface FoodQueueFilters {
+  city?: string;
+  state?: string;
+  cuisine?: string;
+  applied?: string;
+  fssai?: string;
+  payout?: string;
+  pin?: string;
+  menu?: string;
+  dineIn?: string;
+}
+
 const num = (value: unknown, fallback = 0): number => {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -81,14 +129,24 @@ export const foodAdminService = {
   async getRestaurants(params?: {
     status?: FoodVerificationStatus | 'all';
     search?: string;
+    /** Approved kitchens only mean anything here: listed now, or paused. */
+    listing?: 'live' | 'paused' | 'all';
     limit?: number;
-  }): Promise<ApiResponse<FoodRestaurantRow[]> & { counts?: FoodQueueCounts }> {
+  } & FoodQueueFilters): Promise<
+    ApiResponse<FoodRestaurantRow[]> & {
+      counts?: FoodQueueCounts;
+      matchCounts?: FoodQueueMatchCounts;
+      facets?: FoodQueueFacets;
+    }
+  > {
     const res = await api.get<any>(`${BASE}`, params);
     if (!res.success) return { ...res, data: [] };
     return {
       ...res,
       data: unwrapList(res.data).map(normalizeRow),
       counts: res.data?.counts as FoodQueueCounts | undefined,
+      matchCounts: res.data?.matchCounts as FoodQueueMatchCounts | undefined,
+      facets: res.data?.facets as FoodQueueFacets | undefined,
     };
   },
 

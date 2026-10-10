@@ -4,7 +4,7 @@
    session is actually gone, not lose it on the same tap.
    ══════════════════════════════════════════════════════════════════════════ */
 import { router } from "expo-router";
-import React from "react";
+import React, { useState } from "react";
 import { StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Box, Btn, Text } from "@/components/common";
@@ -15,16 +15,24 @@ export function LogoutScreen() {
   const insets = useSafeAreaInsets();
   const rep = useAuthStore((s) => s.session?.salesRep);
   const signOut = useAuthStore((s) => s.signOut);
+  const [busy, setBusy] = useState(false);
 
   /*
-   * `signOut()` clears `session` synchronously — nothing here calls
+   * `signOut()` first tells the server the rep is off duty (bounded by a
+   * short timeout, never fatal), then clears `session` — nothing here calls
    * `router.replace`. `app/_layout.tsx`'s `Stack.Protected guard={signedIn}`
-   * picks that change up on the very same render and swaps back to "index"
-   * on its own, the same way `driver/app/_layout.tsx`'s own logout handler
-   * already relies on its guard rather than an explicit navigation call.
+   * picks that change up and swaps back to "index" on its own, the same way
+   * `driver/app/_layout.tsx`'s own logout handler already relies on its
+   * guard rather than an explicit navigation call. `busy` is only reset on
+   * a throw: on success this screen is already gone.
    */
-  const confirm = () => {
-    signOut();
+  const confirm = async () => {
+    setBusy(true);
+    try {
+      await signOut();
+    } catch {
+      setBusy(false);
+    }
   };
 
   return (
@@ -43,8 +51,8 @@ export function LogoutScreen() {
       </Box>
 
       <Box style={{ gap: space[3], width: "100%" }}>
-        <Btn label="Log out" variant="danger" onPress={confirm} />
-        <Btn label="Stay signed in" variant="ghost" onPress={() => router.back()} />
+        <Btn label="Log out" variant="danger" onPress={confirm} loading={busy} />
+        <Btn label="Stay signed in" variant="ghost" onPress={() => router.back()} disabled={busy} />
       </Box>
     </Box>
   );

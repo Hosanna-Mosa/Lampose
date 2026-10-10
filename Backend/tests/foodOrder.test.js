@@ -468,6 +468,28 @@ describe('placing an order', () => {
     assert.notEqual(theirs.body.data.orderNumber, first.body.data.orderNumber);
   });
 
+  it('the same attempt sent again as CASH switches the abandoned online order, not back to the gateway', async () => {
+    await makeKitchen();
+    await makeDish();
+    const { token } = await makeDiner();
+
+    const online = order({ clientRequestId: 'chk-switch-1', paymentMode: 'online' });
+    const first = await call('POST', '/api/v2/food-partners/orders', { token, body: online });
+    assert.equal(first.status, 201, JSON.stringify(first.body));
+    assert.equal(first.body.nextStep, 'payment');
+
+    /* Backed out of the gateway, picked Cash, tapped Pay: same key. */
+    const cash = { ...online, paymentMode: 'cod' };
+    const again = await call('POST', '/api/v2/food-partners/orders', { token, body: cash });
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.equal(again.body.nextStep, 'track');
+    assert.equal(again.body.data.orderNumber, first.body.data.orderNumber);
+
+    const row = await FoodOrder.findOne({}).lean();
+    assert.equal(row.paymentMode, 'cod');
+    assert.equal(await FoodOrder.countDocuments({}), 1);
+  });
+
   it('refuses an order with no session', async () => {
     await makeKitchen();
     await makeDish();

@@ -78,7 +78,10 @@ const scrapedLeadSchema = new mongoose.Schema(
      *
      * NOT added to `scrapeJobSchema.source` below: you cannot scrape Manual.
      */
-    source: { type: String, enum: ['GoogleMaps', 'JustDial', 'Web', 'Manual'], required: true },
+    /* `Website` is a sign-up from lampose.com's "Notify me" form
+       (websiteInterest.routes.js) — a person asking to hear from us, not a
+       business anybody found. */
+    source: { type: String, enum: ['GoogleMaps', 'JustDial', 'Web', 'Manual', 'Website'], required: true },
     businessName: { type: String, required: true, trim: true },
     phone: { type: String, trim: true, default: '' },
     email: { type: String, trim: true, default: '' },

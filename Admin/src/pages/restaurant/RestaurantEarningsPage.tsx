@@ -64,6 +64,9 @@ import { Table, Td, Th, Tr } from '../../components/common/atoms/Table';
 import { Text } from '../../components/common/atoms/Text';
 import { EmptyState } from '../../components/common/molecules/EmptyState';
 import { ErrorState } from '../../components/common/molecules/ErrorState';
+import { FilterBar } from '../../components/common/molecules/FilterBar';
+import { FilterChips } from '../../components/common/molecules/FilterChips';
+import { ResultCount } from '../../components/common/molecules/ResultCount';
 import { Field } from '../../components/common/molecules/Field';
 import { PageHeader } from '../../components/common/molecules/PageHeader';
 import { StatCard } from '../../components/common/molecules/StatCard';
@@ -74,7 +77,7 @@ import { cx } from '../../components/common/utils';
 import { PayoutAccounts } from '../../components/restaurant/organisms/PayoutAccounts';
 import { PayoutRequest } from '../../components/restaurant/organisms/PayoutRequest';
 import { restaurantAdminService } from '../../api/services/restaurantAdminService';
-import type { EarningsBucket } from '../../api/services/restaurantAdminService';
+import type { EarningsBucket, RestaurantEarnings } from '../../api/services/restaurantAdminService';
 import { useFetch } from '../../lib/useFetch';
 import { formatDate, percent, rupees } from '../../lib/format';
 
@@ -103,6 +106,25 @@ const PRESETS = [
   { id: 'month', label: 'This month', from: startOfMonth, to: () => isoDay(new Date()) },
   { id: '90', label: 'Last 90 days', from: () => daysAgo(89), to: () => isoDay(new Date()) },
 ];
+
+/* ── Ledger filters ───────────────────────────────────────────────────────
+   Who paid, and how it left the kitchen. Counted from the server's period
+   buckets, not from the ledger rows: the ledger is capped at the newest 200,
+   and a chip counting those would undercount a busy month. The buckets carry
+   the delivery/pickup split per payment side, so each chip's count is exact
+   with the OTHER filter applied. A pickup is `fulfilment === 'pickup'`;
+   everything else is a delivery — the same rule the server buckets by. */
+type PaidByFilter = 'all' | 'online' | 'cash';
+type FulfilmentFilter = 'all' | 'delivery' | 'pickup';
+
+const ledgerCount = (
+  paidBy: RestaurantEarnings['paidBy'],
+  side: PaidByFilter,
+  how: FulfilmentFilter
+): number => {
+  const buckets = side === 'all' ? [paidBy.online, paidBy.cash] : [paidBy[side]];
+  return buckets.reduce((n, b) => n + (how === 'all' ? b.orders : b[how]), 0);
+};
 
 /** One side of the cash/online split. */
 const SettlementCard: React.FC<{
@@ -135,6 +157,8 @@ export const RestaurantEarningsPage: React.FC = () => {
   const [to, setTo] = useState(() => isoDay(new Date()));
   const [preset, setPreset] = useState('30');
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [paidByFilter, setPaidByFilter] = useState<PaidByFilter>('all');
+  const [howFilter, setHowFilter] = useState<FulfilmentFilter>('all');
 
   const earnings = useFetch(() => restaurantAdminService.earnings({ from, to }), [from, to]);
   const data = earnings.data;
@@ -208,7 +232,30 @@ export const RestaurantEarningsPage: React.FC = () => {
 
   const totals = data?.totals;
 
-  const rows = useMemo(() => data?.ledger ?? [], [data]);
+  const ledger = useMemo(() => data?.ledger ?? [], [data]);
+
+  /* Chips only, no search box. The totals and the cash/online cards above are
+     the whole period; a search would narrow this table and leave them saying
+     something else, and it could only search the 200 rows that were sent. The
+     chips narrow by the same two splits the cards already show, so the table
+     and the figures above it still read as one statement. */
+  const rows = useMemo(
+    () =>
+      ledger.filter(
+        (row) =>
+          (paidByFilter === 'all' || row.paidBy === paidByFilter) &&
+          (howFilter === 'all' || (row.fulfilment === 'pickup') === (howFilter === 'pickup'))
+      ),
+    [ledger, paidByFilter, howFilter]
+  );
+  const ledgerFiltered = paidByFilter !== 'all' || howFilter !== 'all';
+  const clearLedgerFilters = () => {
+    setPaidByFilter('all');
+    setHowFilter('all');
+  };
+  const countFor = (side: PaidByFilter, how: FulfilmentFilter): number | null =>
+    data ? ledgerCount(data.paidBy, side, how) : null;
+  const ledgerTotal = countFor(paidByFilter, howFilter) ?? rows.length;
 
   return (
     <Box className="space-y-5">
@@ -218,7 +265,7 @@ export const RestaurantEarningsPage: React.FC = () => {
         description="What you have earned from delivered orders, and what came off the top."
         actions={
           <Box className="flex items-center gap-2">
-            {data && !data.ledgerTruncated && rows.length > 0 && (
+            {data && !data.ledgerTruncated && ledger.length > 0 && (
               <Button size="sm" variant="secondary" icon={Download} onClick={downloadCsv}>
                 Export CSV
               </Button>
@@ -388,6 +435,41 @@ export const RestaurantEarningsPage: React.FC = () => {
         <Heading level={2} className="text-label uppercase text-ink-3 mb-2">
           Every order in this period
         </Heading>
+        {ledger.length > 0 && (
+          <FilterBar
+            className="mb-2.5"
+            summary={
+              <ResultCount
+                shown={rows.length}
+                total={Math.max(ledgerTotal, rows.length)}
+                noun="orders"
+                filtered={ledgerFiltered || rows.length < ledgerTotal}
+                onClear={ledgerFiltered ? clearLedgerFilters : undefined}
+              />
+            }
+          >
+            <FilterChips<PaidByFilter>
+              label="Paid by"
+              value={paidByFilter}
+              onChange={setPaidByFilter}
+              options={[
+                { id: 'all', label: 'All', count: countFor('all', howFilter) },
+                { id: 'online', label: 'Online', count: countFor('online', howFilter), tone: 'brand' },
+                { id: 'cash', label: 'Cash', count: countFor('cash', howFilter) },
+              ]}
+            />
+            <FilterChips<FulfilmentFilter>
+              label="Fulfilment"
+              value={howFilter}
+              onChange={setHowFilter}
+              options={[
+                { id: 'all', label: 'Delivered & collected', count: countFor(paidByFilter, 'all') },
+                { id: 'delivery', label: 'Delivered', count: countFor(paidByFilter, 'delivery') },
+                { id: 'pickup', label: 'Collected', count: countFor(paidByFilter, 'pickup') },
+              ]}
+            />
+          </FilterBar>
+        )}
         <Card>
           <Table>
             <TableHead>
@@ -408,8 +490,21 @@ export const RestaurantEarningsPage: React.FC = () => {
                   <PlainTd colSpan={6}>
                     <EmptyState
                       icon={Receipt}
-                      title="Nothing delivered in this period"
-                      description="Only delivered orders count towards earnings. Try a longer period."
+                      title={
+                        ledger.length ? 'No orders match these filters' : 'Nothing delivered in this period'
+                      }
+                      description={
+                        ledger.length
+                          ? 'Nothing in this period was paid and fulfilled that way.'
+                          : 'Only delivered orders count towards earnings. Try a longer period.'
+                      }
+                      action={
+                        ledger.length ? (
+                          <Button size="sm" variant="secondary" onClick={clearLedgerFilters}>
+                            Clear filters
+                          </Button>
+                        ) : undefined
+                      }
                     />
                   </PlainTd>
                 </PlainTr>

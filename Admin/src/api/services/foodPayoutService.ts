@@ -56,24 +56,36 @@ export interface FoodPayoutQueue {
   /** Per-status tallies, computed unfiltered so a badge cannot depend on the
    *  tab that happens to be open. */
   counts: Partial<Record<FoodPayoutStatus, number>>;
+  /** Per-status tallies under `q` and `days` — the numbers on the chips. */
+  matchCounts: Partial<Record<FoodPayoutStatus, number>>;
   /** Money asked for and not yet sent — the number the page is opened for. */
   owed: number;
 }
 
 export const foodPayoutService = {
   /** `status` accepts a comma-joined list, or 'all'. */
-  async list(params: { status?: string; limit?: number } = {}): Promise<ApiResponse<FoodPayoutQueue>> {
+  /** `q` matches payout id, restaurant, reference or account ending; `days`
+   *  keeps requests made in the last N days. */
+  async list(
+    params: { status?: string; limit?: number; q?: string; days?: number } = {}
+  ): Promise<ApiResponse<FoodPayoutQueue>> {
     const res = await api.get<{
       data: FoodPayoutRow[];
       counts: Partial<Record<FoodPayoutStatus, number>>;
+      matchCounts: Partial<Record<FoodPayoutStatus, number>>;
       owed: number;
     }>(BASE, params);
     return res.success
       ? {
         ...res,
-        data: { rows: res.data?.data ?? [], counts: res.data?.counts ?? {}, owed: res.data?.owed ?? 0 },
+        data: {
+          rows: res.data?.data ?? [],
+          counts: res.data?.counts ?? {},
+          matchCounts: res.data?.matchCounts ?? {},
+          owed: res.data?.owed ?? 0,
+        },
       }
-      : { ...res, data: { rows: [], counts: {}, owed: 0 } };
+      : { ...res, data: { rows: [], counts: {}, matchCounts: {}, owed: 0 } };
   },
 
   async get(payoutId: string): Promise<ApiResponse<FoodPayoutRow | null>> {

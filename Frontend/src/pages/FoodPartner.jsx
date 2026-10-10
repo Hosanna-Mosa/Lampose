@@ -254,5 +254,5 @@ function OriginalFoodPartner() {
 ══════════════════════════════════════════════════════════════════════════ */
 
 export function FoodPartner() {
-  return <ComingSoon />;
+  return <ComingSoon page="food-partner" />;
 }
