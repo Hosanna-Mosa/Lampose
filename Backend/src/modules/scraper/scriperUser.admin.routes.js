@@ -17,6 +17,7 @@ const express = require('express');
 const router = express.Router();
 
 const dbStore = require('./scraper.store');
+const audit = require('../admins/adminAuditLog.model');
 const requireSuperAdmin = require('../../shared/middleware/requireSuperAdmin');
 const { requireScriperStore } = require('../../shared/middleware/requireDb');
 
@@ -81,6 +82,12 @@ router.post('/', async (req, res) => {
 
     const user = await dbStore.createUser({ name, email, password, role, avatar });
     console.log(`✅ [Scriper User Created] "${user.email}" (${user.role})${generated ? ' · temporary password generated' : ''}`);
+    await audit.record(req, {
+      action: 'staff.created',
+      targetType: 'scriper_users',
+      targetId: user.userId,
+      after: { name: user.name, email: user.email, role: user.role },
+    });
 
     /* Returned once and only when WE made it up — echoing a password the admin
        chose would put it in a response body for no reason. */
@@ -102,10 +109,25 @@ router.post('/', async (req, res) => {
 router.put('/:userId', async (req, res) => {
   try {
     const { name, email, role, avatar, password } = req.body || {};
+    if (password && String(password).length < MIN_PASSWORD) {
+      return res.status(400).json({
+        success: false,
+        message: `Password must be at least ${MIN_PASSWORD} characters long.`,
+      });
+    }
+    const before = await dbStore.findUserById(req.params.userId);
     const updated = await dbStore.updateUser(req.params.userId, { name, email, role, avatar, password });
     if (!updated) return res.status(404).json({ success: false, message: 'User not found.' });
 
     console.log(`✏️ [Scriper User Updated] "${updated.email}"`);
+    await audit.record(req, {
+      action: 'staff.updated',
+      targetType: 'scriper_users',
+      targetId: updated.userId,
+      before: before && { name: before.name, email: before.email, role: before.role },
+      /* That a password was reset, never what it was reset to. */
+      after: { name: updated.name, email: updated.email, role: updated.role, passwordReset: Boolean(password) },
+    });
     return res.json({ success: true, message: 'User updated.', data: updated });
   } catch (error) {
     console.error(`❌ [PUT /api/admin/scriper-users/${req.params.userId} Error]:`, error.message);
@@ -119,14 +141,92 @@ router.put('/:userId', async (req, res) => {
 // @route   DELETE /api/admin/scriper-users/:userId
 router.delete('/:userId', async (req, res) => {
   try {
+    const before = await dbStore.findUserById(req.params.userId);
     const deleted = await dbStore.deleteUser(req.params.userId);
     if (!deleted) return res.status(404).json({ success: false, message: 'User not found.' });
 
     console.log(`🗑️ [Scriper User Deleted] ID: ${req.params.userId}`);
+    await audit.record(req, {
+      action: 'staff.deleted',
+      targetType: 'scriper_users',
+      targetId: req.params.userId,
+      before: before && { name: before.name, email: before.email, role: before.role },
+    });
     return res.json({ success: true, message: 'User deleted.' });
   } catch (error) {
     console.error(`❌ [DELETE /api/admin/scriper-users/${req.params.userId} Error]:`, error.message);
     return res.status(500).json({ success: false, message: error.message || 'Error deleting user.' });
+  }
+});
+
+/*
+ * Take somebody off the job without erasing them.
+ *
+ * The account stays — so their onboarding history stays attributed to a
+ * person who still exists — but it cannot sign in, and every session it
+ * already holds (the Onboard app on their phone, a leads-panel tab) is
+ * refused at its next request. Reversible, unlike DELETE.
+ */
+// @route   POST /api/admin/scriper-users/:userId/suspend   { reason? }
+router.post('/:userId/suspend', async (req, res) => {
+  try {
+    const reason = String((req.body && req.body.reason) || '').trim();
+    const updated = await dbStore.setUserStatus(req.params.userId, { suspended: true, reason });
+    if (!updated) return res.status(404).json({ success: false, message: 'User not found.' });
+
+    console.log(`⛔ [Scriper User Suspended] "${updated.email}"${reason ? ` · ${reason}` : ''}`);
+    await audit.record(req, {
+      action: 'staff.suspended',
+      targetType: 'scriper_users',
+      targetId: updated.userId,
+      before: { status: 'active' },
+      after: { status: 'suspended', reason },
+    });
+    return res.json({ success: true, message: 'Account suspended and signed out everywhere.', data: updated });
+  } catch (error) {
+    console.error(`❌ [POST /api/admin/scriper-users/${req.params.userId}/suspend Error]:`, error.message);
+    return res.status(500).json({ success: false, message: error.message || 'Error suspending user.' });
+  }
+});
+
+// @route   POST /api/admin/scriper-users/:userId/reactivate
+router.post('/:userId/reactivate', async (req, res) => {
+  try {
+    const updated = await dbStore.setUserStatus(req.params.userId, { suspended: false });
+    if (!updated) return res.status(404).json({ success: false, message: 'User not found.' });
+
+    console.log(`✅ [Scriper User Reactivated] "${updated.email}"`);
+    await audit.record(req, {
+      action: 'staff.reactivated',
+      targetType: 'scriper_users',
+      targetId: updated.userId,
+      before: { status: 'suspended' },
+      after: { status: 'active' },
+    });
+    return res.json({ success: true, message: 'Account reactivated.', data: updated });
+  } catch (error) {
+    console.error(`❌ [POST /api/admin/scriper-users/${req.params.userId}/reactivate Error]:`, error.message);
+    return res.status(500).json({ success: false, message: error.message || 'Error reactivating user.' });
+  }
+});
+
+/* Ends every open session but leaves the account usable — for a lost phone
+   or a shared password, where suspending would be the wrong message. */
+// @route   POST /api/admin/scriper-users/:userId/sign-out
+router.post('/:userId/sign-out', async (req, res) => {
+  try {
+    const version = await dbStore.revokeSessions(req.params.userId);
+    if (version === null) return res.status(404).json({ success: false, message: 'User not found.' });
+
+    await audit.record(req, {
+      action: 'staff.signed_out_everywhere',
+      targetType: 'scriper_users',
+      targetId: req.params.userId,
+    });
+    return res.json({ success: true, message: 'Signed out of every device.' });
+  } catch (error) {
+    console.error(`❌ [POST /api/admin/scriper-users/${req.params.userId}/sign-out Error]:`, error.message);
+    return res.status(500).json({ success: false, message: error.message || 'Error signing the user out.' });
   }
 });
 

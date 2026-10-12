@@ -752,6 +752,29 @@ const foodRestaurantSchema = new mongoose.Schema(
       type: String, enum: VERIFICATION_STATUSES, default: 'pending', index: true,
     },
 
+    /*
+     * The Lampose employee who filled the application in on the Onboard
+     * console — what the admin console's Onboarding Team counts per person.
+     *
+     * Written by `submitApplication` from the VERIFIED staff token, never from
+     * the body, so an agent cannot credit a restaurant to somebody else. Null
+     * on an application the owner sent themselves (Food-Partner app, website),
+     * and on every restaurant onboarded before this field existed — nothing
+     * recorded who those were, so they cannot be attributed after the fact.
+     *
+     * A snapshot of the email rather than a live reference: an account that is
+     * renamed or deleted must not move or lose the restaurants it onboarded,
+     * and properties (`verificationrequests`) are keyed by email the same way.
+     */
+    onboardedBy: {
+      type: new mongoose.Schema({
+        userId: { type: String, default: '' },
+        email: { type: String, default: '', lowercase: true, trim: true },
+        name: { type: String, default: '' },
+      }, { _id: false }),
+      default: null,
+    },
+
     /* Why it was rejected, in words a partner can act on. Shown to them —
        "rejected" with no reason is a support call, every time. */
     verificationNote: { type: String, default: '', trim: true },
@@ -836,6 +859,8 @@ const foodRestaurantSchema = new mongoose.Schema(
 /* The listing screen's floor: nothing unapproved or switched off is ever
    returned, on any query, so this pair leads every one of them. */
 foodRestaurantSchema.index({ isActive: 1, verificationStatus: 1, createdAt: -1 });
+/* The Onboarding Team page groups by this. Sparse: most restaurants have none. */
+foodRestaurantSchema.index({ 'onboardedBy.email': 1 }, { sparse: true });
 
 /* `?lat&lng&radiusKm` on the Restaurant Listing screen. Documents with no
    `location` are simply not in this index, which is the wanted behaviour: a

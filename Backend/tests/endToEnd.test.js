@@ -262,8 +262,10 @@ describe('end to end · two students, one bed', () => {
     assert.equal(arun.body.data.decisionReason, 'INVENTORY_TAKEN');
 
     const after = await call('GET', `/api/v2/listings/${propertyId}`);
-    assert.equal(after.body.data.sharingOptions[0].availableBeds, 0);
-    assert.equal(after.body.data.sharingOptions[0].requestable, false);
+    /* Full — and still askable (see `openForRequest`): the count is not shown
+       as a fact, and the next request carries no promise of a bed. */
+    assert.equal(after.body.data.sharingOptions[0].availableBeds, null);
+    assert.equal(after.body.data.sharingOptions[0].requestable, true);
   });
 });
 
@@ -465,7 +467,7 @@ describe('end to end · the refusals a real catalogue produces', () => {
     assert.equal(await VisitRequest.countDocuments({ listingId: String(orphan._id) }), 0);
   });
 
-  it('a property with no bed counts says so specifically, not "full"', async () => {
+  it('a property with no bed counts can still be asked — with no bed promised', async () => {
     const { a } = await cast(2);
 
     const uncounted = await Property.create({
@@ -476,10 +478,10 @@ describe('end to end · the refusals a real catalogue produces', () => {
     await syncShareTypes(uncounted);
 
     const { status, body } = await send(a.token, String(uncounted._id));
-    assert.equal(status, 422);
-    /* "Nobody counted the beds" and "every bed is taken" are different
-       problems and only one of them is about being busy. */
-    assert.equal(body.code, 'INVENTORY_NOT_SET');
+    /* An owner who never counted their beds is still an owner who can say
+       yes; if they do not, the team can ring them. */
+    assert.equal(status, 201);
+    assert.equal(body.data.status, 'pending_owner');
   });
 
   it('and asking twice on one listing is refused', async () => {

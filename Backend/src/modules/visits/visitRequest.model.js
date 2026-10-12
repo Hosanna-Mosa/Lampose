@@ -71,10 +71,21 @@ const CHANNELS = ['web', 'app'];
    either side, before it was paid for. `PAYMENT_LAPSED` — the owner accepted
    and the payment window closed with nothing paid. Both used to leave the
    request `confirmed` for good: still payable, and blocking the student. */
+/* `TEAM_UNAVAILABLE` — the owner never answered, the student asked the
+   Lampose team, and the team rang the owner and was told no room. */
 const DECISION_REASONS = [
   'OWNER_DECLINED', 'INVENTORY_TAKEN', 'NO_ANSWER', 'STUDENT_WITHDREW',
-  'BOOKING_CANCELLED', 'PAYMENT_LAPSED',
+  'BOOKING_CANCELLED', 'PAYMENT_LAPSED', 'TEAM_UNAVAILABLE',
 ];
+
+/* How long after an unanswered request the student may still ask the team.
+   Past that the room they asked about is a week-old question. */
+const TEAM_HELP_WINDOW_DAYS = 7;
+
+/* `requested` — the student tapped "Contact Lampose" and the team was sent
+   the WhatsApp; `available` / `unavailable` — what the team said after
+   ringing the owner. */
+const TEAM_HELP_STATUSES = ['none', 'requested', 'available', 'unavailable'];
 
 const visitRequestSchema = new mongoose.Schema(
   {
@@ -472,6 +483,32 @@ const visitRequestSchema = new mongoose.Schema(
     decidedAt: { type: Date, default: null },
     expiresAt: { type: Date, default: null, index: true },
 
+    /*
+     * The Lampose team's follow-up on a request the owner never answered.
+     *
+     * App channel only, and only after `expired` / `NO_ANSWER`. The team's
+     * answer is final: `available` confirms the request exactly as an owner's
+     * Accept would (decidedBy 'lampose_team'), `unavailable` declines it with
+     * TEAM_UNAVAILABLE. `answeredBy` is the team member's WhatsApp number.
+     */
+    /*
+     * Was a free bed COUNTED when this was asked for?
+     *
+     * False when the room type was paused, full or never counted and was
+     * opened to requests anyway (`openForRequest`). Then an Accept, or the
+     * team's "Available", confirms without a bed to take. True (and the
+     * default, so every older row keeps its meaning) means a bed was free at
+     * the time, and finding none at Accept means somebody else took it.
+     */
+    bedCounted: { type: Boolean, default: true },
+
+    teamHelp: {
+      status: { type: String, enum: TEAM_HELP_STATUSES, default: 'none' },
+      requestedAt: { type: Date, default: null },
+      answeredAt: { type: Date, default: null },
+      answeredBy: { type: String, default: null },
+    },
+
     // Kept for rate limiting and abuse investigation only.
     requestIp: { type: String, default: null },
   },
@@ -517,6 +554,18 @@ const secondsLeft = (doc) => {
   if (!doc.expiresAt) return null;
   if (doc.status !== 'pending_owner') return 0;
   return Math.max(0, Math.round((new Date(doc.expiresAt).getTime() - Date.now()) / 1000));
+};
+
+/**
+ * May the student ask the Lampose team about this request? An app request the
+ * owner let run out (not one that lapsed unpaid), not yet handed to the team,
+ * and recent enough that the room is still a live question.
+ */
+const canAskTeam = (doc) => {
+  if (doc.channel !== 'app' || doc.status !== 'expired' || doc.decisionReason !== 'NO_ANSWER') return false;
+  if (doc.teamHelp && doc.teamHelp.status && doc.teamHelp.status !== 'none') return false;
+  const ended = doc.decidedAt || doc.expiresAt;
+  return !ended || Date.now() - new Date(ended).getTime() < TEAM_HELP_WINDOW_DAYS * 24 * 3600 * 1000;
 };
 
 /** What the browser is allowed to see. The owner's number is not in it. */
@@ -674,6 +723,14 @@ visitRequestSchema.methods.toPublic = function toPublic() {
        last bed went while you waited" — different sentences, different
        buttons, and only one of them worth taking personally. */
     decisionReason: this.decisionReason || null,
+
+    /* The team follow-up, and whether the button for it may be shown. */
+    teamHelp: {
+      status: (this.teamHelp && this.teamHelp.status) || 'none',
+      requestedAt: (this.teamHelp && this.teamHelp.requestedAt) || null,
+      answeredAt: (this.teamHelp && this.teamHelp.answeredAt) || null,
+    },
+    canAskTeam: canAskTeam(this),
     /* The owner's own words when they declined. The decline sheet asks for
        "a note for the guest", and it was stored and shown to nobody. */
     declineNote: this.status === 'declined' ? (this.declineNote || null) : null,
@@ -836,3 +893,5 @@ module.exports.STATUSES = STATUSES;
 module.exports.TERMINAL = TERMINAL;
 module.exports.CHANNELS = CHANNELS;
 module.exports.DECISION_REASONS = DECISION_REASONS;
+module.exports.TEAM_HELP_WINDOW_DAYS = TEAM_HELP_WINDOW_DAYS;
+module.exports.canAskTeam = canAskTeam;

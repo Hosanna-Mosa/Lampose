@@ -268,6 +268,10 @@ export interface OnboarderEntity {
   /** verified ÷ (verified + rejected + failed + expired) as a percentage, or
    *  null when nothing has reached an outcome yet. */
   successRate: number | null;
+  /** Restaurants this employee filled in on the Onboard console, by review
+   *  outcome. Only counts restaurants onboarded since attribution was recorded. */
+  restaurants: { total: number; approved: number; pending: number; rejected: number };
+  /** Earliest / latest onboard of either kind — property or restaurant. */
   firstOnboardedAt: string | null;
   lastOnboardedAt: string | null;
 }
@@ -328,6 +332,8 @@ export interface StatsEntity {
       max: number;
       averageDeposit: number;
       portfolioMonthly: number;
+      /** Listings with a monthly figure — what the rent numbers are taken over. */
+      pricedListings?: number;
     };
     trend: TrendPoint[];
   };
@@ -336,6 +342,8 @@ export interface StatsEntity {
     verified: number;
     failed: number;
     pending: number;
+    /** Owner or verifier said no. Absent on a backend from before it was sent. */
+    rejected?: number;
     expired: number;
     /** Null when no request has reached a terminal state yet. */
     successRate: number | null;
@@ -540,6 +548,13 @@ export interface ScriperUserEntity {
   role: ScriperUserRole;
   avatar: string;
   createdAt: string | null;
+  /** A suspended account cannot sign in, and its open sessions were ended. */
+  status: 'active' | 'suspended';
+  suspendedAt: string | null;
+  suspendedReason: string;
+  /** Present only on a create response where the server generated the
+   *  password — shown once, never readable again. */
+  temporaryPassword?: string;
 }
 
 export type ScrapeSource = 'GoogleMaps' | 'JustDial' | 'Web';

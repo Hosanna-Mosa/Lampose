@@ -280,12 +280,42 @@ const requestableOptions = async (property) => {
   });
 };
 
+/**
+ * What a student is SHOWN, and may ask for: every room type.
+ *
+ * Since 12 Oct 2026 a paused room type, an empty bed count and a missing one
+ * no longer stop a request. Owners forget to switch a type back on, and a
+ * student turned away by a stale switch was a booking lost to nobody. The
+ * request goes to the owner as usual; if they do not answer, the student can
+ * ask the Lampose team, who ring the owner (`teamHelp` on the request).
+ *
+ * A count we know to be wrong is not shown as a fact: an option that would
+ * have been refused goes out with `availableBeds: null`, which every app
+ * build already reads as "not recorded" — so phones that have not updated
+ * stop greying these options out too. A positive count is still shown.
+ *
+ * `requestableOptions` above keeps the real reasons; the owner side and the
+ * listing-level "switched off" test read them.
+ */
+const openForRequest = (option) => (option.requestable
+  ? option
+  : {
+    ...option,
+    availableBeds: option.availableBeds > 0 ? option.availableBeds : null,
+    requestable: true,
+    reason: null,
+  });
+
 /** One option by its label, with live numbers. Null when the label is unknown. */
 const findRequestableOption = async (property, label) => {
   if (!label) return null;
   const wanted = String(label).trim().toLowerCase();
   const options = await requestableOptions(property);
-  return options.find((option) => option.label.toLowerCase() === wanted) || null;
+  const found = options.find((option) => option.label.toLowerCase() === wanted);
+  if (!found) return null;
+  /* `bedUnconfirmed` — asked for although no free bed was counted, so the
+     request carries no promise of one (see `bedCounted` on the request). */
+  return { ...openForRequest(found), bedUnconfirmed: !found.requestable };
 };
 
 /* ------------------------------------------------------------------ *
@@ -678,6 +708,7 @@ module.exports = {
   rowsFor,
   requestableOptions,
   findRequestableOption,
+  openForRequest,
   claimBed,
   bookedAtLabel,
   releaseBed,

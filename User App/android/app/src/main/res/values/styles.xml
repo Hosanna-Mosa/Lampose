@@ -38,8 +38,8 @@
     <item name="android:windowSplashScreenBehavior">icon_preferred</item>
     <!-- Repeated rather than inherited: this theme's parent is
          `Theme.SplashScreen`, not `AppTheme`, so it does not pick the
-         attribute above up. The splash ground is the logo's green
-         (`splashscreen_background`), so the glyphs on it are LIGHT. -->
-    <item name="android:windowLightNavigationBar" tools:targetApi="27">false</item>
+         attribute above up. The splash ground is the logo's cream
+         (`splashscreen_background`), so the glyphs on it are DARK. -->
+    <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
   </style>
 </resources>

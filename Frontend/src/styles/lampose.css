@@ -96,14 +96,17 @@ body {
         opacity: 0;
         transition: opacity 0.5s ease;
       }
+/* The light the page opens out of: the 2026 logo's lamp (it used to be the
+   old logo's yellow "o"). Positioned on the lamp in `.sp-logo-img` at its
+   2.4:1 crop — re-measure both if the crop or the artwork changes. */
 .sp-single-o {
         position: absolute;
-        left: 65.72%;
-        top: 47.75%;
-        width: 29px;
-        height: 29px;
+        left: 86.8%;
+        top: 31.2%;
+        width: 26px;
+        height: 26px;
         border-radius: 50%;
-        border: 5.5px solid #fef72a;
+        background: radial-gradient(circle, #FFF3C4 0%, #F2C94C 45%, rgba(242, 201, 76, 0) 72%);
         box-sizing: border-box;
         transform: translate(-50%, -50%) scale(1);
         transform-origin: center center;
@@ -173,13 +176,13 @@ body {
       }
 @keyframes spApertureSmooth {
         0% {
-          -webkit-mask: radial-gradient(circle at calc(50% + 31px) calc(50% - 1.2rem), transparent 0px, black 0px);
-          mask: radial-gradient(circle at calc(50% + 31px) calc(50% - 1.2rem), transparent 0px, black 0px);
+          -webkit-mask: radial-gradient(circle at calc(50% + 79px) calc(50% - 1.2rem - 17px), transparent 0px, black 0px);
+          mask: radial-gradient(circle at calc(50% + 79px) calc(50% - 1.2rem - 17px), transparent 0px, black 0px);
           opacity: 1;
         }
         100% {
-          -webkit-mask: radial-gradient(circle at calc(50% + 31px) calc(50% - 1.2rem), transparent 230vmax, black 230vmax);
-          mask: radial-gradient(circle at calc(50% + 31px) calc(50% - 1.2rem), transparent 230vmax, black 230vmax);
+          -webkit-mask: radial-gradient(circle at calc(50% + 79px) calc(50% - 1.2rem - 17px), transparent 230vmax, black 230vmax);
+          mask: radial-gradient(circle at calc(50% + 79px) calc(50% - 1.2rem - 17px), transparent 230vmax, black 230vmax);
           opacity: 0;
           visibility: hidden;
         }
@@ -276,7 +279,7 @@ nav.scrolled {
       }
 .nav-logo-img {
         height: 52px;
-        aspect-ratio: 3.5 / 1;
+        aspect-ratio: 2.4 / 1; /* the 2026 logo is taller than the old one: 3.5:1 cut off its swoosh and lamp */
         object-fit: cover;
         object-position: center;
         border-radius: 10px;
@@ -288,7 +291,7 @@ nav.scrolled {
       }
 .footer-logo-img {
         height: 56px;
-        aspect-ratio: 3.5 / 1;
+        aspect-ratio: 2.4 / 1; /* the 2026 logo is taller than the old one: 3.5:1 cut off its swoosh and lamp */
         object-fit: cover;
         object-position: center;
         border-radius: 10px;
@@ -297,7 +300,7 @@ nav.scrolled {
       }
 .sp-logo-img {
         height: 90px;
-        aspect-ratio: 3.5 / 1;
+        aspect-ratio: 2.4 / 1; /* the 2026 logo is taller than the old one: 3.5:1 cut off its swoosh and lamp */
         object-fit: cover;
         object-position: center;
         border-radius: 16px;
@@ -953,7 +956,7 @@ nav.scrolled .hamburger span {
 
 .phone-logo {
   height: 18px;
-  aspect-ratio: 3.5 / 1;
+  aspect-ratio: 2.4 / 1; /* the 2026 logo is taller than the old one: 3.5:1 cut off its swoosh and lamp */
   object-fit: cover;
   object-position: center;
   border-radius: 4px;

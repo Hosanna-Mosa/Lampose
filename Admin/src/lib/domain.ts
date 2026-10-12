@@ -160,6 +160,8 @@ const SERIES_HUES = [
   'var(--chart-serious)',
   'var(--chart-good)',
   'var(--chart-warning)',
+  // Fifth slot, so COMMERCIAL stops sharing PG / Hostel's colour.
+  'var(--chart-neutral)',
 ];
 
 /**

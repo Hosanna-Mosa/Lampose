@@ -74,6 +74,7 @@ const login = async (req, res, next) => {
     });
   } catch (error) {
     if (/invalid email or password/i.test(error.message)) return fail(res, 401, error.message);
+    if (error.code === 'ACCOUNT_SUSPENDED') return fail(res, 403, error.message, { code: error.code });
     return next(error);
   }
 };
@@ -114,6 +115,9 @@ const onboardingLogin = async (req, res, next) => {
     if (/invalid email or password/i.test(error.message)) {
       return fail(res, 401, 'Employee verification failed. Invalid credentials.', { valid: false });
     }
+    if (error.code === 'ACCOUNT_SUSPENDED') {
+      return fail(res, 403, error.message, { valid: false, code: error.code });
+    }
     return next(error);
   }
 };
@@ -127,6 +131,12 @@ const verifyEmployeeToken = async (req, res, next) => {
     const decoded = jwt.verify(token, JWT_SECRET);
     const user = await dbStore.findUserById(decoded.userId);
     if (!user) return fail(res, 404, 'Employee account not found.', { valid: false });
+    if (user.status === 'suspended') {
+      return fail(res, 403, 'This account has been suspended. Contact your Lampose administrator.', {
+        valid: false,
+        code: 'ACCOUNT_SUSPENDED',
+      });
+    }
 
     return res.json({
       success: true,

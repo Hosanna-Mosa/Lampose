@@ -112,6 +112,7 @@ export default function OwnerConfirmation() {
 
   const [askingCancel, setAskingCancel] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
+  const [teamError, setTeamError] = useState<string | null>(null);
 
   /* Manual pull-to-refresh state. Declared here, with the screen's other
      hooks, rather than beside `onRefresh` below — that sits past two early
@@ -579,6 +580,11 @@ export default function OwnerConfirmation() {
      an accepted request whose payment window closed. */
   const bookingCancelled = cancelled && stay.request?.decisionReason === 'BOOKING_CANCELLED';
   const paymentLapsed = ranOut && stay.request?.decisionReason === 'PAYMENT_LAPSED';
+  /* The owner never answered, so the Lampose team rang them. Three moments:
+     the team has it, the team said no room, the team said yes. */
+  const withTeam = stay.withTeam;
+  const teamDeclined = declined && stay.request?.decisionReason === 'TEAM_UNAVAILABLE';
+  const teamConfirmed = accepted && stay.request?.teamHelp?.status === 'available';
 
   /*
    * What the bar says, driven by what has actually happened.
@@ -704,7 +710,7 @@ export default function OwnerConfirmation() {
     declined
       ? {
         id: 'answer',
-        label: bedTaken ? 'Taken by someone else' : 'No availability',
+        label: bedTaken ? 'Taken by someone else' : teamDeclined ? 'Unavailable — checked by our team' : 'No availability',
         when: stamp(stay.request?.decidedAt),
         state: 'stopped' as const,
         note: 'Nothing was charged.',
@@ -717,6 +723,14 @@ export default function OwnerConfirmation() {
           state: 'stopped' as const,
           note: 'Nothing was charged.',
         }
+        : ranOut && withTeam
+          ? {
+            id: 'answer',
+            label: 'With the Lampose team',
+            when: stamp(stay.request?.teamHelp?.requestedAt),
+            state: 'live' as const,
+            note: `We are calling ${owner} for you.`,
+          }
         : ranOut
           ? {
             id: 'answer',
@@ -727,7 +741,7 @@ export default function OwnerConfirmation() {
           }
           : {
             id: 'answer',
-            label: accepted ? `${owner} confirmed` : `Waiting on ${owner}`,
+            label: teamConfirmed ? 'Confirmed by the Lampose team' : accepted ? `${owner} confirmed` : `Waiting on ${owner}`,
             when: stamp(stay.request?.decidedAt),
             state: (accepted ? 'done' : waiting ? 'live' : 'pending') as TrailStep['state'],
             note: accepted ? undefined : 'They usually answer within a minute or two.',
@@ -823,6 +837,14 @@ export default function OwnerConfirmation() {
            anywhere else. */
         body: `The last bed went while you were waiting. Nothing was charged — other rooms at ${listing.name} may still be free.`,
       }
+      : teamDeclined
+        ? {
+          tint: colors.danger.tint,
+          ink: colors.danger.ink,
+          title: 'Our team spoke to the owner',
+          body: `${owner} has no room for you right now. Nothing was charged — other properties nearby may `
+            + 'still be free.',
+        }
       : declined
         ? {
           tint: colors.danger.tint,
@@ -839,14 +861,25 @@ export default function OwnerConfirmation() {
             + 'What you asked for is not free at the moment. Nothing was charged, and nothing is '
             + 'owed — other rooms here may still be free, and you can ask again.',
         }
+        : ranOut && withTeam
+          ? {
+            tint: colors.info.tint,
+            ink: colors.info.ink,
+            title: 'Our team is on it',
+            body: `We have passed your request to the Lampose team. They are calling ${owner} and will mark it `
+              + 'available or unavailable here — we will notify you the moment they do.',
+          }
         : ranOut
           ? {
             tint: colors.warning.tint,
             ink: colors.warning.ink,
-            title: paymentLapsed ? 'Time to pay ran out' : 'No answer in time',
+            title: paymentLapsed ? 'Time to pay ran out' : 'The owner did not respond',
             body: paymentLapsed
               ? 'The room was held for you, but the payment did not come through in time, so it was let go. Nothing was charged — you can ask again.'
-              : `${owner} did not reply, so the request closed itself. Nothing was charged — you can ask again.`,
+              : stay.canAskTeam
+                ? `${owner} did not accept or reject your request in time. You can still stay here — contact us `
+                  + 'and our team will speak to the owner for you. Nothing was charged.'
+                : `${owner} did not reply, so the request closed itself. Nothing was charged — you can ask again.`,
           }
           : cancelled
             ? {
@@ -1008,6 +1041,7 @@ export default function OwnerConfirmation() {
         ) : null}
 
         {withdrawError ? <InlineAlert tone="error" title="Not withdrawn" body={withdrawError} /> : null}
+        {teamError ? <InlineAlert tone="error" title="Not sent to our team" body={teamError} /> : null}
 
         {/* The ₹100 coupon was asked for and not applied. The request still
             went through — only the discount did not — so this is a note, not
@@ -1215,6 +1249,46 @@ export default function OwnerConfirmation() {
                 <FoodWaitPromo />
               </View>
             ) : null}
+          </View>
+        ) : ranOut && withTeam ? (
+          <View style={{ gap: space[3] }}>
+            {/* Nothing to do but wait for the call — and nothing here should
+                start a second request to the owner the team is ringing. */}
+            <Button
+              label="Keep browsing while our team checks"
+              variant="secondary"
+              onPress={() => router.replace('/home')}
+              fullWidth
+            />
+          </View>
+        ) : ranOut && stay.canAskTeam ? (
+          <View style={{ gap: space[3] }}>
+            {/* The owner was silent, not unwilling. The team rings them and
+                answers on WhatsApp; this request follows that answer. */}
+            <Button
+              label="Contact Lampose team"
+              loadingLabel="Sending"
+              loading={stay.isBusy}
+              disabled={stay.isBusy}
+              onPress={async () => {
+                setTeamError(null);
+                const failure = await stay.askTeam();
+                /* Already asked shows itself — the refetch puts the screen
+                   into "our team is on it". Anything else is said. */
+                if (failure && failure.code !== 'TEAM_ALREADY_ASKED') {
+                  setTeamError(failure.displayMessage
+                    || 'We could not reach our team just now. Check your connection and try again.');
+                }
+              }}
+              fullWidth
+            />
+            <Button label="Ask the owner again" variant="secondary" onPress={askAgain} fullWidth />
+            <Button
+              label="Find another property"
+              variant="ghost"
+              onPress={() => leaveEnded('/home')}
+              fullWidth
+            />
           </View>
         ) : ranOut || cancelled ? (
           <View style={{ gap: space[3] }}>

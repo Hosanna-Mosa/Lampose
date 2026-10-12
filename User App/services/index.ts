@@ -66,6 +66,7 @@ export {
   fetchStayRequest,
   fetchStayRequests,
   withdrawStayRequest,
+  askTeamAboutStayRequest,
   type CreateStayRequestInput,
   type StayIntent,
   type StayRequestsResult,

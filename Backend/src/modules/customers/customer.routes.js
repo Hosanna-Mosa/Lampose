@@ -34,7 +34,7 @@ const {
   listAddresses, addAddress, updateAddress, removeAddress, setDefaultAddress,
 } = require('./customerAddress.controller');
 const {
-  createRequest, getRequest, listRequests, withdrawRequest, confirmMovedIn,
+  createRequest, getRequest, listRequests, withdrawRequest, confirmMovedIn, askTeam,
 } = require('../visits/stayRequest.controller');
 const {
   listBookings, getBooking, cancelBooking, createReview,
@@ -172,6 +172,9 @@ const requestByIp = rateLimit({
 const withdrawByCustomer = rateLimit({
   name: 'stay-request-withdraw-customer', windowMs: 60 * 60 * 1000, max: 12, keyOf: customerKey,
 });
+const teamHelpByCustomer = rateLimit({
+  name: 'stay-request-team-help-customer', windowMs: 60 * 60 * 1000, max: 6, keyOf: customerKey,
+});
 /* Their OWN buckets. All four shared the withdraw counter above, so a student
    who had withdrawn a few requests could be refused when sending their bank
    details for a refund, or a review — different acts, different budgets. */
@@ -194,6 +197,12 @@ router.get('/stay-requests/:id', requireLamposeDb, requireCustomer, getRequest);
 router.post(
   '/stay-requests/:id/withdraw',
   requireLamposeDb, requireCustomer, withdrawByCustomer, withdrawRequest,
+);
+/* Each tap WhatsApps the whole stay-help team, so it has its own small
+   bucket. The service already allows one per request. */
+router.post(
+  '/stay-requests/:id/team-help',
+  requireLamposeDb, requireCustomer, teamHelpByCustomer, askTeam,
 );
 
 /* The student's half of moving in. Refused until the owner has marked them

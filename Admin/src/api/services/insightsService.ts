@@ -32,7 +32,13 @@ export const insightsService = {
   /** Every onboarding employee's funnel — total / verified / pending / rejected. */
   async getOnboarders(params?: { search?: string }): Promise<ApiResponse<OnboarderEntity[]>> {
     const res = await api.get<any>('/admin/onboarders', params);
-    return res.success ? { ...res, data: unwrapList(res.data) } : { ...res, data: [] };
+    if (!res.success) return { ...res, data: [] };
+    // A backend from before restaurant attribution sends no `restaurants`.
+    const none = { total: 0, approved: 0, pending: 0, rejected: 0 };
+    return {
+      ...res,
+      data: unwrapList(res.data).map((o: any) => ({ ...o, restaurants: o.restaurants ?? none })),
+    };
   },
 
   /** The verification team's workload — how many requests each verifier was

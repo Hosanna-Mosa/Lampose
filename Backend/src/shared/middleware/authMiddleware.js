@@ -79,6 +79,17 @@ async function authMiddleware(req, res, next) {
       return deny(res, 'This session was signed out. Please sign in again.');
     }
 
+    /* Suspending bumps the generation too, so this is the belt to that
+       check's braces — and the one that names the reason to the client. */
+    if (user.status === 'suspended') {
+      return res.status(403).json({
+        success: false,
+        code: 'ACCOUNT_SUSPENDED',
+        message: 'This account has been suspended. Contact your Lampose administrator.',
+        error: 'This account has been suspended. Contact your Lampose administrator.',
+      });
+    }
+
     req.user = user;
     return next();
   } catch (error) {
@@ -96,7 +107,8 @@ async function optionalAuth(req, res, next) {
   if (!token) return next();
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = await dbStore.findUserById(decoded.userId);
+    const user = await dbStore.findUserById(decoded.userId);
+    req.user = user && user.status !== 'suspended' ? user : null;
   } catch {
     req.user = null;
   }

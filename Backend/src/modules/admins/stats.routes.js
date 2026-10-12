@@ -4,9 +4,11 @@ const mongoose = require('mongoose');
 const Admin = require('./admin.model');
 const Property = require('../properties/property.model');
 const VerificationRequest = require('../verification/verificationRequest.model');
+const FoodRestaurant = require('../foodpartners/foodRestaurant.model');
 const { getVerificationTeamNumbers } = require('../../infrastructure/twilio/twilio');
 const verifyAdminToken = require('../analytics/verifyAdminToken.middleware');
 const { can } = require('../iam/iam.middleware');
+const { normaliseCategory, rawValuesFor } = require('../../shared/constants/categories');
 
 /* These answered anybody until now — administrator names and emails, the
    verification team's phone numbers, the process's memory. Every signed-in
@@ -15,17 +17,63 @@ router.use(verifyAdminToken);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Build an array of the last `days` calendar dates (UTC), oldest first. */
+/* Days are Indian calendar days. Bucketing in UTC put anything onboarded
+   between midnight and 05:30 IST on the previous day's column. */
+const TIMEZONE = 'Asia/Kolkata';
+const IST_OFFSET_MS = 330 * 60 * 1000;
+
+/**
+ * The last `days` IST calendar dates, oldest first, and the instant the oldest
+ * one began. The window's counts start at that same instant, so the chart's
+ * columns always add up to the "added in window" figure beside it.
+ */
 const buildDateWindow = (days) => {
-  const today = new Date();
-  const end = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
-  const window = [];
+  const nowIst = Date.now() + IST_OFFSET_MS;
+  const todayStartIst = nowIst - (nowIst % DAY_MS);
+  const dates = [];
   for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(end - i * DAY_MS);
-    window.push(d.toISOString().split('T')[0]);
+    dates.push(new Date(todayStartIst - i * DAY_MS).toISOString().split('T')[0]);
   }
-  return window;
+  const start = new Date(todayStartIst - (days - 1) * DAY_MS - IST_OFFSET_MS);
+  return { dates, start };
 };
+
+/* The Google Play review owner's sample PG (reviewAccounts.service.js) is not
+   a real listing; nothing on the dashboard counts it. */
+const REAL_PROPERTY = { status: { $ne: 'review' } };
+/* Rent figures describe what is on offer now, so a removed listing drops out
+   of them — the same allowlist the public feed uses (listing.controller.js). */
+const LISTED_PROPERTY = { status: { $in: ['active', null] } };
+
+/*
+ * A listing's MONTHLY rent. `rent` alone is not that: on a listing that also
+ * has a daily price, the onboarding panel stored the daily figure in `rent`
+ * (₹400 beside a ₹7,500 monthly price), and a nightly hotel has no monthly
+ * figure at all. Same preference order as listing.formatter.js — monthlyPrice
+ * first — and null (which $avg/$min/$sum skip) where no monthly figure exists.
+ */
+const MONTHLY_RENT = {
+  $cond: [
+    { $gt: ['$monthlyPrice', 0] },
+    '$monthlyPrice',
+    {
+      $cond: [
+        {
+          $or: [
+            { $eq: ['$categoryDetails.rateType', 'Daily Rate'] },
+            { $in: [{ $toLower: { $ifNull: ['$category', ''] } }, rawValuesFor('HOTEL')] },
+            { $not: [{ $gt: ['$rent', 0] }] },
+          ],
+        },
+        null,
+        '$rent',
+      ],
+    },
+  ],
+};
+
+/* "Kphb" and "KPHB" are one locality. */
+const PLACE_KEY = { $toLower: { $trim: { input: { $ifNull: ['$place', ''] } } } };
 
 /** Turn an aggregation of { _id, count } into a plain lookup map. */
 const toCountMap = (rows) =>
@@ -43,8 +91,8 @@ const toCountMap = (rows) =>
 router.get('/stats', async (req, res) => {
   try {
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 7), 180);
-    const windowStart = new Date(Date.now() - days * DAY_MS);
-    const previousStart = new Date(Date.now() - 2 * days * DAY_MS);
+    const { dates: windowDates, start: windowStart } = buildDateWindow(days);
+    const previousStart = new Date(windowStart.getTime() - days * DAY_MS);
 
     const [
       adminTotal,
@@ -68,46 +116,60 @@ router.get('/stats', async (req, res) => {
       Admin.countDocuments({ status: 'Active' }),
       Admin.aggregate([{ $group: { _id: '$role', count: { $sum: 1 } } }]),
 
-      Property.countDocuments({}),
-      Property.countDocuments({ createdAt: { $gte: windowStart } }),
-      Property.countDocuments({ createdAt: { $gte: previousStart, $lt: windowStart } }),
+      Property.countDocuments(REAL_PROPERTY),
+      Property.countDocuments({ ...REAL_PROPERTY, createdAt: { $gte: windowStart } }),
+      Property.countDocuments({ ...REAL_PROPERTY, createdAt: { $gte: previousStart, $lt: windowStart } }),
+      // Grouped by the stored spelling; merged onto codes below.
       Property.aggregate([
+        { $match: REAL_PROPERTY },
         { $group: { _id: '$category', count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
       ]),
       Property.aggregate([
+        { $match: REAL_PROPERTY },
         { $group: { _id: '$stayType', count: { $sum: 1 } } },
         { $sort: { count: -1 } },
       ]),
       Property.aggregate([
-        { $group: { _id: '$place', count: { $sum: 1 }, avgRent: { $avg: '$rent' } } },
-        { $sort: { count: -1 } },
+        { $match: REAL_PROPERTY },
+        { $sort: { createdAt: -1 } },
+        {
+          $group: {
+            _id: PLACE_KEY,
+            label: { $first: '$place' },
+            count: { $sum: 1 },
+            avgRent: { $avg: MONTHLY_RENT },
+          },
+        },
+        { $sort: { count: -1, _id: 1 } },
         { $limit: 6 },
       ]),
       Property.aggregate([
+        { $match: LISTED_PROPERTY },
+        { $project: { monthly: MONTHLY_RENT, deposit: 1 } },
         {
           $group: {
             _id: null,
-            avgRent: { $avg: '$rent' },
-            minRent: { $min: '$rent' },
-            maxRent: { $max: '$rent' },
+            avgRent: { $avg: '$monthly' },
+            minRent: { $min: '$monthly' },
+            maxRent: { $max: '$monthly' },
             avgDeposit: { $avg: '$deposit' },
-            totalRent: { $sum: '$rent' },
+            totalRent: { $sum: '$monthly' },
+            priced: { $sum: { $cond: [{ $ne: ['$monthly', null] }, 1, 0] } },
           },
         },
       ]),
       Property.aggregate([
-        { $match: { createdAt: { $gte: windowStart } } },
+        { $match: { ...REAL_PROPERTY, createdAt: { $gte: windowStart } } },
         {
           $group: {
-            _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: TIMEZONE } },
             count: { $sum: 1 },
           },
         },
       ]),
       Property.aggregate([
-        { $match: { employeeEmail: { $nin: ['', null] } } },
-        { $group: { _id: '$employeeEmail', count: { $sum: 1 } } },
+        { $match: { ...REAL_PROPERTY, employeeEmail: { $nin: ['', null] } } },
+        { $group: { _id: { $toLower: { $trim: { input: '$employeeEmail' } } }, count: { $sum: 1 } } },
         { $sort: { count: -1 } },
         { $limit: 5 },
       ]),
@@ -121,21 +183,37 @@ router.get('/stats', async (req, res) => {
       VerificationRequest.countDocuments({ createdAt: { $gte: previousStart, $lt: windowStart } }),
     ]);
 
+    /* The same buckets /onboarders uses (ONBOARD_BUCKETS, below). This used to
+       leave both rejection statuses out of the success rate entirely, so an
+       owner saying NO never lowered it, and `owner_approved` out of pending. */
     const statusMap = toCountMap(verificationsByStatus);
-    const verified = statusMap.verified || 0;
-    const failed = statusMap.failed || 0;
-    const pending = (statusMap.pending || 0) + (statusMap.sent || 0) + (statusMap.delivered || 0);
-    const expired = statusMap.expired || 0;
+    const sumOf = (statuses) => statuses.reduce((n, s) => n + (statusMap[s] || 0), 0);
+    const verified = sumOf(ONBOARD_BUCKETS.verified);
+    const failed = sumOf(ONBOARD_BUCKETS.failed);
+    const pending = sumOf(ONBOARD_BUCKETS.pending);
+    const rejected = sumOf(ONBOARD_BUCKETS.rejected);
+    const expired = sumOf(ONBOARD_BUCKETS.expired);
 
     // Success rate over requests that reached a terminal state.
-    const terminal = verified + failed + expired;
+    const terminal = verified + rejected + failed + expired;
     const verificationSuccessRate = terminal > 0 ? (verified / terminal) * 100 : null;
 
     const seriesMap = toCountMap(onboardingSeries);
-    const trend = buildDateWindow(days).map((date) => ({
+    const trend = windowDates.map((date) => ({
       date,
       count: seriesMap[date] || 0,
     }));
+
+    /* "Hostel", "PG" and "PG_HOSTEL" are one category; so are "Dormitory" and
+       "HOTEL". Grouping by the stored string split them into separate slices. */
+    const categoryCounts = new Map();
+    for (const row of propertiesByCategory) {
+      const key = normaliseCategory(row._id) || row._id || 'Unspecified';
+      categoryCounts.set(key, (categoryCounts.get(key) || 0) + row.count);
+    }
+    const byCategory = [...categoryCounts]
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count);
 
     const rent = rentStats[0] || {};
 
@@ -152,10 +230,11 @@ router.get('/stats', async (req, res) => {
         total: propertyTotal,
         addedInWindow: propertyInWindow,
         addedInPreviousWindow: propertyInPreviousWindow,
-        byCategory: propertiesByCategory.map((c) => ({ label: c._id || 'Unspecified', count: c.count })),
+        byCategory,
         byStayType: propertiesByStayType.map((s) => ({ label: s._id || 'Unspecified', count: s.count })),
         topPlaces: topPlaces.map((p) => ({
-          label: p._id || 'Unspecified',
+          // The most recent spelling of the place stands for all of them.
+          label: (p.label || '').trim() || 'Unspecified',
           count: p.count,
           avgRent: Math.round(p.avgRent || 0),
         })),
@@ -166,6 +245,8 @@ router.get('/stats', async (req, res) => {
           max: rent.maxRent || 0,
           averageDeposit: Math.round(rent.avgDeposit || 0),
           portfolioMonthly: rent.totalRent || 0,
+          // How many listings the rent figures above are taken over.
+          pricedListings: rent.priced || 0,
         },
         trend,
       },
@@ -174,6 +255,7 @@ router.get('/stats', async (req, res) => {
         verified,
         failed,
         pending,
+        rejected,
         expired,
         successRate: verificationSuccessRate,
         createdInWindow: verificationInWindow,
@@ -228,28 +310,58 @@ router.get('/onboarders', async (req, res) => {
       };
     }
 
-    const rows = await VerificationRequest.aggregate([
-      { $match: match },
-      {
-        $group: {
-          _id: '$pendingPropertyData.employeeEmail',
-          total: { $sum: 1 },
-          verified: bucketCond(ONBOARD_BUCKETS.verified),
-          pending: bucketCond(ONBOARD_BUCKETS.pending),
-          rejected: bucketCond(ONBOARD_BUCKETS.rejected),
-          failed: bucketCond(ONBOARD_BUCKETS.failed),
-          expired: bucketCond(ONBOARD_BUCKETS.expired),
-          firstOnboardedAt: { $min: '$createdAt' },
-          lastOnboardedAt: { $max: '$createdAt' },
+    const restaurantMatch = { 'onboardedBy.email': { $nin: ['', null] } };
+    if (search) {
+      restaurantMatch['onboardedBy.email'] = { $regex: String(search).trim(), $options: 'i' };
+    }
+
+    const [rows, restaurantRows] = await Promise.all([
+      VerificationRequest.aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: { $toLower: '$pendingPropertyData.employeeEmail' },
+            total: { $sum: 1 },
+            verified: bucketCond(ONBOARD_BUCKETS.verified),
+            pending: bucketCond(ONBOARD_BUCKETS.pending),
+            rejected: bucketCond(ONBOARD_BUCKETS.rejected),
+            failed: bucketCond(ONBOARD_BUCKETS.failed),
+            expired: bucketCond(ONBOARD_BUCKETS.expired),
+            firstOnboardedAt: { $min: '$createdAt' },
+            lastOnboardedAt: { $max: '$createdAt' },
+          },
         },
-      },
-      { $sort: { total: -1 } },
+      ]),
+      /* Restaurants an employee filled in on the Onboard console — see
+         `onboardedBy` on the model. Only those onboarded since that field
+         existed; older ones recorded nobody. */
+      FoodRestaurant.aggregate([
+        { $match: restaurantMatch },
+        {
+          $group: {
+            _id: '$onboardedBy.email',
+            total: { $sum: 1 },
+            approved: { $sum: { $cond: [{ $eq: ['$verificationStatus', 'approved'] }, 1, 0] } },
+            pending: { $sum: { $cond: [{ $eq: ['$verificationStatus', 'pending'] }, 1, 0] } },
+            rejected: { $sum: { $cond: [{ $eq: ['$verificationStatus', 'rejected'] }, 1, 0] } },
+            firstOnboardedAt: { $min: '$createdAt' },
+            lastOnboardedAt: { $max: '$createdAt' },
+          },
+        },
+      ]),
     ]);
+
+    const restaurantsByEmail = new Map(restaurantRows.map((r) => [r._id, r]));
+    const noRestaurants = { total: 0, approved: 0, pending: 0, rejected: 0 };
+    const earliest = (a, b) => (!a ? b : !b ? a : (a < b ? a : b));
+    const latest = (a, b) => (!a ? b : !b ? a : (a > b ? a : b));
 
     const data = rows.map((r) => {
       // Still-open requests (pending) are excluded — a success rate only
       // means something once a request has actually reached an outcome.
       const terminal = r.verified + r.rejected + r.failed + r.expired;
+      const food = restaurantsByEmail.get(r._id);
+      restaurantsByEmail.delete(r._id);
       return {
         employeeEmail: r._id,
         total: r.total,
@@ -259,10 +371,32 @@ router.get('/onboarders', async (req, res) => {
         failed: r.failed,
         expired: r.expired,
         successRate: terminal > 0 ? (r.verified / terminal) * 100 : null,
-        firstOnboardedAt: r.firstOnboardedAt,
-        lastOnboardedAt: r.lastOnboardedAt,
+        restaurants: food
+          ? { total: food.total, approved: food.approved, pending: food.pending, rejected: food.rejected }
+          : noRestaurants,
+        firstOnboardedAt: earliest(r.firstOnboardedAt, food && food.firstOnboardedAt),
+        lastOnboardedAt: latest(r.lastOnboardedAt, food && food.lastOnboardedAt),
       };
     });
+
+    /* Employees who have onboarded restaurants and no property yet. */
+    for (const food of restaurantsByEmail.values()) {
+      data.push({
+        employeeEmail: food._id,
+        total: 0,
+        verified: 0,
+        pending: 0,
+        rejected: 0,
+        failed: 0,
+        expired: 0,
+        successRate: null,
+        restaurants: { total: food.total, approved: food.approved, pending: food.pending, rejected: food.rejected },
+        firstOnboardedAt: food.firstOnboardedAt,
+        lastOnboardedAt: food.lastOnboardedAt,
+      });
+    }
+
+    data.sort((a, b) => (b.total + b.restaurants.total) - (a.total + a.restaurants.total));
 
     return res.json({ success: true, count: data.length, data, items: data });
   } catch (error) {

@@ -94,6 +94,19 @@ function getVerificationTeamNumbers() {
   return [...new Set(raw.map(formatWhatsAppNumber).filter(Boolean))];
 }
 
+/**
+ * `STAY_HELP_TEAM_NUMBERS` — who is asked to chase an owner that never answered
+ * a student's stay request. Same parsing, and the same reason for it, as
+ * `getVerificationTeamNumbers`: inbound replies are matched against it.
+ */
+function getStayHelpTeamNumbers() {
+  const raw = String(process.env.STAY_HELP_TEAM_NUMBERS || '')
+    .split(',')
+    .map((n) => n.trim())
+    .filter(Boolean);
+  return [...new Set(raw.map(formatWhatsAppNumber).filter(Boolean))];
+}
+
 /* ── Full-data verification template helpers ────────────────────────────────
    The owner-approval template carries the whole submission (address, stay
    options with prices, mess, amenities). Two WhatsApp rules shape these:
@@ -678,6 +691,51 @@ async function sendContentOrText({ to, contentSid, variables, fallbackBody }) {
     console.error(`❌ WhatsApp send failed (${contentSid || 'plain'}): ${error.message}`);
     return { success: false, error: error.message };
   }
+}
+
+/**
+ * "This student got no answer from the owner — can you help?", to one member
+ * of the stay-help team.
+ *
+ * In order: the dedicated template (TWILIO_STAY_HELP_CONTENT_SID, with
+ * AVAILABLE / UNAVAILABLE quick replies whose payloads are
+ * STAY_HELP_YES:{{6}} / STAY_HELP_NO:{{6}}); the approved generic notice
+ * (TWILIO_ADMIN_NOTICE_CONTENT_SID) with a typed-reply instruction; plain
+ * text, which only reaches a number inside a 24-hour session.
+ */
+async function sendStayHelpRequest({
+  to, customerName, customerPhone, propertyName, roomLabel, ownerName, ownerPhone, requestId, reference,
+}) {
+  const who = customerName ? `${customerName} (${customerPhone})` : customerPhone;
+  const room = roomLabel ? ` (${roomLabel})` : '';
+  const sentence = `${who} wants to book a stay at ${propertyName}${room} but got no acceptance or `
+    + `rejection from the owner. Please call the owner, ${ownerName || 'Owner'} ${ownerPhone || ''}, and reply `
+    + `AVAILABLE ${reference} or UNAVAILABLE ${reference} — the student's app updates with your answer.`;
+
+  if (process.env.TWILIO_STAY_HELP_CONTENT_SID) {
+    return sendContentOrText({
+      to,
+      contentSid: process.env.TWILIO_STAY_HELP_CONTENT_SID,
+      variables: {
+        1: oneLine(customerName || 'A student', 60),
+        2: oneLine(customerPhone, 20),
+        3: oneLine(propertyName, 80),
+        4: oneLine(roomLabel || 'Any room', 40),
+        5: oneLine(`${ownerName || 'Owner'} ${ownerPhone || ''}`, 80),
+        6: String(requestId),
+      },
+    });
+  }
+  if (process.env.TWILIO_ADMIN_NOTICE_CONTENT_SID) {
+    return sendContentOrText({
+      to,
+      contentSid: process.env.TWILIO_ADMIN_NOTICE_CONTENT_SID,
+      variables: { 1: 'team', 2: oneLine(sentence, 900) },
+    });
+  }
+  console.warn('[whatsapp] stay help: no template configured — plain text reaches the team only inside a 24-hour session. '
+    + 'Set TWILIO_STAY_HELP_CONTENT_SID or TWILIO_ADMIN_NOTICE_CONTENT_SID.');
+  return sendContentOrText({ to, contentSid: null, variables: null, fallbackBody: `Lampose stay help: ${sentence}` });
 }
 
 /** "₹1,999" — the fee as a person reads it. */
@@ -1410,6 +1468,8 @@ module.exports = {
   sendAdminMessage,
   formatWhatsAppNumber,
   getVerificationTeamNumbers,
+  getStayHelpTeamNumbers,
+  sendStayHelpRequest,
   toE164,
   isIndianMobile,
   maskPhone,

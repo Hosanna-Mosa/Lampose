@@ -55,7 +55,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   const categoryData = useMemo(
     () =>
       (s?.properties.byCategory ?? []).map((c, i) => ({
-        label: c.label,
+        label: propertyCategoryLabel(c.label),
         value: c.count,
         color: categoryHue(c.label, i),
       })),
@@ -76,7 +76,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     ? deltaPercent(s.properties.addedInWindow, s.properties.addedInPreviousWindow)
     : null;
 
-  const recentProperties = (recent.data ?? []).slice(0, 6);
+  /* The list endpoint puts pending requests first, and those carry no
+     onboarding date — so this was showing six unverified requests with a
+     blank date column, not the newest listings. */
+  const recentProperties = useMemo(
+    () =>
+      (recent.data ?? [])
+        .filter((p) => p.createdAt)
+        .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime())
+        .slice(0, 6),
+    [recent.data]
+  );
 
   return (
     <Box className="space-y-5">

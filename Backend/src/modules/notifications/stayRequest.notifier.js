@@ -310,10 +310,16 @@ const notifyStudentDeclined = async (request) => {
     payloadFor(request, taken ? 'request.inventoryTaken' : 'request.declined'),
   );
 
+  /* The Lampose team rang the owner for them — say so, it is a different
+     sentence from an owner tapping No. */
+  const byTeam = request.decisionReason === 'TEAM_UNAVAILABLE';
+
   return pushTo(Customer(), { customerId: request.customerId }, {
-    title: taken ? 'That room was just taken' : 'Your request was declined',
+    title: taken ? 'That room was just taken' : byTeam ? 'Our team spoke to the owner' : 'Your request was declined',
     body: taken
       ? `The last bed at ${request.propertyName} went while you were waiting. Nothing was charged.`
+      : byTeam
+        ? `${request.propertyName} has no room for you right now. Nothing was charged — you can try another property.`
       : request.declineNote
         /* The owner's note, in their words — it was written for the guest. */
         ? `${request.propertyName}: "${String(request.declineNote).slice(0, 140)}"`
@@ -501,7 +507,8 @@ const notifyStudentExpired = async (request) => {
     /* Not "they ignored you". An owner who missed a three-minute window was
        probably driving, and a student who reads silence as rejection stops
        sending requests. */
-    body: `${request.propertyName} did not answer in time. Nothing was charged — you can try again.`,
+    body: `${request.propertyName} did not answer in time. You can still visit — tap to ask the Lampose team `
+      + 'to contact the owner for you. Nothing was charged.',
     data: payloadFor(request, 'request.expired'),
   });
 };
@@ -634,6 +641,31 @@ const notifyOwnerOfExpiry = async (request) => {
   });
 };
 
+/**
+ * The Lampose team confirmed a guest for this owner after ringing them.
+ *
+ * The guest is already on their customer list (`bookConfirmed`); this is so
+ * the owner is not surprised by a booking they never tapped, and knows who
+ * agreed it.
+ */
+const notifyOwnerOfTeamConfirmation = async (request) => {
+  const key = ownerKeyOf(request);
+  if (!key) return { sent: 0 };
+  const who = (request.customer && request.customer.name) || 'A student';
+  await ownerInboxRow(key, {
+    title: 'Booking confirmed by Lampose',
+    message: `After speaking with you, the Lampose team confirmed ${who} for ${request.propertyName}. `
+      + 'They are in your customer list.',
+    requestId: String(request._id),
+  });
+  emitLive('partner', await partnerIdFor(key), 'stay_request_updated', payloadFor(request, 'request.accepted'));
+  return pushTo(Partner(), { phoneDigits: key }, {
+    title: 'Booking confirmed by Lampose',
+    body: `${who} · ${request.propertyName} — confirmed by our team on your behalf.`,
+    data: payloadFor(request, 'request.accepted'),
+  });
+};
+
 const notifyExpired = async (requests) => {
   for (const request of requests) {
     await notifyStudentExpired(request);
@@ -763,4 +795,5 @@ module.exports = {
   notifyOwnerOfBookingCancelledByStudent,
   notifyExpired,
   notifyOwnerOfExpiry,
+  notifyOwnerOfTeamConfirmation,
 };

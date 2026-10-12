@@ -58,7 +58,7 @@ const mongoose = require('mongoose');
 const config = require('../../config/env');
 const VisitRequest = require('./visitRequest.model');
 const Partner = require('../partners/partner.model');
-const { claimBed, releaseBed, bookedAtLabel } = require('../inventory/inventory.service');
+const { claimBed, releaseBed } = require('../inventory/inventory.service');
 
 const { phoneKey } = Partner;
 
@@ -415,24 +415,9 @@ const createStayRequest = async ({
     throw new StayRequestError('INVALID_SHARING', 'That room type is not offered here.', 422);
   }
 
-  /* 7 — and it can actually be requested. Each reason gets its own message:
-     "nobody recorded a count" and "every bed is taken" are different problems
-     and only one of them is about being busy. */
-  if (!option.requestable) {
-    /* A taken room says WHEN it went. It shows the listing is live rather
-       than stale, and tells someone whether they missed it by an hour or a
-       month. Same wording as the website's form — one fact, one sentence. */
-    const when = option.reason === 'NO_BEDS_FREE' ? await bookedAtLabel(option.shareTypeId) : null;
-    const REASONS = {
-      NO_INVENTORY_RECORDED: ['INVENTORY_NOT_SET', 'We do not have live availability for this room type yet.'],
-      OWNER_PAUSED: ['INVENTORY_PAUSED', 'The owner has paused this room type.'],
-      NO_BEDS_FREE: ['NO_BEDS_FREE', when
-        ? `This room type was booked on ${when}.`
-        : 'This room type is fully booked.'],
-    };
-    const [code, message] = REASONS[option.reason] || ['INVENTORY_UNAVAILABLE', 'This room type is not available.'];
-    throw new StayRequestError(code, message, 422);
-  }
+  /* 7 — every room type the listing offers may be asked for, paused, full
+     or uncounted (`openForRequest`). Whether a bed was COUNTED free is kept on
+     the request as `bedCounted`, which is what an Accept holds it to. */
 
   /* 8 — the stay itself is re-derived from the property's own figures. Nothing
      priced is taken from the body: `validateIntent` returns the intent rebuilt
@@ -529,6 +514,7 @@ const createStayRequest = async ({
     },
 
     shareTypeId: option.shareTypeId,
+    bedCounted: !option.bedUnconfirmed,
     sharing: { label: option.label, price: option.price },
     intent: checked.intent || null,
     /*
@@ -597,21 +583,40 @@ const accept = async (requestId, partner) => {
      property could be reassigned between the check and the write. */
   const filter = { ...openFilter(requestId), ownerMobile: { $in: [`+91${ownerKey}`, ownerKey] } };
 
+  const result = await confirmWhere(filter, { decidedBy: partner.partnerId || null });
+  if (!result.request) await explainFailure(requestId, ownerKey);   // always throws
+  return result;
+};
+
+/**
+ * The confirmation itself, for whichever request `filter` still matches.
+ *
+ * Shared by the owner's Accept and the Lampose team's "Available"
+ * (`teamAnswer`), so a request confirmed by either is the same document: the
+ * same bed, the same PIN or payment clock, the same address release.
+ *
+ * Returns `{ request: null }` when the filter no longer matches — the caller
+ * decides what losing that race means for it.
+ */
+const confirmWhere = async (filter, { decidedBy = null, extraSet = {}, withoutBed = false } = {}) => {
   /* The bed is only claimed for a request that names a pool. A row without a
      `shareTypeId` predates counted inventory or came from the web channel;
      accepting it changes no counter, which is honest — there is no counter. */
-  const pending = await VisitRequest.findOne(filter).select('shareTypeId payment').lean();
+  const pending = await VisitRequest.findOne(filter).select('shareTypeId payment bedCounted').lean();
   const shareTypeId = pending ? pending.shareTypeId : null;
 
-  let held = null;
-  if (shareTypeId) {
-    held = await claimBed(shareTypeId);
-    if (!held) {
-      throw new StayRequestError(
-        'INVENTORY_GONE',
-        'That room is no longer available — the last bed was taken.',
-      );
-    }
+  /* A request made while a bed was counted free must still get one — none
+     left means another acceptance took it, and confirming anyway would put
+     two students in one bed. A request opened without a counted bed (see
+     `bedCounted`), or one the team confirms after ringing the owner, takes a
+     bed if there is one and otherwise leaves the counter alone: the owner
+     knows their building better than a count they forgot to update. */
+  const held = shareTypeId ? await claimBed(shareTypeId) : null;
+  if (pending && shareTypeId && !held && pending.bedCounted !== false && !withoutBed) {
+    throw new StayRequestError(
+      'INVENTORY_GONE',
+      'That room is no longer available — the last bed was taken.',
+    );
   }
 
   /*
@@ -643,7 +648,7 @@ const accept = async (requestId, partner) => {
       $set: {
         status: 'confirmed',
         decidedAt: issuedAt,
-        decidedBy: partner.partnerId || null,
+        decidedBy,
         decisionReason: null,
         /* Shared, not secret: the student and the owner compare it at the
            door. See the note on the field. */
@@ -670,19 +675,17 @@ const accept = async (requestId, partner) => {
              */
             addressReleasedAt: issuedAt,
           }),
+        ...extraSet,
       },
     },
     { new: true },
   );
 
-  if (!request) {
-    /* Lost the request after taking a bed for it. Hand the bed back before
-       reporting, or a race that nobody won would still cost a bed. */
-    if (held) await releaseBed(shareTypeId);
-    await explainFailure(requestId, ownerKey);   // always throws
-  }
+  /* Lost the request after taking a bed for it. Hand the bed back, or a race
+     that nobody won would still cost a bed. */
+  if (!request && held) await releaseBed(shareTypeId);
 
-  return { request, shareTypeId };
+  return { request, shareTypeId, bedClaimed: Boolean(held) };
 };
 
 /**
@@ -713,9 +716,17 @@ const accept = async (requestId, partner) => {
  * owner would tap again.
  */
 const acceptAndBook = async (requestId, partner) => {
-  const { PartnerBooking, PartnerShareType } = require('../partners/partnerDomains.model');
+  const accepted = await accept(requestId, partner);
+  return bookConfirmed(accepted, partner.phoneDigits || phoneKey(partner.phone));
+};
 
-  const { request, shareTypeId } = await accept(requestId, partner);
+/**
+ * Steps 2 and 3 above, for a request that has just been confirmed — by its
+ * owner (`acceptAndBook`) or by the Lampose team on the owner's behalf
+ * (`teamAnswer`). `ownerDigits` is whose customer list the guest joins.
+ */
+const bookConfirmed = async ({ request, shareTypeId, bedClaimed }, ownerDigits) => {
+  const { PartnerBooking, PartnerShareType } = require('../partners/partnerDomains.model');
 
   /*
    * The category, for the one field on the booking that names it.
@@ -766,7 +777,7 @@ const acceptAndBook = async (requestId, partner) => {
     })();
 
     booking = await PartnerBooking.create({
-      partnerPhoneDigits: partner.phoneDigits || phoneKey(partner.phone),
+      partnerPhoneDigits: ownerDigits,
       /* The student's side of the link. Set here because this is the one place
          a booking is created from a request, so it is the one place the
          customer is actually known. */
@@ -808,8 +819,11 @@ const acceptAndBook = async (requestId, partner) => {
      Only when the pool is actually empty. With beds left, everybody else's
      request is still answerable and must be left alone — that is the whole
      "owner can accept three students for three beds" rule. */
+  /* Only when THIS acceptance took the last bed. A pool that already read
+     zero (an owner accepting past their own count) empties nothing, and
+     turning everybody else away for it would be wrong. */
   let autoDeclined = [];
-  if (shareTypeId) {
+  if (shareTypeId && bedClaimed) {
     const pool = await PartnerShareType.findOne({ shareTypeId }).lean();
     if (pool && pool.availableBeds <= 0) {
       autoDeclined = await declineForLostInventory(shareTypeId, { exceptId: request._id });
@@ -1237,6 +1251,160 @@ const expireLapsedPayments = async ({ limit = 200 } = {}) => {
   return lapsed;
 };
 
+/* ------------------------------------------------------------------ *
+ * The Lampose team, for an owner who never answered
+ * ------------------------------------------------------------------ */
+
+/** Six characters the team can type back: the tail of the id, upper-cased. */
+const teamReference = (request) => String(request._id).slice(-6).toUpperCase();
+
+/**
+ * The student asks the Lampose team to chase the owner.
+ *
+ * Only on their own request, and only one the owner let run out — see
+ * `canAskTeam`. Marked `requested` FIRST, in one guarded write, so a double
+ * tap sends the team one message rather than two; if no team member could be
+ * messaged at all, the mark is taken back so the button works again.
+ */
+const requestTeamHelp = async (requestId, customer) => {
+  requireDb();
+  const { getStayHelpTeamNumbers, sendStayHelpRequest } = require('../../infrastructure/twilio/twilio');
+
+  const team = getStayHelpTeamNumbers();
+  if (!team.length) {
+    throw new StayRequestError('TEAM_NOT_CONFIGURED', 'Our team cannot be reached from the app right now. Please try again later.', 503);
+  }
+
+  const found = await VisitRequest.findOne({ _id: requestId, customerId: customer.customerId });
+  if (!found) throw new StayRequestError('NOT_FOUND', 'We could not find that request.', 404);
+  if (!VisitRequest.canAskTeam(found)) {
+    const already = found.teamHelp && found.teamHelp.status && found.teamHelp.status !== 'none';
+    throw new StayRequestError(
+      already ? 'TEAM_ALREADY_ASKED' : 'TEAM_HELP_NOT_OPEN',
+      already ? 'Our team already has this request.' : 'This request cannot be passed to our team.',
+      409,
+    );
+  }
+
+  const request = await VisitRequest.findOneAndUpdate(
+    {
+      _id: found._id,
+      customerId: customer.customerId,
+      status: 'expired',
+      decisionReason: 'NO_ANSWER',
+      'teamHelp.status': { $in: ['none', null] },
+    },
+    { $set: { 'teamHelp.status': 'requested', 'teamHelp.requestedAt': new Date() } },
+    { new: true },
+  );
+  if (!request) throw new StayRequestError('TEAM_ALREADY_ASKED', 'Our team already has this request.', 409);
+
+  const message = {
+    customerName: (request.customer && request.customer.name) || customer.name || '',
+    customerPhone: (request.customer && request.customer.phone) || customer.phone || '',
+    propertyName: request.propertyName,
+    roomLabel: (request.sharing && request.sharing.label) || '',
+    ownerName: request.ownerName,
+    ownerPhone: request.ownerMobile,
+    requestId: String(request._id),
+    reference: teamReference(request),
+  };
+  const sent = await Promise.all(team.map((to) => sendStayHelpRequest({ to, ...message })
+    .catch((error) => ({ success: false, error: error.message }))));
+
+  if (!sent.some((result) => result && result.success)) {
+    await VisitRequest.updateOne(
+      { _id: request._id, 'teamHelp.status': 'requested' },
+      { $set: { 'teamHelp.status': 'none', 'teamHelp.requestedAt': null } },
+    );
+    throw new StayRequestError('TEAM_UNREACHABLE', 'We could not reach our team just now. Please try again in a minute.', 503);
+  }
+
+  return request;
+};
+
+/**
+ * The team's answer, after ringing the owner.
+ *
+ * `available` confirms the request through `confirmWhere` — the same write an
+ * owner's Accept makes, with `decidedBy: 'lampose_team'` — and puts the guest
+ * on the owner's customer list. `unavailable` declines it with
+ * TEAM_UNAVAILABLE. Either way it happens once: the filter requires the help
+ * still to be `requested`, so a second team member's tap changes nothing and
+ * `{ request: null, current }` tells the webhook who got there first.
+ */
+const teamAnswer = async (requestId, { available, answeredBy }) => {
+  requireDb();
+
+  const filter = {
+    _id: requestId,
+    channel: 'app',
+    status: 'expired',
+    'teamHelp.status': 'requested',
+  };
+  const answered = {
+    'teamHelp.status': available ? 'available' : 'unavailable',
+    'teamHelp.answeredAt': new Date(),
+    'teamHelp.answeredBy': answeredBy || null,
+  };
+
+  if (!available) {
+    const request = await VisitRequest.findOneAndUpdate(
+      filter,
+      {
+        $set: {
+          ...answered,
+          status: 'declined',
+          decidedAt: new Date(),
+          decidedBy: 'lampose_team',
+          decisionReason: 'TEAM_UNAVAILABLE',
+        },
+      },
+      { new: true },
+    );
+    if (!request) return { request: null, current: await VisitRequest.findById(requestId) };
+    return { request, booking: null, autoDeclined: [] };
+  }
+
+  /* The team rang the owner, who said there is room — that IS the answer,
+     whatever the counter says. */
+  const confirmed = await confirmWhere(filter, { decidedBy: 'lampose_team', extraSet: answered, withoutBed: true });
+  if (!confirmed.request) return { request: null, current: await VisitRequest.findById(requestId) };
+
+  /* Expiry gave the ₹100 coupon back, but the price the student pays was
+     frozen net of it. Hold it again for this booking; if it has since been
+     spent elsewhere, the booking stands and the record says why the total is
+     lower. */
+  const couponId = confirmed.request.stayCoupon && confirmed.request.stayCoupon.couponId;
+  if (couponId) {
+    const stayCoupons = require('../customers/stayCoupon.service');
+    const held = await stayCoupons.reserve({
+      customerId: confirmed.request.customerId, couponId, requestId: confirmed.request._id,
+    }).catch((error) => ({ reason: error.message }));
+    if (!held.coupon) {
+      console.warn(`[stay-help] ${requestId}: coupon could not be held again (${held.reason}); price left as quoted.`);
+    }
+  }
+
+  const { booking, autoDeclined } = await bookConfirmed(confirmed, phoneKey(confirmed.request.ownerMobile));
+  return { request: confirmed.request, booking, autoDeclined };
+};
+
+/**
+ * Which request a team member's typed reply is about: the one whose
+ * reference they typed, or — when they typed none — the only one waiting.
+ */
+const findTeamHelpRequest = async (reference) => {
+  const waiting = await VisitRequest.find({ channel: 'app', 'teamHelp.status': 'requested' })
+    .sort({ 'teamHelp.requestedAt': -1 })
+    .limit(200);
+  if (reference) {
+    const wanted = String(reference).trim().toUpperCase();
+    return { match: waiting.find((r) => teamReference(r) === wanted) || null, waiting: waiting.length };
+  }
+  return { match: waiting.length === 1 ? waiting[0] : null, waiting: waiting.length };
+};
+
 module.exports = {
   StayRequestError,
   closeRequestForCancelledBooking,
@@ -1251,4 +1419,8 @@ module.exports = {
   expireDue,
   declineForLostInventory,
   settleIfExpired,
+  requestTeamHelp,
+  teamAnswer,
+  teamReference,
+  findTeamHelpRequest,
 };

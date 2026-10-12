@@ -288,6 +288,13 @@ const dbStore = {
     const invalid = new Error('Invalid email or password.');
     if (!user || !user.password) throw invalid;
     if (!bcrypt.compareSync(String(plainPassword), user.password)) throw invalid;
+    /* Checked only after the password matches, so the distinct message tells
+       nobody but the account's owner that the account exists. */
+    if (user.status === 'suspended') {
+      const suspended = new Error('This account has been suspended. Contact your Lampose administrator.');
+      suspended.code = 'ACCOUNT_SUSPENDED';
+      throw suspended;
+    }
     return withoutPassword(user);
   },
 
@@ -407,6 +414,39 @@ const dbStore = {
     user.sessionVersion = (user.sessionVersion || 0) + 1;
     saveLocalData();
     return user.sessionVersion;
+  },
+
+  /**
+   * Suspend or reactivate an account. Suspending also bumps the session
+   * generation, so a phone left signed in stops working at its next request
+   * rather than whenever its token happens to expire. Reactivating does not —
+   * the person signs in again with the password they already have.
+   *
+   * Returns the updated account, or null when there is no such account.
+   */
+  async setUserStatus(userId, { suspended, reason = '' }) {
+    if (!userId) return null;
+    const set = suspended
+      ? { status: 'suspended', suspendedAt: new Date(), suspendedReason: String(reason || '').trim().slice(0, 300) }
+      : { status: 'active', suspendedAt: null, suspendedReason: '' };
+
+    if (useMongo) {
+      return withoutPassword(
+        await User.findOneAndUpdate(
+          { userId },
+          suspended ? { $set: set, $inc: { sessionVersion: 1 } } : { $set: set },
+          { returnDocument: 'after', runValidators: true },
+        ).lean(),
+      );
+    }
+
+    loadLocalData();
+    const user = localUsers.find((u) => u.userId === userId);
+    if (!user) return null;
+    Object.assign(user, set);
+    if (suspended) user.sessionVersion = (user.sessionVersion || 0) + 1;
+    saveLocalData();
+    return withoutPassword(user);
   },
 
   /* ── Scrape jobs ── */

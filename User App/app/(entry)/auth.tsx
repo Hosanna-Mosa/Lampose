@@ -64,7 +64,7 @@ export default function AuthRoute() {
 }
 
 function AuthScreen() {
-  const { colors } = useTheme();
+  const { colors, mode } = useTheme();
   /* The three inputs are bare `TextInput`s, which cannot be a `Text`; their
      face comes from the same font file through `applyFont`. */
   const face = useTypeScale().body.face;
@@ -446,11 +446,15 @@ function AuthScreen() {
         <View style={styles.centerWrapper}>
           {/* Authentic Logo Header (zero cutting) */}
           <View style={styles.logoHeader}>
-            <Image
-              source={require('@/assets/images/lampose-logo-mark.png')}
-              style={styles.logoBadge}
-              resizeMode="contain"
-            />
+            {/* The 2026 logo is dark green on transparency: on the dark theme
+                it sits on its own cream plate, or it disappears. */}
+            <View style={mode === 'dark' ? styles.logoPlate : null}>
+              <Image
+                source={require('@/assets/images/lampose-logo-mark.png')}
+                style={styles.logoBadge}
+                resizeMode="contain"
+              />
+            </View>
           </View>
 
           {/* 3D Flip Container */}
@@ -866,11 +870,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 28,
   },
-  /* The "lampose." logo on its own green — 1057 × 343 artwork. */
+  /* The 2026 logo on transparency, drawn on the screen's own ground —
+     1057 × 343 artwork (`brand/apply-logo.py`). */
   logoBadge: {
     width: 200,
     height: 65,
-    borderRadius: 14,
+  },
+  logoPlate: {
+    backgroundColor: '#FAF7EE',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   flipContainer: {
     width: '100%',
