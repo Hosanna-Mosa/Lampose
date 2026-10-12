@@ -39,6 +39,22 @@ const userSchema = new mongoose.Schema(
      * deploy — see the comparison in `authMiddleware.js`.
      */
     sessionVersion: { type: Number, default: 0 },
+
+    /*
+     * Whether this person may work at all — the console's "stop" switch.
+     *
+     * Deleting an account was the only way to take somebody off the job, and
+     * it is the wrong tool: it cannot be undone, and it makes the next
+     * sign-up on that email look like the same person. A suspended account
+     * keeps its row and its history, cannot sign in, and every token it
+     * already holds is refused by `authMiddleware` at its next request.
+     *
+     * Absent on accounts created before this field existed, which is why every
+     * reader compares against 'suspended' rather than for 'active'.
+     */
+    status: { type: String, enum: ['active', 'suspended'], default: 'active' },
+    suspendedAt: { type: Date, default: null },
+    suspendedReason: { type: String, default: '' },
   },
   { timestamps: true, collection: 'scriper_users' },
 );

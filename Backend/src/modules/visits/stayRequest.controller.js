@@ -27,7 +27,7 @@ const mongoose = require('mongoose');
 
 const VisitRequest = require('./visitRequest.model');
 const {
-  StayRequestError, createStayRequest, withdraw, confirmMoveIn, settleIfExpired,
+  StayRequestError, createStayRequest, withdraw, confirmMoveIn, settleIfExpired, requestTeamHelp,
 } = require('./stayRequest.service');
 const {
   notifyOwnerOfNewRequest, notifyOwnerOfWithdrawal,
@@ -250,6 +250,27 @@ const withdrawRequest = async (req, res, next) => {
   }
 };
 
+// @route   POST /api/v2/customers/stay-requests/:id/team-help
+// @desc    The owner never answered: hand the request to the Lampose team,
+//          who are sent a WhatsApp and ring the owner. Their AVAILABLE /
+//          UNAVAILABLE comes back through the webhook (stayHelp.whatsapp.js).
+// @access  Customer session
+const askTeam = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(404).json({
+        success: false, code: 'NOT_FOUND', message: 'We could not find that request.',
+      });
+    }
+
+    const request = await requestTeamHelp(id, req.customer);
+    return res.json({ success: true, data: request.toPublic() });
+  } catch (error) {
+    return fail(res, error, next);
+  }
+};
+
 // @route   POST /api/v2/customers/stay-requests/:id/moved-in
 // @desc    The student's half of moving in. The owner confirms first.
 // @access  Customer session
@@ -281,5 +302,5 @@ const confirmMovedIn = async (req, res, next) => {
 };
 
 module.exports = {
-  createRequest, getRequest, listRequests, withdrawRequest, confirmMovedIn,
+  createRequest, getRequest, listRequests, withdrawRequest, confirmMovedIn, askTeam,
 };

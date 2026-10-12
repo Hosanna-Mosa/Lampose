@@ -296,63 +296,32 @@ describe('the refusals — a row nobody can answer is never written', () => {
     await failsWith('INVALID_SHARING', () => send(student, property, { sharing: '4 Sharing' }));
   });
 
-  it('no bed counts recorded → refused, and says so specifically', async () => {
+  /* Since 12 Oct 2026 every room type may be asked for (see
+     `openForRequest`): an owner who forgot to switch a type back on no longer
+     costs the student the request. What changes is the promise — such a
+     request is written with `bedCounted: false`. */
+  it('no bed counts recorded → still sent, with no bed promised', async () => {
     await makeOwner();
     const student = await makeStudent();
     const property = await makeProperty({ counts: false });
 
-    /* NOT "full". Nobody recorded a count — a different problem, a different
-       message, and the state every property onboarded before now is in. */
-    await failsWith('INVENTORY_NOT_SET', () => send(student, property));
+    const { request } = await send(student, property);
+    assert.equal(request.status, 'pending_owner');
+    assert.equal(request.bedCounted, false);
   });
 
-  it('every bed taken → refused', async () => {
+  it('every bed taken → still sent, with no bed promised', async () => {
     await makeOwner();
     const student = await makeStudent();
     const property = await makeProperty({ beds: 1 });
     await claimBed(`${property._id}:2-sharing`);
 
-    await failsWith('NO_BEDS_FREE', () => send(student, property));
+    const { request } = await send(student, property);
+    assert.equal(request.status, 'pending_owner');
+    assert.equal(request.bedCounted, false);
   });
 
-  it('and the refusal says WHEN it was booked, not just that it is full', async () => {
-    await makeOwner();
-    const student = await makeStudent();
-    const property = await makeProperty({ beds: 1 });
-    const shareTypeId = `${property._id}:2-sharing`;
-    await claimBed(shareTypeId);
-
-    /* Somebody took it yesterday, and the acceptance recorded which pool. */
-    const bookedOn = new Date(Date.UTC(2026, 7, 19, 5, 2));  // 10:32 am IST
-    await VisitRequest.create({
-      listingId: String(property._id), propertyName: property.name,
-      ownerName: 'Owner', ownerMobile: property.ownerMobile,
-      customer: { name: 'Earlier Guest', phone: '+919000099998' },
-      status: 'confirmed', decidedAt: bookedOn, shareTypeId,
-      sharing: { label: '2 Sharing', price: 6000 },
-    });
-
-    const error = await send(student, property).then(() => null, (e) => e);
-    assert.equal(error.code, 'NO_BEDS_FREE');
-    /* The date and the time, in IST — a person reads this and knows whether
-       they missed it by an hour or a month. */
-    assert.match(error.message, /booked on 19 Aug at 10:32 am/);
-  });
-
-  it('but no time is invented when nothing recorded one', async () => {
-    await makeOwner();
-    const student = await makeStudent();
-    const property = await makeProperty({ beds: 1 });
-    await claimBed(`${property._id}:2-sharing`);
-
-    /* No acceptance names this pool, so it falls back to when the count last
-       moved — which claimBed just did. Either way a real moment, never a
-       guess, and the sentence still reads as a sentence. */
-    const error = await send(student, property).then(() => null, (e) => e);
-    assert.match(error.message, /^This room type (was booked on .+|is fully booked)\.$/);
-  });
-
-  it('owner paused the room type → refused', async () => {
+  it('owner paused the room type → still sent, with no bed promised', async () => {
     await makeOwner();
     const student = await makeStudent();
     const property = await makeProperty();
@@ -362,7 +331,18 @@ describe('the refusals — a row nobody can answer is never written', () => {
       { shareTypeId: `${property._id}:2-sharing` }, { $set: { isAvailable: false } },
     );
 
-    await failsWith('INVENTORY_PAUSED', () => send(student, property));
+    const { request } = await send(student, property);
+    assert.equal(request.status, 'pending_owner');
+    assert.equal(request.bedCounted, false);
+  });
+
+  it('a free bed counted → the request promises one', async () => {
+    await makeOwner();
+    const student = await makeStudent();
+    const property = await makeProperty();
+
+    const { request } = await send(student, property);
+    assert.equal(request.bedCounted, true);
   });
 
   it('consent not given → refused', async () => {

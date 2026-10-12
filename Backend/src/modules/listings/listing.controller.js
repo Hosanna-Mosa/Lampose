@@ -7,7 +7,7 @@ const {
   formatListing, ownerNamesFor, cityOf, localityOf, isDaily,
 } = require('./listing.formatter');
 const { escapeRegex } = require('../../shared/utils/text');
-const { rowsFor } = require('../inventory/inventory.service');
+const { rowsFor, openForRequest } = require('../inventory/inventory.service');
 const { sharingOptionsFor } = require('./sharing.util');
 
 /*
@@ -124,12 +124,14 @@ const withAvailability = async (listings) => {
 
   const rows = await rowsFor(listings.map((listing) => listing.id));
   if (!rows.size) {
+    /* No counts anywhere — every option is "not recorded", and every option
+       may still be asked for (see `openForRequest`). */
     return listings.map((listing) => ({
       ...listing,
-      sharingOptions: listing.sharingOptions.map((option) => ({
+      sharingOptions: listing.sharingOptions.map((option) => openForRequest({
         ...option, availableBeds: null, requestable: false, reason: 'NO_INVENTORY_RECORDED',
       })),
-      requestable: false,
+      requestable: listing.sharingOptions.length > 0,
     }));
   }
 
@@ -167,14 +169,16 @@ const withAvailability = async (listings) => {
       };
     });
 
+    /* What the student sees: every option open (see `openForRequest`). The
+       real reasons above are still what the two "switched off" flags below
+       are worked out from. */
+    const shown = options.map(openForRequest);
+
     return {
       ...listing,
-      sharingOptions: options,
-      /* One flag the card can read without walking the options. A listing
-         with nothing requestable is still REACHABLE by id — a saved listing
-         or a shared link must not turn into a 404 — but its Send Request
-         button is off. */
-      requestable: options.some((option) => option.requestable),
+      sharingOptions: shown,
+      /* One flag the card can read without walking the options. */
+      requestable: shown.some((option) => option.requestable),
 
       /*
        * The owner switched this listing OFF.

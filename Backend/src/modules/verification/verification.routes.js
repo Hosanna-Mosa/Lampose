@@ -191,7 +191,10 @@ router.get('/', verifyAdminToken, async (req, res) => {
        later. See property.model.js's header on why properties itself can't
        answer "who onboarded this" for anything that never got verified. */
     if (employeeEmail) {
-      query['pendingPropertyData.employeeEmail'] = String(employeeEmail).trim();
+      /* Case-insensitive but still exact: /api/admin/onboarders groups by the
+         lower-cased email, and older requests were stored as typed. */
+      const escaped = String(employeeEmail).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query['pendingPropertyData.employeeEmail'] = { $regex: `^${escaped}$`, $options: 'i' };
     }
 
     const items = await VerificationRequest.find(query)
@@ -365,6 +368,23 @@ router.post('/webhook', verifyTwilioSignature, async (req, res) => {
        open — so YES and NO fall through to the verification logic below with
        their meaning completely unchanged. Nothing after this point was
        modified. */
+    /* ── Stay help (the Lampose team answering for a silent owner) ─────────
+       First, because its sender is a TEAM number and its word overlaps the
+       owners' AVAILABLE below. Returns null for anything that is not a team
+       member answering a waiting request, so the owner flows are unchanged.
+       See visits/stayHelp.whatsapp.js. */
+    const { handleStayHelpReply } = require('../visits/stayHelp.whatsapp');
+    const stayHelpReply = await handleStayHelpReply({
+      from: senderMobile,
+      body: Body,
+      buttonPayload: req.body.ButtonPayload,
+    });
+    if (stayHelpReply) {
+      twiml.message(stayHelpReply);
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
     const { handleAvailabilityReply } = require('../visits/visitRequest.controller');
     const availabilityReply = await handleAvailabilityReply({
       from: senderMobile,

@@ -96,6 +96,9 @@ export const endpoints = {
   stayRequest: (id: string) => `${V2}/customers/stay-requests/${encodeURIComponent(id)}`,
   stayRequestWithdraw: (id: string) =>
     `${V2}/customers/stay-requests/${encodeURIComponent(id)}/withdraw`,
+  /* The owner never answered: hand it to the Lampose team. */
+  stayRequestTeamHelp: (id: string) =>
+    `${V2}/customers/stay-requests/${encodeURIComponent(id)}/team-help`,
   /* The student's half of moving in — the owner confirms first. */
   /* DEVELOPMENT ONLY — 404s unless the server has DEV_ALLOW_MARK_PAID on,
      which it refuses in production. */

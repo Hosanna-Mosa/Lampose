@@ -24,7 +24,7 @@ import { RankedBars } from '../components/common/organisms/RankedBars';
 import { insightsService } from '../api/services/insightsService';
 import { useFetch } from '../lib/useFetch';
 import { compactNumber, formatDate, formatDateTime, percent, rupees } from '../lib/format';
-import { categoryHue, stayTypeHue, verificationMeta } from '../lib/domain';
+import { categoryHue, propertyCategoryLabel, stayTypeHue, verificationMeta } from '../lib/domain';
 import { Box } from '../components/common/atoms/Box';
 import { Inline } from '../components/common/atoms/Inline';
 import { PlainButton } from '../components/common/atoms/PlainButton';
@@ -46,7 +46,7 @@ export const AnalyticsPage: React.FC = () => {
   const categoryData = useMemo(
     () =>
       (s?.properties.byCategory ?? []).map((c, i) => ({
-        label: c.label,
+        label: propertyCategoryLabel(c.label),
         value: c.count,
         color: categoryHue(c.label, i),
       })),
@@ -64,6 +64,7 @@ export const AnalyticsPage: React.FC = () => {
   );
 
   const trendHasData = (s?.properties.trend ?? []).some((t) => t.count > 0);
+  const pricedListings = s?.properties.rent.pricedListings ?? s?.properties.total ?? 0;
 
   return (
     <Box className="space-y-5">
@@ -122,7 +123,7 @@ export const AnalyticsPage: React.FC = () => {
                   {rupees(s.properties.rent.portfolioMonthly)}
                 </Text>
                 <Text className="text-sm text-ink-3 mt-1.5">
-                  Across {s.properties.total} propert{s.properties.total === 1 ? 'y' : 'ies'}
+                  {`Across ${pricedListings} listed propert${pricedListings === 1 ? 'y' : 'ies'} with a monthly rent`}
                 </Text>
               </Box>
 

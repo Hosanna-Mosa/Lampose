@@ -132,6 +132,8 @@ export const foodAdminService = {
     /** Approved kitchens only mean anything here: listed now, or paused. */
     listing?: 'live' | 'paused' | 'all';
     limit?: number;
+    /** Only restaurants this Onboard employee filled in (their email). */
+    onboardedBy?: string;
   } & FoodQueueFilters): Promise<
     ApiResponse<FoodRestaurantRow[]> & {
       counts?: FoodQueueCounts;

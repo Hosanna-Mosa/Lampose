@@ -10,6 +10,11 @@ const normalize = (raw: any): ScriperUserEntity => ({
   role: (raw.role || 'EMPLOYEE') as ScriperUserRole,
   avatar: raw.avatar || '',
   createdAt: raw.createdAt || null,
+  // Absent on accounts created before suspension existed — those are active.
+  status: raw.status === 'suspended' ? 'suspended' : 'active',
+  suspendedAt: raw.suspendedAt || null,
+  suspendedReason: raw.suspendedReason || '',
+  ...(raw.temporaryPassword && { temporaryPassword: raw.temporaryPassword }),
 });
 
 export const scriperUserService = {
@@ -39,5 +44,21 @@ export const scriperUserService = {
 
   async deleteScriperUser(userId: string): Promise<ApiResponse<{ success: boolean }>> {
     return api.delete<{ success: boolean }>(`/admin/scriper-users/${userId}`);
+  },
+
+  /** Blocks sign-in and ends every open session. Reversible. */
+  async suspendScriperUser(userId: string, reason: string): Promise<ApiResponse<ScriperUserEntity | null>> {
+    const res = await api.post<any>(`/admin/scriper-users/${userId}/suspend`, { reason });
+    return res.success ? { ...res, data: normalize(res.data?.data || res.data) } : { ...res, data: null };
+  },
+
+  async reactivateScriperUser(userId: string): Promise<ApiResponse<ScriperUserEntity | null>> {
+    const res = await api.post<any>(`/admin/scriper-users/${userId}/reactivate`, {});
+    return res.success ? { ...res, data: normalize(res.data?.data || res.data) } : { ...res, data: null };
+  },
+
+  /** Ends every open session; the account stays usable. */
+  async signOutScriperUser(userId: string): Promise<ApiResponse<{ success: boolean }>> {
+    return api.post<{ success: boolean }>(`/admin/scriper-users/${userId}/sign-out`, {});
   },
 };

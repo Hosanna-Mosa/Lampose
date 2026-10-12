@@ -73,6 +73,14 @@ const AUDIT_ACTIONS = [
   'admin.deleted',
   'admin.password_changed',
   'admin.signed_out_everywhere',
+  /* Staff accounts (`scriper_users`) — the onboarding and leads-panel team,
+     managed from the console (scraper/scriperUser.admin.routes.js). */
+  'staff.created',
+  'staff.updated',
+  'staff.deleted',
+  'staff.suspended',
+  'staff.reactivated',
+  'staff.signed_out_everywhere',
 ];
 
 const adminAuditLogSchema = new mongoose.Schema(

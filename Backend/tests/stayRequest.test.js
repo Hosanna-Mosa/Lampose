@@ -107,8 +107,8 @@ describe('the clock is the server\'s', () => {
     );
   });
 
-  it('defaults to three minutes', () => {
-    assert.equal(config.booking.expiryMinutes, 3);
+  it('gives the owner two minutes', () => {
+    assert.equal(config.booking.expiryMinutes, 2);
   });
 
   it('every read carries the server clock, so a wrong phone clock cannot lie', async () => {

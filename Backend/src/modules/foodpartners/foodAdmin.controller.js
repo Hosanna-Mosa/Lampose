@@ -301,6 +301,10 @@ const listRestaurants = async (req, res, next) => {
       ];
     }
 
+    /* The Onboarding Team page's drawer: the restaurants one employee filled in. */
+    const onboardedBy = String(req.query.onboardedBy || '').trim().toLowerCase();
+    if (onboardedBy) searched['onboardedBy.email'] = onboardedBy;
+
     /* `menu` needs to know which kitchens have a dish; one distinct beats a
        lookup per application. */
     const ctx = { now: Date.now(), withMenu: await FoodProduct.distinct('restaurantId') };

@@ -9,6 +9,7 @@ import {
   fetchStayRequest,
   fetchStayRequests,
   withdrawStayRequest,
+  askTeamAboutStayRequest,
   type CreateStayRequestInput,
 } from '@/services/api/stayRequests.api';
 import type { BackendStayRequest, StayRequestStatus } from '@/services/api/types';
@@ -75,6 +76,14 @@ const storageKey = (listingId: string) => `@lampose/stay-request:${listingId}`;
  */
 const POLL_MS = 3000;
 
+/* With the Lampose team, the answer comes after a phone call, not a tap —
+   minutes rather than seconds. Push and the socket bring it sooner; this is
+   the floor. */
+const TEAM_POLL_MS = 20000;
+
+const withTeam = (request: BackendStayRequest | null | undefined) =>
+  request?.status === 'expired' && request.teamHelp?.status === 'requested';
+
 export type UseStayRequestResult = {
   phase: StayPhase;
   request: BackendStayRequest | null;
@@ -90,6 +99,13 @@ export type UseStayRequestResult = {
 
   /** Whether Withdraw should be offered at all. */
   canWithdraw: boolean;
+
+  /** The owner let it run out and the team has not been asked yet. */
+  canAskTeam: boolean;
+  /** The team has it and is ringing the owner. */
+  withTeam: boolean;
+  /** Hand the request to the Lampose team. Null on success, else why not. */
+  askTeam: () => Promise<ApiError | null>;
 
   send: (input: Omit<CreateStayRequestInput, 'signal'>) => Promise<boolean>;
   withdraw: () => Promise<boolean>;
@@ -113,6 +129,8 @@ async function findLiveRequestOnServer(listingId: string): Promise<string | null
     .filter((r) => r.listingId === listingId)
     .filter((r) => {
       if (r.status === 'pending_owner') return !r.expiresAt || Date.parse(r.expiresAt) > now;
+      /* Still live: the team is ringing the owner about it. */
+      if (withTeam(r)) return true;
       if (r.status !== 'confirmed') return false;
       const pay = r.payment;
       return Boolean(pay?.required) && pay?.status !== 'paid' && pay?.status !== 'expired'
@@ -214,6 +232,7 @@ export function useStayRequest(
     queryFn: ({ signal }) => fetchStayRequest(requestId as string, signal),
     enabled: Boolean(requestId),
     refetchInterval: (query) => {
+      if (withTeam(query.state.data)) return TEAM_POLL_MS;
       const status = query.state.data?.status;
       return status && status !== 'pending_owner' ? false : POLL_MS;
     },
@@ -378,6 +397,27 @@ export function useStayRequest(
     }
   }, [requestId, queryClient, applyOffset]);
 
+  const askTeam = useCallback(async (): Promise<ApiError | null> => {
+    if (!requestId) return null;
+    setError(null);
+    setIsBusy(true);
+    try {
+      const asked = await askTeamAboutStayRequest(requestId);
+      applyOffset(asked);
+      setLocal(asked);
+      queryClient.setQueryData(queryKeys.stayRequest(requestId), asked);
+      return null;
+    } catch (caught) {
+      const failure = caught as ApiError;
+      setError(failure);
+      /* Already asked (another device, a double tap) — show what is true. */
+      queryClient.invalidateQueries({ queryKey: queryKeys.stayRequest(requestId) });
+      return failure;
+    } finally {
+      setIsBusy(false);
+    }
+  }, [requestId, queryClient, applyOffset]);
+
   const refresh = useCallback(async () => {
     if (!requestId) return;
     await queryClient.invalidateQueries({ queryKey: queryKeys.stayRequest(requestId) });
@@ -406,6 +446,9 @@ export function useStayRequest(
     /* Offered only while the request is genuinely live. A button that can
        only fail is worse than no button. */
     canWithdraw: phase === 'waiting' && !isBusy,
+    canAskTeam: phase === 'expired' && request?.canAskTeam === true,
+    withTeam: withTeam(request),
+    askTeam,
     send,
     withdraw,
     refresh,

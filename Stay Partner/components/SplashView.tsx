@@ -44,11 +44,14 @@ export function SplashView() {
 
   return (
     <View
-      style={[styles.root, { backgroundColor: c.accent }]}
+      /* The native launch screen's ground (`BRAND.background` in
+         app.config.js), in BOTH themes: the 2026 logo is dark green and
+         disappears on the dark theme's ground. */
+      style={[styles.root, { backgroundColor: LAUNCH_GROUND }]}
       accessibilityRole="progressbar"
       accessibilityLabel="Loading LAMPOSE Stay Partner"
     >
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
 
       <Image
         source={require('@/assets/images/lampose-logo.png')}
@@ -57,18 +60,20 @@ export function SplashView() {
         accessibilityIgnoresInvertColors
       />
 
-      <Text style={[styles.tagline, { color: c.brandYellow }]}>Stay Partner</Text>
+      <Text style={[styles.tagline, { color: c.accent }]}>Stay Partner</Text>
 
       <Animated.View
         style={[
           styles.spinner,
-          { borderColor: 'rgba(254, 253, 252, 0.3)', borderTopColor: c.surface },
+          { borderColor: 'rgba(14, 110, 92, 0.2)', borderTopColor: c.accent },
           spin,
         ]}
       />
     </View>
   );
 }
+
+const LAUNCH_GROUND = '#EFEDE9';
 
 const styles = StyleSheet.create({
   root: {

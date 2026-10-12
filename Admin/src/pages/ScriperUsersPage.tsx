@@ -312,7 +312,7 @@ export const ScriperUsersPage: React.FC<ScriperUsersPageProps> = ({ search }) =>
               type="password"
               value={form.password}
               onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-              minLength={6}
+              minLength={8}
               autoComplete="new-password"
             />
           </Field>
@@ -361,7 +361,7 @@ export const ScriperUsersPage: React.FC<ScriperUsersPageProps> = ({ search }) =>
               type="password"
               value={editPassword}
               onChange={(e) => setEditPassword(e.target.value)}
-              minLength={6}
+              minLength={8}
               autoComplete="new-password"
             />
           </Field>

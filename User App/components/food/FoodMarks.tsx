@@ -300,9 +300,9 @@ export type FoodPhotoProps = {
   brandFallback?: boolean;
 };
 
-/* The "lampose." logo, on transparent, sitting on the logo's own green. */
-const LOGO_GREEN = '#027C33';
-const LOGO = require('@/assets/images/logo-full.png');
+/* The 2026 logo, on transparent, sitting on the logo's own cream. */
+const LOGO_CREAM = '#FAF7EE';
+const LOGO = require('@/assets/images/logo-2026.png');
 
 /**
  * A dish or kitchen photo, and the well it sits in.
@@ -399,7 +399,7 @@ const styles = StyleSheet.create({
   photo: { alignItems: 'center', justifyContent: 'flex-end' },
   photoLabel: { marginBottom: 6 },
   mutedPhoto: { opacity: 0.45 },
-  logoWell: { backgroundColor: LOGO_GREEN, alignItems: 'center', justifyContent: 'center' },
-  logo: { width: '62%', aspectRatio: 917 / 231 },
+  logoWell: { backgroundColor: LOGO_CREAM, alignItems: 'center', justifyContent: 'center' },
+  logo: { width: '62%', aspectRatio: 1007 / 387 },
   logoSmall: { width: '88%' },
 });

@@ -841,7 +841,12 @@ const submitApplication = async (req, res, next) => {
 
     let restaurant;
     try {
-      restaurant = await saveWithNewId({ ...fields, passwordHash });
+      /* Who onboarded it, from the verified staff token — never the body. An
+         owner's own application (a phone proof) carries no staff identity. */
+      const onboardedBy = !req.verifiedPhone && req.user && req.user.email
+        ? { userId: req.user.userId || '', email: req.user.email, name: req.user.name || '' }
+        : null;
+      restaurant = await saveWithNewId({ ...fields, passwordHash, onboardedBy });
     } catch (error) {
       const key = duplicateKeyOf(error);
       if (key === 'ownerEmail' || key === 'ownerPhone' || key === 'phoneKey') {

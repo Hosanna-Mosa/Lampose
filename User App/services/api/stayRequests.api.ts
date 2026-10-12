@@ -165,6 +165,24 @@ export async function withdrawStayRequest(
   return unwrap(envelope);
 }
 
+/**
+ * The owner let the request run out: ask the Lampose team to ring them.
+ *
+ * The server WhatsApps the team with the student's name and number; their
+ * AVAILABLE / UNAVAILABLE turns this request confirmed or declined, and the
+ * usual push and socket event follow. `TEAM_ALREADY_ASKED` on a second tap.
+ */
+export async function askTeamAboutStayRequest(
+  id: string,
+  signal?: AbortSignal,
+): Promise<BackendStayRequest> {
+  const envelope = await apiRequest<ApiEnvelope<BackendStayRequest>>(
+    endpoints.stayRequestTeamHelp(id),
+    { method: 'POST', signal },
+  );
+  return unwrap(envelope);
+}
+
 
 /* ══════════════════════════════════════════════════════════════════════════
    The ₹199 assisted visit — bachelor and co-live only.

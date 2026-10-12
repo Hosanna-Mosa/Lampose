@@ -460,7 +460,12 @@ export type StayDecisionReason =
   /* The booking was cancelled before anything was paid. */
   | 'BOOKING_CANCELLED'
   /* The owner accepted; the payment window closed with nothing paid. */
-  | 'PAYMENT_LAPSED';
+  | 'PAYMENT_LAPSED'
+  /* The owner never answered; the Lampose team rang them — no room. */
+  | 'TEAM_UNAVAILABLE';
+
+/** The Lampose team's follow-up on a request the owner never answered. */
+export type StayTeamHelpStatus = 'none' | 'requested' | 'available' | 'unavailable';
 
 export type BackendStayRequest = {
   /**
@@ -549,6 +554,10 @@ export type BackendStayRequest = {
   decisionReason: StayDecisionReason | null;
   /** The owner's note when they declined — written for the student. */
   declineNote?: string | null;
+  /** Absent on a server from before the team follow-up existed. */
+  teamHelp?: { status: StayTeamHelpStatus; requestedAt: string | null; answeredAt: string | null };
+  /** Whether "Contact Lampose" may be offered. The server decides. */
+  canAskTeam?: boolean;
 
   sharing: { label: string | null; price: number | null } | null;
   shareTypeId: string | null;

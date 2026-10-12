@@ -354,24 +354,17 @@ const config = {
   /* ── The stay-request flow ────────────────────────────────────────────
      A student asks, an owner has a few minutes to answer on their phone.
 
-     `expiryMinutes` is the whole product decision in one number, and it is
-     configuration rather than a constant precisely because three minutes is a
-     starting guess: it has to cover push delivery, the owner noticing,
-     unlocking, reading and deciding. The number to watch in the first week is
-     the ratio of expired to answered, and changing it must not be a deploy of
-     new code.
+     `expiryMinutes` is the whole product decision in one number. It has to
+     cover push delivery, the owner noticing, unlocking, reading and
+     deciding; the number to watch is the ratio of expired to answered. It
+     lives in code, not in .env — changing it is a code change.
 
      Read ONCE, here, so the two apps and the expiry worker cannot disagree
      about how long a request lives. */
   booking: {
-    expiryMinutes: (() => {
-      const value = Number(process.env.REQUEST_EXPIRY_MINUTES);
-      /* Bounded rather than trusted. A zero would expire every request the
-         instant it was made, and a typo of 300 would hold a bed for five
-         hours on a flow whose entire promise is that it is quick. */
-      if (!Number.isFinite(value) || value <= 0) return 3;
-      return Math.min(value, 60);
-    })(),
+    /* Fixed in code, not read from the environment (12 Oct 2026): two
+       minutes for an owner to accept or reject. Change it here. */
+    expiryMinutes: 2,
 
     /* How many times a student may pull one request back.
        One, and the state machine enforces it for free: a withdrawal is

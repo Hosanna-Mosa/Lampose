@@ -109,6 +109,19 @@ export function useOngoing(): Ongoing {
         continue;
       }
 
+      /* The owner was silent and the Lampose team is ringing them. Shown —
+         an answer is coming — but not blocking: nothing is held, and the
+         student is free to look elsewhere meanwhile. */
+      if (request.status === 'expired' && request.teamHelp?.status === 'requested') {
+        items.push({
+          key: `listing-${request.listingId}`,
+          title: request.propertyName,
+          status: 'Our team is checking',
+          tone: 'waiting',
+        });
+        continue;
+      }
+
       if (request.status !== 'confirmed') continue;
 
       if (owed) {

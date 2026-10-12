@@ -213,7 +213,8 @@ describe('the student is told what the owner did', () => {
     /* An owner who missed three minutes was probably driving. A student who
        reads silence as rejection stops sending requests. */
     assert.match(toStudent[0].body, /did not answer in time/i);
-    assert.match(toStudent[0].body, /try again/i);
+    /* And where to go next: the Lampose team, who can ring the owner. */
+    assert.match(toStudent[0].body, /Lampose team/i);
     assert.equal(toOwner.length, 1);
     assert.match(toOwner[0].title, /missed/i);
   });
