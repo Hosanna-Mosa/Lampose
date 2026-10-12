@@ -20,6 +20,7 @@ import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
 import { Icon, Text, type IconName, type IconSize } from '@/components/ui';
 import { component, easing } from '@/constants/motion';
 import { FOOD_EMBER, type ThemeColors } from '@/constants/tokens';
+import { useAmbientPaused } from '@/context/AmbientMotionContext';
 import { useBottomBar } from '@/context/BottomBarContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
@@ -921,9 +922,11 @@ function ScooterGlyph({
   const spin = useSharedValue(0);
   const bob = useSharedValue(0);
   const wind = useSharedValue(0);
+  /* Not while the screen holding the bar is covered — see AmbientMotionContext. */
+  const paused = useAmbientPaused();
 
   useEffect(() => {
-    if (!riding) {
+    if (!riding || paused) {
       cancelAnimation(spin);
       cancelAnimation(bob);
       cancelAnimation(wind);
@@ -953,7 +956,7 @@ function ScooterGlyph({
       cancelAnimation(bob);
       cancelAnimation(wind);
     };
-  }, [riding, spin, bob, wind]);
+  }, [riding, paused, spin, bob, wind]);
 
   const wheelStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${spin.value * 360}deg` }] }));
   const bodyStyle = useAnimatedStyle(() => ({ transform: [{ translateY: -bob.value * 1.2 * unit }] }));
@@ -1199,7 +1202,8 @@ function DoorButton({
   const reduceMotion = useReduceMotion();
   const scale = useSharedValue(1);
   const pulse = useSharedValue(0);
-  const glows = !!tab.glow && !collapsed && !reduceMotion;
+  const paused = useAmbientPaused();
+  const glows = !!tab.glow && !collapsed && !reduceMotion && !paused;
 
   useEffect(() => {
     if (!glows) {

@@ -183,7 +183,9 @@ export {
 } from './adapters/support.adapter';
 
 export { queryKeys } from './hooks/keys';
-export { useListing, useListingMeta, useListingReviews, useListings, type ListingMeta } from './hooks/useListings';
+export {
+  useListing, useListingMeta, useListingReviews, useListings, usePrefetchListings, type ListingMeta,
+} from './hooks/useListings';
 export { useStayRequest, isTerminalPhase, type StayPhase } from './hooks/useStayRequest';
 export { useBookings, useBooking } from './hooks/useBookings';
 export { useNotifications, type NotificationDay } from './hooks/useNotifications';

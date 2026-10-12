@@ -10,12 +10,14 @@ import Animated, {
   useSharedValue,
   withDelay,
   withRepeat,
+  withSequence,
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
 import Svg, { Circle, Ellipse, Line, Polygon, Rect } from 'react-native-svg';
 
 import type { StayCategory, ThemeColors } from '@/constants/tokens';
+import { useAmbientPaused } from '@/context/AmbientMotionContext';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 
 /**
@@ -474,8 +476,14 @@ function Bicycle({ shirt, bag }: { shirt: string; bag: string }) {
   );
 }
 
-/** A loop from 0 to 1 that starts after `delay` and repeats forever. */
+/**
+ * A loop from 0 to 1 that starts after `delay` and repeats forever.
+ *
+ * Paused (see `AmbientMotionContext`), it freezes where it is; resumed, it
+ * finishes the lap it was on rather than jumping everything back to the kerb.
+ */
 function useLoop(duration: number, delay: number, still: boolean, at = 0.4) {
+  const paused = useAmbientPaused();
   const t = useSharedValue(still ? at : 0);
   useEffect(() => {
     if (still) {
@@ -483,10 +491,24 @@ function useLoop(duration: number, delay: number, still: boolean, at = 0.4) {
       t.value = at;
       return;
     }
-    t.value = 0;
-    t.value = withDelay(delay, withRepeat(withTiming(1, { duration, easing: Easing.linear }), -1, false));
+    if (paused) {
+      cancelAnimation(t);
+      return;
+    }
+    const lap = withRepeat(withTiming(1, { duration, easing: Easing.linear }), -1, false);
+    const from = t.value;
+    if (from > 0 && from < 1) {
+      t.value = withSequence(
+        withTiming(1, { duration: (1 - from) * duration, easing: Easing.linear }),
+        withTiming(0, { duration: 0 }),
+        lap,
+      );
+    } else {
+      t.value = 0;
+      t.value = withDelay(delay, lap);
+    }
     return () => cancelAnimation(t);
-  }, [duration, delay, still, at, t]);
+  }, [duration, delay, still, paused, at, t]);
   return t;
 }
 
@@ -614,6 +636,7 @@ export type HeroScene3DProps = {
 export function HeroScene3D({ category, width, style }: HeroScene3DProps) {
   const { colors, mode } = useTheme();
   const still = useReduceMotion();
+  const paused = useAmbientPaused();
   const dark = mode === 'dark';
   const scene = useMemo(() => sceneFor(category, colors, width), [category, colors, width]);
 
@@ -629,6 +652,11 @@ export function HeroScene3D({ category, width, style }: HeroScene3DProps) {
       twinkle.value = 1;
       return;
     }
+    /* Frozen where they are while nobody can see them — see useLoop. */
+    if (paused) {
+      all.forEach((value) => cancelAnimation(value));
+      return;
+    }
     const breathe = (ms: number) => withRepeat(withTiming(1, { duration: ms, easing: Easing.inOut(Easing.sin) }), -1, true);
     twinkle.value = 0;
     twinkle.value = breathe(1400);
@@ -639,7 +667,7 @@ export function HeroScene3D({ category, width, style }: HeroScene3DProps) {
     drift.value = 0;
     drift.value = withRepeat(withTiming(1, { duration: 22000, easing: Easing.linear }), -1, false);
     return () => all.forEach((value) => cancelAnimation(value));
-  }, [still, twinkle, drift, sparkA, sparkB]);
+  }, [still, paused, twinkle, drift, sparkA, sparkB]);
 
   const cloudStyle = useAnimatedStyle(() => ({
     opacity: Math.min(1, Math.min(drift.value, 1 - drift.value) * 6) * (dark ? 0.35 : 0.9),

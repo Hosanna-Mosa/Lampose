@@ -3,6 +3,7 @@ import React, { useEffect } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Line } from 'react-native-svg';
 import Animated, {
+  cancelAnimation,
   Easing,
   useAnimatedStyle,
   useSharedValue,
@@ -12,6 +13,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { Icon, Text } from '@/components/ui';
+import { useAmbientPaused } from '@/context/AmbientMotionContext';
 import { useTheme } from '@/context/ThemeContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useBottomBar } from '@/context/BottomBarContext';
@@ -26,8 +28,20 @@ function RealClockIcon({ size = 32, color }: { size?: number; color?: string }) 
   const minuteRotation = useSharedValue(0);
   const hourRotation = useSharedValue(0);
 
+  const paused = useAmbientPaused();
+
   useEffect(() => {
-    /* Continuous smooth real clock rotation on UI thread */
+    /* Stopped while the screen is covered — see AmbientMotionContext. */
+    if (paused) {
+      cancelAnimation(minuteRotation);
+      cancelAnimation(hourRotation);
+      return undefined;
+    }
+    /* Continuous smooth real clock rotation on UI thread. From 0: a repeat
+       laps from wherever it starts, so resuming mid-turn would loop a part
+       of the dial. */
+    minuteRotation.value = 0;
+    hourRotation.value = 0;
     minuteRotation.value = withRepeat(
       withTiming(360, { duration: 4000, easing: Easing.linear }),
       -1,
@@ -38,7 +52,11 @@ function RealClockIcon({ size = 32, color }: { size?: number; color?: string }) 
       -1,
       false,
     );
-  }, [minuteRotation, hourRotation]);
+    return () => {
+      cancelAnimation(minuteRotation);
+      cancelAnimation(hourRotation);
+    };
+  }, [paused, minuteRotation, hourRotation]);
 
   const minuteStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${minuteRotation.value}deg` }],
@@ -136,8 +154,18 @@ export function OngoingStrip({ items, onPress }: OngoingStripProps) {
   /* Status Dot Pulse Animation */
   const dotOpacity = useSharedValue(1);
 
+  const paused = useAmbientPaused();
+
   useEffect(() => {
+    if (paused) {
+      cancelAnimation(radarScale);
+      cancelAnimation(radarOpacity);
+      cancelAnimation(dotOpacity);
+      return undefined;
+    }
     /* Radar wave expanding outward continuously */
+    radarScale.value = 1;
+    radarOpacity.value = 0.6;
     radarScale.value = withRepeat(
       withTiming(1.8, { duration: 1600, easing: Easing.out(Easing.quad) }),
       -1,
@@ -158,7 +186,12 @@ export function OngoingStrip({ items, onPress }: OngoingStripProps) {
       -1,
       true,
     );
-  }, [radarScale, radarOpacity, dotOpacity]);
+    return () => {
+      cancelAnimation(radarScale);
+      cancelAnimation(radarOpacity);
+      cancelAnimation(dotOpacity);
+    };
+  }, [paused, radarScale, radarOpacity, dotOpacity]);
 
   const radarStyle = useAnimatedStyle(() => ({
     transform: [{ scale: radarScale.value }],

@@ -1,6 +1,7 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, {
+  memo,
   startTransition,
   useCallback,
   useEffect,
@@ -12,6 +13,7 @@ import React, {
 } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   InteractionManager,
   Keyboard,
   Modal,
@@ -21,6 +23,7 @@ import {
   StyleSheet,
   View,
   useWindowDimensions,
+  type ListRenderItemInfo,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
@@ -43,6 +46,7 @@ import {
   AirbnbSearchBar,
   CategoryTabs,
   CATEGORY_LABEL,
+  CATEGORY_ORDER,
   FilterChipRow,
   FilterSheet,
   type FilterChip,
@@ -60,6 +64,7 @@ import { TypographyScope } from '@/context/TypographyContext';
 import { foodHref } from '@/components/food/routes';
 import { useFoodMode, useFoodVisible } from '@/hooks/useAppEnv';
 import { emptyStates } from '@/constants/copy';
+import { AmbientMotionProvider } from '@/context/AmbientMotionContext';
 import { useAppState } from '@/context/AppStateContext';
 import { useBottomBar } from '@/context/BottomBarContext';
 import { useAuth } from '@/context/AuthContext';
@@ -70,12 +75,13 @@ import { useReduceMotion, useTheme, type ThemePreference } from '@/context/Theme
 import type { StayCategory } from '@/constants/tokens';
 import { fromRealBooking, segmentOf, type BookingSegment } from '@/data/bookings';
 import {
-  useAddresses, useBookings, useListingMeta, useListings, useMyCoupon, useNotifications, useSaved,
+  useAddresses, useBookings, useListingMeta, useListings, useMyCoupon, useNotifications,
+  usePrefetchListings, useSaved,
 } from '@/services';
 import { BACKEND_CATEGORIES } from '@/services/adapters/listing.adapter';
 import { recordListingClick } from '@/services/api/listings.api';
 import { isAllLocalities } from '@/types/auth';
-import { availableFirst, genderMeta } from '@/types/listing';
+import { availableFirst, genderMeta, type Listing } from '@/types/listing';
 import {
   activeFilterCount, applyQuery, EMPTY_QUERY, filterSpecFor, type SearchQuery, type SortKey,
 } from '@/types/filters';
@@ -467,6 +473,27 @@ export default function Home() {
 
   const total = shown.length;
 
+  /* Warm the other category tabs once this one has arrived — same scope,
+     same query keys — so switching tabs paints from cache instead of waiting
+     a round trip behind a skeleton. */
+  const otherCategories = useMemo(
+    () => CATEGORY_ORDER.filter((item) => item !== category),
+    [category],
+  );
+  usePrefetchListings(
+    otherCategories,
+    {
+      city: nearbySearch ? null : scopedCity,
+      locality:
+        nearbySearch || everywhere || debouncedSearch
+          ? null
+          : (wholeCity ? null : locality?.name ?? null),
+      search: debouncedSearch || null,
+      near: nearbySearch,
+    },
+    Boolean(category) && tab === 'explore' && !feedLoading && !feedError,
+  );
+
   /** What the feed is currently scoped to, for every sentence that names it. */
   const scopeLabel = everywhere
     ? 'every area we cover'
@@ -686,6 +713,55 @@ export default function Home() {
     toggleSaved(entry.listing.id);
     setUndo(entry);
   };
+
+  /*
+   * Whether Home is the screen on top.
+   *
+   * It stays mounted under every screen pushed over it, and everything
+   * decorative on it — the street scene, the glows, the Food door's pulse —
+   * used to keep animating underneath, slowing every tap on the screen that
+   * was actually showing. See `AmbientMotionContext`.
+   */
+  const [focused, setFocused] = useState(true);
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      return () => setFocused(false);
+    }, []),
+  );
+
+  /*
+   * The feed's card handlers, stable for the screen's lifetime.
+   *
+   * Each card used to get two fresh closures and a fresh copy of its listing
+   * on every render of this screen — which re-renders on a keystroke, a chip,
+   * a heart, the hero docking — so every one of those re-drew every card in
+   * the feed. Stable handlers plus `memo` mean a card re-renders only when
+   * its own listing or its saved state changes.
+   */
+  const feedActions = useRef({ router, requireSignIn, toggleSaved });
+  useEffect(() => {
+    feedActions.current = { router, requireSignIn, toggleSaved };
+  });
+  const openListing = useCallback((id: string) => {
+    feedActions.current.router.push(`/listing/${id}`);
+  }, []);
+  const toggleListingSaved = useCallback((id: string) => {
+    const { requireSignIn: gate, toggleSaved: toggle } = feedActions.current;
+    gate(() => toggle(id));
+  }, []);
+  const renderFeedItem = useCallback(
+    ({ item, index }: ListRenderItemInfo<Listing>) => (
+      <FeedCard
+        listing={item}
+        index={index}
+        saved={isSaved(item.id)}
+        onOpen={openListing}
+        onToggleSave={toggleListingSaved}
+      />
+    ),
+    [isSaved, openListing, toggleListingSaved],
+  );
 
   /*
    * Only the BUILT module gets a food bar. On a production build the tab opens
@@ -981,6 +1057,8 @@ export default function Home() {
   );
 
   return (
+    /* Nothing decorative animates while another screen covers this one. */
+    <AmbientMotionProvider paused={!focused}>
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       {/* Dark status-bar icons over the light Explore hero (and its docked
           header) in light mode; light ones in dark mode. */}
@@ -1045,13 +1123,23 @@ export default function Home() {
             ) : null}
           </Animated.View>
 
-          <ScrollView
+          <FlatList
+            data={feedLoading || feedError || total === 0 ? EMPTY_FEED : shown}
+            keyExtractor={feedKey}
+            renderItem={renderFeedItem}
+            extraData={isSaved}
+            /* A handful on the first frame — the hero fills most of the screen —
+               and the rest a few at a time as they come near. The feed used to
+               mount every card, with every photo, before it could draw one. */
+            initialNumToRender={3}
+            maxToRenderPerBatch={4}
+            windowSize={7}
+            ItemSeparatorComponent={FeedGap}
             contentContainerStyle={{
               paddingTop: 0,
               /* `barHeight` on top of the usual tail, because the bar floats over
                  this list rather than sitting under it. */
               paddingBottom: space[8] + barHeight,
-              gap: space[3],
             }}
             showsVerticalScrollIndicator={false}
             onScroll={handleScroll}
@@ -1063,146 +1151,147 @@ export default function Home() {
                 tintColor={colors.brand}
               />
             }
-          >
-            {/* The light glass hero: locality, greeting, search and the
-                category bar with its moving bubble. */}
-            <StayHeroSection
-              locality={headerLocality}
-              city={headerCity}
-              onPressLocality={() => router.push('/(entry)/locality')}
-              onPressAlerts={() =>
-                router.push(inFoodModule ? foodHref.notifications : '/notifications')
-              }
-              alertCount={inFoodModule ? foodUnread : unread}
-              onPressProfile={() => (inFoodModule ? router.push(foodHref.profile) : setTab('profile'))}
-              userName={user?.name}
-              searchBarProps={searchBarProps}
-              category={category}
-              onChangeCategory={setCategory}
-              onDockPoint={setHeroDockY}
-            />
-
-            {/* Filter Chips Bar */}
-            <FilterChipRow
-              chips={quickChips}
-              activeCount={filterCount}
-              onPressFilters={() => setFiltersOpen(true)}
-              onPressChip={(id) => setActiveDropdown((prev) => (prev === id ? null : id))}
-              onClearChip={clearChip}
-              activeDropdownId={activeDropdown}
-            />
-
-            {feedLoading ? (
-              <View style={{ paddingHorizontal: layout.gutter, gap: space[4] }}>
-                {[0, 1, 2].map((key) => (
-                  <ListingCardSkeleton key={key} variant="list" />
-                ))}
-              </View>
-            ) : feedError ? (
-              <View style={{ paddingHorizontal: layout.gutter, gap: space[3] }}>
-                <Text variant="title2">We could not load places</Text>
-                <Text variant="bodyLg" color="secondary">
-                  {feedError.displayMessage}
-                </Text>
-                <Button
-                  label={feedFetching ? 'Trying…' : 'Try again'}
-                  onPress={() => refetchFeed()}
-                  disabled={feedFetching}
-                  fullWidth
-                />
-              </View>
-            ) : total === 0 ? (
-              debouncedSearch ? (
-                <View style={{ paddingHorizontal: layout.gutter, gap: space[3], paddingVertical: space[4] }}>
-                  <Text variant="title2">No places found for "{debouncedSearch}"</Text>
-                  <Text variant="bodyLg" color="secondary">
-                    We couldn't find any property matching your search term. Try searching for a different property name, locality or amenity.
-                  </Text>
-                  <Button
-                    label="Clear search"
-                    variant="secondary"
-                    onPress={() => setSearchTerm('')}
-                    fullWidth
+            ListHeaderComponent={
+              <View style={{ gap: space[3], paddingBottom: space[3] }}>
+                {/* The light glass hero: locality, greeting, search and the
+                    category bar with its moving bubble. Its street scene stops
+                    once it has scrolled out of sight. */}
+                <AmbientMotionProvider paused={isScrolledPastHero}>
+                  <StayHeroSection
+                    locality={headerLocality}
+                    city={headerCity}
+                    onPressLocality={() => router.push('/(entry)/locality')}
+                    onPressAlerts={() =>
+                      router.push(inFoodModule ? foodHref.notifications : '/notifications')
+                    }
+                    alertCount={inFoodModule ? foodUnread : unread}
+                    onPressProfile={() => (inFoodModule ? router.push(foodHref.profile) : setTab('profile'))}
+                    userName={user?.name}
+                    searchBarProps={searchBarProps}
+                    category={category}
+                    onChangeCategory={setCategory}
+                    onDockPoint={setHeroDockY}
                   />
-                </View>
-              ) : filterCount === 0 ? (
-                <StateTemplate
-                  copy={emptyStates.noneInCategory({
-                    categoryPlural: `${CATEGORY_LABEL[category!].toLowerCase()}s`,
-                    locality: scopeLabel,
-                    otherCategoryCount,
-                  })}
-                  onPrimary={() => router.push('/(entry)/locality')}
+                </AmbientMotionProvider>
+
+                {/* Filter Chips Bar */}
+                <FilterChipRow
+                  chips={quickChips}
+                  activeCount={filterCount}
+                  onPressFilters={() => setFiltersOpen(true)}
+                  onPressChip={(id) => setActiveDropdown((prev) => (prev === id ? null : id))}
+                  onClearChip={clearChip}
+                  activeDropdownId={activeDropdown}
                 />
-              ) : (
-                relaxed && nearby ? (
-                  <StateTemplate
-                    copy={emptyStates.noSearchResults({
-                      locality: scopeLabel,
-                      rentCeiling: `${formatRupees(query.rentCeiling!)}`,
-                      fittingCount: relaxed.count,
-                      suggestedCeiling: `${formatRupees(relaxed.ceiling)}`,
-                      nearbyCount: nearby.listingCount,
-                      nearbyLocality: nearby.name,
-                    })}
-                    onPrimary={() => setQuery({ ...query, rentCeiling: relaxed.ceiling })}
-                    /* "Search <area> instead" SWITCHES to it — it opened the
-                       area picker, which the button never said it would. */
-                    onSecondary={() => { void setLocality(nearby); }}
-                  />
-                ) : (
+
+                {!feedLoading && !feedError && total > 0 && (canWiden || (wholeCity && locality)) ? (
+                  <View style={{ paddingHorizontal: layout.gutter }}>
+                    {canWiden ? (
+                      <Button
+                        label={`See all ${cityTotal} in ${locality?.city}`}
+                        variant="secondary"
+                        size="xs"
+                        onPress={() => setWholeCity(true)}
+                      />
+                    ) : locality ? (
+                      <Button
+                        label={`Back to ${locality.name} only`}
+                        variant="ghost"
+                        size="xs"
+                        onPress={() => setWholeCity(false)}
+                      />
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+            }
+            ListEmptyComponent={
+              <>
+                {feedLoading ? (
+                  <View style={{ paddingHorizontal: layout.gutter, gap: space[4] }}>
+                    {[0, 1, 2].map((key) => (
+                      <ListingCardSkeleton key={key} variant="list" />
+                    ))}
+                  </View>
+                ) : feedError ? (
                   <View style={{ paddingHorizontal: layout.gutter, gap: space[3] }}>
-                    <Text variant="title2">Nothing matches all of this</Text>
+                    <Text variant="title2">We could not load places</Text>
                     <Text variant="bodyLg" color="secondary">
-                      {listings.length} {listings.length === 1 ? 'place is' : 'places are'} listed in{' '}
-                      {scopeLabel}, and none of them match every
-                      filter you have set.
+                      {feedError.displayMessage}
                     </Text>
                     <Button
-                      label="Clear all filters"
-                      variant="secondary"
-                      onPress={() => setQuery(EMPTY_QUERY)}
-                      fullWidth
-                    />
-                    <Button
-                      label="Search another area"
-                      variant="ghost"
-                      onPress={() => router.push('/(entry)/locality')}
+                      label={feedFetching ? 'Trying…' : 'Try again'}
+                      onPress={() => refetchFeed()}
+                      disabled={feedFetching}
                       fullWidth
                     />
                   </View>
-                )
-              )
-            ) : (
-              <View style={{ paddingHorizontal: layout.gutter, gap: space[4] }}>
-                {canWiden ? (
-                  <Button
-                    label={`See all ${cityTotal} in ${locality?.city}`}
-                    variant="secondary"
-                    size="xs"
-                    onPress={() => setWholeCity(true)}
-                  />
-                ) : wholeCity && locality ? (
-                  <Button
-                    label={`Back to ${locality.name} only`}
-                    variant="ghost"
-                    size="xs"
-                    onPress={() => setWholeCity(false)}
-                  />
+                ) : total === 0 ? (
+                  debouncedSearch ? (
+                    <View style={{ paddingHorizontal: layout.gutter, gap: space[3], paddingVertical: space[4] }}>
+                      <Text variant="title2">No places found for "{debouncedSearch}"</Text>
+                      <Text variant="bodyLg" color="secondary">
+                        We couldn't find any property matching your search term. Try searching for a different property name, locality or amenity.
+                      </Text>
+                      <Button
+                        label="Clear search"
+                        variant="secondary"
+                        onPress={() => setSearchTerm('')}
+                        fullWidth
+                      />
+                    </View>
+                  ) : filterCount === 0 ? (
+                    <StateTemplate
+                      copy={emptyStates.noneInCategory({
+                        categoryPlural: `${CATEGORY_LABEL[category!].toLowerCase()}s`,
+                        locality: scopeLabel,
+                        otherCategoryCount,
+                      })}
+                      onPrimary={() => router.push('/(entry)/locality')}
+                    />
+                  ) : (
+                    relaxed && nearby ? (
+                      <StateTemplate
+                        copy={emptyStates.noSearchResults({
+                          locality: scopeLabel,
+                          rentCeiling: `${formatRupees(query.rentCeiling!)}`,
+                          fittingCount: relaxed.count,
+                          suggestedCeiling: `${formatRupees(relaxed.ceiling)}`,
+                          nearbyCount: nearby.listingCount,
+                          nearbyLocality: nearby.name,
+                        })}
+                        onPrimary={() => setQuery({ ...query, rentCeiling: relaxed.ceiling })}
+                        /* "Search <area> instead" SWITCHES to it — it opened the
+                           area picker, which the button never said it would. */
+                        onSecondary={() => { void setLocality(nearby); }}
+                      />
+                    ) : (
+                      <View style={{ paddingHorizontal: layout.gutter, gap: space[3] }}>
+                        <Text variant="title2">Nothing matches all of this</Text>
+                        <Text variant="bodyLg" color="secondary">
+                          {listings.length} {listings.length === 1 ? 'place is' : 'places are'} listed in{' '}
+                          {scopeLabel}, and none of them match every
+                          filter you have set.
+                        </Text>
+                        <Button
+                          label="Clear all filters"
+                          variant="secondary"
+                          onPress={() => setQuery(EMPTY_QUERY)}
+                          fullWidth
+                        />
+                        <Button
+                          label="Search another area"
+                          variant="ghost"
+                          onPress={() => router.push('/(entry)/locality')}
+                          fullWidth
+                        />
+                      </View>
+                    )
+                  )
                 ) : null}
-                {shown.map((listing, index) => (
-                  <ListingCard
-                    key={listing.id}
-                    listing={{ ...listing, saved: isSaved(listing.id) }}
-                    variant="list"
-                    index={index}
-                    onPress={() => router.push(`/listing/${listing.id}`)}
-                    onToggleSave={() => requireSignIn(() => toggleSaved(listing.id))}
-                  />
-                ))}
-              </View>
-            )}
-          </ScrollView>
+              </>
+            }
+          />
 
           {/* The floating "Change area" pill is gone for good: the area is
               changed from the hero's "Looking in" pill. */}
@@ -1744,8 +1833,54 @@ export default function Home() {
       </Modal>
 
     </View>
+    </AmbientMotionProvider>
   );
 }
+
+/* ── The stay feed's rows ─────────────────────────────────────────────────── */
+
+const EMPTY_FEED: readonly Listing[] = [];
+const feedKey = (listing: Listing) => listing.id;
+
+function FeedGap() {
+  const { space } = useTheme();
+  return <View style={{ height: space[4] }} />;
+}
+
+/**
+ * One card in the feed, memoised: it takes the listing as the feed holds it
+ * and two handlers that never change, so it re-renders only when its own
+ * listing or saved state does. See `feedActions` in `Home`.
+ */
+const FeedCard = memo(function FeedCard({
+  listing,
+  index,
+  saved,
+  onOpen,
+  onToggleSave,
+}: {
+  listing: Listing;
+  index: number;
+  saved: boolean;
+  onOpen: (id: string) => void;
+  onToggleSave: (id: string) => void;
+}) {
+  const { layout } = useTheme();
+  const open = useCallback(() => onOpen(listing.id), [onOpen, listing.id]);
+  const toggle = useCallback(() => onToggleSave(listing.id), [onToggleSave, listing.id]);
+  return (
+    <View style={{ paddingHorizontal: layout.gutter }}>
+      <ListingCard
+        listing={listing}
+        saved={saved}
+        variant="list"
+        index={index}
+        onPress={open}
+        onToggleSave={toggle}
+      />
+    </View>
+  );
+});
 
 const styles = StyleSheet.create({
   dockedHeader: {

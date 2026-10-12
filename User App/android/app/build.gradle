@@ -90,10 +90,34 @@ android {
     namespace 'com.lampose.users.com'
     defaultConfig {
         applicationId 'com.lampose.users.com'
+        /*
+         * The Google Maps key for the delivery map, into the manifest's
+         * `com.google.android.geo.API_KEY`. Without it Android's Maps SDK
+         * throws "API key not found" the moment the order-tracking map draws.
+         *
+         * Read from the environment first (EAS / CI), then from `.env` — which
+         * is git-ignored — so the key never sits in a committed file. A
+         * release build with no key fails here rather than shipping a map
+         * that crashes; a debug build carries on without one.
+         */
+        def mapsKey = System.getenv('EXPO_PUBLIC_GOOGLE_MAPS_API_KEY')
+        if (!mapsKey) {
+            def envFile = file('../../.env')
+            if (envFile.exists()) {
+                envFile.eachLine { line ->
+                    def m = line =~ /^\s*EXPO_PUBLIC_GOOGLE_MAPS_API_KEY\s*=\s*"?([^"\s#]*)"?/
+                    if (m.find()) mapsKey = m.group(1)
+                }
+            }
+        }
+        if (!mapsKey && gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }) {
+            throw new GradleException('EXPO_PUBLIC_GOOGLE_MAPS_API_KEY is not set (User App/.env or the environment). The delivery map needs it.')
+        }
+        manifestPlaceholders = [googleMapsApiKey: mapsKey ?: '']
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 6
-        versionName "1.0.4"
+        versionCode 8
+        versionName "1.0.6"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
 

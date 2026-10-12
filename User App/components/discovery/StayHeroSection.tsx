@@ -15,6 +15,7 @@ import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { Icon, Text } from '@/components/ui';
 import { easing } from '@/constants/motion';
 import type { StayCategory } from '@/constants/tokens';
+import { useAmbientPaused } from '@/context/AmbientMotionContext';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { AirbnbSearchBar, type AirbnbSearchBarProps } from './AirbnbSearchBar';
 import { CategoryGlassBar } from './CategoryGlassBar';
@@ -290,6 +291,7 @@ function Glow({
   still: boolean;
 }) {
   const t = useSharedValue(0.5);
+  const paused = useAmbientPaused();
 
   useEffect(() => {
     if (still) {
@@ -297,10 +299,14 @@ function Glow({
       t.value = 0.5;
       return;
     }
+    if (paused) {
+      cancelAnimation(t);
+      return;
+    }
     t.value = 0;
     t.value = withRepeat(withTiming(1, { duration, easing: easing.inOut }), -1, true);
     return () => cancelAnimation(t);
-  }, [still, duration, t]);
+  }, [still, paused, duration, t]);
 
   const drifting = useAnimatedStyle(() => ({
     transform: [

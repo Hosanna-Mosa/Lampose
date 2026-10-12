@@ -1,8 +1,10 @@
 import React from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Icon, RentDisplay, Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
+import { sizedImage } from '@/utils/image';
 import { formatRupees } from '@/utils/money';
 import { availabilityLabel, isGone, type Listing } from '@/types/listing';
 
@@ -65,9 +67,10 @@ export function SavedRow({ entry, onPress, onRemove }: SavedRowProps) {
     >
       {photoUri ? (
         <Image
-          source={{ uri: photoUri }}
+          source={{ uri: sizedImage(photoUri, 72, 72) }}
           style={[styles.thumb, { borderRadius: radius.chip }]}
-          resizeMode="cover"
+          contentFit="cover"
+          cachePolicy="memory-disk"
         />
       ) : (
         <View

@@ -89,12 +89,12 @@ export const devBypass = (): boolean =>
 /**
  * Which Food module the tab opens.
  *
- * Two conditions, both required: the mode in force is not production, and the
- * build was configured to want the dev module. Switching to development does
- * not conjure a Food build that was never asked for.
+ * What the build was configured with, whatever the mode in force — Food is
+ * live in production, so switching this build to production must not hide
+ * it. Switching to development still does not conjure a Food build that was
+ * never asked for. See `FOOD_MODE` in `constants/env.ts`.
  */
-export const foodMode = (): FoodMode =>
-  getAppEnv() === 'production' ? 'production' : FOOD_MODE_CONFIGURED;
+export const foodMode = (): FoodMode => FOOD_MODE_CONFIGURED;
 
 /**
  * Switch modes, and remember it across restarts.
